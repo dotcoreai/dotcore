@@ -459,7 +459,8 @@ mod tests {
 
     #[test]
     fn unlocked_path_and_malformed_references_are_rejected_with_their_reason() {
-        let locked_with_directory = format!("github:dotcoreinc/dotcore-oss/{REVISION}?dir=engines/a");
+        let locked_with_directory =
+            format!("github:dotcoreinc/dotcore-oss/{REVISION}?dir=engines/a");
         let cases = [
             ("", NixFlakeReferenceError::UnsupportedReference),
             (

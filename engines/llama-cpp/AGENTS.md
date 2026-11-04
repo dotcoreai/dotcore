@@ -26,7 +26,7 @@
    `llama-cpp-<date>` in `llama-cpp-macos.yaml`, after the build's publish date, and move every
    model approving the old releases to them. Releases are immutable, and the macOS package `version`
    must equal its release's `version` (`checks.dotcore-catalog` fails otherwise); keep an older
-   release by pinning it to the `github:dotcoreinc/dotcore/<rev>` revision that built it.
+   release by pinning it to the `github:dotcoreinc/dotcore-oss/<rev>` revision that built it.
 
 ## Validate
 

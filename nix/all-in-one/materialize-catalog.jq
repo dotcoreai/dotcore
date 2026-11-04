@@ -10,7 +10,7 @@
 # * Docker image derivations (`dockerImage`): each must load exactly the declared platform, and its
 #   `meta.mainProgram` must equal its store entry name, which nodes run as the loader.
 #
-# Arguments: --arg repository (for example `github:dotcoreinc/dotcore`), --arg rev, and
+# Arguments: --arg repository (for example `github:dotcoreinc/dotcore-oss`), --arg rev, and
 # --slurpfile for artifacts (package attribute path -> what it provides, the catalog field
 # `executable` or `dockerImage`, and per Nix system its store path, main program, and version or
 # image platform) and platformSystems (what a package provides -> platform -> Nix systems building

@@ -200,7 +200,7 @@ let
     # Rewritten native artifacts carry one store path per selector platform and an explicit executable.
     rewritten=0
     while IFS= read -r -d "" release; do
-      count=$(yq -o=json '.' "$release" | jq -e --arg flake "github:dotcoreinc/dotcore/${catalogTestRevision}" \
+      count=$(yq -o=json '.' "$release" | jq -e --arg flake "github:dotcoreinc/dotcore-oss/${catalogTestRevision}" \
         '[.artifacts[] | select(.nix.flake? == $flake and (.nix.dockerImage | not))]
           | if all((.nix.storePaths | length) == (.selectors | length) and (.nix.executable | type) == "string")
             then length else false end') \
@@ -219,7 +219,7 @@ let
     # platform, as the package records it.
     images=0
     while IFS= read -r -d "" document; do
-      count=$(yq -o=json '.' "$document" | jq -e --arg flake "github:dotcoreinc/dotcore/${catalogTestRevision}" \
+      count=$(yq -o=json '.' "$document" | jq -e --arg flake "github:dotcoreinc/dotcore-oss/${catalogTestRevision}" \
         --slurpfile artifacts ${masterCatalog.catalogArtifactsJson} \
         --slurpfile platformSystems ${masterCatalog.platformSystemsJson} '
           [(.artifacts[]? | {nix, platforms: [.selectors[].platform]}),
@@ -246,7 +246,7 @@ let
       if jq -n --arg package "$package" '{applicationId: "fixture", graph: {services: [{serviceName: "web",
           artifact: {nix: {flake: "self", package: $package, dockerImage: {}},
             supportedPlatforms: [{operatingSystem: "linux", architecture: "amd64"}]}}]}}' \
-        | jq --arg repository github:dotcoreinc/dotcore --arg rev ${catalogTestRevision} \
+        | jq --arg repository github:dotcoreinc/dotcore-oss --arg rev ${catalogTestRevision} \
           --slurpfile artifacts "$artifacts" \
           --slurpfile platformSystems ${masterCatalog.platformSystemsJson} \
           --from-file ${./materialize-catalog.jq} > /dev/null 2> failure.log; then

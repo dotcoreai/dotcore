@@ -21,7 +21,7 @@ It runs on Linux (x86_64, arm64) and macOS (Apple Silicon). You need:
 - [Docker Engine](https://docs.docker.com/engine/install/) on Linux, or [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) on macOS.
 
 ```sh
-git clone https://github.com/dotcoreinc/dotcore.git
+git clone https://github.com/dotcoreinc/dotcore-oss.git
 /path/to/dotcore/installer/install.sh
 ```
 
@@ -37,7 +37,7 @@ Follow the installer's instructions. See [docs/install.md](docs/install.md) for 
 
 ## Contributing
 
-Questions and ideas go to [Discussions](https://github.com/dotcoreinc/dotcore/discussions). To send a change, read [CONTRIBUTING.md](CONTRIBUTING.md).
+Questions and ideas go to [Discussions](https://github.com/dotcoreinc/dotcore-oss/discussions). To send a change, read [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 

@@ -201,7 +201,9 @@ impl NixPreparer {
         sources: &DotcoreSources,
     ) -> Result<String, NixPreparationError> {
         let reference = NixFlakeReference::parse(&request.flake).map_err(|_| {
-            invalid_request("flake reference is not a locked dotcoreinc/dotcore-oss revision or self")
+            invalid_request(
+                "flake reference is not a locked dotcoreinc/dotcore-oss revision or self",
+            )
         })?;
         if request.policy != reference.preparation_policy() {
             return Err(invalid_request(

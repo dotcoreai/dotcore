@@ -16,7 +16,7 @@
 The installer checks Docker and Nix, offers to install Nix when it's missing, and adds Dotcore to your Nix profile. While the repository is private, run it from a clone:
 
 ```sh
-git clone https://github.com/dotcoreinc/dotcore.git
+git clone https://github.com/dotcoreinc/dotcore-oss.git
 /path/to/dotcore/installer/install.sh
 ```
 
@@ -33,7 +33,7 @@ This installs two commands:
 To install without the installer, add Dotcore to your Nix profile yourself, then start it:
 
 ```sh
-nix profile add github:dotcoreinc/dotcore
+nix profile add github:dotcoreinc/dotcore-oss
 dotcore
 ```
 

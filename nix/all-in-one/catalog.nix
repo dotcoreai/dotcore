@@ -8,7 +8,7 @@
 let
   lib = pkgs.lib;
 
-  repository = "github:dotcoreinc/dotcore";
+  repository = "github:dotcoreinc/dotcore-oss";
 
   # Context-free strings: writing darwin store paths here never builds a darwin engine or loader.
   catalogArtifactsJson = pkgs.writeText "dotcore-catalog-artifacts.json" (
