@@ -454,7 +454,7 @@ mod tests {
                 packaged: dotcore_domain::nix::LocalDotcoreSource::parse(packaged),
             }
         );
-        let invalid = sources(None, Some("github:dotcoreinc/dotcore-oss")).expect_err("invalid");
+        let invalid = sources(None, Some("github:dotcoreinc/dotcore")).expect_err("invalid");
         assert!(
             invalid
                 .to_string()

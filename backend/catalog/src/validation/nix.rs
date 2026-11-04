@@ -248,7 +248,7 @@ mod tests {
 
         let cases = [
             (
-                nix("github:dotcoreinc/dotcore-oss"),
+                nix("github:dotcoreinc/dotcore"),
                 &darwin,
                 NixArtifactError::InvalidFlake(NixFlakeReferenceError::UnlockedReference),
             ),
@@ -258,7 +258,7 @@ mod tests {
                 NixArtifactError::InvalidFlake(NixFlakeReferenceError::UntrustedRepository),
             ),
             (
-                nix("github:dotcoreinc/dotcore-oss/main"),
+                nix("github:dotcoreinc/dotcore/main"),
                 &darwin,
                 NixArtifactError::InvalidFlake(NixFlakeReferenceError::InvalidRevision),
             ),

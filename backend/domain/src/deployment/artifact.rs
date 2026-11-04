@@ -424,7 +424,7 @@ mod tests {
         let cases = [
             (
                 remote,
-                nix("github:dotcoreinc/dotcore-oss"),
+                nix("github:dotcoreinc/dotcore"),
                 "",
                 node,
                 LaunchIdentityError::InvalidNixFlake(NixFlakeReferenceError::UnlockedReference),

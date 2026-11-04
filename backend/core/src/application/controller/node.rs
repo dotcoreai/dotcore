@@ -1421,7 +1421,7 @@ mod tests {
                 "Preparing",
                 "building web",
                 "error: builder failed",
-                "Failed: nix build of \"github:dotcoreinc/dotcore-oss/0123456789abcdef0123456789abcdef01234567\
+                "Failed: nix build of \"github:dotcoreinc/dotcore/0123456789abcdef0123456789abcdef01234567\
                  #legacyPackages.x86_64-linux.apps.web.docker\" failed on this node; check the Nix \
                  build log on this node, then retry: building web; error: builder failed",
                 "Preparing again in a new attempt",
