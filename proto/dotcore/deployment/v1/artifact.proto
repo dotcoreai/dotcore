@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package dotcore.deployment.v1;
+
+// Artifact preparation policy retained with the launch identity of one OCI or Nix artifact
+// selected by a model or application deployment snapshot.
+enum ArtifactPreparationPolicy {
+  // No preparation policy was selected.
+  ARTIFACT_PREPARATION_POLICY_UNSPECIFIED = 0;
+
+  // Pulls an immutable OCI digest reference, or builds a locked Nix flake reference, and verifies it.
+  ARTIFACT_PREPARATION_POLICY_IMMUTABLE_REMOTE = 1;
+
+  // Verifies the immutable node-local image id resolved from a development tag, without pulling.
+  ARTIFACT_PREPARATION_POLICY_LOCAL_DEVELOPMENT = 2;
+
+  // Builds the store path the hosting node pinned from its own development source and verifies it.
+  ARTIFACT_PREPARATION_POLICY_DEVELOPMENT_SOURCE = 3;
+}
+
+// Node-specific launch identity that the SiteNode named by a deployment's exact placement resolved
+// once for one artifact selection with no launch identity.
+message NodeResolvedLaunchIdentity {
+  // Owner-scoped artifact selection key, such as an application service name.
+  string selection_key = 1;
+
+  // Launch identity the hosting SiteNode resolved once, used for every later runtime launch of the
+  // selection: a local image ID for a tag-only image, the store path a development-source Nix
+  // package evaluated to, or a locked Nix artifact's store path for the node's own Nix system.
+  string launch_identity = 2;
+}

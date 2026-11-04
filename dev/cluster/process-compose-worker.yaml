@@ -1,0 +1,10 @@
+version: "0.5"
+
+processes:
+  worker:
+    # A joined node starts from its folder alone; the manager's listener addresses and catalog from the
+    # workspace environment would override or conflict with it.
+    command: env -u DOTCORE_PRIVATE_ADDR -u DOTCORE_MANAGEMENT_ADDR -u DOTCORE_INFERENCE_ADDR -u DOTCORE_CATALOG_DIR just backend::run
+    is_daemon: true
+    availability:
+      restart: "no"

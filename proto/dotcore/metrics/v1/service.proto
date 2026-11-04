@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package dotcore.metrics.v1;
+
+import "dotcore/metrics/v1/metric.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+// Management read API for the metric history the site's metric store retains.
+// Metrics are operational telemetry, not usage accounting.
+service MetricsService {
+  rpc ListMetricDescriptors(ListMetricDescriptorsRequest) returns (ListMetricDescriptorsResponse);
+  rpc QueryMetrics(QueryMetricsRequest) returns (QueryMetricsResponse);
+  rpc WatchMetrics(WatchMetricsRequest) returns (stream WatchMetricsResponse);
+}
+
+// Requests every declared metric and the resolutions the store serves.
+message ListMetricDescriptorsRequest {}
+
+// Returns declared metrics in name order and served resolutions, finest first.
+message ListMetricDescriptorsResponse {
+  // Every metric the store accepts.
+  repeated MetricDescriptor descriptors = 1;
+
+  // Point spacings the store serves and how far back each reaches, finest first.
+  repeated MetricResolution resolutions = 2;
+}
+
+// One served point spacing and how far back history at that spacing reaches.
+message MetricResolution {
+  // Bucket width of points at this resolution.
+  google.protobuf.Duration step = 1;
+
+  // How far back history at this resolution is retained.
+  google.protobuf.Duration retention = 2;
+}
+
+// Reads one metric over a time range. Cost is bounded: a query whose series count times bucket
+// count exceeds 50,000 points fails with RESOURCE_EXHAUSTED; narrow the range, filter, or raise the
+// step hint.
+message QueryMetricsRequest {
+  // The read to answer.
+  MetricQuery query = 1;
+}
+
+// Returns the aligned answer to one query.
+message QueryMetricsResponse {
+  // The answer, with the effective step, covered range, and store incarnation.
+  MetricQueryResult result = 1;
+}
+
+// Watches 1 to 128 keyed queries on one stream. Each query sends upserts backfilling its full range
+// on every open, in request order, then one backfill_complete covers them all; live upserts of
+// every query follow, interleaved. A reopen resends every backfill, which also recovers revisions
+// missed before a failure; after quiescence each query's points equal QueryMetrics over its range.
+// Keys must be unique, non-empty, and at most 64 bytes; otherwise the call fails with
+// INVALID_ARGUMENT. Any query failing ends the whole stream with that query's status: invalid or
+// unknown at open, a watcher that falls behind (ABORTED), or too many points while live.
+// Cost is bounded per query: each backfill has the QueryMetrics cost bound, and queries open and
+// send their backfill one at a time. The store serves a store-configured number of open queries in
+// all; each query takes one, and a stream that cannot open every query fails with
+// RESOURCE_EXHAUSTED and holds none.
+message WatchMetricsRequest {
+  // Queries to watch, each named by a key that its upserts carry.
+  repeated KeyedMetricQuery queries = 1;
+}
+
+// One message of a metric watch.
+message WatchMetricsResponse {
+  oneof event {
+    // Points of one query, named by its key.
+    KeyedMetricQueryResult upsert = 1;
+
+    // Every query's backfill upserts were sent; later upserts are live.
+    google.protobuf.Empty backfill_complete = 2;
+  }
+}
+
+// One watched query and the key naming it on the stream.
+message KeyedMetricQuery {
+  // Caller-chosen name, unique within the request.
+  string key = 1;
+
+  // The read to watch; a last range slides with time, and an explicit range only receives revisions once its last bucket closes.
+  MetricQuery query = 2;
+}
+
+// Points of one watched query, named by its key.
+message KeyedMetricQueryResult {
+  // Key of the query these points answer.
+  string key = 1;
+
+  // Points to insert or replace by series labels and bucket start, with the query's own effective step, store incarnation, and covered range as of this message; points before the covered start can be dropped. A query's first message is always an upsert; upserts without points announce a moved covered range or, at least every 15 s, keep an idle query alive. A new incarnation replaces every held point of that query.
+  MetricQueryResult result = 2;
+}

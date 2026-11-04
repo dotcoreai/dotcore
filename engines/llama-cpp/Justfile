@@ -1,0 +1,14 @@
+import '../../nix/docker-images/registry.just'
+
+# List llama.cpp engine recipes.
+help:
+    @just --list
+
+# Build the repository flake's engine package, then check that llama-server runs and reports its build.
+smoke:
+    #!/usr/bin/env sh
+    set -eu
+    cd ../..
+    out=$(nix build --no-link --print-out-paths .#engines.llama-cpp.native)
+    echo "llama-cpp package: $out"
+    "$out/bin/llama-server" --version

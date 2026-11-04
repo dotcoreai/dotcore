@@ -1,0 +1,24 @@
+
+# List protobuf module recipes.
+help:
+  @just --list
+
+# Check protobuf formatting without changing files.
+format:
+  buf format --diff --exit-code
+
+# Run protobuf lint checks.
+lint:
+  buf lint
+
+# Build the protobuf module descriptor.
+build:
+  buf build
+
+# Regenerate TypeScript through Buf, then Rust bindings without backend consumers.
+generate:
+  buf generate
+  just ../backend/build-proto
+
+# Run all protobuf validation operations (format, lint, build).
+check: format lint build

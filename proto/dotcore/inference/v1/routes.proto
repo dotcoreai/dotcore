@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package dotcore.inference.v1;
+
+import "dotcore/catalog/v1/model_capabilities.proto";
+
+// Management API for route-manager-owned inference routes.
+service RouteService {
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+  rpc GetRoute(GetRouteRequest) returns (GetRouteResponse);
+  rpc CreateRoute(CreateRouteRequest) returns (CreateRouteResponse);
+  rpc ReplaceRoute(ReplaceRouteRequest) returns (ReplaceRouteResponse);
+  rpc DeleteRoute(DeleteRouteRequest) returns (DeleteRouteResponse);
+}
+
+// Requests every configured inference route sorted by callable name.
+message ListRoutesRequest {}
+
+// Returns configured inference routes with transient availability.
+message ListRoutesResponse {
+  // The inference routes sorted by callable name.
+  repeated InferenceRouteView routes = 1;
+}
+
+// Requests one inference route by its opaque management identity.
+message GetRouteRequest {
+  // The stable opaque management identity for the inference route.
+  string inference_route_id = 1;
+}
+
+// Returns one configured inference route with transient availability.
+message GetRouteResponse {
+  // The requested inference route.
+  InferenceRouteView route = 1;
+}
+
+// Creates one complete desired inference route declaration.
+message CreateRouteRequest {
+  // The site-unique OpenAI-callable route name.
+  string name = 1;
+
+  // Whether the inference route admits new inference requests.
+  bool enabled = 2;
+
+  // Ordered target-selection groups for the new inference route.
+  repeated FallbackGroup fallback_groups = 4;
+}
+
+// Returns the server-created inference route with generation one.
+message CreateRouteResponse {
+  // The server-created inference route.
+  InferenceRouteView route = 1;
+}
+
+// Replaces one complete desired inference route declaration.
+message ReplaceRouteRequest {
+  // The stable opaque management identity for the inference route.
+  string inference_route_id = 1;
+
+  // The exact positive desired generation required for replacement.
+  uint64 expected_generation = 2;
+
+  // The replacement site-unique OpenAI-callable route name.
+  string name = 3;
+
+  // Whether the replacement inference route admits new inference requests.
+  bool enabled = 4;
+
+  // Ordered target-selection groups for the replacement inference route.
+  repeated FallbackGroup fallback_groups = 6;
+}
+
+// Returns the replaced inference route with its incremented generation.
+message ReplaceRouteResponse {
+  // The replaced inference route.
+  InferenceRouteView route = 1;
+}
+
+// Deletes one inference route at an exact desired generation.
+message DeleteRouteRequest {
+  // The stable opaque management identity for the inference route.
+  string inference_route_id = 1;
+
+  // The exact positive desired generation required for deletion.
+  uint64 expected_generation = 2;
+}
+
+// Returns after one inference route is deleted.
+message DeleteRouteResponse {}
+
+// Desired inference route declaration with its derived availability.
+message InferenceRouteView {
+  // The desired inference route declaration.
+  InferenceRoute route = 1;
+
+  // The current transient availability derived from ready deployments.
+  InferenceRouteAvailability availability = 2;
+
+  // Inference request kinds declared by any member, whether or not it is ready.
+  repeated dotcore.catalog.v1.InferenceRequestKind request_kinds = 3;
+}
+
+// One durable inference route declaration managed outside the inference data path.
+message InferenceRoute {
+  // Stable opaque management identity for this inference route.
+  string inference_route_id = 1;
+
+  // Mutable site-unique OpenAI-callable route name.
+  string name = 2;
+
+  // Whether this inference route admits new inference requests.
+  bool enabled = 3;
+
+  // Ordered target-selection groups evaluated for this inference route.
+  repeated FallbackGroup fallback_groups = 5;
+
+  // Monotonically increasing version of this inference route declaration.
+  uint64 generation = 6;
+}
+
+// Current availability derived from one desired inference route declaration.
+message InferenceRouteAvailability {
+  // Whether an enabled route has one eligible text-capable member.
+  bool available = 1;
+
+  // Input modalities currently available from eligible members.
+  repeated dotcore.catalog.v1.ModelInputModality available_input_modalities = 2;
+
+  // Route-level reasons that the route is unavailable.
+  repeated InferenceRouteUnavailabilityReason exclusion_reasons = 3;
+
+  // Current member availability in desired group and member order.
+  repeated FallbackGroupAvailability fallback_groups = 4;
+}
+
+// Current availability for one declared fallback group.
+message FallbackGroupAvailability {
+  // The zero-based index of this fallback group in the desired route.
+  uint32 fallback_group_index = 1;
+
+  // Current availability for members in declared order.
+  repeated InferenceRouteMemberAvailability members = 2;
+}
+
+// Current availability for one declared model deployment member.
+message InferenceRouteMemberAvailability {
+  // The stable model deployment identity from the desired route.
+  string model_deployment_id = 1;
+
+  // Whether the inference controller currently publishes a ready target.
+  bool eligible = 2;
+
+  // Input modalities currently available from this eligible member.
+  repeated dotcore.catalog.v1.ModelInputModality available_input_modalities = 3;
+
+  // Member-level reasons that this member is ineligible.
+  repeated InferenceRouteMemberExclusionReason exclusion_reasons = 4;
+}
+
+// One ordered group of model deployment members for an inference route.
+message FallbackGroup {
+  // Selection policy for the model deployment members.
+  FallbackGroupSelection selection = 1;
+
+  // Stable model deployment identities in declaration order.
+  repeated string model_deployment_ids = 2;
+}
+
+// Explains why an inference route is currently unavailable.
+enum InferenceRouteUnavailabilityReason {
+  INFERENCE_ROUTE_UNAVAILABILITY_REASON_UNSPECIFIED = 0;
+  INFERENCE_ROUTE_UNAVAILABILITY_REASON_DISABLED = 1;
+  INFERENCE_ROUTE_UNAVAILABILITY_REASON_NO_ELIGIBLE_TEXT_MEMBER = 2;
+}
+
+// Explains why one declared model deployment member is currently ineligible.
+enum InferenceRouteMemberExclusionReason {
+  INFERENCE_ROUTE_MEMBER_EXCLUSION_REASON_UNSPECIFIED = 0;
+  INFERENCE_ROUTE_MEMBER_EXCLUSION_REASON_MODEL_DEPLOYMENT_NOT_READY = 1;
+}
+
+// Selects one model deployment from one ordered fallback group.
+enum FallbackGroupSelection {
+  FALLBACK_GROUP_SELECTION_UNSPECIFIED = 0;
+  FALLBACK_GROUP_SELECTION_SINGLE = 1;
+  FALLBACK_GROUP_SELECTION_ROUND_ROBIN = 2;
+}

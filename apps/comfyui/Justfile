@@ -1,0 +1,14 @@
+import '../../nix/docker-images/dockerfile.just'
+
+# Local tag the image workflow runs against; deployments use the derivation's own reference.
+workflow_tag := "dotcore/comfyui:dev"
+
+# List ComfyUI app recipes.
+help:
+    @just --list
+
+# Load the image, tag it for the image workflow, and qualify it: a CPU-only start, torch's accelerator kernels, and the model download node.
+[group('image')]
+image-test:
+    cd ../.. && reference=$(nix run .#{{image_package}} | jq -r .reference) && docker tag "$reference" {{workflow_tag}}
+    cd ../.. && node apps/comfyui/image-workflow.mjs

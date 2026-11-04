@@ -1,0 +1,524 @@
+# Immutable provenance for Gemma 4 31B's public GGUF tiers.
+# Non-QAT conversion supplies all three Q3/Q4/Q5 tiers.
+# Qualification tier: q4-xl on Linux NVIDIA; footprint measurement is pending.
+# MTP is exposed on llama.cpp through Unsloth's draft GGUF and on vLLM through Google's bf16 assistant checkpoint.
+# vLLM MTP is unverified: the NVFP4 target does not fit the RTX 5090, so it first runs on a GB10.
+modelId: "gemma-4-31b-it"
+displayName: "Gemma 4 31B"
+version: "4-31b-it"
+# max_position_embeddings in the google/gemma-4-31B-it config.json (revision 842da37).
+maximumContextTokens: 262144
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+  - optionId: "kv-cache"
+    displayName: "KV cache precision"
+    kvCachePrecision: {}
+artifacts:
+  - artifactId: "q3-xl"
+    weightQuantization: "Q3_K_XL"
+    source:
+      repository: "unsloth/gemma-4-31B-it-GGUF"
+      revision: "c1ac76e99d5513b141e8adde7288b85c3f9c32ec"
+      file:
+        path: "gemma-4-31B-it-UD-Q3_K_XL.gguf"
+        provenanceDigest: "73f1de2bde15da19362e5760febc01cd31e4e72f5c29561b7ead63ee2a28c716"
+  - artifactId: "q4-xl"
+    weightQuantization: "Q4_K_XL"
+    source:
+      repository: "unsloth/gemma-4-31B-it-GGUF"
+      revision: "c1ac76e99d5513b141e8adde7288b85c3f9c32ec"
+      file:
+        path: "gemma-4-31B-it-UD-Q4_K_XL.gguf"
+        provenanceDigest: "9e92cb6236044c6a9870af406029c74a76e0571c157a6f95df724dcc8c7a1575"
+  - artifactId: "q5-xl"
+    weightQuantization: "Q5_K_XL"
+    source:
+      repository: "unsloth/gemma-4-31B-it-GGUF"
+      revision: "c1ac76e99d5513b141e8adde7288b85c3f9c32ec"
+      file:
+        path: "gemma-4-31B-it-UD-Q5_K_XL.gguf"
+        provenanceDigest: "abd37a1692ed4a6e7387a886cce871a8d4205359ce098de43f144146cf6455a3"
+  - artifactId: "nvfp4"
+    weightQuantization: "NVFP4"
+    source:
+      repository: "unsloth/gemma-4-31B-it-NVFP4"
+      revision: "373c00b5ecb0a8ee43942b5ca08b93805de8eee4"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "845f1ee48e39fc942fe190da9df6a1c5db229e17a96ea08966ad1c9274e73d1b"
+          - path: "config.json"
+            provenanceDigest: "9079d673f320e4a906586b1defe97eb2a65d944f8dca7f1eb9b17896e3cfddce"
+          - path: "generation_config.json"
+            provenanceDigest: "e3527dfff6c0cdc69c9118b000165b0f2afc48665e23d6d9f61632ee44157b6f"
+          - path: "model.safetensors"
+            provenanceDigest: "6a34636fe9ab6eab87df7cd5afea2682a495b689d13be5778b7a5ed86ff85a28"
+          - path: "processor_config.json"
+            provenanceDigest: "32bdf45d2ad4cc29a0822ddd157a182de76644f0419a6228d151495256e9813c"
+          - path: "recipe.yaml"
+            provenanceDigest: "8d82612d1f85537ef60e70c97dc532aedc044f879e5c7bff3a6394192d69bbeb"
+          - path: "tokenizer.json"
+            provenanceDigest: "adbaa8175acf7609b4359724f40eff359ec4fac1a8647eeb99d4422be708e1cf"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "04e06452d54505bd60fd2949cf3dcbe0e9f1dece1d025117796995494ad12ec6"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "vision-projector"
+    source:
+      repository: "unsloth/gemma-4-31B-it-GGUF"
+      revision: "c1ac76e99d5513b141e8adde7288b85c3f9c32ec"
+      file:
+        path: "mmproj-F16.gguf"
+        provenanceDigest: "6edcca228213c28d3567a35d22f849eea52d8360875093851959adf5d2f270eb"
+  - auxiliaryArtifactId: "mtp-draft"
+    source:
+      repository: "unsloth/gemma-4-31B-it-GGUF"
+      revision: "c1ac76e99d5513b141e8adde7288b85c3f9c32ec"
+      file:
+        path: "mtp-gemma-4-31B-it.gguf"
+        provenanceDigest: "5ae8b0117bed601e8924c6305bd5b0585de361d51f0e77091bcb4252cf1f27de"
+  - auxiliaryArtifactId: "gemma-chat-template"
+    source:
+      repository: "unsloth/gemma-4-31B-it-NVFP4"
+      revision: "373c00b5ecb0a8ee43942b5ca08b93805de8eee4"
+      file:
+        path: "chat_template.jinja"
+        provenanceDigest: "845f1ee48e39fc942fe190da9df6a1c5db229e17a96ea08966ad1c9274e73d1b"
+  # Google's bf16 MTP assistant for the vLLM configuration; it shares the target's KV cache.
+  - auxiliaryArtifactId: "mtp-assistant"
+    source:
+      repository: "google/gemma-4-31B-it-assistant"
+      revision: "627c5ec1458b9086b841a91e0512fd31fd2fbbf1"
+      snapshot:
+        files:
+          - path: "config.json"
+            provenanceDigest: "d09487c1083a334a97545f204dd41ab1a40b0438bdead19558f0e1357e26d66a"
+          - path: "generation_config.json"
+            provenanceDigest: "8e58004dc0e2407b63410b190bb8470efbdcfeb71533f1770e09c20abe193a6f"
+          - path: "model.safetensors"
+            provenanceDigest: "9f80df6099fa1fd7db71220ec9ee864d5ecff769878697dd5763e4285b15a1da"
+          - path: "tokenizer.json"
+            provenanceDigest: "75a6583c1a418e2bbd79c60d95d28e0f5bf549ad3f2990b5bdb5238c6c2bf70c"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "089594a3924fcfd4cb1c596a7906fbf476193519e5198f780912eed02b177e42"
+configurations:
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-10-19"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q3-xl"
+        modelArtifactId: "q3-xl"
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+      - bindingId: "q5-xl"
+        modelArtifactId: "q5-xl"
+    # Sizing shared by every hardware class and binding. Each hardware support entry sets the class
+    # parameters once and the binding parameters for every binding. Each constant has exactly one home
+    # (shared, class or binding), so shared constants cannot be overridden.
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "accelBytesPerContextTokenQ8", "marginBytes"]
+      parameters:
+        # Per-slot llama.cpp state: sliding-window KV, sized from the google/gemma-4-31B-it config.json
+        # (revision 842da37): 1024 cells per slot (sliding_window, unified KV) x 50 sliding layers x 16 KV
+        # heads x 256 x f16 K and V.
+        # baseAccelBytes values exclude it: each is the 4-slot measurement minus 4 x slotStateBytes.
+        slotStateBytes: 838860800
+        # The same sliding-window KV in q8_0, which stores 34 bytes per block of 32 values instead of 64:
+        # 838,860,800 x 34 / 64. Each extra parallel request measured 447,741,952 B on a GB10 host, 2 MiB
+        # above it and well inside the margin.
+        slotStateBytesQ8: 445644800
+        visionBytes: 1356988415
+        mtpBaseBytes: 600910378
+        mtpBytesPerContextToken: 1028
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + if(${options.kv-cache.precision} == "q8_0", 0, 1) * ${accelBytesPerContextToken} * ${total-context}
+            + if(${options.kv-cache.precision} == "q8_0", 1, 0) * ${accelBytesPerContextTokenQ8} * ${total-context}
+            + ${parallel-requests} * if(${options.kv-cache.precision} == "q8_0", ${slotStateBytesQ8}, ${slotStateBytes})
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0)
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # F16 measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
+        # Q8_0 KV cache measured on a GB10 host with llama.cpp b11723 (MTP 4, vision off): q3-xl, q4-xl
+        # and q5-xl at total contexts 8192-262144 and 1, 2 and 4 parallel requests (7 points each) give
+        # the same slope of 60,924 B per context token, the free-intercept fit of the measurement minus
+        # the MTP draft cache (1028, which stays f16), with residuals within 7 MB. As for Qwen3.8 27B, the
+        # estimate sits a constant 2.36 GB above the measurement (2.13-2.27 GB at f16): the prompt cache
+        # term budgets 2048 MiB that a sweep never fills. q8_0 saves about 22 KB per token against the
+        # f16 measurement in the same release, less than the 40 KB the arithmetic predicts.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 15916707581
+              accelBytesPerContextToken: 85494
+              accelBytesPerContextTokenQ8: 60924
+              marginBytes: 210763776
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 19359510266
+              accelBytesPerContextToken: 85494
+              accelBytesPerContextTokenQ8: 60924
+              marginBytes: 210763776
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 22426988278
+              accelBytesPerContextToken: 85494
+              accelBytesPerContextTokenQ8: 60924
+              marginBytes: 210763776
+      - hardwareClassId: "nvidia-dedicated"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          # Derived, not measured: 400 MiB, since the GB10 base terms read 319-374 MiB low on
+          # the RTX 5090 host smoke runs of the speculative decoding project (b11429).
+          baseOffsetBytes: 419430400
+        # The binding parameters, q8_0 slope included, are the nvidia-unified (GB10) values verbatim
+        # until measured on dedicated memory, so a GB10 remeasurement updates both classes.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 15916707581
+              accelBytesPerContextToken: 85494
+              accelBytesPerContextTokenQ8: 60924
+              marginBytes: 210763776
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 19359510266
+              accelBytesPerContextToken: 85494
+              accelBytesPerContextTokenQ8: 60924
+              marginBytes: 210763776
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 22426988278
+              accelBytesPerContextToken: 85494
+              accelBytesPerContextTokenQ8: 60924
+              marginBytes: 210763776
+      - hardwareClassId: "apple"
+        # Apple Silicon is always unified memory.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
+        # footprint with the gemma-4-e2b Metal calibration. The q8_0 slope is the
+        # nvidia-unified one (60,924) times the same per-token calibration factor as the f16 slope
+        # (96,608 / 85,494).
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 18035315120
+              accelBytesPerContextToken: 96608
+              accelBytesPerContextTokenQ8: 68844
+              marginBytes: 210763776
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 21650257939
+              accelBytesPerContextToken: 96608
+              accelBytesPerContextTokenQ8: 68844
+              marginBytes: 210763776
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 24871109852
+              accelBytesPerContextToken: 96608
+              accelBytesPerContextTokenQ8: 68844
+              marginBytes: 210763776
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+          jinja: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+              auxiliaryArtifactId: "vision-projector"
+              imageInputCapacity:
+                maximumImageCount: 1
+                supportedMediaTypes: ["LLAMA_CPP_IMAGE_MEDIA_TYPE_JPEG", "LLAMA_CPP_IMAGE_MEDIA_TYPE_PNG"]
+                maximumEncodedBytes: "20971520"
+                maximumDecodedBytes: "67108864"
+                maximumWidth: 8192
+                maximumHeight: 8192
+                maximumPixels: "16000000"
+                fixedVisualTokens: 280
+                fixedDetail: "LLAMA_CPP_IMAGE_DETAIL_AUTO"
+          - optionId: "mtp"
+            mtp:
+              draft: { auxiliaryArtifactId: "mtp-draft" }
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      # Unsloth's Gemma 4 31B guidance recommends 4 draft tokens.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "4"
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            stringEnum: { values: ["f16", "q8_0"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "f16"
+  - configurationId: "vllm-nvidia-cuda"
+    engineArtifacts:
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-amd64-cuda"
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-arm64-cuda"
+    # Sizing equations are measured on one NVIDIA rig and reused unmeasured as estimates on
+    # other NVIDIA rigs, dedicated or unified (POC shortcut).
+    artifactBindings:
+      - bindingId: "nvfp4"
+        modelArtifactId: "nvfp4"
+        auxiliaryArtifactIds: ["gemma-chat-template"]
+    # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 8192-32768, text and vision.
+    # marginBytes covers this fit's 0.8 MB under-prediction plus the 1.13 GiB vLLM warm growth measured
+    # on this rig for this engine image.
+    sizing:
+      parameters:
+        modelLoadingBaseBytes: 25153732583
+        visionBytes: 1061830655
+        marginBytes: 1300000000
+        kvBlockBytes: 1310720
+        kvBatchedTokenBytes: 819200
+        kvBytesPerToken: 128326
+        # Estimated, unverified: the 26B A4B's RTX 5090 on/off delta plus this assistant's
+        # 99.6 MB of extra weights; no extra KV is expected, since the assistant shares it.
+        mtpBytes: 1485832192
+      derivedParameters:
+        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: one for
+        # rounding its full-attention context up and, in each of the 5 sliding-window layer groups, its
+        # 1024-token window plus draft lookahead (67 blocks); the tokens of the 2 batches in flight hold
+        # more sliding-window blocks, counted once; one more block is held back. With one request this
+        # covers vLLM's start check at a context per request equal to the total context. The MTP
+        # assistant shares the target's KV. Per-token bytes are the measurement, larger than the block
+        # layout's.
+        kv-cache-memory-bytes: >-
+          ${kvBlockBytes} * (1 + ${parallel-requests} * 336)
+          + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
+          + ${kvBytesPerToken} * ${total-context}
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${modelLoadingBaseBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${mtpBytes}
+            + ${kv-cache-memory-bytes}
+          allowance: >-
+            ${marginBytes}
+    hardwareSupport:
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "46500000000"
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          - bindingId: "nvfp4"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_VLLM"
+      vllm:
+        fixedSettings:
+          reasoningParser: "gemma4"
+          toolCallParser: "gemma4"
+          chatTemplateAuxiliaryArtifactId: "gemma-chat-template"
+          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
+          kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
+          maximumBatchedTokensParameterId: "maximum-batched-tokens"
+          maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
+          kvOffloadingSizeGibParameterId: "kv-offloading-size-gib"
+          kvOffloadingBackend: "VLLM_KV_OFFLOADING_BACKEND_NATIVE"
+          containerPort: 15000
+          readinessPolicy:
+            mode: "VLLM_READINESS_MODE_MODELS"
+          requiresHostIpc: true
+          trustRemoteCode: true
+          enableLogRequests: true
+          enableAutoToolChoice: true
+          enableChunkedPrefill: true
+          enableAsyncScheduling: true
+          enablePrefixCaching: true
+          enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+          - optionId: "mtp"
+            mtp: { draft: { auxiliaryArtifactId: "mtp-assistant" } }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      imageInputCapacity:
+        maximumImageCount: 1
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "20971520"
+        maximumDecodedBytes: "67108864"
+        maximumWidth: 8192
+        maximumHeight: 8192
+        maximumPixels: "16000000"
+        fixedVisualTokens: 280
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      # vLLM's Gemma 4 recipe recommends 4 to 8 draft tokens.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "4"
+profiles:
+  - profileId: "q3-xl"
+    displayName: "Unsloth Q3_K_XL"
+    description: "Uses the smaller Q3 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q3-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "q4-xl"
+    displayName: "Unsloth Q4_K_XL"
+    description: "Uses the balanced Q4 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "q5-xl"
+    displayName: "Unsloth Q5_K_XL"
+    description: "Uses the higher-precision Q5 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q5-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "nvfp4"
+    displayName: "Unsloth NVFP4"
+    description: "Runs Gemma 4 31B through vLLM for Linux NVIDIA inference."
+    configurationId: "vllm-nvidia-cuda"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "nvfp4-multimodal"
+    displayName: "Unsloth NVFP4 with vision"
+    description: "Runs Gemma 4 31B through vLLM for text and image inference."
+    configurationId: "vllm-nvidia-cuda"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+intelligence:
+  overall: 15
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0

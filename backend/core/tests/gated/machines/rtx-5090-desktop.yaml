@@ -1,0 +1,18 @@
+# A Linux desktop with one NVIDIA GeForce RTX 5090 and 64 GiB of host memory.
+# The GPU values match a real desktop's reading. The host total is the installed memory: a real
+# reading is a few percent lower (62.0 GiB on the reference desktop). Values marked "to check" are
+# not separable in a reading.
+platform: linux/amd64
+cpuCount: 32 # to check
+hostMemory:
+  totalBytes: 68719476736 # 64 GiB
+  idleUsedBytes: 4294967296 # 4 GiB, to check
+gpus:
+  - id: GPU-00000000-0000-0000-0000-000000005090
+    vendor: nvidia
+    model: NVIDIA GeForce RTX 5090
+    driverVersion: "595.71.05"
+    memory:
+      architecture: dedicated
+      totalBytes: 34190917632 # 32,607 MiB
+      reservedBytes: 521142272 # 497 MiB, held by the driver at idle

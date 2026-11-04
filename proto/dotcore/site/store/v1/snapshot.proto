@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package dotcore.site.store.v1;
+
+import "dotcore/application/v1/state.proto";
+import "dotcore/deployment/v1/artifact.proto";
+import "dotcore/model/v1/state.proto";
+
+// Versioned owner current state stored in the site's state.pb. Desired site records, catalog
+// records, provenance, resolved launch intent, and node realization state are not stored here.
+message SiteCurrentState {
+  // Schema version of this stored state snapshot.
+  uint32 format_version = 1;
+
+  // Stable identifier for the site.
+  string site_id = 2;
+
+  // Monotonic revision of the stored state.
+  uint64 storage_revision = 3;
+
+  // Current observed state for model deployments in the site.
+  repeated dotcore.model.v1.CurrentModelDeployment model_deployments = 4;
+
+  // Current observed state for application deployments in the site.
+  repeated dotcore.application.v1.CurrentApplicationDeployment application_deployments = 5;
+
+  // Manager-owned model deployment lifecycle generation allocation records.
+  repeated ManagerLifecycleRecord manager_model_lifecycle_records = 9;
+
+  // Manager-owned application deployment lifecycle generation allocation records.
+  repeated ManagerLifecycleRecord manager_application_lifecycle_records = 10;
+
+  // Former manager cleanup receipts; decoding ignores retained values.
+  reserved 8;
+
+  reserved "manager_model_cleanup_receipts";
+}
+
+// Durable manager lifecycle authority for one deployment of the owner whose record list holds
+// it, independent of mutable runtime progress.
+message ManagerLifecycleRecord {
+  // Stable deployment identity within its owner.
+  string deployment_id = 1;
+
+  // Highest lifecycle generation ever reserved for this identity.
+  uint64 generation_high_water = 2;
+
+  // Former stable Resume authorization; decoding ignores retained values.
+  reserved 3, 4;
+
+  reserved "resume_generation", "resume_authorization_id";
+}
+
+// Versioned node custody state stored in one SiteNode's node/state.pb: realization records,
+// retained cleanup evidence, and launch identities of the deployments this node hosts.
+message NodeCurrentState {
+  // Schema version of this stored node state snapshot.
+  uint32 format_version = 1;
+
+  // Stable identifier for the site.
+  string site_id = 2;
+
+  // SiteNode whose custody this state records.
+  string site_node_id = 3;
+
+  // Monotonic revision of the stored state.
+  uint64 storage_revision = 4;
+
+  // Realization records of model deployments this node hosts.
+  repeated dotcore.model.v1.CurrentModelDeployment model_deployments = 5;
+
+  // Realization records of application deployments this node hosts.
+  repeated dotcore.application.v1.CurrentApplicationDeployment application_deployments = 6;
+
+  // Model cleanup evidence retained independent of ordinary deployment state.
+  repeated NodeModelCleanupEvidence model_cleanup_evidence = 7;
+
+  // Launch identities this node resolved once for model deployments it hosts.
+  repeated NodeResolvedLaunchIdentities model_resolved_launch_identities = 8;
+
+  // Realization records of application deployments this node began realizing.
+  repeated NodeApplicationRealization application_realizations = 9;
+
+  // Application cleanup evidence retained independent of ordinary deployment state.
+  repeated NodeApplicationCleanupEvidence application_cleanup_evidence = 10;
+}
+
+// Node-owned durable proof that withdrawn intent has no remaining realization, keyed by the
+// deployment and teardown lifecycle generation.
+message NodeModelCleanupEvidence {
+  // Stable model deployment identity.
+  string model_deployment_id = 1;
+
+  // Teardown lifecycle generation covered by this evidence.
+  uint64 lifecycle_generation = 2;
+
+  // Diagnostic runtime realization generation when one existed; never part of the identity.
+  optional uint64 realization_generation = 3;
+
+  // Whether the assigned deployment was never realized locally.
+  bool never_realized = 5;
+
+  // Whether the manager acknowledged this evidence; it is retired once its teardown leaves the view.
+  bool acknowledged = 7;
+}
+
+// Node-owned durable record of one application deployment this node began realizing. Its
+// presence is the node's ownership evidence for that deployment's workload group and storage.
+message NodeApplicationRealization {
+  // Stable application deployment identity.
+  string application_deployment_id = 1;
+
+  // Runtime launch generation last realized; absent before a workload group was realized.
+  optional uint64 realization_generation = 2;
+
+  // Launch identities this node resolved once for local-development selections, by service name.
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity resolved_launch_identities = 3;
+}
+
+// Node-owned launch identities this node resolved once for one deployment, retained before any
+// workload launches from them and removed with the deployment's cleanup evidence.
+message NodeResolvedLaunchIdentities {
+  // Stable deployment identity within its owner.
+  string deployment_id = 1;
+
+  // Development launch identities resolved on this node, by owner-scoped selection key.
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity resolved_launch_identities = 2;
+}
+
+// Node-owned durable proof that withdrawn application intent has no remaining workload group
+// or deployment storage, keyed by the deployment and teardown lifecycle generation.
+message NodeApplicationCleanupEvidence {
+  // Stable application deployment identity.
+  string application_deployment_id = 1;
+
+  // Teardown lifecycle generation covered by this evidence.
+  uint64 lifecycle_generation = 2;
+
+  // Diagnostic runtime launch generation when one existed; never part of the identity.
+  optional uint64 realization_generation = 3;
+
+  // Whether the assigned deployment was never realized locally.
+  bool never_realized = 4;
+
+  // Whether the manager acknowledged this evidence; it is retired once its teardown leaves the view.
+  bool acknowledged = 5;
+}

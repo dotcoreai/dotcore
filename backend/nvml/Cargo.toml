@@ -1,0 +1,11 @@
+[package]
+name = "dotcore-nvml"
+description = "Sole owner of the NVIDIA management library: a process-wide handle with in-code library discovery."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+nvml-wrapper = "0.12.1"
+thiserror.workspace = true

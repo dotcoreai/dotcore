@@ -1,0 +1,24 @@
+siteId: __DOTCORE_SIMULATED_DOCKER_SITE_ID__
+nodes:
+- nodeId: simulated-docker-docker
+  host: 127.0.0.1
+  displayName: Simulated-docker Docker machine
+  siteManager: {}
+executionTargets:
+- executionTargetId: simulated-docker-target
+  siteNodeId: simulated-docker-docker
+  displayName: Simulated models
+  platform: { operatingSystem: linux, architecture: amd64 }
+  acceleratorDeviceIds: [GPU-00000000-0000-0000-0000-000000005090]
+  modelRuntime:
+    simulatedRuntime:
+      defaultScenario: { readyDelayMillis: 0, stopDelayMillis: 0 }
+- executionTargetId: simulated-docker-application-target
+  siteNodeId: simulated-docker-docker
+  displayName: Docker applications
+  platform: { operatingSystem: linux, architecture: amd64 }
+  applicationRuntime: { dockerRuntime: {} }
+applicationDeployments: []
+modelDeploymentIdentityAllocator:
+  namespace: 509dc0459d436713
+  nextSequence: '1'

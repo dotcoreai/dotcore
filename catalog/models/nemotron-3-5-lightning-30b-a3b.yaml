@@ -1,0 +1,264 @@
+# Immutable provenance for Nemotron 3.5 Lightning 30B A3B's public GGUF tiers.
+# Qualification tier: q4-xl on Linux NVIDIA (23.8 GiB weights). Base sizing equations are measured
+# for every tier; the llama.cpp MTP terms are estimates pending remeasurement.
+# The family publishes no UD-Q2_K_XL rung (its sub-Q4 rungs floor near 18 GiB), so no q2-k-xl tier is declared.
+# Text-only: no projector ships, and no separate draft file ships.
+# MTP is exposed on llama.cpp through the head embedded in the main GGUF (the whole last block, with its nextn tensors),
+# so the realization declares an embedded head. Acceptance was 0.90 at 3 draft tokens on b11429.
+# Sampling is not pinned: the vendor's temperature 1.0 and top-p 0.95 are recommendations, set per request.
+modelId: "nemotron-3-5-lightning-30b-a3b"
+displayName: "Nemotron 3.5 Lightning 30B A3B"
+version: "3.5-lightning-30b-a3b"
+# max_position_embeddings in the nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16 config.json (revision a9904d2).
+maximumContextTokens: 262144
+options:
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+artifacts:
+  - artifactId: "q3-xl"
+    weightQuantization: "Q3_K_XL"
+    source:
+      repository: "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF"
+      revision: "f2d3fe3694501008786e81e5f20360cbf715496a"
+      file:
+        path: "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q3_K_XL.gguf"
+        provenanceDigest: "b7b30d1f27e34be3757808840bb2daf9e465e99a9bbdc50d649a31ade219bc82"
+  - artifactId: "q4-xl"
+    weightQuantization: "Q4_K_XL"
+    source:
+      repository: "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF"
+      revision: "f2d3fe3694501008786e81e5f20360cbf715496a"
+      file:
+        path: "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_XL.gguf"
+        provenanceDigest: "112bf957489a497c18f60bf8bd44ee1dfa05e87368b8ed7f68998a4e38f275c9"
+  - artifactId: "q5-xl"
+    weightQuantization: "Q5_K_XL"
+    source:
+      repository: "unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF"
+      revision: "f2d3fe3694501008786e81e5f20360cbf715496a"
+      file:
+        path: "NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q5_K_XL.gguf"
+        provenanceDigest: "92dcaf682faf39fef906db7bad4000782001d089f28c4d6aecec6d6f1b4697ca"
+configurations:
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-10-19"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q3-xl"
+        modelArtifactId: "q3-xl"
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+      - bindingId: "q5-xl"
+        modelArtifactId: "q5-xl"
+    # Sizing shared by every hardware class and binding. Each hardware support entry sets the class
+    # parameters once and the binding parameters for every binding. Each constant has exactly one home
+    # (shared, class or binding), so shared constants cannot be overridden.
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "mtpBaseBytes", "marginBytes"]
+      parameters:
+        mtpBytesPerContextToken: 1024
+        # Per-slot llama.cpp state: Mamba recurrent state, 190.47 MiB measured at 4 slots / 4 (RTX 5090 host
+        # smoke, b11429), matching 23 Mamba layers x (conv 3 x 6144 + state 128 x 4096) f32 values from the
+        # nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16 config.json (revision a9904d2). Each MTP draft
+        # token keeps one more copy per slot.
+        # baseAccelBytes values exclude it: each is the 4-slot measurement minus 4 x slotStateBytes.
+        slotStateBytes: 49930568
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + ${accelBytesPerContextToken} * ${total-context}
+            + ${parallel-requests} * ${slotStateBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0)
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+            + ${options.mtp.token-count} * ${parallel-requests} * ${slotStateBytes}
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        bindingSizing:
+          # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
+          # MTP terms estimated, base unchanged (the MTP block is not loaded while MTP is off): mtpBase = block
+          # 940,209,152 B + 58.5 MiB draft compute, per-token = draft KV (1 layer, 2 KV heads x 128, f16), recurrent =
+          # off-mode recurrent state per slot (190.47 MiB measured at 4 slots / 4, rounded up to whole bytes) per draft
+          # token, times the slot count (RTX 5090 host smoke, b11429).
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 20233796300
+              accelBytesPerContextToken: 7168
+              mtpBaseBytes: 1001550848
+              marginBytes: 150994944
+          # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
+          # MTP terms estimated, base unchanged (the MTP block is not loaded while MTP is off): mtpBase = block
+          # 980,120,576 B + 58.5 MiB draft compute, per-token = draft KV (1 layer, 2 KV heads x 128, f16), recurrent =
+          # off-mode recurrent state per slot (190.47 MiB measured at 4 slots / 4, rounded up to whole bytes) per draft
+          # token, times the slot count (RTX 5090 host smoke, b11429).
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 24464407240
+              accelBytesPerContextToken: 7168
+              mtpBaseBytes: 1041462272
+              marginBytes: 150994944
+          # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
+          # MTP terms estimated, base unchanged (the MTP block is not loaded while MTP is off): mtpBase = block
+          # 1,219,589,120 B + 58.5 MiB draft compute, per-token = draft KV (1 layer, 2 KV heads x 128, f16), recurrent =
+          # off-mode recurrent state per slot (190.47 MiB measured at 4 slots / 4, rounded up to whole bytes) per draft
+          # token, times the slot count (RTX 5090 host smoke, b11429).
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 29134043843
+              accelBytesPerContextToken: 7168
+              mtpBaseBytes: 1280930816
+              marginBytes: 150994944
+      - hardwareClassId: "nvidia-dedicated"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          # Derived, not measured: 400 MiB, since the GB10 base terms read 319-374 MiB low on
+          # the RTX 5090 host smoke runs of the speculative decoding project (b11429).
+          baseOffsetBytes: 419430400
+        # The binding parameters are the nvidia-unified (GB10) values verbatim until measured on
+        # dedicated memory, so a GB10 remeasurement updates both classes.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 20233796300
+              accelBytesPerContextToken: 7168
+              mtpBaseBytes: 1001550848
+              marginBytes: 150994944
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 24464407240
+              accelBytesPerContextToken: 7168
+              mtpBaseBytes: 1041462272
+              marginBytes: 150994944
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 29134043843
+              accelBytesPerContextToken: 7168
+              mtpBaseBytes: 1280930816
+              marginBytes: 150994944
+      - hardwareClassId: "apple"
+        # Apple Silicon is always unified memory.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        bindingSizing:
+          # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
+          # footprint with the gemma-4-e2b Metal calibration.
+          # MTP terms estimated, base unchanged (the MTP block is not loaded while MTP is off): mtpBase = block
+          # 940,209,152 B + 58.5 MiB draft compute, per-token = draft KV (1 layer, 2 KV heads x 128, f16), recurrent =
+          # off-mode recurrent state per slot (190.47 MiB measured at 4 slots / 4, rounded up to whole bytes) per draft
+          # token, times the slot count (RTX 5090 host smoke, b11429).
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 23252239946
+              accelBytesPerContextToken: 8100
+              mtpBaseBytes: 1001550848
+              marginBytes: 150994944
+          # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
+          # footprint with the gemma-4-e2b Metal calibration.
+          # MTP terms estimated, base unchanged (the MTP block is not loaded while MTP is off): mtpBase = block
+          # 980,120,576 B + 58.5 MiB draft compute, per-token = draft KV (1 layer, 2 KV heads x 128, f16), recurrent =
+          # off-mode recurrent state per slot (190.47 MiB measured at 4 slots / 4, rounded up to whole bytes) per draft
+          # token, times the slot count (RTX 5090 host smoke, b11429).
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 27736288432
+              accelBytesPerContextToken: 8100
+              mtpBaseBytes: 1041462272
+              marginBytes: 150994944
+          # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
+          # footprint with the gemma-4-e2b Metal calibration.
+          # MTP terms estimated, base unchanged (the MTP block is not loaded while MTP is off): mtpBase = block
+          # 1,219,589,120 B + 58.5 MiB draft compute, per-token = draft KV (1 layer, 2 KV heads x 128, f16), recurrent =
+          # off-mode recurrent state per slot (190.47 MiB measured at 4 slots / 4, rounded up to whole bytes) per draft
+          # token, times the slot count (RTX 5090 host smoke, b11429).
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 32890848842
+              accelBytesPerContextToken: 8100
+              mtpBaseBytes: 1280930816
+              marginBytes: 150994944
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+          jinja: true
+        optionRealizations:
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      # Nemotron's SGLang MTP recipes use 5-6 draft tokens; 3 stays within the common 2-4 band.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "3"
+profiles:
+  - profileId: "q3-xl"
+    displayName: "Unsloth Q3_K_XL"
+    description: "Uses the smaller Q3 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q3-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q4-xl"
+    displayName: "Unsloth Q4_K_XL"
+    description: "Uses the balanced Q4 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q5-xl"
+    displayName: "Unsloth Q5_K_XL"
+    description: "Uses the higher-precision Q5 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q5-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+intelligence:
+  overall: 13
+license:
+  id: LicenseRef-OpenMDW-1.1
+  termsUrl: https://openmdw.ai/license/1-1/

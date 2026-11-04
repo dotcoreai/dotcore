@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package dotcore.console.v1;
+
+// Stores browser-local console preferences.
+message ConsolePreferences {
+  // Selects the application color scheme.
+  ColorScheme color_scheme = 1;
+
+  // Collapses the console navigation sidebar to its icon rail. A plain bool suffices here, unlike
+  // ColorScheme's UNSPECIFIED member: the desired first-visit default is expanded, which is
+  // already proto3's zero value for a bool, so absent and expanded coincide.
+  bool sidebar_collapsed = 2;
+
+  // Selects how memory rows group the site's machines; unspecified reads as all machines.
+  MemoryView memory_view = 3;
+
+  // Holds the tools that help develop and debug the Console itself.
+  DeveloperSettings developer_settings = 4;
+}
+
+// Configures the synthetic latency the Console adds to its own API calls.
+message DeveloperSettings {
+  // Delays every API call when true; calls are untouched when false.
+  bool latency_enabled = 1;
+
+  // Lower bound of the delay in whole milliseconds.
+  uint32 latency_min_ms = 2;
+
+  // Upper bound of the delay in whole milliseconds; never below the lower bound.
+  uint32 latency_max_ms = 3;
+}
+
+// Identifies an explicit application color scheme.
+enum ColorScheme {
+  // The color scheme unspecified value.
+  COLOR_SCHEME_UNSPECIFIED = 0;
+
+  // The color scheme light value.
+  COLOR_SCHEME_LIGHT = 1;
+
+  // The color scheme dark value.
+  COLOR_SCHEME_DARK = 2;
+}
+
+// Identifies how memory rows present the site's machines.
+enum MemoryView {
+  // The memory view unspecified value.
+  MEMORY_VIEW_UNSPECIFIED = 0;
+
+  // Merges every machine into one bar per memory type.
+  MEMORY_VIEW_ALL_MACHINES = 1;
+
+  // Keeps each machine's span within each memory type's bar.
+  MEMORY_VIEW_BY_MACHINE = 2;
+}

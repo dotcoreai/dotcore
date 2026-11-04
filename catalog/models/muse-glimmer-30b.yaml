@@ -1,0 +1,256 @@
+# Immutable provenance for Muse Glimmer 30B's public GGUF tiers.
+# Qualification tier: q4-xl on Linux NVIDIA (14.8 GiB weights); every tier carries a measured sizing equation.
+# Sampling is not pinned: the vendor's temperature 1.0 and top-p 0.95 (top-k 64) are recommendations, set per request.
+# Speculative decoding is not exposed: the model has no MTP head; its DFlash draft head needs the DFlash method.
+# Vision defaults off; 4096 is the model's maximum visual tokens per image.
+modelId: "muse-glimmer-30b"
+displayName: "Muse Glimmer 30B"
+version: "30b"
+# max_position_embeddings in the meta-models/Muse-Glimmer-30B config.json (revision a4e59da).
+maximumContextTokens: 131072
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+artifacts:
+  - artifactId: "q3-xl"
+    weightQuantization: "Q3_K_XL"
+    source:
+      repository: "unsloth/Muse-Glimmer-30B-GGUF"
+      revision: "faa5b025c584459c13febfa5c59883516710ae39"
+      file:
+        path: "Muse-Glimmer-30B-UD-Q3_K_XL.gguf"
+        provenanceDigest: "820d18e00c59376331eba62dd716a6bcdcaa305c2316f5da3a2fab36c7c37e15"
+  - artifactId: "q4-xl"
+    weightQuantization: "Q4_K_XL"
+    source:
+      repository: "unsloth/Muse-Glimmer-30B-GGUF"
+      revision: "faa5b025c584459c13febfa5c59883516710ae39"
+      file:
+        path: "Muse-Glimmer-30B-UD-Q4_K_XL.gguf"
+        provenanceDigest: "82bece304887a313ece08400bc030f6066c7bff5b906b0cd40308ec8a409fd38"
+  - artifactId: "q5-xl"
+    weightQuantization: "Q5_K_XL"
+    source:
+      repository: "unsloth/Muse-Glimmer-30B-GGUF"
+      revision: "faa5b025c584459c13febfa5c59883516710ae39"
+      file:
+        path: "Muse-Glimmer-30B-UD-Q5_K_XL.gguf"
+        provenanceDigest: "97a66c4b41d9e778af7cdfa43508e08dbf765fb5049b740c69ad815e5191c637"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "vision-projector"
+    source:
+      repository: "unsloth/Muse-Glimmer-30B-GGUF"
+      revision: "faa5b025c584459c13febfa5c59883516710ae39"
+      file:
+        path: "mmproj-Muse-Glimmer-30B-BF16.gguf"
+        provenanceDigest: "d08cdcfa0b41d8e20554b52df404ba4f7b440d0bc502a90038508b6407df8ee1"
+configurations:
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-10-19"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q3-xl"
+        modelArtifactId: "q3-xl"
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+      - bindingId: "q5-xl"
+        modelArtifactId: "q5-xl"
+    # Sizing shared by every hardware class and binding. Each hardware support entry sets the class
+    # parameters once and the binding parameters for every binding. Each constant has exactly one home
+    # (shared, class or binding), so shared constants cannot be overridden.
+    # The footprint is steeper below about 32768 tokens (the 32768-131072 points are exactly linear at
+    # 14336 bytes per token, while 4096 sits 180 MiB below that line), so this linear fit is a
+    # compromise: it over-predicts below the kink and its margin covers the largest under-prediction.
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "marginBytes"]
+      parameters:
+        # Per-slot llama.cpp state: sliding-window KV, sized from the meta-models/Muse-Glimmer-30B config.json
+        # (revision a4e59da): 2048 cells per slot (sliding_window, unified KV) x 39 sliding layers x 2 KV
+        # heads x 128 x f16 K and V.
+        # baseAccelBytes values exclude it: each is the 4-slot measurement minus 4 x slotStateBytes.
+        slotStateBytes: 81788928
+        visionBytes: 4123197436
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + ${accelBytesPerContextToken} * ${total-context}
+            + ${parallel-requests} * ${slotStateBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 12542675905
+              accelBytesPerContextToken: 15483
+              marginBytes: 114294784
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 15406599102
+              accelBytesPerContextToken: 15483
+              marginBytes: 114294784
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 20971260857
+              accelBytesPerContextToken: 15483
+              marginBytes: 114294784
+      - hardwareClassId: "nvidia-dedicated"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          # Derived, not measured: 400 MiB, since the GB10 base terms read 319-374 MiB low on
+          # the RTX 5090 host smoke runs of the speculative decoding project (b11429).
+          baseOffsetBytes: 419430400
+        # The binding parameters are the nvidia-unified (GB10) values verbatim until measured on
+        # dedicated memory, so a GB10 remeasurement updates both classes.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 12542675905
+              accelBytesPerContextToken: 15483
+              marginBytes: 114294784
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 15406599102
+              accelBytesPerContextToken: 15483
+              marginBytes: 114294784
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 20971260857
+              accelBytesPerContextToken: 15483
+              marginBytes: 114294784
+      - hardwareClassId: "apple"
+        # Apple Silicon is always unified memory.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
+        # footprint with the gemma-4-e2b Metal calibration.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 14856876514
+              accelBytesPerContextToken: 17496
+              marginBytes: 114294784
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 17499977774
+              accelBytesPerContextToken: 17496
+              marginBytes: 114294784
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 23706944213
+              accelBytesPerContextToken: 17496
+              marginBytes: 114294784
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+          jinja: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+              auxiliaryArtifactId: "vision-projector"
+              imageInputCapacity:
+                maximumImageCount: 1
+                supportedMediaTypes: ["LLAMA_CPP_IMAGE_MEDIA_TYPE_JPEG", "LLAMA_CPP_IMAGE_MEDIA_TYPE_PNG"]
+                maximumEncodedBytes: "20971520"
+                maximumDecodedBytes: "67108864"
+                maximumWidth: 8192
+                maximumHeight: 8192
+                maximumPixels: "16000000"
+                fixedVisualTokens: 4096
+                fixedDetail: "LLAMA_CPP_IMAGE_DETAIL_AUTO"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+profiles:
+  - profileId: "q3-xl"
+    displayName: "Unsloth Q3_K_XL"
+    description: "Uses the smaller Q3 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q3-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "q4-xl"
+    displayName: "Unsloth Q4_K_XL"
+    description: "Uses the balanced Q4 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "q5-xl"
+    displayName: "Unsloth Q5_K_XL"
+    description: "Uses the higher-precision Q5 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q5-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+intelligence:
+  overall: 17
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0

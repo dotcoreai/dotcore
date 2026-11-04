@@ -1,0 +1,132 @@
+syntax = "proto3";
+
+package dotcore.capacity.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// One site node's memory as the capacity component draws it: every pool of the node with what
+// occupies it, whether or not an execution target of the node can use it.
+message NodeMemory {
+  // Site node whose memory this is.
+  string site_node_id = 1;
+
+  // Whether the node's latest memory reading is fresh, stale or missing.
+  NodeMemoryState state = 2;
+
+  // When the node's latest memory reading was received; absent when it never reported one.
+  google.protobuf.Timestamp observed_at = 3;
+
+  // Device pools with dedicated memory in reported order, vendor by vendor, then the host pool; empty when the state is unavailable.
+  repeated NodeMemoryPool pools = 4;
+}
+
+// One memory pool of a node, with the deployments it can't size.
+message NodeMemoryPool {
+  // The pool and what occupies it.
+  MemoryPool pool = 1;
+
+  // Deployments expected to hold memory in the pool that hold none there, in segment order; applications whose memory isn't measured, such as CPU-only ones, are never listed.
+  repeated MemoryOwner unsized = 2;
+}
+
+// One memory pool and what occupies it, as the capacity component counts it.
+message MemoryPool {
+  // Where the pool's memory lives.
+  MemoryPoolKind kind = 1;
+
+  // Vendor-native identity of a device pool's device; empty for the host pool or a device that doesn't resolve.
+  string device_id = 2;
+
+  // Product name of a device pool's device; empty for the host pool or when unreported.
+  string device_name = 3;
+
+  // Enumeration index the vendor gives a device pool's device; absent for the host pool or when unreported.
+  optional uint32 device_index = 4;
+
+  // Bytes the pool holds; absent when unknown.
+  optional uint64 total_bytes = 5;
+
+  // What occupies the pool: model deployments, then application deployments, in their list order, then other use, then any previewed demand; together they are the drawn use.
+  repeated MemorySegment segments = 6;
+
+  // Drawn use past the total; zero within the total or when a fact is unknown.
+  uint64 over_total_bytes = 7;
+}
+
+// One part of a memory pool's drawn use.
+message MemorySegment {
+  // What the bytes stand for.
+  MemorySegmentSource source = 1;
+
+  // Deployment the bytes belong to; unset for other use and a previewed demand.
+  oneof owner {
+    // Model deployment the bytes belong to.
+    string model_deployment_id = 2;
+
+    // Application deployment the bytes belong to.
+    string application_deployment_id = 3;
+  }
+
+  // Bytes of the pool the segment takes.
+  uint64 bytes = 4;
+}
+
+// A deployment that occupies memory.
+message MemoryOwner {
+  // The deployment, by its lane.
+  oneof owner {
+    // A model deployment.
+    string model_deployment_id = 1;
+
+    // An application deployment.
+    string application_deployment_id = 2;
+  }
+}
+
+// Freshness of a node's memory reading.
+enum NodeMemoryState {
+  // The state is unspecified.
+  NODE_MEMORY_STATE_UNSPECIFIED = 0;
+
+  // The reading is fresh: totals and use are current.
+  NODE_MEMORY_STATE_AVAILABLE = 1;
+
+  // The reading is too old or the node isn't connected: totals hold, measured use is left out and only claims are drawn.
+  NODE_MEMORY_STATE_STALE = 2;
+
+  // The node never reported its memory or its report holds none: no pools.
+  NODE_MEMORY_STATE_UNAVAILABLE = 3;
+}
+
+// Where a memory pool's memory lives.
+enum MemoryPoolKind {
+  // The kind is unspecified.
+  MEMORY_POOL_KIND_UNSPECIFIED = 0;
+
+  // Dedicated memory of one accelerator device.
+  MEMORY_POOL_KIND_DEVICE = 1;
+
+  // A node's host memory, which unified devices and host-side estimates share.
+  MEMORY_POOL_KIND_HOST = 2;
+}
+
+// What a memory segment's bytes stand for.
+enum MemorySegmentSource {
+  // The source is unspecified.
+  MEMORY_SEGMENT_SOURCE_UNSPECIFIED = 0;
+
+  // Use the node measures and attributes to a deployment.
+  MEMORY_SEGMENT_SOURCE_MEASURED = 1;
+
+  // A ready deployment's estimate standing for use the node measures but doesn't attribute to it, such as host memory.
+  MEMORY_SEGMENT_SOURCE_ESTIMATED = 2;
+
+  // Memory a starting deployment is expected to take beyond what is measured of it; advisory, never a reservation.
+  MEMORY_SEGMENT_SOURCE_CLAIMED = 3;
+
+  // Measured use no deployment accounts for.
+  MEMORY_SEGMENT_SOURCE_OTHER = 4;
+
+  // A previewed configuration's demand.
+  MEMORY_SEGMENT_SOURCE_PREVIEWED = 5;
+}

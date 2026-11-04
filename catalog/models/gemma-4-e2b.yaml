@@ -1,0 +1,254 @@
+# Immutable provenance for the public Gemma GGUF.
+modelId: "gemma-4-e2b"
+displayName: "Gemma 4 E2B"
+version: "4-e2b"
+# max_position_embeddings in the google/gemma-4-E2B-it config.json (revision 3e22461).
+maximumContextTokens: 131072
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+artifacts:
+  - artifactId: "q4-k-m"
+    weightQuantization: "Q4_K_M"
+    source:
+      repository: "unsloth/gemma-4-E2B-it-GGUF"
+      revision: "0314792d7f1f7e229411f620751375812bb9faf2"
+      file:
+        path: "gemma-4-E2B-it-Q4_K_M.gguf"
+        provenanceDigest: "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8"
+  - artifactId: "q8-0"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "unsloth/gemma-4-E2B-it-GGUF"
+      revision: "0314792d7f1f7e229411f620751375812bb9faf2"
+      file:
+        path: "gemma-4-E2B-it-Q8_0.gguf"
+        provenanceDigest: "605d3c2647d7c58c1e4b5375ccb5702acf94c2611b4c8d4877812f8fdd32d053"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "vision-projector"
+    source:
+      repository: "unsloth/gemma-4-E2B-it-GGUF"
+      revision: "0314792d7f1f7e229411f620751375812bb9faf2"
+      file:
+        path: "mmproj-F16.gguf"
+        provenanceDigest: "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa"
+  - auxiliaryArtifactId: "mtp-draft"
+    source:
+      repository: "unsloth/gemma-4-E2B-it-GGUF"
+      revision: "0314792d7f1f7e229411f620751375812bb9faf2"
+      file:
+        path: "mtp-gemma-4-E2B-it.gguf"
+        provenanceDigest: "9eba819938efccfd6044f8af84e3bbfddc639a2bcf32ebc36420e6a649191919"
+configurations:
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-10-19"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q4-k-m"
+        modelArtifactId: "q4-k-m"
+      - bindingId: "q8-0"
+        modelArtifactId: "q8-0"
+    # Sizing shared by every hardware class and binding. Each hardware support entry sets the class
+    # parameters once and the binding parameters for every binding. Each constant has exactly one home
+    # (shared, class or binding), so shared constants cannot be overridden.
+    # MTP terms estimated, not measured: draft file size plus 20 MiB of buffers, and the per-token
+    # term of the measured E4B draft head, which shares this head's architecture.
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes", "visionBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "marginBytes"]
+      parameters:
+        # Per-slot llama.cpp state: sliding-window KV, sized from the google/gemma-4-E2B-it config.json
+        # (revision 3e22461): 512 cells per slot (sliding_window, unified KV) x 12 sliding layers with
+        # their own KV (the last 20 layers share it) x 1 KV head x 256 x f16 K and V.
+        # baseAccelBytes values exclude it: each is the 4-slot measurement minus 4 x slotStateBytes.
+        slotStateBytes: 6291456
+        mtpBaseBytes: 118789184
+        mtpBytesPerContextToken: 1024
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        # Available when vision is on, or when the class's measured footprint carries the vision tower
+        # unconditionally (visionBytes above zero).
+        acceleratorMemory:
+          unit: bytes
+          availableWhen: "${options.vision.enabled} || ${visionBytes} > 0"
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + ${accelBytesPerContextToken} * ${total-context}
+            + ${parallel-requests} * ${slotStateBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0)
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "10000000000"
+          minimumSystemMemoryBytes: "32000000000"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+          visionBytes: 1199243263
+        # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, llama.cpp b11429, contexts 4096-131072.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 1808580607
+              accelBytesPerContextToken: 7168
+              marginBytes: 132120576
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 2869411838
+              accelBytesPerContextToken: 7168
+              marginBytes: 132120576
+      - hardwareClassId: "nvidia-dedicated"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "10000000000"
+          minimumSystemMemoryBytes: "32000000000"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          # Derived, not measured: 400 MiB, since the GB10 base terms read 319-374 MiB low on
+          # the RTX 5090 host smoke runs of the speculative decoding project (b11429).
+          baseOffsetBytes: 419430400
+          visionBytes: 1199243263
+        # The binding parameters are the nvidia-unified (GB10) values verbatim until measured on
+        # dedicated memory, so a GB10 remeasurement updates both classes.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 1808580607
+              accelBytesPerContextToken: 7168
+              marginBytes: 132120576
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 2869411838
+              accelBytesPerContextToken: 7168
+              marginBytes: 132120576
+      - hardwareClassId: "apple"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "12000000000"
+        # Apple Silicon is always unified memory.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+          # The Apple measurement was taken with vision on, so the vision tower is already in the base.
+          visionBytes: 0
+        # Measured on an Apple M3 Max: unified memory, darwin/arm64, llama.cpp b11417, contexts 8192-30000, vision on.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 5199834176
+              accelBytesPerContextToken: 8402
+              # The measurement carries no separate margin.
+              marginBytes: 0
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 7657834176
+              accelBytesPerContextToken: 8402
+              marginBytes: 0
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          jinja: true
+          gpuLayers: 99
+          flashAttention: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+              auxiliaryArtifactId: "vision-projector"
+              imageInputCapacity:
+                maximumImageCount: 1
+                supportedMediaTypes: ["LLAMA_CPP_IMAGE_MEDIA_TYPE_JPEG", "LLAMA_CPP_IMAGE_MEDIA_TYPE_PNG"]
+                maximumEncodedBytes: "20971520"
+                maximumDecodedBytes: "67108864"
+                maximumWidth: 8192
+                maximumHeight: 8192
+                maximumPixels: "16000000"
+                fixedVisualTokens: 280
+                fixedDetail: "LLAMA_CPP_IMAGE_DETAIL_AUTO"
+          - optionId: "mtp"
+            mtp:
+              draft: { auxiliaryArtifactId: "mtp-draft" }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      # Unsloth's Gemma 4 guidance and the vLLM E2B recipe use 2 draft tokens.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "2"
+profiles:
+  - profileId: "fast-start"
+    displayName: "Unsloth Q4_K_M"
+    description: "Balances model quality and startup speed with Q4 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-k-m"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+  - profileId: "higher-precision"
+    displayName: "Unsloth Q8_0"
+    description: "Prioritizes model precision with Q8 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q8-0"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+intelligence:
+  overall: 8
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0

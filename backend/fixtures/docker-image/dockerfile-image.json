@@ -1,0 +1,19 @@
+{
+  "dockerfile": {
+    "buildArgs": {
+      "GREETING": "hello"
+    },
+    "context": "/nix/store/dh83hm0mf0ia2k3a4kn31d3zy62dbmqc-source",
+    "file": "Dockerfile",
+    "recipeHash": "ea79941dd432c0a5f3e3374cb7f65eee",
+    "storeName": "docker-image-fixture-build-linux-amd64-ea79941dd432c0a5f3e3374cb7f65eee",
+    "target": null
+  },
+  "identity": null,
+  "kind": "dockerfile",
+  "name": "fixture-build",
+  "platform": "linux/amd64",
+  "reference": "dotcore-nix/fixture-build:ea79941dd432c0a5f3e3374cb7f65eee",
+  "staleRecord": false,
+  "stored": null
+}

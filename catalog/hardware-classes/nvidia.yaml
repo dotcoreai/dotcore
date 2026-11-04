@@ -1,0 +1,6 @@
+# Any NVIDIA GPU, with dedicated or unified memory.
+hardwareClassId: "nvidia"
+displayName: "NVIDIA"
+description: "Any single NVIDIA GPU, with its own memory or sharing the host memory pool."
+selector:
+  accelerators: ["nvidia"]

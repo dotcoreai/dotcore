@@ -1,0 +1,107 @@
+# Synthetic model with the ids of the recorded telemetry: two tiers on llama.cpp with a KV cache
+# precision option and a prompt-cache and margin allowance. Its constants belong to the fixture.
+modelId: "nanbeige-4-3-33b"
+displayName: "Fixture Nanbeige"
+version: "fixture"
+maximumContextTokens: 524288
+options:
+  - optionId: "kv-cache"
+    displayName: "KV cache precision"
+    kvCachePrecision: {}
+artifacts:
+  - artifactId: "q3-iq3-s"
+    weightQuantization: "IQ3_S"
+    source:
+      repository: "fixture/model"
+      revision: "1111111111111111111111111111111111111111"
+      file:
+        path: "q3.gguf"
+        provenanceDigest: "2222222222222222222222222222222222222222222222222222222222222222"
+  - artifactId: "q4-k-m"
+    weightQuantization: "Q4_K_M"
+    source:
+      repository: "fixture/model"
+      revision: "1111111111111111111111111111111111111111"
+      file:
+        path: "q4.gguf"
+        provenanceDigest: "3333333333333333333333333333333333333333333333333333333333333333"
+configurations:
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+    artifactBindings:
+      - bindingId: "q3-iq3-s"
+        modelArtifactId: "q3-iq3-s"
+      - bindingId: "q4-k-m"
+        modelArtifactId: "q4-k-m"
+    sizing:
+      classParameters: ["promptCacheOnAccelerator"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "accelBytesPerContextTokenQ8", "marginBytes"]
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${options.kv-cache.precision} == "q8_0", 0, 1) * ${accelBytesPerContextToken} * ${total-context}
+            + if(${options.kv-cache.precision} == "q8_0", 1, 0) * ${accelBytesPerContextTokenQ8} * ${total-context}
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        parameters:
+          promptCacheOnAccelerator: 1
+        bindingSizing:
+          - bindingId: "q3-iq3-s"
+            parameters:
+              baseAccelBytes: 16833888256
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118008
+              marginBytes: 100000000
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 20922744832
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118046
+              marginBytes: 100000000
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+        optionRealizations:
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            stringEnum: { values: ["f16", "q8_0"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "f16"
+profiles:
+  - profileId: "q3-iq3-s"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q3-iq3-s"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q4-k-m"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-k-m"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"

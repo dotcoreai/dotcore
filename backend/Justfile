@@ -1,0 +1,177 @@
+set positional-arguments
+
+# List backend module recipes.
+help:
+  @just --list
+
+# Create the simulated development site.
+bootstrap:
+  cd .. && just dev::site-init simulated simulated
+
+# Run rust formatting
+format:
+  cargo fmt --all
+
+# Run rust lint checks.
+clippy:
+  cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+  # Production build without `test-support`, which every test build enables.
+  cargo clippy --locked --workspace --lib --bins -- -D warnings
+
+# Run rust tests.
+test *args:
+  cargo nextest run --locked --workspace "$@"
+
+  # Run doctests separately since nextest doesn't support them yet
+  # https://github.com/nextest-rs/nextest/issues/16
+  cargo test --locked --workspace --doc
+
+# Run tests with the diagnostic profile (JUnit report).
+test-diagnostics *args:
+  cargo nextest run --locked --workspace --profile diagnostic "$@"
+
+# Run all backend workspace tests through the Nix test derivation.
+# Always runs the suite: --rebuild when the output is already in the store (the
+# derivation is deterministic, see doInstallCargoArtifacts in nix/backend.nix);
+# --rebuild refuses fresh derivations, so fall back to a plain build there.
+[script]
+test-nix:
+  set -euo pipefail
+  cd ..
+  out=$(nix eval --raw .#backend.tests.default)
+  if [ -e "$out" ]; then
+    exec nix build --rebuild .#backend.tests.default --print-build-logs
+  else
+    exec nix build .#backend.tests.default --print-build-logs
+  fi
+
+# Fail unless nvml-wrapper is declared in exactly one Cargo.toml (backend/nvml).
+# Every other backend consumer reaches NVML through dotcore-nvml::open().
+[script]
+gate-nvml-single-owner:
+  set -euo pipefail
+  matches=$(grep -rl --include=Cargo.toml nvml-wrapper . | grep -v /target/ | sed 's|^\./||' | sort || true)
+  expected='nvml/Cargo.toml'
+  if [ "$matches" != "$expected" ]; then
+    echo "nvml single-owner violation: nvml-wrapper declared in: [$matches] (expected only: $expected)" >&2
+    exit 1
+  fi
+  echo "nvml single-owner gate: OK (nvml-wrapper only in $expected)"
+
+# Run the NVIDIA hardware tests (profile `nvidia`); extra arguments narrow the selection.
+test-nvidia *args:
+  cargo nextest run --locked --workspace -P nvidia --run-ignored only "$@"
+
+# Run the NVIDIA tests whose model needs a whole RTX 5090 (profile `nvidia5090`); run them only
+# when no other workload uses the card. Extra arguments narrow the selection.
+test-nvidia-5090 *args:
+  cargo nextest run --locked --workspace -P nvidia5090 --run-ignored only "$@"
+
+# Run the NVIDIA GB10 (DGX Spark) hardware tests (profile `gb10`); extra arguments narrow the selection.
+test-gb10 *args:
+  cargo nextest run --locked --workspace -P gb10 --run-ignored only "$@"
+
+# Run the Apple Silicon hardware tests on a macOS host: GPU observation, and llama.cpp on Metal
+# end to end through the native runtime, whose workloads need the profile's launcher.
+test-apple *args: build-launcher
+  cargo nextest run --locked --workspace -P apple --run-ignored only "$@"
+
+# Run the tests gated on a native-architecture Docker daemon (profile `docker`); extra arguments narrow the selection.
+test-docker *args:
+  cargo nextest run --locked --workspace -P docker --run-ignored only "$@"
+
+# Fail unless every ignored test is a hardware test of exactly one class or a marked non-hardware
+# test (`_helper`, `_stub`, `net_`), and every hardware test is ignored. Lists only; needs no hardware.
+[script]
+gate-hardware-coverage:
+  set -euo pipefail
+  # The only home of the non-hardware ignored markers.
+  allowed='test(~_helper) | test(~_stub) | test(~net_)'
+  dir=$(mktemp -d)
+  trap 'rm -rf "$dir"' EXIT
+  # `--locked --workspace` reuses the `just test` build; `list` exits 0 on an empty selection, so
+  # the checks compare content. Output: one sorted `binary-id test-name` line per test.
+  list() {
+    out=$1; shift
+    cargo nextest list --locked --workspace --message-format oneline "$@" | sort > "$dir/$out"
+  }
+  list ignored --run-ignored only
+  list hw_ignored --run-ignored only -E 'test(~hw_)'
+  list hw_all --run-ignored all -E 'test(~hw_)'
+  list allow --run-ignored only -E "$allowed"
+  list docker --run-ignored only -E 'test(~hw_docker_)'
+  list nvidia --run-ignored only -E 'test(~hw_nvidia_)'
+  list nvidia5090 --run-ignored only -E 'test(~hw_nvidia5090_)'
+  list gb10 --run-ignored only -E 'test(~hw_gb10_)'
+  list apple --run-ignored only -E 'test(~hw_apple_)'
+  sort -u "$dir/hw_ignored" "$dir/allow" > "$dir/covered"
+  sort -u "$dir/docker" "$dir/nvidia" "$dir/nvidia5090" "$dir/gb10" "$dir/apple" > "$dir/classes"
+  fail=0
+  report() { # title, file of offending lines
+    if [ -s "$2" ]; then
+      echo "hardware coverage gate: $1:" >&2
+      sed 's/^/  /' "$2" >&2
+      fail=1
+    fi
+  }
+  comm -23 "$dir/ignored" "$dir/covered" > "$dir/unmarked"
+  report "ignored tests that are neither hardware (hw_<class>_) nor marked non-hardware (_helper, _stub, net_)" "$dir/unmarked"
+  comm -13 "$dir/hw_ignored" "$dir/hw_all" > "$dir/leaking"
+  report "hardware tests (hw_) that are not ignored and would run in 'just test'" "$dir/leaking"
+  comm -3 "$dir/hw_ignored" "$dir/classes" > "$dir/unclassed"
+  report "hardware tests (hw_) outside the hw_docker_, hw_nvidia_, hw_nvidia5090_, hw_gb10_ and hw_apple_ classes" "$dir/unclassed"
+  if [ "$fail" -ne 0 ]; then
+    exit 1
+  fi
+  echo "hardware coverage gate: OK ($(wc -l < "$dir/hw_ignored" | tr -d ' ') hardware tests, $(wc -l < "$dir/allow" | tr -d ' ') marked non-hardware ignored tests)"
+
+# Build all backend workspace packages with locked dependencies.
+build:
+  cargo build --locked --workspace
+
+# Remove Rust build output.
+clean:
+  cargo clean
+
+# Build generated protobuf bindings without handwritten backend consumers.
+build-proto:
+  cargo build --locked --package dotcore-proto
+
+# Build the launcher binary; pass `--release` for the release profile.
+build-launcher profile="":
+  cargo build --locked {{profile}} --package dotcore-launcher
+
+# Start the development backend with Cargo.
+run-dev: build-launcher
+  exec cargo run --locked --package dotcore-cli --bin dotc -- server start
+
+# Start the development backend with Cargo's release profile.
+run-dev-release: (build-launcher "--release")
+  exec cargo run --locked --release --package dotcore-cli --bin dotc -- server start
+
+# Fail unless the development site exists, which the backend needs to start.
+[no-exit-message]
+bootstrap-check:
+  @[ -f "${DOTCORE_SITE_DIR:?DOTCORE_SITE_DIR is unset; enter the workspace direnv shell}/site.yaml" ] || { echo "backend is not bootstrapped (no development site at $DOTCORE_SITE_DIR); run \`just backend::bootstrap\`" >&2; exit 1; }
+
+# Start the nix built backend.
+run-nix:
+  cd .. && exec nix run .#dotc -- server start
+
+# Start the selected development backend.
+run:
+  @case "${DOTCORE_BACKEND_RUN_MODE-dev}" in \
+    dev) just run-dev ;; \
+    dev-release) just run-dev-release ;; \
+    nix) just run-nix ;; \
+    *) printf 'DOTCORE_BACKEND_RUN_MODE must be one of: dev, dev-release, nix; got: %s\n' "${DOTCORE_BACKEND_RUN_MODE}" >&2; exit 1 ;; \
+  esac
+
+# Run all backend validation operations (format, clippy, test).
+check:
+  just format
+  just clippy
+  just gate-nvml-single-owner
+  just test
+  just gate-hardware-coverage

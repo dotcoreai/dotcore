@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package dotcore.telemetry.v1;
+
+import "dotcore/catalog/v1/engine_release.proto";
+import "dotcore/catalog/v1/model.proto";
+import "dotcore/observation/v1/observation.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// One observed resource measurement of a running model workload, retained by observability.
+// Records hold resolved launch inputs and memory facts only, never log text, environment, or process identity; values after recognized sensitive custom-argument flags are masked.
+message WorkloadResourceRecord {
+  // Unique identity used to deduplicate records copied across telemetry directories.
+  string record_id = 1;
+
+  // Time at which the record was produced.
+  google.protobuf.Timestamp recorded_at = 2;
+
+  // Dotcore build version of the producer.
+  string producer_version = 3;
+
+  // Component that produced this record.
+  WorkloadResourceSource source = 4;
+
+  // Exact workload realization the observation belongs to.
+  WorkloadRealizationKey realization = 5;
+
+  // Resolved launch inputs of the observed workload.
+  WorkloadResourceInputs inputs = 6;
+
+  // Node and accelerator facts at observation time.
+  WorkloadResourceNode node = 7;
+
+  // Observed resource usage of the workload.
+  WorkloadResourceObservation observation = 8;
+}
+
+// Component that produced a workload resource record.
+enum WorkloadResourceSource {
+  // Missing source is invalid.
+  WORKLOAD_RESOURCE_SOURCE_UNSPECIFIED = 0;
+
+  // Development tooling measured a transient development workload.
+  WORKLOAD_RESOURCE_SOURCE_DEVELOPMENT = 1;
+
+  // The inference controller observed a local model deployment.
+  WORKLOAD_RESOURCE_SOURCE_DEPLOYMENT = 2;
+}
+
+// Identifies one workload realization across the records of its lifetime.
+message WorkloadRealizationKey {
+  // Owning deployment or development owner identity.
+  string owner_id = 1;
+
+  // Realization generation within the owner.
+  uint64 generation = 2;
+}
+
+// Resolved model and engine launch inputs that sizing equations are fitted against.
+message WorkloadResourceInputs {
+  // Stable catalog model identifier.
+  string model_id = 1;
+
+  // Model-local engine configuration identifier.
+  string configuration_id = 2;
+
+  // Supported hardware class the launch resolved to, whose sizing applies; empty when the producer recorded none.
+  string hardware_class_id = 11;
+
+  // Model profile identifier used for resolution.
+  string profile_id = 3;
+
+  // Selected model artifact identifier.
+  string model_artifact_id = 4;
+
+  // Selected auxiliary artifact identifiers, which with the model artifact identify the artifact binding.
+  repeated string auxiliary_artifact_ids = 5;
+
+  // Engine release identifier.
+  string engine_release_id = 6;
+
+  // Engine artifact identifier within the release.
+  string engine_artifact_id = 7;
+
+  // Engine artifact reference: the OCI image reference (with its digest when pinned) for OCI engines, or the evaluated Nix store path for Nix engines.
+  string engine_artifact_reference = 8;
+
+  // Complete resolved engine parameter values.
+  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 9;
+
+  // Complete resolved option values.
+  repeated dotcore.catalog.v1.ModelOptionValues option_values = 10;
+
+  // Custom launch argument tokens in launch order; values of recognized sensitive flags are masked.
+  repeated string custom_argument_tokens = 12;
+}
+
+// Node facts that relate the observation to its hardware.
+message WorkloadResourceNode {
+  // Managed node identity, or the host name for development measurements.
+  string node_id = 1;
+
+  // Total host memory in bytes, the capacity of unified accelerators.
+  optional uint64 host_total_memory_bytes = 2;
+
+  // Host memory in bytes obtainable without evicting other applications' working memory at
+  // observation time, including reclaimable file cache.
+  optional uint64 host_available_memory_bytes = 3;
+
+  // Accelerator devices the workload was attributed to.
+  repeated WorkloadResourceDevice devices = 4;
+}
+
+// One accelerator device and the workload's memory on it.
+message WorkloadResourceDevice {
+  // Vendor-native immutable device identity.
+  string device_id = 1;
+
+  // Device model reported by the vendor backend.
+  string model = 2;
+
+  // Driver or runtime version reported by the vendor backend.
+  string driver_version = 3;
+
+  // Whether the device owns dedicated memory or shares the host memory pool.
+  dotcore.observation.v1.AcceleratorMemoryArchitecture memory_architecture = 4;
+
+  // Dedicated device memory in bytes, absent for unified devices.
+  optional uint64 total_memory_bytes = 5;
+
+  // Accelerator memory attributed to the workload on this device.
+  uint64 attributed_memory_bytes = 6;
+
+  // Peak summed accelerator memory of other processes on this device, a lower bound; absent when not observed.
+  optional uint64 unattributed_peak_memory_bytes = 7;
+}
+
+// Workload resource usage at one point of its lifetime.
+message WorkloadResourceObservation {
+  // Lifetime point that triggered the observation.
+  WorkloadResourceObservationKind kind = 1;
+
+  // Time elapsed since the workload became ready, when known.
+  google.protobuf.Duration since_ready = 2;
+
+  // Accelerator memory attributed to the workload across all devices.
+  uint64 attributed_memory_bytes = 3;
+
+  // Engine-specific facts extracted from the workload's startup output.
+  oneof engine_facts {
+    // Facts reported by a vLLM engine.
+    VllmStartupFacts vllm = 4;
+  }
+}
+
+// Lifetime point that triggered a workload resource observation.
+enum WorkloadResourceObservationKind {
+  // Missing kind is invalid.
+  WORKLOAD_RESOURCE_OBSERVATION_KIND_UNSPECIFIED = 0;
+
+  // First observation after the deployment became ready.
+  WORKLOAD_RESOURCE_OBSERVATION_KIND_STARTUP = 1;
+
+  // Attributed memory grew beyond the last recorded value.
+  WORKLOAD_RESOURCE_OBSERVATION_KIND_PEAK = 2;
+
+  // Development tooling measured the workload on request.
+  WORKLOAD_RESOURCE_OBSERVATION_KIND_MEASUREMENT = 3;
+}
+
+// Memory facts a vLLM engine reports while starting; each is absent when its log line was not found.
+message VllmStartupFacts {
+  // Version of the log extractor that produced these facts.
+  uint32 extractor_version = 1;
+
+  // KV cache capacity in tokens.
+  optional uint64 kv_cache_token_capacity = 2;
+
+  // Memory reserved for the KV cache in bytes.
+  optional uint64 kv_cache_reserved_bytes = 3;
+
+  // Memory taken by model loading in bytes.
+  optional uint64 model_loading_bytes = 4;
+
+  // Memory taken by CUDA graph capture in bytes.
+  optional uint64 cuda_graph_bytes = 5;
+
+  // Free CUDA memory at engine startup in bytes; vLLM reports no CUDA total on successful starts.
+  optional uint64 startup_cuda_free_bytes = 6;
+}

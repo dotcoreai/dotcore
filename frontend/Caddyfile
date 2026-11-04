@@ -1,0 +1,11 @@
+{
+	admin off
+	auto_https off
+}
+
+http://{$DOTCORE_FRONTEND_STATIC_SERVER_HOST}:{$DOTCORE_FRONTEND_STATIC_SERVER_PORT} {
+	bind {$DOTCORE_FRONTEND_STATIC_SERVER_HOST}
+	root * "{$DOTCORE_FRONTEND_STATIC_SERVER_ROOT}"
+	try_files {path} /index.html
+	file_server
+}

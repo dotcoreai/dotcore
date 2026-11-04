@@ -1,0 +1,15 @@
+# An Apple Silicon Mac with an M3 Max and 36 GiB of unified memory: the reference Mac that
+# hardware qualification compares real readings with.
+platform: darwin/arm64
+cpuCount: 14
+hostMemory:
+  totalBytes: 38654705664 # 36 GiB
+  idleUsedBytes: 20076789760 # 18.7 GiB: the reference Mac is a laptop in daily use
+gpus:
+  # Apple GPUs have no vendor UUID; every Mac reports this one ID.
+  - id: apple-gpu-0
+    vendor: apple
+    model: Apple M3 Max
+    memory:
+      architecture: unified
+    workingSetLimitBytes: 30150672384 # 28.1 GiB, Metal's recommended limit (78% of memory)

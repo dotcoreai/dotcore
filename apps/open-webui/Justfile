@@ -1,0 +1,5 @@
+import '../../nix/docker-images/registry.just'
+
+# List Open WebUI app recipes.
+help:
+    @just --list

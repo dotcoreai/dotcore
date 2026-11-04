@@ -1,0 +1,7 @@
+# Rust build output
+/target/
+
+# Runtime-generated Site current state and its sidecar lock (never committed)
+state.pb
+state.pb.lock
+.state.pb.*.tmp

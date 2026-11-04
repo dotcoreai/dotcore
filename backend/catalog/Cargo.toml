@@ -1,0 +1,27 @@
+[package]
+name = "dotcore-catalog"
+description = "Immutable catalog of models, engine releases, applications and upstream model templates, with sizing and the catalog API."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+dotcore-domain = { path = "../domain" }
+dotcore-proto = { path = "../proto" }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[features]
+# Test-only catalog fixtures for the unit tests of crates above; never enabled by production builds.
+test-support = ["dotcore-domain/test-support"]
+
+[dev-dependencies]
+dotcore-domain = { path = "../domain", features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

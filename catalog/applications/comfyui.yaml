@@ -1,0 +1,65 @@
+# Immutable ComfyUI graph: one service serving the web editor and the prompt API on 8188. Custom
+# nodes, inputs, generated images, and user state live on per-deployment storage; downloaded models
+# live on storage shared by every ComfyUI deployment on the node.
+applicationId: "comfyui"
+displayName: "ComfyUI"
+description: "Node-based image and video generation served through an HTTP prompt API."
+notes: |-
+  Downloaded models live in storage shared by every ComfyUI deployment on the node, so they survive removing a deployment. Custom nodes, inputs, generated images, and user state stay with the deployment. The editor's missing-models dialog downloads public models from Hugging Face and Civitai on the server; models that need a login are placed by hand.
+  Deployments on one node share their models, so one deployment can place a model file, including formats that run code when loaded, that another deployment loads. Each deployment already runs as root without a login, so this grants no new authority.
+  The app has no login. Anyone who can reach its published port can run workflows that load any custom node of the deployment, which run as root with the container's network and GPU access.
+  The only access control is the address the node publishes applications on, plus the network in front of it, so publish ComfyUI on a trusted network only.
+version: "0.42.5"
+graph:
+  parameters:
+    - advanced: true
+      definition:
+        parameterId: "vram-mode"
+        displayName: "VRAM mode"
+        description: "How ComfyUI keeps models in GPU memory. Auto loads and offloads on demand; modes other than auto need a GPU target."
+        stringEnum:
+          values: ["auto", "highvram", "gpu-only", "novram"]
+          defaultValue: "auto"
+  services:
+    - serviceName: "comfyui"
+      # The image and its digests are pinned by `apps/comfyui/docker-image.nix`.
+      artifact:
+        nix:
+          flake: "self"
+          package: "apps.comfyui.docker"
+          dockerImage: {}
+        supportedPlatforms:
+          - operatingSystem: "linux"
+            architecture: "amd64"
+          - operatingSystem: "linux"
+            architecture: "arm64"
+      # The image entrypoint owns every ComfyUI flag and the CPU fallback; the VRAM mode reaches it
+      # as an environment variable.
+      ports:
+        - portName: "http"
+          portNumber: 8188
+      configurationBindings:
+        - bindingName: "vram-mode"
+          environmentVariable: "COMFYUI_VRAM_MODE"
+          parameterId: "vram-mode"
+      storageBindings:
+        # ComfyUI's base directory: custom nodes, inputs, generated images, and user state live
+        # below it, on storage that belongs to the deployment.
+        - bindingName: "data"
+          mountPath: "/data"
+          kind: "STORAGE_KIND_DATA"
+          scope: "STORAGE_SCOPE_DEPLOYMENT"
+        # Downloaded models, nested over the base directory's models folder. Every ComfyUI
+        # deployment on the node shares this storage, and it outlives each deployment.
+        - bindingName: "models"
+          mountPath: "/data/models"
+          kind: "STORAGE_KIND_DATA"
+          scope: "STORAGE_SCOPE_APPLICATION"
+      readiness:
+        httpGet:
+          portName: "http"
+          path: "/system_stats"
+  primaryEndpoint:
+    serviceName: "comfyui"
+    portName: "http"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"

@@ -1,0 +1,292 @@
+
+set positional-arguments
+
+# List cluster recipes.
+help:
+  @just --list
+
+# Join a worker on `target` (`local` or a remote `<group>[:<host>]`) to this workspace's manager site, offering to stop a running manager first. Arguments after `--` go to `dotc node join`, such as `--inference simulated:mac-64g` for a worker on simulated hardware.
+[script]
+join target *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/pc-endpoint.sh
+  source dev/confirm.sh
+  source dev/cluster/targets.sh
+  target="$1"
+  shift
+  if test "${1:-}" = "--"; then shift; fi
+  join_args=("$@")
+  step() { echo "cluster join $target: $*" >&2; }
+  fail() { echo "cluster join $target: $* failed" >&2; exit 1; }
+
+  test -n "${PC_SOCKET_PATH:-}" || { echo 'PC_SOCKET_PATH is unset; enter the workspace direnv shell first' >&2; exit 2; }
+  pc_stop_running_or_exit "cluster join $target" "$PC_SOCKET_PATH" manager 'stop the manager first, node add needs the site lock: just dev::down'
+  target="$(normalize_target "$target")"
+  if recorded_targets | grep -qx -- "$target"; then
+    echo "$target already holds a worker of this cluster; remove it first: just dev::cluster::clean $target" >&2
+    exit 2
+  fi
+
+  # The first build of a fresh target can take many minutes, so it happens before the token starts expiring.
+  step prepare
+  if test "$target" = local; then
+    just dev::cluster::_worker-prepare || fail prepare
+  else
+    just dev::remote::run "$target" dev::cluster::_worker-prepare || fail 'prepare (sync and build)'
+  fi
+
+  # Recorded before the join: a join can commit on the manager and then lose its connection, and the
+  # cleanup must still reach that worker.
+  record_target "$target"
+
+  # node add holds the stopped site and prints nothing secret: the token travels through a private file
+  # that exists only once the join listener is bound, so waiting for it replaces polling the port.
+  step token
+  token_file="$DOTCORE_WORKER_DIR.join-token"
+  added="$(mktemp)"
+  mkdir -p "$(dirname "$token_file")"
+  rm -f "$token_file"
+  dotc node add --site-dir "$DOTCORE_SITE_DIR" --listen "$DOTCORE_PRIVATE_ADDR" --yes --token-file "$token_file" > "$added" &
+  add_pid=$!
+  trap 'kill "$add_pid" 2>/dev/null || true; rm -f "$token_file" "$added"' EXIT
+  for _ in $(seq 1 600); do
+    test ! -e "$token_file" || break
+    kill -0 "$add_pid" 2>/dev/null || { wait "$add_pid" || true; fail 'node add (exited before the join token was ready)'; }
+    sleep 0.1
+  done
+  test -e "$token_file" || fail 'token (timed out waiting for node add to publish the join token)'
+
+  step "join on $target"
+  if test "$target" = local; then
+    just dev::cluster::_worker-join --token-file "$token_file" ${join_args[@]+"${join_args[@]}"} || fail join
+  else
+    # exec keeps the token out of run records; its command is re-parsed by sh, so every word is quoted.
+    quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+    command="just dev::cluster::_worker-join --token $(quote "$(cat "$token_file")")"
+    for argument in ${join_args[@]+"${join_args[@]}"}; do command+=" $(quote "$argument")"; done
+    just dev::remote::exec "$target" "$command" || fail join
+  fi
+
+  step 'wait for node add'
+  wait "$add_pid" || fail 'node add'
+  cat "$added"
+  record_node_id "$target" "$(sed -n 's/^DOTCORE_NODE_ID=//p' "$added")"
+  trap - EXIT
+  rm -f "$token_file" "$added"
+
+# Start the cluster detached: with no target, the manager and every recorded worker; with a target, only that worker. A remote worker syncs this workspace first, and its `workspace ... at <commit>` line names the code it runs.
+[script]
+up target="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/pc-endpoint.sh
+  source dev/cluster/targets.sh
+  if test -n "{{target}}"; then
+    start_worker "$(normalize_target "{{target}}")"
+    exit 0
+  fi
+  if test "$(pc_endpoint_state "$PC_SOCKET_PATH")" != live; then just dev::up-daemon; fi
+  for target in $(recorded_targets); do start_worker "$target"; done
+
+# Stop the cluster: with no target, every recorded worker and then the manager; with a target, only that worker. Succeeds for stacks that are not running.
+[script]
+down target="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/cluster/targets.sh
+  if test -n "{{target}}"; then
+    stop_worker "$(normalize_target "{{target}}")"
+    exit 0
+  fi
+  for target in $(recorded_targets); do stop_worker "$target"; done
+  just dev::down
+
+# Show recent logs of the worker backend on `target`.
+[script]
+logs target lines="200":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/cluster/targets.sh
+  target="$(normalize_target "{{target}}")"
+  if test "$target" = local; then
+    just dev::cluster::_worker-logs "{{lines}}"
+  else
+    just dev::remote::exec "$target" just dev::cluster::_worker-logs "{{lines}}"
+  fi
+
+# Remove the cluster: stop it, make every worker leave, then clean the workspace. With a target, remove only that worker and its node. Asks before stopping or removing anything; a leaving worker needs Docker running on its host.
+[script]
+clean target="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/pc-endpoint.sh
+  source dev/cluster/targets.sh
+  source dev/confirm.sh
+  case "${DOTCORE_YES:-}" in
+    ''|0|1) ;;
+    *) echo 'DOTCORE_YES must be 1 or unset' >&2; exit 2 ;;
+  esac
+  yes_args=()
+  if test "${DOTCORE_YES:-}" = 1; then yes_args=(--yes); fi
+  # A remote worker leaves without a terminal, so dotc cannot ask there: one question here covers every remote
+  # worker of the run, while a local worker and the manager site still ask through dotc.
+  confirm_remote_leaves() {
+    local target node_id summary=()
+    for target in "$@"; do
+      test "$target" != local || continue
+      node_id="$(recorded_node_id "$target")"
+      summary+=("* worker ${node_id:-without a completed join} on $target: it leaves the cluster, which stops its native workloads and Docker resources and deletes its folder")
+    done
+    test "${#summary[@]}" -gt 0 || return 0
+    confirm_or_exit "cleaning the remote workers" "Make these workers leave?" "Cleaning the cluster removes these remote workers:" "${summary[@]}"
+  }
+
+  if test -n "{{target}}"; then
+    target="$(normalize_target "{{target}}")"
+    node_id="$(recorded_node_id "$target")"
+    confirm_remote_leaves "$target"
+    # node remove needs the site lock, so the manager stops before the worker leaves rather than after.
+    if test -n "$node_id" && test -e "$DOTCORE_SITE_DIR"; then
+      test -n "${PC_SOCKET_PATH:-}" || { echo 'PC_SOCKET_PATH is unset; enter the workspace direnv shell first' >&2; exit 2; }
+      pc_stop_running_or_exit "cleaning $target" "$PC_SOCKET_PATH" manager 'stop the manager first, node remove needs the site lock: just dev::down'
+    fi
+    stop_worker "$target"
+    leave_worker "$target" || { echo "cluster clean: the worker on $target did not leave" >&2; exit 1; }
+    if test -n "$node_id" && test -e "$DOTCORE_SITE_DIR" && dotc node list --site-dir "$DOTCORE_SITE_DIR" | grep -qx "DOTCORE_NODE_ID=$node_id"; then
+      dotc node remove --site-dir "$DOTCORE_SITE_DIR" "$node_id" --forget-deployments ${yes_args[@]+"${yes_args[@]}"}
+    elif test -z "$node_id" && test -e "$DOTCORE_SITE_DIR"; then
+      # Without a manager site there is no node left to remove, so only an existing site needs a check.
+      echo "cluster clean: no recorded node id for $target; check the manager with dotc node list" >&2
+    fi
+    forget_target "$target"
+    exit 0
+  fi
+
+  targets="$(recorded_targets)"
+  if test -e "$DOTCORE_WORKER_DIR" && ! grep -qx local <<<"$targets"; then targets="$targets local"; fi
+  confirm_remote_leaves $targets
+  for target in $targets; do stop_worker "$target"; done
+  just dev::down
+  # Each worker leaves this cluster's record once it is gone, so a rerun after a failure resumes there.
+  for target in $targets; do
+    leave_worker "$target" || { echo "cluster clean: the worker on $target did not leave; the manager site is kept" >&2; exit 1; }
+    forget_target "$target"
+  done
+  just dev::clean
+
+# Initialize a manager site and join a local worker to it: the single-machine cluster. Inference and applications take several choices separated by commas, as for site-init. `nvidia` needs an nvidia_device CDI selector (ex: nvidia.com/gpu=0); `apple` declares ephemeral native targets on both nodes. worker_inference gives the worker its own inference choices, such as a `simulated:gb10` manager with a `simulated:mac-64g` worker.
+[script]
+two-node-init inference applications display_name="Worker two" worker_host="127.0.0.2" nvidia_device="" worker_inference="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/site-choices.sh
+  worker_inference="{{worker_inference}}"
+  site_choice_flags "${worker_inference:-{{inference}}}" "{{applications}}"
+  case ",{{inference}},${worker_inference}," in
+    *,nvidia,*)
+      if [ -z "{{nvidia_device}}" ]; then
+        echo 'two-node-init with inference nvidia requires an nvidia_device CDI selector (ex: nvidia.com/gpu=0)' >&2
+        exit 2
+      fi
+      ;;
+  esac
+  device_args=()
+  if [ -n "{{nvidia_device}}" ]; then device_args=(--nvidia-device "{{nvidia_device}}"); fi
+  test ! -e "$DOTCORE_WORKER_DIR" || { echo "worker node folder already exists at $DOTCORE_WORKER_DIR; run just dev::cluster::clean first" >&2; exit 2; }
+  just dev::site-init "{{inference}}" "{{applications}}"
+  just dev::cluster::join local -- --name "{{display_name}}" --host "{{worker_host}}" "${choice_flags[@]}" ${device_args[@]+"${device_args[@]}"} ${native_flags[@]+"${native_flags[@]}"}
+
+# The recipes below run on the worker's own machine; the public recipes dispatch them to the target.
+
+# Build the development shell's `dotc`, which joins this machine's worker, so a first build never runs while a join token is expiring.
+[private]
+_worker-prepare:
+  cd ../.. && nix build .#dotc --no-link
+
+# Join this machine's worker folder with `dotc node join`, passing every argument through (the token included). It adds `--yes`, and the worker folder and worker private port unless given.
+[private]
+[script]
+_worker-join *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  join_args=("$@")
+  has_option() {
+    local argument
+    for argument in ${join_args[@]+"${join_args[@]}"}; do
+      case "$argument" in "$1"|"$1"=*) return 0 ;; esac
+    done
+    return 1
+  }
+  has_option --site-dir || join_args=(--site-dir "$DOTCORE_WORKER_DIR" ${join_args[@]+"${join_args[@]}"})
+  has_option --private-port || join_args+=(--private-port "$DOTCORE_WORKER_PRIVATE_PORT")
+  mkdir -p "$(dirname "$DOTCORE_WORKER_DIR")"
+  cd ../.. && dotc node join ${join_args[@]+"${join_args[@]}"} --yes
+
+# Start this machine's joined worker in its own detached Process Compose stack.
+[private]
+[script]
+_worker-up:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  test -f "$DOTCORE_WORKER_DIR/worker.yaml" || { echo "missing joined worker node folder at $DOTCORE_WORKER_DIR; join it first: just dev::cluster::join" >&2; exit 2; }
+  # The worker reads everything else from its folder; process-compose-worker.yaml drops the manager's addresses.
+  cd ../.. && DOTCORE_SITE_DIR="$DOTCORE_WORKER_DIR" process-compose --config dev/cluster/process-compose-worker.yaml --disable-dotenv --use-uds --unix-socket "$PC_SOCKET_PATH-worker" --detached
+
+# Stop this machine's worker stack; succeeds when it is not running and removes a socket left behind by a worker that died without cleanup.
+[private]
+[script]
+_worker-down:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/pc-endpoint.sh
+  socket="$PC_SOCKET_PATH-worker"
+  case "$(pc_endpoint_state "$socket")" in
+    live) process-compose --use-uds --unix-socket "$socket" down ;;
+    stale) rm -f -- "$socket" ;;
+    *)
+      echo "cannot tell whether the worker is running at $socket; enter the workspace direnv shell and retry" >&2
+      exit 1
+      ;;
+  esac
+
+# Show recent logs of this machine's worker backend.
+[private]
+_worker-logs lines="200":
+  cd ../.. && process-compose --use-uds --unix-socket "$PC_SOCKET_PATH-worker" process logs worker --tail "{{lines}}" --raw-log | sed -E 's/\x1b\[[0-9;]*m//g'
+
+# Make this machine's worker leave and remove its folder, offering to stop it first.
+[private]
+[script]
+_worker-leave:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/pc-endpoint.sh
+  source dev/confirm.sh
+  # A running stack owns the worker's folder, so it stops before anything is deleted; the sourced probe
+  # decides what a running stack is, and an endpoint it cannot read fails closed rather than open.
+  test -n "${PC_SOCKET_PATH:-}" || { echo 'PC_SOCKET_PATH is unset; enter the workspace direnv shell before cleaning' >&2; exit 2; }
+  pc_stop_running_or_exit 'the worker leave' "$PC_SOCKET_PATH-worker" worker 'stop the worker before it leaves: just dev::cluster::down'
+  yes_args=()
+  if test "${DOTCORE_YES:-}" = 1; then yes_args=(--yes); fi
+
+  # A plain rm would orphan the worker's native and Docker workloads, so the worker leaves through dotc, which
+  # takes the node custody lock, stops them, and removes the folder. An interrupted leave keeps a pending marker
+  # beside the folder, and a rerun finishes it. A folder without worker.yaml (a failed join) is no node folder,
+  # so it falls back to the site delete.
+  if test -f "$DOTCORE_WORKER_DIR/worker.yaml" || test -e "$DOTCORE_WORKER_DIR.leave-pending"; then
+    dotc node leave --site-dir "$DOTCORE_WORKER_DIR" ${yes_args[@]+"${yes_args[@]}"}
+  elif test -e "$DOTCORE_WORKER_DIR"; then
+    dotc site delete --site-dir "$DOTCORE_WORKER_DIR" --skip-runtime-cleanup ${yes_args[@]+"${yes_args[@]}"}
+  fi
+  # The worker's stale socket file goes with its folder.
+  pc_remove_stale_socket "$PC_SOCKET_PATH-worker"
+  rm -f -- "$DOTCORE_WORKER_DIR.lock" "$DOTCORE_WORKER_DIR.join-token" "$DOTCORE_WORKER_DIR.leave-pending"

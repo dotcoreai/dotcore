@@ -1,0 +1,20 @@
+mod comfyui 'comfyui/Justfile'
+mod hermes 'hermes/Justfile'
+mod n8n 'n8n/Justfile'
+mod open-webui 'open-webui/Justfile'
+
+# List app modules.
+help:
+  @just --list
+
+# Load every application image into the current Docker daemon.
+image-load:
+  just comfyui image-load
+  just hermes image-load
+  just n8n image-load
+  just open-webui image-load
+
+# Run the image workflow tests of the applications that have one (comfyui, hermes); loader tests are `just dev::docker-images-check`.
+test:
+  just comfyui image-test
+  just hermes image-test

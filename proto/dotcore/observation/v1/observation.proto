@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+package dotcore.observation.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// One current hardware observation with independent host and per-vendor accelerator results.
+message HardwareSnapshot {
+  // The time at which this snapshot observation was made.
+  google.protobuf.Timestamp observed_at = 1;
+
+  // The host observation result.
+  HostObservation host = 2;
+
+  // Observations for production-supported accelerator vendors on this node.
+  repeated AcceleratorObservation accelerators = 3;
+}
+
+// Availability of one configured local runtime execution target.
+// The result is infrastructure evidence and does not establish workload fit or readiness.
+message RuntimeObservation {
+  // Stable execution-target identity from configured site topology.
+  string execution_target_id = 1;
+
+  // Configured runtime class for this execution target.
+  RuntimeKind kind = 2;
+
+  oneof result {
+    // The configured runtime capability was available when observed.
+    google.protobuf.Empty available = 3;
+
+    // This node cannot support the configured runtime capability.
+    ObservationUnavailable unsupported = 4;
+
+    // A supported configured runtime capability was unavailable when observed.
+    ObservationUnavailable unavailable = 5;
+  }
+}
+
+// Configured runtime class associated with an execution target.
+enum RuntimeKind {
+  // Missing runtime kind is invalid in node bootstrap and accepted observations.
+  RUNTIME_KIND_UNSPECIFIED = 0;
+
+  // Model runtime for one configured execution target.
+  RUNTIME_KIND_MODEL = 1;
+
+  // Application runtime for a SiteNode's application execution target.
+  RUNTIME_KIND_APPLICATION = 2;
+}
+// Host facts or an explicit reason that host observation is unavailable.
+message HostObservation {
+  oneof result {
+    // The current host facts.
+    HostFacts facts = 1;
+
+    // The reason that host facts are unavailable.
+    ObservationUnavailable unavailable = 2;
+  }
+}
+
+// Current facts about the host operating system and capacity.
+message HostFacts {
+  // The host name reported by the operating system.
+  string host_name = 1;
+
+  // The operating system or kernel reported by the host.
+  string operating_system_or_kernel = 2;
+
+  // The number of logical CPUs reported by the host.
+  uint32 cpu_count = 3;
+
+  // The total physical memory in bytes, shared with any unified accelerators.
+  uint64 total_memory_bytes = 4;
+
+  // The physical memory in bytes a workload can obtain without evicting other applications' working
+  // memory, including reclaimable file cache. Unified accelerator allocations count as used.
+  uint64 available_memory_bytes = 5;
+
+  // The reclaimable file cache in bytes already counted in the available memory, when the host
+  // reports it.
+  optional uint64 cached_memory_bytes = 7;
+
+  // The real filesystems of the host, one per storage pool, such as a device, an APFS container or a ZFS pool, under its shortest mount point, never virtual, network, removable or container-runtime mounts; empty when none could be read.
+  repeated FilesystemFacts filesystems = 8;
+}
+
+// Current facts about one real filesystem of the host.
+message FilesystemFacts {
+  // The mount point path, the `mountpoint` label of this filesystem's metric series.
+  string mountpoint = 1;
+
+  // The filesystem type reported by the host, such as ext4 or apfs, the `fstype` label of its metric series.
+  string fstype = 2;
+
+  // The total size in bytes, including blocks reserved for the superuser.
+  uint64 size_bytes = 3;
+}
+
+// Facts for one supported vendor, including empty facts when absent, or an explicit unavailable reason.
+message AcceleratorObservation {
+  // The accelerator vendor of this observation.
+  AcceleratorVendor vendor = 1;
+
+  oneof result {
+    // The current per-device accelerator facts for the vendor.
+    AcceleratorFactsSet facts = 2;
+
+    // The reason that vendor accelerator facts are unavailable.
+    ObservationUnavailable unavailable = 3;
+  }
+}
+
+// The per-device accelerator facts of one vendor.
+message AcceleratorFactsSet {
+  // Current vendor-wide device facts, empty when no devices were detected.
+  repeated AcceleratorFacts facts = 1;
+}
+
+// Current facts about one accelerator device of a vendor.
+message AcceleratorFacts {
+  // The accelerator vendor of this device.
+  AcceleratorVendor vendor = 1;
+
+  // The accelerator device model reported by the vendor backend.
+  string model = 2;
+
+  // Whether the device owns dedicated memory or allocates from the node's host memory pool.
+  AcceleratorMemoryArchitecture memory_architecture = 7;
+
+  // The dedicated accelerator memory in bytes, absent for unified devices, whose capacity is the node's host memory.
+  optional uint64 total_memory_bytes = 3;
+
+  // The driver or runtime version reported by the vendor backend, empty for Apple GPUs, whose Metal runtime ships with the operating system.
+  string driver_or_runtime_version = 4;
+
+  // Vendor-native immutable identity of this device.
+  string device_id = 5;
+
+  // Vendor-native enumeration index (NVML index for NVIDIA, 0 for the Apple GPU), not a runtime selector, absent when the vendor backend reports none.
+  optional uint32 vendor_index = 9;
+
+  // Raw device-wide used dedicated accelerator memory in bytes, absent for unified devices or when unavailable.
+  optional uint64 used_memory_bytes = 6;
+
+  // The vendor-recommended maximum working-set size in bytes, for display only, absent when the vendor reports none.
+  optional uint64 working_set_limit_bytes = 8;
+
+  // The sampled signals this device can measure, decided once at discovery; a signal not listed is unsupported, and a listed one missing from metric history is currently unavailable.
+  repeated AcceleratorSignal supported_signals = 10;
+}
+
+// A per-device accelerator signal sampled every second as metric history.
+enum AcceleratorSignal {
+  // The signal is unspecified.
+  ACCELERATOR_SIGNAL_UNSPECIFIED = 0;
+
+  // The share of time any kernel ran on the device.
+  ACCELERATOR_SIGNAL_UTILIZATION = 1;
+
+  // The device die temperature.
+  ACCELERATOR_SIGNAL_TEMPERATURE = 2;
+
+  // The device power draw as the driver reports it.
+  ACCELERATOR_SIGNAL_POWER = 3;
+}
+
+// How an accelerator device's memory relates to the node's host memory.
+// Coherent hybrid devices are dedicated devices; host-access facts are future additions, not another value.
+enum AcceleratorMemoryArchitecture {
+  // The memory architecture is unspecified or could not be classified.
+  ACCELERATOR_MEMORY_ARCHITECTURE_UNSPECIFIED = 0;
+
+  // The device owns a dedicated memory pool separate from host memory.
+  ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED = 1;
+
+  // The device allocates from the node's host memory pool, which host facts describe.
+  ACCELERATOR_MEMORY_ARCHITECTURE_UNIFIED = 2;
+}
+
+// The vendor family of an observed accelerator.
+enum AcceleratorVendor {
+  // The vendor is unspecified.
+  ACCELERATOR_VENDOR_UNSPECIFIED = 0;
+
+  // NVIDIA accelerators.
+  ACCELERATOR_VENDOR_NVIDIA = 1;
+
+  // AMD accelerators.
+  ACCELERATOR_VENDOR_AMD = 2;
+
+  // Apple Silicon GPUs, observed through Metal on macOS nodes.
+  ACCELERATOR_VENDOR_APPLE = 3;
+}
+
+// A stable code and human message for unavailable observation data.
+message ObservationUnavailable {
+  // The stable unavailable-data code.
+  string code = 1;
+
+  // The human-readable unavailable-data message.
+  string message = 2;
+}

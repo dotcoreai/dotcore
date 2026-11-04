@@ -1,0 +1,37 @@
+---
+name: model-sizing
+description: Size a Dotcore catalog model, from a first estimate for a new configuration, measurements and an evidence-backed sizing equation, and re-sizing after an engine or equation change. Use for model sizing, profiling, or equation work.
+---
+
+# Model sizing
+
+Size the catalog model requested by the user, then write the resulting sizing equation back to its catalog declaration. `dotc dev workload` launches, measures and tears down transient workloads, each measurement writes a telemetry record, `dotc dev telemetry fit` fits equation constants from those records, and `dotc dev telemetry check` compares stored constants with them; their `--help` owns the flags.
+
+1. Without a request to measure, derive a first estimate from the weight files, runtime overhead and KV bytes per token, and say so in a comment; set hardware requirements from the smallest tier. Check it against the memory one launch observes, and stop there.
+2. Measure the profiles named by the user, or every profile when none are specified.
+3. Set `DOTCORE_TELEMETRY_DIR` to a durable local directory on each measuring host, and check each measurement reports its telemetry as recorded.
+   * Live local deployments also record there, or under the site directory's `telemetry/` when unset; those records are valid fit input, and a site reset deletes the site directory's copy.
+   * Records carry custom launch arguments, and the fit skips and lists those records unless asked to include them (see `--help`).
+4. Launch with the dev shell's release-profile `dotc`: launches verify downloaded weights against their pinned digests, and a debug build hashes far slower. Measurements through a dev stack need its workspace on `dev-release` (see `dev/AGENTS.md`).
+5. Plan the fewest launches that pin each unknown term, and measure them after one warm request. Launch each value of a memory-changing option explicitly.
+   * Derive terms the engine's own layout determines, such as vLLM's KV blocks, and let launches confirm them rather than fit them.
+   * Vary a parameter only where memory follows it: contexts where memory grows with context (llama.cpp compute buffers), option combinations where it is flat across context (vLLM outside its KV pool). Include the cases the engine checks at start and a representative load.
+   * Measure fully on the host that reads highest in a hardware class and check the others; each class constant takes its term's largest value across hosts.
+   * On unified-memory GPUs, read the engine's accelerator measurement against the host's memory total, not a GPU total. The host's used memory rises above that reading by the engine's own process memory, which sizing doesn't estimate. Compute a card's real capacity from `nvidia-smi` rather than its marketed size.
+   * Measure first starts on engines that compile per launch shape, such as vLLM per context per request: the compile memory stays held, and a start from the compile cache reads lower. Give each launch a shape not used before on that host, or clear the engine's compile cache, and confirm from its log that it compiled.
+   * A device shared with other processes is fine for memory when the engine's allocation doesn't follow free memory (llama.cpp); measurements report the others' memory separately. Use a free device for speed checks and for engines that size from free memory (vLLM). On a shared unified-memory host, step total contexts up from small, since running out squeezes the whole host.
+6. Fit the equation with `dotc dev telemetry fit`, once per hardware class and binding, with every host's telemetry directory copied locally.
+   * Sizing equations only add and multiply non-negative integers, so write each relation in the direction the catalog uses, for example KV bytes as a function of tokens.
+   * An `acceleratorMemory` estimate's `equation` holds what launches measure; budgets the engine fills later (prompt cache, margin) go in its `allowance`, which the fit never solves. A constant belongs to one part only.
+   * A `hostMemory` estimate covers only features known to hold host memory, such as KV offload or a pinned host context, sized from that feature's own setting. The engine's base host footprint (its processes and libraries) is never estimated, on unified memory either; don't fit it or report it as a sizing gap.
+   * Express each option, or each option value that changes memory, with an indicator term, for example `+ if(${options.vision.enabled}, 1, 0) * ${visionBytes}`. The fit groups points by the option choices the equation branches on and fits each group with its own intercept. Options that add an artifact form separate measurement series; select them explicitly.
+   * Read each group's slopes, local slopes and intercept delta from the default group. Pick the conservative slope when local slopes drift with context, and decide whether a delta larger than the margin needs its own term.
+   * An unsolvable fit names its cause and a parameter set that would solve it; pass that set only when the sweep truly cannot separate the others, and say so. Records that predate an option fit at the configuration's default value, so refit them before changing that default.
+   * Refit after changing a known constant the equation includes, such as a class offset.
+   * After an engine or equation change, check the stored constants against a few new launches before re-measuring, and re-measure only the terms that moved.
+   * A vLLM KV derivation also has to hold each parallel request's own blocks. vLLM counts its pool in whole KV blocks: besides its share of the total context, each running request holds recurrent-state blocks on recurrent hybrids, one more per MTP draft token, and its sliding-window blocks on sliding-window models, while the tokens of the batches in flight hold more sliding-window blocks, counted once. Check them from vLLM's own block layout for every parallel request and MTP draft count, including one request at a context per request equal to the total context, which vLLM's start check requires, and keep the larger of that and the fit. On sliding-window models vLLM's logged capacity and maximum concurrency charge every request the in-flight blocks, so they read below what the pool runs at once.
+7. Keep the simplest equation the fit supports, including its valid range and limitations. Confirm it with one launch beyond the measured range before declaring a context limit.
+8. Start from the fit's proposal block (`.payload.fit.proposal.block`): the base from the default group, each slope from its group, and a margin covering the largest under-prediction, warm peaks included. Raise the margin for load the sweep didn't show, include records under representative load, and report that load.
+9. Update the configuration's sizing in the model catalog file: equations and constants shared by every class and binding go in the configuration's `sizing` block, and measured constants go in the hardware support entry of the class they were measured on. Each constant has exactly one home. A support entry whose comment says its values copy another class's takes the same update until it is measured on its own class.
+10. Check the stored constants with `dotc dev telemetry check` against the same records: residuals measure the equation, headroom the whole estimate. Every record needs non-negative headroom.
+11. Run the catalog validation and tests, then report the equation and the fit and check output that supports it.

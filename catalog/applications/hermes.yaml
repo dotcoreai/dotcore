@@ -1,0 +1,59 @@
+# Immutable Hermes graph. Its image is built from `apps/hermes/Dockerfile` by
+# `apps/hermes/docker-image.nix`, loaded from its stored image or built locally on the hosting node.
+applicationId: "hermes-app"
+displayName: "Hermes"
+description: "Autonomous AI agent with tools, memory, and a web dashboard."
+version: "0.1.1"
+graph:
+  services:
+    - serviceName: "gateway"
+      artifact:
+        nix:
+          flake: "self"
+          package: "apps.hermes.docker"
+          dockerImage: {}
+        supportedPlatforms:
+          - operatingSystem: "linux"
+            architecture: "amd64"
+          - operatingSystem: "linux"
+            architecture: "arm64"
+      arguments:
+        - "/usr/local/bin/dotcore-hermes-start"
+        - "hermes"
+        - "gateway"
+        - "run"
+      ports:
+        - portName: "gateway"
+          portNumber: 9119
+      configurationBindings:
+        - bindingName: "dashboard-enabled"
+          environmentVariable: "HERMES_DASHBOARD"
+          literalValue: "1"
+        - bindingName: "dashboard-host"
+          environmentVariable: "HERMES_DASHBOARD_HOST"
+          literalValue: "0.0.0.0"
+        - bindingName: "agent-api-enabled"
+          environmentVariable: "API_SERVER_ENABLED"
+          literalValue: "false"
+        - bindingName: "inference-base-url"
+          environmentVariable: "HERMES_INFERENCE_BASE_URL"
+          resolvedValueName: "configured-inference-openai-base-url"
+        - bindingName: "model"
+          environmentVariable: "HERMES_MODEL"
+          literalValue: ""
+          input:
+            inferenceRoute:
+              projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
+      storageBindings:
+        - bindingName: "data"
+          mountPath: "/opt/data"
+          kind: "STORAGE_KIND_DATA"
+          scope: "STORAGE_SCOPE_DEPLOYMENT"
+      readiness:
+        httpGet:
+          portName: "gateway"
+          path: "/api/status"
+  primaryEndpoint:
+    serviceName: "gateway"
+    portName: "gateway"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"

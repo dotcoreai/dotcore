@@ -1,0 +1,55 @@
+# Official llama.cpp macOS arm64 release packaged in engines/llama-cpp and exposed by the repository
+# flake as `engines.llama-cpp.native`. The packaged master catalog rewrites `self` to the locked Dotcore
+# revision with precomputed store paths, and fails unless the version equals the engine package
+# version (checked by `checks.dotcore-catalog`).
+engineReleaseId: "llama-cpp-2026-10-19"
+engineKind: "ENGINE_KIND_LLAMA_CPP"
+version: "b11723"
+parameterSchema:
+  schemaId: "llama-cpp-v2"
+  parameters:
+    # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
+    - parameterId: "total-context"
+      displayName: "Total context"
+      exposed: true
+      description: "Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "16777216"
+        unit: "tokens"
+        defaultValue: "32768"
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      exposed: true
+      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the start of an earlier prompt from an idle request or the prompt cache, but not from requests running at the same time."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "16777216"
+        unit: "tokens"
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      exposed: true
+      description: "Requests the server generates at the same time; further requests wait in a queue. All of them share the total context, so each added request only adds its own small state."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "64"
+        unit: "requests"
+        defaultValue: "4"
+    - parameterId: "prompt-cache-memory-mib"
+      displayName: "Prompt cache memory"
+      exposed: true
+      description: "Memory kept to reuse repeated prompts, such as agent system prompts, without processing them again. Idle conversations move here and free their accelerator memory. It uses host memory, which unified-memory machines share with the model; 0 turns the cache off."
+      unsignedInteger:
+        minimum: "0"
+        maximum: "65536"
+        unit: "MiB"
+artifacts:
+  - artifactId: "metal"
+    nix:
+      flake: "self"
+      package: "engines.llama-cpp.native"
+      executable: "llama-server"
+    # Each selector is one set of target facts this build runs on.
+    selectors:
+      - platform: { operatingSystem: "darwin", architecture: "arm64" }
+        accelerators: ["apple"]

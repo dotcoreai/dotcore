@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package dotcore.node.v1;
+
+import "dotcore/catalog/v1/oci.proto";
+import "dotcore/node/v1/config.proto";
+import "dotcore/observation/v1/observation.proto";
+import "dotcore/site/v1/site.proto";
+
+// Private one-time handshake that admits a new SiteNode into a site, or lets a declared SiteNode
+// join again from its intact node folder with new addresses. The joining node authenticates the
+// manager from its join token, and the manager authenticates the joiner by the token secret and,
+// on a rejoin, by its pinned certificate. Rejections use gRPC status codes with actionable messages.
+service NodeJoinService {
+  // Proposes a node and returns its identity and configuration for operator-approved admission.
+  rpc Join(JoinRequest) returns (JoinResponse);
+
+  // Confirms the joining node accepted the offer; the manager records the node, or a rejoining
+  // node's new addresses, only after this call.
+  rpc Commit(CommitRequest) returns (CommitResponse);
+}
+
+// The joining node's proposal, authenticated by the join secret. A rejoin carries only the join
+// secret, host, private port, signing request, manager host, node certificate and observation.
+message JoinRequest {
+  // Join secret from the token, spent only by a successful commit.
+  bytes join_secret = 1;
+
+  // Proposed SiteNode display name, not yet used within the site; empty on a rejoin.
+  string display_name = 2;
+
+  // Optional IPv4 address or DNS host name the manager dials for this node, unique within the site;
+  // empty records the observed source address for a new node and keeps a rejoining node's host.
+  string host = 3;
+
+  // Port of the node's private listener.
+  uint32 private_port = 4;
+
+  // Model execution targets the node proposes, one target each; empty when it runs no local models.
+  repeated JoinModelTarget model_targets = 17;
+
+  // Application execution targets the node proposes, one target each; empty when it runs no
+  // applications.
+  repeated JoinApplicationTarget application_targets = 18;
+
+  // Probed facts of the node's accelerators, used only to name its model execution targets.
+  repeated dotcore.observation.v1.AcceleratorFacts accelerator_facts = 16;
+
+  // PKCS#10 signing request in DER form for the node's ECDSA P-256 key, bound to this secret on a rejoin.
+  bytes csr_der = 9;
+
+  // IPv4 address or DNS host name the joining node dialed, recorded as the node's manager host.
+  string manager_host = 11;
+
+  // Existing leaf certificate in DER form of a declared node joining again; empty for a new node.
+  bytes node_certificate_der = 14;
+
+  // Observation configuration a rejoining node has installed, shown against the offered one.
+  NodeObservationConfiguration node_observation = 15;
+}
+
+// The manager's approved admission for one proposal; nothing is recorded until it is committed.
+message JoinResponse {
+  // Opaque identity of this offer, echoed by the commit on the same connection.
+  string offer_id = 1;
+
+  // Site identity, required to match the token.
+  string site_id = 2;
+
+  // SiteNode identity the manager derived for the joining node.
+  string node_id = 3;
+
+  // Leaf certificate in DER form signed by the site CA for the CSR's key; unchanged on a rejoin.
+  bytes node_certificate_der = 4;
+
+  // Site CA certificate in DER form.
+  bytes site_ca_der = 5;
+
+  // Manager SiteNode identity.
+  string manager_node_id = 6;
+
+  // Manager private endpoint the node dials after joining, as a URL.
+  string manager_private_endpoint = 7;
+
+  // Lowercase SHA-256 of the manager leaf certificate the node pins.
+  string manager_certificate_sha256 = 8;
+
+  // Installed observation configuration, as `worker.yaml` holds it.
+  NodeObservationConfiguration observation = 9;
+
+  // Execution targets the node realizes, as `worker.yaml` holds them.
+  repeated dotcore.site.v1.ExecutionTarget realization_targets = 10;
+
+  // IPv4 address or DNS host name the manager will record as the node's host, shown for review.
+  string node_host = 11;
+
+  // Declared SiteNode display name, which a rejoining node cannot derive from its folder.
+  string node_display_name = 12;
+}
+
+// Confirms that the node accepted the offered configuration: a new node installed its folder, a
+// rejoining node rewrites its addresses after the commit.
+message CommitRequest {
+  // Join secret from the token.
+  bytes join_secret = 1;
+
+  // Offer being committed; must be the outstanding offer of this connection.
+  string offer_id = 2;
+}
+
+// Acknowledges that the manager recorded the new node and its pin, or the rejoining node's addresses.
+message CommitResponse {}
+
+// One model execution target a joining node proposes.
+message JoinModelTarget {
+  // The device the target holds and how its workloads run.
+  oneof target {
+    // Simulated models on one GPU of the node's declared machine.
+    JoinSimulatedModelTarget simulated = 1;
+
+    // One NVIDIA GPU, run through Docker.
+    JoinNvidiaModelTarget nvidia = 2;
+
+    // The Apple GPU of a macOS node, run natively on darwin/arm64.
+    JoinAppleModelTarget apple = 3;
+  }
+}
+
+// Simulated models proposed by a joining node, on one GPU of its declared machine.
+message JoinSimulatedModelTarget {
+  // Concrete platform the simulated workloads stand in for: the declared machine's platform.
+  dotcore.catalog.v1.OciPlatform platform = 1;
+
+  // ID of the declared machine's GPU the target holds.
+  string device_id = 2;
+}
+
+// One NVIDIA GPU proposed by a joining node.
+message JoinNvidiaModelTarget {
+  // CDI device selector naming one individual GPU.
+  string device_selector = 1;
+
+  // Concrete platform Docker runs the workloads in.
+  dotcore.catalog.v1.OciPlatform platform = 2;
+}
+
+// The Apple GPU proposed by a joining node, as the node observed it.
+message JoinAppleModelTarget {
+  // Node-scoped device id the node observed for the GPU.
+  string device_id = 1;
+
+  // Whether native workloads outlive the server process; unspecified means persistent.
+  dotcore.site.v1.NativeWorkloadLifetime native_workload_lifetime = 2;
+}
+
+// One application execution target a joining node proposes.
+message JoinApplicationTarget {
+  // Application runtime of the target.
+  JoinApplicationKind kind = 1;
+
+  // Concrete platform the application workloads run in.
+  dotcore.catalog.v1.OciPlatform platform = 2;
+}
+
+// Application runtime proposed by a joining node.
+enum JoinApplicationKind {
+  // No application runtime was proposed.
+  JOIN_APPLICATION_KIND_UNSPECIFIED = 0;
+
+  // Deterministic simulated application runtime.
+  JOIN_APPLICATION_KIND_SIMULATED = 1;
+
+  // Docker application runtime.
+  JOIN_APPLICATION_KIND_DOCKER = 2;
+}

@@ -1,0 +1,604 @@
+# Immutable provenance for the public Qwen3.8 27B artifacts.
+# The llama.cpp GGUFs embed the MTP head in each main file, so the llama.cpp realization declares an embedded head.
+modelId: "qwen3-8-27b"
+displayName: "Qwen3.8 27B"
+version: "3.8-27b"
+# max_position_embeddings in the Qwen/Qwen3.8-27B config.json (revision 1d4bf0f).
+maximumContextTokens: 262144
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+  - optionId: "kv-cache"
+    displayName: "KV cache precision"
+    kvCachePrecision: {}
+artifacts:
+  - artifactId: "q3-xl"
+    weightQuantization: "Q3_K_XL"
+    source:
+      repository: "unsloth/Qwen3.8-27B-GGUF"
+      revision: "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+      file:
+        path: "Qwen3.8-27B-UD-Q3_K_XL.gguf"
+        provenanceDigest: "8c2a45ff85e7674ca185ec8eb6cdeab0e617ed9d8018caed0b64380eb2a67a5e"
+  - artifactId: "q4-xl"
+    weightQuantization: "Q4_K_XL"
+    source:
+      repository: "unsloth/Qwen3.8-27B-GGUF"
+      revision: "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+      file:
+        path: "Qwen3.8-27B-UD-Q4_K_XL.gguf"
+        provenanceDigest: "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e"
+  - artifactId: "q5-xl"
+    weightQuantization: "Q5_K_XL"
+    source:
+      repository: "unsloth/Qwen3.8-27B-GGUF"
+      revision: "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+      file:
+        path: "Qwen3.8-27B-UD-Q5_K_XL.gguf"
+        provenanceDigest: "8601193d3d5760c37fb8ce1b43afebc69df5fb24e1fbc5a547c32e2200305276"
+  - artifactId: "nvfp4"
+    weightQuantization: "NVFP4"
+    source:
+      repository: "unsloth/Qwen3.8-27B-NVFP4"
+      revision: "57926baca9a82b4d6906b43f2750d55315f5b10f"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "12827f24b742ea4e80cdc12dbcf9622227056b9f797252a3149263d4f9aaadce"
+          - path: "config.json"
+            provenanceDigest: "1b3c71868d1299e52df6fc907deb202d5132b1ef0f72aae0ef6d15185dd53a5c"
+          - path: "generation_config.json"
+            provenanceDigest: "d0d0ed2e37cdfafef4a5067d5ea2407b05f4fb50526e47c008a5b235d50240fb"
+          - path: "model.safetensors"
+            provenanceDigest: "c473512c70eace07e2256fe9fd76596ac03e3295bee7d54cfb72676416afcc05"
+          - path: "model.safetensors.index.json"
+            provenanceDigest: "429430e1b9e65b2cb98eff8cd10a06e70a09cee89c48487a3914684aeb6df57f"
+          - path: "model_mtp.safetensors"
+            provenanceDigest: "1d8268aa85ace093a561e3e7b63b9d390dac1cd55a90cd55b5ec509c3c9da9fe"
+          - path: "preprocessor_config.json"
+            provenanceDigest: "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          - path: "tokenizer.json"
+            provenanceDigest: "06b9509352d2af50381ab2247e083b80d32d5c0aba91c272ca9ff729b6a0e523"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "529f30018c36dca5387c99b5edf368287f386f2c32d3790aa7141956bc5119fa"
+          - path: "vocab.json"
+            provenanceDigest: "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+  # Pre-converted ninfer container holding the weights, MTP head, and vision tower.
+  - artifactId: "ninfer-nvfp4"
+    weightQuantization: "NVFP4"
+    source:
+      repository: "neroued/Qwen3.8-27B-nvfp4-NInfer"
+      revision: "f0b43ad436b9fa8142c6ed6647c470a6fe409484"
+      file:
+        path: "qwen3_8_27b_nvfp4.ninfer"
+        provenanceDigest: "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "qwen-chat-template"
+    source:
+      repository: "froggeric/Qwen-Fixed-Chat-Templates"
+      revision: "492315ea6d7343bcfb32598d6a898c34e0d69ed8"
+      file:
+        path: "chat_template.jinja"
+        provenanceDigest: "6e1439c913ad7df4a966493ad70de7e7fc5a548d41bbe417c1571f766603629b"
+configurations:
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-10-19"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q3-xl"
+        modelArtifactId: "q3-xl"
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+      - bindingId: "q5-xl"
+        modelArtifactId: "q5-xl"
+    # Sizing shared by every hardware class and binding. Each hardware support entry sets the class
+    # parameters once and the binding parameters for every binding. Each constant has exactly one home
+    # (shared, class or binding), so shared constants cannot be overridden.
+    # MTP terms estimated from the RTX 5090 q3 32k smoke (b11429, count 3, 4 slots), embedded head:
+    # mtpBase = main file MTP block 334.75 MiB + draft compute 130.02 MiB + main compute growth 18.47 MiB
+    # + 20 MiB margin; per-token = one draft KV layer (4096 B);
+    # recurrent = off-mode recurrent state per slot (598.5 MiB measured at 4 slots / 4) per draft token,
+    # times the slot count.
+    # The main file's MTP block (blk.64, 351,008,768 B) is identical in every tier (GGUF metadata at the
+    # pinned revision), so all tiers share the q3 breakdown.
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "accelBytesPerContextTokenQ8", "marginBytes"]
+      parameters:
+        mtpBaseBytes: 527685386
+        mtpBytesPerContextToken: 4096
+        # Per-slot llama.cpp state: Gated DeltaNet recurrent state, sized from the Qwen/Qwen3.8-27B
+        # config.json (revision 1d4bf0f): 48 linear-attention layers x (conv 3 x 10240 + state 48 heads
+        # x 128 x 128) f32 values, matching the 598.5 MiB measured at 4 slots / 4. Each MTP draft token
+        # keeps one more copy per slot.
+        # baseAccelBytes values exclude it: each is the 4-slot measurement minus 4 x slotStateBytes.
+        slotStateBytes: 156893184
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + if(${options.kv-cache.precision} == "q8_0", 0, 1) * ${accelBytesPerContextToken} * ${total-context}
+            + if(${options.kv-cache.precision} == "q8_0", 1, 0) * ${accelBytesPerContextTokenQ8} * ${total-context}
+            + ${parallel-requests} * ${slotStateBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0)
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+            + ${options.mtp.token-count} * ${parallel-requests} * ${slotStateBytes}
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "10000000000"
+          minimumSystemMemoryBytes: "32000000000"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # F16 measured on an NVIDIA GB10 host: unified host pool, linux/arm64, llama.cpp b11429,
+        # contexts 4096-131072. Q8_0 KV cache measured on the same host with llama.cpp b11723 (MTP 3, 4
+        # parallel requests): q3-xl, q4-xl and q5-xl at total contexts 8192-262144 (7 points each) give
+        # the same slope of 40,735 B per context token, the free-intercept fit of the measurement minus
+        # the f16 base terms and the MTP draft cache (4096, which stays f16). Local slopes run 38,000
+        # (8k-16k) to 45,000 (above 16k, MTP included), and residuals around the fit stay within 45 MB.
+        # The slope comes from a free-intercept fit because the estimate sits a constant 2.1 GB above the
+        # same-release measurement at both f16 and q8_0: the prompt cache term budgets 2048 MiB that a
+        # sweep never fills. Fitting the slope against the fixed bases would absorb that budget and
+        # under-predict at large contexts, so the q8_0 estimate keeps the f16 convention. A
+        # 232k-token prompt at 262144 context added 14 MB over the warm measurement.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 12594102259
+              accelBytesPerContextToken: 66560
+              accelBytesPerContextTokenQ8: 40735
+              marginBytes: 41943040
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 16838017007
+              accelBytesPerContextToken: 66560
+              accelBytesPerContextTokenQ8: 40735
+              marginBytes: 37748736
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 19828031468
+              accelBytesPerContextToken: 66560
+              accelBytesPerContextTokenQ8: 40735
+              marginBytes: 37748736
+      - hardwareClassId: "nvidia-dedicated"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "10000000000"
+          minimumSystemMemoryBytes: "32000000000"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          # Derived, not measured: 400 MiB, since the GB10 base terms read 319-374 MiB low on
+          # the RTX 5090 smoke runs of the speculative decoding project (b11429).
+          baseOffsetBytes: 419430400
+        # The binding parameters, q8_0 slope included, are the nvidia-unified (GB10) values verbatim
+        # until measured on dedicated memory, so a GB10 remeasurement updates both classes.
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 12594102259
+              accelBytesPerContextToken: 66560
+              accelBytesPerContextTokenQ8: 40735
+              marginBytes: 41943040
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 16838017007
+              accelBytesPerContextToken: 66560
+              accelBytesPerContextTokenQ8: 40735
+              marginBytes: 37748736
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 19828031468
+              accelBytesPerContextToken: 66560
+              accelBytesPerContextTokenQ8: 40735
+              marginBytes: 37748736
+      - hardwareClassId: "apple"
+        # Apple Silicon is always unified memory.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # Derived, not measured: the equation of the RTX 5090 before the hardware classes were split,
+        # adjusted to the macOS process footprint with the gemma-4-e2b Metal calibration.
+        # The q8_0 slope is the nvidia-unified one (40,735) times the same per-token calibration
+        # factor as the f16 slope (75,213 / 66,560).
+        bindingSizing:
+          - bindingId: "q3-xl"
+            parameters:
+              baseAccelBytes: 15175195123
+              accelBytesPerContextToken: 75213
+              accelBytesPerContextTokenQ8: 46031
+              # The Metal calibration already covers the margin.
+              marginBytes: 0
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 19632062554
+              accelBytesPerContextToken: 75213
+              accelBytesPerContextTokenQ8: 46031
+              marginBytes: 0
+          - bindingId: "q5-xl"
+            parameters:
+              baseAccelBytes: 22772128243
+              accelBytesPerContextToken: 75213
+              accelBytesPerContextTokenQ8: 46031
+              marginBytes: 0
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+        optionRealizations:
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      # A published Jetson Qwen3.8 MTP example uses 3 draft tokens; Unsloth suggests 2.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "3"
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            stringEnum: { values: ["f16", "q8_0"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "f16"
+  - configurationId: "vllm-nvidia-cuda"
+    engineArtifacts:
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-amd64-cuda"
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "nvfp4"
+        modelArtifactId: "nvfp4"
+        auxiliaryArtifactIds: ["qwen-chat-template"]
+    # Non-KV terms measured on an NVIDIA RTX 5090 (dedicated memory, linux/amd64) with vLLM v0.32.0, at
+    # 4 parallel requests and total contexts 16,384-131,072, MTP off and 3 draft tokens, text and vision.
+    # The fit uses first starts: vLLM compiles anew for each new context per request and keeps that
+    # memory, 1.6-2.1 GB above a start from its compile cache. Vision points include an image request,
+    # and some points ran four concurrent long requests. visionBytes keeps the larger NVIDIA GB10
+    # measurement; marginBytes covers the largest growth under load seen. First starts on an NVIDIA GB10 host
+    # (unified memory, linux/arm64) at total contexts 32,768-131,072 read below these constants.
+    sizing:
+      parameters:
+        modelLoadingBaseBytes: 25917652992
+        mtpBytes: 1089765376
+        visionBytes: 789212160
+        marginBytes: 600000000
+        kvBlockBytes: 51380224
+        kvBytesPerToken: 32768
+        kvMtpBlockBytes: 57376768
+        kvMtpBytesPerToken: 34816
+      derivedParameters:
+        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 2
+        # recurrent-state blocks per recurrent layer group (3 groups), one more per group for each MTP
+        # draft token, and one for rounding the request's context up; one more block is held back. With
+        # one request this is vLLM's start check at a context per request equal to the total context.
+        # Block bytes are those of the largest MTP draft count; per-token bytes are the larger of vLLM's
+        # block layout and the measurement; vision has no KV effect.
+        kv-cache-memory-bytes: >-
+          if(${options.mtp.token-count} > 0, 1, 0)
+          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (7 + 3 * ${options.mtp.token-count}))
+          + ${kvMtpBytesPerToken} * ${total-context})
+          + if(${options.mtp.token-count} == 0, 1, 0)
+          * (${kvBlockBytes} * (1 + ${parallel-requests} * 7)
+          + ${kvBytesPerToken} * ${total-context})
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${modelLoadingBaseBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${mtpBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + ${kv-cache-memory-bytes}
+          allowance: >-
+            ${marginBytes}
+        # Host KV offload size only (rough estimate).
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${kv-offloading-size-gib} * GiB
+    hardwareSupport:
+      # The minimum covers the largest default profile estimate.
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "33300000000"
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          - bindingId: "nvfp4"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_VLLM"
+      vllm:
+        fixedSettings:
+          reasoningParser: "qwen3"
+          toolCallParser: "qwen3_xml"
+          chatTemplateAuxiliaryArtifactId: "qwen-chat-template"
+          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
+          kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
+          maximumBatchedTokensParameterId: "maximum-batched-tokens"
+          maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
+          kvOffloadingSizeGibParameterId: "kv-offloading-size-gib"
+          kvOffloadingBackend: "VLLM_KV_OFFLOADING_BACKEND_NATIVE"
+          containerPort: 15000
+          readinessPolicy:
+            mode: "VLLM_READINESS_MODE_MODELS"
+          requiresHostIpc: true
+          trustRemoteCode: true
+          enableLogRequests: true
+          enableAutoToolChoice: true
+          enableChunkedPrefill: true
+          enableAsyncScheduling: true
+          enablePrefixCaching: true
+          enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      imageInputCapacity:
+        maximumImageCount: 1
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "20971520"
+        maximumDecodedBytes: "67108864"
+        maximumWidth: 8192
+        maximumHeight: 8192
+        maximumPixels: "16000000"
+        fixedVisualTokens: 256
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "3"
+  - configurationId: "ninfer-nvidia-5090"
+    engineArtifacts:
+      - engineReleaseId: "ninfer-1936758"
+        engineArtifactId: "linux-amd64-cuda"
+    artifactBindings:
+      - bindingId: "ninfer-nvfp4"
+        modelArtifactId: "ninfer-nvfp4"
+    sizing:
+      # Fitted on an RTX 5090 with total-context 8192-250000 (context per request equal to it),
+      # parallel-requests 1-4 and device-state-slots 1-4; the largest residual is 11 MB, so
+      # marginBytes keeps a wide cushion. The KV and MTP draft caches are paged by total context.
+      parameters:
+        baseBytes: 21158257512
+        bytesPerContextToken: 33041
+        bytesPerConcurrency: 161616557
+        bytesPerStateSlot: 154501220
+        visionBytes: 909492137
+        mtpBaseBytes: 829904405
+        mtpBytesPerContextToken: 2059
+        marginBytes: 100000000
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseBytes}
+            + ${bytesPerContextToken} * ${total-context}
+            + ${bytesPerConcurrency} * ${parallel-requests}
+            + ${bytesPerStateSlot} * ${device-state-slots}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0)
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+          allowance: >-
+            ${marginBytes}
+        # Pinned host context budget (state images, KV and pause snapshots).
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${host-context-mib} * MiB
+    hardwareSupport:
+      # ninfer runs only on an RTX 5090 (sm_120a). Until nodes report the GPU architecture, the
+      # closest shared class is nvidia-dedicated, so admission checks only the vendor, the memory
+      # architecture and the device count.
+      - hardwareClassId: "nvidia-dedicated"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "32000000000"
+          # The host context budget is pinned in system memory.
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          - bindingId: "ninfer-nvfp4"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_NINFER"
+      ninfer:
+        fixedSettings:
+          kvCacheDataType: "NINFER_KV_CACHE_DATA_TYPE_FP8"
+          pendingTimeoutMilliseconds: 120000
+          preserveThinking: true
+          deviceStateSlotsParameterId: "device-state-slots"
+          hostContextMibParameterId: "host-context-mib"
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+          - optionId: "mtp"
+            mtp:
+              lmHeadDraft: true
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      # ninfer admits media through aggregate source-byte, decoded-pixel, raw-patch, Vision-token,
+      # and live-memory budgets rather than an item count, and resizes oversize sources itself, so
+      # these bounds cap this node's own validation work. Full-resolution phone stills reach 64
+      # megapixels, and the decoded-byte bound stays at four bytes per admitted pixel.
+      imageInputCapacity:
+        maximumImageCount: 4
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "20971520"
+        maximumDecodedBytes: "268435456"
+        maximumWidth: 16384
+        maximumHeight: 16384
+        maximumPixels: "67108864"
+        fixedVisualTokens: 16384
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: true
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "5", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "3"
+profiles:
+  - profileId: "q3-xl"
+    displayName: "Unsloth Q3_K_XL"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q3-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q4-xl"
+    displayName: "Unsloth Q4_K_XL"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q5-xl"
+    displayName: "Unsloth Q5_K_XL"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q5-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "nvfp4-text"
+    displayName: "Unsloth NVFP4"
+    description: "Runs Qwen3.8 27B through vLLM for text inference."
+    configurationId: "vllm-nvidia-cuda"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "nvfp4-multimodal"
+    displayName: "Unsloth NVFP4 with vision"
+    description: "Runs Qwen3.8 27B through vLLM for text and image inference."
+    configurationId: "vllm-nvidia-cuda"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+  - profileId: "ninfer-nvfp4"
+    displayName: "ninfer"
+    description: "Runs Qwen3.8 27B through ninfer on an RTX 5090 for text and image inference."
+    configurationId: "ninfer-nvidia-5090"
+    defaultModelArtifactBindingId: "ninfer-nvfp4"
+    engineParameterDefaults:
+      values:
+        # The device state slots below are tuned for four parallel requests.
+        - parameterId: "parallel-requests"
+          unsignedInteger: "4"
+        - parameterId: "host-context-mib"
+          unsignedInteger: "20480"
+        - parameterId: "device-state-slots"
+          unsignedInteger: "4"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+intelligence:
+  overall: 34
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0

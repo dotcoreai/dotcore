@@ -1,0 +1,8 @@
+# The host that simulated GPUs are put on: a Linux machine on the local CPU architecture. It holds
+# each vendor's driver version, so GPUs from different files agree like on one real machine.
+cpuCount: 16
+hostMemory:
+  totalBytes: 68719476736 # 64 GiB
+  idleUsedBytes: 4294967296 # 4 GiB
+drivers:
+  nvidia: "595.71.05"

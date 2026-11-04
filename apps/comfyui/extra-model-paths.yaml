@@ -1,0 +1,4 @@
+# Image-owned custom nodes, loaded after those on the storage attachment: without `is_default`,
+# ComfyUI appends this folder to its custom-node search paths instead of replacing them.
+dotcore:
+  custom_nodes: /opt/comfyui/custom_nodes

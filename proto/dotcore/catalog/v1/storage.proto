@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// Declares one writable storage the owner attaches to a workload, and who shares it.
+message StorageBinding {
+  // Stable name of this binding within its owner.
+  string binding_name = 1;
+
+  // Absolute container path the storage is mounted at.
+  string mount_path = 2;
+
+  // What the storage holds, which sets its custody and lifetime.
+  StorageKind kind = 3;
+
+  // What the storage is shared by: one deployment, an application, or an engine artifact.
+  StorageScope scope = 4;
+
+  // Environment variables that point the workload at paths inside the storage.
+  repeated StorageEnvironmentVariable environment = 5;
+}
+
+// One environment variable set to a path inside a storage binding's mount.
+message StorageEnvironmentVariable {
+  // Environment variable name.
+  string name = 1;
+
+  // Path relative to the mount path; empty names the mount path itself.
+  string relative_path = 2;
+}
+
+// What a storage binding holds.
+enum StorageKind {
+  // The storage kind unspecified value.
+  STORAGE_KIND_UNSPECIFIED = 0;
+
+  // Recreatable scratch, such as compile caches; never backed up.
+  STORAGE_KIND_CACHE = 1;
+
+  // Customer and application content.
+  STORAGE_KIND_DATA = 2;
+}
+
+// What a storage binding is shared by.
+enum StorageScope {
+  // The storage scope unspecified value.
+  STORAGE_SCOPE_UNSPECIFIED = 0;
+
+  // One deployment only; removed with it.
+  STORAGE_SCOPE_DEPLOYMENT = 1;
+
+  // Every deployment of one application on a node.
+  STORAGE_SCOPE_APPLICATION = 2;
+
+  // Every model deployment running one engine artifact on a node.
+  STORAGE_SCOPE_ENGINE_ARTIFACT = 3;
+}

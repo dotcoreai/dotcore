@@ -1,0 +1,34 @@
+modelId: "fixture-model-two"
+displayName: "fixture model two"
+version: "1"
+maximumContextTokens: 262144
+artifacts:
+  - artifactId: "fixture-artifact-two"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "dotcore/fixture"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      file:
+        path: "fixture-Q8_0.gguf"
+        provenanceDigest: "0000000000000000000000000000000000000000000000000000000000000000"
+configurations:
+  - configurationId: "fixture-configuration"
+    engineArtifacts: [{ engineReleaseId: "fixture-engine", engineArtifactId: "fixture-linux" }]
+    artifactBindings: [{ bindingId: "fixture-artifact-two", modelArtifactId: "fixture-artifact-two" }]
+    hardwareSupport:
+      - hardwareClassId: "fixture-nvidia"
+        hardwareRequirements:
+          minimumSystemMemoryBytes: "1"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp: { fixedSettings: { gpuLayers: 0 } }
+    executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
+    requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
+    inputCapabilities: { supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }
+profiles:
+  - profileId: "fixture-profile-two"
+    configurationId: "fixture-configuration"
+    defaultModelArtifactBindingId: "fixture-artifact-two"
+    engineParameterDefaults:
+      values:
+        - { parameterId: "prompt-cache-memory-mib", unsignedInteger: "0" }

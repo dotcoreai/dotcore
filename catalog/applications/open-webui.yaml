@@ -1,0 +1,55 @@
+# Immutable OpenWebUI graph. Configuration bindings declare every OpenWebUI
+# environment value; bootstrap resolves the configured inference endpoint.
+applicationId: "open-webui"
+displayName: "Open WebUI"
+description: "Self-hosted chat interface for the models on this site."
+version: "0.11.4"
+graph:
+  services:
+    - serviceName: "web"
+      # The image and its digests are pinned by `apps/open-webui/docker-image.nix`.
+      artifact:
+        nix:
+          flake: "self"
+          package: "apps.open-webui.docker"
+          dockerImage: {}
+        supportedPlatforms:
+          - operatingSystem: "linux"
+            architecture: "amd64"
+          - operatingSystem: "linux"
+            architecture: "arm64"
+      ports:
+        - portName: "http"
+          portNumber: 8080
+      configurationBindings:
+        - bindingName: "webui-auth"
+          environmentVariable: "WEBUI_AUTH"
+          literalValue: "false"
+        - bindingName: "persistent-config"
+          environmentVariable: "ENABLE_PERSISTENT_CONFIG"
+          literalValue: "false"
+        - bindingName: "openai-api"
+          environmentVariable: "ENABLE_OPENAI_API"
+          literalValue: "true"
+        - bindingName: "ollama-api"
+          environmentVariable: "ENABLE_OLLAMA_API"
+          literalValue: "false"
+        - bindingName: "openai-api-key"
+          environmentVariable: "OPENAI_API_KEY"
+          literalValue: ""
+        - bindingName: "openai-api-base-url"
+          environmentVariable: "OPENAI_API_BASE_URL"
+          resolvedValueName: "configured-inference-openai-base-url"
+      storageBindings:
+        - bindingName: "data"
+          mountPath: "/app/backend/data"
+          kind: "STORAGE_KIND_DATA"
+          scope: "STORAGE_SCOPE_DEPLOYMENT"
+      readiness:
+        httpGet:
+          portName: "http"
+          path: "/health"
+  primaryEndpoint:
+    serviceName: "web"
+    portName: "http"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"

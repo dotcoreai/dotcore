@@ -1,0 +1,6 @@
+# Fixture NVIDIA class with a site-unique id, so this catalog validates alone and over the
+# master catalog.
+hardwareClassId: "fixture-nvidia"
+displayName: "Fixture NVIDIA"
+selector:
+  accelerators: ["nvidia"]

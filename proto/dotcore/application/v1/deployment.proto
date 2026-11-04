@@ -1,0 +1,187 @@
+syntax = "proto3";
+
+package dotcore.application.v1;
+
+import "dotcore/application/v1/state.proto";
+import "dotcore/catalog/v1/application.proto";
+import "dotcore/catalog/v1/oci.proto";
+import "dotcore/catalog/v1/parameter.proto";
+import "dotcore/deployment/v1/accelerator_memory.proto";
+import "dotcore/deployment/v1/artifact.proto";
+import "dotcore/deployment/v1/placement.proto";
+
+// Complete declarative site record owned by the apps controller.
+message ApplicationDeploymentDeclaration {
+  // Stable identifier for this application deployment.
+  string application_deployment_id = 1;
+
+  // Mutable user-facing name for this application deployment.
+  string application_deployment_name = 2;
+
+  // The exact placement for this application deployment.
+  dotcore.deployment.v1.ExactPlacement placement = 3;
+
+  // Immutable resolved application snapshot selected at creation.
+  ResolvedApplicationDeploymentSnapshot snapshot = 4;
+
+  // Desired presence of this deployment.
+  ApplicationDeploymentDesiredState desired_state = 5;
+
+  // Controller-owned logical storage attachments for this deployment.
+  repeated ApplicationStorageAttachment storage_attachments = 6;
+
+  // Resolved non-secret configuration required to reproduce this deployment.
+  repeated ApplicationConfigurationAttachment configuration_attachments = 7;
+
+  // Optional stable inference route selected for this deployment.
+  optional string inference_route_id = 8;
+
+  // Nonzero, never-reused generation of the latest accepted create, pause, resume, or teardown.
+  uint64 lifecycle_generation = 9;
+
+  // Local-development launch identities the placement's SiteNode resolved, keyed by service name;
+  // recorded once by the apps controller and never replaced.
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity node_resolved_launch_identities = 10;
+
+  // Site-unique port the primary endpoint is published on, allocated once at creation.
+  uint32 published_port = 11;
+}
+
+// Controller-owned public state for one application deployment.
+message ApplicationDeployment {
+  // Stable identifier for this application deployment.
+  string application_deployment_id = 1;
+
+  // Mutable user-facing name for this application deployment.
+  string application_deployment_name = 2;
+
+  // The exact placement for this application deployment.
+  dotcore.deployment.v1.ExactPlacement placement = 3;
+
+  // Immutable resolved application snapshot selected at creation.
+  ResolvedApplicationDeploymentSnapshot snapshot = 4;
+
+  // Desired presence of this deployment.
+  ApplicationDeploymentDesiredState desired_state = 5;
+
+  // Current controller-owned operational state.
+  ApplicationDeploymentState state = 6;
+
+  // Controller-owned logical storage attachments for this deployment.
+  repeated ApplicationStorageAttachment storage_attachments = 7;
+
+  // Current public projection of the selected inference route.
+  ApplicationSelectedInferenceRoute selected_inference_route = 8;
+
+  // Local-development launch identities the placement's SiteNode resolved, keyed by service name.
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity node_resolved_launch_identities = 9;
+
+  // Current accelerator-memory observation of each service unit, projected at read time from
+  // the hosting node's current status and never retained.
+  repeated ApplicationServiceAcceleratorMemory service_accelerator_memory = 10;
+}
+
+// Accelerator memory attributed to one named service unit of an application deployment.
+message ApplicationServiceAcceleratorMemory {
+  // Service name from the immutable application snapshot.
+  string service_name = 1;
+
+  // Accelerator-memory observation for this unit.
+  dotcore.deployment.v1.AcceleratorMemoryObservation accelerator_memory = 2;
+}
+
+// Immutable application graph, placement, platform, and service selections resolved at creation.
+message ResolvedApplicationDeploymentSnapshot {
+  // Stable catalog application identity.
+  string application_id = 1;
+
+  // Human-readable catalog application name retained for provenance.
+  string display_name = 2;
+
+  // Catalog application release version retained for provenance.
+  string version = 3;
+
+  // Catalog application notes copied at creation for display; carry no admission or runtime authority.
+  string notes = 8;
+
+  // Immutable runtime-neutral graph retained from the catalog application.
+  dotcore.catalog.v1.ApplicationGraph graph = 4;
+
+  // Complete parameter values resolved at creation, defaults filled, in graph declaration order.
+  repeated dotcore.catalog.v1.ParameterValue parameter_values = 10;
+
+  // The exact placement selected for this application deployment.
+  dotcore.deployment.v1.ExactPlacement placement = 5;
+
+  // Exact accelerator devices of the selected execution target, retained once at creation; every launch passes them to the group's units.
+  repeated string accelerator_device_ids = 9;
+
+  // One concrete platform selected for the complete colocated service group.
+  dotcore.catalog.v1.OciPlatform platform = 6;
+
+  // Authoritative immutable artifact selections keyed by graph service name.
+  repeated ResolvedApplicationServiceSelection service_selections = 7;
+}
+
+// One authoritative immutable artifact selection for a named application service.
+message ResolvedApplicationServiceSelection {
+  // Service name from the retained application graph, whose service artifact this selection resolves.
+  string service_name = 1;
+
+  // Explicit preparation policy for this selection.
+  dotcore.deployment.v1.ArtifactPreparationPolicy preparation_policy = 3;
+
+  // Digest reference, local image id, or Nix loader store path every launch uses; empty until the hosting SiteNode pins it.
+  string launch_identity = 4;
+}
+
+// Current public projection of one selected inference route.
+message ApplicationSelectedInferenceRoute {
+  // Stable identifier of the selected inference route.
+  string inference_route_id = 1;
+
+  // Current OpenAI-callable name of the selected inference route.
+  string route_name = 2;
+}
+
+// One controller-owned logical application storage attachment.
+message ApplicationStorageAttachment {
+  // Name of the service that consumes this attachment.
+  string service_name = 1;
+
+  // Storage binding name from the immutable application snapshot.
+  string binding_name = 2;
+
+  // Deployment-local logical storage name resolved by the runtime backend.
+  string storage_name = 3;
+}
+
+// One resolved non-secret configuration value in a deployment declaration.
+message ApplicationConfigurationAttachment {
+  // Name of the service that receives this attachment.
+  string service_name = 1;
+
+  // Configuration binding name from the immutable application snapshot.
+  string binding_name = 2;
+
+  // Environment variable receiving the resolved value.
+  string environment_variable = 3;
+
+  // Resolved non-secret value supplied only to the runtime launch.
+  string value = 4;
+}
+
+// The accepted desired presence of an application deployment.
+enum ApplicationDeploymentDesiredState {
+  // The application deployment desired state unspecified value.
+  APPLICATION_DEPLOYMENT_DESIRED_STATE_UNSPECIFIED = 0;
+
+  // The application deployment desired state present value.
+  APPLICATION_DEPLOYMENT_DESIRED_STATE_PRESENT = 1;
+
+  // The application deployment desired state teardown value.
+  APPLICATION_DEPLOYMENT_DESIRED_STATE_TEARDOWN = 2;
+
+  // The application deployment desired state paused value.
+  APPLICATION_DEPLOYMENT_DESIRED_STATE_PAUSED = 3;
+}

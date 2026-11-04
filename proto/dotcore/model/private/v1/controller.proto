@@ -1,0 +1,218 @@
+syntax = "proto3";
+
+package dotcore.model.private.v1;
+
+import "dotcore/deployment/v1/accelerator_memory.proto";
+import "dotcore/deployment/v1/artifact.proto";
+import "dotcore/deployment/v1/placement.proto";
+import "dotcore/model/v1/deployment.proto";
+import "dotcore/model/v1/state.proto";
+
+// Complete inference-controller-owned intent for one node view.
+message ModelDesiredViewSection {
+  // Assigned local deployments; an explicitly empty list removes all model intent.
+  repeated ModelAssignment assignments = 1;
+}
+
+// Exact manager-accepted local deployment input, excluding node attempt progress.
+message ModelAssignment {
+  // Complete accepted local declaration, including portable artifacts and launch state.
+  dotcore.model.v1.ModelDeploymentDeclaration declaration = 1;
+
+  // Former Resume authorization; Resume consumption keys on the declared lifecycle generation.
+  reserved 2;
+
+  reserved "resume_authorization";
+}
+
+// Complete model-owner observations for one accepted node view.
+message ModelControllerStatusSection {
+  // One status per deployment still observed for the accepted view.
+  repeated ModelDeploymentStatus deployments = 1;
+
+  // Cleanup evidence retained independently after desired assignment withdrawal.
+  repeated ModelCleanupEvidence cleanup_evidence = 2;
+}
+
+// Node observation of one assigned model deployment, at the granularity the hosting node records.
+// Free text is redacted of protected launch values and bounded in size by the hosting node.
+message ModelDeploymentStatus {
+  // Stable deployment identity.
+  string model_deployment_id = 1;
+
+  // Manager-accepted lifecycle generation observed by this status.
+  uint64 lifecycle_generation = 2;
+
+  // Exact configured placement observed by the hosting node.
+  dotcore.deployment.v1.ExactPlacement placement = 3;
+
+  // Runtime reconcile generation of the live binding serving this lifecycle generation; absent
+  // without one.
+  optional uint64 realization_generation = 4;
+
+  // Current lifecycle observation without launch values or runtime-native handles.
+  ModelLifecycleObservation lifecycle = 5;
+
+  // Status explanation the hosting node records, at most 512 bytes; empty while reconciling.
+  string status_message = 14;
+
+  // Cumulative byte progress while Downloading; absent for any other lifecycle.
+  ModelPreparationProgress preparation_progress = 12;
+
+  // Exact binding readiness without an endpoint or process-local capability.
+  ModelBindingReadiness binding_readiness = 6;
+
+  // Opaque lowercase SHA-256 identity of the Ready binding and the lifecycle generation it serves;
+  // empty unless binding readiness is Ready.
+  string binding_token = 10;
+
+  // Failure summary the hosting node records, present exactly when the lifecycle is Failed: a
+  // non-empty code of at most 64 bytes, a message of at most 1024 bytes, and at most 8
+  // diagnostics totalling at most 6144 bytes.
+  dotcore.model.v1.ModelDeploymentFailure failure = 15;
+
+  // Monotonic owner-local state revision; zero when reconciling without a retained record.
+  uint64 state_revision = 8;
+
+  // Node-observed node and accelerator devices, empty until readiness is established.
+  repeated dotcore.model.v1.ObservedPlacement observed_placements = 9;
+
+  // Accelerator memory the hosting node attributes to this deployment from its own process
+  // observations; always present, with usage only on the reporting node and bounded text.
+  dotcore.deployment.v1.AcceleratorMemoryObservation accelerator_memory = 16;
+
+  // Development launch identity this node resolved for the deployment's engine; reported until
+  // the manager projects it back in the declaration.
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity resolved_launch_identities = 13;
+}
+
+// Node-retained proof that withdrawn intent has no remaining realization. Its identity is
+// exactly the deployment and teardown lifecycle generation.
+message ModelCleanupEvidence {
+  // Stable deployment identity.
+  string model_deployment_id = 1;
+
+  // Teardown lifecycle generation covered by this evidence.
+  uint64 lifecycle_generation = 2;
+
+  // Diagnostic runtime realization generation when one existed; never part of the identity.
+  optional uint64 realization_generation = 3;
+
+  // Whether no runtime realization was ever created for this generation.
+  bool never_realized = 5;
+
+  // Lowercase SHA-256 of the deployment and lifecycle generation identity.
+  string evidence_sha256 = 6;
+
+  // Former per-incarnation evidence sequence.
+  reserved 4;
+
+  reserved "evidence_sequence";
+}
+
+// Manager disposition of one cleanup evidence entry in a status report.
+message ModelCleanupReceipt {
+  // Manager session that decided the disposition.
+  string manager_session_id = 1;
+
+  // Node incarnation that reported the evidence.
+  string node_incarnation_id = 2;
+
+  // Stable deployment identity.
+  string model_deployment_id = 3;
+
+  // Teardown lifecycle generation covered by the receipt.
+  uint64 lifecycle_generation = 4;
+
+  // Status sequence carrying the evidence.
+  uint64 status_sequence = 6;
+
+  // Canonical evidence digest being answered.
+  string evidence_sha256 = 8;
+
+  // Whether the evidence is acknowledged or must be reported again later.
+  ModelCleanupDisposition disposition = 9;
+
+  // Former realization generation and evidence sequence echoes.
+  reserved 5, 7;
+
+  reserved "realization_generation", "evidence_sequence";
+}
+
+// Manager decision for one node cleanup evidence entry.
+enum ModelCleanupDisposition {
+  // No disposition was specified.
+  MODEL_CLEANUP_DISPOSITION_UNSPECIFIED = 0;
+
+  // Teardown finalization is durable or the evidence needs no effect; the node may retire it.
+  MODEL_CLEANUP_DISPOSITION_ACKNOWLEDGED = 1;
+
+  // The evidence was not accepted now; the node retains it and reports it again later.
+  MODEL_CLEANUP_DISPOSITION_REJECTED = 2;
+}
+
+// Lifecycle observation for an assigned model deployment, one per recorded deployment status.
+enum ModelLifecycleObservation {
+  // No lifecycle observation was specified.
+  MODEL_LIFECYCLE_OBSERVATION_UNSPECIFIED = 0;
+
+  // The hosting node has no observation reconciled for the assigned lifecycle generation yet.
+  MODEL_LIFECYCLE_OBSERVATION_RECONCILING = 8;
+
+  // The deployment is queued before preparation.
+  MODEL_LIFECYCLE_OBSERVATION_QUEUED = 1;
+
+  // Portable artifacts are being prepared under node-local custody.
+  MODEL_LIFECYCLE_OBSERVATION_PREPARING = 2;
+
+  // Model artifact or runtime asset bytes are transferring.
+  MODEL_LIFECYCLE_OBSERVATION_DOWNLOADING = 10;
+
+  // The runtime realization is being created or started.
+  MODEL_LIFECYCLE_OBSERVATION_LOADING = 3;
+
+  // The started engine is warming up before readiness checks.
+  MODEL_LIFECYCLE_OBSERVATION_WARMING_UP = 11;
+
+  // Controller readiness checks succeeded.
+  MODEL_LIFECYCLE_OBSERVATION_READY = 4;
+
+  // The realization exists but is not available for controller operation.
+  MODEL_LIFECYCLE_OBSERVATION_UNAVAILABLE = 12;
+
+  // The retained realization is stopping for a pause.
+  MODEL_LIFECYCLE_OBSERVATION_PAUSING = 9;
+
+  // The retained realization is stopped for a pause.
+  MODEL_LIFECYCLE_OBSERVATION_PAUSED = 5;
+
+  // The realization is stopping for teardown.
+  MODEL_LIFECYCLE_OBSERVATION_STOPPING = 6;
+
+  // The deployment failed; the status carries its failure summary.
+  MODEL_LIFECYCLE_OBSERVATION_FAILED = 7;
+}
+
+// Cumulative byte progress of a Downloading deployment.
+message ModelPreparationProgress {
+  // Bytes completed so far; never greater than a present total.
+  uint64 completed_bytes = 1;
+
+  // Non-zero total bytes when known.
+  optional uint64 total_bytes = 2;
+}
+
+// Exact realization binding readiness without routable addressing.
+enum ModelBindingReadiness {
+  // No binding readiness was specified.
+  MODEL_BINDING_READINESS_UNSPECIFIED = 0;
+
+  // No binding is currently registered.
+  MODEL_BINDING_READINESS_ABSENT = 1;
+
+  // A binding exists but is not ready.
+  MODEL_BINDING_READINESS_NOT_READY = 2;
+
+  // A binding passed controller readiness checks.
+  MODEL_BINDING_READINESS_READY = 3;
+}

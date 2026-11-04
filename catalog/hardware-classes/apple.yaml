@@ -1,0 +1,6 @@
+# Apple Silicon GPUs; always unified memory.
+hardwareClassId: "apple"
+displayName: "Apple Silicon"
+description: "The Apple Silicon GPU of a Mac, which shares the host memory pool."
+selector:
+  accelerators: ["apple"]

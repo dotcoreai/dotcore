@@ -1,0 +1,197 @@
+syntax = "proto3";
+
+package dotcore.inference.v1;
+
+// Wire mapping. System One (llama.cpp's `/v1/systemone`) and OpenAI Decisions (`/v1/decisions`)
+// both map onto this contract; field names follow neither.
+//
+// Request:
+// - `model` maps to `DecisionRequest.model_id` in both formats.
+// - System One `state` maps to exactly one part: a string is a text part, any other JSON value
+//   (including chat messages) a JSON part. A state of several parts has no System One form. OpenAI
+//   `input` as a string is one text part, and a text-only item array is one JSON part.
+// - System One's `questions` map and OpenAI's `questions` array become ordered questions; the map
+//   key and OpenAI `name` map to `DecisionQuestion.name`.
+// - A string `instructions` maps to one text part; OpenAI `input_text` parts map one to one.
+// - System One `noul` and OpenAI `predicate` map to `DecisionPredicate`; `noul` criteria's
+//   `true` and `false` descriptions map to its descriptions.
+// - System One `choice` criteria entries and OpenAI `choices` map to options: the key or `value`
+//   is the option name, a description or null maps to its description.
+// - System One `score` criteria and OpenAI `levels` map to levels, lowest first; OpenAI `label`
+//   maps to the level label.
+//
+// Result:
+// - Answers follow question order; System One's `answers` map and OpenAI's `answers` array take
+//   question names from the request.
+// - `noul` and OpenAI predicate `probability` map to `true_probability`.
+// - `choice` maps to the selected option, `probabilities` to option probabilities, `confidence`
+//   to confidence.
+// - `score` maps to the expected level, `probabilities` to level probabilities, `confidence` to
+//   confidence; System One's `legend` and OpenAI's level labels come from the request.
+// - OpenAI `refusal` maps to `DecisionRefusal`; System One has no refusal form.
+// - `usage.input_tokens` maps to input tokens; output tokens are always zero.
+//
+// Image input (OpenAI `input_image`) fits as an image content part variant, and OpenAI input items
+// carrying images as a message content part variant.
+
+// A decision request: typed questions answered jointly about one state, in a single forward pass.
+message DecisionRequest {
+  // The inference route name the client called.
+  string model_id = 1;
+
+  // The ordered content parts describing the state to decide about.
+  repeated DecisionContentPart state = 2;
+
+  // The ordered questions, each with a unique name.
+  repeated DecisionQuestion questions = 3;
+}
+
+// One named question asking for a predicate, choice, or score answer.
+message DecisionQuestion {
+  // The client-defined name, unique and non-empty within the request.
+  string name = 1;
+
+  // The ordered content parts instructing how to answer.
+  repeated DecisionContentPart instructions = 2;
+
+  // The question kind and its criteria.
+  oneof kind {
+    // A yes or no question.
+    DecisionPredicate predicate = 3;
+
+    // A question selecting one of named options.
+    DecisionChoice choice = 4;
+
+    // A question rating on ordered levels.
+    DecisionScore score = 5;
+  }
+}
+
+// One ordered text or JSON content part.
+message DecisionContentPart {
+  // The typed content value.
+  oneof content {
+    // Text content for this part.
+    string text_content = 1;
+
+    // Exact JSON source for an object, array, or other JSON value kept as structured data.
+    string json_content = 2;
+  }
+}
+
+// Criteria of a yes or no question.
+message DecisionPredicate {
+  // Optional description of what a true answer means.
+  DecisionContentPart true_description = 1;
+
+  // Optional description of what a false answer means.
+  DecisionContentPart false_description = 2;
+}
+
+// Criteria of a question selecting one option.
+message DecisionChoice {
+  // The ordered options, each with a unique name; at least one.
+  repeated DecisionOption options = 1;
+}
+
+// One named option of a choice question.
+message DecisionOption {
+  // The client-defined option name, unique within its question.
+  string name = 1;
+
+  // Optional description of the option.
+  DecisionContentPart description = 2;
+}
+
+// Criteria of a question rating on 2 to 10 ordered levels.
+message DecisionScore {
+  // The levels, lowest first; a level's zero-based position is its index.
+  repeated DecisionScoreLevel levels = 1;
+}
+
+// One ordered level of a score question.
+message DecisionScoreLevel {
+  // Optional short client-defined label.
+  optional string label = 1;
+
+  // Description of the level.
+  DecisionContentPart description = 2;
+}
+
+// The answers to one decision request.
+message DecisionResult {
+  // One answer per question, in request question order.
+  repeated DecisionAnswer answers = 1;
+
+  // The token usage of the request.
+  DecisionUsage usage = 2;
+}
+
+// The answer to one question, matching its kind unless the model refused.
+message DecisionAnswer {
+  // The typed answer.
+  oneof answer {
+    // The answer to a predicate question.
+    DecisionPredicateAnswer predicate = 1;
+
+    // The answer to a choice question.
+    DecisionChoiceAnswer choice = 2;
+
+    // The answer to a score question.
+    DecisionScoreAnswer score = 3;
+
+    // The model declined to answer the question.
+    DecisionRefusal refusal = 4;
+  }
+}
+
+// The answer to a predicate question.
+message DecisionPredicateAnswer {
+  // Probability that the answer is true, from zero to one.
+  optional double true_probability = 1;
+
+  // Derived answer: true when the true probability is at least one half, or the engine's answer.
+  optional bool value = 2;
+
+  // Derived confidence, as defined on `DecisionChoiceAnswer.confidence`.
+  optional double confidence = 3;
+}
+
+// The answer to a choice question.
+message DecisionChoiceAnswer {
+  // Probability of each option in question option order, summing to one; empty when the engine
+  // reports only a selection.
+  repeated double option_probabilities = 1;
+
+  // Derived zero-based index of the selected option: the most probable one, or the engine's.
+  optional uint32 selected_option_index = 2;
+
+  // Derived confidence from zero for a uniform distribution to one for certainty; the serving
+  // model defines the exact measure.
+  optional double confidence = 3;
+}
+
+// The answer to a score question.
+message DecisionScoreAnswer {
+  // Probability of each level in question level order, summing to one; empty when the engine
+  // reports only a selection.
+  repeated double level_probabilities = 1;
+
+  // Derived probability-weighted mean of the zero-based level indexes.
+  optional double expected_level = 2;
+
+  // Derived zero-based index of the selected level: the most probable one, or the engine's.
+  optional uint32 selected_level_index = 3;
+
+  // Derived confidence, as defined on `DecisionChoiceAnswer.confidence`.
+  optional double confidence = 4;
+}
+
+// Marks a question the model declined to answer.
+message DecisionRefusal {}
+
+// Token counts for one decision request; decisions generate no output tokens.
+message DecisionUsage {
+  // The number of input tokens.
+  uint64 input_tokens = 1;
+}

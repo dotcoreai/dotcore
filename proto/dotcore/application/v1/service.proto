@@ -1,0 +1,287 @@
+syntax = "proto3";
+
+package dotcore.application.v1;
+
+import "dotcore/application/v1/deployment.proto";
+import "dotcore/catalog/v1/parameter.proto";
+import "dotcore/deployment/v1/placement.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+// Management API for apps-controller-owned application deployments.
+service ApplicationDeploymentService {
+  rpc ListApplicationDeployments(ListApplicationDeploymentsRequest) returns (ListApplicationDeploymentsResponse);
+  rpc GetApplicationDeployment(GetApplicationDeploymentRequest) returns (GetApplicationDeploymentResponse);
+  rpc CreateApplicationDeployment(CreateApplicationDeploymentRequest) returns (CreateApplicationDeploymentResponse);
+  rpc RemoveApplicationDeployment(RemoveApplicationDeploymentRequest) returns (RemoveApplicationDeploymentResponse);
+  rpc PauseDeployment(PauseDeploymentRequest) returns (PauseDeploymentResponse);
+  rpc ResumeDeployment(ResumeDeploymentRequest) returns (ResumeDeploymentResponse);
+  rpc ReadDeploymentLogs(ReadDeploymentLogsRequest) returns (ReadDeploymentLogsResponse);
+  rpc FollowDeploymentLogs(FollowDeploymentLogsRequest) returns (stream FollowDeploymentLogsResponse);
+  rpc UpdateApplicationDeploymentMetadata(UpdateApplicationDeploymentMetadataRequest) returns (UpdateApplicationDeploymentMetadataResponse);
+}
+
+// Requests the controller-owned application deployments.
+message ListApplicationDeploymentsRequest {}
+
+// Returns controller-owned application deployments without catalog resolution.
+message ListApplicationDeploymentsResponse {
+  // Controller-owned application deployments.
+  repeated ApplicationDeployment deployments = 1;
+}
+
+// Requests one controller-owned application deployment.
+message GetApplicationDeploymentRequest {
+  // Stable identifier for the application deployment.
+  string application_deployment_id = 1;
+}
+
+// Returns one controller-owned application deployment.
+message GetApplicationDeploymentResponse {
+  // Controller-owned application deployment.
+  ApplicationDeployment deployment = 1;
+}
+
+// Requests creation of one deployment from an immutable catalog application.
+message CreateApplicationDeploymentRequest {
+  // Immutable catalog application release identifier.
+  string application_id = 1;
+
+  // Required exact placement for this application deployment.
+  dotcore.deployment.v1.ExactPlacement placement = 2;
+
+  // Optional stable inference route selected for this deployment.
+  optional string inference_route_id = 3;
+
+  // Exact current generation required for the selected inference route.
+  uint64 expected_inference_route_generation = 4;
+
+  // Optional user-facing name for the deployment.
+  optional string application_deployment_name = 6;
+
+  // Operator values overriding the application's parameter defaults; omitted parameters take their default.
+  repeated dotcore.catalog.v1.ParameterValue parameter_values = 5;
+}
+
+// Returns the accepted controller-owned application deployment.
+message CreateApplicationDeploymentResponse {
+  // Accepted application deployment with controller-assigned identity and name.
+  ApplicationDeployment deployment = 1;
+}
+
+// Requests removal of one controller-owned application deployment.
+message RemoveApplicationDeploymentRequest {
+  // Stable identifier for the application deployment to remove.
+  string application_deployment_id = 1;
+}
+
+// Returns the deployment after the remove request is accepted.
+message RemoveApplicationDeploymentResponse {
+  // Accepted application deployment with teardown desired state.
+  ApplicationDeployment deployment = 1;
+}
+
+// Requests pausing one application deployment while retaining its resources.
+message PauseDeploymentRequest {
+  // Stable identifier for the application deployment to pause.
+  string application_deployment_id = 1;
+}
+
+// Returns the deployment after the pause request is accepted.
+message PauseDeploymentResponse {
+  // Accepted application deployment.
+  ApplicationDeployment deployment = 1;
+}
+
+// Requests resuming one paused application deployment.
+message ResumeDeploymentRequest {
+  // Stable identifier for the application deployment to resume.
+  string application_deployment_id = 1;
+}
+
+// Returns the deployment after the resume request is accepted.
+message ResumeDeploymentResponse {
+  // Accepted application deployment.
+  ApplicationDeployment deployment = 1;
+}
+
+// Requests a bounded retained-log page from the current application workload sources.
+message ReadDeploymentLogsRequest {
+  // Stable identifier for the application deployment.
+  string application_deployment_id = 1;
+
+  // Optional public source names to include, limited to 32 selections.
+  repeated string source_names = 2;
+
+  // Aggregate entries to return; 0 means 100; at most 200.
+  uint32 page_size = 3;
+
+  // Optional exclusive whole-second UTC boundary for an older page.
+  optional google.protobuf.Timestamp before_timestamp = 4;
+}
+
+// Returns one bounded aggregate page and point-in-time source availability.
+message ReadDeploymentLogsResponse {
+  // Public sources and their availability at the time of the read.
+  repeated DeploymentLogSource sources = 1;
+
+  // Chronologically ordered aggregate entries from the selected sources.
+  repeated DeploymentLogEntry entries = 2;
+
+  // Exclusive whole-second UTC boundary for a best-effort older page.
+  optional google.protobuf.Timestamp next_before_timestamp = 3;
+
+  // Whether older matching output was observed during this bounded read.
+  DeploymentLogHistoryState history_state = 4;
+
+  // Whether the 4 MiB aggregate response limit stopped the page early.
+  bool response_truncated = 5;
+
+  // Latest timestamps per source for the initial follow handoff or reconnect.
+  repeated DeploymentLogResumePosition latest_positions = 6;
+}
+
+// Requests a live best-effort follow of the sources of one application deployment. A follow
+// naming no source stays open while the deployment exists, and sources may appear, end and appear
+// again during it; it ends cleanly when the deployment is removed. A follow naming sources ends
+// once they all end. Either ends with an error status on failure.
+message FollowDeploymentLogsRequest {
+  // Stable identifier for the application deployment.
+  string application_deployment_id = 1;
+
+  // Optional public source names to include, limited to 32 selections.
+  repeated string source_names = 2;
+
+  // Per-source full-precision timestamps of the latest entries already delivered; the node
+  // delivers only entries after them.
+  repeated DeploymentLogResumePosition resume_positions = 3;
+}
+
+// Returns one source-status transition or one line from a live follow.
+message FollowDeploymentLogsResponse {
+  oneof event {
+    // Availability or end state for one public source.
+    DeploymentLogSourceEvent source_event = 1;
+
+    // One normalized line from one public source.
+    DeploymentLogEntry entry = 2;
+  }
+}
+
+// Describes one public source and its point-in-time availability.
+message DeploymentLogSource {
+  // Stable public source identity used by filters and resume positions.
+  string source_name = 1;
+
+  // Stable public label displayed for the source.
+  string source_label = 2;
+
+  // Current availability without runtime-native diagnostics.
+  DeploymentLogSourceState state = 3;
+}
+
+// Carries one normalized visual line without runtime-native identity.
+message DeploymentLogEntry {
+  // Stable public source identity for this line.
+  string source_name = 1;
+
+  // Stable public label displayed for this line.
+  string source_label = 2;
+
+  // Docker stdout or stderr identity for this line.
+  DeploymentLogStream stream = 3;
+
+  // Docker-supplied full-precision timestamp for this line.
+  google.protobuf.Timestamp timestamp = 4;
+
+  // Bounded normalized line bytes after response filtering.
+  bytes content = 5;
+
+  // Whether content exceeded the per-record limit.
+  bool truncated = 6;
+}
+
+// Carries the full-precision timestamp of the latest entry delivered for one public source.
+message DeploymentLogResumePosition {
+  // Stable public source identity used by filters and source events.
+  string source_name = 1;
+
+  // Timestamp of the latest entry already delivered for this source; a follow resumed with it
+  // delivers only entries with a later timestamp.
+  google.protobuf.Timestamp latest_timestamp = 2;
+}
+
+// Reports a public source becoming available, unavailable, or ended.
+message DeploymentLogSourceEvent {
+  // Stable public source identity for this event.
+  string source_name = 1;
+
+  // Stable public label displayed for this source.
+  string source_label = 2;
+
+  // Availability or end state without runtime-native diagnostics.
+  DeploymentLogSourceState state = 3;
+}
+
+// States whether older matching output was observed during one bounded read.
+enum DeploymentLogHistoryState {
+  // Invalid unset state; responses use only the observed-output states below.
+  DEPLOYMENT_LOG_HISTORY_STATE_UNSPECIFIED = 0;
+
+  // At least one older matching entry was observed at read time.
+  DEPLOYMENT_LOG_HISTORY_STATE_OLDER_OUTPUT_MAY_REMAIN = 1;
+
+  // No older matching entry was observed at read time.
+  DEPLOYMENT_LOG_HISTORY_STATE_NO_OLDER_OUTPUT_OBSERVED = 2;
+}
+
+// States the safe public availability of one requested source.
+enum DeploymentLogSourceState {
+  // No source state was supplied.
+  DEPLOYMENT_LOG_SOURCE_STATE_UNSPECIFIED = 0;
+
+  // The source is currently available.
+  DEPLOYMENT_LOG_SOURCE_STATE_AVAILABLE = 1;
+
+  // The source is unavailable and provides no runtime-native detail.
+  DEPLOYMENT_LOG_SOURCE_STATE_UNAVAILABLE = 2;
+
+  // The source ended after an available follow.
+  DEPLOYMENT_LOG_SOURCE_STATE_ENDED = 3;
+}
+
+// Identifies Docker stdout or stderr for one normalized line.
+enum DeploymentLogStream {
+  // No stream was supplied.
+  DEPLOYMENT_LOG_STREAM_UNSPECIFIED = 0;
+
+  // Standard output.
+  DEPLOYMENT_LOG_STREAM_STDOUT = 1;
+
+  // Standard error.
+  DEPLOYMENT_LOG_STREAM_STDERR = 2;
+}
+
+// Requests a typed metadata update to one application deployment.
+message UpdateApplicationDeploymentMetadataRequest {
+  // Stable identifier for the application deployment.
+  string application_deployment_id = 1;
+
+  // Metadata values to patch into the owner declaration.
+  ApplicationDeploymentMetadata metadata = 2;
+
+  // Explicit metadata paths to update.
+  google.protobuf.FieldMask update_mask = 3;
+}
+
+// Supplies writable presentation metadata for an application deployment update.
+message ApplicationDeploymentMetadata {
+  // Optional replacement user-facing deployment name.
+  optional string display_name = 1;
+}
+
+// Returns the accepted deployment after a metadata update is accepted.
+message UpdateApplicationDeploymentMetadataResponse {
+  // The complete accepted application deployment.
+  ApplicationDeployment deployment = 1;
+}

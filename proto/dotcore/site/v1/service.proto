@@ -1,0 +1,218 @@
+syntax = "proto3";
+
+package dotcore.site.v1;
+
+import "dotcore/observation/v1/observation.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Management read API for configured machine inventory and current hardware snapshots.
+service SiteService {
+  rpc ListMachines(ListMachinesRequest) returns (ListMachinesResponse);
+  rpc ListConfiguredExecutionTargets(ListConfiguredExecutionTargetsRequest) returns (ListConfiguredExecutionTargetsResponse);
+  rpc ListHardwareSnapshots(ListHardwareSnapshotsRequest) returns (ListHardwareSnapshotsResponse);
+}
+
+// Requests every configured machine in the site.
+message ListMachinesRequest {}
+
+// Returns configured machine inventory in site-manager-defined order.
+message ListMachinesResponse {
+  // The configured machines with current hardware snapshot availability.
+  repeated Machine machines = 1;
+}
+
+// Requests all configured execution target identities.
+message ListConfiguredExecutionTargetsRequest {}
+
+// Returns configured execution target identities in execution-target-ID order.
+message ListConfiguredExecutionTargetsResponse {
+  // The configured execution targets.
+  repeated ConfiguredExecutionTarget execution_targets = 1;
+}
+
+// Stable configured execution target identity with placement context.
+message ConfiguredExecutionTarget {
+  // Stable identifier of the configured execution target.
+  string execution_target_id = 1;
+
+  // Human-readable name of the execution target, unique among its SiteNode's targets.
+  string display_name = 11;
+
+  // SiteNode that owns this execution target.
+  string site_node_id = 2;
+
+  // Configured display name of the owning SiteNode; empty when none is configured.
+  string site_node_display_name = 8;
+
+  // Whether the owning SiteNode hosts the site manager.
+  bool site_manager = 7;
+
+  // Platform declared for this execution target.
+  string platform_label = 3;
+
+  // Workload kind supported by this execution target.
+  ExecutionTargetWorkloadKind workload_kind = 4;
+
+  // Connection freshness and runtime availability for this target.
+  ExecutionTargetAvailability availability = 5;
+
+  // Configured accelerator device identifiers assigned to this target.
+  repeated string accelerator_device_ids = 6;
+
+  // Observed hardware device ids derived by joining the declared selectors with the owning node's latest hardware facts; not intent, allocatable capacity or a reservation, never persisted, not for admission, empty unless the resolution is RESOLVED.
+  repeated string observed_accelerator_device_ids = 9;
+
+  // Outcome of resolving the declared selectors against the owning node's latest hardware facts.
+  AcceleratorResolutionStatus accelerator_resolution = 10;
+}
+
+// Outcome of resolving a target's declared accelerator selectors to observed hardware device ids.
+enum AcceleratorResolutionStatus {
+  ACCELERATOR_RESOLUTION_STATUS_UNSPECIFIED = 0;
+
+  // Every declared selector matched an observed device.
+  ACCELERATOR_RESOLUTION_STATUS_RESOLVED = 1;
+
+  // At least one declared selector matched no observed device.
+  ACCELERATOR_RESOLUTION_STATUS_UNRESOLVED = 2;
+
+  // The owning node has no hardware snapshot to resolve against.
+  ACCELERATOR_RESOLUTION_STATUS_SNAPSHOT_UNAVAILABLE = 3;
+
+  // The target declares no selectors, such as a simulated target.
+  ACCELERATOR_RESOLUTION_STATUS_NOT_APPLICABLE = 4;
+}
+
+// Workload kind supported by an execution target.
+enum ExecutionTargetWorkloadKind {
+  EXECUTION_TARGET_WORKLOAD_KIND_UNSPECIFIED = 0;
+  EXECUTION_TARGET_WORKLOAD_KIND_MODEL = 1;
+  EXECUTION_TARGET_WORKLOAD_KIND_APPLICATION = 2;
+}
+
+// Availability state for an execution target.
+message ExecutionTargetAvailability {
+  // Connection state of the owning SiteNode.
+  NodeObservationState connection_state = 1;
+
+  // Runtime availability for this specific target.
+  RuntimeTargetAvailability runtime_availability = 2;
+}
+
+// Runtime availability for a specific execution target.
+message RuntimeTargetAvailability {
+  oneof availability {
+    // Runtime is available for this target.
+    google.protobuf.Empty available = 1;
+
+    // Runtime is unavailable for this target.
+    dotcore.observation.v1.ObservationUnavailable unavailable = 2;
+
+    // Runtime observation is unsupported for this target.
+    dotcore.observation.v1.ObservationUnavailable unsupported = 3;
+  }
+}
+
+// Requests the current hardware snapshot of every configured machine.
+message ListHardwareSnapshotsRequest {}
+
+// Returns the current hardware snapshot of every configured machine in machine-identifier order, as
+// ListMachines; a cheap projection of retained state, safe to read about once a second.
+message ListHardwareSnapshotsResponse {
+  // One entry per configured machine; a machine leaves only when it leaves the site configuration.
+  repeated MachineHardwareSnapshot machines = 1;
+}
+
+// One machine's latest retained hardware result and its manager-derived freshness; a machine
+// without a snapshot is still listed: never observed with a pending refresh, or after a failed refresh.
+message MachineHardwareSnapshot {
+  // The configured stable machine identifier.
+  string machine_id = 1;
+
+  // The latest complete snapshot, absent before the first successful refresh.
+  dotcore.observation.v1.HardwareSnapshot snapshot = 2;
+
+  // The latest refresh attempt and outcome.
+  HardwareRefreshState refresh = 3;
+
+  // Manager-derived freshness for the observation supplying this retained result.
+  NodeObservationFreshness observation_freshness = 4;
+}
+
+// Latest hardware refresh attempt and outcome.
+message HardwareRefreshState {
+  // Time at which the latest refresh attempt started, absent before it starts.
+  google.protobuf.Timestamp attempted_at = 1;
+
+  oneof outcome {
+    // The initial hardware refresh has not completed.
+    google.protobuf.Empty pending = 2;
+
+    // The latest hardware refresh completed and published its snapshot.
+    google.protobuf.Empty succeeded = 3;
+
+    // The latest refresh failed before publishing a complete snapshot.
+    dotcore.observation.v1.ObservationUnavailable failed = 4;
+  }
+}
+
+// Public configured identity and current hardware snapshot availability.
+message Machine {
+  // The configured stable machine identifier.
+  string machine_id = 1;
+
+  // The configured display name.
+  string display_name = 2;
+
+  // Whether this machine is the SiteNode hosting the site manager.
+  bool site_manager = 6;
+
+  // Whether a fresh/current hardware snapshot can be retrieved.
+  CurrentHardwareSnapshotAvailability current_hardware_snapshot_availability = 3;
+
+  // Manager-derived freshness of this node's retained infrastructure observation.
+  NodeObservationFreshness observation_freshness = 4;
+
+  // Per-configured-target runtime outcomes sorted by execution-target identity.
+  repeated dotcore.observation.v1.RuntimeObservation runtimes = 5;
+}
+
+// Manager-derived freshness of one node's retained infrastructure observation.
+message NodeObservationFreshness {
+  // Current manager classification; unspecified is never produced.
+  NodeObservationState state = 1;
+
+  // Manager receipt time of the latest observation, present only for connected, stale, or
+  // disconnected nodes.
+  google.protobuf.Timestamp received_at = 2;
+}
+
+// Site-manager classification of retained node-observation freshness.
+enum NodeObservationState {
+  // Invalid in produced responses.
+  NODE_OBSERVATION_STATE_UNSPECIFIED = 0;
+
+  // A declared SiteNode from which no observation has been accepted.
+  NODE_OBSERVATION_STATE_MISSING = 2;
+
+  // A live SiteNode, in contact within the liveness window, whose latest observation is current.
+  NODE_OBSERVATION_STATE_CONNECTED = 3;
+
+  // A live SiteNode whose latest observation is retained but overdue.
+  NODE_OBSERVATION_STATE_STALE = 4;
+
+  // A SiteNode with no authenticated contact within the liveness window.
+  NODE_OBSERVATION_STATE_DISCONNECTED = 5;
+}
+
+// Whether a fresh/current hardware snapshot can be retrieved, independent of machine health.
+message CurrentHardwareSnapshotAvailability {
+  oneof availability {
+    // A current hardware snapshot is available to retrieve.
+    google.protobuf.Empty available = 1;
+
+    // CURRENT_HARDWARE_SNAPSHOT_UNAVAILABLE: A current hardware snapshot is unavailable for this machine.
+    dotcore.observation.v1.ObservationUnavailable unavailable = 2;
+  }
+}

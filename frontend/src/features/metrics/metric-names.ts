@@ -1,0 +1,35 @@
+/** The metric and dimension names the console queries, as exported by the backend writers. */
+export const metricNames = {
+  deploymentAcceleratorMemoryUsed: "deployment.accelerator.memory.used",
+  nodeAcceleratorMemoryTotal: "node.accelerator.memory.total",
+  nodeAcceleratorMemoryUsed: "node.accelerator.memory.used",
+  nodeAcceleratorPower: "node.accelerator.power",
+  nodeAcceleratorTemperature: "node.accelerator.temperature",
+  nodeAcceleratorUtilization: "node.accelerator.utilization",
+  nodeFilesystemAvailable: "node.filesystem.available",
+  nodeFilesystemSize: "node.filesystem.size",
+  nodeFilesystemUsed: "node.filesystem.used",
+  nodeHostCpuUtilization: "node.host.cpu.utilization",
+  nodeHostMemoryAvailable: "node.host.memory.available",
+  nodeHostMemoryTotal: "node.host.memory.total",
+  routerAttemptDecodeRate: "router.attempt.decode_rate",
+  routerAttemptPrefillRate: "router.attempt.prefill_rate",
+  routerAttemptTtft: "router.attempt.ttft",
+  routerAttempts: "router.attempts",
+  routerRequestInFlight: "router.request.in_flight",
+  routerRequestTtft: "router.request.ttft",
+  routerRequests: "router.requests",
+  routerTokensCachedPrompt: "router.tokens.cached_prompt",
+  routerTokensCompletion: "router.tokens.completion",
+  routerTokensPrompt: "router.tokens.prompt",
+} as const;
+
+export const dimensionNames = {
+  deployment: "deployment",
+  device: "device",
+  fstype: "fstype",
+  mountpoint: "mountpoint",
+  node: "node",
+  outcome: "outcome",
+  route: "route",
+} as const;

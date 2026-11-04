@@ -1,0 +1,382 @@
+syntax = "proto3";
+
+package dotcore.inference.v1;
+
+import "google/protobuf/struct.proto";
+
+// A Chat request for one model selected through a scope-bound inference API path.
+message ChatRequest {
+  // The immutable catalog model identifier selected within the request scope.
+  string model_id = 1;
+
+  // The ordered Chat messages.
+  repeated ChatMessage messages = 2;
+
+  // The client-defined function tools available to the model.
+  repeated FunctionToolDefinition tools = 3;
+
+  // The optional client tool-selection policy.
+  ChatToolChoice tool_choice = 4;
+
+  // The optional parallel client tool-call preference.
+  optional bool parallel_tool_calls = 5;
+
+  // The requested text-generation controls.
+  ChatGenerationControls generation_controls = 6;
+
+  // Requests semantic stream events instead of one complete result.
+  optional bool stream = 7;
+
+  // Whether the client wants the terminal stream usage returned; when true the terminal usage is
+  // required. Engines are always asked for usage on streamed requests.
+  optional bool include_stream_usage = 8;
+
+  // Engine-specific generation controls as serialized JSON object text, forwarded verbatim to the
+  // admitted target; keys must not collide with typed request fields or transport authority.
+  optional string request_extensions_json = 9;
+
+  // The caller's storage preference; only false is valid because Dotcore stores no requests.
+  optional bool store = 10;
+}
+
+// A Chat message with text, image parts, null content, or one function-tool result.
+message ChatMessage {
+  // The sender role for this message.
+  ChatMessageRole role = 1;
+
+  // The message content, which can preserve absent and null values.
+  oneof content {
+    // Text content for this message.
+    string text_content = 2;
+
+    // Explicit null content for this message.
+    google.protobuf.NullValue null_content = 3;
+
+    // A function-tool result for this message.
+    FunctionToolResult tool_result = 4;
+  }
+
+  // The function calls requested by an assistant message.
+  repeated FunctionToolCall tool_calls = 5;
+
+  // The optional participant name for this message.
+  optional string name = 6;
+
+  // Ordered text and image parts for this message.
+  repeated ChatContentPart content_parts = 7;
+
+  // Separate model reasoning for an assistant message, preserving presence.
+  optional string reasoning = 8;
+}
+
+// One ordered public text or validated private image part.
+message ChatContentPart {
+  // The typed content value.
+  oneof content {
+    // Text content for this part.
+    string text_content = 1;
+
+    // Image content for this part.
+    ChatImageContent image_content = 2;
+  }
+}
+
+// Validated image bytes for one Chat content part.
+message ChatImageContent {
+  // The validated image MIME type.
+  ChatImageMediaType media_type = 1;
+
+  // The validated decoded standard-base64 bytes.
+  bytes encoded_data = 2;
+}
+
+// MIME types accepted by the private Chat contract.
+enum ChatImageMediaType {
+  // The chat image media type unspecified value.
+  CHAT_IMAGE_MEDIA_TYPE_UNSPECIFIED = 0;
+
+  // The chat image media type jpeg value.
+  CHAT_IMAGE_MEDIA_TYPE_JPEG = 1;
+
+  // The chat image media type png value.
+  CHAT_IMAGE_MEDIA_TYPE_PNG = 2;
+}
+
+// The sender role for one text Chat message.
+enum ChatMessageRole {
+  // The chat message role unspecified value.
+  CHAT_MESSAGE_ROLE_UNSPECIFIED = 0;
+
+  // The chat message role system value.
+  CHAT_MESSAGE_ROLE_SYSTEM = 1;
+
+  // The chat message role developer value.
+  CHAT_MESSAGE_ROLE_DEVELOPER = 2;
+
+  // The chat message role user value.
+  CHAT_MESSAGE_ROLE_USER = 3;
+
+  // The chat message role assistant value.
+  CHAT_MESSAGE_ROLE_ASSISTANT = 4;
+
+  // The chat message role tool value.
+  CHAT_MESSAGE_ROLE_TOOL = 5;
+}
+
+// A client-defined function tool.
+message FunctionToolDefinition {
+  // The stable function name.
+  string name = 1;
+
+  // The optional human-readable function description.
+  optional string description = 2;
+
+  // The exact JSON Schema source for the function arguments.
+  string parameters_json_schema = 3;
+
+  // The optional strict function-schema preference.
+  optional bool strict = 4;
+}
+
+// A function call requested by an assistant message.
+message FunctionToolCall {
+  // The client-visible identifier for this function call.
+  string tool_call_id = 1;
+
+  // The requested function name.
+  string function_name = 2;
+
+  // The exact JSON source for the function arguments.
+  string arguments_json = 3;
+}
+
+// A function-tool result supplied in a tool message.
+message FunctionToolResult {
+  // The identifier of the function call that produced this result.
+  string tool_call_id = 1;
+
+  // The text result supplied by the client tool.
+  string content = 2;
+}
+
+// A client policy that selects eligible function-tool calls.
+message ChatToolChoice {
+  // The requested function-tool selection policy.
+  oneof selection {
+    // The named selection mode.
+    ChatToolChoiceMode mode = 1;
+
+    // The required client-defined function name.
+    string function_name = 2;
+  }
+}
+
+// The client function-tool selection modes.
+enum ChatToolChoiceMode {
+  // The chat tool choice mode unspecified value.
+  CHAT_TOOL_CHOICE_MODE_UNSPECIFIED = 0;
+
+  // The chat tool choice mode none value.
+  CHAT_TOOL_CHOICE_MODE_NONE = 1;
+
+  // The chat tool choice mode auto value.
+  CHAT_TOOL_CHOICE_MODE_AUTO = 2;
+
+  // The chat tool choice mode required value.
+  CHAT_TOOL_CHOICE_MODE_REQUIRED = 3;
+}
+
+// Controls that affect text generation for one Chat request.
+message ChatGenerationControls {
+  // The optional sampling temperature.
+  optional float temperature = 1;
+
+  // The optional nucleus sampling threshold.
+  optional float top_p = 2;
+
+  // The optional legacy maximum generated-token count.
+  optional uint32 max_tokens = 3;
+
+  // The optional maximum completion-token count.
+  optional uint32 max_completion_tokens = 4;
+
+  // The optional stop sequences.
+  StopSequences stop_sequences = 5;
+
+  // The optional reasoning effort level, whose accepted values the target engine owns.
+  optional string reasoning_effort = 6;
+
+  // The optional presence penalty.
+  optional double presence_penalty = 7;
+
+  // The optional frequency penalty.
+  optional double frequency_penalty = 8;
+}
+
+// A requested list of literal text stop sequences.
+message StopSequences {
+  // The ordered literal text stop sequences.
+  repeated string values = 1;
+}
+
+// One complete Chat result.
+message ChatCompletionResult {
+  // The client-visible completion identifier.
+  string completion_id = 1;
+
+  // The requested immutable catalog model identifier.
+  string model_id = 2;
+
+  // The time at which the completion started, in Unix seconds.
+  uint64 created_at_unix_seconds = 3;
+
+  // The generated completion choices.
+  repeated ChatCompletionChoice choices = 4;
+
+  // The completion token usage.
+  TokenUsage usage = 5;
+}
+
+// One complete generated Chat choice.
+message ChatCompletionChoice {
+  // The zero-based choice index.
+  uint32 index = 1;
+
+  // The completed assistant message.
+  ChatMessage message = 2;
+
+  // The terminal reason for this choice.
+  ChatFinishReason finish_reason = 3;
+}
+
+// The terminal reason for one Chat choice.
+enum ChatFinishReason {
+  // The chat finish reason unspecified value.
+  CHAT_FINISH_REASON_UNSPECIFIED = 0;
+
+  // The chat finish reason stop value.
+  CHAT_FINISH_REASON_STOP = 1;
+
+  // The chat finish reason length value.
+  CHAT_FINISH_REASON_LENGTH = 2;
+
+  // The chat finish reason tool calls value.
+  CHAT_FINISH_REASON_TOOL_CALLS = 3;
+
+  // The chat finish reason content filter value.
+  CHAT_FINISH_REASON_CONTENT_FILTER = 4;
+}
+
+// Token counts for one completed Chat request.
+message TokenUsage {
+  // The number of prompt tokens.
+  uint64 prompt_tokens = 1;
+
+  // The number of generated completion tokens.
+  uint64 completion_tokens = 2;
+
+  // The total number of request tokens.
+  uint64 total_tokens = 3;
+
+  // The prompt tokens served from the engine's prompt cache, when the engine reports them.
+  optional uint64 cached_prompt_tokens = 4;
+
+  // The completion tokens spent on reasoning, when the engine reports them.
+  optional uint64 reasoning_tokens = 5;
+}
+
+// One Chat-specific semantic stream event.
+message ChatStreamEvent {
+  // The semantic event payload.
+  oneof event {
+    // Identifies the completion before generated deltas.
+    ChatStreamStarted started = 1;
+
+    // Adds one text delta to a choice.
+    ChatTextDelta text_delta = 2;
+
+    // Adds one function-tool-call delta to a choice.
+    ChatToolCallDelta tool_call_delta = 3;
+
+    // Marks one choice as complete.
+    ChatStreamFinished finished = 4;
+
+    // Reports terminal token usage.
+    TokenUsage usage = 5;
+
+    // Marks the semantic stream as complete.
+    ChatStreamCompleted completed = 6;
+
+    // Adds one reasoning delta to a choice.
+    ChatReasoningDelta reasoning_delta = 7;
+  }
+}
+
+// Identifies one streamed Chat completion.
+message ChatStreamStarted {
+  // The client-visible completion identifier.
+  string completion_id = 1;
+
+  // The requested immutable catalog model identifier.
+  string model_id = 2;
+
+  // The time at which the completion started, in Unix seconds.
+  uint64 created_at_unix_seconds = 3;
+}
+
+// Adds text and optional role data to one streamed Chat choice.
+message ChatTextDelta {
+  // The zero-based choice index.
+  uint32 choice_index = 1;
+
+  // The optional assistant role emitted with this delta.
+  optional ChatMessageRole role = 2;
+
+  // The delta content, which can preserve absent and null values.
+  oneof content {
+    // The text fragment emitted with this delta.
+    string text_content = 3;
+
+    // Explicit null content for this delta.
+    google.protobuf.NullValue null_content = 4;
+  }
+}
+
+// Adds separate model reasoning to one streamed Chat choice.
+message ChatReasoningDelta {
+  // The zero-based choice index.
+  uint32 choice_index = 1;
+
+  // The reasoning fragment emitted with this delta.
+  string reasoning = 2;
+}
+
+// Adds function-call data to one streamed Chat choice.
+message ChatToolCallDelta {
+  // The zero-based choice index.
+  uint32 choice_index = 1;
+
+  // The zero-based function-call index within the choice.
+  uint32 tool_call_index = 2;
+
+  // The optional client-visible function-call identifier.
+  optional string tool_call_id = 3;
+
+  // The optional function name.
+  optional string function_name = 4;
+
+  // The optional exact JSON argument fragment.
+  optional string arguments_json_fragment = 5;
+}
+
+// Marks one streamed Chat choice as complete.
+message ChatStreamFinished {
+  // The zero-based choice index.
+  uint32 choice_index = 1;
+
+  // The terminal reason for this choice.
+  ChatFinishReason finish_reason = 2;
+}
+
+// Marks a semantic Chat stream as complete.
+message ChatStreamCompleted {}

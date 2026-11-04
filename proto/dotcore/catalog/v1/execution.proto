@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// The requested number of execution targets for one model deployment.
+enum ModelParallelShape {
+  // The model parallel shape unspecified value.
+  MODEL_PARALLEL_SHAPE_UNSPECIFIED = 0;
+
+  // The model parallel shape one value.
+  MODEL_PARALLEL_SHAPE_ONE = 1;
+}

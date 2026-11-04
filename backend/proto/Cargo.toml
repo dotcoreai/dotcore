@@ -1,0 +1,25 @@
+[package]
+name = "dotcore-proto"
+description = "Generated protocol bindings and generic protobuf and restricted-YAML utilities."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+pbjson.workspace = true
+prost.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+thiserror.workspace = true
+tonic.workspace = true
+tonic-prost.workspace = true
+yaml-rust2 = "0.10.4"
+
+[build-dependencies]
+pbjson-build = "0.8.0"
+tonic-prost-build = "0.14.6"
+
+[dev-dependencies]
+prost-types = "0.14.4"

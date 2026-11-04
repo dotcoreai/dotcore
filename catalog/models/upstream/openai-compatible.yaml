@@ -1,0 +1,4 @@
+# Immutable template for OpenAI-compatible upstream models.
+upstreamModelTemplateId: "openai-compatible"
+displayName: "OpenAI-compatible"
+wireProtocol: "UPSTREAM_WIRE_PROTOCOL_OPENAI_COMPATIBLE"

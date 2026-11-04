@@ -1,0 +1,3 @@
+# Secret scan rules: gitleaks' default rules plus the allowances for known non-secrets.
+[extend]
+useDefault = true

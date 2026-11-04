@@ -1,0 +1,7 @@
+# NVIDIA GPUs with their own memory, such as RTX and datacenter cards.
+hardwareClassId: "nvidia-dedicated"
+displayName: "NVIDIA · dedicated memory"
+description: "A single NVIDIA GPU with its own memory, such as an RTX or datacenter card."
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED"

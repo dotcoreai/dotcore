@@ -1,0 +1,15 @@
+# An Apple Silicon Mac with 64 GiB of unified memory.
+# Values marked "to check" are not measured on the real machine yet.
+platform: darwin/arm64
+cpuCount: 16 # to check
+hostMemory:
+  totalBytes: 68719476736 # 64 GiB
+  idleUsedBytes: 8589934592 # 8 GiB, to check
+gpus:
+  # Apple GPUs have no vendor UUID; every Mac reports this one ID.
+  - id: apple-gpu-0
+    vendor: apple
+    model: Apple M4 Max
+    memory:
+      architecture: unified
+    workingSetLimitBytes: 51539607552 # 48 GiB, Metal's recommended limit, to check

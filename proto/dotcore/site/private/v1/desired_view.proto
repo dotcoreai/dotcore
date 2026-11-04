@@ -1,0 +1,172 @@
+syntax = "proto3";
+
+package dotcore.site.private.v1;
+
+import "dotcore/application/private/v1/controller.proto";
+import "dotcore/model/private/v1/controller.proto";
+import "dotcore/site/v1/site.proto";
+
+// Complete node-scoped desired state derived from one manager-authoritative snapshot.
+message NodeDesiredView {
+  // Fenced identity of this complete view.
+  NodeViewIdentity identity = 1;
+
+  // Required sections and exact versions, independent of payload presence.
+  repeated RequiredDesiredViewSection required_sections = 2;
+
+  // Typed complete section payloads; an explicit empty payload removes owner intent.
+  repeated DesiredViewSection sections = 3;
+
+  // Exact target-owned realization configuration referenced by owner sections.
+  repeated dotcore.site.v1.ExecutionTarget execution_targets = 4;
+}
+
+// Identity of one manager-authored complete node view.
+message NodeViewIdentity {
+  // Site identity under which this view was derived.
+  string site_id = 1;
+
+  // Exact destination SiteNode identity.
+  string node_id = 2;
+
+  // Random identity for the manager process session.
+  string manager_session_id = 3;
+
+  // Node process incarnation the view was published to.
+  string node_incarnation_id = 4;
+
+  // Publication sequence, strictly increasing within one node control stream.
+  uint64 publication_sequence = 5;
+
+  // Nonzero revision scoped to the manager session and destination node.
+  uint64 view_revision = 6;
+
+  // Lowercase SHA-256 of normalized semantic view content.
+  string content_sha256 = 7;
+
+  // Generic projection envelope schema version.
+  uint32 projection_schema_version = 8;
+}
+
+// Stable identity of a complete view, independent of the stream publication that carried it.
+message NodeViewReference {
+  // Site identity carried by the view.
+  string site_id = 1;
+
+  // Destination SiteNode identity carried by the view.
+  string node_id = 2;
+
+  // Manager process session that authored the view.
+  string manager_session_id = 3;
+
+  // Node process incarnation that accepted the view.
+  string node_incarnation_id = 4;
+
+  // Node-view revision within the manager session.
+  uint64 view_revision = 5;
+
+  // Canonical semantic content digest.
+  string content_sha256 = 6;
+}
+
+// One desired-view section schema range supported by the node.
+message SupportedDesiredViewSection {
+  // Stable typed section kind.
+  DesiredViewSectionKind kind = 1;
+
+  // Lowest section schema version supported by the node.
+  uint32 minimum_schema_version = 2;
+
+  // Highest section schema version supported by the node.
+  uint32 maximum_schema_version = 3;
+}
+
+// One section that must be understood and present before atomic installation.
+message RequiredDesiredViewSection {
+  // Stable typed section kind.
+  DesiredViewSectionKind kind = 1;
+
+  // Exact schema version required to interpret its payload.
+  uint32 schema_version = 2;
+}
+
+// One typed complete owner section.
+message DesiredViewSection {
+  // Stable section kind, required to match the selected payload.
+  DesiredViewSectionKind kind = 1;
+
+  // Exact schema version, required to match the manifest entry.
+  uint32 schema_version = 2;
+
+  oneof payload {
+    // Complete model-owner intent, explicitly present even when empty.
+    dotcore.model.private.v1.ModelDesiredViewSection model = 3;
+
+    // Complete apps-controller intent, explicitly present even when empty.
+    dotcore.application.private.v1.ApplicationDesiredViewSection application = 4;
+  }
+}
+
+// Safe structured rejection that never echoes desired payload values.
+message DesiredViewRejection {
+  // Stable non-sensitive rejection reason.
+  DesiredViewRejectionCode code = 1;
+}
+
+// One typed complete controller status section.
+message ControllerStatusSection {
+  oneof payload {
+    // Complete model-owner status.
+    dotcore.model.private.v1.ModelControllerStatusSection model = 1;
+
+    // Complete apps-controller status.
+    dotcore.application.private.v1.ApplicationControllerStatusSection application = 2;
+  }
+}
+
+// One typed manager disposition for cleanup evidence in a status report.
+message ControllerStatusReceipt {
+  oneof payload {
+    // Model cleanup evidence disposition.
+    dotcore.model.private.v1.ModelCleanupReceipt model = 1;
+
+    // Application cleanup evidence disposition.
+    dotcore.application.private.v1.ApplicationCleanupReceipt application = 2;
+  }
+}
+
+// Typed owner sections understood by the generic node-view envelope.
+enum DesiredViewSectionKind {
+  // No section kind was specified.
+  DESIRED_VIEW_SECTION_KIND_UNSPECIFIED = 0;
+
+  // Inference-controller-owned model intent and status.
+  DESIRED_VIEW_SECTION_KIND_MODEL = 1;
+
+  // Apps-controller-owned application intent and status.
+  DESIRED_VIEW_SECTION_KIND_APPLICATION = 2;
+}
+
+// Stable fail-closed desired-view rejection reasons.
+enum DesiredViewRejectionCode {
+  // No rejection reason was specified.
+  DESIRED_VIEW_REJECTION_CODE_UNSPECIFIED = 0;
+
+  // Required identity or fencing metadata did not match.
+  DESIRED_VIEW_REJECTION_CODE_IDENTITY_MISMATCH = 1;
+
+  // A required section manifest entry was missing or duplicated.
+  DESIRED_VIEW_REJECTION_CODE_REQUIRED_SECTION_INVALID = 2;
+
+  // A required section kind or version is unsupported.
+  DESIRED_VIEW_REJECTION_CODE_REQUIRED_SECTION_UNSUPPORTED = 3;
+
+  // A required typed payload was absent, duplicated, or mismatched.
+  DESIRED_VIEW_REJECTION_CODE_SECTION_PAYLOAD_INVALID = 4;
+
+  // Canonical semantic content did not match its digest or revision history.
+  DESIRED_VIEW_REJECTION_CODE_CONTENT_CONFLICT = 5;
+
+  // The complete view exceeded a protocol bound.
+  DESIRED_VIEW_REJECTION_CODE_LIMIT_EXCEEDED = 6;
+}

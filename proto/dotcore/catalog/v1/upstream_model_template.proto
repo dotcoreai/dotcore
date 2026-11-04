@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// An immutable artifact-manager catalog declaration for repeatable
+// OpenAI-compatible upstream model setup. It is not a catalog model or target.
+message UpstreamModelTemplate {
+  // Stable identifier for this immutable upstream model template.
+  string upstream_model_template_id = 1;
+
+  // Human-readable name for this upstream model template.
+  string display_name = 2;
+
+  // Wire protocol used by every upstream model instantiated from this template.
+  UpstreamWireProtocol wire_protocol = 4;
+}
+
+// Selects the endpoint-facing request and response wire protocol.
+enum UpstreamWireProtocol {
+  UPSTREAM_WIRE_PROTOCOL_UNSPECIFIED = 0;
+
+  UPSTREAM_WIRE_PROTOCOL_OPENAI_COMPATIBLE = 1;
+}
+
+// Declares the trust and egress boundary of one remote endpoint.
+message UpstreamModelBoundary {
+  // Operator-visible locality classification for the endpoint.
+  UpstreamModelLocality locality = 1;
+
+  // Operator-visible endpoint trust domain.
+  string trust_domain = 2;
+
+  // Operator-visible classification of inference data egress.
+  UpstreamModelDataEgressClass data_egress_class = 3;
+}
+
+// Classifies whether a remote endpoint is public, private, or local.
+enum UpstreamModelLocality {
+  UPSTREAM_MODEL_LOCALITY_UNSPECIFIED = 0;
+
+  UPSTREAM_MODEL_LOCALITY_PUBLIC_EXTERNAL = 1;
+
+  UPSTREAM_MODEL_LOCALITY_PRIVATE = 2;
+
+  UPSTREAM_MODEL_LOCALITY_LOCAL = 3;
+}
+
+// Classifies the data-egress boundary for one remote endpoint.
+enum UpstreamModelDataEgressClass {
+  UPSTREAM_MODEL_DATA_EGRESS_CLASS_UNSPECIFIED = 0;
+
+  UPSTREAM_MODEL_DATA_EGRESS_CLASS_PUBLIC_INTERNET = 1;
+
+  UPSTREAM_MODEL_DATA_EGRESS_CLASS_PRIVATE_NETWORK = 2;
+
+  UPSTREAM_MODEL_DATA_EGRESS_CLASS_LOCAL = 3;
+}

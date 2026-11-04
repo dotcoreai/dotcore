@@ -1,0 +1,36 @@
+modelId: "fixture-model"
+displayName: "fixture model"
+version: "1"
+maximumContextTokens: 262144
+artifacts:
+  - artifactId: "fixture-artifact"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "dotcore/fixture"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      file:
+        path: "fixture-Q8_0.gguf"
+        provenanceDigest: "0000000000000000000000000000000000000000000000000000000000000000"
+configurations:
+  - configurationId: "fixture-configuration"
+    engineArtifacts: [{ engineReleaseId: "fixture-engine", engineArtifactId: "fixture-linux" }]
+    artifactBindings: [{ bindingId: "fixture-artifact", modelArtifactId: "fixture-artifact" }]
+    hardwareSupport:
+      - hardwareClassId: "fixture-nvidia"
+        hardwareRequirements:
+          minimumSystemMemoryBytes: "1"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp: { fixedSettings: { gpuLayers: 0 } }
+    executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
+    requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
+    inputCapabilities: { supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }
+profiles:
+  - profileId: "fixture-profile"
+    displayName: "Fixture profile"
+    description: "Exercises catalog-owned profile presentation fields."
+    configurationId: "fixture-configuration"
+    defaultModelArtifactBindingId: "fixture-artifact"
+    engineParameterDefaults:
+      values:
+        - { parameterId: "prompt-cache-memory-mib", unsignedInteger: "0" }

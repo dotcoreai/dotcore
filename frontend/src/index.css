@@ -1,0 +1,365 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-danger: var(--danger);
+  --color-info: var(--info);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning: var(--warning);
+  --color-success-foreground: var(--success-foreground);
+  --color-success: var(--success);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-console-subtle: var(--console-subtle);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --z-index-modal: var(--layer-modal);
+  --z-index-popup: var(--layer-popup);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --spacing-control-xs: var(--console-control-xs);
+  --spacing-control-sm: var(--console-control-sm);
+  --spacing-control-md: var(--console-control-md);
+  --spacing-control-action: var(--console-control-action);
+  --spacing-control-lg: var(--console-control-lg);
+  --spacing-menu-row: var(--console-menu-row);
+  --spacing-menu-row-sm: var(--console-menu-row-sm);
+}
+
+/*
+ * Console palette: the console demo's colors mapped onto shadcn's own token names, so an unstyled
+ * primitive already reads as console chrome.
+ */
+:root {
+  --background: oklch(0.9686 0.0041 121.56); /* demo --page #f4f5f2 */
+  --foreground: oklch(0.226 0.0083 264.39); /* demo --ink #1a1c20 */
+  --card: oklch(1 0 0); /* demo --surface #ffffff */
+  --card-foreground: oklch(0.226 0.0083 264.39);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.226 0.0083 264.39);
+  --primary: oklch(0.4931 0.1832 261.87); /* demo --accent #1f58c7 */
+  --primary-foreground: oklch(1 0 0); /* demo .btn-primary color:#fff */
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.969 0.0053 106.5); /* demo --surface-1 #f5f5f1 */
+  --muted-foreground: oklch(0.4844 0.0123 261.76); /* demo --ink-2 #5b5f66 */
+  --accent: oklch(
+    0.9538 0.0161 262.75
+  ); /* mirrors --info, so the hover/focus highlight reads as
+    the console accent chip rather than a generic neutral */
+  --accent-foreground: oklch(0.4931 0.1832 261.87); /* mirrors --primary */
+  --destructive: oklch(0.4947 0.1418 23.88); /* demo --danger #a33838 */
+  --border: oklch(0.9167 0.0068 115.71); /* demo --border #e3e4df */
+  --input: oklch(0.8357 0.0085 121.66); /* demo --border-strong #c8cac4 */
+  --ring: oklch(
+    0.4931 0.1832 261.87
+  ); /* mirrors --primary so focus rings read as the console accent */
+  --radius: 0.75rem; /* demo 12px */
+
+  /* Body-portal layers remain above isolated application chrome and preserve modal/popup order. */
+  --layer-modal: 60;
+  --layer-popup: 70;
+
+  /*
+   * Sidebar tokens: shadcn's own names for the sidebar primitive. Each mirrors an existing console
+   * token rather than the shadcn registry default, so the sidebar sits against the header and card
+   * surfaces as console chrome, not a pasted component. --sidebar mirrors --card so the sidebar and
+   * the full-width top bar read as one chrome surface against the page's --background.
+   * --sidebar-accent mirrors --accent, the same chip used elsewhere for hover/focus highlight, and
+   * carries the active navigation item.
+   */
+  --sidebar: oklch(1 0 0); /* mirrors --card */
+  --sidebar-foreground: oklch(0.226 0.0083 264.39); /* mirrors --foreground */
+  --sidebar-primary: oklch(0.4931 0.1832 261.87); /* mirrors --primary */
+  --sidebar-primary-foreground: oklch(1 0 0); /* mirrors --primary-foreground */
+  --sidebar-accent: oklch(0.9538 0.0161 262.75); /* mirrors --accent */
+  --sidebar-accent-foreground: oklch(0.4931 0.1832 261.87); /* mirrors --accent-foreground */
+  --sidebar-border: oklch(0.9167 0.0068 115.71); /* mirrors --border */
+  --sidebar-ring: oklch(0.4931 0.1832 261.87); /* mirrors --ring */
+
+  /*
+   * Semantic status scale: demo tones with no shadcn-owned equivalent (success*, warning*, and
+   * the danger/info background chips). Danger and info reuse --destructive and --primary as their
+   * foreground, since those tokens already own the demo's danger/accent ink; only the background
+   * chip is new.
+   */
+  --success: oklch(0.9478 0.0191 162.93); /* demo --success-bg #e3f2ea */
+  --success-foreground: oklch(0.4874 0.1017 161.52); /* demo --success #12714d */
+  --warning: oklch(0.958 0.0313 84.59); /* demo --warning-bg #fbf0da */
+  --warning-foreground: oklch(0.5082 0.1052 72.07); /* demo --warning #8a5a0a */
+  --info: oklch(0.9538 0.0161 262.75); /* demo --accent-bg #eaf0fb; foreground is --primary */
+  --danger: oklch(0.9497 0.0174 17.46); /* demo --danger-bg #faeaea; foreground is --destructive */
+
+  /* No shadcn token owns the demo's --ink-3; kept scoped for de-emphasized card meta text. */
+  --console-subtle: oklch(0.5092 0.0121 261.77); /* demo --ink-3 #62666d */
+
+  /* Categorical series colours, such as per-model memory segments; equal lightness keeps any one
+     series from reading as more important than another. */
+  --chart-1: oklch(0.58 0.14 262);
+  --chart-2: oklch(0.6 0.11 180);
+  --chart-3: oklch(0.58 0.14 310);
+  --chart-4: oklch(0.62 0.12 75);
+  --chart-5: oklch(0.6 0.13 25);
+
+  /*
+   * Density scale: control and list-row heights that primitives read through the `*-control-*` and
+   * `*-menu-row*` utilities. Scoped because shadcn/ui has no density tokens. Values here are the
+   * mouse sizes; the `pointer: coarse` block below enlarges them for touch-primary devices.
+   */
+  --console-control-xs: --spacing(6);
+  --console-control-sm: --spacing(7);
+  --console-control-md: --spacing(8);
+  --console-control-action: --spacing(8.5);
+  --console-control-lg: --spacing(9);
+  --console-menu-row: --spacing(8);
+  --console-menu-row-sm: --spacing(7);
+}
+
+/* Touch-primary devices: the 44px floor for standard controls and rows, 48px for the large step. */
+@media (pointer: coarse) {
+  :root {
+    --console-control-xs: --spacing(8);
+    --console-control-sm: --spacing(9);
+    --console-control-md: --spacing(11);
+    --console-control-action: --spacing(11);
+    --console-control-lg: --spacing(12);
+    --console-menu-row: --spacing(11);
+    --console-menu-row-sm: --spacing(11);
+  }
+}
+
+.dark {
+  /* Reuses the console's existing dark palette, where one exists. */
+  --background: oklch(0.2174 0.0084 264.38);
+  --foreground: oklch(0.9722 0.0034 247.86);
+  --card: oklch(0.2722 0.0119 264.36);
+  --card-foreground: oklch(0.9722 0.0034 247.86);
+  --popover: oklch(0.2722 0.0119 264.36);
+  --popover-foreground: oklch(0.9722 0.0034 247.86);
+  --primary: oklch(0.8088 0.0957 262.15);
+  --primary-foreground: oklch(
+    0.226 0.0083 264.39
+  ); /* light-mode foreground ink, for contrast on the pale dark primary */
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.324 0.0136 261.72);
+  --muted-foreground: oklch(0.818 0.013 255.52);
+  --accent: oklch(0.3527 0.0608 261.37); /* mirrors --info, reads as the console accent chip */
+  --accent-foreground: oklch(0.8088 0.0957 262.15); /* mirrors --primary */
+  --destructive: oklch(0.8383 0.0891 26.76);
+  --border: oklch(0.3699 0.0153 259.81);
+  --input: oklch(0.4296 0.0183 260.69);
+  --ring: oklch(0.8088 0.0957 262.15);
+
+  /* Sidebar tokens: same mirroring as the light-mode block. */
+  --sidebar: oklch(0.2722 0.0119 264.36); /* mirrors --card */
+  --sidebar-foreground: oklch(0.9722 0.0034 247.86); /* mirrors --foreground */
+  --sidebar-primary: oklch(0.8088 0.0957 262.15); /* mirrors --primary */
+  --sidebar-primary-foreground: oklch(0.226 0.0083 264.39); /* mirrors --primary-foreground */
+  --sidebar-accent: oklch(0.3527 0.0608 261.37); /* mirrors --accent */
+  --sidebar-accent-foreground: oklch(0.8088 0.0957 262.15); /* mirrors --accent-foreground */
+  --sidebar-border: oklch(0.3699 0.0153 259.81); /* mirrors --border */
+  --sidebar-ring: oklch(0.8088 0.0957 262.15); /* mirrors --ring */
+
+  /*
+   * The demo is light-only, so these have no reference value. Derived by holding each tone's hue
+   * and inverting lightness: light-tinted, saturated ink on a dark, low-chroma chip, each pair
+   * verified at >=4.5:1 contrast (see src/lib/*.contrast.test.ts).
+   */
+  --success: oklch(0.28 0.045 162.9);
+  --success-foreground: oklch(0.85 0.11 161.5);
+  --warning: oklch(0.3 0.05 84.6);
+  /* Chroma reduced from the derivation's original 0.13: that value was outside sRGB gamut, so
+     this states what a browser already renders via hue-preserving gamut mapping, rather than a
+     value that cannot exist. */
+  --warning-foreground: oklch(0.85 0.12 72.1);
+  --info: oklch(0.3527 0.0608 261.37); /* demo --accent-bg, dark derivation */
+  --danger: oklch(0.3 0.045 17.5);
+
+  --console-subtle: oklch(0.7607 0.0181 256.3); /* demo --ink-3, dark derivation */
+
+  --chart-1: oklch(0.75 0.12 262);
+  --chart-2: oklch(0.78 0.11 180);
+  --chart-3: oklch(0.76 0.12 310);
+  --chart-4: oklch(0.8 0.11 80);
+  --chart-5: oklch(0.76 0.12 25);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  /*
+   * Below md the header spans the top edge, and iOS Safari tints its status-bar area from the body
+   * background rather than from the header, so body takes the header's colour there. The content
+   * pane paints its own background, so nothing else shows it.
+   */
+  body {
+    @apply bg-background text-foreground max-md:bg-card;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/*
+ * App shell: `html`, `body`, and `#root` sit outside the React tree's className reach, so a
+ * Tailwind utility on a component cannot express this. The content pane
+ * (`[data-slot="sidebar-inset"]`) is the only scroll container; nothing here may scroll or the
+ * header and sidebar, which live outside that pane, would ride the document scroll instead of
+ * staying still.
+ */
+html,
+body,
+#root {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+#root {
+  isolation: isolate;
+}
+
+/*
+ * Print override: the fixed `100dvh` height and hidden overflow above are a screen-only concept.
+ * Chromium and WebKit paginate print output against these same boxes, so left as-is they clip the
+ * printout to whatever fits one viewport-sized page instead of flowing it across pages. Printing
+ * needs the opposite of the rule above on every ancestor in the height chain, including the scroll
+ * pane itself, so the paginator can measure each element's full content height rather than its
+ * clipped screen height.
+ */
+@media print {
+  html,
+  body,
+  #root,
+  [data-slot="sidebar-inset"] {
+    height: auto;
+    overflow: visible;
+  }
+}
+
+/*
+ * Header height: a layout primitive, not a design token, so it sits in its own `:root` rule rather
+ * than the token block above and is exempt from that block's `@theme inline` mapping requirement —
+ * the same footing as `sidebar.tsx`'s own `--sidebar-width` and `--sidebar-width-icon`, which never
+ * route through `@theme inline` either. Declared at `:root` rather than inline on the shell root
+ * because the inspector panel portals to `document.body`, and a custom property inherits through
+ * the DOM tree, not React's portal tree — a declaration inside the React tree would not resolve for
+ * it. `console-header.tsx` and `console-sidebar.tsx` read it as DOM descendants of `:root` either
+ * way.
+ */
+:root {
+  --header-height: --spacing(17);
+}
+
+/*
+ * Tap-area expander: on devices with any touch input, grows the element's hit area to at least
+ * 44px square without changing its layout. A utility, so it sits in the utilities layer and
+ * tailwind-merge can resolve it. It leaves `position` to the consumer, which must be positioned.
+ */
+@utility touch-target {
+  @media (any-pointer: coarse) {
+    &::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      translate: -50% -50%;
+      width: max(100%, 44px);
+      height: max(100%, 44px);
+    }
+  }
+}
+
+/*
+ * Scrollbar chrome: the content pane is the app's only scroll container, so its scrollbar is the
+ * one a user actually sees. No utility reaches `scrollbar-gutter`, `scrollbar-color`, or the WebKit
+ * scrollbar pseudo-elements, so this is unlayered per frontend/AGENTS.md. Colors are drawn from the
+ * token layer so both are correct in both schemes automatically. `scrollbar-gutter: stable`
+ * reserves classic-scrollbar space so content doesn't shift sideways as the scrollbar appears and
+ * disappears; per spec it has no effect where scrollbars overlay (macOS), which is expected there,
+ * not a defect.
+ */
+[data-slot="sidebar-inset"] {
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--border) transparent;
+}
+
+[data-slot="sidebar-inset"]::-webkit-scrollbar {
+  width: 10px;
+}
+
+[data-slot="sidebar-inset"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-slot="sidebar-inset"]::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: var(--radius-sm);
+}
+
+[data-slot="sidebar-inset"]::-webkit-scrollbar-thumb:hover {
+  background-color: var(--muted-foreground);
+}
+
+/* Unlayered, so this beats the grid utility classes Tailwind would otherwise generate under
+ * @layer utilities regardless of source order — the demo's exact grid template is what wins here,
+ * not an incidental match. */
+.inspector-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* No Tailwind utility expresses a sibling combinator: spacing an element only when it follows
+ * another sibling needs a selector, not a class the element itself can carry. */
+.inspector-sections > section + section,
+.inspector-sections > [role="alert"] + section {
+  margin-top: 22px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+
+.inspector-sections > [role="alert"] {
+  margin-bottom: 22px;
+}

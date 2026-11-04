@@ -1,0 +1,317 @@
+
+set positional-arguments
+
+mod remote 'remote/Justfile'
+mod cluster 'cluster/Justfile'
+
+# List dev module recipes.
+help:
+  @just --list
+
+# Test development-owned workspace, process, backend, and site recipe behavior.
+test:
+  node --test workspace-environment.test.mjs process-compose.test.mjs site-recipes.test.mjs clean-recipe.test.mjs bootstrap-check.test.mjs cluster/cluster.test.mjs remote/remote-exec.test.mjs
+
+# Run all validation operations (format, clippy, test).
+check:
+  just test
+  just docker-images-check
+
+# Build the sandbox checks of the Docker image derivations: evaluation properties, the loader against fake Docker and Nix, its formats against the backend samples, and stale store build records.
+docker-images-check:
+  cd .. && system=$(nix eval --raw --impure --expr builtins.currentSystem) && nix build --no-link ".#checks.$system.docker-images-eval" ".#checks.$system.docker-images-loader" ".#checks.$system.docker-images-samples" ".#checks.$system.docker-images-records"
+
+# Refresh the committed samples of the image metadata and loader result the backend reads (backend/fixtures/docker-image) from the loader tests, after a deliberate format change.
+docker-images-samples:
+  cd .. && system=$(nix eval --raw --impure --expr builtins.currentSystem) && samples=$(nix build --no-link --print-out-paths ".#checks.$system.docker-images-loader") && install -m 644 "$samples"/*.json backend/fixtures/docker-image/
+
+# Materialize the master catalog for a committed git revision (default: HEAD, the working copy's parent commit), rewriting `self` Nix artifacts to that revision, and print its folder; point a site at it with DOTCORE_CATALOG_DIR.
+catalog-materialize rev="HEAD":
+  cd .. && nix build --no-link --print-out-paths "git+file://$PWD?rev=$(git rev-parse {{quote(rev)}})#dotcore.catalog"
+
+# Launch one model workload outside any site, for engine development and model sizing; other `dotc dev workload launch` options pass through, such as `--device nvidia.com/gpu=0` for an NVIDIA GPU or `--runtime native` on a Mac.
+workload-launch model profile *args:
+  dotc dev workload launch --model-id {{quote(model)}} --profile-id {{quote(profile)}} {{args}}
+
+# Report the development workload of the workspace handle; `dotc dev workload inspect` options pass through.
+workload-inspect *args:
+  dotc dev workload inspect {{args}}
+
+# Stop and remove the development workload of the workspace handle; `dotc dev workload teardown` options (such as --all) pass through.
+workload-teardown *args:
+  dotc dev workload teardown {{args}}
+
+# Smoke-test the Docker image loaders against this host's Docker daemon with tiny fixture images; removes only the fixture tags it creates.
+docker-images-smoke:
+  cd .. && nix run .#tools.docker-images-smoke
+
+# Scan this checkout's tracked files and git history for committed secrets, offline; prints each finding's file and kind, never the secret, and fails on any finding.
+secret-scan:
+  cd .. && dev/secret-scan.sh
+
+# Fail unless the frontend and backend are bootstrapped, reporting everything that is missing.
+[private]
+[no-exit-message]
+[script]
+bootstrap-check:
+  #!/usr/bin/env bash
+  set -uo pipefail
+  cd ../
+  status=0
+  just frontend::bootstrap-check || status=1
+  just backend::bootstrap-check || status=1
+  exit "$status"
+
+# Launch the full-stack development environment in the foreground Process Compose TUI; refuses to start before `just bootstrap`.
+up *args: bootstrap-check
+  cd ../ && exec process-compose --config dev/process-compose.yaml --disable-dotenv --use-uds --unix-socket "$PC_SOCKET_PATH" "$@"
+
+# Shut down the full-stack development environment; succeeds when no stack is running and removes a socket left behind by a stack that died without cleanup.
+[script]
+down:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{module_directory()}}/pc-endpoint.sh"
+  test -n "${PC_SOCKET_PATH:-}" || { echo 'PC_SOCKET_PATH is unset; enter the workspace direnv shell before stopping the stack' >&2; exit 1; }
+  # A socket file outlives a server killed without cleanup, so only an endpoint that answers is a stack
+  # to stop, and only the client's own connection failure makes its leftovers safe to remove.
+  case "$(pc_endpoint_state "$PC_SOCKET_PATH")" in
+    live) just pc down ;;
+    stale)
+      if [ -e "$PC_SOCKET_PATH" ]; then
+        rm -f -- "$PC_SOCKET_PATH"
+        echo "no development stack is running; removed the stale socket at $PC_SOCKET_PATH"
+      else
+        echo "no development stack is running (no socket at $PC_SOCKET_PATH)"
+      fi
+      ;;
+    *)
+      echo "cannot tell whether a development stack is running at $PC_SOCKET_PATH; enter the workspace direnv shell and retry" >&2
+      exit 1
+      ;;
+  esac
+
+# Attach to this workspace's Process Compose TUI.
+attach:
+  just pc attach
+
+# Show recent logs for a development process.
+[script]
+logs process="backend" lines="200":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  just pc process logs "{{process}}" --tail "{{lines}}" --raw-log | sed -E 's/\x1b\[[0-9;]*m//g'
+
+# Run the public ingress that serves the console, management and inference APIs on one origin.
+ingress:
+  DOTCORE_PUBLIC_PORT="${DOTCORE_DEV_PUBLIC_PORT:?DOTCORE_DEV_PUBLIC_PORT must be set}" DOTCORE_MANAGEMENT_UPSTREAM="$DOTCORE_MANAGEMENT_ORIGIN" DOTCORE_INFERENCE_UPSTREAM="$DOTCORE_INFERENCE_ORIGIN" DOTCORE_FRONTEND_UPSTREAM="$DOTCORE_FRONTEND_ORIGIN" exec dotcore-ingress
+
+# Launch the full-stack development environment in detached Process Compose mode.
+up-daemon *args:
+  just up --detached "$@"
+
+# Run a native Process Compose client command against this workspace's control endpoint.
+[script]
+[positional-arguments]
+pc *args:
+  cd ../
+  exec process-compose --use-uds --unix-socket "$PC_SOCKET_PATH" "$@"
+
+# Add the loopback aliases 127.0.0.2 to 127.0.0.5 that macOS needs for the two-process worker and node join tests; asks for sudo, and the aliases do not survive a reboot. Does nothing on Linux, where every 127.0.0.0/8 address is local.
+[script]
+mac-loopback:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ "$(uname -s)" != "Darwin" ]; then
+    echo "not macOS: every 127.0.0.0/8 address is already local"
+    exit 0
+  fi
+  for ip in 127.0.0.2 127.0.0.3 127.0.0.4 127.0.0.5; do
+    if ifconfig lo0 | grep -qF "inet $ip "; then
+      echo "$ip: already on lo0"
+    else
+      sudo ifconfig lo0 alias "$ip" up
+      echo "$ip: added to lo0"
+    fi
+  done
+
+# Initialize a normal development site. With inference (simulated, nvidia, apple or none) and applications (simulated, docker or none) choices it is non-interactive; each takes several choices separated by commas, such as `docker,simulated`, and `apple` declares an ephemeral native target, so native workloads stop with the development server. With neither choice it asks for them in a terminal, including the native workload lifetime. Giving only one is refused. Inference `simulated:<name>` simulates hardware instead of the real GPUs, such as `simulated:rtx-5090,simulated:rtx-4090` or `simulated:gb10`; `dotc site init --help` lists the names.
+[script]
+site-init inference="" applications="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  # Both choices or none, so a guided run never mixes a flag with half of a scripted one.
+  if { [ -z "{{inference}}" ] && [ -n "{{applications}}" ]; } || { [ -n "{{inference}}" ] && [ -z "{{applications}}" ]; }; then
+    echo 'pass both inference and applications, or neither to be asked' >&2
+    exit 2
+  fi
+  source "{{module_directory()}}/site-choices.sh"
+  choice_args=(--interactive)
+  native_args=()
+  if [ -n "{{inference}}" ]; then
+    site_choice_flags "{{inference}}" "{{applications}}"
+    choice_args=("${choice_flags[@]}" --non-interactive)
+    native_args=(${native_flags[@]+"${native_flags[@]}"})
+  fi
+
+  cd ../
+  dotc site init --site-dir "$DOTCORE_SITE_DIR" --catalog-dir "$DOTCORE_CATALOG_DIR" --host "$DOTCORE_MACHINE_HOST" "${choice_args[@]}" ${native_args[@]+"${native_args[@]}"}
+
+# Remove this workspace's development state: workloads, the site, the local worker folder and scratch output. Asks first, offering to stop a running stack and to clean the configured remote hosts too.
+[script]
+clean:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{module_directory()}}/pc-endpoint.sh"
+  source "{{module_directory()}}/confirm.sh"
+  workspace_root="$(cd .. && pwd -P)"
+
+  # Resolves symlinks in the longest existing ancestor and appends the rest, so paths that do not exist yet
+  # (and ones that reach the workspace through a symlink such as /var on macOS) compare by real location.
+  resolve_path() {
+    local rest='' dir="$1" base
+    while test ! -d "$dir"; do
+      base="$(basename "$dir")"
+      rest="/$base$rest"
+      dir="$(dirname "$dir")"
+    done
+    echo "$(cd "$dir" && pwd -P)${rest}"
+  }
+
+  test -n "${PC_SOCKET_PATH:-}" || { echo 'PC_SOCKET_PATH is unset; enter the workspace direnv shell before cleaning' >&2; exit 2; }
+
+  # .env.local may point the site or the worker folder outside this workspace; cleaning there needs separate
+  # approval, so refuse before deleting anything.
+  for path in "$DOTCORE_SITE_DIR" "$DOTCORE_WORKER_DIR"; do
+    case "$(resolve_path "$path")" in
+      "$workspace_root"/*) ;;
+      *) echo "refusing to clean '$path': outside the workspace root '$workspace_root'" >&2; exit 2 ;;
+    esac
+  done
+
+  # Only 1 enables a bypass, so a value like 0 or false never turns one on by accident.
+  for variable in DOTCORE_YES DOTCORE_SKIP_RUNTIME_CLEANUP; do
+    case "${!variable:-}" in
+      ''|0|1) ;;
+      *) echo "$variable must be 1 or unset" >&2; exit 2 ;;
+    esac
+  done
+  yes_args=()
+  if test "${DOTCORE_YES:-}" = 1; then yes_args=(--yes); fi
+  skip_args=()
+  if test "${DOTCORE_SKIP_RUNTIME_CLEANUP:-}" = 1; then skip_args=(--skip-runtime-cleanup); fi
+
+  # A running stack owns live site state, so it stops, the worker first as in the cluster stop, before
+  # anything is deleted; the sourced probe decides what a running stack is, and an endpoint it cannot read
+  # fails closed rather than open.
+  pc_stop_running_or_exit 'cleaning this workspace' \
+    "$PC_SOCKET_PATH-worker" 'local worker' 'stop the local worker first: just dev::cluster::down local' \
+    "$PC_SOCKET_PATH" 'development stack' 'stop the development stack first: just dev::down'
+
+  cd "$workspace_root"
+
+  # Remote hosts hold this workspace's copies and workers, and a worker's leave removes its node from the
+  # site, so they are offered first, while the site still exists. DOTCORE_YES=1 answers the question yes in
+  # advance, as it does for every other prompt. The yes covers every listed host, so it is passed down to the
+  # remote clean only, which then does not ask again per host, while the local prompts below still ask.
+  if test -n "${DOTCORE_REMOTE_CONFIG:-}"; then
+    remote_hosts="$(just dev::remote::hosts)" || { echo 'cannot list the configured remote hosts; fix DOTCORE_REMOTE_CONFIG or unset it' >&2; exit 2; }
+    clean_remote=0
+    if test "${DOTCORE_YES:-}" = 1; then
+      clean_remote=1
+    elif ! has_terminal; then
+      echo "remote hosts are configured and were not cleaned: $(echo $remote_hosts); clean them with: just dev::remote::clean" >&2
+    else
+      remote_summary=("Remote hosts are configured:")
+      for remote_host in $remote_hosts; do remote_summary+=("* $remote_host"); done
+      if ask_yes_no "Also clean this workspace from these remote hosts? Answer no to skip them." "${remote_summary[@]}"; then
+        clean_remote=1
+      fi
+    fi
+    if test "$clean_remote" = 1; then
+      DOTCORE_YES=1 just dev::remote::clean || { echo 'remote clean failed; nothing local was changed. Fix it, or rerun with DOTCORE_REMOTE_CONFIG unset (or answer no) to skip the remote hosts' >&2; exit 1; }
+    fi
+  fi
+
+  # Workloads outlive the site files, so each command confirms and removes them first. A decline or
+  # a failure aborts here, before anything is deleted.
+  if test ${#skip_args[@]} -eq 0; then
+    dotc dev workload teardown --all ${yes_args[@]+"${yes_args[@]}"}
+  else
+    echo 'DOTCORE_SKIP_RUNTIME_CLEANUP is set: skipping development workload teardown; workloads may remain' >&2
+  fi
+  if test -e "$DOTCORE_SITE_DIR"; then
+    dotc site delete --site-dir "$DOTCORE_SITE_DIR" ${yes_args[@]+"${yes_args[@]}"} ${skip_args[@]+"${skip_args[@]}"}
+  fi
+
+  # The worker leaves through its node folder, which lists, confirms, and stops its native workloads and its
+  # target-scoped Docker resources (Docker must be running when it has Docker application targets) before
+  # removing the folder. DOTCORE_SKIP_RUNTIME_CLEANUP=1 and a folder without worker.yaml (a failed join) use the
+  # site delete instead, which still stops native workloads and skips Docker cleanup. A leftover pending marker
+  # from an interrupted leave reruns the leave.
+  if test -e "$DOTCORE_WORKER_DIR.leave-pending" || { test -f "$DOTCORE_WORKER_DIR/worker.yaml" && test ${#skip_args[@]} -eq 0; }; then
+    dotc node leave --site-dir "$DOTCORE_WORKER_DIR" ${yes_args[@]+"${yes_args[@]}"}
+  elif test -e "$DOTCORE_WORKER_DIR"; then
+    dotc site delete --site-dir "$DOTCORE_WORKER_DIR" --skip-runtime-cleanup ${yes_args[@]+"${yes_args[@]}"}
+  fi
+  # A stack can start during the confirmations above, so each endpoint is read again before its socket
+  # file goes with the rest of the removed state.
+  pc_remove_stale_socket "$PC_SOCKET_PATH"
+  pc_remove_stale_socket "$PC_SOCKET_PATH-worker"
+  rm -f -- "$DOTCORE_SITE_DIR.lock" "$DOTCORE_WORKER_DIR.lock" "$DOTCORE_WORKER_DIR.join-token" "$DOTCORE_WORKER_DIR.leave-pending"
+  rm -rf -- "$workspace_root/.scratch" "$workspace_root/.vite" "$workspace_root/chrome-profile"
+
+  # The cluster record outlives the site so remote workers stay reachable; only the local worker went here.
+  source dev/cluster/targets.sh
+  forget_target local
+  if test -n "$(recorded_targets)"; then
+    echo "remote cluster workers remain: $(recorded_targets | tr '\n' ' '); remove them with just dev::cluster::clean" >&2
+  fi
+
+  # Nothing sweeps .dotcore: the shared slot-allocation locks live there in the main root, and so
+  # does any other workspace-root state this recipe does not own.
+
+# Validate the normal development site without starting services.
+site-validate:
+  cd ../ && dotc site validate --site-dir "$DOTCORE_SITE_DIR" --catalog-dir "$DOTCORE_CATALOG_DIR"
+
+# Reset and recreate a stopped normal development site through dotc. With inference and applications choices, each taking several separated by commas as for site-init, it is non-interactive and `apple` inference declares an ephemeral native target; with neither it asks for them in a terminal, including the native workload lifetime. Giving only one is refused. Inference `simulated:<name>` simulates hardware, as for site-init. A site with deployed runtime resources needs DOTCORE_YES=1 to remove them; DOTCORE_SKIP_RUNTIME_CLEANUP=1 resets without Docker runtime cleanup, while native workloads are still stopped (only 1 enables either).
+[script]
+site-reset inference="" applications="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  # Both choices or none, so a guided run never mixes a flag with half of a scripted one.
+  if { [ -z "{{inference}}" ] && [ -n "{{applications}}" ]; } || { [ -n "{{inference}}" ] && [ -z "{{applications}}" ]; }; then
+    echo 'pass both inference and applications, or neither to be asked' >&2
+    exit 2
+  fi
+
+  # Only 1 enables the bypass, so a value like 0 or false never turns it on by accident.
+  for variable in DOTCORE_YES DOTCORE_SKIP_RUNTIME_CLEANUP; do
+    case "${!variable:-}" in
+      ''|0|1) ;;
+      *) echo "$variable must be 1 or unset" >&2; exit 2 ;;
+    esac
+  done
+  yes_args=()
+  if test "${DOTCORE_YES:-}" = 1; then yes_args=(--yes); fi
+  skip_args=()
+  if test "${DOTCORE_SKIP_RUNTIME_CLEANUP:-}" = 1; then skip_args=(--skip-runtime-cleanup); fi
+
+  source "{{module_directory()}}/site-choices.sh"
+  choice_args=(--interactive)
+  native_args=()
+  if [ -n "{{inference}}" ]; then
+    site_choice_flags "{{inference}}" "{{applications}}"
+    choice_args=("${choice_flags[@]}" --non-interactive)
+    native_args=(${native_flags[@]+"${native_flags[@]}"})
+  fi
+
+  cd ../
+  source dev/cluster/targets.sh
+  if test -n "$(recorded_targets)"; then
+    echo "the reset keeps this cluster's workers on: $(recorded_targets | tr '\n' ' '); remove them with just dev::cluster::clean" >&2
+  fi
+  dotc site reset --site-dir "$DOTCORE_SITE_DIR" --catalog-dir "$DOTCORE_CATALOG_DIR" --host "$DOTCORE_MACHINE_HOST" "${choice_args[@]}" ${native_args[@]+"${native_args[@]}"} ${yes_args[@]+"${yes_args[@]}"} ${skip_args[@]+"${skip_args[@]}"}

@@ -1,0 +1,142 @@
+syntax = "proto3";
+
+package dotcore.node.v1;
+
+import "dotcore/catalog/v1/oci.proto";
+import "dotcore/observation/v1/observation.proto";
+import "dotcore/site/v1/site.proto";
+import "google/protobuf/empty.proto";
+
+// Local backend node binding stored in adjacent node.yaml.
+message NodeConfiguration {
+  // Stable SiteNode identifier for the local server.
+  string node_id = 1;
+
+  // Server-local backend diagnostic retention settings.
+  optional LoggingConfig logging = 2;
+
+  // Hardware the node reports in place of its real hardware; absent reads the real hardware.
+  optional DeclaredMachine declared_machine = 3;
+}
+
+// Immutable site-derived configuration for one node's node-agent observations.
+message NodeObservationConfiguration {
+  // Digest domain and schema version; the only supported value is 1.
+  uint32 schema_version = 1;
+
+  // Sequential observation interval resolved from site policy, in seconds.
+  uint32 interval_seconds = 2;
+
+  // Complete local execution-target descriptors sorted by execution-target ID.
+  repeated NodeExecutionTarget execution_targets = 3;
+}
+
+// One configured local execution target and its read-only probe prerequisites.
+message NodeExecutionTarget {
+  // Stable site-wide execution-target identity.
+  string execution_target_id = 1;
+
+  // Controller family that uses this execution target.
+  dotcore.observation.v1.RuntimeKind kind = 2;
+
+  // Concrete declared platform for this target: linux/amd64 or linux/arm64, plus darwin/arm64
+  // for simulated and native targets.
+  dotcore.catalog.v1.OciPlatform platform = 3;
+
+  oneof implementation {
+    // Deterministic simulated runtime support built into the node.
+    google.protobuf.Empty simulated = 4;
+
+    // Direct-Linux Docker infrastructure prerequisites.
+    DockerRuntimeObservationConfiguration docker = 5;
+
+    // Native host-process runtime prerequisites.
+    NativeRuntimeObservationConfiguration native = 6;
+  }
+}
+
+// Read-only prerequisites for one native-backed execution target.
+message NativeRuntimeObservationConfiguration {
+  // Configured native workload lifetime; unspecified means persistent.
+  dotcore.site.v1.NativeWorkloadLifetime workload_lifetime = 1;
+}
+
+// Read-only prerequisites for one Docker-backed execution target.
+message DockerRuntimeObservationConfiguration {
+  // Configured accelerator request transport, if any.
+  dotcore.site.v1.DockerAcceleratorTransport accelerator_transport = 1;
+
+  // Configured accelerator device selectors sorted by identity.
+  repeated string accelerator_device_ids = 2;
+}
+
+// Configures the number of UTC-day backend diagnostic files to retain.
+message LoggingConfig {
+  // Number of daily files to retain, including the active file.
+  uint32 retention_days = 1;
+}
+
+// Hardware a node reports in place of its real hardware, with the choices it was resolved from.
+message DeclaredMachine {
+  // Simulated hardware names the operator chose, in order: GPUs on the default host, or one machine.
+  repeated string choices = 1;
+
+  // Hardware resolved from the choices when the node was created; kept when the data changes.
+  MachineDescription description = 2;
+}
+
+// One machine's hardware as data: its platform, host memory and GPUs.
+message MachineDescription {
+  // Machine name, reported as the node's host name.
+  string name = 1;
+
+  // Platform the machine runs.
+  dotcore.catalog.v1.OciPlatform platform = 2;
+
+  // Logical CPU count.
+  uint32 cpu_count = 3;
+
+  // Host memory total, in bytes.
+  uint64 host_memory_total_bytes = 4;
+
+  // Host memory the system uses with no workload running, in bytes.
+  uint64 host_memory_idle_used_bytes = 5;
+
+  // GPUs in the order the machine lists them.
+  repeated GpuDescription gpus = 6;
+}
+
+// One GPU of a machine description, under the ID its vendor reports.
+message GpuDescription {
+  // Vendor-reported GPU ID.
+  string id = 1;
+
+  // GPU vendor.
+  dotcore.observation.v1.AcceleratorVendor vendor = 2;
+
+  // Vendor model name.
+  string model = 3;
+
+  // Driver version; empty for Apple GPUs.
+  string driver_version = 4;
+
+  oneof memory {
+    // The GPU owns its memory.
+    DedicatedGpuMemory dedicated = 5;
+
+    // The GPU allocates from host memory.
+    google.protobuf.Empty unified = 6;
+  }
+
+  // Platform working-set limit, such as Metal's recommended limit, in bytes.
+  optional uint64 working_set_limit_bytes = 7;
+}
+
+// Memory a dedicated GPU owns.
+message DedicatedGpuMemory {
+  // Total memory, in bytes.
+  uint64 total_bytes = 1;
+
+  // Memory the driver holds with no workload running, in bytes.
+  uint64 reserved_bytes = 2;
+}

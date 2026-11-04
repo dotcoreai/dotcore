@@ -1,0 +1,63 @@
+# ninfer image built from the pinned source of `engines/ninfer/docker-image.nix`, loaded from its
+# stored image or built locally on the hosting node. ninfer compiles only for the RTX 5090 (sm_120a).
+engineReleaseId: "ninfer-1936758"
+engineKind: "ENGINE_KIND_NINFER"
+version: "1936758"
+parameterSchema:
+  schemaId: "ninfer-v2"
+  parameters:
+    # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
+    - parameterId: "total-context"
+      displayName: "Total context"
+      exposed: true
+      description: "Context memory the server holds from the start and shares among the requests it generates at once. Requests that start with the same prompt share its memory instead of holding their own copy. When it fills, the server first moves cached prompts to host memory, then pauses the newest requests until memory frees up."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "2097152"
+        unit: "tokens"
+        defaultValue: "32768"
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      exposed: true
+      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the memory of a matching prompt start, from a running request, an idle conversation or the host context."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "262144"
+        unit: "tokens"
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      exposed: true
+      description: "Requests the server generates at the same time; further requests wait in a queue, and the server refuses new ones once the queue is full. Each added request also adds its own state on the accelerator."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "8"
+        unit: "requests"
+        defaultValue: "4"
+    - parameterId: "host-context-mib"
+      displayName: "Host context memory"
+      exposed: true
+      description: "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off."
+      unsignedInteger:
+        minimum: "0"
+        maximum: "1048576"
+        unit: "MiB"
+    - parameterId: "device-state-slots"
+      displayName: "Device state slots"
+      exposed: false
+      description: "Extra accelerator memory slots that keep idle conversations ready to resume, beyond one per request generating at once."
+      unsignedInteger:
+        minimum: "0"
+        maximum: "64"
+        unit: "slots"
+artifacts:
+  - artifactId: "linux-amd64-cuda"
+    nix:
+      flake: "self"
+      package: "engines.ninfer.docker"
+      dockerImage: {}
+    # Each selector is one set of target facts this build runs on.
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "amd64" }
+        accelerators: ["nvidia"]
+        # The CUDA 13.1 base image runs on the R580 driver branch through CUDA minor version compatibility.
+        minimumNvidiaDriverMajorVersion: 580

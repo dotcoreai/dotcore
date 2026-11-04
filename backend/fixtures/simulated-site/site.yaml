@@ -1,0 +1,28 @@
+siteId: fixture-site
+nodes:
+- nodeId: fixture-node
+  host: 127.0.0.1
+  displayName: Fixture node
+  siteManager: {}
+executionTargets:
+- executionTargetId: fixture-target
+  siteNodeId: fixture-node
+  displayName: Simulated models
+  platform: { operatingSystem: linux, architecture: amd64 }
+  acceleratorDeviceIds: [GPU-00000000-0000-0000-0000-000000005090]
+  modelRuntime:
+    simulatedRuntime:
+      defaultScenario:
+        readyDelayMillis: '2000'
+        stopDelayMillis: '2000'
+- executionTargetId: fixture-application-target
+  siteNodeId: fixture-node
+  displayName: Simulated applications
+  platform: { operatingSystem: linux, architecture: amd64 }
+  applicationRuntime:
+    simulatedRuntime: {}
+modelDeployments: []
+applicationDeployments: []
+modelDeploymentIdentityAllocator:
+  namespace: d44bc5d823b11591
+  nextSequence: '1'

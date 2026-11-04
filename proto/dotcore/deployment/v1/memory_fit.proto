@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package dotcore.deployment.v1;
+
+// Advisory comparison of a deployment's estimated memory with a stated memory capacity of a target,
+// such as its total or its free memory: accelerator memory per device on dedicated memory,
+// accelerator and host memory together on the shared pool on unified memory. A declared memory
+// minimum above the target's total also exceeds it, whatever the compared capacity.
+enum MemoryFit {
+  // No fit was evaluated.
+  MEMORY_FIT_UNSPECIFIED = 0;
+
+  // The estimate is at most the compared capacity, and every compared minimum at most the total.
+  MEMORY_FIT_FITS = 1;
+
+  // The estimate is above the compared capacity, or a compared minimum is above the total.
+  MEMORY_FIT_EXCEEDS = 2;
+
+  // The estimate or the compared capacity is missing.
+  MEMORY_FIT_UNKNOWN = 3;
+}

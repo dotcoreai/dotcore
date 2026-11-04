@@ -1,0 +1,7 @@
+# NVIDIA GPUs that allocate from the host memory pool, such as GB10 (DGX Spark).
+hardwareClassId: "nvidia-unified"
+displayName: "NVIDIA · unified memory"
+description: "A single NVIDIA GPU sharing the host memory pool, such as the GB10 of a DGX Spark."
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_UNIFIED"

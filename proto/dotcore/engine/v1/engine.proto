@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package dotcore.engine.v1;
+
+import "dotcore/engine/llama_cpp/v1/model.proto";
+import "dotcore/engine/ninfer/v1/model.proto";
+import "dotcore/engine/vllm/v1/model.proto";
+
+// Identifies reusable model-server software, not a running inference engine.
+enum EngineKind {
+  // The engine kind unspecified value.
+  ENGINE_KIND_UNSPECIFIED = 0;
+
+  // The engine kind llama cpp value.
+  ENGINE_KIND_LLAMA_CPP = 1;
+
+  // The engine kind vLLM value.
+  ENGINE_KIND_VLLM = 2;
+
+  // The engine kind ninfer value.
+  ENGINE_KIND_NINFER = 3;
+}
+
+// Neutral wrapper for one engine-owned catalog model configuration payload.
+message EngineModelConfiguration {
+  // Engine kind that must agree with the referenced engine release.
+  EngineKind engine_kind = 1;
+
+  oneof configuration {
+    // Engine-owned llama.cpp model configuration.
+    dotcore.engine.llama_cpp.v1.LlamaCppModelConfiguration llama_cpp = 2;
+
+    // Engine-owned vLLM model configuration.
+    dotcore.engine.vllm.v1.VllmModelConfiguration vllm = 3;
+
+    // Engine-owned ninfer model configuration.
+    dotcore.engine.ninfer.v1.NinferModelConfiguration ninfer = 4;
+  }
+}
+
+// Neutral wrapper for concrete engine state retained in a deployment snapshot.
+message ResolvedEngineModelState {
+  // Engine kind that must agree with the selected engine artifact.
+  EngineKind engine_kind = 1;
+
+  // Engine-owned validation semantics version for this resolved state and plan.
+  uint32 semantics_version = 2;
+
+  oneof state {
+    // Concrete resolved llama.cpp state.
+    dotcore.engine.llama_cpp.v1.LlamaCppResolvedModelState llama_cpp = 3;
+
+    // Concrete resolved vLLM state.
+    dotcore.engine.vllm.v1.VllmResolvedModelState vllm = 4;
+
+    // Concrete resolved ninfer state.
+    dotcore.engine.ninfer.v1.NinferResolvedModelState ninfer = 5;
+  }
+}

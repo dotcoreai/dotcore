@@ -1,0 +1,16 @@
+handle /dotcore.* {
+	reverse_proxy {$DOTCORE_MANAGEMENT_UPSTREAM} {
+		transport http {
+			versions 1.1
+		}
+	}
+}
+
+@inference path /v1 /v1/*
+handle @inference {
+	reverse_proxy {$DOTCORE_INFERENCE_UPSTREAM} {
+		transport http {
+			versions 1.1
+		}
+	}
+}

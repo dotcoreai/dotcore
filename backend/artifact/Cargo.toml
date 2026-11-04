@@ -1,0 +1,35 @@
+[package]
+name = "dotcore-artifact"
+description = "Artifact manager: prepares model, engine and auxiliary artifacts from Hugging Face, OCI images and Nix."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+bollard = { version = "0.21.0", default-features = false, features = ["pipe"] }
+dotcore-domain = { path = "../domain" }
+dotcore-proto = { path = "../proto" }
+fs4.workspace = true
+futures-util.workspace = true
+hf-hub = "1.0.0"
+libc.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+tokio-stream.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[features]
+# Test-only artifact manager controls for the unit tests of crates above; never enabled by production builds.
+test-support = ["dotcore-domain/test-support"]
+
+[dev-dependencies]
+dotcore-domain = { path = "../domain", features = ["test-support"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

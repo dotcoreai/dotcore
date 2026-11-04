@@ -1,0 +1,21 @@
+[package]
+name = "dotcore-launcher"
+description = "Per-workload process holder that outlives the backend, and the supervisor client that creates, stops and reads it."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+dotcore-host-process = { path = "../host_process" }
+dotcore-proto = { path = "../proto" }
+libc.workspace = true
+prost.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "net", "process", "rt", "time"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package dotcore.diagnostic.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Trusted-local management projection of the retained backend diagnostics of every SiteNode.
+// The site manager reads each machine on demand from that machine; nothing is retained by the
+// manager. One machine failing never fails the call: it is reported unavailable instead.
+service DiagnosticService {
+  // Reads one bounded chronological page merged across machines, at most 4 MiB encoded. Each
+  // call reads at most 16 MiB of retained source per machine, and the manager admits at most 4
+  // concurrent reads.
+  rpc ReadBackendDiagnostics(ReadBackendDiagnosticsRequest) returns (ReadBackendDiagnosticsResponse);
+
+  // Follows the active retained files of the selected machines on a best-effort basis. An
+  // unavailable machine is reported once, then no longer followed by this call; the stream ends
+  // once no followed machine remains. The manager admits at most 8 concurrent follows of each
+  // machine; a machine over that limit is reported unavailable.
+  rpc FollowBackendDiagnostics(FollowBackendDiagnosticsRequest) returns (stream FollowBackendDiagnosticsResponse);
+}
+
+// Requests one bounded page: the newest page of every machine, or an older page continuing a
+// previous one.
+message ReadBackendDiagnosticsRequest {
+  // Number of events to return across all machines; 0 means 100; at most 200.
+  uint32 page_size = 1;
+
+  // Continuation from a previous page; absent reads the newest page of every SiteNode.
+  optional DiagnosticHistoryContinuation before = 2;
+}
+
+// Returns a merged page and the per-machine state of each machine read.
+message ReadBackendDiagnosticsResponse {
+  // Chronologically ordered events of every machine read.
+  repeated MachineDiagnosticEvent events = 1;
+
+  // Continuation for an older page; absent when no machine read has older output to page.
+  optional DiagnosticHistoryContinuation next_before = 2;
+
+  // Machines read by this call, in machine identity order.
+  repeated MachineDiagnosticState machines = 3;
+
+  // Whether older input of any machine was observed or left unread during this read.
+  DiagnosticHistoryState history_state = 4;
+
+  // Whether a machine's response limit or the merged response limit stopped the page early.
+  bool response_truncated = 5;
+}
+
+// Requests best-effort follow of the selected machines' active retained files.
+message FollowBackendDiagnosticsRequest {
+  // Machines to follow, unique; empty follows every SiteNode declared in the site.
+  repeated string machine_ids = 1;
+
+  // Optional per-machine positions from history or a prior follow; each machine at most once.
+  repeated MachineDiagnosticPosition resume_positions = 2;
+}
+
+// Returns one machine's event or source-state transition.
+message FollowBackendDiagnosticsResponse {
+  oneof event {
+    // One normalized retained backend event of one machine.
+    MachineDiagnosticEvent diagnostic = 1;
+
+    // A bounded retained-source state transition of one machine.
+    MachineDiagnosticState source_event = 2;
+  }
+}
+
+// Per-machine positions an older page continues from. A machine absent from the continuation
+// has no older page to read, either because none remains or because it was never read.
+message DiagnosticHistoryContinuation {
+  // Exclusive position per machine, each machine at most once.
+  repeated MachineDiagnosticPosition positions = 1;
+}
+
+// An opaque node-local position of one machine's retained diagnostics.
+message MachineDiagnosticPosition {
+  // SiteNode identity of the machine.
+  string machine_id = 1;
+
+  // Opaque position issued by that machine.
+  bytes position = 2;
+}
+
+// One machine's normalized backend event.
+message MachineDiagnosticEvent {
+  // SiteNode identity of the machine that recorded the event.
+  string machine_id = 1;
+
+  // The normalized event.
+  BackendDiagnosticEvent event = 2;
+}
+
+// One machine's display identity and retained-source state.
+message MachineDiagnosticState {
+  // SiteNode identity of the machine.
+  string machine_id = 1;
+
+  // Operator-facing machine name.
+  string display_name = 2;
+
+  // Current retained-source or continuity state.
+  DiagnosticSourceState state = 3;
+
+  // Opaque latest position for a follow handoff; set only on the newest history page.
+  optional bytes latest_position = 4;
+}
+
+// Carries one normalized backend event without raw JSON or filesystem metadata.
+message BackendDiagnosticEvent {
+  // UTC event timestamp.
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Tracing level rendered by the console.
+  string level = 2;
+
+  // Tracing target rendered by the console.
+  string target = 3;
+
+  // Readable tracing message.
+  string message = 4;
+
+  // Bounded structured fields excluding the message.
+  repeated BackendDiagnosticField fields = 5;
+
+  // Whether input or normalized output exceeded a record limit.
+  bool truncated = 6;
+
+  // Opaque node-local position of this event, for paging and resuming its machine.
+  bytes position = 7;
+}
+
+// Carries one bounded structured backend-event field.
+message BackendDiagnosticField {
+  // Field key, limited to 128 UTF-8 bytes.
+  string key = 1;
+
+  // Readable field value, limited to 1 KiB UTF-8 bytes.
+  string value = 2;
+}
+
+// States whether older input was observed during one retained-history read.
+enum DiagnosticHistoryState {
+  // Invalid unset state; responses use only observed-input states.
+  DIAGNOSTIC_HISTORY_STATE_UNSPECIFIED = 0;
+
+  // At least one older record was observed at read time.
+  DIAGNOSTIC_HISTORY_STATE_OLDER_OUTPUT_MAY_REMAIN = 1;
+
+  // No older record was observed at read time.
+  DIAGNOSTIC_HISTORY_STATE_NO_OLDER_OUTPUT_OBSERVED = 2;
+}
+
+// States bounded retained-source availability and best-effort continuity.
+enum DiagnosticSourceState {
+  // No source state was supplied.
+  DIAGNOSTIC_SOURCE_STATE_UNSPECIFIED = 0;
+
+  // Retained input is currently available.
+  DIAGNOSTIC_SOURCE_STATE_AVAILABLE = 1;
+
+  // Retained input is missing or unreadable, or the machine is unreachable.
+  DIAGNOSTIC_SOURCE_STATE_UNAVAILABLE = 2;
+
+  // Retained input contained malformed or incomplete records.
+  DIAGNOSTIC_SOURCE_STATE_TRUNCATED = 3;
+
+  // Rotation, replacement, truncation, recreation, or reconnect can gap or duplicate output.
+  DIAGNOSTIC_SOURCE_STATE_CONTINUITY_UNCERTAIN = 4;
+
+  // The machine is no longer declared in the site.
+  DIAGNOSTIC_SOURCE_STATE_ENDED = 5;
+}

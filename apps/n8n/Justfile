@@ -1,0 +1,5 @@
+import '../../nix/docker-images/registry.just'
+
+# List n8n app recipes.
+help:
+    @just --list

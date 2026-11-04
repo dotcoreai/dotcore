@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// Defines one owner-neutral typed parameter: its identity, label, guidance, and value constraints.
+// Owners decide whether a default is required and how the parameter is shown.
+message ParameterDefinition {
+  // Stable parameter identity, unique within its declaring owner.
+  string parameter_id = 1;
+
+  // Human-readable parameter label.
+  string display_name = 2;
+
+  // Optional practical guidance shown with this parameter.
+  string description = 3;
+
+  oneof parameter_type {
+    // Boolean type for this parameter.
+    BooleanParameterSchema boolean = 4;
+
+    // Unsigned-integer constraints for this parameter.
+    UnsignedIntegerParameterSchema unsigned_integer = 5;
+
+    // Closed string choices for this parameter.
+    StringEnumParameterSchema string_enum = 6;
+  }
+}
+
+// Defines a boolean parameter.
+message BooleanParameterSchema {
+  // Value used when the caller supplies none.
+  optional bool default_value = 1;
+}
+
+// Defines the inclusive range for an unsigned-integer parameter.
+message UnsignedIntegerParameterSchema {
+  // Inclusive minimum accepted value.
+  uint64 minimum = 1;
+
+  // Inclusive maximum accepted value.
+  uint64 maximum = 2;
+
+  // Optional human-readable unit label for this value.
+  string unit = 3;
+
+  // Value used when the caller supplies none, within the range.
+  optional uint64 default_value = 4;
+}
+
+// Defines the closed set of accepted string values for a parameter.
+message StringEnumParameterSchema {
+  // Accepted values in display order.
+  repeated string values = 1;
+
+  // Value used when the caller supplies none, one of the accepted values.
+  optional string default_value = 2;
+}
+
+// Supplies one exact typed parameter value.
+message ParameterValue {
+  // Stable parameter identity.
+  string parameter_id = 1;
+
+  oneof value {
+    // Exact boolean value, preserving false presence.
+    bool boolean = 2;
+
+    // Exact unsigned-integer value.
+    uint64 unsigned_integer = 3;
+
+    // Exact string-enum value.
+    string string = 4;
+  }
+}

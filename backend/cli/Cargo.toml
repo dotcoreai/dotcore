@@ -1,0 +1,46 @@
+[package]
+name = "dotcore-cli"
+description = "The dotc executable: Site, node, model, application and image cleanup commands, guided prompts and terminal output."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[[bin]]
+name = "dotc"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+dotcore-artifact = { path = "../artifact" }
+dotcore-backend = { path = "../core" }
+dotcore-catalog = { path = "../catalog" }
+dotcore-domain = { path = "../domain" }
+dotcore-node-hardware = { path = "../node_hardware" }
+dotcore-proto = { path = "../proto" }
+dotcore-runtime = { path = "../runtime" }
+dotcore-runtime-backends = { path = "../runtime_backends" }
+dotcore-site = { path = "../site" }
+futures-util.workspace = true
+getifaddrs = "0.6.2"
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
+serde = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["process", "rt-multi-thread", "signal", "sync", "time"] }
+thiserror.workspace = true
+tonic.workspace = true
+serde_json.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+url.workspace = true
+crossterm = { version = "0.29.0", default-features = false, features = ["events", "use-dev-tty"] }
+filedescriptor = "0.8.3"
+libc.workspace = true
+rustls.workspace = true
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+
+[dev-dependencies]
+dotcore-backend = { path = "../core", features = ["test-support"] }
+tempfile.workspace = true
+tonic.workspace = true
+vt100 = "0.16.2"

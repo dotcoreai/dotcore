@@ -1,0 +1,190 @@
+# Immutable provenance for Cloudflare's clef-flash decision model, as published by ggml-org.
+# Serves decision requests only. The weights run in one micro-batch, so total context reserves no KV
+# memory; it sets the micro-batch and bounds the prompt.
+modelId: "clef-flash"
+displayName: "Clef Flash"
+version: "1"
+# clef.context_length in the GGUF metadata.
+maximumContextTokens: 262144
+artifacts:
+  - artifactId: "q4-k-m"
+    weightQuantization: "Q4_K_M"
+    source:
+      repository: "ggml-org/Clef-Flash-GGUF"
+      revision: "6e2a164d70aae2af7fce86005da3f91805565b1d"
+      file:
+        path: "Clef-Flash-Q4_K_M.gguf"
+        provenanceDigest: "eef2968c238a80d49d340430f22410ea3db9934ad1c6fdb233a503cbf9a9b54e"
+  - artifactId: "q8-0"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "ggml-org/Clef-Flash-GGUF"
+      revision: "6e2a164d70aae2af7fce86005da3f91805565b1d"
+      file:
+        path: "Clef-Flash-Q8_0.gguf"
+        provenanceDigest: "25f801e2a27610b0ccc0cb1558d7eda3d7a304e34e2c4a04e3079357ff7d906e"
+configurations:
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    # The model card's encoder default; the weights accept up to the model's maximum context.
+    maximumContextTokens: 16384
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-10-19"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q4-k-m"
+        modelArtifactId: "q4-k-m"
+      - bindingId: "q8-0"
+        modelArtifactId: "q8-0"
+    # Clef keeps no KV cache or recurrent state: memory is the weights plus a compute buffer that grows
+    # with the micro-batch, which equals the total context. The engine process also holds host memory
+    # outside the accelerator: the token embedding table and host-side batch buffers, which grow with
+    # the micro-batch too.
+    # Each class was measured at total contexts 1024, 4096, 8192 and 16384 on llama.cpp b11723, under
+    # repeated decision requests after one prompt of about 95% of the total context, which commits the
+    # whole micro-batch buffer. Memory grows slightly faster than linearly over that range; the linear
+    # least-squares fit stays within 137 MiB of every measurement, and marginBytes covers the largest
+    # under-prediction. The configuration's maximum context bounds the total context, so the fit is
+    # never used past its measured range.
+    sizing:
+      classParameters: ["hostOutsideAccelerator", "baseOffsetBytes"]
+      bindingParameters:
+        - "baseAccelBytes"
+        - "accelBytesPerContextToken"
+        - "baseHostBytes"
+        - "hostBytesPerContextToken"
+        - "marginBytes"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + ${accelBytesPerContextToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+        # Unavailable where the accelerator measurement already counts the process's host memory.
+        hostMemory:
+          unit: bytes
+          availableWhen: "${hostOutsideAccelerator} == 1"
+          equation: >-
+            ${baseHostBytes}
+            + ${hostBytesPerContextToken} * ${total-context}
+            + ${marginBytes}
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        # Accelerator memory is the NVML allocation inside the shared pool; the process's resident
+        # host memory comes from the same pool on top of it.
+        parameters:
+          hostOutsideAccelerator: 1
+          baseOffsetBytes: 0
+        # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64. Accelerator constants
+        # come from the telemetry fit; host constants from the engine process's resident memory.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 6422075350
+              accelBytesPerContextToken: 262077
+              baseHostBytes: 1155107087
+              hostBytesPerContextToken: 137379
+              marginBytes: 134217728
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 8837994452
+              accelBytesPerContextToken: 262077
+              baseHostBytes: 1656713458
+              hostBytesPerContextToken: 137407
+              marginBytes: 134217728
+      - hardwareClassId: "nvidia-dedicated"
+        parameters:
+          hostOutsideAccelerator: 1
+          # Derived, not measured: 400 MiB, since the GB10 base terms read about 384 MiB low
+          # against the RTX 5090's per-process NVML memory (nvidia-smi on the RTX 5090 host, b11723, not a
+          # workload VRAM measurement). Host memory there reads about 60 MiB above the copied host
+          # constants and margin, from the memory-mapped token embedding; it is left uncorrected.
+          baseOffsetBytes: 419430400
+        # The binding parameters are the nvidia-unified (GB10) values verbatim until measured on
+        # dedicated memory, so a GB10 remeasurement updates both classes.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 6422075350
+              accelBytesPerContextToken: 262077
+              baseHostBytes: 1155107087
+              hostBytesPerContextToken: 137379
+              marginBytes: 134217728
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 8837994452
+              accelBytesPerContextToken: 262077
+              baseHostBytes: 1656713458
+              hostBytesPerContextToken: 137407
+              marginBytes: 134217728
+      - hardwareClassId: "apple"
+        # Apple Silicon is always unified memory, and the process's physical footprint counts its
+        # Metal buffers and host memory together.
+        parameters:
+          hostOutsideAccelerator: 0
+          baseOffsetBytes: 0
+        # Measured on an Apple M3 Max host, darwin/arm64, from the peak footprint of each deployment.
+        # Metal commits the micro-batch buffer only once a prompt fills it, so startup footprints
+        # read up to 2.5 GB low. The footprint varies more between runs, hence the larger margin.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 7962508479
+              accelBytesPerContextToken: 196146
+              baseHostBytes: 0
+              hostBytesPerContextToken: 0
+              marginBytes: 268435456
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 10926218125
+              accelBytesPerContextToken: 195879
+              baseHostBytes: 0
+              hostBytesPerContextToken: 0
+              marginBytes: 268435456
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+          jinja: false
+          singleMicroBatch: true
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_DECISION"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+profiles:
+  - profileId: "q4-k-m"
+    displayName: "Q4_K_M"
+    description: "Uses the smaller Q4_K_M weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-k-m"
+    engineParameterDefaults:
+      values:
+        - parameterId: "parallel-requests"
+          unsignedInteger: "1"
+        # Clef keeps no memory between requests, so a prompt cache has nothing to reuse.
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "0"
+  - profileId: "q8-0"
+    displayName: "Q8_0"
+    description: "Uses the higher-precision Q8_0 weights."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q8-0"
+    engineParameterDefaults:
+      values:
+        - parameterId: "parallel-requests"
+          unsignedInteger: "1"
+        # Clef keeps no memory between requests, so a prompt cache has nothing to reuse.
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "0"
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0

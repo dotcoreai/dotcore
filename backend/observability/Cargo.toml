@@ -1,0 +1,19 @@
+[package]
+name = "dotcore-observability"
+description = "Observability metrics: typed metric descriptors, time-aligned bucket aggregates, the metric store boundary and its in-memory store, and the node metric forwarder and bucket stream ingest."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+dotcore-domain = { path = "../domain" }
+futures-util.workspace = true
+getrandom = { workspace = true, features = ["std"] }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+dotcore-domain = { path = "../domain", features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

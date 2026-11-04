@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package dotcore.capacity.v1;
+
+import "dotcore/capacity/v1/memory.proto";
+
+// The capacity component's answers about the site's memory. It evaluates the site manager's
+// latest node reports and the deployments' current state; it owns no state and reserves nothing.
+service CapacityService {
+  // Lists every site node's memory pools with what occupies them, in site order. It reads facts
+  // held in memory, under a millisecond per node, so a client may watch it; each node states the
+  // freshness of its reading, and a node without a reading is listed without pools. A deployment
+  // created or removed a moment ago may be missing, or counted as other use, until the next read.
+  rpc ListNodeMemory(ListNodeMemoryRequest) returns (ListNodeMemoryResponse);
+}
+
+// Requests every site node's memory.
+message ListNodeMemoryRequest {}
+
+// Every site node's memory, in site order.
+message ListNodeMemoryResponse {
+  // One entry per site node, in site order.
+  repeated NodeMemory nodes = 1;
+}

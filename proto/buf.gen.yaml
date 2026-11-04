@@ -1,0 +1,24 @@
+version: v2
+
+clean: true
+
+inputs:
+  - directory: .
+    types:
+      - dotcore.console.v1.ConsolePreferences
+      - dotcore.catalog.v1.CatalogService
+      - dotcore.diagnostic.v1.DiagnosticService
+      - dotcore.application.v1.ApplicationDeploymentService
+      - dotcore.model.v1.ModelDeploymentService
+      - dotcore.inference.v1.RouteService
+      - dotcore.metrics.v1.MetricsService
+      - dotcore.site.v1.Site
+      - dotcore.site.v1.SiteService
+      - dotcore.site.store.v1.SiteCurrentState
+      - dotcore.watch.v1.ResourceWatchService
+
+plugins:
+  - local: protoc-gen-es
+    out: ../frontend/src/gen
+    opt:
+      - target=ts

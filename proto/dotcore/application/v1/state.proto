@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package dotcore.application.v1;
+
+import "dotcore/deployment/v1/placement.proto";
+import "google/protobuf/timestamp.proto";
+
+// Current record for one desired application deployment.
+message CurrentApplicationDeployment {
+  // Stable identifier for this application deployment.
+  string application_deployment_id = 1;
+
+  // Monotonically increasing stored state revision.
+  uint64 record_revision = 2;
+
+  // Controller-owned operational state.
+  ApplicationDeploymentState state = 3;
+
+  // Lifecycle generation whose reconciliation produced this state; absent when none is recorded.
+  optional uint64 reconciled_lifecycle_generation = 4;
+}
+
+// Rich controller-owned operational and observed state for one deployment.
+message ApplicationDeploymentState {
+  // Controller-projected deployment lifecycle.
+  ApplicationLifecycleState lifecycle_state = 1;
+
+  // Controller-evaluated deployment readiness.
+  ApplicationReadinessState readiness_state = 2;
+
+  // Current human-readable operation stage.
+  string stage = 3;
+
+  // Time at which the deployment operation started.
+  google.protobuf.Timestamp started_at = 4;
+
+  // Time at which this state was last updated.
+  google.protobuf.Timestamp updated_at = 5;
+
+  // Current controller-owned failure summary.
+  ApplicationDeploymentFailure failure = 6;
+
+  // Public observations for named services in the immutable snapshot.
+  repeated ApplicationServiceObservation services = 7;
+
+  // Exact primary endpoint projected by the apps controller when assigned.
+  ApplicationEndpoint endpoint = 8;
+
+  // Exact placement observed by the apps controller for a realized workload group.
+  dotcore.deployment.v1.ExactPlacement observed_placement = 9;
+
+  // Whether this is the last observation of a node whose status is no longer current, or whose
+  // current status has not yet listed this deployment; the node endpoint may still answer, but
+  // the manager cannot confirm the state until it reports.
+  bool observation_stale = 10;
+}
+
+// A controller-owned failure summary without backend-private identity.
+message ApplicationDeploymentFailure {
+  // Stable failure code.
+  string code = 1;
+
+  // Human-readable failure message.
+  string message = 2;
+
+  // Non-sensitive diagnostic details.
+  repeated string diagnostics = 3;
+}
+
+// Public controller projection for one named service observation.
+message ApplicationServiceObservation {
+  // Service name from the immutable application snapshot.
+  string service_name = 1;
+
+  // Controller-projected service lifecycle.
+  ApplicationServiceLifecycleState lifecycle_state = 2;
+
+  // Controller-evaluated service readiness.
+  ApplicationReadinessState readiness_state = 3;
+}
+
+// Exact controller-projected direct endpoint without allocation details.
+message ApplicationEndpoint {
+  // Exact URL that a management client can open.
+  string url = 1;
+}
+
+// The controller-projected lifecycle of an application deployment.
+enum ApplicationLifecycleState {
+  // The application lifecycle state unspecified value.
+  APPLICATION_LIFECYCLE_STATE_UNSPECIFIED = 0;
+
+  // The application lifecycle state queued value.
+  APPLICATION_LIFECYCLE_STATE_QUEUED = 1;
+
+  // The application lifecycle state preparing value.
+  APPLICATION_LIFECYCLE_STATE_PREPARING = 2;
+
+  // A deployment whose workload group starts, until its primary endpoint first answers its
+  // readiness check in this start or the startup grace runs out; the stage names what it waits for.
+  APPLICATION_LIFECYCLE_STATE_STARTING = 3;
+
+  // The application lifecycle state running value.
+  APPLICATION_LIFECYCLE_STATE_RUNNING = 4;
+
+  // The application lifecycle state ready value.
+  APPLICATION_LIFECYCLE_STATE_READY = 5;
+
+  // The application lifecycle state stopping value.
+  APPLICATION_LIFECYCLE_STATE_STOPPING = 6;
+
+  // The application lifecycle state stopped value.
+  APPLICATION_LIFECYCLE_STATE_STOPPED = 7;
+
+  // The application lifecycle state failed value.
+  APPLICATION_LIFECYCLE_STATE_FAILED = 8;
+
+  // A deployment that does not serve after it was ready in this start or after its startup
+  // grace, or whose runtime group is inconclusive.
+  APPLICATION_LIFECYCLE_STATE_UNAVAILABLE = 9;
+
+  // A deployment whose retained workload group is stopping.
+  APPLICATION_LIFECYCLE_STATE_PAUSING = 10;
+
+  // A deployment whose retained workload group is stopped.
+  APPLICATION_LIFECYCLE_STATE_PAUSED = 11;
+}
+
+// The controller-evaluated protocol readiness of a deployment or service.
+enum ApplicationReadinessState {
+  // The application readiness state unspecified value.
+  APPLICATION_READINESS_STATE_UNSPECIFIED = 0;
+
+  // The application readiness state not ready value.
+  APPLICATION_READINESS_STATE_NOT_READY = 1;
+
+  // The application readiness state ready value.
+  APPLICATION_READINESS_STATE_READY = 2;
+}
+
+// The controller-projected lifecycle of one named application service.
+enum ApplicationServiceLifecycleState {
+  // The application service lifecycle state unspecified value.
+  APPLICATION_SERVICE_LIFECYCLE_STATE_UNSPECIFIED = 0;
+
+  // The application service lifecycle state pending value.
+  APPLICATION_SERVICE_LIFECYCLE_STATE_PENDING = 1;
+
+  // The application service lifecycle state starting value.
+  APPLICATION_SERVICE_LIFECYCLE_STATE_STARTING = 2;
+
+  // The application service lifecycle state running value.
+  APPLICATION_SERVICE_LIFECYCLE_STATE_RUNNING = 3;
+
+  // The application service lifecycle state stopped value.
+  APPLICATION_SERVICE_LIFECYCLE_STATE_STOPPED = 4;
+
+  // The application service lifecycle state failed value.
+  APPLICATION_SERVICE_LIFECYCLE_STATE_FAILED = 5;
+
+  // The application service lifecycle state unavailable value.
+  APPLICATION_SERVICE_LIFECYCLE_STATE_UNAVAILABLE = 6;
+}

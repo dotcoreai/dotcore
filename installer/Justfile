@@ -1,0 +1,10 @@
+# List installer recipes.
+help:
+  @just --list
+
+# Check the installer script with shellcheck as POSIX sh.
+lint:
+  shellcheck -s sh install.sh
+
+# Run all installer validations.
+check: lint

@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// One Nix flake package built on the hosting node, providing either a native executable or a
+// Docker image. Engine artifacts and application services declare it; deployment snapshots retain
+// it as provenance.
+message NixArtifact {
+  // Locked repository flake `github:<owner>/<repo>/<40-hex rev>` or development-source `self`.
+  string flake = 1;
+
+  // Required package to build: a dot-separated attribute path under the flake's nested package
+  // tree, built for the hosting node's Nix system.
+  optional string package = 2;
+
+  // What the package provides; exactly one is required.
+  oneof provides {
+    // Program name in the package's `bin` directory run as a host process, for example
+    // `llama-server`; a packaged `self` artifact must equal the package's `meta.mainProgram`.
+    string executable = 3;
+
+    // Docker image the package loads into the Docker daemon, launched by the Docker runtime.
+    NixDockerImage docker_image = 5;
+  }
+
+  // Store paths per Nix system, required for every system that runs or loads a declared platform of
+  // a locked reference and absent for `self`, whose hosting SiteNode pins the store path it
+  // evaluates.
+  repeated NixSystemStorePath store_paths = 4;
+}
+
+// A Docker image derivation: a package whose loader makes one Docker image available in a Docker
+// daemon. Its store entry name (`docker-image-<name>`) names both the loader program in its `bin`
+// directory and the Docker reference the image launches under.
+message NixDockerImage {}
+
+// The store path of a Nix artifact's package for one Nix system.
+message NixSystemStorePath {
+  // Nix system, for example `aarch64-darwin`.
+  string system = 1;
+
+  // Evaluated output path, for example `/nix/store/<hash>-llama-cpp-b11417`.
+  string store_path = 2;
+}

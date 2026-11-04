@@ -1,0 +1,20 @@
+siteId: "vllm-nvidia-docker-integration"
+nodes:
+  - nodeId: "development-node"
+    host: "127.0.0.1"
+    displayName: "Development node"
+    siteManager: {}
+executionTargets:
+  - executionTargetId: "nvidia-target"
+    siteNodeId: "development-node"
+    displayName: "NVIDIA GPU"
+    platform: { operatingSystem: "linux", architecture: "amd64" }
+    acceleratorDeviceIds: ["nvidia.com/gpu=0"]
+    modelRuntime:
+      dockerRuntime:
+        acceleratorTransport: "DOCKER_ACCELERATOR_TRANSPORT_CDI"
+modelDeployments: []
+applicationDeployments: []
+modelDeploymentIdentityAllocator:
+  namespace: 57ed05b65395e4c3
+  nextSequence: '1'

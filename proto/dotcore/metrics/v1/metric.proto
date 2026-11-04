@@ -1,0 +1,331 @@
+syntax = "proto3";
+
+package dotcore.metrics.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// Typed declaration of one metric: how its samples combine, their unit, and its series labels.
+message MetricDescriptor {
+  // Dotted lowercase name, such as node.host.memory.available.
+  string name = 1;
+
+  // How samples combine within a bucket.
+  MetricKind kind = 2;
+
+  // Unit of every value.
+  MetricUnit unit = 3;
+
+  // Label dimensions series of this metric carry.
+  repeated MetricDimension dimensions = 4;
+
+  // Where the metric is measured, which decides whose wall clock timestamps it.
+  MetricProvenance provenance = 5;
+
+  // Expected interval between gauge samples; a gauge reading stays valid for twice this interval. Absent for counters and distributions.
+  google.protobuf.Duration sample_interval = 6;
+
+  // Scale of a distribution's exponential histogram buckets, each 2^(2^-scale) times wider than the previous; absent for other kinds.
+  optional int32 histogram_scale = 7;
+}
+
+// One label dimension of a metric; label values are stable identities such as SiteNode ids, never display names.
+message MetricDimension {
+  // Label name, such as node.
+  string name = 1;
+
+  // Whether every series of the metric carries this label.
+  bool required = 2;
+}
+
+// How samples of a metric combine within a bucket.
+enum MetricKind {
+  // Missing metric kind is invalid.
+  METRIC_KIND_UNSPECIFIED = 0;
+
+  // A reading of a current value; points are gauge values.
+  METRIC_KIND_GAUGE = 1;
+
+  // A count of events; points are counter values.
+  METRIC_KIND_COUNTER = 2;
+
+  // Individual measurements such as latencies, kept as exponential histograms; points are distribution values.
+  METRIC_KIND_DISTRIBUTION = 3;
+}
+
+// Unit of a metric's values.
+enum MetricUnit {
+  // Missing unit is invalid.
+  METRIC_UNIT_UNSPECIFIED = 0;
+
+  // Bytes of memory or storage.
+  METRIC_UNIT_BYTES = 1;
+
+  // Seconds of elapsed time.
+  METRIC_UNIT_SECONDS = 2;
+
+  // Inference requests.
+  METRIC_UNIT_REQUESTS = 3;
+
+  // Model tokens, such as prompt or generated tokens.
+  METRIC_UNIT_TOKENS = 4;
+
+  // Model tokens processed or generated per second.
+  METRIC_UNIT_TOKENS_PER_SECOND = 5;
+
+  // A dimensionless fraction from 0 to 1, such as the share of a bucket a node was observing.
+  METRIC_UNIT_RATIO = 6;
+
+  // Metric records, such as samples the metric store rejected.
+  METRIC_UNIT_RECORDS = 7;
+
+  // Metric series the metric store holds.
+  METRIC_UNIT_SERIES = 8;
+
+  // Watts of electrical power.
+  METRIC_UNIT_WATTS = 9;
+
+  // Degrees Celsius of temperature.
+  METRIC_UNIT_DEGREES_CELSIUS = 10;
+}
+
+// Where a metric is measured.
+enum MetricProvenance {
+  // Missing provenance is invalid.
+  METRIC_PROVENANCE_UNSPECIFIED = 0;
+
+  // Measured in the site manager process and timestamped by its wall clock.
+  METRIC_PROVENANCE_MANAGER = 1;
+
+  // Measured on a SiteNode and timestamped by that node's wall clock, assumed synchronized with the site manager's.
+  METRIC_PROVENANCE_NODE = 2;
+}
+
+// A read of one metric over a time range; series equal on the group-by labels are combined.
+message MetricQuery {
+  // Declared metric name.
+  string metric = 1;
+
+  // Exact label values a series must carry to be read; every key must be a declared dimension.
+  map<string, string> matchers = 2;
+
+  // Labels that keep series apart; empty combines every matching series into one.
+  repeated string group_by = 3;
+
+  // How gauge readings combine within one bucket of one series; required for gauges, ignored for counters, which add, and distributions, which merge.
+  MetricReduce reduce = 4;
+
+  // How series of one group combine per bucket; required for gauges and counters, ignored for distributions, whose histograms merge.
+  MetricAggregate aggregate = 5;
+
+  oneof range {
+    // The most recent duration, ending now.
+    google.protobuf.Duration last = 6;
+
+    // An explicit range; its end is clamped to now.
+    MetricTimeRange between = 7;
+  }
+
+  // Desired point spacing; the store returns the closest spacing it serves, never finer, as the effective step.
+  google.protobuf.Duration step_hint = 8;
+
+  // Quantiles from 0 to 1, such as 0.5 and 0.95, estimated for every distribution point; at most 16, more fail with INVALID_ARGUMENT; ignored for other kinds.
+  repeated double percentiles = 9;
+}
+
+// How gauge readings combine within one bucket of one series.
+enum MetricReduce {
+  // No reduce; accepted only where the metric's kind ignores reduce, otherwise INVALID_ARGUMENT.
+  METRIC_REDUCE_UNSPECIFIED = 0;
+
+  // Latest reading by observation time.
+  METRIC_REDUCE_LAST = 1;
+
+  // Mean reading.
+  METRIC_REDUCE_AVG = 2;
+
+  // Smallest reading.
+  METRIC_REDUCE_MIN = 3;
+
+  // Largest reading.
+  METRIC_REDUCE_MAX = 4;
+
+  // Sum of readings.
+  METRIC_REDUCE_SUM = 5;
+}
+
+// How series of one group combine per bucket.
+enum MetricAggregate {
+  // No aggregate; accepted only where the metric's kind ignores aggregate, otherwise INVALID_ARGUMENT.
+  METRIC_AGGREGATE_UNSPECIFIED = 0;
+
+  // Sum across series, such as total memory of every node.
+  METRIC_AGGREGATE_SUM = 1;
+
+  // Mean across series.
+  METRIC_AGGREGATE_AVG = 2;
+
+  // Smallest across series.
+  METRIC_AGGREGATE_MIN = 3;
+
+  // Largest across series.
+  METRIC_AGGREGATE_MAX = 4;
+}
+
+// A time range from start (inclusive) to end (exclusive).
+message MetricTimeRange {
+  // Range start.
+  google.protobuf.Timestamp start = 1;
+
+  // Range end.
+  google.protobuf.Timestamp end = 2;
+}
+
+// The aligned answer to one query. Points are sparse: a bucket without evidence is omitted; clients fill the grid from the covered range and effective step.
+message MetricQueryResult {
+  // Spacing between points: the bucket width served.
+  google.protobuf.Duration effective_step = 1;
+
+  // Aligned bucket range the answer covers; the history the store serves starts at its start.
+  MetricTimeRange covered_range = 2;
+
+  // Store lifetime the answer comes from; a different id tells clients to replace the points they hold, not merge them.
+  MetricStoreIncarnation incarnation = 3;
+
+  // One series per group, ordered by labels.
+  repeated MetricSeries series = 4;
+}
+
+// Identity and start of one store lifetime.
+message MetricStoreIncarnation {
+  // Random identity of this lifetime.
+  string id = 1;
+
+  // When this lifetime started.
+  google.protobuf.Timestamp started_at = 2;
+}
+
+// Points of one series group.
+message MetricSeries {
+  // The group's values of the query's group-by labels.
+  map<string, string> labels = 1;
+
+  // Points in time order; buckets without evidence are omitted.
+  repeated MetricPoint points = 2;
+}
+
+// Value of one bucket.
+message MetricPoint {
+  // Aligned start of the bucket.
+  google.protobuf.Timestamp bucket_start = 1;
+
+  // Whether the bucket may still change: open, or ended less than the closing grace ago (a backend-defined per-metric grace).
+  bool provisional = 2;
+
+  oneof value {
+    // Combined gauge reading.
+    double gauge = 3;
+
+    // Counter increments in the bucket.
+    MetricCounterValue counter = 4;
+
+    // Distribution samples in the bucket.
+    MetricDistributionValue distribution = 5;
+  }
+}
+
+// Counter increments in one bucket.
+message MetricCounterValue {
+  // Total increment in the bucket.
+  double delta = 1;
+
+  // Increment per second over the effective step.
+  double rate_per_second = 2;
+}
+
+// Summary of the distribution samples in one bucket across a series group; absent when the bucket has no sample.
+message MetricDistributionValue {
+  // Number of samples.
+  uint64 count = 1;
+
+  // Sum of samples.
+  double sum = 2;
+
+  // Smallest sample.
+  double min = 3;
+
+  // Largest sample.
+  double max = 4;
+
+  // Mean sample.
+  double mean = 5;
+
+  // Estimates for the query's percentiles, in request order.
+  repeated MetricPercentile percentiles = 6;
+}
+
+// Estimated sample at one quantile: the geometric midpoint of the histogram bucket holding the nearest-rank sample, kept within min and max, so within about 4.4% of it at scale 3.
+message MetricPercentile {
+  // Requested quantile, from 0 to 1.
+  double quantile = 1;
+
+  // Estimated sample value.
+  double value = 2;
+}
+
+// Summary of one epoch-aligned bucket of node-measured series, pre-aggregated on the node before it streams them to the site manager.
+message MetricBucketAggregate {
+  // Aligned start of the bucket, a multiple of its width in Unix epoch time.
+  google.protobuf.Timestamp bucket_start = 1;
+
+  // Bucket width; the site manager merges the bucket into every retained resolution that is a multiple of it.
+  google.protobuf.Duration width = 2;
+
+  // Every series that received samples in the bucket, at most once each.
+  repeated MetricSeriesAggregate series = 3;
+}
+
+// Summary of one series within one bucket.
+message MetricSeriesAggregate {
+  // Declared metric name.
+  string metric = 1;
+
+  // Labels identifying the series; every key is a declared dimension.
+  map<string, string> labels = 2;
+
+  // Summary of the series' samples, of the metric's kind.
+  oneof aggregate {
+    // Summary of gauge readings.
+    MetricGaugeAggregate gauge = 3;
+
+    // Summary of counter increments.
+    MetricCounterAggregate counter = 4;
+  }
+}
+
+// Summary of the gauge readings of one series in one bucket; merging summaries equals summarizing all their readings.
+message MetricGaugeAggregate {
+  // Number of readings, at least 1.
+  uint64 count = 1;
+
+  // Sum of readings.
+  double sum = 2;
+
+  // Smallest reading.
+  double min = 3;
+
+  // Largest reading.
+  double max = 4;
+
+  // Latest reading by observation time.
+  double last = 5;
+
+  // When the latest reading was observed, by the node's wall clock; inside the bucket.
+  google.protobuf.Timestamp last_observed_at = 6;
+}
+
+// Summary of the counter increments of one series in one bucket; merging summaries adds their deltas.
+message MetricCounterAggregate {
+  // Sum of the increments counted in the bucket.
+  double delta = 1;
+}

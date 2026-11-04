@@ -1,0 +1,234 @@
+syntax = "proto3";
+
+package dotcore.site.private.v1;
+
+import "dotcore/observation/v1/observation.proto";
+import "dotcore/site/private/v1/desired_view.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Private control channel between a node and the site manager: one long-lived stream per node
+// process carries observations, controller status and view acknowledgements up, and views down.
+service NodeControlService {
+  // Streams one node incarnation's control exchange. The node sends Open first; the manager answers
+  // Opened with its session and the node's current view, then answers each observation, status and
+  // acknowledgement once, in order, accepted or Rejected without ending the stream. The manager
+  // republishes the view on change and periodically as its heartbeat; the node sends Heartbeat when
+  // idle. A newer stream of the same incarnation replaces the older one. Errors: INVALID_ARGUMENT
+  // (bad message order or payload), PERMISSION_DENIED (identity), FAILED_PRECONDITION (incarnation
+  // or session mismatch), ABORTED (replaced), DEADLINE_EXCEEDED (silence), RESOURCE_EXHAUSTED
+  // (reply queue full), UNAVAILABLE (no view to open with).
+  rpc StreamNodeControl(stream StreamNodeControlRequest) returns (stream StreamNodeControlResponse);
+}
+
+// One node message of a node control stream.
+message StreamNodeControlRequest {
+  // The message payload.
+  oneof message {
+    // Identifies the stream; always and only the first message.
+    NodeControlOpen open = 1;
+
+    // Complete node observation under a new revision.
+    NodeObservation observation = 2;
+
+    // Complete controller status for an accepted view of the current manager session.
+    NodeControllerStatus status = 3;
+
+    // Atomic node outcome for one published view.
+    NodeViewAcknowledgement acknowledge_view = 4;
+
+    // Contact while the node has nothing else to send.
+    google.protobuf.Empty heartbeat = 5;
+  }
+}
+
+// One manager message of a node control stream.
+message StreamNodeControlResponse {
+  // The message payload.
+  oneof message {
+    // Answers Open; always and only the first manager message.
+    NodeControlOpened opened = 1;
+
+    // The node's complete current view, sent on change and republished while unchanged.
+    NodeDesiredView view_published = 2;
+
+    // Accepts one observation revision.
+    NodeObservationAcceptance observation_accepted = 3;
+
+    // Accepts one status sequence with its cleanup receipts.
+    NodeControllerStatusAcceptance status_accepted = 4;
+
+    // Accepts one acknowledgement sequence.
+    NodeViewAcknowledgementAcceptance acknowledgement_accepted = 5;
+
+    // Rejects one observation, status or acknowledgement without ending the stream.
+    NodeControlRejection rejected = 6;
+  }
+}
+
+// Identity of one node control stream.
+message NodeControlOpen {
+  // Site identity, required to match the authenticated peer and receiver site.
+  string site_id = 1;
+
+  // Declared SiteNode identity, required to match the authenticated peer.
+  string node_id = 2;
+
+  // Random identity of the node process lifetime that holds this stream.
+  string node_incarnation_id = 3;
+
+  // Section schema ranges understood by this node, used to project its views.
+  repeated SupportedDesiredViewSection supported_sections = 4;
+}
+
+// One complete observation from the authenticated SiteNode and process incarnation.
+// The manager rejects absent required outcomes, stale revisions, and mismatched identity.
+message NodeObservation {
+  // Site identity, required to match the authenticated peer and receiver site.
+  string site_id = 1;
+
+  // Declared SiteNode identity, required to match the authenticated peer.
+  string node_id = 2;
+
+  // Random identity of this process lifetime, required to match the stream's incarnation.
+  string incarnation_id = 3;
+
+  // Monotonically increasing nonzero revision within one incarnation.
+  uint64 revision = 4;
+
+  // Complete hardware and configured runtime outcomes for this revision.
+  NodeObservationSnapshot snapshot = 5;
+
+  // Lowercase SHA-256 of the installed canonical node observation configuration.
+  string observation_configuration_sha256 = 6;
+
+  // Bound port of this node's private listener; absent when the node has no private listener.
+  optional uint32 private_port = 7;
+}
+
+// Complete node facts for one revision, independent of workload intent or status.
+// Hardware failure does not suppress runtime outcomes, or vice versa.
+message NodeObservationSnapshot {
+  // Current hardware result, required even when collection fails.
+  NodeHardwareObservation hardware = 1;
+
+  // One result per configured local runtime target; absence is not availability.
+  repeated dotcore.observation.v1.RuntimeObservation runtimes = 2;
+}
+
+// Complete hardware facts or an explicit whole-collection failure.
+// Successful snapshots retain independent host and per-vendor failure results.
+message NodeHardwareObservation {
+  oneof result {
+    // Hardware facts collected on this node; its source timestamp does not set freshness.
+    dotcore.observation.v1.HardwareSnapshot snapshot = 1;
+
+    // Reason the node could not collect a complete hardware snapshot.
+    dotcore.observation.v1.ObservationUnavailable unavailable = 2;
+  }
+}
+
+// Complete independently sequenced controller status for one accepted view.
+message NodeControllerStatus {
+  // Exact accepted view observed by every included owner section.
+  NodeViewReference view = 1;
+
+  // Monotonically increasing nonzero status sequence within the node incarnation.
+  uint64 status_sequence = 2;
+
+  // Complete typed owner statuses for this sequence.
+  repeated ControllerStatusSection sections = 3;
+}
+
+// Atomic node outcome for one complete published view.
+message NodeViewAcknowledgement {
+  // Exact view being acknowledged.
+  NodeViewReference view = 1;
+
+  // Independently increasing nonzero acknowledgement sequence.
+  uint64 acknowledgement_sequence = 2;
+
+  oneof outcome {
+    // The entire view was validated and installed atomically.
+    google.protobuf.Empty accepted = 3;
+
+    // The entire view was rejected without replacing prior accepted intent.
+    DesiredViewRejection rejected = 4;
+  }
+}
+
+// Manager answer to Open.
+message NodeControlOpened {
+  // Manager process session that every view and status on this stream belongs to.
+  string manager_session_id = 1;
+
+  // The node's complete current view in this manager session.
+  NodeDesiredView view = 2;
+}
+
+// Accepts one observation revision; the manager judges freshness on its own clock.
+message NodeObservationAcceptance {
+  // Revision stored atomically by the manager; an exact resend returns the same value.
+  uint64 accepted_revision = 1;
+
+  // Manager wall time of acceptance for display, never a node freshness authority.
+  google.protobuf.Timestamp received_at = 2;
+}
+
+// Accepts one status sequence and returns one disposition per cleanup evidence entry. A rejected
+// entry never prevents acceptance of the status or of other entries.
+message NodeControllerStatusAcceptance {
+  // Accepted status sequence; an exact resend returns the same value.
+  uint64 accepted_status_sequence = 1;
+
+  // Typed per-entry cleanup dispositions; only acknowledged entries may be retired.
+  repeated ControllerStatusReceipt receipts = 2;
+}
+
+// Accepts one acknowledgement sequence.
+message NodeViewAcknowledgementAcceptance {
+  // Accepted acknowledgement sequence; an exact resend returns the same value.
+  uint64 accepted_acknowledgement_sequence = 1;
+}
+
+// Manager refusal of one node message; the prior accepted state for its kind stays unchanged.
+message NodeControlRejection {
+  // Kind of the rejected message.
+  NodeControlMessageKind kind = 1;
+
+  // Revision or sequence the rejected message carried.
+  uint64 sequence = 2;
+
+  // Stable non-sensitive rejection reason.
+  NodeControlRejectionCode code = 3;
+}
+
+// Node message kinds that the manager accepts or rejects individually.
+enum NodeControlMessageKind {
+  // No message kind was specified.
+  NODE_CONTROL_MESSAGE_KIND_UNSPECIFIED = 0;
+
+  // An observation, identified by its revision.
+  NODE_CONTROL_MESSAGE_KIND_OBSERVATION = 1;
+
+  // A controller status, identified by its status sequence.
+  NODE_CONTROL_MESSAGE_KIND_STATUS = 2;
+
+  // A view acknowledgement, identified by its acknowledgement sequence.
+  NODE_CONTROL_MESSAGE_KIND_ACKNOWLEDGEMENT = 3;
+}
+
+// Stable reasons for rejecting one node message.
+enum NodeControlRejectionCode {
+  // No rejection reason was specified.
+  NODE_CONTROL_REJECTION_CODE_UNSPECIFIED = 0;
+
+  // The message is malformed or incomplete; resending the same content is rejected again.
+  NODE_CONTROL_REJECTION_CODE_INVALID = 1;
+
+  // The message is stale or conflicts with accepted state, such as an older sequence or old view.
+  NODE_CONTROL_REJECTION_CODE_CONFLICT = 2;
+
+  // The manager could not record the message now; the node may resend the same content.
+  NODE_CONTROL_REJECTION_CODE_UNAVAILABLE = 3;
+}

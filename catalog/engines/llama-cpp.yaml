@@ -1,0 +1,59 @@
+# Each artifact names a Docker image derivation package; the package pins the exact image.
+# NVIDIA host integration testing remains an explicit responsibility.
+engineReleaseId: "llama-cpp-linux-2026-10-19"
+engineKind: "ENGINE_KIND_LLAMA_CPP"
+version: "b11723"
+# Same schema id as the macOS release, so one model configuration can approve artifacts of both.
+parameterSchema:
+  schemaId: "llama-cpp-v2"
+  parameters:
+    # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
+    - parameterId: "total-context"
+      displayName: "Total context"
+      exposed: true
+      description: "Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "16777216"
+        unit: "tokens"
+        defaultValue: "32768"
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      exposed: true
+      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the start of an earlier prompt from an idle request or the prompt cache, but not from requests running at the same time."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "16777216"
+        unit: "tokens"
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      exposed: true
+      description: "Requests the server generates at the same time; further requests wait in a queue. All of them share the total context, so each added request only adds its own small state."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "64"
+        unit: "requests"
+        defaultValue: "4"
+    - parameterId: "prompt-cache-memory-mib"
+      displayName: "Prompt cache memory"
+      exposed: true
+      description: "Memory kept to reuse repeated prompts, such as agent system prompts, without processing them again. Idle conversations move here and free their accelerator memory. It uses host memory, which unified-memory machines share with the model; 0 turns the cache off."
+      unsignedInteger:
+        minimum: "0"
+        maximum: "65536"
+        unit: "MiB"
+# The image and its digests are pinned by `engines/llama-cpp/docker-image.nix`.
+artifacts:
+  - artifactId: "cuda13"
+    nix:
+      flake: "self"
+      package: "engines.llama-cpp.docker"
+      dockerImage: {}
+    # Each selector is one set of target facts this build runs on.
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "amd64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580
+      - platform: { operatingSystem: "linux", architecture: "arm64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580

@@ -1,0 +1,5 @@
+hardwareClassId: "nvidia-unified"
+displayName: "NVIDIA unified memory"
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_UNIFIED"

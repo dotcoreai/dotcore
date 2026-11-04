@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// Immutable request-input capabilities resolved for one model configuration.
+message ModelInputCapabilities {
+  // Modalities supported by the resolved model configuration.
+  repeated ModelInputModality supported_modalities = 1;
+
+  // Model-defined capacity for image input.
+  ModelImageInputCapacity image_input_capacity = 2;
+}
+
+// Immutable model-defined limits for image input.
+message ModelImageInputCapacity {
+  // Maximum images accepted in one request.
+  uint32 maximum_image_count = 1;
+
+  // Supported image MIME types.
+  repeated ModelImageMediaType supported_media_types = 2;
+
+  // Maximum encoded image bytes.
+  uint64 maximum_encoded_bytes = 3;
+
+  // Maximum decoded image bytes.
+  uint64 maximum_decoded_bytes = 4;
+
+  // Maximum image width in pixels.
+  uint32 maximum_width = 5;
+
+  // Maximum image height in pixels.
+  uint32 maximum_height = 6;
+
+  // Maximum image pixels.
+  uint64 maximum_pixels = 7;
+
+  // Fixed visual-token count for each accepted image.
+  uint32 fixed_visual_tokens = 8;
+
+  // Only accepted public image-detail value.
+  ModelImageDetail fixed_detail = 9;
+}
+
+// Supported input modalities for one resolved model configuration.
+enum ModelInputModality {
+  // The model input modality unspecified value.
+  MODEL_INPUT_MODALITY_UNSPECIFIED = 0;
+
+  // The model input modality text value.
+  MODEL_INPUT_MODALITY_TEXT = 1;
+
+  // The model input modality image value.
+  MODEL_INPUT_MODALITY_IMAGE = 2;
+}
+
+// Inference request kinds one model configuration serves, independent of the public API carrying
+// them.
+enum InferenceRequestKind {
+  // The inference request kind unspecified value.
+  INFERENCE_REQUEST_KIND_UNSPECIFIED = 0;
+
+  // Chat requests generating messages token by token.
+  INFERENCE_REQUEST_KIND_CHAT = 1;
+
+  // Decision requests answering typed questions with probabilities.
+  INFERENCE_REQUEST_KIND_DECISION = 2;
+}
+
+// MIME types supported by one image-capable model configuration.
+enum ModelImageMediaType {
+  // The model image media type unspecified value.
+  MODEL_IMAGE_MEDIA_TYPE_UNSPECIFIED = 0;
+
+  // The model image media type jpeg value.
+  MODEL_IMAGE_MEDIA_TYPE_JPEG = 1;
+
+  // The model image media type png value.
+  MODEL_IMAGE_MEDIA_TYPE_PNG = 2;
+}
+
+// The fixed image-detail setting for one image-capable model configuration.
+enum ModelImageDetail {
+  // The model image detail unspecified value.
+  MODEL_IMAGE_DETAIL_UNSPECIFIED = 0;
+
+  // The model image detail auto value.
+  MODEL_IMAGE_DETAIL_AUTO = 1;
+}

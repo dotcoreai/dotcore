@@ -1,0 +1,161 @@
+syntax = "proto3";
+
+package dotcore.engine.vllm.v1;
+
+// Engine-owned vLLM configuration embedded in one catalog model
+// configuration. Generic catalog code treats this payload as opaque typed data.
+message VllmModelConfiguration {
+  // Fixed vLLM settings shared by every selection of this configuration.
+  VllmFixedModelSettings fixed_settings = 1;
+
+  // Option realizations keyed by generic model option identity.
+  repeated VllmOptionRealization option_realizations = 2;
+}
+
+// Concrete vLLM state retained in a resolved deployment snapshot.
+message VllmResolvedModelState {
+  // Complete fixed settings after selected options are materialized.
+  VllmFixedModelSettings fixed_settings = 1;
+
+  // Selected realization evidence keyed by generic model option identity.
+  repeated VllmOptionRealization option_realizations = 2;
+}
+
+// Fixed vLLM launch inputs. Editable values use generic engine parameter
+// schema and value contracts.
+message VllmFixedModelSettings {
+  // Reasoning parser name passed to vLLM, or empty when disabled.
+  string reasoning_parser = 2;
+
+  // Tool-call parser name passed to vLLM, or empty when disabled.
+  string tool_call_parser = 3;
+
+  // Model-local auxiliary artifact containing the chat template.
+  string chat_template_auxiliary_artifact_id = 4;
+
+  // KV-cache element type.
+  VllmKvCacheDataType kv_cache_data_type = 5;
+
+  // Generic engine parameter containing the GPU KV-cache byte budget.
+  string kv_cache_memory_bytes_parameter_id = 6;
+
+  // Generic engine parameter containing the maximum batched-token count.
+  string maximum_batched_tokens_parameter_id = 8;
+
+  // Generic engine parameter containing the CUDA-graph capture limit.
+  string maximum_cuda_graph_capture_size_parameter_id = 9;
+
+  // Generic engine parameter containing host-memory KV offload GiB.
+  string kv_offloading_size_gib_parameter_id = 10;
+
+  // KV offload implementation.
+  VllmKvOffloadingBackend kv_offloading_backend = 11;
+
+  // Container port on which vLLM accepts private HTTP requests.
+  uint32 container_port = 12;
+
+  // Load-aware readiness contract for the selected engine release.
+  VllmReadinessPolicy readiness_policy = 13;
+
+  // Whether the workload requires host-shared IPC.
+  bool requires_host_ipc = 14;
+
+  // Whether vLLM may execute model repository code.
+  bool trust_remote_code = 15;
+
+  // Whether vLLM logs request metadata.
+  bool enable_log_requests = 16;
+
+  // Whether vLLM may select declared tools automatically.
+  bool enable_auto_tool_choice = 17;
+
+  // Whether long prefills are split into bounded scheduler chunks.
+  bool enable_chunked_prefill = 18;
+
+  // Whether vLLM uses asynchronous scheduling.
+  bool enable_async_scheduling = 19;
+
+  // Whether vLLM reuses cached prompt prefixes.
+  bool enable_prefix_caching = 20;
+
+  // Whether responses include prompt-token details.
+  bool enable_prompt_token_details = 21;
+}
+
+// Defines the load-aware endpoints supported by an engine release.
+message VllmReadinessPolicy {
+  // Readiness behavior implemented by the selected release.
+  VllmReadinessMode mode = 1;
+}
+
+// Maps one generic model option to its vLLM realization.
+message VllmOptionRealization {
+  // Stable model-local option identifier.
+  string option_id = 1;
+
+  oneof realization {
+    // vLLM realization of a vision option.
+    VllmVisionOptionRealization vision = 2;
+
+    // vLLM realization of an MTP speculative-decoding option.
+    VllmMtpOptionRealization mtp = 3;
+  }
+}
+
+// Realizes one vision option for vLLM.
+message VllmVisionOptionRealization {
+  // Boolean parameter controlling whether the vision tower is active.
+  string enabled_parameter_id = 1;
+}
+
+// Realizes one MTP speculative-decoding option for vLLM from its speculative-token count.
+message VllmMtpOptionRealization {
+  // Where the MTP head comes from; a draft artifact is selected only while the count is above 0.
+  VllmMtpDraftSource draft = 1;
+}
+
+// Source of one vLLM MTP head: embedded in the model weights or a separate draft checkpoint.
+// Exactly one source is required.
+message VllmMtpDraftSource {
+  // Required source of the MTP head.
+  oneof source {
+    // The MTP head is embedded in the model weights.
+    VllmEmbeddedMtpHead embedded = 1;
+
+    // Model-local snapshot auxiliary artifact holding the MTP draft checkpoint.
+    string auxiliary_artifact_id = 2;
+  }
+}
+
+// Marks an MTP head embedded in the model weights.
+message VllmEmbeddedMtpHead {}
+
+// KV-cache element types accepted by a vLLM configuration.
+enum VllmKvCacheDataType {
+  // The vLLM KV-cache data type unspecified value.
+  VLLM_KV_CACHE_DATA_TYPE_UNSPECIFIED = 0;
+
+  // The vLLM FP8 KV-cache data type.
+  VLLM_KV_CACHE_DATA_TYPE_FP8 = 1;
+}
+
+// KV-cache offload implementations accepted by a vLLM configuration.
+enum VllmKvOffloadingBackend {
+  // The vLLM KV offloading backend unspecified value.
+  VLLM_KV_OFFLOADING_BACKEND_UNSPECIFIED = 0;
+
+  // The vLLM native host-memory offloading backend.
+  VLLM_KV_OFFLOADING_BACKEND_NATIVE = 1;
+}
+
+// Load-aware readiness contracts supported by vLLM releases.
+enum VllmReadinessMode {
+  // The vLLM readiness mode unspecified value.
+  VLLM_READINESS_MODE_UNSPECIFIED = 0;
+
+  // Require exact served-model discovery through /v1/models.
+  VLLM_READINESS_MODE_MODELS = 1;
+
+  // Require /health/ready before exact served-model discovery.
+  VLLM_READINESS_MODE_READY_AND_MODELS = 2;
+}

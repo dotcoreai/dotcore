@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+package dotcore.diagnostic.private.v1;
+
+import "dotcore/diagnostic/v1/service.proto";
+
+// Node-local retained backend diagnostic reads for the authenticated site manager. Each node
+// reads only its own retained files, removes filesystem paths, and bounds every response; the
+// manager merges machines and retains nothing.
+service NodeDiagnosticService {
+  // Reads one bounded chronological page of the node's retained diagnostics. Each call reads at
+  // most 16 MiB of retained source and returns at most 4 MiB of encoded events.
+  rpc ReadNodeDiagnostics(ReadNodeDiagnosticsRequest) returns (ReadNodeDiagnosticsResponse);
+
+  // Follows the node's active retained file. The first frame is always Rejected or a source
+  // state. After Rejected the stream ends; otherwise it continues until the manager drops the
+  // call. The node admits at most 16 concurrent follows.
+  rpc FollowNodeDiagnostics(FollowNodeDiagnosticsRequest) returns (stream FollowNodeDiagnosticsResponse);
+}
+
+// One manager request for a bounded page of the node's retained diagnostics.
+message ReadNodeDiagnosticsRequest {
+  // Exact manager and node process identities the node checks before reading.
+  NodeDiagnosticTarget target = 1;
+
+  // Number of events to return; 0 means 100; at most 200.
+  uint32 page_size = 2;
+
+  // Optional opaque exclusive position for an older best-effort page.
+  optional bytes before_position = 3;
+}
+
+// The node's answer to one history read: a rejection or one bounded page.
+message ReadNodeDiagnosticsResponse {
+  // Exactly one outcome.
+  oneof outcome {
+    // The node refused the request before reading.
+    NodeDiagnosticRejection rejected = 1;
+
+    // The node read its retained diagnostics.
+    NodeDiagnosticHistory history = 2;
+  }
+}
+
+// One manager request to follow the node's active retained file.
+message FollowNodeDiagnosticsRequest {
+  // Exact manager and node process identities the node checks before following.
+  NodeDiagnosticTarget target = 1;
+
+  // Optional opaque position from history or a prior follow connection.
+  optional bytes resume_position = 2;
+}
+
+// One ordered frame of a node follow.
+message FollowNodeDiagnosticsResponse {
+  // The frame payload.
+  oneof frame {
+    // The node refused the request before following; always the only frame.
+    NodeDiagnosticRejection rejected = 1;
+
+    // One normalized retained backend event.
+    dotcore.diagnostic.v1.BackendDiagnosticEvent diagnostic = 2;
+
+    // A bounded retained-source state transition.
+    dotcore.diagnostic.v1.DiagnosticSourceState source_state = 3;
+  }
+}
+
+// Exact process identities one diagnostic read addresses.
+message NodeDiagnosticTarget {
+  // Manager process session whose desired view the node must have installed.
+  string manager_session_id = 1;
+
+  // Node process incarnation the manager is addressing.
+  string node_incarnation_id = 2;
+}
+
+// One bounded page of the node's retained diagnostics.
+message NodeDiagnosticHistory {
+  // Chronologically ordered normalized events, each carrying its node-local position.
+  repeated dotcore.diagnostic.v1.BackendDiagnosticEvent events = 1;
+
+  // Opaque exclusive position for a best-effort older page.
+  optional bytes next_before_position = 2;
+
+  // Opaque latest position for a best-effort follow handoff.
+  optional bytes latest_position = 3;
+
+  // Whether older input was observed during this bounded read.
+  dotcore.diagnostic.v1.DiagnosticHistoryState history_state = 4;
+
+  // Current retained-source state without filesystem diagnostics.
+  dotcore.diagnostic.v1.DiagnosticSourceState source_state = 5;
+
+  // Whether the node's response limit stopped the page early.
+  bool response_truncated = 6;
+
+  // Opaque exclusive position that still includes the newest returned event, for re-reading
+  // this whole page; set when events were returned.
+  optional bytes newest_inclusive_position = 7;
+}
+
+// Refusal of a whole request before reading.
+message NodeDiagnosticRejection {
+  // Why the node refused the request.
+  NodeDiagnosticRejectionReason reason = 1;
+}
+
+// Why a node refused a whole diagnostic request.
+enum NodeDiagnosticRejectionReason {
+  // The node diagnostic rejection reason unspecified value.
+  NODE_DIAGNOSTIC_REJECTION_REASON_UNSPECIFIED = 0;
+
+  // The request omits its target, or carries an invalid page size or position.
+  NODE_DIAGNOSTIC_REJECTION_REASON_INVALID_REQUEST = 1;
+
+  // The target names another node process incarnation.
+  NODE_DIAGNOSTIC_REJECTION_REASON_NODE_INCARNATION_MISMATCH = 2;
+
+  // The target names a manager session other than the one whose view the node installed.
+  NODE_DIAGNOSTIC_REJECTION_REASON_MANAGER_SESSION_MISMATCH = 3;
+
+  // The node is already serving its maximum number of concurrent follows.
+  NODE_DIAGNOSTIC_REJECTION_REASON_CAPACITY_EXHAUSTED = 4;
+}

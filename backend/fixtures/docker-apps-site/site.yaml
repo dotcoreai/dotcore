@@ -1,0 +1,17 @@
+siteId: docker-apps-site
+nodes:
+- nodeId: docker-apps
+  host: 127.0.0.1
+  displayName: Local Docker machine
+  siteManager: {}
+executionTargets:
+- executionTargetId: docker-apps-target
+  siteNodeId: docker-apps
+  displayName: Docker applications
+  platform: { operatingSystem: linux, architecture: amd64 }
+  applicationRuntime: { dockerRuntime: {} }
+modelDeployments: []
+applicationDeployments: []
+modelDeploymentIdentityAllocator:
+  namespace: 7a6394dbd848c6f6
+  nextSequence: '1'

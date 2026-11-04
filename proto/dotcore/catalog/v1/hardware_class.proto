@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+import "dotcore/catalog/v1/selector.proto";
+
+// A shared master-catalog declaration naming one kind of hardware through a selector over target
+// facts. It holds nothing model-specific; model-local engine configurations reference it from their
+// hardware support.
+message HardwareClass {
+  // Permanent identifier for this hardware class.
+  string hardware_class_id = 1;
+
+  // Human-readable name for this hardware class.
+  string display_name = 2;
+
+  // Optional practical description of the hardware this class covers.
+  string description = 3;
+
+  // Target facts the class matches; driver minimums belong to engine artifacts, so it sets none.
+  Selector selector = 4;
+}
+
+// Advisory memory minimums of one hardware support entry, not machine inventory or current
+// capacity. Site manager remains authoritative for managed-node facts.
+message HardwareRequirements {
+  // Minimum system memory, in bytes.
+  uint64 minimum_system_memory_bytes = 2;
+
+  // Minimum memory per accelerator device, in bytes.
+  uint64 minimum_memory_bytes_per_device = 3;
+}

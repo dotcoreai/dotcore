@@ -1,0 +1,21 @@
+.DS_Store
+
+.direnv/
+/.env.local
+# Nix build out-links, wherever a build runs.
+result
+result-*
+*.local.*
+
+/.dotcore/
+/.scratch/
+
+/.vite/
+
+node_modules/
+
+rust-ice-*.txt
+
+/chrome-profile/
+/proj
+/proj-adhoc

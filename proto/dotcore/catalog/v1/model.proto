@@ -1,0 +1,348 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+import "dotcore/catalog/v1/engine_release.proto";
+import "dotcore/catalog/v1/execution.proto";
+import "dotcore/catalog/v1/hardware_class.proto";
+import "dotcore/catalog/v1/model_capabilities.proto";
+import "dotcore/engine/v1/engine.proto";
+
+// An immutable artifact-manager catalog declaration. The inference controller
+// selects a profile from this declaration but never mutates it.
+message Model {
+  // Stable identifier for this immutable model release.
+  string model_id = 1;
+
+  // Human-readable name for this model release.
+  string display_name = 2;
+
+  // Model release version.
+  string version = 3;
+
+  // Largest context one request may use with these weights, in tokens; required and positive.
+  uint32 maximum_context_tokens = 12;
+
+  // Immutable deployable artifacts owned by this model.
+  repeated ModelArtifact artifacts = 4;
+
+  // Fixed model-local compatibility and launch profiles.
+  repeated ModelProfile profiles = 5;
+
+  // Immutable auxiliary artifact content shared across engine configurations.
+  repeated ModelAuxiliaryArtifact auxiliary_artifacts = 7;
+
+  // Model-local declarations of supported engine launch configurations.
+  repeated ModelEngineConfiguration configurations = 8;
+
+  // Stable semantic options that configurations may implement.
+  repeated ModelOption options = 9;
+
+  // Dotcore Bench Intelligence Score for this model, or unset. Display
+  // metadata outside the model's release identity.
+  IntelligenceScore intelligence = 10;
+
+  // Licence of the upstream base model, or unset. Display metadata outside the
+  // model's release identity and deployment snapshots.
+  License license = 11;
+}
+
+// Declares a model's Dotcore Bench Intelligence Score, a single 0 to 100
+// figure for the model's full-precision weights. It is a relative indicator
+// of capability, not a guarantee for any workload.
+message IntelligenceScore {
+  // Overall score, from 0 to 100.
+  double overall = 1;
+}
+
+// Declares the licence an upstream base model is published under. It records
+// the licence and a link to its terms; it does not assess compliance.
+message License {
+  // SPDX-style licence identifier, or `custom` for terms without one.
+  string id = 1;
+
+  // http(s) link to the licence text. Required for `custom` and `LicenseRef-` identifiers.
+  string terms_url = 2;
+}
+
+// Identifies one immutable deployable model artifact without exposing transfer
+// or cache state as model deployment state.
+message ModelArtifact {
+  // Pinned source and provenance for this artifact.
+  HuggingFaceArtifactSource source = 1;
+
+  // Stable identifier for this artifact within its model.
+  string artifact_id = 2;
+
+  // Opaque source-aligned weight-quantization tag, or empty when not declared.
+  string weight_quantization = 3;
+}
+
+// Identifies auxiliary model-owned artifact content shared by engine
+// configurations and selected through an artifact binding.
+message ModelAuxiliaryArtifact {
+  // Stable identifier for this auxiliary artifact within its model.
+  string auxiliary_artifact_id = 1;
+
+  // Pinned source and provenance for this artifact.
+  HuggingFaceArtifactSource source = 2;
+}
+
+// Identifies one immutable Hugging Face source for a model-owned artifact.
+message HuggingFaceArtifactSource {
+  // Hugging Face repository name.
+  string repository = 1;
+
+  // Immutable repository revision.
+  string revision = 2;
+
+  oneof content {
+    // One exact regular file from the repository.
+    HuggingFaceFileArtifact file = 3;
+
+    // One exact self-contained tree of regular repository files.
+    HuggingFaceSnapshotArtifact snapshot = 4;
+  }
+}
+
+// Identifies one immutable regular file within a Hugging Face repository.
+message HuggingFaceFileArtifact {
+  // Relative repository path of the file.
+  string path = 1;
+
+  // SHA-256 provenance digest for the immutable file.
+  string provenance_digest = 2;
+}
+
+// Identifies one immutable self-contained repository tree.
+message HuggingFaceSnapshotArtifact {
+  // Exact regular files published in the snapshot.
+  repeated HuggingFaceSnapshotFile files = 1;
+}
+
+// Identifies one verified regular file in a Hugging Face snapshot.
+message HuggingFaceSnapshotFile {
+  // Relative repository path of the file.
+  string path = 1;
+
+  // SHA-256 provenance digest for the immutable file.
+  string provenance_digest = 2;
+}
+
+// Declares one model-local supported engine launch configuration. Membership
+// declares launch support without qualification, performance, or fit claims.
+message ModelEngineConfiguration {
+  // Stable identifier for this configuration within its model.
+  string configuration_id = 1;
+
+  // Finite set of exact reusable engine artifacts approved by this configuration.
+  repeated EngineArtifactReference engine_artifacts = 2;
+
+  // Supported selections of model and auxiliary artifacts.
+  repeated ModelArtifactBinding artifact_bindings = 3;
+
+  // Shared hardware classes this configuration runs on, each with its advisory minimums.
+  repeated HardwareSupport hardware_support = 9;
+
+  // Typed engine-owned configuration payload.
+  dotcore.engine.v1.EngineModelConfiguration engine_configuration = 5;
+
+  // Execution shapes supported by this configuration.
+  ModelExecutionCapabilities execution_capabilities = 6;
+
+  // Public request-input capabilities fixed by this configuration.
+  ModelInputCapabilities input_capabilities = 7;
+
+  // Inference request kinds this configuration serves; explicit, non-empty, and unique.
+  repeated InferenceRequestKind request_kinds = 11;
+
+  // Configuration-local option schemas, defaults, and engine realizations.
+  repeated ModelConfigurationOption options = 8;
+
+  // Maximum context per request below the model's, in tokens, when the engine can't serve it.
+  optional uint32 maximum_context_tokens = 10;
+}
+
+// Binds one selectable model artifact to its required auxiliary artifacts.
+message ModelArtifactBinding {
+  // Stable identifier for this binding within its configuration.
+  string binding_id = 1;
+
+  // Stable model-local identifier of the selected model artifact.
+  string model_artifact_id = 2;
+
+  // Stable model-local identifiers of required auxiliary artifacts.
+  repeated string auxiliary_artifact_ids = 3;
+}
+
+// Supplies independent preset defaults for one model-local engine
+// configuration without becoming deployment authority.
+message ModelProfile {
+  // Stable identifier for this model profile.
+  string profile_id = 1;
+
+  // Stable model-local engine configuration selected by this profile.
+  string configuration_id = 2;
+
+  // Default artifact binding selected by this profile.
+  string default_model_artifact_binding_id = 3;
+
+  // Typed engine parameter defaults for this profile, overlaid on the engine defaults.
+  EngineParameterValues engine_parameter_defaults = 4;
+
+  // Optional human-readable name for this profile.
+  string display_name = 5;
+
+  // Optional practical description of this profile.
+  string description = 6;
+
+  // Sparse option defaults overlaid on configuration defaults.
+  repeated ModelOptionValues option_defaults = 7;
+
+  // Exact ordered engine parameters exposed by this profile; empty uses engine defaults.
+  repeated string exposed_parameter_ids = 8;
+}
+
+// Declares one stable semantic option that configurations may implement.
+message ModelOption {
+  // Stable identifier for this option within its model.
+  string option_id = 1;
+
+  // Human-readable option name.
+  string display_name = 2;
+
+  oneof kind {
+    // Option that adds image-input capability.
+    VisionModelOption vision = 3;
+
+    // Option that adds speculative decoding.
+    SpeculativeDecodingModelOption speculative_decoding = 4;
+
+    // Option that chooses the KV cache precision.
+    KvCachePrecisionModelOption kv_cache_precision = 5;
+  }
+}
+
+// Identifies the semantic vision option kind.
+message VisionModelOption {}
+
+// Identifies the semantic speculative-decoding option kind and the draft method it uses. Its
+// configuration options declare one unsigned `token-count` parameter in `tokens`, where 0 is off.
+message SpeculativeDecodingModelOption {
+  // Required draft method proposing the speculative tokens.
+  SpeculativeDecodingMethod method = 1;
+}
+
+// Draft methods that propose tokens for speculative decoding.
+enum SpeculativeDecodingMethod {
+  // No declared draft method; catalog validation rejects it.
+  SPECULATIVE_DECODING_METHOD_UNSPECIFIED = 0;
+
+  // Multi-token prediction heads trained with the model.
+  SPECULATIVE_DECODING_METHOD_MTP = 1;
+}
+
+// Identifies the semantic KV cache precision option kind. Its configuration options declare one
+// string-enum `precision` parameter naming the precision of the KV cache.
+message KvCachePrecisionModelOption {}
+
+// Defines one option as implemented by a model-local engine configuration.
+message ModelConfigurationOption {
+  // Stable model-local option identifier.
+  string option_id = 1;
+
+  // Typed parameters exposed by this configuration.
+  repeated ModelOptionParameterDefinition parameters = 2;
+
+  // Complete safe defaults for every declared parameter.
+  ModelOptionValues default_values = 3;
+
+  // Binding identifiers supporting this option, or empty when all do.
+  repeated string supported_binding_ids = 4;
+
+  // Typed boolean expression restricting supported resolved values.
+  string compatible_when = 5;
+}
+
+// Defines one typed configuration-local option parameter.
+message ModelOptionParameterDefinition {
+  // Stable identifier within its option.
+  string parameter_id = 1;
+
+  // Human-readable parameter name.
+  string display_name = 2;
+
+  oneof parameter_type {
+    // Boolean parameter schema.
+    BooleanModelOptionParameterSchema boolean = 3;
+
+    // Unsigned-integer parameter schema.
+    UnsignedIntegerModelOptionParameterSchema unsigned_integer = 4;
+
+    // Constrained string parameter schema.
+    StringEnumModelOptionParameterSchema string_enum = 5;
+  }
+}
+
+// Defines a boolean option parameter.
+message BooleanModelOptionParameterSchema {}
+
+// Defines bounds and units for an unsigned-integer option parameter.
+message UnsignedIntegerModelOptionParameterSchema {
+  // Inclusive minimum value.
+  uint64 minimum = 1;
+
+  // Inclusive maximum value.
+  uint64 maximum = 2;
+
+  // Human-readable unit name, or empty when unitless.
+  string unit = 3;
+}
+
+// Defines the exact accepted values for a constrained string parameter.
+message StringEnumModelOptionParameterSchema {
+  // Accepted string values.
+  repeated string values = 1;
+}
+
+// Supplies typed values for one model option.
+message ModelOptionValues {
+  // Stable model-local option identifier.
+  string option_id = 1;
+
+  // Parameter values keyed by configuration-local parameter identifier.
+  repeated ModelOptionParameterValue values = 2;
+}
+
+// Supplies one typed option parameter value.
+message ModelOptionParameterValue {
+  // Stable parameter identifier within its option.
+  string parameter_id = 1;
+
+  oneof value {
+    // Exact boolean value, preserving false presence.
+    bool boolean = 2;
+
+    // Exact unsigned-integer value, preserving zero presence.
+    uint64 unsigned_integer = 3;
+
+    // Exact constrained string value.
+    string string = 4;
+  }
+}
+
+// Execution shapes that a model profile supports.
+message ModelExecutionCapabilities {
+  // Parallel execution shapes supported by the profile.
+  repeated ModelParallelShape supported_parallel_shapes = 1;
+}
+
+// Declares that a configuration runs on one shared hardware class. The class selector supplies the
+// accelerator vendor; the catalog keeps the class's sizing private.
+message HardwareSupport {
+  // Identifier of the referenced hardware class.
+  string hardware_class_id = 1;
+
+  // Advisory memory minimums on this hardware class.
+  HardwareRequirements hardware_requirements = 2;
+}

@@ -1,0 +1,32 @@
+[package]
+name = "dotcore-node-hardware"
+description = "Node hardware collection: host facts and per-device accelerator observations for NVIDIA, AMD and Apple, and declared machines described as data."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+dotcore-domain = { path = "../domain" }
+dotcore-host-process = { path = "../host_process" }
+dotcore-nvml = { path = "../nvml" }
+dotcore-proto = { path = "../proto" }
+libc.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_yaml_ng.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+objc2-metal = { version = "0.3.2", default-features = false, features = ["std", "MTLDevice"] }
+
+[dev-dependencies]
+dotcore-domain = { path = "../domain", features = ["test-support"] }
+dotcore-host-process = { path = "../host_process", features = ["test-support"] }
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

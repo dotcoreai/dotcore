@@ -1,0 +1,51 @@
+[package]
+name = "dotcore-site"
+description = "Site state authority: desired site repository, site and node stores, node views and fencing, membership, initial site and reset."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+dotcore-catalog = { path = "../catalog" }
+dotcore-domain = { path = "../domain" }
+dotcore-node-hardware = { path = "../node_hardware" }
+dotcore-observability = { path = "../observability" }
+dotcore-proto = { path = "../proto" }
+dotcore-runtime = { path = "../runtime" }
+fs4.workspace = true
+futures-util.workspace = true
+getrandom = { workspace = true, features = ["std"] }
+libc.workspace = true
+prost.workspace = true
+rcgen = { workspace = true, features = ["x509-parser"] }
+rustls.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio-stream = { workspace = true, features = ["net"] }
+tokio-util.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+url = { workspace = true, features = ["serde"] }
+x509-parser.workspace = true
+
+[features]
+# Test-only fixtures for the unit tests of crates above; never enabled by production builds.
+test-support = ["dotcore-catalog/test-support", "dotcore-domain/test-support"]
+
+[dev-dependencies]
+dotcore-catalog = { path = "../catalog", features = ["test-support"] }
+dotcore-domain = { path = "../domain", features = ["test-support"] }
+dotcore-host-process = { path = "../host_process", features = ["test-support"] }
+dotcore-launcher = { path = "../launcher" }
+dotcore-runtime-backends = { path = "../runtime_backends", features = ["test-support"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package dotcore.metrics.private.v1;
+
+import "dotcore/metrics/v1/metric.proto";
+
+// Private node-to-manager stream of one SiteNode's pre-aggregated metric buckets, delivered at least once and merged exactly once.
+// The receiver authenticates the SiteNode before accepting any message.
+service MetricBucketStreamService {
+  // Streams one node's metric buckets into the site manager's metric store.
+  // The first node message is always Open; Batch messages follow with strictly increasing nonzero sequences within the stream.
+  // The manager answers with a cumulative applied sequence once the store has taken a batch: every sequence of the session up to and including it is applied, and the node may forget those batches.
+  // After a reconnect the node re-sends every batch not yet covered, in order; the manager acknowledges a batch it already applied for the same node, session, and sequence without merging it again.
+  // The manager stores only node-measured series labeled with the stream's node, and only buckets that started in the current store lifetime; it rejects and counts every other series and acknowledges it with its batch, so the node never re-sends it.
+  // The stream ends with INVALID_ARGUMENT for a malformed or out-of-order message, PERMISSION_DENIED when Open names another site or node, ABORTED when a newer stream of the same node replaced it, DEADLINE_EXCEEDED when the node sent no Open, or nothing at all, for the manager's idle timeout, CANCELLED when the node's side failed, and UNAVAILABLE when the store stopped; the node ends it by closing its side.
+  rpc StreamMetricBuckets(stream StreamMetricBucketsRequest) returns (stream StreamMetricBucketsResponse);
+}
+
+// One node message of a metric bucket stream.
+message StreamMetricBucketsRequest {
+  // The message payload.
+  oneof message {
+    // Identifies the stream; always and only the first message.
+    MetricBucketStreamOpen open = 1;
+
+    // Buckets the node has not seen acknowledged yet.
+    MetricBucketBatch batch = 2;
+  }
+}
+
+// One manager answer on a metric bucket stream.
+message StreamMetricBucketsResponse {
+  // Highest batch sequence of the session the store has taken; covers every earlier sequence.
+  uint64 applied_sequence = 1;
+}
+
+// Identity of one metric bucket stream.
+message MetricBucketStreamOpen {
+  // Site identity, required to match the authenticated peer and receiver site.
+  string site_id = 1;
+
+  // Declared SiteNode identity, required to match the authenticated peer.
+  string node_id = 2;
+
+  // Random identity of the node's metric forwarder lifetime; sequences restart in a new session.
+  string session_id = 3;
+}
+
+// Buckets the node flushed together under one sequence.
+message MetricBucketBatch {
+  // Nonzero position of the batch in its session.
+  uint64 sequence = 1;
+
+  // Aligned buckets of the batch.
+  repeated dotcore.metrics.v1.MetricBucketAggregate buckets = 2;
+
+  // Whether the node sends the batch again after a stream failed or ended, so its buckets may land late without clock skew.
+  bool backfill = 3;
+}

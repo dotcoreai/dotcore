@@ -1,0 +1,126 @@
+
+set positional-arguments
+
+# List remote host recipes.
+help:
+  @just --list
+
+# Show each configured host as usable, or its first failing check.
+list *args:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs list "$@"
+
+# Sync this workspace's state, uncommitted edits included, into its remote workspace on `host`.
+sync host:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs sync "$@"
+
+# Sync, then run a just command in the remote workspace on `host`. Status 125 is a tool or transport failure; `--detach` returns a run id.
+run host *args:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs run "$@"
+
+# Run a shell command in the remote workspace's dev shell on `host`, without syncing and without the run lock.
+exec host *command:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs exec "$@"
+
+# Show the remote workspace, its synced commit and changes, its lock and its recorded runs on `host`.
+status host:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs status "$@"
+
+# Print a recorded run's output on `host`, the latest by default.
+logs host *args:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs logs "$@"
+
+# Follow a run's output on `host` until it ends.
+tail host *args:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs tail "$@"
+
+# Wait for a run on `host` and exit with its status.
+wait host *args:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs wait "$@"
+
+# Stop a run on `host`.
+kill host *args:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs kill "$@"
+
+# Fetch the remote workspace's commit on `host` into a private local ref and show its diff.
+pull host:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs pull "$@"
+
+# List, or with `--yes` remove, leftover branches and idle remote workspaces; without a host, cleans the checkout you are in.
+gc *args:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs gc "$@"
+
+# Print each configured host as `<group>:<host>`, without connecting to any.
+hosts:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs hosts
+
+# Print `host` as `<group>:<host>`; a bare group names its first host.
+resolve host:
+  @cd ../.. && exec node dev/remote/remote-exec.mjs resolve "$@"
+
+# Remove this workspace from `host`, or from every configured host one at a time when none is given: its joined worker first (through `just dev::cluster::clean <host>`), then its remote workspace, run records and branches. Unsaved remote edits stay in the host repository's history. Shows what it removes and asks in the terminal first; declining a host skips it, and a failing host is reported after the others ran. DOTCORE_YES=1 confirms in advance for a run without a terminal.
+[script]
+clean host="":
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  if test -n "{{host}}"; then
+    exec just dev::remote::_clean-host "{{host}}"
+  fi
+
+  # The hosts are read up front, not through a pipe, so each host's question still reads the terminal.
+  hosts="$(just dev::remote::hosts)"
+
+  # A host that fails does not stop the others, since each is independent; a declined one (130) is a choice.
+  failed=()
+  for configured in $hosts; do
+    status=0
+    just dev::remote::_clean-host "$configured" || status=$?
+    case "$status" in
+      0|130) ;;
+      *) failed+=("$configured") ;;
+    esac
+  done
+  if test "${#failed[@]}" -gt 0; then
+    echo "remote clean failed on: ${failed[*]}" >&2
+    exit 1
+  fi
+
+# Remove this workspace from one configured host.
+[private]
+[script]
+_clean-host host:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ../..
+  source dev/confirm.sh
+  source dev/cluster/targets.sh
+  host="$(just dev::remote::resolve "{{host}}")"
+
+  # A run holding the lock would stop the workspace removal after the worker already left, so check it first.
+  status="$(just dev::remote::status "$host")"
+  grep -qx 'lock: free' <<<"$status" || { echo "a run holds the remote workspace on $host; wait for it or stop it first: just dev::remote::status $host" >&2; exit 1; }
+  workspace="$(sed -n 's/^workspace: \(.*\) (present)$/\1/p' <<<"$status")"
+
+  summary=("Cleaning $host removes:")
+  if test -n "$workspace"; then
+    node_id="$(recorded_node_id "$host")"
+    if test -n "$node_id"; then
+      summary+=("* worker $node_id: it leaves the cluster, which stops its native workloads and Docker resources and deletes its folder, and the manager site forgets its deployments")
+    elif recorded_targets | grep -qx "$host"; then
+      summary+=("* the worker whose join on $host never completed: its folder and anything it started")
+    else
+      summary+=("* any worker this workspace joined on $host, with its workloads and folder")
+    fi
+    summary+=("* the remote workspace $workspace, with its run records and branches")
+    grep -qx 'changes: none' <<<"$status" || summary+=("  its uncommitted remote changes then stay only in the host's jj history")
+  else
+    summary+=("* this workspace's run records and branches; the remote workspace is already gone")
+  fi
+  confirm_or_exit "cleaning $host" "Clean $host?" "${summary[@]}"
+  # The question covered the worker's leave and its removal from the manager site, so neither asks again.
+  export DOTCORE_YES=1
+
+  if test -n "$workspace"; then
+    just dev::cluster::clean "$host"
+  fi
+  node dev/remote/remote-exec.mjs clean "$host"

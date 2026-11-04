@@ -1,0 +1,20 @@
+nodeId: simulated-docker-docker
+declaredMachine:
+  choices:
+    - rtx-5090
+  description:
+    name: simulated-rtx-5090
+    platform:
+      operatingSystem: linux
+      architecture: amd64
+    cpuCount: 16
+    hostMemoryTotalBytes: "68719476736"
+    hostMemoryIdleUsedBytes: "4294967296"
+    gpus:
+      - id: GPU-00000000-0000-0000-0000-000000005090
+        vendor: ACCELERATOR_VENDOR_NVIDIA
+        model: NVIDIA GeForce RTX 5090
+        driverVersion: "595.71.05"
+        dedicated:
+          totalBytes: "34190917632"
+          reservedBytes: "521142272"

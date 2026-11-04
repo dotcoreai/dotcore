@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+package dotcore.site.v1;
+
+import "dotcore/application/v1/deployment.proto";
+import "dotcore/catalog/v1/oci.proto";
+import "dotcore/inference/v1/routes.proto";
+import "dotcore/model/v1/deployment.proto";
+
+// Complete desired site configuration stored in site.yaml. Catalog records,
+// resource attribution, and current state are separate inputs.
+message Site {
+  // Stable identifier for the site.
+  string site_id = 1;
+
+  // Execution targets available across all SiteNodes in the site.
+  repeated ExecutionTarget execution_targets = 2;
+
+  // Desired model deployment declarations in the site.
+  repeated dotcore.model.v1.ModelDeploymentDeclaration model_deployments = 3;
+
+  // Declared nodes that are members of this site.
+  repeated SiteNode nodes = 4;
+
+  // Desired application deployment declarations in the site.
+  repeated dotcore.application.v1.ApplicationDeploymentDeclaration application_deployments = 5;
+
+  // Desired inference route declarations managed by the route manager.
+  repeated dotcore.inference.v1.InferenceRoute inference_routes = 6;
+
+  // Site-wide current hardware observation policy.
+  HardwareObservationConfiguration hardware_observation = 7;
+
+  // Inference-controller-owned allocation state for never-reused model deployment IDs.
+  ModelDeploymentIdentityAllocator model_deployment_identity_allocator = 8;
+}
+
+// Durable allocator for model deployment identities within this site.
+message ModelDeploymentIdentityAllocator {
+  // Fixed lowercase hexadecimal namespace separating new IDs from legacy IDs.
+  string namespace = 1;
+
+  // Next sequence to reserve; values below it are never reused.
+  uint64 next_sequence = 2;
+}
+
+// Site-wide policy for current hardware observations.
+message HardwareObservationConfiguration {
+  // Polling interval in seconds; absent selects the backend default.
+  optional uint32 refresh_interval_seconds = 1;
+}
+
+// Declarative identity and roles for one node that belongs to a site.
+message SiteNode {
+  // Required stable node identifier matching [a-z][a-z0-9-]{0,62}.
+  string node_id = 1;
+
+  // Required display name with at most 128 Unicode scalar values after trim and no control characters.
+  string display_name = 2;
+
+  // Optional site-manager role placement for this node.
+  SiteManagerRole site_manager = 3;
+
+  // Required specific IPv4 address or DNS host name the site manager uses to reach this node.
+  string host = 5;
+
+  // Optional specific IPv4 address or DNS host name this node uses to reach the site manager; empty
+  // selects the declared manager host and is always empty on the site manager node.
+  string manager_host = 6;
+}
+
+// Site-owned unified execution target with typed runtime binding.
+message ExecutionTarget {
+  // Stable site-wide identifier for this execution target.
+  string execution_target_id = 1;
+
+  // Required SiteNode that owns and provides this execution target.
+  string site_node_id = 2;
+
+  // Required human-readable name, unique among the SiteNode's targets; presentation only, never an identity.
+  string display_name = 7;
+
+  // Concrete platform declared for this execution target. Docker runtime bindings require
+  // linux/amd64 or linux/arm64; simulated and native model runtime bindings also accept darwin/arm64.
+  dotcore.catalog.v1.OciPlatform platform = 3;
+
+  // Identifiers of accelerator devices assigned to this target.
+  repeated string accelerator_device_ids = 4;
+
+  // Typed runtime binding for this execution target.
+  oneof runtime_binding {
+    // Model deployment runtime configuration.
+    ModelRuntimeBinding model_runtime = 5;
+
+    // Application deployment runtime configuration.
+    ApplicationRuntimeBinding application_runtime = 6;
+  }
+}
+
+// Runtime binding for model deployments on this execution target.
+message ModelRuntimeBinding {
+  oneof adapter {
+    // Simulated runtime configuration for model workloads.
+    SimulatedRuntimeAdapter simulated_runtime = 1;
+
+    // Docker runtime configuration for model workloads.
+    DockerRuntimeAdapter docker_runtime = 2;
+
+    // Native runtime configuration for model workloads run as host processes.
+    NativeRuntimeAdapter native_runtime = 3;
+  }
+}
+
+// Runtime binding for application deployments on this execution target.
+message ApplicationRuntimeBinding {
+  oneof adapter {
+    // Direct-Linux Docker runtime configuration for application workload groups.
+    DockerApplicationRuntimeAdapter docker_runtime = 1;
+
+    // Deterministic runtime configuration used only by simulated sites.
+    SimulatedApplicationRuntimeAdapter simulated_runtime = 2;
+  }
+}
+
+// Empty typed role settings for the site manager.
+message SiteManagerRole {}
+
+// Empty typed configuration for a direct-Linux Docker application runtime.
+message DockerApplicationRuntimeAdapter {}
+
+// Empty typed configuration for a simulated application runtime.
+message SimulatedApplicationRuntimeAdapter {}
+
+// Typed settings for the simulated runtime adapter.
+message SimulatedRuntimeAdapter {
+  // Default lifecycle scenario for workloads in this adapter.
+  SimulatedRuntimeScenario default_scenario = 1;
+
+  // Deployment-specific lifecycle scenarios keyed by deployment ID.
+  repeated SimulatedRuntimeDeploymentScenario deployment_scenarios = 2;
+}
+
+// Deployment-specific simulated runtime behavior.
+message SimulatedRuntimeDeploymentScenario {
+  // Identifier of the deployment that uses this scenario.
+  string model_deployment_id = 1;
+
+  // Lifecycle scenario for the deployment.
+  SimulatedRuntimeScenario scenario = 2;
+}
+
+// Typed lifecycle behavior for one simulated runtime workload.
+message SimulatedRuntimeScenario {
+  // Delay before a simulated workload becomes ready, in milliseconds.
+  uint64 ready_delay_millis = 1;
+
+  // Delay before a simulated workload stops, in milliseconds.
+  uint64 stop_delay_millis = 2;
+}
+
+// Selects the Docker accelerator request transport.
+enum DockerAcceleratorTransport {
+  // No accelerator transport was selected.
+  DOCKER_ACCELERATOR_TRANSPORT_UNSPECIFIED = 0;
+
+  // Uses CDI-qualified device selectors.
+  DOCKER_ACCELERATOR_TRANSPORT_CDI = 1;
+
+  // Uses the legacy NVIDIA device-request transport.
+  DOCKER_ACCELERATOR_TRANSPORT_LEGACY_NVIDIA = 2;
+}
+
+// Typed settings for the native runtime adapter.
+message NativeRuntimeAdapter {
+  // How long native workloads may outlive the server process that created them.
+  NativeWorkloadLifetime workload_lifetime = 1;
+}
+
+// Selects how native workloads relate to the lifetime of the creating server process.
+enum NativeWorkloadLifetime {
+  // No lifetime was selected; treated as persistent.
+  NATIVE_WORKLOAD_LIFETIME_UNSPECIFIED = 0;
+
+  // Workloads keep running across server restarts and are adopted again.
+  NATIVE_WORKLOAD_LIFETIME_PERSISTENT = 1;
+
+  // Workloads stop gracefully once the server process that created them exits.
+  NATIVE_WORKLOAD_LIFETIME_EPHEMERAL = 2;
+}
+
+// Typed settings for a local Docker runtime adapter.
+message DockerRuntimeAdapter {
+  // The one accelerator transport selected for this execution target.
+  DockerAcceleratorTransport accelerator_transport = 1;
+}

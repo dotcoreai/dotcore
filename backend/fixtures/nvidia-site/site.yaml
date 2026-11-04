@@ -1,0 +1,25 @@
+siteId: "development-site"
+nodes:
+  - nodeId: "development-node"
+    host: "127.0.0.1"
+    displayName: "Development node"
+    siteManager: {}
+executionTargets:
+  - executionTargetId: "nvidia-target"
+    siteNodeId: "development-node"
+    displayName: "NVIDIA GPU"
+    platform: { operatingSystem: "linux", architecture: "amd64" }
+    acceleratorDeviceIds: ["nvidia.com/gpu=0"]
+    modelRuntime:
+      dockerRuntime:
+        acceleratorTransport: "DOCKER_ACCELERATOR_TRANSPORT_CDI"
+  - executionTargetId: "development-application-target"
+    siteNodeId: "development-node"
+    displayName: "Docker applications"
+    platform: { operatingSystem: "linux", architecture: "amd64" }
+    applicationRuntime: { dockerRuntime: {} }
+modelDeployments: []
+applicationDeployments: []
+modelDeploymentIdentityAllocator:
+  namespace: ad7f829b823ce71e
+  nextSequence: '1'

@@ -1,0 +1,213 @@
+syntax = "proto3";
+
+package dotcore.inference.private.v1;
+
+import "dotcore/inference/v1/chat.proto";
+import "dotcore/inference/v1/decision.proto";
+
+// Worker-hosted exact-target inference for the authenticated site manager. The worker performs
+// at most one engine attempt for the named target and owns no route lookup or fallback.
+service PeerInferenceService {
+  // Admits or rejects one exact target, then streams the outcome of its single engine attempt.
+  // The first frame is always Admitted or Rejected. After Rejected the stream ends. After
+  // Admitted, a chat request yields exactly one of: one completion, ordered stream events, one
+  // passthrough response, or one failure; stream events may also end with one failure. A
+  // decision request yields exactly one decision result, passthrough response, or failure, and
+  // never stream events. A stream that ends after Admitted without an outcome frame is a started
+  // or ambiguous transport loss.
+  rpc InvokeExactTarget(InvokeExactTargetRequest) returns (stream InvokeExactTargetResponse);
+}
+
+// One manager request for an exact worker realization and its canonical inference request.
+message InvokeExactTargetRequest {
+  // Exact worker realization selected by manager route admission.
+  ExactServingTarget target = 1;
+
+  // Canonical inference request forwarded unchanged from manager route admission.
+  oneof request {
+    // Canonical chat request.
+    dotcore.inference.v1.ChatRequest chat = 2;
+
+    // Canonical decision request.
+    dotcore.inference.v1.DecisionRequest decision = 3;
+  }
+}
+
+// Exact identity of one worker-hosted realization; never includes a view revision or endpoint.
+message ExactServingTarget {
+  // Manager process session that published this target.
+  string manager_session_id = 1;
+
+  // Worker process incarnation that reported this target's serving evidence.
+  string node_incarnation_id = 2;
+
+  // Stable local model deployment identity.
+  string model_deployment_id = 3;
+
+  // Declared lifecycle generation the target serves.
+  uint64 lifecycle_generation = 4;
+
+  // Opaque binding token from the worker's Ready serving evidence.
+  string binding_token = 5;
+}
+
+// One ordered frame of an exact-target attempt.
+message InvokeExactTargetResponse {
+  // The frame payload.
+  oneof frame {
+    // The worker admitted the exact target and dispatches one engine attempt.
+    ExactTargetAdmitted admitted = 1;
+
+    // The worker refused the target before dispatch; fallback follows the rejection reason.
+    ExactTargetRejected rejected = 2;
+
+    // One complete chat result.
+    dotcore.inference.v1.ChatCompletionResult completion = 3;
+
+    // One ordered semantic chat stream event.
+    dotcore.inference.v1.ChatStreamEvent stream_event = 4;
+
+    // One complete decision result.
+    dotcore.inference.v1.DecisionResult decision_result = 7;
+
+    // One unchanged unsuccessful serving-provider response.
+    PassthroughResponse passthrough = 5;
+
+    // The engine attempt failed with the stated fallback disposition.
+    ExactTargetFailure failure = 6;
+  }
+}
+
+// Confirms admission of the exact target before any engine output.
+message ExactTargetAdmitted {}
+
+// Refuses the exact target before any engine dispatch. An invalid request never falls back;
+// availability and identity reasons are safe to fall back, and unknown reasons fail closed.
+message ExactTargetRejected {
+  // Diagnostic reason that decides fallback eligibility.
+  ExactTargetRejectionReason reason = 1;
+
+  // Recognized public request field path that an invalid request names, when safe to disclose.
+  optional string safe_param = 2;
+
+  // Category of an invalid request.
+  optional RequestErrorCategory request_error_category = 3;
+}
+
+// Why a worker refused an exact target before dispatch.
+enum ExactTargetRejectionReason {
+  // The exact target rejection reason unspecified value.
+  EXACT_TARGET_REJECTION_REASON_UNSPECIFIED = 0;
+
+  // The request omits its target identity or carries a missing or invalid canonical request;
+  // never falls back.
+  EXACT_TARGET_REJECTION_REASON_INVALID_REQUEST = 1;
+
+  // The target names another worker process incarnation.
+  EXACT_TARGET_REJECTION_REASON_NODE_INCARNATION_MISMATCH = 2;
+
+  // The target names a manager session other than the one whose view the worker installed.
+  EXACT_TARGET_REJECTION_REASON_MANAGER_SESSION_MISMATCH = 3;
+
+  // The installed view does not assign the deployment Present at the lifecycle generation.
+  EXACT_TARGET_REJECTION_REASON_DEPLOYMENT_NOT_ASSIGNED = 4;
+
+  // No live local binding with this token serves the deployment's lifecycle generation.
+  EXACT_TARGET_REJECTION_REASON_BINDING_UNAVAILABLE = 5;
+}
+
+// Unchanged non-success response returned by the worker's serving provider.
+message PassthroughResponse {
+  // HTTP status code.
+  uint32 status = 1;
+
+  // Ordered response headers.
+  repeated PassthroughHeader headers = 2;
+
+  // Unchanged response body.
+  bytes body = 3;
+}
+
+// One response header of a passthrough response.
+message PassthroughHeader {
+  // Header name.
+  string name = 1;
+
+  // Header value.
+  string value = 2;
+}
+
+// Failure of the admitted engine attempt without provider diagnostics.
+message ExactTargetFailure {
+  // Whether the manager may still fall back, honored only before any output frame.
+  ExactTargetFailureDisposition disposition = 1;
+
+  // Safe failure category.
+  ExactTargetFailureKind kind = 2;
+
+  // Recognized public request field path that an invalid request names, when safe to disclose.
+  optional string safe_param = 3;
+
+  // Category of an invalid request.
+  optional RequestErrorCategory request_error_category = 4;
+}
+
+// Whether a failed exact-target attempt may advance to another fallback target.
+enum ExactTargetFailureDisposition {
+  // The exact target failure disposition unspecified value.
+  EXACT_TARGET_FAILURE_DISPOSITION_UNSPECIFIED = 0;
+
+  // The engine was not reached; fallback remains safe.
+  EXACT_TARGET_FAILURE_DISPOSITION_SAFE_TO_FALLBACK = 1;
+
+  // The engine may have started work; the attempt must not be retried.
+  EXACT_TARGET_FAILURE_DISPOSITION_STARTED_OR_AMBIGUOUS = 2;
+
+  // The request itself is invalid; no target may be tried.
+  EXACT_TARGET_FAILURE_DISPOSITION_NON_RETRYABLE = 3;
+}
+
+// Safe category of a failed exact-target attempt.
+enum ExactTargetFailureKind {
+  // The exact target failure kind unspecified value.
+  EXACT_TARGET_FAILURE_KIND_UNSPECIFIED = 0;
+
+  // The serving provider failed.
+  EXACT_TARGET_FAILURE_KIND_PROVIDER = 1;
+
+  // The request exceeds the target's capabilities.
+  EXACT_TARGET_FAILURE_KIND_UNSUPPORTED_CAPABILITY = 2;
+
+  // The manager dropped the request.
+  EXACT_TARGET_FAILURE_KIND_CLIENT_DISCONNECTED = 3;
+
+  // The attempt timed out.
+  EXACT_TARGET_FAILURE_KIND_REQUEST_TIMED_OUT = 4;
+
+  // The worker revoked the local binding lease.
+  EXACT_TARGET_FAILURE_KIND_ROUTE_REVOKED = 5;
+
+  // The canonical request is invalid for dispatch.
+  EXACT_TARGET_FAILURE_KIND_INVALID_REQUEST = 6;
+
+  // The engine does not serve the request's inference request kind and did no work.
+  EXACT_TARGET_FAILURE_KIND_UNSUPPORTED_REQUEST_KIND = 7;
+}
+
+// Safe category of an invalid canonical request.
+enum RequestErrorCategory {
+  // The request error category unspecified value.
+  REQUEST_ERROR_CATEGORY_UNSPECIFIED = 0;
+
+  // A request field has an invalid value or shape.
+  REQUEST_ERROR_CATEGORY_INVALID_FIELD = 1;
+
+  // The request asks for a feature the platform does not support.
+  REQUEST_ERROR_CATEGORY_UNSUPPORTED_FEATURE = 2;
+
+  // The request exceeds a size or count limit.
+  REQUEST_ERROR_CATEGORY_REQUEST_LIMIT = 3;
+
+  // The request is larger than the serving deployment's context.
+  REQUEST_ERROR_CATEGORY_CONTEXT_LENGTH = 4;
+}

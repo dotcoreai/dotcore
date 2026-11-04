@@ -1,0 +1,166 @@
+# Test-only small model for bounded vLLM NVIDIA Docker qualification.
+modelId: "qwen35-08b-qualification"
+displayName: "Qwen3.5 0.8B qualification"
+version: "3.5-0.8b"
+maximumContextTokens: 262144
+options:
+  - optionId: "image-understanding"
+    displayName: "Image understanding"
+    vision: {}
+artifacts:
+  - artifactId: "qualification-snapshot"
+    source:
+      repository: "Qwen/Qwen3.5-0.8B"
+      revision: "2fc06364715b967f1860aea9cf38778875588b17"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80"
+          - path: "config.json"
+            provenanceDigest: "b90b86f35c8e6925ef74ee04d0e758f0a845c83a42089ad82bbaa948de9b4204"
+          - path: "merges.txt"
+            provenanceDigest: "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+          - path: "model.safetensors-00001-of-00001.safetensors"
+            provenanceDigest: "04b1c301231dd422b8860db31311ab2721511346a32cb1e079c4c4e5f1fe4696"
+          - path: "model.safetensors.index.json"
+            provenanceDigest: "d8a08838a613b025eb7952ed9db11696213e57e76a375661ef5c12f9dd5dcf4e"
+          - path: "preprocessor_config.json"
+            provenanceDigest: "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          - path: "tokenizer.json"
+            provenanceDigest: "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "49e2b6e395f959f077f1e992b338919c0d4a9732fc6e613995e06557f843500c"
+          - path: "video_preprocessor_config.json"
+            provenanceDigest: "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          - path: "vocab.json"
+            provenanceDigest: "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "qualification-chat-template"
+    source:
+      repository: "Qwen/Qwen3.5-0.8B"
+      revision: "2fc06364715b967f1860aea9cf38778875588b17"
+      file:
+        path: "chat_template.jinja"
+        provenanceDigest: "273d8e0e683b885071fb17e08d71e5f2a5ddfb5309756181681de4f5a1822d80"
+configurations:
+  - configurationId: "small-vllm-nvidia"
+    engineArtifacts:
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-amd64-cuda"
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "qualification-binding"
+        modelArtifactId: "qualification-snapshot"
+        auxiliaryArtifactIds: ["qualification-chat-template"]
+    # Test fixture sizing, not onboarding evidence: a generous bound so vLLM qualification
+    # launches with a derived memory utilization well above this small model's footprint.
+    sizing:
+      parameters:
+        fixtureBaseBytes: 4000000000
+        fixtureKvBaseBytes: 500000000
+        fixtureKvBytesPerToken: 65536
+      derivedParameters:
+        kv-cache-memory-bytes: >-
+          ${fixtureKvBaseBytes}
+          + ${fixtureKvBytesPerToken} * ${total-context}
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: "${fixtureBaseBytes} + ${kv-cache-memory-bytes}"
+    hardwareSupport:
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "4000000000"
+          minimumSystemMemoryBytes: "8000000000"
+        bindingSizing:
+          - bindingId: "qualification-binding"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_VLLM"
+      vllm:
+        fixedSettings:
+          reasoningParser: "qwen3"
+          toolCallParser: "qwen3_coder"
+          chatTemplateAuxiliaryArtifactId: "qualification-chat-template"
+          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
+          kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
+          maximumBatchedTokensParameterId: "maximum-batched-tokens"
+          maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
+          kvOffloadingSizeGibParameterId: "kv-offloading-size-gib"
+          kvOffloadingBackend: "VLLM_KV_OFFLOADING_BACKEND_NATIVE"
+          containerPort: 15000
+          readinessPolicy:
+            mode: "VLLM_READINESS_MODE_MODELS"
+          requiresHostIpc: true
+          trustRemoteCode: true
+          enableLogRequests: false
+          enableAutoToolChoice: true
+          enableChunkedPrefill: true
+          enableAsyncScheduling: true
+          enablePrefixCaching: true
+          enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "image-understanding"
+            vision:
+              enabledParameterId: "enabled"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      imageInputCapacity:
+        maximumImageCount: 1
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "20971520"
+        maximumDecodedBytes: "67108864"
+        maximumWidth: 8192
+        maximumHeight: 8192
+        maximumPixels: "16000000"
+        fixedVisualTokens: 256
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "image-understanding"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "image-understanding"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+profiles:
+  - profileId: "small-text"
+    displayName: "Small text qualification"
+    configurationId: "small-vllm-nvidia"
+    defaultModelArtifactBindingId: "qualification-binding"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "1024"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "16"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "image-understanding"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "small-multimodal"
+    displayName: "Small multimodal qualification"
+    configurationId: "small-vllm-nvidia"
+    defaultModelArtifactBindingId: "qualification-binding"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "1024"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "16"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "image-understanding"
+        values:
+          - parameterId: "enabled"
+            boolean: true

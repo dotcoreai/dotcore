@@ -1,0 +1,15 @@
+[package]
+name = "dotcore-host-process"
+description = "Raw host process facts: start tokens, parents, children, memory, exit watch and process ancestry."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+libc.workspace = true
+
+[features]
+# Test-only fakes for the unit tests of crates above; never enabled by production builds.
+test-support = []

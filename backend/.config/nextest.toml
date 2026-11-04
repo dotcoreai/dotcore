@@ -1,0 +1,38 @@
+nextest-version = { required = "0.9.103" }
+
+[profile.default]
+retries = 0
+
+# Hardware profiles select one class by name prefix and run it serially; run them with
+# `--run-ignored only` through the `test-<class>` recipes.
+[profile.docker]
+default-filter = "test(~hw_docker_)"
+test-threads = 1
+
+[profile.nvidia]
+default-filter = "test(~hw_nvidia_)"
+test-threads = 1
+
+# NVIDIA tests whose model needs a whole RTX 5090, so they cannot share the GPU.
+[profile.nvidia5090]
+default-filter = "test(~hw_nvidia5090_)"
+test-threads = 1
+
+# NVIDIA GB10 (DGX Spark) tests, which check the whole unified machine.
+[profile.gb10]
+default-filter = "test(~hw_gb10_)"
+test-threads = 1
+
+[profile.apple]
+default-filter = "test(~hw_apple_)"
+test-threads = 1
+
+[profile.diagnostic]
+inherits = "default"
+fail-fast = false
+slow-timeout = "5s"
+
+[profile.diagnostic.junit]
+path = "junit.xml"
+store-success-output = false
+store-failure-output = true

@@ -1,0 +1,48 @@
+engineReleaseId: "fixture-engine"
+engineKind: "ENGINE_KIND_LLAMA_CPP"
+version: "1"
+parameterSchema:
+  schemaId: "fixture-schema"
+  parameters:
+    - parameterId: "total-context"
+      displayName: "Total context"
+      exposed: true
+      unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" }
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      exposed: true
+      unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens" }
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      exposed: true
+      unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }
+    - parameterId: "prompt-cache-memory-mib"
+      displayName: "Prompt cache memory"
+      unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" }
+storageBindings:
+  - bindingName: "compile-cache"
+    mountPath: "/var/cache/compile"
+    kind: "STORAGE_KIND_CACHE"
+    scope: "STORAGE_SCOPE_DEPLOYMENT"
+    environment:
+      - { name: "COMPILE_CACHE" }
+  - bindingName: "kernel-cache"
+    mountPath: "/var/cache/kernels"
+    kind: "STORAGE_KIND_CACHE"
+    scope: "STORAGE_SCOPE_ENGINE_ARTIFACT"
+    environment:
+      - { name: "KERNEL_CACHE" }
+artifacts:
+  - artifactId: "fixture-linux"
+    oci:
+      repository:
+        registry: { host: "registry.dotcore.test" }
+        name: "fixture"
+      digest: { algorithm: "sha256", encoded: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "amd64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580
+      - platform: { operatingSystem: "linux", architecture: "arm64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580

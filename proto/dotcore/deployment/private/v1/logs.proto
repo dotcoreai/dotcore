@@ -1,0 +1,283 @@
+syntax = "proto3";
+
+package dotcore.deployment.private.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Node-hosted runtime log reads for the authenticated site manager, for any deployment owner.
+// The node resolves its own workload from the named deployment and bounds every response;
+// results mirror its local per-source runtime outcomes, with typed codes and no runtime diagnostics.
+service DeploymentLogService {
+  // Reads one bounded history page per selected source of one deployment installed on the node.
+  rpc ReadDeploymentLogs(ReadDeploymentLogsRequest) returns (ReadDeploymentLogsResponse);
+
+  // Follows the selected sources of one deployment installed on the node. The first frame is
+  // always Rejected or Opened. After Rejected the stream ends. After Opened, a request naming no
+  // source may receive SourceOpened frames for sources that start later, such as a preparation
+  // step or a replacement workload. Each source opened as available carries zero or more entries
+  // and then at most one Unavailable or Ended frame before it may open again. A request naming
+  // no source stays open until the node removes the deployment, which ends it cleanly even with
+  // sources still open. A request naming sources ends once each sent its terminal frame, so a
+  // source still open when it ends was lost in transport. Either ends with an error status when
+  // the node fails. Dropping the call stops the node's runtime reads.
+  rpc FollowDeploymentLogs(FollowDeploymentLogsRequest) returns (stream FollowDeploymentLogsResponse);
+}
+
+// One manager request for bounded retained history of one node-hosted deployment.
+message ReadDeploymentLogsRequest {
+  // Exact deployment and process identities the node checks before reading.
+  DeploymentLogTarget target = 1;
+
+  // Source names to read, at most 32 and unique; empty selects every source the owner declares.
+  repeated string source_names = 2;
+
+  // Newest entries to return per source, from 1 through 200.
+  uint32 maximum_entries = 3;
+
+  // Optional exclusive upper bound selecting entries older than a previous page.
+  optional google.protobuf.Timestamp before_timestamp = 4;
+}
+
+// The node's answer to one history read: a rejection or one outcome per selected source.
+message ReadDeploymentLogsResponse {
+  // Exactly one outcome.
+  oneof outcome {
+    // The node refused the request before any runtime read.
+    DeploymentLogRejection rejected = 1;
+
+    // The node read every selected source; each source succeeds or fails independently.
+    DeploymentLogHistories histories = 2;
+  }
+}
+
+// One manager request to follow new output of one node-hosted deployment.
+message FollowDeploymentLogsRequest {
+  // Exact deployment and process identities the node checks before following.
+  DeploymentLogTarget target = 1;
+
+  // Source names to follow, at most 32 and unique; empty selects every source the owner declares.
+  repeated string source_names = 2;
+
+  // Optional per-source positions to resume after; each names a selected source at most once.
+  repeated DeploymentLogResumePosition resume_positions = 3;
+}
+
+// One ordered frame of a node-hosted follow.
+message FollowDeploymentLogsResponse {
+  // The frame payload.
+  oneof frame {
+    // The node refused the request before any runtime read; always the only frame.
+    DeploymentLogRejection rejected = 1;
+
+    // The node opened every selected source; always the first frame of an admitted follow.
+    DeploymentLogFollowOpened opened = 2;
+
+    // One new entry from one source opened as available.
+    DeploymentLogSourceEntry entry = 3;
+
+    // One open source stopped because it became unavailable.
+    DeploymentLogSourceUnavailable source_unavailable = 4;
+
+    // One open source ended normally.
+    DeploymentLogSourceEnded source_ended = 5;
+
+    // One declared source that opened after Opened, only when the request names no source. A
+    // source reported unavailable or ended earlier on the same follow may open again, but only
+    // after that terminal frame. A source that opens again resumes after the last entry this
+    // follow delivered for it.
+    DeploymentLogSourceOpening source_opened = 6;
+  }
+}
+
+// Exact identity of one deployment read on one node; never a runtime workload handle.
+message DeploymentLogTarget {
+  // Manager process session whose desired view the node must have installed.
+  string manager_session_id = 1;
+
+  // Node process incarnation the manager is addressing.
+  string node_incarnation_id = 2;
+
+  // Controller that owns the deployment and its log sources.
+  DeploymentOwnerKind owner_kind = 3;
+
+  // Stable deployment identity within its owner, assigned in the node's installed view.
+  string deployment_id = 4;
+}
+
+// Controller that owns a deployment read through this service.
+enum DeploymentOwnerKind {
+  // No owner was supplied; the node rejects the request as invalid.
+  DEPLOYMENT_OWNER_KIND_UNSPECIFIED = 0;
+
+  // A model deployment owned by the inference controller.
+  DEPLOYMENT_OWNER_KIND_MODEL = 1;
+
+  // An application deployment owned by the apps controller.
+  DEPLOYMENT_OWNER_KIND_APPLICATION = 2;
+}
+
+// Latest position already delivered for one source, used to resume a follow.
+message DeploymentLogResumePosition {
+  // Selected source name.
+  string source_name = 1;
+
+  // Timestamp of the latest entry already delivered for the source.
+  google.protobuf.Timestamp latest_timestamp = 2;
+}
+
+// Refusal of a whole request before any runtime read.
+message DeploymentLogRejection {
+  // Why the node refused the request.
+  DeploymentLogRejectionReason reason = 1;
+}
+
+// Why a node refused a whole log request.
+enum DeploymentLogRejectionReason {
+  // The deployment log rejection reason unspecified value.
+  DEPLOYMENT_LOG_REJECTION_REASON_UNSPECIFIED = 0;
+
+  // The request omits its target or owner, or exceeds the entry, source, or resume bounds.
+  DEPLOYMENT_LOG_REJECTION_REASON_INVALID_REQUEST = 1;
+
+  // The target names another node process incarnation.
+  DEPLOYMENT_LOG_REJECTION_REASON_NODE_INCARNATION_MISMATCH = 2;
+
+  // The target names a manager session other than the one whose view the node installed.
+  DEPLOYMENT_LOG_REJECTION_REASON_MANAGER_SESSION_MISMATCH = 3;
+
+  // The installed view assigns no such deployment to this node, for example after withdrawal.
+  DEPLOYMENT_LOG_REJECTION_REASON_DEPLOYMENT_NOT_FOUND = 4;
+
+  // A requested source name is not declared by the deployment's owner.
+  DEPLOYMENT_LOG_REJECTION_REASON_INVALID_SOURCE = 5;
+
+  // The node is already serving its maximum number of concurrent log requests.
+  DEPLOYMENT_LOG_REJECTION_REASON_CAPACITY_EXHAUSTED = 6;
+}
+
+// Admitted history read: one outcome per selected source, in selection order.
+message DeploymentLogHistories {
+  // Per-source outcomes.
+  repeated DeploymentLogSourceHistory sources = 1;
+}
+
+// History outcome of one source, mirroring one source-specific runtime acquisition.
+message DeploymentLogSourceHistory {
+  // Source identity and label issued by the deployment's owner.
+  DeploymentLogSource source = 1;
+
+  // Exactly one outcome.
+  oneof result {
+    // The source was read.
+    DeploymentLogHistory history = 2;
+
+    // The source could not be read.
+    DeploymentLogUnavailableReason unavailable = 3;
+  }
+}
+
+// Bounded point-in-time history of one source.
+message DeploymentLogHistory {
+  // Chronologically ordered entries, newest last.
+  repeated DeploymentLogEntry entries = 1;
+
+  // Whether runtime observed output older than the returned entries.
+  bool has_older_output = 2;
+
+  // Whether runtime or the node's response byte budget discarded older candidate entries.
+  bool candidate_budget_truncated = 3;
+}
+
+// First frame of an admitted follow: the opening outcome of every selected source.
+message DeploymentLogFollowOpened {
+  // Per-source opening outcomes, in selection order.
+  repeated DeploymentLogSourceOpening sources = 1;
+}
+
+// Opening outcome of one followed source. On a follow naming no source, the same source may be
+// announced again after its terminal frame, and then continues after its last delivered entry.
+message DeploymentLogSourceOpening {
+  // Source identity and label issued by the deployment's owner.
+  DeploymentLogSource source = 1;
+
+  // Set when the source could not be opened; absent when the source is followed.
+  optional DeploymentLogUnavailableReason unavailable = 2;
+}
+
+// One new entry of one followed source.
+message DeploymentLogSourceEntry {
+  // Name of a source opened as available.
+  string source_name = 1;
+
+  // The entry.
+  DeploymentLogEntry entry = 2;
+}
+
+// An open source that stopped because it became unavailable.
+message DeploymentLogSourceUnavailable {
+  // Name of a source opened as available.
+  string source_name = 1;
+
+  // Set when a runtime failure stopped the source; absent when runtime reported it unavailable.
+  optional DeploymentLogUnavailableReason reason = 2;
+}
+
+// An open source whose runtime output ended normally.
+message DeploymentLogSourceEnded {
+  // Name of a source opened as available.
+  string source_name = 1;
+}
+
+// Stable owner-issued public identity of one log source.
+message DeploymentLogSource {
+  // Stable name used for selection and resume positions.
+  string name = 1;
+
+  // Label displayed with the source's entries.
+  string label = 2;
+}
+
+// One runtime log entry without runtime-native identity.
+message DeploymentLogEntry {
+  // Runtime-supplied timestamp of the entry.
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Workload stream that produced the entry.
+  DeploymentLogStream stream = 2;
+
+  // Entry bytes, at most 64 KiB; the node truncates longer content.
+  bytes content = 3;
+
+  // Whether runtime or the node truncated the content.
+  bool truncated = 4;
+}
+
+// Workload stream that produced one entry.
+enum DeploymentLogStream {
+  // No stream was supplied.
+  DEPLOYMENT_LOG_STREAM_UNSPECIFIED = 0;
+
+  // Standard output.
+  DEPLOYMENT_LOG_STREAM_STDOUT = 1;
+
+  // Standard error.
+  DEPLOYMENT_LOG_STREAM_STDERR = 2;
+}
+
+// Why one source could not be read or followed; runtime diagnostics stay on the node.
+enum DeploymentLogUnavailableReason {
+  // The deployment log unavailable reason unspecified value.
+  DEPLOYMENT_LOG_UNAVAILABLE_REASON_UNSPECIFIED = 0;
+
+  // The node's runtime for the deployment offers no log capability.
+  DEPLOYMENT_LOG_UNAVAILABLE_REASON_LOG_CAPABILITY_UNAVAILABLE = 1;
+
+  // No workload exists yet, for example while artifacts download or before realization starts.
+  DEPLOYMENT_LOG_UNAVAILABLE_REASON_WORKLOAD_NOT_CREATED = 2;
+
+  // The node's runtime has no capacity for another log source.
+  DEPLOYMENT_LOG_UNAVAILABLE_REASON_SOURCE_LIMIT_REACHED = 3;
+
+  // Any other runtime failure; the node records its diagnostic locally.
+  DEPLOYMENT_LOG_UNAVAILABLE_REASON_RUNTIME_FAILED = 4;
+}

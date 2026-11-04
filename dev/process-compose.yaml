@@ -1,0 +1,21 @@
+version: "0.5"
+
+processes:
+  backend:
+    command: just backend::run
+    is_daemon: true
+    availability:
+      restart: "no"
+
+  frontend:
+    command: just frontend::run
+    is_daemon: true
+    availability:
+      restart: "no"
+
+  # Starts without waiting for its upstreams: until the backend and frontend listen, it answers 502.
+  ingress:
+    command: just dev::ingress
+    is_daemon: true
+    availability:
+      restart: "no"

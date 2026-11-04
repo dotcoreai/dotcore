@@ -1,0 +1,138 @@
+# List frontend module recipes.
+help:
+  @just --list
+
+# Install locked frontend dependencies.
+bootstrap:
+  npm ci
+  cp package-lock.json node_modules/.dotcore-lock
+
+# Fail unless the installed frontend dependencies match package-lock.json (not needed in nix run mode).
+[no-exit-message]
+bootstrap-check:
+  @[ "${DOTCORE_FRONTEND_RUN_MODE:-dev}" = nix ] || cmp -s package-lock.json node_modules/.dotcore-lock || { echo 'frontend is not bootstrapped (dependencies missing or outdated); run `just frontend::bootstrap`' >&2; exit 1; }
+
+# Start the Vite development server
+run-dev:
+  #!/usr/bin/env bash
+  set -eu
+
+  # Generate config.js from environment
+  repo_root="$(cd .. && pwd)"
+  node "$repo_root/frontend/tools/runtime-config.mjs" "$repo_root"
+
+  exec npm run dev
+
+# Prepare a private Nix frontend serving root.
+prepare-nix:
+  #!/usr/bin/env bash
+  set -eu
+  repo_root="$(cd .. && pwd)"
+  prepare_root="${JUST_TEMPDIR:-$repo_root/.direnv}/dotcore-frontend-nix"
+  static_root="$prepare_root/static"
+
+  rm -rf -- "$prepare_root"
+  mkdir -p "$static_root"
+
+  frontend_artifact="$(cd "$repo_root" && nix build .#frontend --no-link --print-out-paths)"
+  cp -R --no-preserve=mode "$frontend_artifact"/. "$static_root"/
+  node "$repo_root/frontend/tools/runtime-config.mjs" "$repo_root" "$static_root/config.js"
+  cd "$repo_root"
+  nix build .#frontend-server --out-link "$prepare_root/server"
+  if [ ! -x "$prepare_root/server/bin/dotcore-frontend-server" ]; then
+    printf 'Prepared Nix frontend server is missing or not executable: %s\n' "$prepare_root/server/bin/dotcore-frontend-server" >&2
+    exit 1
+  fi
+
+# Serve a prepared Nix frontend without invoking Nix.
+serve-nix:
+  #!/usr/bin/env bash
+  set -eu
+  repo_root="$(cd .. && pwd)"
+  prepare_root="${JUST_TEMPDIR:-$repo_root/.direnv}/dotcore-frontend-nix"
+  static_root="$prepare_root/static"
+  server="$prepare_root/server/bin/dotcore-frontend-server"
+
+  if [ ! -d "$static_root" ] || [ ! -x "$server" ]; then
+    printf 'Nix frontend is not prepared; run just frontend::prepare-nix first.\n' >&2
+    exit 1
+  fi
+  exec "$server" "$static_root" "$DOTCORE_MACHINE_HOST" "$DOTCORE_FRONTEND_PORT"
+
+# Run a nix-based frontend server.
+run-nix: prepare-nix serve-nix
+
+# Start the configured frontend development mode.
+run:
+  @case "${DOTCORE_FRONTEND_RUN_MODE:-dev}" in \
+    dev) just run-dev ;; \
+    nix) just run-nix ;; \
+    *) printf 'DOTCORE_FRONTEND_RUN_MODE must be dev or nix, got: %s\n' "${DOTCORE_FRONTEND_RUN_MODE}" >&2; exit 1 ;; \
+  esac
+
+# Build the frontend application.
+build:
+  npm run build
+
+# Remove installed dependencies and generated frontend output.
+clean:
+  rm -rf -- node_modules dist coverage public/config.js
+
+# Preview the production frontend build.
+preview:
+  npm run preview
+
+# Type-check the frontend without emitting files.
+typecheck:
+  npm run typecheck
+
+# Run the frontend test suite once.
+test:
+  node tools/eslint-accessibility.test.mjs
+  npm run test
+  node tools/runtime-config.test.mjs
+
+# Run the frontend test suite through the Nix test derivation.
+# --rebuild re-runs the suite when the output is already in the store;
+# --rebuild refuses fresh derivations, so fall back to a plain build there.
+test-nix:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd ..
+  out=$(nix eval --raw .#frontend.tests.default)
+  if [ -e "$out" ]; then
+    exec nix build --rebuild .#frontend.tests.default --print-build-logs
+  else
+    exec nix build .#frontend.tests.default --print-build-logs
+  fi
+
+# Watch the frontend test suite.
+test-watch:
+  npm run test:watch
+
+# Run the frontend test suite with coverage.
+test-coverage:
+  npm run test:coverage
+
+# Run frontend lint checks.
+lint:
+  npm run lint
+
+# Apply frontend lint fixes.
+lint-fix:
+  npm run lint:fix
+
+# Format frontend files.
+format:
+  npm run format
+
+# Check frontend formatting without changing files.
+format-check:
+  npm run format:check
+
+# Run all frontend validation operations (format-check, lint, test, build).
+check:
+  just format-check
+  just lint
+  just test
+  just build

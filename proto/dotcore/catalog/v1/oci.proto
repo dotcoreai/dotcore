@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package dotcore.catalog.v1;
+
+// One structured OCI image reference with mutable and immutable identity.
+message OciImageReference {
+  // Repository containing this image.
+  OciRepository repository = 1;
+
+  // Optional mutable repository tag.
+  optional string tag = 2;
+
+  // Optional immutable manifest or index digest.
+  OciDigest digest = 3;
+}
+
+// One OCI repository identity without transport or credential policy.
+message OciRepository {
+  // Optional registry location for this repository.
+  OciRegistryLocation registry = 1;
+
+  // Repository path within the registry or local image store.
+  string name = 2;
+}
+
+// One OCI registry network location without transport or credentials.
+message OciRegistryLocation {
+  // Registry hostname or IP address without a URL scheme.
+  string host = 1;
+
+  // Optional registry port.
+  optional uint32 port = 2;
+}
+
+// One immutable OCI content digest.
+message OciDigest {
+  // Digest algorithm, initially sha256.
+  string algorithm = 1;
+
+  // Lowercase encoded digest value without the algorithm prefix.
+  string encoded = 2;
+}
+
+// One OCI operating-system and CPU platform constraint.
+message OciPlatform {
+  // OCI operating system.
+  string operating_system = 1;
+
+  // OCI CPU architecture.
+  string architecture = 2;
+
+  // Optional OCI architecture variant.
+  optional string variant = 3;
+}

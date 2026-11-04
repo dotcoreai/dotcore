@@ -1,0 +1,8 @@
+# NVIDIA GeForce RTX 4080, 16 GB. Values marked "to check" are not measured on a real GPU yet.
+id: GPU-00000000-0000-0000-0000-000000004080
+vendor: nvidia
+model: NVIDIA GeForce RTX 4080
+memory:
+  architecture: dedicated
+  totalBytes: 17179869184 # 16 GiB, to check
+  reservedBytes: 521142272 # 497 MiB, to check

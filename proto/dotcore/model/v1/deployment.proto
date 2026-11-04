@@ -1,0 +1,377 @@
+syntax = "proto3";
+
+package dotcore.model.v1;
+
+import "dotcore/catalog/v1/engine_release.proto";
+import "dotcore/catalog/v1/execution.proto";
+import "dotcore/catalog/v1/hardware_class.proto";
+import "dotcore/catalog/v1/model.proto";
+import "dotcore/catalog/v1/model_capabilities.proto";
+import "dotcore/catalog/v1/oci.proto";
+import "dotcore/catalog/v1/selector.proto";
+import "dotcore/catalog/v1/storage.proto";
+import "dotcore/catalog/v1/upstream_model_template.proto";
+import "dotcore/deployment/v1/accelerator_memory.proto";
+import "dotcore/deployment/v1/artifact.proto";
+import "dotcore/deployment/v1/placement.proto";
+import "dotcore/engine/v1/engine.proto";
+import "dotcore/model/v1/state.proto";
+import "dotcore/observation/v1/observation.proto";
+import "google/protobuf/empty.proto";
+
+// Declarative active model deployment in a desired site. It is written only by
+// the inference controller through the desired site repository.
+message ModelDeploymentDeclaration {
+  // The stable identifier for this model deployment.
+  string model_deployment_id = 1;
+
+  // The exact placement for this local model deployment.
+  dotcore.deployment.v1.ExactPlacement placement = 2;
+
+  // The requested number of execution targets.
+  dotcore.catalog.v1.ModelParallelShape requested_parallel_shape = 3;
+
+  // The immutable catalog values selected for this deployment.
+  ModelDeploymentSnapshot snapshot = 4;
+
+  // The desired presence of this deployment.
+  ModelDeploymentDesiredState desired_state = 5;
+
+  // Generation-scoped private target configuration for an upstream model.
+  UpstreamModelDesiredConfiguration upstream_desired_configuration = 6;
+
+  // Mutable user-facing name for this model deployment.
+  string model_deployment_name = 7;
+
+  // Nonzero generation of the latest manager-accepted lifecycle transition.
+  uint64 lifecycle_generation = 8;
+
+  // Kind of lifecycle transition accepted for this generation.
+  ModelDeploymentLifecycleTransition lifecycle_transition = 9;
+
+  // Whether this legacy declaration requires an explicit pause and Resume before activation.
+  bool lifecycle_recovery_required = 10;
+
+  // Development launch identity the placement's SiteNode resolved for the engine selection (key
+  // `engine`); recorded once by the inference controller and never replaced.
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity node_resolved_launch_identities = 11;
+}
+
+// Controller-owned deployment state exposed through model service. Backend-native
+// workload identity and controller-selected placement are intentionally absent.
+message ModelDeployment {
+  // The stable identifier for this model deployment.
+  string model_deployment_id = 1;
+
+  // The immutable intent accepted for this deployment.
+  ModelDeploymentIntent intent = 2;
+
+  // The immutable catalog values selected for this deployment.
+  ModelDeploymentSnapshot snapshot = 3;
+
+  // The observed operational state of this deployment.
+  ModelDeploymentState state = 4;
+
+  // The desired presence of this deployment.
+  ModelDeploymentDesiredState desired_state = 5;
+
+  // Current trusted-POC upstream model configuration for management clients.
+  UpstreamModelDesiredConfiguration upstream_desired_configuration = 6;
+
+  // Mutable user-facing name for this model deployment.
+  string model_deployment_name = 7;
+
+  // Current accelerator-memory observation for this deployment.
+  dotcore.deployment.v1.AcceleratorMemoryObservation accelerator_memory = 8;
+
+  // Local-development launch identity the placement's SiteNode resolved for the engine selection
+  // (key `engine`).
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity node_resolved_launch_identities = 9;
+}
+
+// Immutable deployment intent. It does not identify controller-selected placement.
+message ModelDeploymentIntent {
+  // The exact placement for this local model deployment.
+  dotcore.deployment.v1.ExactPlacement placement = 1;
+
+  // The requested number of execution targets.
+  dotcore.catalog.v1.ModelParallelShape requested_parallel_shape = 2;
+}
+
+// Immutable source-specific values accepted by the inference controller at
+// creation. Target placement is intentionally absent.
+message ModelDeploymentSnapshot {
+  oneof source {
+    // Exact resolved authority for a local deployment.
+    ResolvedLocalModelDeploymentSnapshot local = 1;
+
+    // Immutable upstream model values selected for this deployment.
+    UpstreamModelDeploymentSnapshot upstream = 4;
+  }
+}
+
+// Immutable resolved local deployment authority sufficient for reconciliation
+// without current catalog declarations or translator code.
+message ResolvedLocalModelDeploymentSnapshot {
+  // Stable catalog model identifier retained as provenance.
+  string model_id = 1;
+
+  // Human-readable catalog model name retained at creation.
+  string model_display_name = 2;
+
+  // Catalog model version retained at creation.
+  string model_version = 3;
+
+  // Selected model-local engine configuration provenance.
+  string configuration_id = 4;
+
+  // Selected model profile provenance.
+  string profile_id = 5;
+
+  // Exact configuration-derived engine artifact.
+  ResolvedEngineArtifact engine_artifact = 6;
+
+  // Exact selected model artifact.
+  dotcore.catalog.v1.ModelArtifact model_artifact = 7;
+
+  // Exact selected auxiliary artifacts.
+  repeated dotcore.catalog.v1.ModelAuxiliaryArtifact auxiliary_artifacts = 8;
+
+  // Supported hardware class the target matched, with its support entry's minimums.
+  ResolvedHardwareSupport hardware_support = 21;
+
+  // Concrete engine-owned state retained for offline validation.
+  dotcore.engine.v1.ResolvedEngineModelState resolved_engine_state = 10;
+
+  // Fixed configuration-derived execution capabilities.
+  dotcore.catalog.v1.ModelExecutionCapabilities execution_capabilities = 11;
+
+  // Fixed configuration-derived public input capabilities.
+  dotcore.catalog.v1.ModelInputCapabilities input_capabilities = 12;
+
+  // Fixed configuration-derived inference request kinds.
+  repeated dotcore.catalog.v1.InferenceRequestKind request_kinds = 22;
+
+  // Complete exact resolved typed engine parameter values.
+  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 13;
+
+  // Engine parameter schema identity used for resolution.
+  string engine_parameter_schema_id = 14;
+
+  // Exact accepted engine parameter schema retained for offline interpretation.
+  dotcore.catalog.v1.EngineParameterSchema engine_parameter_schema = 15;
+
+  // Exact portable desired launch plan used for reconciliation.
+  PortableModelLaunchPlan desired_launch_plan = 16;
+
+  // Exact ordered custom engine argv tokens retained without interpretation.
+  repeated string custom_argument_tokens = 17;
+
+  // Complete normalized options and typed realizations retained for validation.
+  repeated ResolvedModelOption resolved_options = 18;
+
+  // Capabilities of the exact selected execution target.
+  ResolvedSelectedTarget selected_target = 19;
+
+  // Engine-neutral catalog sizing result, present when the binding has sizing on the hardware class.
+  ResolvedSizing sizing = 20;
+}
+
+// Retains one complete normalized option value set.
+message ResolvedModelOption {
+  // Complete normalized configuration-local parameter values.
+  dotcore.catalog.v1.ModelOptionValues values = 1;
+}
+
+// Retains the hardware class resolved for the target, without the private sizing declaration.
+message ResolvedHardwareSupport {
+  // Identifier of the most specific supported hardware class the target matched.
+  string hardware_class_id = 1;
+
+  // Selector of that hardware class at resolution.
+  dotcore.catalog.v1.Selector selector = 2;
+
+  // Advisory memory minimums of the configuration's support entry for that class.
+  dotcore.catalog.v1.HardwareRequirements hardware_requirements = 3;
+}
+
+// Retains execution-target capabilities that launch translation and presentation depend on.
+message ResolvedSelectedTarget {
+  // Whether the target's accelerators own dedicated memory or share the host memory pool.
+  dotcore.observation.v1.AcceleratorMemoryArchitecture accelerator_memory_architecture = 1;
+
+  // Accelerator memory total of the target at creation, the engine memory-fraction denominator: its smallest device's on dedicated memory, the host's on unified memory.
+  optional uint64 accelerator_memory_pool_total_bytes = 2;
+}
+
+// Retains the catalog sizing evaluated at resolution, without the private sizing declaration.
+message ResolvedSizing {
+  // Estimated total accelerator memory footprint, absent when no estimate applies.
+  optional uint64 accelerator_memory_bytes = 1;
+
+  // Engine parameter ids whose values were derived rather than supplied, in id order.
+  repeated string derived_engine_parameter_ids = 2;
+
+  // Estimated host memory footprint, absent when no estimate applies.
+  optional uint64 host_memory_bytes = 3;
+}
+
+// Retains the exact engine release and artifact selected through a model-local
+// configuration without retaining unrelated release artifacts.
+message ResolvedEngineArtifact {
+  // Stable engine release identifier.
+  string engine_release_id = 1;
+
+  // Engine software kind used by the selected adapter.
+  dotcore.engine.v1.EngineKind engine_kind = 2;
+
+  // Engine release version retained at creation.
+  string engine_version = 3;
+
+  // Exact engine artifact without its selectors; a locked Nix artifact keeps its store paths.
+  dotcore.catalog.v1.EngineArtifact artifact = 4;
+
+  // Concrete platform of the target the artifact's selector matched.
+  dotcore.catalog.v1.OciPlatform platform = 7;
+
+  // Accelerator vendor of the target the artifact's selector matched: nvidia or apple.
+  string accelerator = 8;
+
+  // Minimum host NVIDIA driver major version of the matched selector; zero for other vendors.
+  uint32 minimum_nvidia_driver_major_version = 9;
+
+  // Explicit preparation policy for the engine artifact.
+  dotcore.deployment.v1.ArtifactPreparationPolicy preparation_policy = 5;
+
+  // Immutable digest reference used for every launch; empty when the hosting SiteNode pins it
+  // (development tag, or a Nix artifact's store path for that node's own Nix system).
+  string launch_identity = 6;
+
+  // Storage bindings of the engine release retained at creation.
+  repeated dotcore.catalog.v1.StorageBinding storage_bindings = 10;
+}
+
+// Portable engine process plan that excludes target-specific materialization.
+message PortableModelLaunchPlan {
+  // Complete ordered engine argument tokens without host or runtime-assigned values.
+  repeated PortableModelLaunchArgumentToken arguments = 1;
+
+  // Stable format version required to interpret the portable plan.
+  uint32 format_version = 2;
+
+  // Logical artifact bindings referenced by argument tokens.
+  repeated PortableModelArtifactBinding artifact_bindings = 3;
+}
+
+// One ordered engine argument: a literal or a symbolic value each runtime resolves at launch.
+message PortableModelLaunchArgumentToken {
+  oneof value {
+    // Exact literal argument value.
+    string literal = 1;
+
+    // Stable logical artifact binding identifier.
+    string artifact_binding_id = 2;
+
+    // Launch path of the selected engine artifact's executable.
+    google.protobuf.Empty engine_executable = 3;
+
+    // Address the named engine service binds to.
+    string service_host = 4;
+
+    // Port the named engine service listens on.
+    string service_port = 5;
+  }
+}
+
+// Binds one exact snapshot artifact to a logical binding referenced by argument tokens.
+message PortableModelArtifactBinding {
+  // Stable plan-local logical binding identifier.
+  string binding_id = 1;
+
+  oneof artifact {
+    // Stable identifier of the exact selected model artifact in the snapshot.
+    string model_artifact_id = 2;
+
+    // Stable identifier of an exact selected auxiliary artifact in the snapshot.
+    string auxiliary_artifact_id = 3;
+  }
+
+  // Whether runtime materialization must expose the artifact read-only.
+  bool read_only = 5;
+}
+
+// Immutable upstream model values selected by the inference controller at creation.
+message UpstreamModelDeploymentSnapshot {
+  // Immutable catalog upstream model template declaration.
+  dotcore.catalog.v1.UpstreamModelTemplate upstream_model_template = 1;
+}
+
+// Generation-scoped configuration of one OpenAI-compatible upstream model.
+message UpstreamModelDesiredConfiguration {
+  // Private model identifier sent in endpoint requests.
+  string upstream_model_id = 1;
+
+  // Optional POC credential retained in desired site configuration.
+  string api_key = 2;
+
+  // Declared capabilities admitted by this remote endpoint.
+  UpstreamModelInputCapabilities input_capabilities = 4;
+
+  // Endpoint URL and transport settings for this remote endpoint.
+  OpenAiCompatibleEndpointConfiguration endpoint = 5;
+
+  // Operator-declared boundary for this remote endpoint.
+  dotcore.catalog.v1.UpstreamModelBoundary boundary = 6;
+}
+
+// Declared request-input capabilities of an upstream model target.
+message UpstreamModelInputCapabilities {
+  // Whether text input is supported by this target.
+  bool supports_text = 1;
+
+  // Whether image input is supported by this target.
+  bool supports_image = 2;
+}
+
+// Generation-scoped URL and transport settings for an OpenAI-compatible
+// upstream model.
+message OpenAiCompatibleEndpointConfiguration {
+  // Absolute HTTP(S) base URL for this endpoint.
+  string base_url = 1;
+
+  // Explicit opt-in required when the base URL uses insecure HTTP.
+  bool allow_insecure_http = 2;
+}
+
+// Manager-accepted lifecycle transition represented by one declaration generation.
+enum ModelDeploymentLifecycleTransition {
+  // No lifecycle transition was declared.
+  MODEL_DEPLOYMENT_LIFECYCLE_TRANSITION_UNSPECIFIED = 0;
+
+  // Initial creation of the deployment.
+  MODEL_DEPLOYMENT_LIFECYCLE_TRANSITION_CREATE = 1;
+
+  // Transition from active intent to paused intent.
+  MODEL_DEPLOYMENT_LIFECYCLE_TRANSITION_PAUSE = 2;
+
+  // Explicit transition from paused intent back to active intent.
+  MODEL_DEPLOYMENT_LIFECYCLE_TRANSITION_RESUME = 3;
+
+  // Transition to permanent teardown intent.
+  MODEL_DEPLOYMENT_LIFECYCLE_TRANSITION_TEARDOWN = 4;
+}
+
+// The accepted deployment outcome owned by the inference controller.
+enum ModelDeploymentDesiredState {
+  // The model deployment desired state unspecified value.
+  MODEL_DEPLOYMENT_DESIRED_STATE_UNSPECIFIED = 0;
+
+  // The model deployment desired state present value.
+  MODEL_DEPLOYMENT_DESIRED_STATE_PRESENT = 1;
+
+  // The model deployment desired state teardown value.
+  MODEL_DEPLOYMENT_DESIRED_STATE_TEARDOWN = 2;
+
+  // The model deployment desired state paused value.
+  MODEL_DEPLOYMENT_DESIRED_STATE_PAUSED = 3;
+}

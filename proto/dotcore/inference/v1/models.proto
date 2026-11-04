@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package dotcore.inference.v1;
+
+// Current route-only OpenAI model discovery projection.
+message AvailableModels {
+  // Enabled and currently available inference routes.
+  repeated AvailableModel models = 1;
+}
+
+// One currently callable inference route projected as an OpenAI model.
+message AvailableModel {
+  // Current OpenAI-callable inference route name.
+  string model_id = 1;
+}

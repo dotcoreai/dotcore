@@ -1,0 +1,50 @@
+# Test-only split GGUF set for bounded llama.cpp NVIDIA Docker qualification: a 15M-parameter
+# model in three shards (about 26 MB), from the files llama.cpp's own split tests load.
+modelId: "stories15m-split-qualification"
+displayName: "Stories 15M split qualification"
+version: "15m-q8_0"
+maximumContextTokens: 262144
+artifacts:
+  - artifactId: "split-q8"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "ggml-org/models-moved"
+      revision: "499bc8821c6b12b4e53c5bffcb21ec206f212d81"
+      snapshot:
+        files:
+          - path: "tinyllamas/split/stories15M-q8_0-00001-of-00003.gguf"
+            provenanceDigest: "8a3a74042ae05dda34985dff2d49adf2ee3f9d0fd73b03fa6cc4307c924e4040"
+          - path: "tinyllamas/split/stories15M-q8_0-00002-of-00003.gguf"
+            provenanceDigest: "4a70d35fdd275b054c29979da9c5d27e7045f011fdf11f736a652a03b1ffb355"
+          - path: "tinyllamas/split/stories15M-q8_0-00003-of-00003.gguf"
+            provenanceDigest: "b2d72a3315df3e2834be32adbbc737ca02cc443125e26bbc2cfe8695ec3814bc"
+configurations:
+  - configurationId: "nvidia-cuda"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+    artifactBindings:
+      - bindingId: "split-q8"
+        modelArtifactId: "split-q8"
+    hardwareSupport:
+      - hardwareClassId: "nvidia"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+profiles:
+  - profileId: "split-text"
+    displayName: "Split text qualification"
+    configurationId: "nvidia-cuda"
+    defaultModelArtifactBindingId: "split-q8"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "8192"

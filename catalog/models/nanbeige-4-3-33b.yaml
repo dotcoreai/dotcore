@@ -1,0 +1,270 @@
+# Immutable provenance for AtomicChat's public GGUF tiers of Nanbeige4.3 33B, a dense Llama-architecture model.
+# The tiers are the "Atomic Dynamic" (AD) files, made from the official BF16 weights with an importance matrix.
+# The Q8_0 tier is the repository's plain llama.cpp preset (it has no AD Q8_0 file); the other plain presets
+# are left out because each has an AD file of similar size.
+# Sizing is measured for every tier on an RTX 5090 (Q8_0 excepted, which does not fit it) and on a GB10.
+modelId: "nanbeige-4-3-33b"
+displayName: "Nanbeige4.3 33B"
+version: "4.3-33b"
+# max_position_embeddings in the Nanbeige/Nanbeige4.3-33B config.json (revision c1093c5); the GGUF
+# llama.context_length metadata agrees.
+maximumContextTokens: 524288
+options:
+  - optionId: "kv-cache"
+    displayName: "KV cache precision"
+    kvCachePrecision: {}
+artifacts:
+  - artifactId: "q3-iq3-s"
+    weightQuantization: "IQ3_S"
+    source:
+      repository: "AtomicChat/Nanbeige4.3-33B-GGUF"
+      revision: "7a19433c610f27a3e960ddc5936abdace628867a"
+      file:
+        path: "Nanbeige4.3-33B-AD-IQ3_S.gguf"
+        provenanceDigest: "81d0ee17b731e48c71237489b8ffd90656b7485daa9a134561fc88d63d367440"
+  - artifactId: "q4-k-m"
+    weightQuantization: "Q4_K_M"
+    source:
+      repository: "AtomicChat/Nanbeige4.3-33B-GGUF"
+      revision: "7a19433c610f27a3e960ddc5936abdace628867a"
+      file:
+        path: "Nanbeige4.3-33B-AD-Q4_K_M.gguf"
+        provenanceDigest: "409c92c4355c81928f0f2de5d49481fe7e4d0fa4d381aa28eddee0dc4b358c49"
+  - artifactId: "q5-k-m"
+    weightQuantization: "Q5_K_M"
+    source:
+      repository: "AtomicChat/Nanbeige4.3-33B-GGUF"
+      revision: "7a19433c610f27a3e960ddc5936abdace628867a"
+      file:
+        path: "Nanbeige4.3-33B-AD-Q5_K_M.gguf"
+        provenanceDigest: "059c79bf69cb6b2864899b89d272cfc923da35984b813c420ae35ef4a63bec8f"
+  - artifactId: "q6-k"
+    weightQuantization: "Q6_K"
+    source:
+      repository: "AtomicChat/Nanbeige4.3-33B-GGUF"
+      revision: "7a19433c610f27a3e960ddc5936abdace628867a"
+      file:
+        path: "Nanbeige4.3-33B-AD-Q6_K.gguf"
+        provenanceDigest: "c4d20857f1718fd8ef4a1b7c7a7d129cc9b8ad05454f6c80b9bcc1fb5499ab4f"
+  - artifactId: "q8-0"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "AtomicChat/Nanbeige4.3-33B-GGUF"
+      revision: "7a19433c610f27a3e960ddc5936abdace628867a"
+      file:
+        path: "Nanbeige4.3-33B-Q8_0.gguf"
+        provenanceDigest: "4106cbb9ba85da731f88b7493a90343e0d8cd6c77974ed1af00a97c5262c22bc"
+configurations:
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+    artifactBindings:
+      - bindingId: "q3-iq3-s"
+        modelArtifactId: "q3-iq3-s"
+      - bindingId: "q4-k-m"
+        modelArtifactId: "q4-k-m"
+      - bindingId: "q5-k-m"
+        modelArtifactId: "q5-k-m"
+      - bindingId: "q6-k"
+        modelArtifactId: "q6-k"
+      - bindingId: "q8-0"
+        modelArtifactId: "q8-0"
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "accelBytesPerContextTokenQ8", "marginBytes"]
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + if(${options.kv-cache.precision} == "q8_0", 0, 1) * ${accelBytesPerContextToken} * ${total-context}
+            + if(${options.kv-cache.precision} == "q8_0", 1, 0) * ${accelBytesPerContextTokenQ8} * ${total-context}
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-dedicated"
+        # Admits the smallest tier with a small context; the estimates show which tiers fit a device.
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "21000000000"
+          minimumSystemMemoryBytes: "32000000000"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          # The binding constants below are measured on this class, so no offset is needed.
+          baseOffsetBytes: 0
+        bindingSizing:
+          # Measured on an NVIDIA RTX 5090 host (32 GB dedicated), linux/amd64, llama.cpp b11723 CUDA 13,
+          # one warm request per launch, parallel requests 1-4 (no effect on memory). F16 KV cache
+          # contexts: q3-iq3-s 4096-49152, q4-k-m 4096-57344, q5-k-m 2048-12288, q6-k 2048-4096 (two
+          # points, so its slope is assumed equal to the other tiers'). Each f16 fit has residuals under
+          # 30 bytes and no warm growth. The f16 slope is 214,016 B per token for every tier: the f16 KV
+          # cache (212,992 B) plus compute buffers. Q8_0 KV cache contexts: q3-iq3-s 16384-139264, q4-k-m
+          # 16384-104448, q5-k-m 12288-73728, q6-k 8192-30720, fitted on the f16 bases. The q8_0 slope
+          # (the q8_0 cache is 113,152 B per token) is not exactly linear: the local slope rises with
+          # context (about 114,000 B per token at 8k-30k, 118,272 above 50k), so each tier's single slope
+          # sits 114,300-117,200 B per token and leaves residuals of -68 to +40 MB, inside the margin. Bases sit
+          # below the file size because llama.cpp keeps the token embedding table on the host. The 100 MB margin
+          # sits on top of the measured base, a cushion for request-time growth the single warm request didn't
+          # show. The q8-0 binding is derived, not measured (its file does not fit this card): the GB10 base for
+          # that tier plus the 399 MB mean gap between the GB10 and this card's bases on the other four tiers,
+          # and the GB10 q8_0 slope.
+          - bindingId: "q3-iq3-s"
+            parameters:
+              baseAccelBytes: 17232297967
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 117158
+              marginBytes: 100000000
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 21321744363
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 116837
+              marginBytes: 100000000
+          - bindingId: "q5-k-m"
+            parameters:
+              baseAccelBytes: 24807210984
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 116196
+              marginBytes: 100000000
+          - bindingId: "q6-k"
+            parameters:
+              baseAccelBytes: 29601300451
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 114296
+              marginBytes: 100000000
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 34719973353
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118008
+              marginBytes: 100000000
+      - hardwareClassId: "nvidia-unified"
+        # Admits the smallest tier with a small context; the estimates show which tiers fit a device.
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "21000000000"
+          minimumSystemMemoryBytes: "32000000000"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        bindingSizing:
+          # Measured on a GB10 (unified host pool, linux/arm64), llama.cpp b11723 CUDA 13, one warm request
+          # per launch, one process on the device. Every tier at total contexts 8192-131072 with the f16 KV
+          # cache and 8192-262144 with the q8_0 KV cache (four points each); q4-k-m also at 2 parallel
+          # requests, which use the same memory as 1. The f16 slope is exactly 214,016 B per token (residuals
+          # 0 bytes). The q8_0 slope of 118,008 B per token is the free-intercept fit of each series, equal on
+          # every tier; residuals around it stay within 37 MB. The bases are the f16 intercepts. The estimate
+          # sits a constant 2.25 GB (f16) to 2.35 GB (q8_0) above every measurement: the prompt cache term
+          # budgets 2048 MiB that a sweep never fills, and the margin adds 100 MB. Fitting the slope against
+          # the fixed bases would absorb that budget and under-predict at large contexts, so the equation keeps
+          # the f16 convention. Bases are 299 MB below the dedicated card's for the same tiers.
+          - bindingId: "q3-iq3-s"
+            parameters:
+              baseAccelBytes: 16833888256
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118008
+              marginBytes: 100000000
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 20922744832
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118008
+              marginBytes: 100000000
+          - bindingId: "q5-k-m"
+            parameters:
+              baseAccelBytes: 24407949312
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118008
+              marginBytes: 100000000
+          - bindingId: "q6-k"
+            parameters:
+              baseAccelBytes: 29202300928
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118008
+              marginBytes: 100000000
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 34321055744
+              accelBytesPerContextToken: 214016
+              accelBytesPerContextTokenQ8: 118008
+              marginBytes: 100000000
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+        optionRealizations:
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            stringEnum: { values: ["f16", "q8_0"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "f16"
+profiles:
+  - profileId: "q3-iq3-s"
+    displayName: "Atomic Dynamic IQ3_S"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q3-iq3-s"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q4-k-m"
+    displayName: "Atomic Dynamic Q4_K_M"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-k-m"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q5-k-m"
+    displayName: "Atomic Dynamic Q5_K_M"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q5-k-m"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q6-k"
+    displayName: "Atomic Dynamic Q6_K"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q6-k"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q8-0"
+    displayName: "Q8_0"
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q8-0"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0

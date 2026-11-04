@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package dotcore.deployment.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Current accelerator-memory observation and refresh status of one deployment workload, shared by
+// model deployments and application units.
+message AcceleratorMemoryObservation {
+  // Time of the available usage observation, absent when no usage was observed.
+  google.protobuf.Timestamp observed_at = 1;
+
+  // Latest refresh attempt and outcome for this observation source.
+  AcceleratorMemoryRefreshState refresh = 2;
+
+  oneof result {
+    // Current per-device process-attributed usage.
+    AcceleratorMemoryUsageSet available = 3;
+
+    // Usage was expected but could not be observed authoritatively.
+    AcceleratorMemoryUnavailable unavailable = 4;
+
+    // This workload has no applicable local accelerator workload.
+    google.protobuf.Empty not_applicable = 5;
+  }
+}
+
+// Latest accelerator-memory refresh attempt and outcome.
+message AcceleratorMemoryRefreshState {
+  // Time at which the latest refresh attempt started, absent before it starts.
+  google.protobuf.Timestamp attempted_at = 1;
+
+  oneof outcome {
+    // The initial refresh has not completed.
+    google.protobuf.Empty pending = 2;
+
+    // The latest refresh completed and published its observation.
+    google.protobuf.Empty succeeded = 3;
+
+    // The latest refresh failed before publishing a complete observation.
+    AcceleratorMemoryUnavailable failed = 4;
+  }
+}
+
+// Current process-attributed accelerator-memory usage grouped by device.
+message AcceleratorMemoryUsageSet {
+  // Per-device usage ordered by managed node and device identity.
+  repeated AcceleratorMemoryDeviceUsage devices = 1;
+}
+
+// Current workload memory attributed to one accelerator device.
+message AcceleratorMemoryDeviceUsage {
+  // Stable identity of the managed node hosting the device.
+  string managed_node_id = 1;
+
+  // Vendor-native immutable accelerator device identity.
+  string device_id = 2;
+
+  // Current process-attributed accelerator memory in bytes.
+  uint64 used_memory_bytes = 3;
+}
+
+// Stable unavailable-data code and safe human message.
+message AcceleratorMemoryUnavailable {
+  // Stable unavailable-data code.
+  string code = 1;
+
+  // Human-readable unavailable-data message.
+  string message = 2;
+}

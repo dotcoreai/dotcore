@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package dotcore.launcher.store.v1;
+
+// Exact launch request for one held process, stored as launch.pb in its workload directory. The
+// supervisor writes it once before the launcher starts; neither of them rewrites it afterwards.
+message LaunchSpec {
+  // Absolute path of the executable.
+  string executable = 1;
+
+  // Arguments after the executable name.
+  repeated string args = 2;
+
+  // Complete environment of the held process; nothing else is inherited.
+  map<string, string> environment = 3;
+
+  // Milliseconds between the stop signal and the forced kill of the process group.
+  uint64 grace_period_ms = 4;
+
+  // Process whose exit stops the held process; absent when the held process runs independently.
+  WatchedProcess watch = 5;
+
+  // Caller-defined record, opaque to the launcher and covered by the stored checksum.
+  bytes owner = 6;
+
+  // Caller-defined fingerprint of the launch intent, opaque to the launcher.
+  string fingerprint = 7;
+}
+
+// Identity of a process whose exit ends a watched-lifetime launch.
+message WatchedProcess {
+  // Process id of the watched process.
+  uint32 pid = 1;
+
+  // Start token that tells the watched process apart from a later process reusing its id.
+  uint64 start_token = 2;
+}
+
+// Identity of a running launcher, stored as launcher.pb before it starts the held process.
+message LauncherRecord {
+  // Version of the launcher record format.
+  uint32 schema_version = 1;
+
+  // Process id of the launcher.
+  uint32 pid = 2;
+
+  // Start token of the launcher process.
+  uint64 start_token = 3;
+
+  // Host boot identifier at launcher start.
+  string boot_id = 4;
+}
+
+// Identity of the held process, which also leads its own process group, stored as process.pb.
+message ProcessRecord {
+  // Process id of the held process and id of its process group.
+  uint32 pid = 1;
+
+  // Start token of the held process.
+  uint64 start_token = 2;
+}
+
+// Final outcome of a held process, stored as exit.pb once the launcher recorded it.
+message ExitRecord {
+  // Exit status of the held process; absent when it never started.
+  ExitStatus status = 1;
+
+  // Why the held process ended.
+  ExitReason reason = 2;
+
+  // Unix time in milliseconds when the launcher recorded the exit.
+  uint64 time_ms = 3;
+}
+
+// How a held process ended: its exit code or the signal that ended it.
+message ExitStatus {
+  // Exactly one outcome.
+  oneof kind {
+    // Exit code of a process that exited.
+    int32 code = 1;
+
+    // Signal number that ended the process.
+    int32 signal = 2;
+  }
+}
+
+// Why a held process ended.
+enum ExitReason {
+  // Not a valid stored reason.
+  EXIT_REASON_UNSPECIFIED = 0;
+
+  // The process exited on its own.
+  EXIT_REASON_EXITED = 1;
+
+  // The launcher received a stop signal.
+  EXIT_REASON_STOPPED = 2;
+
+  // The watched process exited, was already gone, or had a different start token at launch.
+  EXIT_REASON_WATCHED_PROCESS_EXITED = 3;
+
+  // The executable could not be started.
+  EXIT_REASON_SPAWN_FAILED = 4;
+
+  // The launcher hit an internal failure and stopped the held process.
+  EXIT_REASON_LAUNCHER_FAILED = 5;
+}

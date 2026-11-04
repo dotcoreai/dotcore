@@ -1,0 +1,105 @@
+# Immutable n8n graph running the unmodified upstream image. The command seeds
+# one OpenAI-compatible credential that points at the configured Inference
+# endpoint, then starts n8n. The owner account is created from environment
+# values with a fixed POC login (admin@dotcore.local / admin).
+applicationId: "n8n"
+displayName: "n8n"
+description: "Workflow automation with an Inference endpoint credential already configured."
+notes: |-
+  Sign in with admin@dotcore.local / admin (fixed POC login).
+  A Dotcore Inference credential points at this Site's Inference endpoint; pick it in OpenAI nodes.
+  OpenAI node "Message a model": under Options, add Store and turn it off. Dotcore does not keep responses.
+version: "2.43.5"
+graph:
+  services:
+    - serviceName: "web"
+      # The image and its digests are pinned by `apps/n8n/docker-image.nix`.
+      artifact:
+        nix:
+          flake: "self"
+          package: "apps.n8n.docker"
+          dockerImage: {}
+        supportedPlatforms:
+          - operatingSystem: "linux"
+            architecture: "amd64"
+          - operatingSystem: "linux"
+            architecture: "arm64"
+      command:
+        - "tini"
+        - "--"
+        - "/bin/sh"
+        - "-c"
+        # One line: Docker Runtime rejects control characters in command values. A stable credential
+        # ID makes every start overwrite the credential with the current Inference URL; the key is a
+        # fixed non-secret placeholder because the Inference API requires none.
+        - >-
+          set -eu;
+          url=${DOTCORE_INFERENCE_BASE_URL:-};
+          case $url in http://*/v1 | https://*/v1) ;;
+          *) echo 'DOTCORE_INFERENCE_BASE_URL must be an HTTP(S) Inference API URL ending in /v1.' >&2; exit 64 ;; esac;
+          case $url in *[!]A-Za-z0-9./:_[-]*)
+          echo 'DOTCORE_INFERENCE_BASE_URL contains unsupported characters.' >&2; exit 64 ;; esac;
+          printf '[{"id":"dotcoreInference","name":"Dotcore Inference","type":"openAiApi","data":{"apiKey":"dotcore-no-key","url":"%s"}}]' "$url" >/tmp/dotcore-credentials.json;
+          n8n import:credentials --input=/tmp/dotcore-credentials.json;
+          exec n8n start
+      ports:
+        - portName: "http"
+          portNumber: 5678
+      configurationBindings:
+        - bindingName: "owner-managed-by-env"
+          environmentVariable: "N8N_INSTANCE_OWNER_MANAGED_BY_ENV"
+          literalValue: "true"
+        - bindingName: "owner-email"
+          environmentVariable: "N8N_INSTANCE_OWNER_EMAIL"
+          literalValue: "admin@dotcore.local"
+        - bindingName: "owner-first-name"
+          environmentVariable: "N8N_INSTANCE_OWNER_FIRST_NAME"
+          literalValue: "Admin"
+        - bindingName: "owner-last-name"
+          environmentVariable: "N8N_INSTANCE_OWNER_LAST_NAME"
+          literalValue: "Dotcore"
+        # bcrypt (cost 10) of the fixed POC password "admin"; not a secret.
+        - bindingName: "owner-password-hash"
+          environmentVariable: "N8N_INSTANCE_OWNER_PASSWORD_HASH"
+          literalValue: "$2a$10$lb16z8Ce.cqruLzF5coJ1OsaP9zYd7ZZbBgjj6it/cWwnRcKWcjPm"
+        - bindingName: "secure-cookie"
+          environmentVariable: "N8N_SECURE_COOKIE"
+          literalValue: "false"
+        - bindingName: "diagnostics"
+          environmentVariable: "N8N_DIAGNOSTICS_ENABLED"
+          literalValue: "false"
+        - bindingName: "version-notifications"
+          environmentVariable: "N8N_VERSION_NOTIFICATIONS_ENABLED"
+          literalValue: "false"
+        - bindingName: "personalization"
+          environmentVariable: "N8N_PERSONALIZATION_ENABLED"
+          literalValue: "false"
+        # The n8n Assistant requires a separate code sandbox service that this graph does not run,
+        # so its setup cannot be finished; the module is turned off.
+        - bindingName: "assistant-disabled"
+          environmentVariable: "N8N_DISABLED_MODULES"
+          literalValue: "instance-ai"
+        - bindingName: "inference-base-url"
+          environmentVariable: "DOTCORE_INFERENCE_BASE_URL"
+          resolvedValueName: "configured-inference-openai-base-url"
+        # The deployment's own published URL, so the editor shows and registers webhook URLs that
+        # callers can reach; n8n adds the trailing slash itself.
+        - bindingName: "webhook-url"
+          environmentVariable: "WEBHOOK_URL"
+          resolvedValueName: "published-endpoint-url"
+        - bindingName: "editor-base-url"
+          environmentVariable: "N8N_EDITOR_BASE_URL"
+          resolvedValueName: "published-endpoint-url"
+      storageBindings:
+        - bindingName: "data"
+          mountPath: "/home/node/.n8n"
+          kind: "STORAGE_KIND_DATA"
+          scope: "STORAGE_SCOPE_DEPLOYMENT"
+      readiness:
+        httpGet:
+          portName: "http"
+          path: "/healthz"
+  primaryEndpoint:
+    serviceName: "web"
+    portName: "http"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"

@@ -1,0 +1,13 @@
+# An NVIDIA DGX Spark: one GB10 sharing 128 GB of unified memory with the host.
+platform: linux/arm64
+cpuCount: 20
+hostMemory:
+  totalBytes: 130596048896 # what Linux reports of the 128 GB
+  idleUsedBytes: 7938146304 # 7.4 GiB in use on an idle DGX Spark
+gpus:
+  - id: GPU-00000000-0000-0000-0000-00000000gb10
+    vendor: nvidia
+    model: NVIDIA GB10
+    driverVersion: "580.173.02"
+    memory:
+      architecture: unified

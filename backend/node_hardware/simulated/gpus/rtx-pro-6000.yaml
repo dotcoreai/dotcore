@@ -1,0 +1,8 @@
+# NVIDIA RTX PRO 6000 Blackwell, 96 GB. Values marked "to check" are not measured on a real GPU yet.
+id: GPU-00000000-0000-0000-0000-000000006000
+vendor: nvidia
+model: NVIDIA RTX PRO 6000 Blackwell Workstation Edition
+memory:
+  architecture: dedicated
+  totalBytes: 102641958912 # 97,887 MiB, to check
+  reservedBytes: 521142272 # 497 MiB, to check

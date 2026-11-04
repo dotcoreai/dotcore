@@ -1,0 +1,671 @@
+syntax = "proto3";
+
+package dotcore.model.v1;
+
+import "dotcore/capacity/v1/placement_preview.proto";
+import "dotcore/catalog/v1/engine_release.proto";
+import "dotcore/catalog/v1/model.proto";
+import "dotcore/catalog/v1/oci.proto";
+import "dotcore/catalog/v1/selector.proto";
+import "dotcore/deployment/v1/memory_fit.proto";
+import "dotcore/deployment/v1/placement.proto";
+import "dotcore/model/v1/deployment.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+// Management API for inference-controller-owned model deployments.
+service ModelDeploymentService {
+  rpc ListModelDeployments(ListModelDeploymentsRequest) returns (ListModelDeploymentsResponse);
+
+  rpc CreateModelDeployment(CreateModelDeploymentRequest) returns (CreateModelDeploymentResponse);
+
+  rpc PreviewLocalModelDeployment(PreviewLocalModelDeploymentRequest) returns (PreviewLocalModelDeploymentResponse);
+
+  rpc EstimateLocalModelResources(EstimateLocalModelResourcesRequest) returns (EstimateLocalModelResourcesResponse);
+
+  rpc ListModelProfileCompatibility(ListModelProfileCompatibilityRequest) returns (ListModelProfileCompatibilityResponse);
+
+  rpc UpdateModelDeployment(UpdateModelDeploymentRequest) returns (UpdateModelDeploymentResponse);
+
+  rpc RemoveModelDeployment(RemoveModelDeploymentRequest) returns (RemoveModelDeploymentResponse);
+
+  rpc PauseModel(PauseModelRequest) returns (PauseModelResponse);
+
+  rpc ResumeModel(ResumeModelRequest) returns (ResumeModelResponse);
+
+  rpc ReadDeploymentLogs(ReadDeploymentLogsRequest) returns (ReadDeploymentLogsResponse);
+
+  rpc FollowDeploymentLogs(FollowDeploymentLogsRequest) returns (stream FollowDeploymentLogsResponse);
+
+  rpc UpdateModelDeploymentMetadata(UpdateModelDeploymentMetadataRequest) returns (UpdateModelDeploymentMetadataResponse);
+}
+
+// Requests the controller-owned model deployments.
+message ListModelDeploymentsRequest {}
+
+// Returns controller-owned deployment intent, catalog data, and lifecycle state.
+message ListModelDeploymentsResponse {
+  // The controller-owned model deployments.
+  repeated ModelDeployment deployments = 1;
+}
+
+// Requests creation of one source-specific model deployment and its public exposure.
+message CreateModelDeploymentRequest {
+  oneof source {
+    // Explicit selections for one local model deployment.
+    CreateLocalModelDeploymentRequest local = 1;
+
+    // Source-specific request for an upstream model deployment.
+    CreateUpstreamModelDeploymentRequest upstream = 2;
+  }
+
+  // Required caller-selected public exposure accepted with the deployment.
+  ModelDeploymentExposure exposure = 3;
+
+  // Optional user-facing name for the deployment.
+  optional string model_deployment_name = 4;
+}
+
+// Requests creation of one local model deployment from a required profile.
+message CreateLocalModelDeploymentRequest {
+  // Immutable catalog model identifier to deploy.
+  string model_id = 1;
+
+  // Required model-local profile identifier retained as provenance.
+  string profile_id = 2;
+
+  // Required exact placement for local model deployment.
+  dotcore.deployment.v1.ExactPlacement placement = 3;
+
+  // Required local configuration; values it omits take the profile's defaults.
+  LocalModelDeploymentConfiguration configuration = 4;
+}
+
+// Supplies the editable local deployment values without exposing an engine or
+// engine-configuration selector; omitted values take the selected profile's defaults.
+message LocalModelDeploymentConfiguration {
+  // Selected artifact binding from the profile's engine configuration; empty selects the profile's default binding.
+  string model_artifact_binding_id = 1;
+
+  // Exact typed engine parameter values when supplied, an empty set deriving from sizing; the profile's defaults when absent, even with a supplied binding.
+  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 2;
+
+  // Exact ordered custom engine argv tokens appended without interpretation.
+  repeated string custom_argument_tokens = 3;
+
+  // Sparse option values overlaid on the selected profile defaults.
+  repeated dotcore.catalog.v1.ModelOptionValues option_overrides = 4;
+}
+
+// Requests creation of one upstream model deployment from an immutable catalog template.
+message CreateUpstreamModelDeploymentRequest {
+  // Immutable catalog upstream model template identifier to deploy.
+  string upstream_model_template_id = 1;
+
+  // Generation-scoped private target configuration.
+  UpstreamModelDesiredConfiguration desired_configuration = 2;
+}
+
+// Selects the public exposure created with one model deployment.
+message ModelDeploymentExposure {
+  oneof kind {
+    // Creates a single-member inference route named with this callable name.
+    DirectRouteExposure direct = 1;
+
+    // Creates no inference route for this deployment.
+    HiddenDeploymentExposure hidden = 2;
+  }
+}
+
+// Names the single-member inference route created with one model deployment.
+message DirectRouteExposure {
+  // OpenAI-callable name for the single-member inference route.
+  string route_name = 1;
+}
+
+// Suppresses creation of a single-member inference route for a model deployment.
+message HiddenDeploymentExposure {}
+
+// Returns the accepted controller-owned model deployment.
+message CreateModelDeploymentResponse {
+  // The accepted model deployment.
+  ModelDeployment deployment = 1;
+}
+
+// Requests a resolution preview for one local deployment input. A local-development
+// engine artifact makes the preview read the image store of the node named by the placement.
+message PreviewLocalModelDeploymentRequest {
+  // Local selection, including exact placement and the required configuration.
+  CreateLocalModelDeploymentRequest local = 1;
+}
+
+// Returns the exact resolved local snapshot without mutating desired state.
+message PreviewLocalModelDeploymentResponse {
+  // Resolved snapshot that creation would retain, with local image identities current at preview time.
+  ResolvedLocalModelDeploymentSnapshot resolved_snapshot = 1;
+
+  // Non-blocking advisories about the resolved snapshot, in stable enum order.
+  repeated LocalModelDeploymentAdvisory advisories = 2;
+}
+
+// A non-blocking concern about one resolved local model deployment.
+enum LocalModelDeploymentAdvisory {
+  // The advisory is unspecified.
+  LOCAL_MODEL_DEPLOYMENT_ADVISORY_UNSPECIFIED = 0;
+
+  // Host KV cache offload is enabled on a target whose accelerators share host memory, so it adds no capacity.
+  LOCAL_MODEL_DEPLOYMENT_ADVISORY_HOST_KV_OFFLOAD_SHARES_MEMORY = 1;
+
+  // The target's accelerators share host memory, and its memory pool is below a per-device accelerator memory minimum.
+  LOCAL_MODEL_DEPLOYMENT_ADVISORY_UNIFIED_MEMORY_POOL_BELOW_DEVICE_MINIMUM = 2;
+}
+
+// Requests pure advisory resource estimates for one local model configuration. The read evaluates
+// one profile, on one target when given, from facts held in memory, so a client may repeat it to
+// follow changing occupancy; its preview is as fresh as the readings it reports.
+message EstimateLocalModelResourcesRequest {
+  // Immutable catalog model identifier to resolve.
+  string model_id = 1;
+
+  // Model-local profile identifier used for defaults and provenance.
+  string profile_id = 2;
+
+  // Required local configuration without deployment intent; omitted values take the profile's defaults.
+  LocalModelDeploymentConfiguration configuration = 3;
+
+  // Configured model execution target whose observed facts pick the hardware class; absent estimates every supported class.
+  dotcore.deployment.v1.ExactPlacement placement = 4;
+}
+
+// Returns the estimates of one configuration per hardware class: the class the placement's target
+// selects, or every class the profile's configuration supports, in declaration order, without one.
+// Values a launch would reject still get their estimates, with the reason on the class entry.
+message EstimateLocalModelResourcesResponse {
+  // One entry per estimated hardware class.
+  repeated HardwareClassResourceEstimate hardware_class_estimates = 1;
+
+  // The placement's target memory with the configuration added, absent without a placement; without a known estimate it holds no demand and its fit is unknown.
+  dotcore.capacity.v1.PlacementPreview placement_preview = 2;
+}
+
+// Carries the estimates and derived engine parameter values of one configuration on one hardware class.
+message HardwareClassResourceEstimate {
+  // Supported hardware class whose sizing produced the values.
+  string hardware_class_id = 1;
+
+  // Available advisory scalar resource estimates in deterministic resource-name order.
+  repeated ScalarResourceEstimate estimates = 2;
+
+  // Engine parameter values derived from catalog sizing because the configuration omitted them.
+  dotcore.catalog.v1.EngineParameterValues derived_engine_parameter_values = 3;
+
+  // Operator-readable reason a launch would reject these values; absent when it wouldn't.
+  optional string launch_rejection = 4;
+}
+
+// Carries one generic advisory scalar resource estimate.
+message ScalarResourceEstimate {
+  // Flexible catalog-declared resource name.
+  string resource = 1;
+
+  // Estimated unsigned scalar value.
+  uint64 value = 2;
+
+  // Flexible catalog-declared unit name.
+  string unit = 3;
+}
+
+// Narrows the profile compatibility read to one catalog model, one configured execution target, or both.
+message ListModelProfileCompatibilityRequest {
+  // Catalog model to evaluate; absent evaluates every local catalog model.
+  optional string model_id = 1;
+
+  // Configured model execution target to evaluate; absent evaluates every one.
+  dotcore.deployment.v1.ExactPlacement target = 2;
+
+  // Sizing scenario that estimates and memory fit evaluate; absent evaluates each profile's defaults.
+  SizingScenario scenario = 3;
+}
+
+// An operator use case that sizing evaluates on each profile: a total context its requests share,
+// optionally with a cap on each request's context. Parallel requests keep each profile's defaults.
+message SizingScenario {
+  // Context every request shares, in tokens; at least 1024.
+  uint32 total_context_tokens = 1;
+
+  // Context one request may use, in tokens, at least 1024 and at most the total context; absent fills it from the maximum context.
+  optional uint32 context_tokens_per_request = 2;
+}
+
+// Returns point-in-time compatibility for each evaluated target and, for targets that pass
+// target-level checks, each catalog model profile on them, plus each profile's target-independent sizing.
+message ListModelProfileCompatibilityResponse {
+  // One entry per evaluated configured model execution target, ordered by node then target identifier.
+  repeated TargetCompatibility targets = 1;
+
+  // Per-profile entries in catalog model, profile declaration, then target order; only for targets whose status is runs.
+  repeated ModelProfileCompatibility entries = 2;
+
+  // One entry per evaluated catalog model profile in catalog model then profile declaration order, present without targets.
+  repeated ModelProfileSizing profiles = 3;
+}
+
+// Target-level compatibility shared by every profile on one configured model execution target.
+message TargetCompatibility {
+  // Exact placement of the configured model execution target.
+  dotcore.deployment.v1.ExactPlacement target = 1;
+
+  // Runs when the target passes target-level checks; unknown or can't run applies to every profile on it.
+  ModelCompatibilityStatus status = 2;
+
+  // Why the target is unknown or can't run; absent when it runs.
+  ModelCompatibilityReason reason = 3;
+
+  // When the target's platform was last observed; absent when it never was.
+  google.protobuf.Timestamp observed_at = 4;
+}
+
+// Whether one catalog model profile can run on one configured model execution target.
+message ModelProfileCompatibility {
+  // Catalog model identifier.
+  string model_id = 1;
+
+  // Model-local profile identifier.
+  string profile_id = 2;
+
+  // Exact placement of the evaluated configured model execution target.
+  dotcore.deployment.v1.ExactPlacement target = 3;
+
+  // Whether the profile, with its defaults and default artifact binding, can run on the target.
+  ModelCompatibilityStatus status = 4;
+
+  // Why the profile is unknown or can't run on the target; absent when it runs.
+  ModelCompatibilityReason reason = 5;
+
+  // Non-blocking advisories for a profile that runs, the same values deployment preview reports.
+  repeated LocalModelDeploymentAdvisory advisories = 6;
+
+  // Hardware class the target's facts select for the profile; empty unless the profile runs.
+  string hardware_class_id = 7;
+
+  // Advisory fit of the scenario, or of the profile defaults without one, against the target's total memory, ignoring other deployments; unspecified unless the profile runs and the scenario is supported.
+  dotcore.deployment.v1.MemoryFit memory_fit = 8;
+
+  // Advisory fit of the same estimate against the target's observed free memory less a headroom, the line the largest fit uses; unknown when free memory is unknown, unspecified when `memory_fit` is.
+  dotcore.deployment.v1.MemoryFit free_memory_fit = 11;
+
+  // Why the profile can't serve the scenario on the target's hardware class; unspecified when it can.
+  SizingScenarioUnsupportedReason unsupported_reason = 9;
+
+  // Largest total context in tokens whose estimate fits the target's observed free memory less a headroom, at the scenario's or the filled context per request; absent when free memory is unknown or nothing fits.
+  optional uint32 largest_total_context_tokens = 10;
+
+  // Total context in tokens a deployment of the profile starts from on the target: the largest fit rounded down to whole 1024-token blocks, or the profile's default without a largest fit of at least one block; absent when neither exists.
+  optional uint32 starting_total_context_tokens = 12;
+
+  // Where the starting total context comes from; unspecified when it is absent.
+  StartingTotalContextSource starting_total_context_source = 13;
+}
+
+// Target-independent sizing of one catalog model profile with its default artifact binding and
+// options, under the request's sizing scenario or, without one, its engine parameter defaults.
+message ModelProfileSizing {
+  // Catalog model identifier.
+  string model_id = 1;
+
+  // Model-local profile identifier.
+  string profile_id = 2;
+
+  // Profile and engine parameter defaults with the scenario's values and the filled context per request, without sizing-derived values; absent when unsupported.
+  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 3;
+
+  // Estimates per supported hardware class in declaration order, omitting unsupported classes and classes whose sizing fails.
+  repeated HardwareClassResourceEstimate hardware_class_estimates = 4;
+
+  // Why the profile can't serve the scenario on any supported hardware class; unspecified when it can.
+  SizingScenarioUnsupportedReason unsupported_reason = 5;
+
+  // Supported hardware classes on which the scenario's derived engine parameter values fall outside their bounds.
+  repeated string unsupported_hardware_class_ids = 6;
+}
+
+// Whether a profile or target can run, from the rules deployment admission applies.
+enum ModelCompatibilityStatus {
+  // No status was supplied.
+  MODEL_COMPATIBILITY_STATUS_UNSPECIFIED = 0;
+
+  // Deployment admission would accept it.
+  MODEL_COMPATIBILITY_STATUS_RUNS = 1;
+
+  // Deployment admission would reject it.
+  MODEL_COMPATIBILITY_STATUS_CANNOT_RUN = 2;
+
+  // The target's current facts are missing or stale, so admission can't be predicted.
+  MODEL_COMPATIBILITY_STATUS_UNKNOWN = 3;
+}
+
+// Typed cause of an unknown or can't-run status, with the facts the console needs to word it.
+// Each fact field applies only to the codes its comment names and is empty otherwise.
+message ModelCompatibilityReason {
+  // Cause of the status.
+  ModelCompatibilityReasonCode code = 1;
+
+  // For platform mismatch: platform the target is configured for.
+  dotcore.catalog.v1.OciPlatform configured_platform = 2;
+
+  // For platform mismatch: platform the target's node reports.
+  dotcore.catalog.v1.OciPlatform observed_platform = 3;
+
+  // For no matching engine artifact: approved engine artifact selectors the target's runtime can realize.
+  repeated dotcore.catalog.v1.Selector supported_selectors = 4;
+
+  // For NVIDIA driver below minimum: driver major version the matching engine artifact needs.
+  uint32 minimum_nvidia_driver_major_version = 5;
+
+  // For NVIDIA driver below minimum: driver major version the target's node reports.
+  uint32 observed_nvidia_driver_major_version = 6;
+
+  // For accelerator device count mismatch: devices the target assigns.
+  uint32 accelerator_device_count = 7;
+
+  // For accelerator device count mismatch: devices the profile's launch uses.
+  uint32 required_accelerator_device_count = 8;
+}
+
+// Cause of an unknown or can't-run compatibility status.
+enum ModelCompatibilityReasonCode {
+  // No cause was supplied.
+  MODEL_COMPATIBILITY_REASON_CODE_UNSPECIFIED = 0;
+
+  // Unknown target: its node has no fresh platform or accelerator observation.
+  MODEL_COMPATIBILITY_REASON_CODE_TARGET_NOT_REPORTING = 1;
+
+  // Unknown target: its node reports NVIDIA accelerators without one valid shared driver version.
+  MODEL_COMPATIBILITY_REASON_CODE_NVIDIA_DRIVER_UNKNOWN = 2;
+
+  // Unknown target: its accelerators have no classified memory architecture.
+  MODEL_COMPATIBILITY_REASON_CODE_ACCELERATOR_MEMORY_UNKNOWN = 3;
+
+  // Target can't run: its configured platform is missing or unsupported.
+  MODEL_COMPATIBILITY_REASON_CODE_TARGET_PLATFORM_INVALID = 4;
+
+  // Target can't run: its node reports a platform other than the configured one.
+  MODEL_COMPATIBILITY_REASON_CODE_PLATFORM_MISMATCH = 5;
+
+  // Unknown target: its node reports no usable NVIDIA or Apple accelerator, either none or one it couldn't read.
+  MODEL_COMPATIBILITY_REASON_CODE_NO_ACCELERATOR = 6;
+
+  // Profile can't run: no approved engine artifact matches the target's platform, accelerator vendor, and runtime.
+  MODEL_COMPATIBILITY_REASON_CODE_NO_MATCHING_ENGINE_ARTIFACT = 7;
+
+  // Profile can't run: an engine artifact matches, but none of the configuration's supported hardware classes matches the target.
+  MODEL_COMPATIBILITY_REASON_CODE_NO_SUPPORTED_HARDWARE_CLASS = 11;
+
+  // Profile can't run: the target's NVIDIA driver is below the matching engine artifact's minimum.
+  MODEL_COMPATIBILITY_REASON_CODE_NVIDIA_DRIVER_BELOW_MINIMUM = 8;
+
+  // Profile can't run: the target assigns a different number of accelerator devices than the profile's launch uses.
+  MODEL_COMPATIBILITY_REASON_CODE_ACCELERATOR_DEVICE_COUNT_MISMATCH = 9;
+
+  // Profile can't run: its catalog declarations, sizing, or launch rules don't resolve on the target.
+  MODEL_COMPATIBILITY_REASON_CODE_PROFILE_UNRESOLVABLE = 10;
+}
+
+// Why a profile can't serve a sizing scenario; when several apply, the lowest number wins.
+enum SizingScenarioUnsupportedReason {
+  // No reason applies: the scenario is supported.
+  SIZING_SCENARIO_UNSUPPORTED_REASON_UNSPECIFIED = 0;
+
+  // The context per request is above the model's maximum context, or its configuration's lower maximum.
+  SIZING_SCENARIO_UNSUPPORTED_REASON_CONTEXT_ABOVE_MAXIMUM = 1;
+
+  // A value the scenario sets or fills is outside the engine's accepted range or rules.
+  SIZING_SCENARIO_UNSUPPORTED_REASON_PARAMETER_OUT_OF_RANGE = 3;
+
+  // An engine parameter value sizing derives from the scenario is outside the engine's accepted range.
+  SIZING_SCENARIO_UNSUPPORTED_REASON_DERIVED_PARAMETER_OUT_OF_RANGE = 4;
+}
+
+// Where a profile's starting total context on a target comes from.
+enum StartingTotalContextSource {
+  // No starting total context exists.
+  STARTING_TOTAL_CONTEXT_SOURCE_UNSPECIFIED = 0;
+
+  // The largest total context that fits the target's free memory, rounded down to whole blocks.
+  STARTING_TOTAL_CONTEXT_SOURCE_LARGEST_FIT = 1;
+
+  // The profile's default, without a largest fit of at least one block.
+  STARTING_TOTAL_CONTEXT_SOURCE_PROFILE_DEFAULT = 2;
+}
+
+// Requests replacement of one upstream model deployment's private target configuration.
+message UpdateModelDeploymentRequest {
+  // Stable identifier for the upstream model deployment.
+  string model_deployment_id = 1;
+
+  // Replacement generation's private target configuration.
+  UpstreamModelDesiredConfiguration upstream_desired_configuration = 2;
+}
+
+// Returns the accepted deployment after an upstream model update request.
+message UpdateModelDeploymentResponse {
+  // The accepted model deployment with trusted-POC upstream configuration.
+  ModelDeployment deployment = 1;
+}
+
+// Requests removal of one controller-owned model deployment.
+message RemoveModelDeploymentRequest {
+  // Stable identifier for the model deployment to remove.
+  string model_deployment_id = 1;
+}
+
+// Returns the model deployment after the remove request is accepted.
+message RemoveModelDeploymentResponse {
+  // Accepted model deployment with teardown desired state.
+  ModelDeployment deployment = 1;
+}
+
+// Requests pausing one model deployment while retaining its resources.
+message PauseModelRequest {
+  // The deployment identifier to pause.
+  string model_deployment_id = 1;
+}
+
+// Returns the deployment after the pause request is accepted.
+message PauseModelResponse {
+  // The accepted model deployment.
+  ModelDeployment deployment = 1;
+}
+
+// Requests resuming one paused model deployment.
+message ResumeModelRequest {
+  // The deployment identifier to resume.
+  string model_deployment_id = 1;
+}
+
+// Returns the deployment after the resume request is accepted.
+message ResumeModelResponse {
+  // The accepted model deployment.
+  ModelDeployment deployment = 1;
+}
+
+// Requests a bounded retained-log page from the current model workload sources.
+message ReadDeploymentLogsRequest {
+  // Stable identifier for the model deployment.
+  string model_deployment_id = 1;
+
+  // Optional public source names to include, limited to 32 selections.
+  repeated string source_names = 2;
+
+  // Aggregate entries to return; 0 means 100; at most 200.
+  uint32 page_size = 3;
+
+  // Optional exclusive whole-second UTC boundary for an older page.
+  optional google.protobuf.Timestamp before_timestamp = 4;
+}
+
+// Returns one bounded aggregate page and point-in-time source availability.
+message ReadDeploymentLogsResponse {
+  // Public sources and their availability at the time of the read.
+  repeated DeploymentLogSource sources = 1;
+
+  // Chronologically ordered aggregate entries from the selected sources.
+  repeated DeploymentLogEntry entries = 2;
+
+  // Exclusive whole-second UTC boundary for a best-effort older page.
+  optional google.protobuf.Timestamp next_before_timestamp = 3;
+
+  // Whether older matching output was observed during this bounded read.
+  DeploymentLogHistoryState history_state = 4;
+
+  // Whether the 4 MiB aggregate response limit stopped the page early.
+  bool response_truncated = 5;
+
+  // Latest timestamps per source for the initial follow handoff or reconnect.
+  repeated DeploymentLogResumePosition latest_positions = 6;
+}
+
+// Requests a live best-effort follow of the sources of one model deployment. A follow naming no
+// source stays open while the deployment exists, and sources may appear, end and appear again
+// during it; it ends cleanly when the deployment is removed. A follow naming sources ends once they
+// all end. Either ends with an error status on failure.
+message FollowDeploymentLogsRequest {
+  // Stable identifier for the model deployment.
+  string model_deployment_id = 1;
+
+  // Optional public source names to include, limited to 32 selections.
+  repeated string source_names = 2;
+
+  // Per-source full-precision timestamps of the latest entries already delivered; the node
+  // delivers only entries after them.
+  repeated DeploymentLogResumePosition resume_positions = 3;
+}
+
+// Returns one source-status transition or one line from a live follow.
+message FollowDeploymentLogsResponse {
+  oneof event {
+    // Availability or end state for one public source.
+    DeploymentLogSourceEvent source_event = 1;
+
+    // One normalized line from one public source.
+    DeploymentLogEntry entry = 2;
+  }
+}
+
+// Describes one public source and its point-in-time availability.
+message DeploymentLogSource {
+  // Stable public source identity used by filters and resume positions.
+  string source_name = 1;
+
+  // Stable public label displayed for the source.
+  string source_label = 2;
+
+  // Current availability without runtime-native diagnostics.
+  DeploymentLogSourceState state = 3;
+}
+
+// Carries one normalized visual line without runtime-native identity.
+message DeploymentLogEntry {
+  // Stable public source identity for this line.
+  string source_name = 1;
+
+  // Stable public label displayed for this line.
+  string source_label = 2;
+
+  // Docker stdout or stderr identity for this line.
+  DeploymentLogStream stream = 3;
+
+  // Docker-supplied full-precision timestamp for this line.
+  google.protobuf.Timestamp timestamp = 4;
+
+  // Bounded normalized line bytes after response filtering.
+  bytes content = 5;
+
+  // Whether content exceeded the per-record limit.
+  bool truncated = 6;
+}
+
+// Carries the full-precision timestamp of the latest entry delivered for one public source.
+message DeploymentLogResumePosition {
+  // Stable public source identity used by filters and source events.
+  string source_name = 1;
+
+  // Timestamp of the latest entry already delivered for this source; a follow resumed with it
+  // delivers only entries with a later timestamp.
+  google.protobuf.Timestamp latest_timestamp = 2;
+}
+
+// Reports a public source becoming available, unavailable, or ended.
+message DeploymentLogSourceEvent {
+  // Stable public source identity for this event.
+  string source_name = 1;
+
+  // Stable public label displayed for this source.
+  string source_label = 2;
+
+  // Availability or end state without runtime-native diagnostics.
+  DeploymentLogSourceState state = 3;
+}
+
+// States whether older matching output was observed during one bounded read.
+enum DeploymentLogHistoryState {
+  // Invalid unset state; responses use only the observed-output states below.
+  DEPLOYMENT_LOG_HISTORY_STATE_UNSPECIFIED = 0;
+
+  // At least one older matching entry was observed at read time.
+  DEPLOYMENT_LOG_HISTORY_STATE_OLDER_OUTPUT_MAY_REMAIN = 1;
+
+  // No older matching entry was observed at read time.
+  DEPLOYMENT_LOG_HISTORY_STATE_NO_OLDER_OUTPUT_OBSERVED = 2;
+}
+
+// States the safe public availability of one requested source.
+enum DeploymentLogSourceState {
+  // No source state was supplied.
+  DEPLOYMENT_LOG_SOURCE_STATE_UNSPECIFIED = 0;
+
+  // The source is currently available.
+  DEPLOYMENT_LOG_SOURCE_STATE_AVAILABLE = 1;
+
+  // The source is unavailable and provides no runtime-native detail.
+  DEPLOYMENT_LOG_SOURCE_STATE_UNAVAILABLE = 2;
+
+  // The source ended after an available follow.
+  DEPLOYMENT_LOG_SOURCE_STATE_ENDED = 3;
+}
+
+// Identifies Docker stdout or stderr for one normalized line.
+enum DeploymentLogStream {
+  // No stream was supplied.
+  DEPLOYMENT_LOG_STREAM_UNSPECIFIED = 0;
+
+  // Standard output.
+  DEPLOYMENT_LOG_STREAM_STDOUT = 1;
+
+  // Standard error.
+  DEPLOYMENT_LOG_STREAM_STDERR = 2;
+}
+
+// Requests a typed metadata update to one model deployment.
+message UpdateModelDeploymentMetadataRequest {
+  // Stable identifier for the model deployment.
+  string model_deployment_id = 1;
+
+  // Metadata values to patch into the owner declaration.
+  ModelDeploymentMetadata metadata = 2;
+
+  // Explicit metadata paths to update.
+  google.protobuf.FieldMask update_mask = 3;
+}
+
+// Supplies writable presentation metadata for a model deployment update.
+message ModelDeploymentMetadata {
+  // Optional replacement user-facing deployment name.
+  optional string display_name = 1;
+}
+
+// Returns the accepted deployment after a metadata update is accepted.
+message UpdateModelDeploymentMetadataResponse {
+  // The complete accepted model deployment.
+  ModelDeployment deployment = 1;
+}

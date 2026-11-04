@@ -1,0 +1,122 @@
+syntax = "proto3";
+
+package dotcore.runtime.store.v1;
+
+// Native runtime record of one workload, stored as the owner payload of its launcher launch
+// specification, so it is written before the process starts and covered by the launch checksum.
+message NativeWorkloadRecord {
+  // Version of this record format; a record of any other version is never trusted.
+  uint32 schema_version = 1;
+
+  // Version of the algorithm that derived the reconcile generation, fingerprint, and command.
+  uint32 identity_version = 2;
+
+  // Canonical absolute path of the native state root that created the workload.
+  string state_root = 3;
+
+  // Site that owns the workload.
+  string site_id = 4;
+
+  // SiteNode that hosts the workload.
+  string site_node_id = 5;
+
+  // Execution target that realizes the workload.
+  string execution_target_id = 6;
+
+  // Owner-issued correlation identity of the workload.
+  string owner_id = 7;
+
+  // Reconcile generation derived from the symbolic spec and the execution target.
+  uint64 reconcile_generation = 8;
+
+  // Accelerator devices configured on the execution target.
+  repeated string target_accelerator_device_ids = 9;
+
+  // Symbolic workload spec exactly as its owner issued it.
+  NativeWorkloadSpec spec = 10;
+
+  // Loopback ports assigned to the declared ports; they are not part of the workload identity.
+  repeated AssignedPort assigned_ports = 11;
+}
+
+// Symbolic spec of a native workload; arguments and environment values are canonical template
+// text, for example `--port={service:http.port}`.
+message NativeWorkloadSpec {
+  // Absolute Nix store path that provides the executable.
+  string nix_store_path = 1;
+
+  // Executable path relative to the store path, for example `bin/server`.
+  string executable_path = 2;
+
+  // Operating system the executable requires.
+  string operating_system = 3;
+
+  // CPU architecture the executable requires.
+  string architecture = 4;
+
+  // Ordered argument templates passed after the executable.
+  repeated string arguments = 5;
+
+  // Environment variable templates by name.
+  map<string, string> environment = 6;
+
+  // Prepared artifacts the workload reads.
+  repeated ArtifactBinding artifacts = 7;
+
+  // Named service ports the workload declares.
+  repeated DeclaredPort ports = 8;
+
+  // Accelerator devices the workload requests.
+  repeated string accelerator_device_ids = 9;
+
+  // Number of accelerator devices the workload requires.
+  uint32 required_accelerator_device_count = 10;
+
+  // IPC namespace isolation the workload requests.
+  IpcMode ipc_mode = 11;
+}
+
+// One named, prepared artifact a native workload reads.
+message ArtifactBinding {
+  // Binding name referenced by `{artifact:<name>}` tokens.
+  string name = 1;
+
+  // Absolute host path of the prepared artifact.
+  string source = 2;
+
+  // Workload-visible path for runtimes that isolate the filesystem.
+  string destination = 3;
+
+  // Whether the workload only reads the artifact.
+  bool read_only = 4;
+}
+
+// One named TCP service port declared by the workload owner.
+message DeclaredPort {
+  // Service name referenced by `{service:<name>.port}` tokens.
+  string name = 1;
+
+  // Listening port for runtimes that isolate the network.
+  uint32 container_port = 2;
+}
+
+// IPC namespace isolation requested by a workload owner.
+enum IpcMode {
+  // Not a valid stored mode.
+  IPC_MODE_UNSPECIFIED = 0;
+
+  // Private IPC namespace.
+  IPC_MODE_ISOLATED = 1;
+
+  // Host IPC namespace.
+  IPC_MODE_HOST_SHARED = 2;
+}
+
+// Loopback port the native runtime assigned to one declared port.
+message AssignedPort {
+  // Name of the declared port.
+  string name = 1;
+
+  // Assigned port on the loopback address.
+  uint32 host_port = 2;
+}

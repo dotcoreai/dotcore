@@ -1,0 +1,16 @@
+import '../../nix/docker-images/dockerfile.just'
+
+# List ninfer engine recipes.
+help:
+    @just --list
+
+# Load the image, then check that ninfer-serve is installed and executable (it needs libcuda to run, so no GPU-free launch).
+[group('image')]
+image-test:
+    #!/usr/bin/env sh
+    set -eu
+    image=$(cd ../.. && nix run .#{{image_package}} | jq -r .reference)
+    path=$(docker run --rm --platform linux/amd64 --entrypoint sh "$image" -c 'command -v ninfer-serve')
+    echo "ninfer-serve path: $path"
+    docker run --rm --platform linux/amd64 --entrypoint sh "$image" -c "test -x $path"
+    echo "ninfer-serve is executable"

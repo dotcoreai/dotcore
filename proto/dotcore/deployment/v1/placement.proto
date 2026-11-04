@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package dotcore.deployment.v1;
+
+// Service-free exact placement for local model and application deployments.
+// Selects one site-owned execution target on one specific SiteNode.
+message ExactPlacement {
+  // Required stable identifier of the SiteNode that owns the target.
+  string site_node_id = 1;
+
+  // Required stable identifier of the execution target on that node.
+  string execution_target_id = 2;
+}

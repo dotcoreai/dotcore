@@ -1,0 +1,108 @@
+# Fixture llama.cpp model with a vision projector and an MTP draft, so direct development launches
+# exercise every mount and option realization without depending on committed declarations.
+modelId: "fixture-vision-model"
+displayName: "fixture vision model"
+version: "1"
+maximumContextTokens: 262144
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+artifacts:
+  - artifactId: "fixture-artifact"
+    weightQuantization: "Q4_K_M"
+    source:
+      repository: "dotcore/fixture"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      file:
+        path: "fixture-Q4_K_M.gguf"
+        provenanceDigest: "0000000000000000000000000000000000000000000000000000000000000000"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "vision-projector"
+    source:
+      repository: "dotcore/fixture"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      file:
+        path: "mmproj-F16.gguf"
+        provenanceDigest: "1111111111111111111111111111111111111111111111111111111111111111"
+  - auxiliaryArtifactId: "mtp-draft"
+    source:
+      repository: "dotcore/fixture"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      file:
+        path: "mtp-fixture.gguf"
+        provenanceDigest: "2222222222222222222222222222222222222222222222222222222222222222"
+configurations:
+  - configurationId: "fixture-configuration"
+    engineArtifacts: [{ engineReleaseId: "fixture-engine", engineArtifactId: "fixture-linux" }]
+    artifactBindings: [{ bindingId: "fixture-artifact", modelArtifactId: "fixture-artifact" }]
+    hardwareSupport:
+      - hardwareClassId: "fixture-nvidia"
+        hardwareRequirements:
+          minimumSystemMemoryBytes: "1"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          jinja: true
+          gpuLayers: 99
+          flashAttention: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+              auxiliaryArtifactId: "vision-projector"
+              imageInputCapacity:
+                maximumImageCount: 1
+                supportedMediaTypes: ["LLAMA_CPP_IMAGE_MEDIA_TYPE_JPEG", "LLAMA_CPP_IMAGE_MEDIA_TYPE_PNG"]
+                maximumEncodedBytes: "20971520"
+                maximumDecodedBytes: "67108864"
+                maximumWidth: 8192
+                maximumHeight: 8192
+                maximumPixels: "16000000"
+                fixedVisualTokens: 280
+                fixedDetail: "LLAMA_CPP_IMAGE_DETAIL_AUTO"
+          - optionId: "mtp"
+            mtp:
+              draft: { auxiliaryArtifactId: "mtp-draft" }
+    executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
+    requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
+    inputCapabilities: { supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "2"
+profiles:
+  - profileId: "fixture-profile"
+    displayName: "Fixture profile"
+    description: "Enables vision on top of the configuration defaults."
+    configurationId: "fixture-configuration"
+    defaultModelArtifactBindingId: "fixture-artifact"
+    engineParameterDefaults:
+      values:
+        - { parameterId: "prompt-cache-memory-mib", unsignedInteger: "2048" }
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true

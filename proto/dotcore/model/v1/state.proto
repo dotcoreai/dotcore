@@ -1,0 +1,173 @@
+syntax = "proto3";
+
+package dotcore.model.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Current state for one desired model deployment. It contains observations and
+// progress only. The matching desired deployment stays in site.yaml.
+message CurrentModelDeployment {
+  // The stable identifier for this model deployment.
+  string model_deployment_id = 1;
+
+  // The monotonically increasing stored state revision.
+  uint64 record_revision = 2;
+
+  // The controller-owned operational state.
+  ModelDeploymentState state = 3;
+
+  // Lifecycle generation whose reconciliation produced this state; absent when none is recorded.
+  optional uint64 reconciled_lifecycle_generation = 5;
+
+  // Durable barrier preventing an ambiguous legacy lifecycle action from running.
+  ModelLifecycleRecoveryBarrier recovery_barrier = 4;
+}
+
+// Durable reason that an explicit pause and Resume is required before activation.
+message ModelLifecycleRecoveryBarrier {
+  // Declaration lifecycle generation fenced by this barrier.
+  uint64 lifecycle_generation = 1;
+
+  // Stable non-sensitive reason code.
+  string reason = 2;
+}
+
+// Rich controller-owned operational state. Runtime failures change this state,
+// never the accepted desired outcome.
+message ModelDeploymentState {
+  // The current typed deployment status.
+  ModelDeploymentStatus status = 1;
+
+  // The current human-readable status explanation.
+  string status_message = 2;
+
+  // Controller-owned activation intent retained across preparation and reconstruction.
+  ModelDeploymentActivation activation = 3;
+
+  // The time at which deployment operation started.
+  google.protobuf.Timestamp started_at = 4;
+
+  // The time at which this state was last updated.
+  google.protobuf.Timestamp updated_at = 5;
+
+  // The current controller-owned failure summary.
+  ModelDeploymentFailure failure = 6;
+
+  // The publicly attributable observed placements.
+  repeated ObservedPlacement observed_placements = 7;
+
+  // Progress for the current status when it is measurable.
+  ModelDeploymentProgress progress = 8;
+}
+
+// Controller-owned state of an explicit Resume operation, not a runtime identity.
+message ModelDeploymentActivation {
+  // The current Resume activation phase.
+  ModelDeploymentActivationPhase phase = 1;
+
+  // Workload generation claimed for a Start attempt, absent before the claim.
+  optional uint64 workload_generation = 2;
+
+  // Manager-accepted Resume generation authorizing this activation.
+  uint64 lifecycle_generation = 3;
+}
+
+// Durable progress of an explicit Resume operation.
+enum ModelDeploymentActivationPhase {
+  // No explicit Resume activation is pending.
+  MODEL_DEPLOYMENT_ACTIVATION_PHASE_UNSPECIFIED = 0;
+
+  // Resume was accepted and has not attempted to start the retained workload.
+  MODEL_DEPLOYMENT_ACTIVATION_PHASE_AWAITING_START = 1;
+
+  // A Start call may have occurred; its outcome is not durably confirmed.
+  MODEL_DEPLOYMENT_ACTIVATION_PHASE_START_IN_FLIGHT = 2;
+
+  // Runtime returned successfully from Start for the retained workload.
+  MODEL_DEPLOYMENT_ACTIVATION_PHASE_START_CONFIRMED = 3;
+}
+
+// Measurable progress for the current deployment status.
+message ModelDeploymentProgress {
+  // The optional integer percentage derived from completed and total.
+  optional uint32 percent = 1;
+
+  // The completed quantity in the declared unit.
+  uint64 completed = 2;
+
+  // The optional non-zero total quantity in the declared unit.
+  optional uint64 total = 3;
+
+  // The unit used by completed and total.
+  ModelDeploymentProgressUnit unit = 4;
+}
+
+// Unit for measurable model deployment progress.
+enum ModelDeploymentProgressUnit {
+  // No progress unit was specified.
+  MODEL_DEPLOYMENT_PROGRESS_UNIT_UNSPECIFIED = 0;
+
+  // Progress is measured in bytes.
+  MODEL_DEPLOYMENT_PROGRESS_UNIT_BYTES = 1;
+}
+
+// The current controller-owned model deployment status.
+enum ModelDeploymentStatus {
+  // The model deployment status unspecified value.
+  MODEL_DEPLOYMENT_STATUS_UNSPECIFIED = 0;
+
+  // The model deployment status queued value.
+  MODEL_DEPLOYMENT_STATUS_QUEUED = 2;
+
+  // The model deployment status preparing value.
+  MODEL_DEPLOYMENT_STATUS_PREPARING = 3;
+
+  // The model deployment status loading value.
+  MODEL_DEPLOYMENT_STATUS_LOADING = 4;
+
+  // The model deployment status warming-up value.
+  MODEL_DEPLOYMENT_STATUS_WARMING_UP = 5;
+
+  // A deployment that completed controller readiness checks.
+  MODEL_DEPLOYMENT_STATUS_READY = 6;
+
+  // The model deployment status unloading value.
+  MODEL_DEPLOYMENT_STATUS_UNLOADING = 7;
+
+  // The model deployment status failed value.
+  MODEL_DEPLOYMENT_STATUS_FAILED = 8;
+
+  // An observed deployment unavailable for controller operation.
+  MODEL_DEPLOYMENT_STATUS_UNAVAILABLE = 9;
+
+  // A deployment whose retained resources are stopping.
+  MODEL_DEPLOYMENT_STATUS_PAUSING = 10;
+
+  // A deployment whose retained resources are stopped.
+  MODEL_DEPLOYMENT_STATUS_PAUSED = 11;
+
+  // A deployment whose required model artifact bytes are transferring.
+  MODEL_DEPLOYMENT_STATUS_DOWNLOADING = 12;
+}
+
+// A controller-owned failure summary without backend-private diagnostic identity.
+message ModelDeploymentFailure {
+  // The stable failure code.
+  string code = 1;
+
+  // The human-readable failure message.
+  string message = 2;
+
+  // The non-sensitive diagnostic details.
+  repeated string diagnostics = 3;
+}
+
+// Publicly attributable observed placement. It intentionally omits runtime
+// workload handles, container IDs, and engine-internal identities.
+message ObservedPlacement {
+  // The managed node identifier.
+  string managed_node_id = 1;
+
+  // The accelerator device identifiers assigned to the placement.
+  repeated string accelerator_device_ids = 2;
+}

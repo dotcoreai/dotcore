@@ -1,0 +1,8 @@
+# NVIDIA GeForce RTX 4090, 24 GB. Values marked "to check" are not measured on a real GPU yet.
+id: GPU-00000000-0000-0000-0000-000000004090
+vendor: nvidia
+model: NVIDIA GeForce RTX 4090
+memory:
+  architecture: dedicated
+  totalBytes: 25769803776 # 24 GiB, to check
+  reservedBytes: 521142272 # 497 MiB, to check

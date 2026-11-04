@@ -1,0 +1,328 @@
+syntax = "proto3";
+
+package dotcore.application.private.v1;
+
+import "dotcore/application/v1/deployment.proto";
+import "dotcore/application/v1/state.proto";
+import "dotcore/deployment/v1/artifact.proto";
+import "dotcore/deployment/v1/placement.proto";
+import "google/protobuf/empty.proto";
+
+// Complete apps-controller-owned intent for one node view.
+message ApplicationDesiredViewSection {
+  // Assigned deployments; an explicitly empty list removes all application intent.
+  repeated ApplicationAssignment assignments = 1;
+}
+
+// Exact manager-accepted application deployment input, excluding node attempt progress. An
+// invalid assignment is that deployment's typed failure and never rejects the node view.
+message ApplicationAssignment {
+  // Complete accepted declaration, including retained configuration, storage, lifecycle
+  // generation, and node-resolved launch identities.
+  dotcore.application.v1.ApplicationDeploymentDeclaration declaration = 1;
+
+  // Launch projection of the declaration's linked route; absent when no route is linked.
+  ApplicationLinkedRouteProjection linked_route = 2;
+}
+
+// Apps-controller launch projection of a linked route, never route policy or live availability.
+message ApplicationLinkedRouteProjection {
+  oneof resolution {
+    // Current OpenAI-callable route name, also projected while the route is disabled.
+    string route_name = 1;
+
+    // The linked route is unknown to the route manager; the node reports a typed failure.
+    google.protobuf.Empty unknown = 2;
+  }
+}
+
+// Complete apps-controller observations for one accepted node view.
+message ApplicationControllerStatusSection {
+  // One status per deployment still observed for the accepted view.
+  repeated ApplicationDeploymentStatus deployments = 1;
+
+  // Cleanup evidence retained independently after desired assignment withdrawal.
+  repeated ApplicationCleanupEvidence cleanup_evidence = 2;
+}
+
+// Safe node observation of one assigned application deployment, without free text.
+message ApplicationDeploymentStatus {
+  // Stable deployment identity.
+  string application_deployment_id = 1;
+
+  // Manager-accepted lifecycle generation observed by this status.
+  uint64 lifecycle_generation = 2;
+
+  // Exact configured placement observed by the node.
+  dotcore.deployment.v1.ExactPlacement placement = 3;
+
+  // Runtime launch generation of the observed workload group; absent without one.
+  optional uint64 realization_generation = 4;
+
+  // Accepted node-view revision whose assignment this observation reconciled; zero while
+  // reconciling.
+  uint64 accepted_view_revision = 5;
+
+  // Monotonic owner-local state revision; zero when reconciling without a retained record.
+  uint64 state_revision = 6;
+
+  // Current lifecycle observation.
+  ApplicationLifecycleObservation lifecycle = 7;
+
+  // Typed operation stage the manager maps to public stage text.
+  ApplicationStatusStage stage = 8;
+
+  // Node-evaluated deployment readiness.
+  dotcore.application.v1.ApplicationReadinessState readiness = 9;
+
+  // Stable non-sensitive failure code, unspecified when no failure is observed.
+  ApplicationStatusFailureCode failure_code = 10;
+
+  // Observations for named services in the immutable snapshot.
+  repeated dotcore.application.v1.ApplicationServiceObservation services = 11;
+
+  // Primary endpoint published on the node; absent until assigned. The manager projects its port on the SiteNode host.
+  ApplicationPublishedEndpoint endpoint = 12;
+
+  // Accelerator memory the hosting node attributes to each service unit from its own process
+  // observations, with usage only on the reporting node and bounded text; never retained by the
+  // manager.
+  repeated dotcore.application.v1.ApplicationServiceAcceleratorMemory service_accelerator_memory = 14;
+
+  // Local-development launch identities this node resolved for the deployment, keyed by
+  // service name; reported until the manager projects them back in the declaration.
+  repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity resolved_launch_identities = 13;
+}
+
+// Primary endpoint published by the node runtime, without allocation details.
+message ApplicationPublishedEndpoint {
+  // IPv4 address the node published on (its bind address); the manager uses only the port and composes the URL from SiteNode.host.
+  string host = 1;
+
+  // Assigned TCP port on the publication host.
+  uint32 port = 2;
+}
+
+// Node-retained proof that withdrawn intent has no remaining workload group or deployment
+// storage. Its identity is exactly the deployment and teardown lifecycle generation.
+message ApplicationCleanupEvidence {
+  // Stable deployment identity.
+  string application_deployment_id = 1;
+
+  // Teardown lifecycle generation covered by this evidence.
+  uint64 lifecycle_generation = 2;
+
+  // Diagnostic runtime launch generation when one existed; never part of the identity.
+  optional uint64 realization_generation = 3;
+
+  // Whether no runtime realization was ever created for this generation.
+  bool never_realized = 4;
+
+  // Lowercase SHA-256 of the deployment and lifecycle generation identity.
+  string evidence_sha256 = 5;
+}
+
+// Manager disposition of one cleanup evidence entry in a status report.
+message ApplicationCleanupReceipt {
+  // Manager session that decided the disposition.
+  string manager_session_id = 1;
+
+  // Node incarnation that reported the evidence.
+  string node_incarnation_id = 2;
+
+  // Stable deployment identity.
+  string application_deployment_id = 3;
+
+  // Teardown lifecycle generation covered by the receipt.
+  uint64 lifecycle_generation = 4;
+
+  // Status sequence carrying the evidence.
+  uint64 status_sequence = 5;
+
+  // Canonical evidence digest being answered.
+  string evidence_sha256 = 6;
+
+  // Whether the evidence is acknowledged or must be reported again later.
+  ApplicationCleanupDisposition disposition = 7;
+}
+
+// Manager decision for one node cleanup evidence entry.
+enum ApplicationCleanupDisposition {
+  // No disposition was specified.
+  APPLICATION_CLEANUP_DISPOSITION_UNSPECIFIED = 0;
+
+  // Teardown finalization is durable or the evidence needs no effect; the node may retire it.
+  APPLICATION_CLEANUP_DISPOSITION_ACKNOWLEDGED = 1;
+
+  // The evidence was not accepted now; the node retains it and reports it again later.
+  APPLICATION_CLEANUP_DISPOSITION_REJECTED = 2;
+}
+
+// Safe lifecycle observation for an assigned application deployment.
+enum ApplicationLifecycleObservation {
+  // No lifecycle observation was specified.
+  APPLICATION_LIFECYCLE_OBSERVATION_UNSPECIFIED = 0;
+
+  // The node has no observation reconciled for the assigned lifecycle generation yet.
+  APPLICATION_LIFECYCLE_OBSERVATION_RECONCILING = 1;
+
+  // The deployment is queued before its workload group exists.
+  APPLICATION_LIFECYCLE_OBSERVATION_QUEUED = 2;
+
+  // The workload group is being created or started.
+  APPLICATION_LIFECYCLE_OBSERVATION_STARTING = 3;
+
+  // Every service runs and the primary endpoint passed readiness checks.
+  APPLICATION_LIFECYCLE_OBSERVATION_READY = 4;
+
+  // The retained workload group is stopping for a pause.
+  APPLICATION_LIFECYCLE_OBSERVATION_PAUSING = 5;
+
+  // The retained workload group is stopped for a pause.
+  APPLICATION_LIFECYCLE_OBSERVATION_PAUSED = 6;
+
+  // The workload group is being removed for teardown.
+  APPLICATION_LIFECYCLE_OBSERVATION_STOPPING = 7;
+
+  // The workload group was removed for teardown.
+  APPLICATION_LIFECYCLE_OBSERVATION_STOPPED = 8;
+
+  // The workload group is not serving; the stage names why.
+  APPLICATION_LIFECYCLE_OBSERVATION_UNAVAILABLE = 9;
+}
+
+// Typed operation stage of an assigned application deployment, carrying no runtime detail.
+// Progress stages match the lifecycle; observation and failure stages explain Unavailable.
+enum ApplicationStatusStage {
+  // No stage was specified.
+  APPLICATION_STATUS_STAGE_UNSPECIFIED = 0;
+
+  // The deployment is queued.
+  APPLICATION_STATUS_STAGE_QUEUED = 1;
+
+  // The workload group is starting.
+  APPLICATION_STATUS_STAGE_STARTING = 2;
+
+  // The deployment is ready.
+  APPLICATION_STATUS_STAGE_READY = 3;
+
+  // The workload group is pausing.
+  APPLICATION_STATUS_STAGE_PAUSING = 4;
+
+  // The workload group is paused.
+  APPLICATION_STATUS_STAGE_PAUSED = 5;
+
+  // The workload group is stopping.
+  APPLICATION_STATUS_STAGE_STOPPING = 6;
+
+  // The workload group is stopped.
+  APPLICATION_STATUS_STAGE_STOPPED = 7;
+
+  // Runtime returned an inconclusive workload group.
+  APPLICATION_STATUS_STAGE_GROUP_INCONCLUSIVE = 8;
+
+  // At least one service of the workload group is not running.
+  APPLICATION_STATUS_STAGE_GROUP_NOT_RUNNING = 9;
+
+  // The primary endpoint is not assigned on the configured publication host.
+  APPLICATION_STATUS_STAGE_ENDPOINT_NOT_ASSIGNED = 10;
+
+  // The primary endpoint did not pass its readiness check.
+  APPLICATION_STATUS_STAGE_ENDPOINT_NOT_READY = 11;
+
+  // The workload group is not safe to remove.
+  APPLICATION_STATUS_STAGE_GROUP_NOT_SAFE_TO_REMOVE = 12;
+
+  // The workload group is stale or inconclusive.
+  APPLICATION_STATUS_STAGE_GROUP_STALE = 13;
+
+  // The workload group is unavailable while paused.
+  APPLICATION_STATUS_STAGE_GROUP_UNAVAILABLE_WHILE_PAUSED = 14;
+
+  // The workload group remains after removal.
+  APPLICATION_STATUS_STAGE_GROUP_REMAINS_AFTER_REMOVAL = 15;
+
+  // Workload group removal is inconclusive.
+  APPLICATION_STATUS_STAGE_GROUP_REMOVAL_INCONCLUSIVE = 16;
+
+  // Reconciliation failed while checking target compatibility.
+  APPLICATION_STATUS_STAGE_TARGET_COMPATIBILITY_FAILED = 17;
+
+  // Reconciliation failed while preparing the launch.
+  APPLICATION_STATUS_STAGE_LAUNCH_PREPARATION_FAILED = 18;
+
+  // Reconciliation failed while preparing artifacts.
+  APPLICATION_STATUS_STAGE_ARTIFACT_PREPARATION_FAILED = 19;
+
+  // Reconciliation failed while evaluating readiness.
+  APPLICATION_STATUS_STAGE_READINESS_OPERATION_FAILED = 20;
+
+  // Reconciliation failed while inspecting the runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_INSPECTION_FAILED = 21;
+
+  // Reconciliation failed while checking runtime group ownership.
+  APPLICATION_STATUS_STAGE_RUNTIME_OWNERSHIP_FAILED = 22;
+
+  // Reconciliation failed while starting the runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_START_FAILED = 23;
+
+  // Reconciliation failed while stopping the runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_STOP_FAILED = 24;
+
+  // Reconciliation failed while removing the runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_REMOVAL_FAILED = 25;
+
+  // Reconciliation failed while confirming runtime group removal.
+  APPLICATION_STATUS_STAGE_RUNTIME_REMOVAL_CONFIRMATION_FAILED = 26;
+
+  // Reconciliation failed while cleaning up runtime infrastructure.
+  APPLICATION_STATUS_STAGE_RUNTIME_CLEANUP_FAILED = 27;
+
+  // Reconciliation failed while removing a stale runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_STALE_REMOVAL_FAILED = 28;
+
+  // Reconciliation failed while stopping a replaced runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_REPLACEMENT_STOP_FAILED = 29;
+
+  // Reconciliation failed while removing a replaced runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_REPLACEMENT_REMOVAL_FAILED = 30;
+
+  // Reconciliation failed while creating a replacement runtime group.
+  APPLICATION_STATUS_STAGE_RUNTIME_REPLACEMENT_CREATION_FAILED = 31;
+
+  // Reconciliation failed while removing a replaced runtime group during recovery.
+  APPLICATION_STATUS_STAGE_RUNTIME_RECOVERY_REPLACEMENT_REMOVAL_FAILED = 32;
+}
+
+// Stable non-sensitive application realization failure categories.
+enum ApplicationStatusFailureCode {
+  // No failure is observed.
+  APPLICATION_STATUS_FAILURE_CODE_UNSPECIFIED = 0;
+
+  // The assignment failed contract validation on the hosting node.
+  APPLICATION_STATUS_FAILURE_CODE_INVALID_ASSIGNMENT = 1;
+
+  // Assigned target configuration did not match the installed target.
+  APPLICATION_STATUS_FAILURE_CODE_TARGET_MISMATCH = 2;
+
+  // The linked route is unknown, so its name cannot be projected.
+  APPLICATION_STATUS_FAILURE_CODE_LINKED_ROUTE_UNKNOWN = 3;
+
+  // A local-development tag did not resolve to a local image for the retained platform.
+  APPLICATION_STATUS_FAILURE_CODE_LAUNCH_IDENTITY_UNRESOLVED = 4;
+
+  // The image of a retained launch identity is not available on the node.
+  APPLICATION_STATUS_FAILURE_CODE_IMAGE_MISSING = 5;
+
+  // Artifact preparation failed.
+  APPLICATION_STATUS_FAILURE_CODE_ARTIFACT_PREPARATION_FAILED = 6;
+
+  // Runtime workload group creation failed.
+  APPLICATION_STATUS_FAILURE_CODE_CREATION_FAILED = 7;
+
+  // Retained node state or unowned application data requires explicit recovery.
+  APPLICATION_STATUS_FAILURE_CODE_RECOVERY_REQUIRED = 9;
+
+  // The deployment's published host port is in use on the hosting node.
+  APPLICATION_STATUS_FAILURE_CODE_PUBLISHED_PORT_IN_USE = 10;
+}

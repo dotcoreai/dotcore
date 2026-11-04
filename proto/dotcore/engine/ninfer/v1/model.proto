@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package dotcore.engine.ninfer.v1;
+
+// Engine-owned ninfer configuration embedded in one catalog model
+// configuration. Generic catalog code treats this payload as opaque typed data.
+message NinferModelConfiguration {
+  // Fixed ninfer settings shared by every selection of this configuration.
+  NinferFixedModelSettings fixed_settings = 1;
+
+  // Option realizations keyed by generic model option identity.
+  repeated NinferOptionRealization option_realizations = 2;
+}
+
+// Concrete ninfer state retained in a resolved deployment snapshot.
+message NinferResolvedModelState {
+  // Fixed settings copied from the selected configuration.
+  NinferFixedModelSettings fixed_settings = 1;
+
+  // Selected realization evidence keyed by generic model option identity.
+  repeated NinferOptionRealization option_realizations = 2;
+}
+
+// Fixed ninfer launch inputs. Editable values use generic engine parameter
+// schema and value contracts.
+message NinferFixedModelSettings {
+  // KV-cache element type.
+  NinferKvCacheDataType kv_cache_data_type = 1;
+
+  // Maximum preparation-plus-admission wait for one request, in milliseconds.
+  uint32 pending_timeout_milliseconds = 2;
+
+  // Whether closed-turn assistant reasoning is preserved by default.
+  bool preserve_thinking = 3;
+
+  // Generic engine parameter containing the extra device checkpoint slot count.
+  string device_state_slots_parameter_id = 6;
+
+  // Generic engine parameter containing the shared pinned host context budget in MiB.
+  string host_context_mib_parameter_id = 7;
+}
+
+// Maps one generic model option to its ninfer realization.
+message NinferOptionRealization {
+  // Stable model-local option identifier.
+  string option_id = 1;
+
+  oneof realization {
+    // ninfer realization of a vision option.
+    NinferVisionOptionRealization vision = 2;
+
+    // ninfer realization of an MTP speculative-decoding option.
+    NinferMtpOptionRealization mtp = 3;
+  }
+}
+
+// Realizes one vision option for ninfer.
+message NinferVisionOptionRealization {
+  // Boolean parameter controlling whether media input and the vision tower are loaded.
+  string enabled_parameter_id = 1;
+}
+
+// Realizes one MTP speculative-decoding option for ninfer from its speculative-token count.
+message NinferMtpOptionRealization {
+  // Whether the optimized proposal head is loaded while the count is above 0.
+  bool lm_head_draft = 3;
+}
+
+// KV-cache element types accepted by a ninfer configuration.
+enum NinferKvCacheDataType {
+  // The ninfer KV-cache data type unspecified value.
+  NINFER_KV_CACHE_DATA_TYPE_UNSPECIFIED = 0;
+
+  // The ninfer FP8 KV-cache data type.
+  NINFER_KV_CACHE_DATA_TYPE_FP8 = 1;
+}

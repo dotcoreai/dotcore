@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package dotcore.watch.v1;
+
+import "dotcore/application/v1/service.proto";
+import "dotcore/capacity/v1/service.proto";
+import "dotcore/inference/v1/routes.proto";
+import "dotcore/model/v1/service.proto";
+import "dotcore/site/v1/service.proto";
+import "google/protobuf/empty.proto";
+
+// Management watch API streaming owner reads as they change. Each watched kind is read once per
+// tick whatever the number of watchers, and each changed kind is sent stamped with the aligned
+// interval it belongs to; the API owns no state.
+service ResourceWatchService {
+  // Streams 1 to 16 keyed subscriptions. Each receives its owner's full read on open (the latest
+  // published one, or a fresh read), then again at every tick where it changed; snapshot_complete
+  // follows the first round. Every open resends everything, so a reopen recovers missed changes.
+  // Errors end the whole stream: INVALID_ARGUMENT (bad keys or subscription count),
+  // RESOURCE_EXHAUSTED (watch cap reached), UNAVAILABLE (owner read failure or shutdown), ABORTED
+  // (watcher fell behind).
+  rpc WatchResources(WatchResourcesRequest) returns (stream WatchResourcesResponse);
+}
+
+// Subscriptions of one resource watch.
+message WatchResourcesRequest {
+  // Subscriptions to watch, each named by a key that its resource events carry.
+  repeated ResourceSubscription subscriptions = 1;
+}
+
+// One message of a resource watch, stamped with the manager session and tick it belongs to.
+message WatchResourcesResponse {
+  // Manager process session; a new value means a restart superseding earlier payloads and ticks.
+  string manager_session_id = 1;
+
+  // Latest manager tick this event reflects; may skip values, never decreases in a session.
+  uint64 tick_sequence = 2;
+
+  oneof event {
+    // Full read of one subscription as of this tick, named by its key.
+    KeyedResource resource = 3;
+
+    // Every subscription received its first payload; later resource events are changes.
+    google.protobuf.Empty snapshot_complete = 4;
+
+    // Keeps an idle stream alive, sent after 15 s without any other event.
+    google.protobuf.Empty heartbeat = 5;
+  }
+}
+
+// One watched resource kind and the key naming it on the stream.
+message ResourceSubscription {
+  // Caller-chosen name, non-empty, unique within the request and at most 64 bytes.
+  string key = 1;
+
+  // Resource kind to watch; each kind is the owner read of the same name.
+  oneof kind {
+    // Configured machines, as ListMachines answers.
+    dotcore.site.v1.ListMachinesRequest machines = 2;
+
+    // Current hardware snapshot of every configured machine, as ListHardwareSnapshots answers.
+    dotcore.site.v1.ListHardwareSnapshotsRequest hardware_snapshots = 3;
+
+    // Model deployments, as ListModelDeployments answers.
+    dotcore.model.v1.ListModelDeploymentsRequest model_deployments = 4;
+
+    // Application deployments, as ListApplicationDeployments answers.
+    dotcore.application.v1.ListApplicationDeploymentsRequest application_deployments = 5;
+
+    // Inference routes, as ListRoutes answers.
+    dotcore.inference.v1.ListRoutesRequest routes = 6;
+
+    // Configured execution targets, as ListConfiguredExecutionTargets answers.
+    dotcore.site.v1.ListConfiguredExecutionTargetsRequest execution_targets = 7;
+
+    // Every site node's memory pools with what occupies them, as ListNodeMemory answers.
+    dotcore.capacity.v1.ListNodeMemoryRequest node_memory = 8;
+  }
+}
+
+// Full read of one subscription, named by its key. Payloads encode deterministically, with lists in
+// their read's order and no maps, so unchanged owner state encodes to identical bytes at every tick.
+message KeyedResource {
+  // Key of the subscription this payload answers.
+  string key = 1;
+
+  // The subscription's read, of the kind it watches.
+  oneof payload {
+    // Configured machines.
+    dotcore.site.v1.ListMachinesResponse machines = 2;
+
+    // Current hardware snapshot of every configured machine.
+    dotcore.site.v1.ListHardwareSnapshotsResponse hardware_snapshots = 3;
+
+    // Model deployments.
+    dotcore.model.v1.ListModelDeploymentsResponse model_deployments = 4;
+
+    // Application deployments.
+    dotcore.application.v1.ListApplicationDeploymentsResponse application_deployments = 5;
+
+    // Inference routes.
+    dotcore.inference.v1.ListRoutesResponse routes = 6;
+
+    // Configured execution targets.
+    dotcore.site.v1.ListConfiguredExecutionTargetsResponse execution_targets = 7;
+
+    // Every site node's memory pools with what occupies them.
+    dotcore.capacity.v1.ListNodeMemoryResponse node_memory = 8;
+  }
+}

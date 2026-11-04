@@ -1,0 +1,56 @@
+import { useLayoutEffect, useRef, useState } from "react";
+
+export const LOADING_REVEAL_DELAY_MS = 300;
+export const LOADING_MINIMUM_VISIBLE_MS = 200;
+
+export function useDelayedLoading(loading: boolean): boolean {
+  const [visible, setVisible] = useState(false);
+  const visibleSinceRef = useRef<number | null>(null);
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useLayoutEffect(() => {
+    if (visible) {
+      visibleSinceRef.current = performance.now();
+    }
+  }, [visible]);
+
+  useLayoutEffect(() => {
+    if (loading) {
+      if (!visible) {
+        revealTimerRef.current = setTimeout(() => {
+          setVisible(true);
+        }, LOADING_REVEAL_DELAY_MS);
+      }
+    } else if (visible) {
+      const elapsed = performance.now() - (visibleSinceRef.current ?? performance.now());
+      const remaining = LOADING_MINIMUM_VISIBLE_MS - elapsed;
+
+      if (remaining <= 0) {
+        visibleSinceRef.current = null;
+        setVisible(false);
+      } else {
+        hideTimerRef.current = setTimeout(() => {
+          visibleSinceRef.current = null;
+          setVisible(false);
+        }, remaining);
+      }
+    } else {
+      visibleSinceRef.current = null;
+    }
+
+    return () => {
+      clearTimer(revealTimerRef);
+      clearTimer(hideTimerRef);
+    };
+  }, [loading, visible]);
+
+  return visible;
+}
+
+function clearTimer(timerRef: { current: ReturnType<typeof setTimeout> | null }) {
+  if (timerRef.current !== null) {
+    clearTimeout(timerRef.current);
+    timerRef.current = null;
+  }
+}

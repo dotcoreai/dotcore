@@ -1,0 +1,197 @@
+syntax = "proto3";
+
+package dotcore.engine.llama_cpp.v1;
+
+// Engine-owned llama.cpp configuration embedded in one catalog model
+// configuration. Generic catalog code treats this payload as opaque typed data.
+message LlamaCppModelConfiguration {
+  // Fixed llama.cpp settings shared by every selection of this configuration.
+  LlamaCppFixedModelSettings fixed_settings = 1;
+
+  // Option realizations keyed by generic model option identity.
+  repeated LlamaCppOptionRealization option_realizations = 2;
+}
+
+// Concrete llama.cpp state retained in a resolved deployment snapshot.
+message LlamaCppResolvedModelState {
+  // Complete fixed settings after selected options are materialized.
+  LlamaCppFixedModelSettings fixed_settings = 1;
+
+  // Selected realization evidence keyed by generic model option identity.
+  repeated LlamaCppOptionRealization option_realizations = 2;
+}
+
+// Maps one generic model option to its llama.cpp realization.
+message LlamaCppOptionRealization {
+  // Stable model-local option identifier.
+  string option_id = 1;
+
+  oneof realization {
+    // llama.cpp realization of a vision option.
+    LlamaCppVisionOptionRealization vision = 2;
+
+    // llama.cpp realization of a speculative-decoding option.
+    LlamaCppMtpOptionRealization mtp = 3;
+
+    // llama.cpp realization of a KV cache precision option.
+    LlamaCppKvCachePrecisionOptionRealization kv_cache_precision = 4;
+  }
+}
+
+// Realizes one vision option for llama.cpp.
+message LlamaCppVisionOptionRealization {
+  // Boolean parameter controlling whether this realization is active.
+  string enabled_parameter_id = 1;
+
+  // Model-local projector auxiliary artifact.
+  string auxiliary_artifact_id = 2;
+
+  // Image limits contributed while the option is active.
+  LlamaCppImageInputCapacity image_input_capacity = 3;
+}
+
+// llama.cpp image-input limits contributed by an enabled vision realization.
+message LlamaCppImageInputCapacity {
+  // Maximum images accepted in one request.
+  uint32 maximum_image_count = 1;
+
+  // Supported image MIME types.
+  repeated LlamaCppImageMediaType supported_media_types = 2;
+
+  // Maximum encoded image bytes.
+  uint64 maximum_encoded_bytes = 3;
+
+  // Maximum decoded image bytes.
+  uint64 maximum_decoded_bytes = 4;
+
+  // Maximum image width in pixels.
+  uint32 maximum_width = 5;
+
+  // Maximum image height in pixels.
+  uint32 maximum_height = 6;
+
+  // Maximum image pixels.
+  uint64 maximum_pixels = 7;
+
+  // Fixed visual-token count for each accepted image.
+  uint32 fixed_visual_tokens = 8;
+
+  // Only accepted public image-detail value.
+  LlamaCppImageDetail fixed_detail = 9;
+}
+
+// Image MIME types accepted by one llama.cpp vision realization.
+enum LlamaCppImageMediaType {
+  // The llama.cpp image media type unspecified value.
+  LLAMA_CPP_IMAGE_MEDIA_TYPE_UNSPECIFIED = 0;
+
+  // The llama.cpp image media type jpeg value.
+  LLAMA_CPP_IMAGE_MEDIA_TYPE_JPEG = 1;
+
+  // The llama.cpp image media type png value.
+  LLAMA_CPP_IMAGE_MEDIA_TYPE_PNG = 2;
+}
+
+// The fixed image-detail setting for one llama.cpp vision realization.
+enum LlamaCppImageDetail {
+  // The llama.cpp image detail unspecified value.
+  LLAMA_CPP_IMAGE_DETAIL_UNSPECIFIED = 0;
+
+  // The llama.cpp image detail auto value.
+  LLAMA_CPP_IMAGE_DETAIL_AUTO = 1;
+}
+
+// Realizes one MTP speculative-decoding option for llama.cpp from its speculative-token count.
+message LlamaCppMtpOptionRealization {
+  // Where the MTP head comes from; a draft artifact is selected only while the count is above 0.
+  LlamaCppSpeculativeDraftSource draft = 1;
+}
+
+// Realizes one KV cache precision option for llama.cpp by setting both the K and V cache types to
+// its precision; a quantized precision requires flash attention.
+message LlamaCppKvCachePrecisionOptionRealization {}
+
+// Fixed llama.cpp launch inputs. Editable values use generic engine parameter
+// schema and value contracts.
+message LlamaCppFixedModelSettings {
+  // Number of model layers to offload to the GPU.
+  uint32 gpu_layers = 1;
+
+  // Enables llama.cpp Flash Attention.
+  bool flash_attention = 2;
+
+  // Optional fixed speculative-decoding settings.
+  LlamaCppSpeculativeSettings speculative = 3;
+
+  // Optional fixed vision-projector settings for image input.
+  LlamaCppVisionProjectorSettings vision_projector = 4;
+
+  // Enables the model's Jinja chat template.
+  bool jinja = 5;
+
+  // Optional model-specific sampling defaults.
+  LlamaCppSamplingSettings sampling = 6;
+
+  // Processes each prompt in a single micro-batch spanning the total context, as decision models
+  // that evaluate all questions jointly require.
+  bool single_micro_batch = 7;
+}
+
+// Sampling defaults pinned by a llama.cpp model configuration.
+// Values are zero or within the engine's finite, normal 32-bit float range.
+message LlamaCppSamplingSettings {
+  // Minimum probability relative to the most likely token, from zero to one.
+  optional double min_p = 1;
+
+  // Positive multiplicative penalty for repeated tokens.
+  optional double repeat_penalty = 2;
+
+  // Nonnegative sampling temperature; zero selects greedy decoding.
+  optional double temperature = 3;
+
+  // Cumulative probability threshold for nucleus sampling, from zero to one.
+  optional double top_p = 4;
+}
+
+// Fixed llama.cpp vision-projector settings.
+message LlamaCppVisionProjectorSettings {
+  // Model-local auxiliary artifact loaded through --mmproj.
+  string auxiliary_artifact_id = 1;
+}
+
+// Fixed llama.cpp speculative-decoding settings, one shape for every draft method.
+message LlamaCppSpeculativeSettings {
+  // Draft method, which selects the llama.cpp speculative type.
+  LlamaCppSpeculativeMethod method = 1;
+
+  // Where the draft comes from.
+  LlamaCppSpeculativeDraftSource draft = 3;
+
+  // Maximum number of draft tokens per speculative step.
+  uint32 draft_maximum = 2;
+}
+
+// Speculative-decoding draft methods the llama.cpp adapter launches.
+enum LlamaCppSpeculativeMethod {
+  // The llama.cpp speculative method unspecified value.
+  LLAMA_CPP_SPECULATIVE_METHOD_UNSPECIFIED = 0;
+
+  // Multi-token prediction with a draft head.
+  LLAMA_CPP_SPECULATIVE_METHOD_MTP = 1;
+}
+
+// Source of one llama.cpp speculative draft: embedded in the main model artifact or a separate
+// draft file. Exactly one source is required.
+message LlamaCppSpeculativeDraftSource {
+  // Required source of the draft.
+  oneof source {
+    // The draft head is embedded in the main model artifact.
+    LlamaCppEmbeddedDraft embedded = 1;
+
+    // Model-local auxiliary artifact holding the draft file.
+    string auxiliary_artifact_id = 2;
+  }
+}
+
+// Marks a draft head embedded in the main model artifact.
+message LlamaCppEmbeddedDraft {}

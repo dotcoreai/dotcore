@@ -1,0 +1,33 @@
+# Engine release with the ids of the recorded telemetry, so the records match it.
+engineReleaseId: "llama-cpp-linux-2026-10-19"
+engineKind: "ENGINE_KIND_LLAMA_CPP"
+version: "fixture"
+parameterSchema:
+  schemaId: "fixture-schema"
+  parameters:
+    - parameterId: "total-context"
+      displayName: "Total context"
+      exposed: true
+      unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" }
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      exposed: true
+      unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens" }
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      exposed: true
+      unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "1" }
+    - parameterId: "prompt-cache-memory-mib"
+      displayName: "Prompt cache memory"
+      unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" }
+artifacts:
+  - artifactId: "cuda13"
+    oci:
+      repository:
+        registry: { host: "registry.dotcore.test" }
+        name: "fixture"
+      digest: { algorithm: "sha256", encoded: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "arm64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580

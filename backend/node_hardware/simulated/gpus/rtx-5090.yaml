@@ -1,0 +1,8 @@
+# NVIDIA GeForce RTX 5090, 32 GB. The values match a real desktop's reading.
+id: GPU-00000000-0000-0000-0000-000000005090
+vendor: nvidia
+model: NVIDIA GeForce RTX 5090
+memory:
+  architecture: dedicated
+  totalBytes: 34190917632 # 32,607 MiB
+  reservedBytes: 521142272 # 497 MiB, held by the driver at idle

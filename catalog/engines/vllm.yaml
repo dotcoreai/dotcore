@@ -1,0 +1,104 @@
+# Official vLLM release image, pinned per architecture by `engines/vllm/docker-image.nix`. The
+# unsuffixed tag is the CUDA 13 build that the R580 driver floor covers; the `-cu129` tag variant is
+# a CUDA 12.9 build.
+engineReleaseId: "vllm-v0-32-0"
+engineKind: "ENGINE_KIND_VLLM"
+version: "v0.32.0"
+parameterSchema:
+  schemaId: "vllm-v2"
+  parameters:
+    # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
+    - parameterId: "total-context"
+      displayName: "Total context"
+      exposed: true
+      description: "Context memory the server holds from the start and shares among the requests it generates at once. Requests that start with the same prompt share its memory instead of holding their own copy. When it fills, the server pauses the newest requests and processes them again once memory frees up."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "16777216"
+        unit: "tokens"
+        defaultValue: "32768"
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      exposed: true
+      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the memory of a matching prompt start, from a running request, a finished one still held in the total context, or the KV offloading memory."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "1048576"
+        unit: "tokens"
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      exposed: true
+      description: "Requests the server generates at the same time; further requests wait in a queue. They share the total context, and each one also holds model state of its own, so every added request adds memory."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "1024"
+        unit: "requests"
+        defaultValue: "4"
+    - parameterId: "maximum-batched-tokens"
+      displayName: "Maximum batched tokens"
+      exposed: false
+      description: "Maximum tokens processed across one scheduled batch."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "1048576"
+        unit: "tokens"
+    - parameterId: "maximum-cudagraph-capture-size"
+      displayName: "Maximum CUDA graph capture size"
+      exposed: false
+      description: "Largest sequence batch captured in a CUDA graph."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "1024"
+        unit: "sequences"
+    - parameterId: "kv-cache-memory-bytes"
+      displayName: "KV cache memory"
+      exposed: false
+      description: "Accelerator memory reserved for the total context, in bytes."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "1099511627776"
+        unit: "bytes"
+    - parameterId: "kv-offloading-size-gib"
+      displayName: "KV offloading size"
+      exposed: true
+      description: "Host memory where context evicted from the total context is kept, so a later request with the same prompt start reuses it instead of processing it again, in GiB. 0 turns it off."
+      unsignedInteger:
+        minimum: "0"
+        maximum: "1024"
+        unit: "GiB"
+# Engine compile and tuning caches, shared by every deployment on the same engine build: vLLM's
+# torch.compile cache and FlashInfer autotune results (under its cache root), Triton kernels and
+# FlashInfer JIT kernels. The variables point each at the mount whatever the image's user and home
+# directory. They avoid `XDG_CACHE_HOME`, which would also move unrelated caches such as Hugging
+# Face and pip into the shared folder.
+storageBindings:
+  - bindingName: "engine-cache"
+    mountPath: "/var/cache/dotcore-engine"
+    kind: "STORAGE_KIND_CACHE"
+    scope: "STORAGE_SCOPE_ENGINE_ARTIFACT"
+    environment:
+      - { name: "VLLM_CACHE_ROOT", relativePath: "vllm" }
+      - { name: "TRITON_CACHE_DIR", relativePath: "triton" }
+      - { name: "FLASHINFER_WORKSPACE_BASE" }
+# The image and its digests are pinned by `engines/vllm/docker-image.nix`.
+artifacts:
+  - artifactId: "linux-amd64-cuda"
+    nix:
+      flake: "self"
+      package: "engines.vllm.docker"
+      dockerImage: {}
+    # Each selector is one set of target facts this build runs on.
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "amd64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580
+  - artifactId: "linux-arm64-cuda"
+    nix:
+      flake: "self"
+      package: "engines.vllm.docker"
+      dockerImage: {}
+    # Each selector is one set of target facts this build runs on.
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "arm64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580

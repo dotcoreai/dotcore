@@ -1,0 +1,762 @@
+# Immutable provenance for Ornith 1.5 35B A3B's public FP8, NVFP4 and GGUF builds.
+# Ornith 1.5 35B A3B is a Qwen3.5 35B A3B derivative with the same architecture as Qwen3.6 35B A3B, so its
+# llama.cpp sizing is derived from the measured qwen3-6-35b-a3b constants; its vLLM sizing is measured.
+# FP8 needs more memory per device than a 32 GB GPU holds, so it has its own configuration and minimums.
+# Both vLLM builds keep the MTP head and vision tower unquantized, at the same tensor sizes as Qwen3.6 35B A3B.
+# Each GGUF tier embeds the MTP head with the same layout as the Unsloth Qwen3.6 MTP GGUFs, and llama.cpp uses
+# the chat template embedded in the GGUF.
+modelId: "ornith-1-5-35b-a3b"
+displayName: "Ornith 1.5 35B A3B"
+version: "1.5-35b-a3b"
+# max_position_embeddings in the ornith-ai/Ornith-1.5-35B-A3B-FP8 config.json (revision b93dbd8); the NVFP4
+# config.json carries the same value.
+maximumContextTokens: 262144
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+artifacts:
+  - artifactId: "fp8"
+    weightQuantization: "FP8"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-FP8"
+      revision: "b93dbd8128d3d2e6655b8570c992de97fc8ece6e"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "182e77dd83bd8e9ca818b240b82e28f243762cd5dda32e6eef327df7b1cd107e"
+          - path: "config.json"
+            provenanceDigest: "ca8e7ecce8e8f949a5a2ec051172be9156c6dd91736cdb03a3d8d651e7990afb"
+          - path: "generation_config.json"
+            provenanceDigest: "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+          - path: "merges.txt"
+            provenanceDigest: "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+          - path: "model-00001-of-00016.safetensors"
+            provenanceDigest: "3c3bc256588c65bf126498986e20257a0ee3b4ac7614a4f8b34cf16675f9bf2d"
+          - path: "model-00002-of-00016.safetensors"
+            provenanceDigest: "da29cbc82a1ab22f40119359efeae536be548ae5238002766f3d6d701be80a82"
+          - path: "model-00003-of-00016.safetensors"
+            provenanceDigest: "1745990d29e9a3071e00140d06f7913e4faf50902720472c7caf97de4eff8600"
+          - path: "model-00004-of-00016.safetensors"
+            provenanceDigest: "7ab4713f3f1f92d08720b4304cd79aceb161a1d5663fe417ca30a9a38d9baee3"
+          - path: "model-00005-of-00016.safetensors"
+            provenanceDigest: "d854d6a4e525af1c073216d4bf91e9c77d993a2ba3181f12576b229f8ddbf62e"
+          - path: "model-00006-of-00016.safetensors"
+            provenanceDigest: "0d2494584c102c2bcabcefc018564a68751df6c31efd373211925d6fa0772633"
+          - path: "model-00007-of-00016.safetensors"
+            provenanceDigest: "726d142e6c0c89d6b787348eabd41f243dcf1fc5b6dcd42d03cea4fabe1e7b7f"
+          - path: "model-00008-of-00016.safetensors"
+            provenanceDigest: "5c99dd89d5bb523e03df4c1e08f58b303c3a2e9fce66122003d9df3f085211ad"
+          - path: "model-00009-of-00016.safetensors"
+            provenanceDigest: "6d48b5cc90fe843e81a09610a43bf2158d48c546842d261c0743df7a11e45171"
+          - path: "model-00010-of-00016.safetensors"
+            provenanceDigest: "cc9e68c7df58590008638a6beb1a5bdbf2b42ffb0ccf684077656ffad2771c9c"
+          - path: "model-00011-of-00016.safetensors"
+            provenanceDigest: "5f0d4b9686943d0fe146c6bb0e73bcd7ca36b8a035a3b54edafef3e41bfbe8f3"
+          - path: "model-00012-of-00016.safetensors"
+            provenanceDigest: "dc8bb420c3ebb43ef4b1098472952a5ef8383171757269f068d669d3dcec8bf4"
+          - path: "model-00013-of-00016.safetensors"
+            provenanceDigest: "63ab6b2ca8e8ac32cc7061a6b99e9b321b35ef237b7eff2947f38b8460bf0a09"
+          - path: "model-00014-of-00016.safetensors"
+            provenanceDigest: "34f2916ddad7699b9386fb55a143949a957527e6b5f5aac7feacadf7189c199e"
+          - path: "model-00015-of-00016.safetensors"
+            provenanceDigest: "a93c3dfa4d8470e81e645e8ee6cb5c7fecf0117047997feb66fcc688bd3c8537"
+          - path: "model-00016-of-00016.safetensors"
+            provenanceDigest: "3a3f4437def3f4bde52c3e8b93bff2fcb49221b1bbd62af6fec6f02101f70e9e"
+          - path: "model.safetensors.index.json"
+            provenanceDigest: "eea884c658c55fec4b079be6ddb0e267a3d263034493bdaeb53b20478ee4803d"
+          - path: "preprocessor_config.json"
+            provenanceDigest: "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          - path: "processor_config.json"
+            provenanceDigest: "d89ef49ce9cd37fbf510158e13c1ef063d9286411c1ec9049932dbe0487143b1"
+          - path: "tokenizer.json"
+            provenanceDigest: "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b"
+          - path: "video_preprocessor_config.json"
+            provenanceDigest: "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          - path: "vocab.json"
+            provenanceDigest: "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+  - artifactId: "nvfp4"
+    weightQuantization: "NVFP4"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-NVFP4"
+      revision: "94e431d9cc47fa1986a7a1a4e9a80f7f118b03aa"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "182e77dd83bd8e9ca818b240b82e28f243762cd5dda32e6eef327df7b1cd107e"
+          - path: "config.json"
+            provenanceDigest: "319ee1293a279a57990fcfc18fdb533101ffaf264a990a7d0bcb1c3d24fc720d"
+          - path: "generation_config.json"
+            provenanceDigest: "e70c136c1b78ddc1fb0905bac8e733a4dc448d4f852a5dd75143fffc70be550e"
+          - path: "hf_quant_config.json"
+            provenanceDigest: "c619bbfc5a50768332a15ef34ebb96fd3874c64301e0bc462f412920cefa46eb"
+          - path: "merges.txt"
+            provenanceDigest: "a9d356d7bdf1ef4949e3e748e95b8e10ad9d4e2e838eddc38a0a7b6b94d1db8d"
+          - path: "model-00001-of-00003.safetensors"
+            provenanceDigest: "648fe83171485f4be03ea58d86089e088c94c2a3dc88922233f9002f30d8bc8b"
+          - path: "model-00002-of-00003.safetensors"
+            provenanceDigest: "cb5c5978721a1e87406ae68f1cd5a855326e40ff8bc13832644c392115336987"
+          - path: "model-00003-of-00003.safetensors"
+            provenanceDigest: "8303cef7d375021d69dcafc60d3fad5f8186995b18b0db5e2a609aadeb8a4f51"
+          - path: "model.safetensors.index.json"
+            provenanceDigest: "52af7e400d0138ffde60f127fbf3ce494e6ebf682748f7e44545c25b68d28128"
+          - path: "preprocessor_config.json"
+            provenanceDigest: "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          - path: "processor_config.json"
+            provenanceDigest: "d89ef49ce9cd37fbf510158e13c1ef063d9286411c1ec9049932dbe0487143b1"
+          - path: "tokenizer.json"
+            provenanceDigest: "5f9e4d4901a92b997e463c1f46055088b6cca5ca61a6522d1b9f64c4bb81cb42"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "5186f0defcd7f232382c7f0aebcd2252d073bb921ab240e407b7ae8745d2b29b"
+          - path: "video_preprocessor_config.json"
+            provenanceDigest: "7768af27c1fafa9cc9011c1dc20067e03f8915e03b63504550e11d5066986d13"
+          - path: "vocab.json"
+            provenanceDigest: "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+  - artifactId: "q4-k-m"
+    weightQuantization: "Q4_K_M"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
+      revision: "12393612fd4f730ff5aadc23e9b8f9648aa49ceb"
+      file:
+        path: "Ornith-1.5-35B-Q4_K_M.gguf"
+        provenanceDigest: "42739874cc2ccfdb8523b23fbe52e29b2a7555c8176737ca9ca0b5d59859d41f"
+  - artifactId: "q5-k-m"
+    weightQuantization: "Q5_K_M"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
+      revision: "12393612fd4f730ff5aadc23e9b8f9648aa49ceb"
+      file:
+        path: "Ornith-1.5-35B-Q5_K_M.gguf"
+        provenanceDigest: "91df97de5845100e850b4b5ec5ff35695382020b880fad6f7f51787b3a953bd0"
+  - artifactId: "q6-k"
+    weightQuantization: "Q6_K"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
+      revision: "12393612fd4f730ff5aadc23e9b8f9648aa49ceb"
+      file:
+        path: "Ornith-1.5-35B-Q6_K.gguf"
+        provenanceDigest: "15d4658bbfc9c6034621729c15bbb50662c82b32a7ddd9624a1e545a74bdbb4b"
+  - artifactId: "q8-0"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
+      revision: "12393612fd4f730ff5aadc23e9b8f9648aa49ceb"
+      file:
+        path: "Ornith-1.5-35B-Q8_0.gguf"
+        provenanceDigest: "de46c4baf4b4dd85ea438bb0f757f21c38841a353506579979bba114311658c3"
+auxiliaryArtifacts:
+  # Byte-identical in the FP8 and NVFP4 repositories; Ornith adjusts the Qwen template.
+  - auxiliaryArtifactId: "ornith-chat-template"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-FP8"
+      revision: "b93dbd8128d3d2e6655b8570c992de97fc8ece6e"
+      file:
+        path: "chat_template.jinja"
+        provenanceDigest: "182e77dd83bd8e9ca818b240b82e28f243762cd5dda32e6eef327df7b1cd107e"
+  - auxiliaryArtifactId: "vision-projector"
+    source:
+      repository: "ornith-ai/Ornith-1.5-35B-A3B-GGUF"
+      revision: "12393612fd4f730ff5aadc23e9b8f9648aa49ceb"
+      file:
+        path: "mmproj-Ornith-1.5-35B-BF16.gguf"
+        provenanceDigest: "1921a36a85aee56cd2abd27f46701802c9d85a33474792e600df6c3b282a135d"
+configurations:
+  - configurationId: "vllm-nvidia-cuda-fp8"
+    engineArtifacts:
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-amd64-cuda"
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "fp8"
+        modelArtifactId: "fp8"
+        auxiliaryArtifactIds: ["ornith-chat-template"]
+    # Non-KV terms measured with vLLM v0.32.0 on an NVIDIA GB10 host (unified memory, linux/arm64), at 4
+    # parallel requests and total contexts 16,384-131,072, MTP off and 2 draft tokens, text and vision. Every
+    # launch was a first start: vLLM compiles anew for each new context per request and keeps that memory.
+    # A 32 GB GPU can't hold this build, so it has no dedicated-memory measurement: modelLoadingBaseBytes adds
+    # 500 MB to the GB10 fit, since the NVFP4 configuration reads up to that much higher on an RTX 5090.
+    # mtpBytes is the larger per-group fit; visionBytes is the NVFP4 configuration's, the larger of the two
+    # for the same vision tensors. marginBytes covers the largest growth under four concurrent long requests.
+    sizing:
+      parameters:
+        modelLoadingBaseBytes: 39356507392
+        mtpBytes: 2901782544
+        visionBytes: 1188129047
+        marginBytes: 800000000
+        kvBlockBytes: 21463040
+        kvBytesPerToken: 13167
+        kvMtpBlockBytes: 25051136
+        kvMtpBytesPerToken: 14191
+      derivedParameters:
+        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 2
+        # recurrent-state blocks per recurrent layer group (3 groups), one more per group for each MTP
+        # draft token, and one for rounding the request's context up; one more block is held back. With
+        # one request this is vLLM's start check at a context per request equal to the total context.
+        # Block bytes are those of the largest MTP draft count; per-token bytes are the larger of vLLM's
+        # block layout and the measurement.
+        kv-cache-memory-bytes: >-
+          if(${options.mtp.token-count} > 0, 1, 0)
+          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (7 + 3 * ${options.mtp.token-count}))
+          + ${kvMtpBytesPerToken} * ${total-context})
+          + if(${options.mtp.token-count} == 0, 1, 0)
+          * (${kvBlockBytes} * (1 + ${parallel-requests} * 7)
+          + ${kvBytesPerToken} * ${total-context})
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${modelLoadingBaseBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${mtpBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + ${kv-cache-memory-bytes}
+          allowance: >-
+            ${marginBytes}
+    hardwareSupport:
+      # The minimum covers the largest default profile estimate, which keeps 32 GB GPUs below it.
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "46100000000"
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          - bindingId: "fp8"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_VLLM"
+      vllm:
+        fixedSettings:
+          reasoningParser: "qwen3"
+          toolCallParser: "qwen3_xml"
+          chatTemplateAuxiliaryArtifactId: "ornith-chat-template"
+          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
+          kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
+          maximumBatchedTokensParameterId: "maximum-batched-tokens"
+          maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
+          kvOffloadingSizeGibParameterId: "kv-offloading-size-gib"
+          kvOffloadingBackend: "VLLM_KV_OFFLOADING_BACKEND_NATIVE"
+          containerPort: 15000
+          readinessPolicy:
+            mode: "VLLM_READINESS_MODE_MODELS"
+          requiresHostIpc: true
+          trustRemoteCode: true
+          enableLogRequests: true
+          enableAutoToolChoice: true
+          enableChunkedPrefill: true
+          enableAsyncScheduling: true
+          enablePrefixCaching: true
+          enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      imageInputCapacity:
+        maximumImageCount: 1
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "20971520"
+        maximumDecodedBytes: "67108864"
+        maximumWidth: 8192
+        maximumHeight: 8192
+        maximumPixels: "16000000"
+        fixedVisualTokens: 256
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      # Ornith publishes no draft token recommendation; 2 follows the Qwen3.6 35B A3B model card.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "2"
+  - configurationId: "vllm-nvidia-cuda-nvfp4"
+    engineArtifacts:
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-amd64-cuda"
+      - engineReleaseId: "vllm-v0-32-0"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "nvfp4"
+        modelArtifactId: "nvfp4"
+        auxiliaryArtifactIds: ["ornith-chat-template"]
+    # Non-KV terms measured with vLLM v0.32.0 on an NVIDIA RTX 5090 host (dedicated memory, linux/amd64)
+    # and an NVIDIA GB10 host (unified memory, linux/arm64), at 4 parallel requests and total contexts
+    # 16,384-98,304 (RTX 5090) and 16,384-131,072 (GB10), MTP off and 2 draft tokens, text and vision.
+    # Every launch was a first start: vLLM compiles anew for each new context per request and keeps that
+    # memory. The constants are the RTX 5090 fit, which reads above the GB10 for every term; vision points
+    # include an image request. marginBytes covers the largest growth under four concurrent long requests.
+    sizing:
+      parameters:
+        modelLoadingBaseBytes: 23214256718
+        mtpBytes: 2447415018
+        visionBytes: 1188129047
+        marginBytes: 800000000
+        kvBlockBytes: 21463040
+        kvBytesPerToken: 13167
+        kvMtpBlockBytes: 25051136
+        kvMtpBytesPerToken: 14191
+      derivedParameters:
+        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 2
+        # recurrent-state blocks per recurrent layer group (3 groups), one more per group for each MTP
+        # draft token, and one for rounding the request's context up; one more block is held back. With
+        # one request this is vLLM's start check at a context per request equal to the total context.
+        # Block bytes are those of the largest MTP draft count; per-token bytes are the larger of vLLM's
+        # block layout and the measurement.
+        kv-cache-memory-bytes: >-
+          if(${options.mtp.token-count} > 0, 1, 0)
+          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (7 + 3 * ${options.mtp.token-count}))
+          + ${kvMtpBytesPerToken} * ${total-context})
+          + if(${options.mtp.token-count} == 0, 1, 0)
+          * (${kvBlockBytes} * (1 + ${parallel-requests} * 7)
+          + ${kvBytesPerToken} * ${total-context})
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${modelLoadingBaseBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${mtpBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + ${kv-cache-memory-bytes}
+          allowance: >-
+            ${marginBytes}
+    hardwareSupport:
+      # The minimum covers the largest default profile estimate.
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "29500000000"
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          - bindingId: "nvfp4"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_VLLM"
+      vllm:
+        fixedSettings:
+          reasoningParser: "qwen3"
+          toolCallParser: "qwen3_xml"
+          chatTemplateAuxiliaryArtifactId: "ornith-chat-template"
+          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
+          kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
+          maximumBatchedTokensParameterId: "maximum-batched-tokens"
+          maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
+          kvOffloadingSizeGibParameterId: "kv-offloading-size-gib"
+          kvOffloadingBackend: "VLLM_KV_OFFLOADING_BACKEND_NATIVE"
+          containerPort: 15000
+          readinessPolicy:
+            mode: "VLLM_READINESS_MODE_MODELS"
+          requiresHostIpc: true
+          trustRemoteCode: true
+          enableLogRequests: true
+          enableAutoToolChoice: true
+          enableChunkedPrefill: true
+          enableAsyncScheduling: true
+          enablePrefixCaching: true
+          enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      imageInputCapacity:
+        maximumImageCount: 1
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "20971520"
+        maximumDecodedBytes: "67108864"
+        maximumWidth: 8192
+        maximumHeight: 8192
+        maximumPixels: "16000000"
+        fixedVisualTokens: 256
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      # Ornith publishes no draft token recommendation; 2 follows the Qwen3.6 35B A3B model card.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "2"
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-10-19"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q4-k-m"
+        modelArtifactId: "q4-k-m"
+      - bindingId: "q5-k-m"
+        modelArtifactId: "q5-k-m"
+      - bindingId: "q6-k"
+        modelArtifactId: "q6-k"
+      - bindingId: "q8-0"
+        modelArtifactId: "q8-0"
+    # Derived, not measured: the qwen3-6-35b-a3b llama.cpp equation and constants, with each tier's weight
+    # terms adjusted from the closest qwen3-6 tier (q4-xl for Q4_K_M, q5-xl for the others):
+    # baseAccelBytes = qwen3-6 base + main-weight tensor difference (GGUF tensors outside the MTP block),
+    # mtpBaseBytes = this tier's MTP block + the same 180 MiB draft growth. Per-token, recurrent and
+    # margin terms carry over verbatim, and baseAccelBytes excludes the per-slot state (see slotStateBytes). visionBytes = qwen3-6 value + projector file difference (+3,538,560 B).
+    # Every tier is sized on every class; Q8_0 needs more than a 32 GB GPU holds at the default context.
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "mtpBaseBytes", "marginBytes"]
+      parameters:
+        mtpBytesPerContextToken: 2048
+        # Per-slot llama.cpp state: Gated DeltaNet recurrent state, the same architecture as
+        # qwen3-6-35b-a3b (30 linear-attention layers x (conv 3 x 8192 + state 32 heads x 128 x 128) f32
+        # values). Each MTP draft token keeps one more copy per slot. baseAccelBytes values exclude it:
+        # each is the 4-slot derived value minus 4 x slotStateBytes.
+        slotStateBytes: 65863680
+        visionBytes: 934346368
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + ${accelBytesPerContextToken} * ${total-context}
+            + ${parallel-requests} * ${slotStateBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0)
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+            + ${options.mtp.token-count} * ${parallel-requests} * ${slotStateBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        bindingSizing:
+          # Derived from qwen3-6 q4-xl (GB10): main-weight difference -1,158,046,240 B.
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 20934714122
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 735447040
+              marginBytes: 134217728
+          # Derived from qwen3-6 q5-xl (GB10): main-weight difference -1,798,365,728 B.
+          - bindingId: "q5-k-m"
+            parameters:
+              baseAccelBytes: 24497087238
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 807143424
+              marginBytes: 134217728
+          # Extrapolated from qwen3-6 q5-xl (GB10): main-weight difference +1,986,655,712 B.
+          - bindingId: "q6-k"
+            parameters:
+              baseAccelBytes: 28282108678
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 883320832
+              marginBytes: 134217728
+          # Extrapolated from qwen3-6 q5-xl (GB10): main-weight difference +10,375,642,240 B.
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 36671095206
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 1087752192
+              marginBytes: 134217728
+      - hardwareClassId: "nvidia-dedicated"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          # The qwen3-6 dedicated-memory offset (400 MiB, from its RTX 5090 smoke runs).
+          baseOffsetBytes: 419430400
+        # The binding parameters are the nvidia-unified values verbatim, as in qwen3-6.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 20934714122
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 735447040
+              marginBytes: 134217728
+          - bindingId: "q5-k-m"
+            parameters:
+              baseAccelBytes: 24497087238
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 807143424
+              marginBytes: 134217728
+          - bindingId: "q6-k"
+            parameters:
+              baseAccelBytes: 28282108678
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 883320832
+              marginBytes: 134217728
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 36671095206
+              accelBytesPerContextToken: 21504
+              mtpBaseBytes: 1087752192
+              marginBytes: 134217728
+      - hardwareClassId: "apple"
+        # Apple Silicon is always unified memory.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # Derived from the qwen3-6 apple constants, whose Metal base is 1.05 x (Linux base + 1.1 GB), so each
+        # base adds 1.05 x the main-weight difference above. Other terms match qwen3-6 apple verbatim.
+        bindingSizing:
+          - bindingId: "q4-k-m"
+            parameters:
+              baseAccelBytes: 23151405076
+              accelBytesPerContextToken: 24300
+              mtpBaseBytes: 735447040
+              marginBytes: 134217728
+          - bindingId: "q5-k-m"
+            parameters:
+              baseAccelBytes: 26893364855
+              accelBytesPerContextToken: 24300
+              mtpBaseBytes: 807143424
+              marginBytes: 134217728
+          - bindingId: "q6-k"
+            parameters:
+              baseAccelBytes: 30867637367
+              accelBytesPerContextToken: 24300
+              mtpBaseBytes: 883320832
+              marginBytes: 134217728
+          - bindingId: "q8-0"
+            parameters:
+              baseAccelBytes: 39676073221
+              accelBytesPerContextToken: 24300
+              mtpBaseBytes: 1087752192
+              marginBytes: 134217728
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+          jinja: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+              auxiliaryArtifactId: "vision-projector"
+              imageInputCapacity:
+                maximumImageCount: 1
+                supportedMediaTypes: ["LLAMA_CPP_IMAGE_MEDIA_TYPE_JPEG", "LLAMA_CPP_IMAGE_MEDIA_TYPE_PNG"]
+                maximumEncodedBytes: "20971520"
+                maximumDecodedBytes: "67108864"
+                maximumWidth: 8192
+                maximumHeight: 8192
+                maximumPixels: "16000000"
+                fixedVisualTokens: 256
+                fixedDetail: "LLAMA_CPP_IMAGE_DETAIL_AUTO"
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      # Ornith publishes no draft token recommendation; 2 follows the Qwen3.6 35B A3B model card.
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "2"
+profiles:
+  - profileId: "fp8"
+    displayName: "Ornith FP8"
+    description: "Runs Ornith 1.5 35B A3B through vLLM on NVIDIA GPUs with more than 32 GB of memory."
+    configurationId: "vllm-nvidia-cuda-fp8"
+    defaultModelArtifactBindingId: "fp8"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "fp8-multimodal"
+    displayName: "Ornith FP8 with vision"
+    description: "Runs Ornith 1.5 35B A3B through vLLM for text and image inference on large NVIDIA GPUs."
+    configurationId: "vllm-nvidia-cuda-fp8"
+    defaultModelArtifactBindingId: "fp8"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+  - profileId: "nvfp4"
+    displayName: "Ornith NVFP4"
+    description: "Runs Ornith 1.5 35B A3B through vLLM for Linux NVIDIA inference."
+    configurationId: "vllm-nvidia-cuda-nvfp4"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "nvfp4-multimodal"
+    displayName: "Ornith NVFP4 with vision"
+    description: "Runs Ornith 1.5 35B A3B through vLLM for text and image inference."
+    configurationId: "vllm-nvidia-cuda-nvfp4"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+  - profileId: "q4-k-m"
+    displayName: "Ornith Q4_K_M"
+    description: "Uses the balanced Q4 weights through llama.cpp."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q4-k-m"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "q5-k-m"
+    displayName: "Ornith Q5_K_M"
+    description: "Uses the higher-precision Q5 weights through llama.cpp."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q5-k-m"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "q6-k"
+    displayName: "Ornith Q6_K"
+    description: "Uses the near-lossless Q6 weights through llama.cpp."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q6-k"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "q8-0"
+    displayName: "Ornith Q8_0"
+    description: "Uses the highest-precision Q8 weights through llama.cpp on devices with more than 32 GB of memory."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q8-0"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+# Estimated, not benchmarked: the model card's own results, compared with those of similar models
+# that have a score, predict 17-22.
+intelligence:
+  overall: 20
+license:
+  id: MIT
+  termsUrl: https://opensource.org/license/mit

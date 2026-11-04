@@ -1,0 +1,41 @@
+siteId: two-node-fixture-site
+nodes:
+- nodeId: manager-node
+  host: 127.0.0.1
+  displayName: Manager node
+  siteManager: {}
+- nodeId: worker-node
+  host: 127.0.0.2
+  displayName: Worker node
+executionTargets:
+- executionTargetId: manager-target
+  siteNodeId: manager-node
+  displayName: Simulated models
+  platform: { operatingSystem: linux, architecture: amd64 }
+  acceleratorDeviceIds: [GPU-00000000-0000-0000-0000-000000005090]
+  modelRuntime:
+    simulatedRuntime:
+      defaultScenario: { readyDelayMillis: 0, stopDelayMillis: 0 }
+- executionTargetId: manager-application-target
+  siteNodeId: manager-node
+  displayName: Simulated applications
+  platform: { operatingSystem: linux, architecture: amd64 }
+  applicationRuntime: { simulatedRuntime: {} }
+- executionTargetId: worker-target
+  siteNodeId: worker-node
+  displayName: Simulated models
+  platform: { operatingSystem: linux, architecture: amd64 }
+  acceleratorDeviceIds: [GPU-00000000-0000-0000-0000-000000005090]
+  modelRuntime:
+    simulatedRuntime:
+      defaultScenario: { readyDelayMillis: 0, stopDelayMillis: 0 }
+- executionTargetId: worker-application-target
+  siteNodeId: worker-node
+  displayName: Simulated applications
+  platform: { operatingSystem: linux, architecture: amd64 }
+  applicationRuntime: { simulatedRuntime: {} }
+modelDeployments: []
+applicationDeployments: []
+modelDeploymentIdentityAllocator:
+  namespace: 83e8c24d8f4e7a49
+  nextSequence: '1'
