@@ -22,10 +22,12 @@
 ## Update
 
 1. Review upstream changes since the pin: the Dockerfile, `CMakeLists.txt`,
-   `cmake/Dependencies.cmake`, `apps/serve/`, `docs/serving.md`. Known upstream issues:
-   * Since `8cea711` (2026-10-14) CMake needs `liburing`, which the Dockerfile lacks; pin `1936758`
-     until upstream fixes it.
+   `cmake/Dependencies.cmake`, the flag schema in `src/product/config/schema.cpp`,
+   `docs/startup-configuration.md`. ninfer rejects unknown flags, so a renamed flag fails startup.
    * A force-pushed upstream branch can drop the pinned commit; pick one that still exists.
+   * The adapter sizes the device context pool in bytes from the configuration's pool record
+     sizes. Check them against upstream's pool layout (`src/core/context_pool.cpp` and the model's
+     state and KV layout) when it changes.
 2. Set `rev` in [`docker-image.nix`](docker-image.nix) to the full 40-character SHA and update
    `hash` (`nix flake prefetch github:Neroued/ninfer/<sha>`).
 3. `just image-store` on an x86_64 Linux host: it updates the `linux/amd64` entry of
@@ -39,7 +41,11 @@
    cannot launch it (that needs `libcuda.so.1` from a GPU host).
 2. Run `ldd` on `ninfer-serve` inside the image: `libcuda.so.1` is the only library allowed to be
    missing.
-3. `just backend::test-nvidia-5090` on an RTX 5090 that no other workload uses (from the root)
+3. Launch the profile with `just dev::workload-launch` and the custom argument token
+   `--log-level=debug`, and read its startup `context` lines with `dotc dev workload logs`: the
+   block size must equal the configuration's state record size, and the token estimate must cover
+   the total context.
+4. `just backend::test-nvidia-5090` on an RTX 5090 that no other workload uses (from the root)
    deploys the engine from the workspace's development source through its loader and serves the
    profile. It needs the profile's `.ninfer` artifact in the shared cache and about 32 GB of free
    GPU memory.

@@ -2,13 +2,13 @@
 
 {
   dockerfile = {
-    # Upstream publishes only source; its own Dockerfile builds the image. See README.md for the
+    # Upstream publishes only source; its own Dockerfile builds the image. See AGENTS.md for the
     # pin's constraints before updating it.
     context = fetchFromGitHub {
       owner = "Neroued";
       repo = "ninfer";
-      rev = "193675826f62ed229d99154ace3075ba3a6cd968";
-      hash = "sha256-aKzu3so6YolRoOPafrFxBWhch993qOxuOQokZWMSUVU=";
+      rev = "a754fcf3bf524494aa927c2f54e0cbfb58f569ab";
+      hash = "sha256-Yn3SxVbVm1Dug0mDcpjQHtXoJsVXo4S6SPd5v3GHqLE=";
     };
     # Compiled only for the GB202 chip (sm_120a) of the RTX 5090 and RTX PRO 6000.
     platforms = [ "linux/amd64" ];
