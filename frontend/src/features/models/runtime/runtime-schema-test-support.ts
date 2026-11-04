@@ -109,11 +109,11 @@ export const vllmRelease = create(EngineReleaseSchema, {
 });
 
 export const ninferRelease = create(EngineReleaseSchema, {
-  engineReleaseId: "ninfer-68c5435",
+  engineReleaseId: "ninfer-a754fcf",
   engineKind: EngineKind.NINFER,
-  version: "68c5435",
+  version: "a754fcf",
   parameterSchema: {
-    schemaId: "ninfer-v2",
+    schemaId: "ninfer-v3",
     parameters: [
       unsignedParameter("total-context", "Total context", true, 1024n, 2097152n, "tokens", {
         defaultValue: 32768n,
@@ -138,7 +138,6 @@ export const ninferRelease = create(EngineReleaseSchema, {
         description:
           "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
       }),
-      unsignedParameter("device-state-slots", "Device state slots", false, 0n, 64n, "slots"),
     ],
   },
 });
@@ -221,7 +220,6 @@ export const runtimeSchemaModel = create(ModelSchema, {
           case: "ninfer",
           value: {
             fixedSettings: {
-              deviceStateSlotsParameterId: "device-state-slots",
               hostContextMibParameterId: "host-context-mib",
             },
           },
@@ -270,11 +268,7 @@ export const runtimeSchemaModel = create(ModelSchema, {
       configurationId: "ninfer-nvidia-gb202",
       defaultModelArtifactBindingId: "ninfer-nvfp4",
       engineParameterDefaults: {
-        values: [
-          unsignedValue("parallel-requests", 4n),
-          unsignedValue("host-context-mib", 20480n),
-          unsignedValue("device-state-slots", 4n),
-        ],
+        values: [unsignedValue("parallel-requests", 4n), unsignedValue("host-context-mib", 20480n)],
       },
     },
   ],

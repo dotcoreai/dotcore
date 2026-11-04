@@ -174,7 +174,6 @@ describe("ModelDeployDialog Context step", () => {
       defaults: [
         ["parallel-requests", 4n],
         ["host-context-mib", 20480n],
-        ["device-state-slots", 4n],
         ["total-context", 32768n],
       ],
     },
@@ -298,9 +297,9 @@ describe("ModelDeployDialog Runtime step", () => {
     expect(hostContext).toHaveValue("20480");
     expect(hostContext).toHaveAccessibleDescription("MiB");
 
-    // The device state slots aren't exposed, and the context sizes sit on the Context step.
+    // No parameter is left for the other parameters section, and the context sizes sit on the
+    // Context step.
     expect(screen.queryByRole("button", { name: /^Other parameters/ })).toBeNull();
-    expect(screen.queryByRole("textbox", { name: "Device state slots" })).not.toBeInTheDocument();
     for (const name of ["Total context", "Context per request"])
       expect(screen.queryByRole("textbox", { name })).not.toBeInTheDocument();
   });

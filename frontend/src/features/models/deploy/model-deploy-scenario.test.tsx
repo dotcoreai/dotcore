@@ -76,7 +76,6 @@ const scenarioValues = {
   "ninfer-nvfp4": [
     ["parallel-requests", 8n],
     ["host-context-mib", 20480n],
-    ["device-state-slots", 4n],
     ["total-context", 524288n],
     ["context-per-request", 65536n],
   ],
@@ -189,7 +188,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["parallel-requests", 8n],
       ["host-context-mib", 20480n],
-      ["device-state-slots", 4n],
       ["total-context", 524288n],
     ]);
   });
@@ -594,7 +592,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["device-state-slots", 4n],
       ["total-context", 32768n],
     ]);
   });
@@ -736,7 +733,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["device-state-slots", 4n],
       ["total-context", 32768n],
     ]);
   });
@@ -776,7 +772,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["device-state-slots", 4n],
       ["total-context", 32768n],
     ]);
   });
@@ -1329,7 +1324,6 @@ describe("ModelDeployDialog scenario polling", () => {
       "ninfer-nvfp4": [
         ["parallel-requests", 2n],
         ["host-context-mib", 20480n],
-        ["device-state-slots", 4n],
         ["total-context", 131072n],
         ["context-per-request", 65536n],
       ],
@@ -1626,7 +1620,6 @@ describe("ModelDeployDialog scenario polling", () => {
     ).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["device-state-slots", 4n],
       ["total-context", 524288n],
       ["context-per-request", 65536n],
     ]);
