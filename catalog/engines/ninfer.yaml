@@ -1,11 +1,11 @@
 # ninfer image built from the pinned source of `engines/ninfer/docker-image.nix`, loaded from its
 # stored image or built locally on the hosting node. ninfer compiles only for
 # the GB202 chip (sm_120a) of the RTX 5090 and RTX PRO 6000.
-engineReleaseId: "ninfer-1936758"
+engineReleaseId: "ninfer-a754fcf"
 engineKind: "ENGINE_KIND_NINFER"
-version: "1936758"
+version: "a754fcf"
 parameterSchema:
-  schemaId: "ninfer-v2"
+  schemaId: "ninfer-v3"
   parameters:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
@@ -42,14 +42,6 @@ parameterSchema:
         minimum: "0"
         maximum: "1048576"
         unit: "MiB"
-    - parameterId: "device-state-slots"
-      displayName: "Device state slots"
-      exposed: false
-      description: "Extra accelerator memory slots that keep idle conversations ready to resume, beyond one per request generating at once."
-      unsignedInteger:
-        minimum: "0"
-        maximum: "64"
-        unit: "slots"
 artifacts:
   - artifactId: "linux-amd64-cuda"
     nix:
