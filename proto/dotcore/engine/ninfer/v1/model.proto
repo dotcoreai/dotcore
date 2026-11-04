@@ -33,11 +33,17 @@ message NinferFixedModelSettings {
   // Whether closed-turn assistant reasoning is preserved by default.
   bool preserve_thinking = 3;
 
-  // Generic engine parameter containing the extra device checkpoint slot count.
-  string device_state_slots_parameter_id = 6;
-
   // Generic engine parameter containing the shared pinned host context budget in MiB.
   string host_context_mib_parameter_id = 7;
+
+  // Bytes of one request's continuation state, also the device context pool's block size.
+  uint64 state_image_bytes = 8;
+
+  // Device context bytes one token of history takes at the configured KV-cache element type.
+  uint64 kv_bytes_per_token = 9;
+
+  // Device context bytes one token takes in the MTP draft history while MTP is selected.
+  uint64 draft_kv_bytes_per_token = 10;
 }
 
 // Maps one generic model option to its ninfer realization.
@@ -63,7 +69,7 @@ message NinferVisionOptionRealization {
 // Realizes one MTP speculative-decoding option for ninfer from its speculative-token count.
 message NinferMtpOptionRealization {
   // Whether the optimized proposal head is loaded while the count is above 0.
-  bool lm_head_draft = 3;
+  bool optimized_proposal_head = 3;
 }
 
 // KV-cache element types accepted by a ninfer configuration.
