@@ -19,7 +19,8 @@ use dotcore_proto::dotcore::{
     catalog::v1::{ModelOptionValues, engine_parameter_value::Value as EngineParameterValue},
     engine::{
         ninfer::v1::{
-            NinferKvCacheDataType, NinferResolvedModelState, ninfer_option_realization::Realization,
+            NinferFixedModelSettings, NinferKvCacheDataType, NinferResolvedModelState,
+            ninfer_option_realization::Realization,
         },
         v1::{EngineKind, resolved_engine_model_state::State},
     },
@@ -31,30 +32,41 @@ use dotcore_proto::dotcore::{
     },
 };
 
-pub(super) const PLAN_FORMAT_VERSION: u32 = 3;
+pub(super) const PLAN_FORMAT_VERSION: u32 = 5;
 const SERVER_BINARY: &str = "/usr/local/bin/ninfer-serve";
 pub(super) const MODEL_BINDING_ID: &str = "model";
+/// Tokens in one page of ninfer's paged KV history, an engine constant.
+pub(super) const KV_PAGE_TOKENS: u64 = 64;
 /// ninfer matches flags exactly and a repeated flag overrides the earlier one, so custom arguments
 /// must not repeat any flag the plan owns.
-const ADAPTER_OWNED_FLAGS: [&str; 18] = [
+const ADAPTER_OWNED_FLAGS: [&str; 23] = [
     "--model-id",
     "--host",
     "--port",
     "--device",
     "--vision",
+    "--no-vision",
     "--max-context",
-    "--kv-capacity",
+    "--context-capacity",
     "--spec",
     "--draft-tokens",
     "--max-concurrency",
-    "--pending-timeout-ms",
+    "--pending-timeout",
     "--kv-dtype",
-    "--device-state-slots",
-    "--host-context-mib",
-    "--lm-head-draft",
+    "--host-cache-capacity",
+    "--proposal-head",
     "--preserve-thinking",
-    // Root-only mode would silently change the cross-request history the plan relies on.
+    "--no-preserve-thinking",
+    "--memory-headroom",
+    // A configuration file could silently replace any setting the plan owns, or split the
+    // context pool across distributed ranks.
+    "--config",
+    // Root-only mode would silently change the cross-request history the plan relies on, and the
+    // context pool's startup minimum counts the handover state that prefix reuse needs.
+    "--prefix-reuse",
     "--no-prefix-reuse",
+    // The context pool's startup minimum assumes the default prefill chunk.
+    "--prefill-chunk",
     // Authentication on every route but `/health` would fail readiness and routed requests.
     "--api-key",
 ];
@@ -84,7 +96,14 @@ pub(crate) fn translate(
     }
     let context_per_request =
         positive_parameter(snapshot, CONTEXT_PER_REQUEST_PARAMETER_ID)?.to_string();
-    let total_context = positive_parameter(snapshot, TOTAL_CONTEXT_PARAMETER_ID)?.to_string();
+    let total_context = positive_parameter(snapshot, TOTAL_CONTEXT_PARAMETER_ID)?;
+    let parallel_requests = positive_parameter(snapshot, PARALLEL_REQUESTS_PARAMETER_ID)?;
+    let context_capacity = context_capacity_bytes(
+        fixed,
+        total_context,
+        parallel_requests,
+        options.mtp.is_some(),
+    )?;
 
     let mut arguments = vec![literal(SERVER_BINARY), binding(MODEL_BINDING_ID)];
     // The runtime exposes exactly one GPU to the container, so it is always device 0.
@@ -104,8 +123,8 @@ pub(crate) fn translate(
     arguments.extend(literals([
         "--max-context",
         &context_per_request,
-        "--kv-capacity",
-        &total_context,
+        "--context-capacity",
+        &context_capacity.to_string(),
     ]));
     if let Some(mtp) = options.mtp.as_ref() {
         arguments.extend(literals([
@@ -117,18 +136,28 @@ pub(crate) fn translate(
     }
     arguments.extend(literals([
         "--max-concurrency",
-        &positive_parameter(snapshot, PARALLEL_REQUESTS_PARAMETER_ID)?.to_string(),
-        "--pending-timeout-ms",
-        &fixed.pending_timeout_milliseconds.to_string(),
+        &parallel_requests.to_string(),
+        "--pending-timeout",
+        &format!("{}ms", fixed.pending_timeout_milliseconds),
         "--kv-dtype",
         kv_dtype,
-        "--device-state-slots",
-        &parameter(snapshot, &fixed.device_state_slots_parameter_id)?.to_string(),
-        "--host-context-mib",
-        &parameter(snapshot, &fixed.host_context_mib_parameter_id)?.to_string(),
+        "--host-cache-capacity",
+        &format!(
+            "{}MiB",
+            parameter(snapshot, &fixed.host_context_mib_parameter_id)?
+        ),
+        // ninfer holds a startup headroom out of the memory it plans against, even for an explicit
+        // context pool. Dotcore's sizing estimate and fit already keep the memory margin, so a
+        // second one would refuse context that fits the card.
+        "--memory-headroom",
+        "0B",
     ]));
-    if options.mtp.as_ref().is_some_and(|mtp| mtp.lm_head_draft) {
-        arguments.push(literal("--lm-head-draft"));
+    if options
+        .mtp
+        .as_ref()
+        .is_some_and(|mtp| mtp.optimized_proposal_head)
+    {
+        arguments.extend(literals(["--proposal-head", "optimized"]));
     }
     if fixed.preserve_thinking {
         arguments.push(literal("--preserve-thinking"));
@@ -226,7 +255,7 @@ struct SelectedOptions {
 
 struct SelectedMtp {
     draft_tokens: u64,
-    lm_head_draft: bool,
+    optimized_proposal_head: bool,
 }
 
 fn selected_options(
@@ -264,7 +293,7 @@ fn selected_options(
                 if draft_tokens > 0 {
                     selected.mtp = Some(SelectedMtp {
                         draft_tokens,
-                        lm_head_draft: mtp.lm_head_draft,
+                        optimized_proposal_head: mtp.optimized_proposal_head,
                     });
                 }
             }
@@ -272,6 +301,47 @@ fn selected_options(
         }
     }
     Ok(selected)
+}
+
+/// Bytes of device context pool that hold a total context of history shared by the parallel
+/// requests, with each request's continuation state and, with MTP, its draft history.
+///
+/// ninfer splits the pool into blocks the size of one request state, each holding records of one
+/// kind, and uses only whole blocks. The result counts whole blocks for every record kind, so the
+/// engine gets the full total context, every request's state and its startup minimum.
+fn context_capacity_bytes(
+    fixed: &NinferFixedModelSettings,
+    total_context: u64,
+    parallel_requests: u64,
+    mtp: bool,
+) -> Result<u64, NinferPlanError> {
+    let block = fixed.state_image_bytes;
+    let speculative = u64::from(mtp);
+    // A speculative request holds a second state and one more page for its pending draft.
+    let request_records = parallel_requests
+        .checked_mul(1 + speculative)
+        .ok_or(NinferPlanError::InvalidResolvedState)?;
+    // One more state covers the prefix handover the engine checks at startup with prefix reuse.
+    let states = request_records + 1;
+    // Each request rounds its history up to whole pages, so it adds at most one page.
+    let pages = total_context.div_ceil(KV_PAGE_TOKENS) + request_records;
+    let mut blocks = states + kv_blocks(pages, fixed.kv_bytes_per_token, block)?;
+    if mtp {
+        blocks += kv_blocks(pages, fixed.draft_kv_bytes_per_token, block)?;
+    }
+    blocks
+        .checked_mul(block)
+        .ok_or(NinferPlanError::InvalidResolvedState)
+}
+
+fn kv_blocks(pages: u64, bytes_per_token: u64, block: u64) -> Result<u64, NinferPlanError> {
+    let pages_per_block = bytes_per_token
+        .checked_mul(KV_PAGE_TOKENS)
+        .filter(|page| *page > 0)
+        .map(|page| block / page)
+        .filter(|pages_per_block| *pages_per_block > 0)
+        .ok_or(NinferPlanError::InvalidResolvedState)?;
+    Ok(pages.div_ceil(pages_per_block))
 }
 
 fn positive_parameter(
@@ -376,7 +446,7 @@ mod tests {
 
     /// Argv of the Qwen3.8 27B ninfer profile at engine defaults with vision and MTP at 3 draft
     /// tokens: one 32,768-token total context shared by 4 parallel requests, each up to all of it.
-    const ENGINE_DEFAULTS_MTP_ARGV: [&str; 31] = [
+    const ENGINE_DEFAULTS_MTP_ARGV: [&str; 32] = [
         "/usr/local/bin/ninfer-serve",
         "/opt/dotcore/models/model.ninfer",
         "--model-id",
@@ -390,23 +460,24 @@ mod tests {
         "--vision",
         "--max-context",
         "32768",
-        "--kv-capacity",
-        "32768",
+        "--context-capacity",
+        "2771177472",
         "--spec",
         "mtp",
         "--draft-tokens",
         "3",
         "--max-concurrency",
         "4",
-        "--pending-timeout-ms",
-        "120000",
+        "--pending-timeout",
+        "120000ms",
         "--kv-dtype",
         "fp8",
-        "--device-state-slots",
-        "4",
-        "--host-context-mib",
-        "20480",
-        "--lm-head-draft",
+        "--host-cache-capacity",
+        "20480MiB",
+        "--memory-headroom",
+        "0B",
+        "--proposal-head",
+        "optimized",
         "--preserve-thinking",
     ];
 
@@ -417,7 +488,7 @@ mod tests {
         let plan = translate(&local).expect("plan");
 
         assert_eq!(argv(&plan), ENGINE_DEFAULTS_MTP_ARGV);
-        assert_eq!(plan.format_version, 3);
+        assert_eq!(plan.format_version, 5);
         assert_eq!(
             plan.artifact_bindings,
             [PortableModelArtifactBinding {
@@ -455,18 +526,18 @@ mod tests {
                 "0",
                 "--max-context",
                 "32768",
-                "--kv-capacity",
-                "32768",
+                "--context-capacity",
+                "2001405952",
                 "--max-concurrency",
                 "4",
-                "--pending-timeout-ms",
-                "120000",
+                "--pending-timeout",
+                "120000ms",
                 "--kv-dtype",
                 "fp8",
-                "--device-state-slots",
-                "4",
-                "--host-context-mib",
-                "20480",
+                "--host-cache-capacity",
+                "20480MiB",
+                "--memory-headroom",
+                "0B",
                 "--preserve-thinking",
             ]
         );
@@ -479,7 +550,7 @@ mod tests {
         let vision_argv = argv(&translate(&vision_only).expect("plan"));
         assert!(vision_argv.contains(&"--vision".to_owned()));
         assert!(!vision_argv.contains(&"--spec".to_owned()));
-        assert!(!vision_argv.contains(&"--lm-head-draft".to_owned()));
+        assert!(!vision_argv.contains(&"--proposal-head".to_owned()));
 
         let mtp_five = local(
             "qwen3-8-27b",
@@ -501,23 +572,24 @@ mod tests {
                 "0",
                 "--max-context",
                 "32768",
-                "--kv-capacity",
-                "32768",
+                "--context-capacity",
+                "2771177472",
                 "--spec",
                 "mtp",
                 "--draft-tokens",
                 "5",
                 "--max-concurrency",
                 "4",
-                "--pending-timeout-ms",
-                "120000",
+                "--pending-timeout",
+                "120000ms",
                 "--kv-dtype",
                 "fp8",
-                "--device-state-slots",
-                "4",
-                "--host-context-mib",
-                "20480",
-                "--lm-head-draft",
+                "--host-cache-capacity",
+                "20480MiB",
+                "--memory-headroom",
+                "0B",
+                "--proposal-head",
+                "optimized",
                 "--preserve-thinking",
             ]
         );
@@ -532,7 +604,6 @@ mod tests {
             (CONTEXT_PER_REQUEST_PARAMETER_ID, 131_072),
             (PARALLEL_REQUESTS_PARAMETER_ID, 2),
             ("host-context-mib", 0),
-            ("device-state-slots", 2),
         ]));
         local.custom_argument_tokens = vec![
             "--media-cache-mib=64".to_owned(),
@@ -548,23 +619,24 @@ mod tests {
             [
                 "--max-context",
                 "131072",
-                "--kv-capacity",
-                "262144",
+                "--context-capacity",
+                "10160984064",
                 "--spec",
                 "mtp",
                 "--draft-tokens",
                 "3",
                 "--max-concurrency",
                 "2",
-                "--pending-timeout-ms",
-                "120000",
+                "--pending-timeout",
+                "120000ms",
                 "--kv-dtype",
                 "fp8",
-                "--device-state-slots",
-                "2",
-                "--host-context-mib",
-                "0",
-                "--lm-head-draft",
+                "--host-cache-capacity",
+                "0MiB",
+                "--memory-headroom",
+                "0B",
+                "--proposal-head",
+                "optimized",
                 "--preserve-thinking",
                 "--media-cache-mib=64",
                 "  spaced $(value)  ",
@@ -572,6 +644,48 @@ mod tests {
         );
         assert!(!enables_host_kv_offload(&local).expect("zero host context"));
         validate_snapshot(&local).expect("canonical overridden plan");
+    }
+
+    #[test]
+    fn context_capacity_counts_whole_pool_blocks_for_every_record_kind() {
+        let fixed = NinferFixedModelSettings {
+            state_image_bytes: 153_954_304,
+            kv_bytes_per_token: 33_024,
+            draft_kv_bytes_per_token: 2_064,
+            ..NinferFixedModelSettings::default()
+        };
+
+        // Shapes launched on an RTX 5090 at these sizes: total context, parallel requests, MTP,
+        // then the expected pool blocks.
+        for (total_context, parallel_requests, mtp, blocks) in [
+            (32_768, 4, true, 18),
+            (196_608, 4, true, 55),
+            (131_072, 1, false, 31),
+            (1024, 8, true, 19),
+            (2048, 8, false, 10),
+        ] {
+            assert_eq!(
+                context_capacity_bytes(&fixed, total_context, parallel_requests, mtp)
+                    .expect("capacity"),
+                blocks * 153_954_304,
+                "{total_context} tokens, {parallel_requests} requests, MTP {mtp}"
+            );
+        }
+    }
+
+    #[test]
+    fn context_capacity_rejects_pages_larger_than_a_block() {
+        let fixed = NinferFixedModelSettings {
+            state_image_bytes: 1024,
+            kv_bytes_per_token: 33_024,
+            draft_kv_bytes_per_token: 2_064,
+            ..NinferFixedModelSettings::default()
+        };
+
+        assert!(matches!(
+            context_capacity_bytes(&fixed, 32_768, 4, false),
+            Err(NinferPlanError::InvalidResolvedState)
+        ));
     }
 
     #[test]
@@ -617,7 +731,15 @@ mod tests {
             "--max-context",
             "--kv-dtype=bf16",
             "--spec=dflash2",
+            "--context-capacity=auto",
+            "--host-cache-capacity",
+            "--memory-headroom=0B",
+            "--prefill-chunk",
+            "--config=serve.toml",
+            "--prefix-reuse",
             "--no-prefix-reuse",
+            "--no-vision",
+            "--no-preserve-thinking",
             "--api-key",
             "--api-key=secret",
         ] {
@@ -668,12 +790,12 @@ mod tests {
         for (format_version, expected) in [
             (
                 PLAN_FORMAT_VERSION - 1,
-                "ninfer deployment was created with launch plan format 2, which this Dotcore \
+                "ninfer deployment was created with launch plan format 4, which this Dotcore \
                  version no longer supports; delete and recreate the deployment",
             ),
             (
                 PLAN_FORMAT_VERSION + 1,
-                "ninfer deployment was created with launch plan format 4 by a newer Dotcore \
+                "ninfer deployment was created with launch plan format 6 by a newer Dotcore \
                  version; upgrade Dotcore, or delete and recreate the deployment with this version",
             ),
         ] {

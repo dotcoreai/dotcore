@@ -197,6 +197,7 @@ fn validate_payload(
         NinferKvCacheDataType::try_from(fixed.kv_cache_data_type),
         Ok(NinferKvCacheDataType::Fp8)
     ) || fixed.pending_timeout_milliseconds == 0
+        || !valid_context_pool(fixed)
     {
         errors.push(anyhow::anyhow!(
             "configuration {:?} has invalid fixed ninfer settings",
@@ -227,14 +228,10 @@ fn validate_parameters(
                 .collect::<BTreeSet<_>>()
         })
         .unwrap_or_default();
-    let referenced = [
-        fixed.device_state_slots_parameter_id.as_str(),
-        fixed.host_context_mib_parameter_id.as_str(),
-    ];
-    let valid = referenced[0] != referenced[1]
-        && referenced
-            .iter()
-            .all(|id| declared.contains(id) && !is_shared_parameter(id));
+    let referenced = [fixed.host_context_mib_parameter_id.as_str()];
+    let valid = referenced
+        .iter()
+        .all(|id| declared.contains(id) && !is_shared_parameter(id));
     if !valid {
         errors.push(anyhow::anyhow!(
             "configuration {:?} has invalid ninfer engine parameter references",
@@ -257,6 +254,19 @@ fn validate_parameters(
             configuration.configuration_id
         ));
     }
+}
+
+/// Reports whether the context pool sizes describe a pool ninfer can lay out: a state per block,
+/// and at least one history page of each kind per block.
+fn valid_context_pool(fixed: &NinferFixedModelSettings) -> bool {
+    [fixed.kv_bytes_per_token, fixed.draft_kv_bytes_per_token]
+        .into_iter()
+        .all(|bytes_per_token| {
+            bytes_per_token > 0
+                && bytes_per_token
+                    .checked_mul(super::plan::KV_PAGE_TOKENS)
+                    .is_some_and(|page| page <= fixed.state_image_bytes)
+        })
 }
 
 fn validate_artifacts(
@@ -858,23 +868,24 @@ mod tests {
                 "--vision",
                 "--max-context",
                 "32768",
-                "--kv-capacity",
-                "32768",
+                "--context-capacity",
+                "2771177472",
                 "--spec",
                 "mtp",
                 "--draft-tokens",
                 "3",
                 "--max-concurrency",
                 "4",
-                "--pending-timeout-ms",
-                "120000",
+                "--pending-timeout",
+                "120000ms",
                 "--kv-dtype",
                 "fp8",
-                "--device-state-slots",
-                "4",
-                "--host-context-mib",
-                "20480",
-                "--lm-head-draft",
+                "--host-cache-capacity",
+                "20480MiB",
+                "--memory-headroom",
+                "0B",
+                "--proposal-head",
+                "optimized",
                 "--preserve-thinking",
             ]
         );
@@ -905,7 +916,7 @@ mod tests {
             launch_flags(&shared),
             [
                 ("--max-context", "131072".to_owned()),
-                ("--kv-capacity", "524288".to_owned()),
+                ("--context-capacity", "20168013824".to_owned()),
                 ("--max-concurrency", "4".to_owned()),
             ]
         );
@@ -923,7 +934,7 @@ mod tests {
             launch_flags(&filled),
             [
                 ("--max-context", "262144".to_owned()),
-                ("--kv-capacity", "1048576".to_owned()),
+                ("--context-capacity", "38796484608".to_owned()),
                 ("--max-concurrency", "4".to_owned()),
             ]
         );
@@ -989,7 +1000,6 @@ parameterSchema:
     - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
     - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
     - { parameterId: "host-context-mib", displayName: "Host context memory", exposed: true, description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
-    - { parameterId: "device-state-slots", displayName: "Device state slots", exposed: true, description: "device-state-slots", unsignedInteger: { minimum: "0", maximum: "64", unit: "slots" } }
 artifacts:
   - artifactId: "linux-amd64-cuda"
     oci:
@@ -1048,13 +1058,15 @@ configurations:
           kvCacheDataType: "NINFER_KV_CACHE_DATA_TYPE_FP8"
           pendingTimeoutMilliseconds: 120000
           preserveThinking: true
-          deviceStateSlotsParameterId: "device-state-slots"
           hostContextMibParameterId: "host-context-mib"
+          stateImageBytes: "153954304"
+          kvBytesPerToken: "33024"
+          draftKvBytesPerToken: "2064"
         optionRealizations:
           - optionId: "vision"
             vision: { enabledParameterId: "enabled" }
           - optionId: "mtp"
-            mtp: { lmHeadDraft: true }
+            mtp: { optimizedProposalHead: true }
     executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
     requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
     inputCapabilities:
@@ -1090,7 +1102,6 @@ profiles:
       values:
         - { parameterId: "parallel-requests", unsignedInteger: "4" }
         - { parameterId: "host-context-mib", unsignedInteger: "20480" }
-        - { parameterId: "device-state-slots", unsignedInteger: "4" }
     "#;
 
     /// Loads the profile-shaped engine and model with the shared hardware classes.
@@ -1160,11 +1171,11 @@ profiles:
             .collect()
     }
 
-    /// Context per request, total context and parallel request flags of the launch plan, each
+    /// Context per request, context pool and parallel request flags of the launch plan, each
     /// with its value.
     fn launch_flags(launch: &ResolvedLocalModelDeploymentSnapshot) -> Vec<(&'static str, String)> {
         let argv = launch_argv(launch);
-        ["--max-context", "--kv-capacity", "--max-concurrency"]
+        ["--max-context", "--context-capacity", "--max-concurrency"]
             .into_iter()
             .map(|flag| {
                 let position = argv

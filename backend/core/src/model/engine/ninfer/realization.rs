@@ -26,7 +26,7 @@ use dotcore_proto::dotcore::{
 
 use crate::model::engine::realization::ResolvedEngineSelection;
 
-pub(crate) const SEMANTICS_VERSION: u32 = 2;
+pub(crate) const SEMANTICS_VERSION: u32 = 3;
 
 pub(crate) fn realize_model(
     _model: &Model,

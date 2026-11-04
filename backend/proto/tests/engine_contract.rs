@@ -112,8 +112,10 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
             ),
             ("pending_timeout_milliseconds", 2, "TYPE_UINT32"),
             ("preserve_thinking", 3, "TYPE_BOOL"),
-            ("device_state_slots_parameter_id", 6, "TYPE_STRING"),
             ("host_context_mib_parameter_id", 7, "TYPE_STRING"),
+            ("state_image_bytes", 8, "TYPE_UINT64"),
+            ("kv_bytes_per_token", 9, "TYPE_UINT64"),
+            ("draft_kv_bytes_per_token", 10, "TYPE_UINT64"),
         ]
     );
     assert_eq!(
@@ -138,7 +140,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
     );
     assert_eq!(
         field_numbers(ninfer, "NinferMtpOptionRealization"),
-        [("lm_head_draft", 3)]
+        [("optimized_proposal_head", 3)]
     );
 
     assert_eq!(

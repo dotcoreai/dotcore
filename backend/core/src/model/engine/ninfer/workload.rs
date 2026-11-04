@@ -214,7 +214,7 @@ mod tests {
     fn workload_runs_the_retained_image_on_one_device_with_a_read_only_model_mount() {
         let mut model = resolved();
         model.engine.source = crate::model::resolved::ResolvedEngineSource::OciImage {
-            reference: "dotcore/ninfer:1936758".to_owned(),
+            reference: "dotcore/ninfer:fixture".to_owned(),
         };
         model.engine.launch_identity = IMAGE_ID.to_owned();
 
@@ -241,23 +241,24 @@ mod tests {
                     "--vision",
                     "--max-context",
                     "32768",
-                    "--kv-capacity",
-                    "32768",
+                    "--context-capacity",
+                    "2771177472",
                     "--spec",
                     "mtp",
                     "--draft-tokens",
                     "3",
                     "--max-concurrency",
                     "4",
-                    "--pending-timeout-ms",
-                    "120000",
+                    "--pending-timeout",
+                    "120000ms",
                     "--kv-dtype",
                     "fp8",
-                    "--device-state-slots",
-                    "4",
-                    "--host-context-mib",
-                    "20480",
-                    "--lm-head-draft",
+                    "--host-cache-capacity",
+                    "20480MiB",
+                    "--memory-headroom",
+                    "0B",
+                    "--proposal-head",
+                    "optimized",
                     "--preserve-thinking",
                 ]
                 .map(WorkloadValue::literal)
