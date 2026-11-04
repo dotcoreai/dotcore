@@ -69,7 +69,7 @@ const PLACEHOLDER_IMAGE_ID: &str =
 const PLACEHOLDER_STORE_PATH: &str = "/nix/store/00000000000000000000000000000001-placeholder";
 
 /// Locked GitHub flake reference used by synthetic Nix artifacts.
-const LOCKED_FLAKE: &str = "github:dotcoreinc/dotcore/0123456789abcdef0123456789abcdef01234567";
+const LOCKED_FLAKE: &str = "github:dotcoreinc/dotcore-oss/0123456789abcdef0123456789abcdef01234567";
 
 #[test]
 fn repository_catalog_profiles_resolve_their_declared_defaults() {
@@ -1228,28 +1228,28 @@ fn catalog_validates_nix_artifacts_and_rejects_invalid_flake_references() {
     for (label, flake, expected) in [
         (
             "unlocked github",
-            "github:dotcoreinc/dotcore",
+            "github:dotcoreinc/dotcore-oss",
             "Nix GitHub flake reference must pin a revision",
         ),
         (
             "branch revision",
-            "github:dotcoreinc/dotcore/main",
+            "github:dotcoreinc/dotcore-oss/main",
             "revision must be 40 lowercase hexadecimal characters",
         ),
         (
             "other repository",
             "github:example/engines/0123456789abcdef0123456789abcdef01234567",
-            "must name the dotcoreinc/dotcore repository",
+            "must name the dotcoreinc/dotcore-oss repository",
         ),
         (
             "path reference",
             "path:/src/dotcore",
-            "must be a locked github:dotcoreinc/dotcore/<revision> or self reference",
+            "must be a locked github:dotcoreinc/dotcore-oss/<revision> or self reference",
         ),
         (
             "absolute path",
             "/src/dotcore",
-            "must be a locked github:dotcoreinc/dotcore/<revision> or self reference",
+            "must be a locked github:dotcoreinc/dotcore-oss/<revision> or self reference",
         ),
         (
             "subdirectory flake",
