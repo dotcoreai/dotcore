@@ -22,9 +22,9 @@ use async_openai::{
         CreateChatCompletionRequestArgs, FunctionCall, FunctionObject,
     },
 };
-use dotcore_backend::composition::CompositionError;
-use dotcore_backend::composition::model_service_for;
-use dotcore_backend::testing::writer_metric_descriptors;
+use dotcore::composition::CompositionError;
+use dotcore::composition::model_service_for;
+use dotcore::testing::writer_metric_descriptors;
 use dotcore_domain::hardware_observation::{HardwareSample, HardwareSnapshotSource};
 use dotcore_node_hardware::hardware::{
     AcceleratorDiscovery, AcceleratorVendorDiscoverer, AcceleratorVendorObservation,
@@ -322,19 +322,18 @@ async fn backend_preparation_fails_when_the_inference_listener_cannot_bind() {
         .local_addr()
         .expect("occupied inference address");
 
-    let error = match dotcore_backend::composition::Backend::prepare(
-        dotcore_backend::composition::BackendConfiguration {
+    let error = match dotcore::composition::Backend::prepare(
+        dotcore::composition::BackendConfiguration {
             site_paths: configuration,
             telemetry_directory: None,
             dotcore_sources: Default::default(),
-            role: dotcore_backend::composition::BackendRole::Manager(
-                dotcore_backend::composition::ServerConfiguration {
+            role: dotcore::composition::BackendRole::Manager(
+                dotcore::composition::ServerConfiguration {
                     management_bind_address: "127.0.0.1:0".parse().unwrap(),
                     inference_bind_address: occupied_inference_address.to_string().parse().unwrap(),
-                    private_listener:
-                        dotcore_backend::composition::ManagerPrivateListener::SiteDefault {
-                            port: 0,
-                        },
+                    private_listener: dotcore::composition::ManagerPrivateListener::SiteDefault {
+                        port: 0,
+                    },
                     allowed_origins: vec!["http://127.0.0.1:5173".parse().unwrap()],
                 },
             ),
@@ -347,8 +346,7 @@ async fn backend_preparation_fails_when_the_inference_listener_cannot_bind() {
         Err(error) => error,
     };
 
-    let CompositionError::Server(dotcore_backend::server::ServerError::Listener(listener)) = &error
-    else {
+    let CompositionError::Server(dotcore::server::ServerError::Listener(listener)) = &error else {
         panic!("typed inference listener error: {error:?}");
     };
     assert!(
@@ -1033,14 +1031,14 @@ async fn manager_backend_server_serves_memory_history_from_node_samples() {
 #[tokio::test]
 async fn manager_backend_server_serves_distribution_percentiles() {
     let root = support::temporary_fast_fixture();
-    let recorder = dotcore_backend::composition::MetricRecorderSlot::default();
+    let recorder = dotcore::composition::MetricRecorderSlot::default();
     let (shutdown, shutdown_signal) = oneshot::channel();
     let backend = support::prepare_backend_with_test_support(
         support::configuration(&root),
         async move {
             let _ = shutdown_signal.await;
         },
-        dotcore_backend::composition::BackendTestSupport {
+        dotcore::composition::BackendTestSupport {
             metric_recorder: Some(recorder.clone()),
             ..Default::default()
         },
@@ -1191,14 +1189,14 @@ async fn manager_backend_server_serves_distribution_percentiles() {
 async fn manager_backend_server_streams_metric_watches() {
     let root = support::temporary_fast_fixture();
     let clock = dotcore_domain::clock::ManualClock::new();
-    let recorder = dotcore_backend::composition::MetricRecorderSlot::default();
+    let recorder = dotcore::composition::MetricRecorderSlot::default();
     let (shutdown, shutdown_signal) = oneshot::channel();
     let backend = support::prepare_backend_with_test_support(
         support::configuration(&root),
         async move {
             let _ = shutdown_signal.await;
         },
-        dotcore_backend::composition::BackendTestSupport {
+        dotcore::composition::BackendTestSupport {
             clock: Some(clock.clone()),
             metric_recorder: Some(recorder.clone()),
             ..Default::default()
@@ -1370,7 +1368,7 @@ async fn manager_backend_server_streams_resource_watches() {
         async move {
             let _ = shutdown_signal.await;
         },
-        dotcore_backend::composition::BackendTestSupport {
+        dotcore::composition::BackendTestSupport {
             clock: Some(clock.clone()),
             simulated_runtime: Some(SimulatedRuntimeTestSupport::with_stop_failures(0)),
             ..Default::default()

@@ -10,7 +10,7 @@
 
 use std::fs;
 
-use dotcore_backend::model::engine::declaration_validator;
+use dotcore::model::engine::declaration_validator;
 use dotcore_proto::dotcore::site::v1::NodeObservationState;
 use dotcore_site::{
     initial::validation::SiteInputBundleValidator,
@@ -82,7 +82,7 @@ async fn a_removed_worker_is_forgotten_by_the_restarted_manager_and_can_rejoin()
             &manager_root,
             &SiteInputBundleValidator::new(
                 declaration_validator(),
-                dotcore_backend::model::site_declaration_rules(),
+                dotcore::model::site_declaration_rules(),
             ),
         )
         .expect("open the stopped site");

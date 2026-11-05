@@ -9,7 +9,7 @@
 /// starts here, so it also switches the test process to the relaxed file sync: the backend's own
 /// unit-test default does not reach this crate's tests.
 pub(crate) fn canonical_temp_dir() -> std::path::PathBuf {
-    dotcore_backend::testing::relax_sync_for_tests();
+    dotcore::testing::relax_sync_for_tests();
     std::fs::canonicalize(std::env::temp_dir()).expect("canonical temporary directory")
 }
 

@@ -5,7 +5,7 @@
 //! before anything is written. A host name that does not resolve here, or interfaces that cannot be
 //! read, give no warning.
 
-use dotcore_backend::composition::{
+use dotcore::composition::{
     DEFAULT_INFERENCE_PORT, DEFAULT_PRIVATE_PORT, INFERENCE_ADDR_ENV, PRIVATE_ADDR_ENV,
 };
 use dotcore_domain::SiteNodeHost;

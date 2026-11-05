@@ -15,7 +15,7 @@ use std::{
 
 use anyhow::Context;
 use clap::Args;
-use dotcore_backend::composition::DEFAULT_PRIVATE_PORT;
+use dotcore::composition::DEFAULT_PRIVATE_PORT;
 use dotcore_domain::{SiteNodeHost, SystemHostResolver};
 use dotcore_site::{
     initial::{

@@ -993,7 +993,7 @@ async fn hw_docker_network_only_residue_converges_for_present_and_teardown_acros
             .await
             .map_err(|error| format!("restart desired PRESENT site: {error}"))?;
         restarted_present.start_observer();
-        let catalog = dotcore_backend::composition::catalog_service_for(&resources.configuration)
+        let catalog = dotcore::composition::catalog_service_for(&resources.configuration)
             .map_err(|error| format!("compose catalog service after restart: {error}"))?;
         CatalogServiceContract::list_applications(
             &catalog,
@@ -1036,10 +1036,8 @@ async fn hw_docker_network_only_residue_converges_for_present_and_teardown_acros
             .await
             .map_err(|error| format!("restart desired TEARDOWN site: {error}"))?;
         restarted_absent.start_observer();
-        let catalog = dotcore_backend::composition::catalog_service_for(&resources.configuration)
-            .map_err(|error| {
-            format!("compose catalog service after TEARDOWN restart: {error}")
-        })?;
+        let catalog = dotcore::composition::catalog_service_for(&resources.configuration)
+            .map_err(|error| format!("compose catalog service after TEARDOWN restart: {error}"))?;
         CatalogServiceContract::list_applications(
             &catalog,
             Request::new(ListApplicationsRequest {}),
@@ -2477,9 +2475,9 @@ impl TestResources {
 
     async fn composition_services(
         &self,
-    ) -> Result<dotcore_backend::composition::IsolatedApplicationService, String> {
+    ) -> Result<dotcore::composition::IsolatedApplicationService, String> {
         support::wait_for_site_store_release(&self.configuration).await;
-        dotcore_backend::composition::application_service_for(&self.configuration, 50052)
+        dotcore::composition::application_service_for(&self.configuration, 50052)
             .await
             .map_err(|error| format!("composition Docker site: {error}"))
     }

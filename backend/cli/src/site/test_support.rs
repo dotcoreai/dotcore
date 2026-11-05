@@ -220,7 +220,7 @@ pub(crate) struct SiteRoot {
 impl SiteRoot {
     pub(crate) fn new() -> Self {
         let root = crate::test_support::canonical_temp_dir().join(format!(
-            "dotcore-cli-site-init-{}",
+            "dotc-site-init-{}",
             crate::test_support::unique_suffix()
         ));
         fs::create_dir(&root).expect("fixture root");

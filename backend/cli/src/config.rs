@@ -6,7 +6,7 @@
 
 use anyhow::Result;
 use clap::{Args, Subcommand, ValueEnum};
-use dotcore_backend::composition::{NodeRole, node_role};
+use dotcore::composition::{NodeRole, node_role};
 use dotcore_domain::ResolvedSitePaths;
 
 use crate::{RootPathArgs, site::recorded_host};

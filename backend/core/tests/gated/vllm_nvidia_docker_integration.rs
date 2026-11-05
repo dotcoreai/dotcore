@@ -22,7 +22,7 @@ use bollard::{
     models::ContainerInspectResponse,
     query_parameters::{ListContainersOptionsBuilder, LogsOptionsBuilder},
 };
-use dotcore_backend::model::resolution::resolve_local_launch;
+use dotcore::model::resolution::resolve_local_launch;
 use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_domain::{ExecutionPlatform, SitePaths, nix::DotcoreSources};
 use dotcore_proto::dotcore::{
@@ -94,7 +94,7 @@ type ModelClient = ModelDeploymentServiceClient<Channel>;
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia"]
 async fn hw_nvidia_vllm_text_and_multimodal_qualification() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new(FIXTURE).await?;
     for profile_id in [TEXT_PROFILE_ID, MULTIMODAL_PROFILE_ID] {
@@ -126,7 +126,7 @@ async fn hw_nvidia_vllm_text_and_multimodal_qualification() -> anyhow::Result<()
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia-5090"]
 async fn hw_nvidia5090_vllm_loads_at_the_largest_fit() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site").await?;
     let primary = nvidia_qualification::qualify_largest_fit(
@@ -149,7 +149,7 @@ async fn hw_nvidia5090_vllm_loads_at_the_largest_fit() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "hardware: just backend::test-gb10"]
 async fn hw_gb10_vllm_loads_at_the_largest_fit() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site").await?;
     let primary = nvidia_qualification::qualify_largest_fit(
@@ -383,7 +383,7 @@ async fn assert_startup_telemetry(
     let record = tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             if directory.is_dir() {
-                let records = dotcore_backend::telemetry::WorkloadResourceRecords::read(
+                let records = dotcore::telemetry::WorkloadResourceRecords::read(
                     std::slice::from_ref(&directory),
                 )
                 .context("read deployment telemetry")?;
@@ -1635,11 +1635,8 @@ fn small_site_catalog_fixture_loads_resolves_and_varies_only_vision() {
         let root = crate::support::canonical_tempdir().expect("temporary vLLM fixture root");
         nvidia_qualification::materialize_site(FIXTURE, &platform, root.path())
             .expect("materialize vLLM qualification fixture");
-        InitialSiteInputs::load(
-            root.path(),
-            &dotcore_backend::model::site_declaration_rules(),
-        )
-        .expect("vLLM qualification site must pass shared validation");
+        InitialSiteInputs::load(root.path(), &dotcore::model::site_declaration_rules())
+            .expect("vLLM qualification site must pass shared validation");
 
         let catalog = nvidia_qualification::load_catalog(root.path())
             .expect("load master engine release with test-only site catalog model");

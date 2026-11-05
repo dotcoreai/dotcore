@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_backend::testing::{LIVENESS_TTL, ManualClock, NodeLivenessAges};
+use dotcore::testing::{LIVENESS_TTL, ManualClock, NodeLivenessAges};
 use dotcore_proto::{
     dotcore::{
         observation::v1::{ObservationUnavailable, RuntimeObservation, runtime_observation},

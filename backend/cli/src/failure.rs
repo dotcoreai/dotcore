@@ -7,7 +7,7 @@
 
 use std::error::Error;
 
-use dotcore_backend::composition::CompositionError;
+use dotcore::composition::CompositionError;
 use dotcore_site::{
     initial::input_store::InitialSiteWriteError,
     membership::{
@@ -1255,7 +1255,7 @@ mod tests {
 
     fn unresolvable_node_host(host: &str) -> anyhow::Error {
         anyhow::Error::new(
-            dotcore_backend::composition::CompositionError::UnresolvableNodeHost {
+            dotcore::composition::CompositionError::UnresolvableNodeHost {
                 host: dotcore_domain::SiteNodeHost::parse(host).expect("host"),
                 source: dotcore_domain::HostResolutionError::Lookup {
                     host: host.to_owned(),

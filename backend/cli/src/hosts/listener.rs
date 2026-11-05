@@ -7,7 +7,7 @@
 use std::net::Ipv4Addr;
 
 use anyhow::{Context, bail};
-use dotcore_backend::composition::{INFERENCE_ADDR_ENV, MANAGEMENT_ADDR_ENV, PRIVATE_ADDR_ENV};
+use dotcore::composition::{INFERENCE_ADDR_ENV, MANAGEMENT_ADDR_ENV, PRIVATE_ADDR_ENV};
 use dotcore_domain::{BindAddress, HostResolver, SiteNodeHost};
 
 use super::HostEnvironment;

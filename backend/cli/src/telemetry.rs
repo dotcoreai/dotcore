@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
-use dotcore_backend::telemetry::{
+use dotcore::telemetry::{
     WorkloadResourceRecords,
     fit::{FitEquation, FitRequest, ObservedQuantity, SeriesSelection, check, fit},
 };
@@ -148,7 +148,7 @@ fn read_inputs(
     selection: &SelectionArgs,
 ) -> Result<(Catalog, WorkloadResourceRecords)> {
     let master_catalog = paths.master_catalog()?;
-    let validator = dotcore_backend::model::engine::declaration_validator();
+    let validator = dotcore::model::engine::declaration_validator();
     let catalog = match &selection.development_catalog {
         Some(development) => Catalog::load_sources_with_policy(
             &master_catalog,

@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use dotcore_backend::composition::{SelectedModelService, model_service_for};
+use dotcore::composition::{SelectedModelService, model_service_for};
 use dotcore_proto::dotcore::{
     inference::v1::{
         CreateRouteRequest, FallbackGroup, FallbackGroupSelection, InferenceRoute,
@@ -452,8 +452,8 @@ async fn initial_site_configuration_cannot_bypass_deployment_exposure_commands()
     write_site(&root, &site);
 
     let error = SiteInputBundleValidator::new(
-        dotcore_backend::model::engine::declaration_validator(),
-        dotcore_backend::model::site_declaration_rules(),
+        dotcore::model::engine::declaration_validator(),
+        dotcore::model::site_declaration_rules(),
     )
     .validate(&root)
     .expect_err("initial configuration cannot author runtime records");

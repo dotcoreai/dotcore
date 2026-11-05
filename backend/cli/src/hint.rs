@@ -6,7 +6,7 @@
 
 use std::error::Error;
 
-use dotcore_backend::{composition::CompositionError, telemetry::fit::FitError};
+use dotcore::{composition::CompositionError, telemetry::fit::FitError};
 use dotcore_site::{
     initial::input_store::InitialSiteWriteError,
     membership::{
@@ -163,7 +163,7 @@ fn see_list(group: DeploymentGroup) -> String {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_backend::telemetry::fit::{FitError, UnsolvableCause};
+    use dotcore::telemetry::fit::{FitError, UnsolvableCause};
     use dotcore_site::{
         initial::input_store::InitialSiteWriteError, membership::join::NodeFolderError,
         repository::SiteRepositoryError,

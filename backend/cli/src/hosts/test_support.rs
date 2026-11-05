@@ -10,7 +10,7 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use dotcore_backend::testing::FakeHostResolver;
+use dotcore::testing::FakeHostResolver;
 use dotcore_domain::{HostResolver, SiteNodeHost};
 use futures_util::future::BoxFuture;
 

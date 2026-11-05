@@ -69,7 +69,7 @@ type ModelClient = ModelDeploymentServiceClient<Channel>;
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia-5090"]
 async fn hw_nvidia5090_ninfer_profile_qualification() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site").await?;
     if let Some(reason) = site.unsupported_platform_reason(MODEL_ID, PROFILE_ID)? {
@@ -99,7 +99,7 @@ async fn hw_nvidia5090_ninfer_profile_qualification() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia-5090"]
 async fn hw_nvidia5090_ninfer_loads_at_the_largest_fit() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site").await?;
     let primary = nvidia_qualification::qualify_largest_fit(
@@ -122,7 +122,7 @@ async fn hw_nvidia5090_ninfer_loads_at_the_largest_fit() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "hardware: just backend::test-gb10"]
 async fn hw_gb10_ninfer_loads_at_the_largest_fit() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site").await?;
     let primary = nvidia_qualification::qualify_largest_fit(

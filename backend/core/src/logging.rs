@@ -264,7 +264,7 @@ impl LogWorker {
     fn new(appender: RollingFileAppender, directory: PathBuf, logging_retention_days: u32) -> Self {
         let (sender, receiver) = sync_channel::<Vec<u8>>(DEFAULT_BUFFERED_LINES_LIMIT);
         let worker = thread::Builder::new()
-            .name("dotcore-backend-logging".to_owned())
+            .name("dotcore-logging".to_owned())
             .spawn(move || {
                 let mut appender = appender;
                 let mut last_pruned = None;
@@ -476,8 +476,8 @@ mod tests {
     #[test]
     fn valid_filter_is_preserved() {
         assert_eq!(
-            filter_from_rust_log(Some("dotcore_backend=debug"), DEFAULT_FILTER).to_string(),
-            "dotcore_backend=debug"
+            filter_from_rust_log(Some("dotcore=debug"), DEFAULT_FILTER).to_string(),
+            "dotcore=debug"
         );
     }
 

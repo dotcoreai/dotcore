@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use dotcore_backend::{
+use dotcore::{
     composition::{Backend, BackendConfiguration, BackendRole, ServerConfiguration},
     model::engine::declaration_validator,
     server::private::PrivateServiceAssembly,
@@ -953,7 +953,7 @@ impl PrivateFixture {
         let initialized_site = node_parent.path().join("initialized-manager");
         InitialSiteInputWriter::new(SiteInputBundleValidator::new(
             declaration_validator(),
-            dotcore_backend::model::site_declaration_rules(),
+            dotcore::model::site_declaration_rules(),
         ))
         .create(&initialized_site, &inputs)
         .expect("initialize manager fixture trust");
@@ -1013,7 +1013,7 @@ impl PrivateFixture {
         (manager, worker)
     }
 
-    async fn prepare_worker(&self) -> dotcore_backend::composition::CompositionResult<Backend> {
+    async fn prepare_worker(&self) -> dotcore::composition::CompositionResult<Backend> {
         Backend::prepare(self.worker_configuration(), std::future::pending()).await
     }
 
@@ -1062,7 +1062,7 @@ fn manager_role_configuration(site_paths: dotcore_domain::SitePaths) -> BackendC
         role: BackendRole::Manager(ServerConfiguration {
             management_bind_address: "127.0.0.1:0".parse().unwrap(),
             inference_bind_address: "127.0.0.1:0".parse().unwrap(),
-            private_listener: dotcore_backend::composition::ManagerPrivateListener::Configured(
+            private_listener: dotcore::composition::ManagerPrivateListener::Configured(
                 "127.0.0.1:0".parse().unwrap(),
             ),
             allowed_origins: vec!["http://127.0.0.1:5173".parse().unwrap()],

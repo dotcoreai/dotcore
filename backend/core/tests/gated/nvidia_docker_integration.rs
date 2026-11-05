@@ -27,7 +27,7 @@ use bollard::{
     models::ContainerInspectResponse,
     query_parameters::{ListContainersOptionsBuilder, RemoveContainerOptionsBuilder},
 };
-use dotcore_backend::composition::{
+use dotcore::composition::{
     Backend, BackendConfiguration, BackendRole, IsolatedModelService, SelectedModelService,
     ServerConfiguration, model_service_with_sources_for,
 };
@@ -174,7 +174,7 @@ async fn hw_nvidia_lifecycle_and_completion() -> anyhow::Result<()> {
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia-5090"]
 async fn hw_nvidia5090_llama_cpp_loads_at_the_largest_fit() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site").await?;
     let primary = nvidia_qualification::qualify_largest_fit(
@@ -197,7 +197,7 @@ async fn hw_nvidia5090_llama_cpp_loads_at_the_largest_fit() -> anyhow::Result<()
 #[tokio::test]
 #[ignore = "hardware: just backend::test-gb10"]
 async fn hw_gb10_llama_cpp_loads_at_the_largest_fit() -> anyhow::Result<()> {
-    dotcore_backend::logging::initialize();
+    dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site").await?;
     let primary = nvidia_qualification::qualify_largest_fit(
@@ -419,7 +419,7 @@ fn qualification_case(
         )],
         [nvidia.clone()],
     );
-    let local = dotcore_backend::model::resolution::resolve_local_launch(
+    let local = dotcore::model::resolution::resolve_local_launch(
         catalog,
         &catalog_model_id,
         &profile_id,
@@ -689,9 +689,7 @@ async fn qualify_deployment_memory_api(
         role: BackendRole::Manager(ServerConfiguration {
             management_bind_address: "127.0.0.1:0".parse().expect("management address"),
             inference_bind_address: "127.0.0.1:0".parse().expect("inference address"),
-            private_listener: dotcore_backend::composition::ManagerPrivateListener::SiteDefault {
-                port: 0,
-            },
+            private_listener: dotcore::composition::ManagerPrivateListener::SiteDefault { port: 0 },
             allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],
         }),
     };
@@ -808,7 +806,7 @@ async fn management_grpc_call<Request, Response>(
     address: std::net::SocketAddr,
     path: &str,
     request: &Request,
-    server: &mut tokio::task::JoinHandle<dotcore_backend::composition::CompositionResult<()>>,
+    server: &mut tokio::task::JoinHandle<dotcore::composition::CompositionResult<()>>,
 ) -> Response
 where
     Request: Message,
@@ -1629,7 +1627,7 @@ async fn assert_router_chat(
 struct RunningRouter {
     inference_address: std::net::SocketAddr,
     shutdown: oneshot::Sender<()>,
-    server: tokio::task::JoinHandle<dotcore_backend::composition::CompositionResult<()>>,
+    server: tokio::task::JoinHandle<dotcore::composition::CompositionResult<()>>,
 }
 
 impl RunningRouter {
@@ -3339,11 +3337,8 @@ mod tests {
             let root = crate::support::canonical_tempdir().expect("temporary site fixture");
             nvidia_qualification::materialize_site(FIXTURE, &platform, root.path())
                 .expect("materialize NVIDIA site fixture");
-            InitialSiteInputs::load(
-                root.path(),
-                &dotcore_backend::model::site_declaration_rules(),
-            )
-            .expect("NVIDIA site fixture must pass shared site validation");
+            InitialSiteInputs::load(root.path(), &dotcore::model::site_declaration_rules())
+                .expect("NVIDIA site fixture must pass shared site validation");
         }
     }
 

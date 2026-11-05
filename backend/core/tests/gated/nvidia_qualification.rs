@@ -28,7 +28,7 @@ use bollard::{
     models::SystemInfo,
     query_parameters::{ListContainersOptionsBuilder, RemoveContainerOptionsBuilder},
 };
-use dotcore_backend::composition::DEV_SOURCE_FLAKE_ENV;
+use dotcore::composition::DEV_SOURCE_FLAKE_ENV;
 use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
 use dotcore_domain::{
     ExecutionPlatform, ExecutionPlatformError, SitePaths,
@@ -238,7 +238,7 @@ pub fn load_catalog(root: &Path) -> anyhow::Result<Catalog> {
         &master_catalog_root(),
         &root.join("catalog"),
         OciArtifactPolicy::Development,
-        dotcore_backend::model::engine::declaration_validator(),
+        dotcore::model::engine::declaration_validator(),
     )
     .context("load the master and site catalog")
 }

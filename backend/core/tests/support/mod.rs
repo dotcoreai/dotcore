@@ -21,7 +21,7 @@ use std::{
 };
 
 use base64::Engine as _;
-use dotcore_backend::{
+use dotcore::{
     composition::{IsolatedApplicationService, IsolatedModelService, SelectedModelService},
     model::engine::declaration_validator,
     testing::{LIVENESS_TTL, SimulatedInferenceTestSupport, relax_sync_for_tests},
@@ -228,18 +228,18 @@ pub fn configuration(root: &Path) -> dotcore_domain::SitePaths {
 /// composition of the same site released its stores.
 pub async fn application_service_for(
     configuration: &dotcore_domain::SitePaths,
-) -> dotcore_backend::composition::CompositionResult<IsolatedApplicationService> {
+) -> dotcore::composition::CompositionResult<IsolatedApplicationService> {
     wait_for_site_store_release(configuration).await;
-    dotcore_backend::composition::application_service_for(configuration, 50052).await
+    dotcore::composition::application_service_for(configuration, 50052).await
 }
 
 /// Composes the isolated model service of the site at `configuration`, after any earlier
 /// composition of the same site released its stores.
 pub async fn model_service_for(
     configuration: &dotcore_domain::SitePaths,
-) -> dotcore_backend::composition::CompositionResult<IsolatedModelService> {
+) -> dotcore::composition::CompositionResult<IsolatedModelService> {
     wait_for_site_store_release(configuration).await;
-    dotcore_backend::composition::model_service_for(configuration).await
+    dotcore::composition::model_service_for(configuration).await
 }
 
 /// Waits until a dropped in-process manager composition has released the site's owner store and
@@ -282,7 +282,7 @@ fn lock_file_released(lock_path: &Path) -> bool {
 pub async fn prepare_backend<F>(
     site_paths: dotcore_domain::SitePaths,
     shutdown: F,
-) -> dotcore_backend::composition::CompositionResult<dotcore_backend::composition::Backend>
+) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
@@ -302,18 +302,18 @@ pub async fn prepare_backend_at<F>(
     bind_address: std::net::IpAddr,
     dotcore_sources: dotcore_domain::nix::DotcoreSources,
     shutdown: F,
-) -> dotcore_backend::composition::CompositionResult<dotcore_backend::composition::Backend>
+) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
     wait_for_site_store_release(&site_paths).await;
-    dotcore_backend::composition::Backend::prepare(
-        dotcore_backend::composition::BackendConfiguration {
+    dotcore::composition::Backend::prepare(
+        dotcore::composition::BackendConfiguration {
             site_paths,
             telemetry_directory: None,
             dotcore_sources,
-            role: dotcore_backend::composition::BackendRole::Manager(
-                dotcore_backend::composition::ServerConfiguration {
+            role: dotcore::composition::BackendRole::Manager(
+                dotcore::composition::ServerConfiguration {
                     management_bind_address: bind_address_at(bind_address),
                     inference_bind_address: bind_address_at(bind_address),
                     private_listener: test_private_listener(),
@@ -328,27 +328,27 @@ where
 
 /// Private listener of every in-process test manager: the site default on an ephemeral port, so
 /// multi-node sites run the real default path and concurrent tests never share port 50053.
-fn test_private_listener() -> dotcore_backend::composition::ManagerPrivateListener {
-    dotcore_backend::composition::ManagerPrivateListener::SiteDefault { port: 0 }
+fn test_private_listener() -> dotcore::composition::ManagerPrivateListener {
+    dotcore::composition::ManagerPrivateListener::SiteDefault { port: 0 }
 }
 
 /// Prepares a manager backend on loopback with explicit test controls.
 pub async fn prepare_backend_with_test_support<F>(
     site_paths: dotcore_domain::SitePaths,
     shutdown: F,
-    test_support: dotcore_backend::composition::BackendTestSupport,
-) -> dotcore_backend::composition::CompositionResult<dotcore_backend::composition::Backend>
+    test_support: dotcore::composition::BackendTestSupport,
+) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
 where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
     wait_for_site_store_release(&site_paths).await;
-    dotcore_backend::composition::Backend::prepare_with_test_support(
-        dotcore_backend::composition::BackendConfiguration {
+    dotcore::composition::Backend::prepare_with_test_support(
+        dotcore::composition::BackendConfiguration {
             site_paths,
             telemetry_directory: None,
             dotcore_sources: Default::default(),
-            role: dotcore_backend::composition::BackendRole::Manager(
-                dotcore_backend::composition::ServerConfiguration {
+            role: dotcore::composition::BackendRole::Manager(
+                dotcore::composition::ServerConfiguration {
                     management_bind_address: "127.0.0.1:0"
                         .parse()
                         .expect("management bind address"),
@@ -368,19 +368,19 @@ pub async fn prepare_backend_with_snapshot_collector<F, C>(
     site_paths: dotcore_domain::SitePaths,
     shutdown: F,
     collector: C,
-) -> dotcore_backend::composition::CompositionResult<dotcore_backend::composition::Backend>
+) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
 where
     F: std::future::Future<Output = ()> + Send + 'static,
     C: HardwareSnapshotSource + Send + Sync + 'static,
 {
     wait_for_site_store_release(&site_paths).await;
-    dotcore_backend::composition::Backend::prepare_with_snapshot_collector(
-        dotcore_backend::composition::BackendConfiguration {
+    dotcore::composition::Backend::prepare_with_snapshot_collector(
+        dotcore::composition::BackendConfiguration {
             site_paths,
             telemetry_directory: None,
             dotcore_sources: Default::default(),
-            role: dotcore_backend::composition::BackendRole::Manager(
-                dotcore_backend::composition::ServerConfiguration {
+            role: dotcore::composition::BackendRole::Manager(
+                dotcore::composition::ServerConfiguration {
                     management_bind_address: "127.0.0.1:0"
                         .parse()
                         .expect("management bind address"),
@@ -391,7 +391,7 @@ where
             ),
         },
         shutdown,
-        dotcore_backend::composition::BackendTestSupport::development(),
+        dotcore::composition::BackendTestSupport::development(),
         collector,
     )
     .await
@@ -1304,7 +1304,7 @@ pub struct ExternalBackendProcess {
     lines: Option<mpsc::Receiver<String>>,
     reader: Option<thread::JoinHandle<()>>,
     stderr_reader: Option<thread::JoinHandle<()>>,
-    addresses: Option<dotcore_backend::server::ServerAddresses>,
+    addresses: Option<dotcore::server::ServerAddresses>,
 }
 
 impl ExternalBackendProcess {
@@ -1317,7 +1317,7 @@ impl ExternalBackendProcess {
     }
 
     /// Returns the exact addresses reported after listener preparation.
-    pub fn addresses(&self) -> dotcore_backend::server::ServerAddresses {
+    pub fn addresses(&self) -> dotcore::server::ServerAddresses {
         self.addresses.expect("external backend startup addresses")
     }
 
@@ -1443,7 +1443,7 @@ impl ExternalBackendProcess {
             .env(EXTERNAL_BACKEND_PROCESS, "1")
             .env("DOTCORE_SITE_DIR", &site_root)
             .env("DOTCORE_CACHE_DIR", cache_dir)
-            // A target prefix, so the events of every backend crate (`dotcore_backend`,
+            // A target prefix, so the events of every backend crate (`dotcore`,
             // `dotcore_site`, ...) reach the retained logs the tests read.
             .env("RUST_LOG", "dotcore=debug")
             .stdin(Stdio::piped())
@@ -1614,20 +1614,20 @@ enum ProcessPrivateListener {
 pub async fn run_external_backend_process() {
     relax_file_sync();
     assert_eq!(std::env::var(EXTERNAL_BACKEND_PROCESS).as_deref(), Ok("1"));
-    dotcore_backend::logging::initialize();
-    let mut configuration = dotcore_backend::composition::BackendConfiguration::from_environment()
+    dotcore::logging::initialize();
+    let mut configuration = dotcore::composition::BackendConfiguration::from_environment()
         .expect("external backend configuration");
     let settings = ProcessSettings::from_environment();
-    if let (Some(port), dotcore_backend::composition::BackendRole::Manager(server)) =
+    if let (Some(port), dotcore::composition::BackendRole::Manager(server)) =
         (settings.manager_private_port(), &mut configuration.role)
     {
         server.private_listener =
-            dotcore_backend::composition::ManagerPrivateListener::SiteDefault { port };
+            dotcore::composition::ManagerPrivateListener::SiteDefault { port };
     }
     let test_support = settings.test_support();
     let simulated_runtime = test_support.simulated_runtime.clone();
     let manual_clock = test_support.clock.clone();
-    let backend = dotcore_backend::composition::Backend::prepare_with_test_support(
+    let backend = dotcore::composition::Backend::prepare_with_test_support(
         configuration,
         std::future::pending(),
         test_support,
@@ -1721,7 +1721,7 @@ fn profile_launcher_binary() -> PathBuf {
 fn startup_addresses(
     output: &[String],
     expects_private: bool,
-) -> Option<dotcore_backend::server::ServerAddresses> {
+) -> Option<dotcore::server::ServerAddresses> {
     let heading = output
         .iter()
         .position(|line| line == "Dotcore server starting")?;
@@ -1731,7 +1731,7 @@ fn startup_addresses(
         .first()
         .and_then(|line| marker_address(line, "DOTCORE_PRIVATE_ADDRESS="))
     {
-        return Some(dotcore_backend::server::ServerAddresses {
+        return Some(dotcore::server::ServerAddresses {
             management: None,
             inference: None,
             private: Some(private),
@@ -1741,7 +1741,7 @@ fn startup_addresses(
     if lines.len() < width {
         return None;
     }
-    Some(dotcore_backend::server::ServerAddresses {
+    Some(dotcore::server::ServerAddresses {
         management: Some(marker_address(&lines[0], "DOTCORE_MANAGEMENT_ADDRESS=")?),
         inference: Some(marker_address(&lines[1], "DOTCORE_INFERENCE_ADDRESS=")?),
         private: if expects_private {
@@ -1754,8 +1754,7 @@ fn startup_addresses(
 
 /// Reports whether `root` holds a joined node's folder rather than a manager's site.
 fn is_joined_node_folder(root: &Path) -> bool {
-    dotcore_backend::composition::node_role(root)
-        == dotcore_backend::composition::NodeRole::JoinedNode
+    dotcore::composition::node_role(root) == dotcore::composition::NodeRole::JoinedNode
 }
 
 /// Reports whether the manager site at `root` declares a SiteNode besides the manager, the
@@ -2145,7 +2144,7 @@ where
                     &manager_root,
                     &SiteInputBundleValidator::new(
                         declaration_validator(),
-                        dotcore_backend::model::site_declaration_rules(),
+                        dotcore::model::site_declaration_rules(),
                     ),
                 )
                 .expect("open manager site");
@@ -2264,7 +2263,7 @@ pub fn install_manager_trust(root: &Path) {
     };
     InitialSiteInputWriter::new(SiteInputBundleValidator::new(
         declaration_validator(),
-        dotcore_backend::model::site_declaration_rules(),
+        dotcore::model::site_declaration_rules(),
     ))
     .create(&initialized.path, &inputs)
     .expect("initialize manager fixture trust");
@@ -2408,7 +2407,7 @@ pub struct RunningBackend {
     management_address: std::net::SocketAddr,
     inference_address: std::net::SocketAddr,
     shutdown: Option<oneshot::Sender<()>>,
-    task: tokio::task::JoinHandle<dotcore_backend::composition::CompositionResult<()>>,
+    task: tokio::task::JoinHandle<dotcore::composition::CompositionResult<()>>,
 }
 
 impl RunningBackend {
@@ -2508,7 +2507,7 @@ impl RunningBackend {
     /// `collector` as its hardware.
     pub async fn start_with_snapshot_collector<C>(
         site_paths: dotcore_domain::SitePaths,
-        test_support: dotcore_backend::composition::BackendTestSupport,
+        test_support: dotcore::composition::BackendTestSupport,
         collector: C,
     ) -> Self
     where
@@ -2516,13 +2515,13 @@ impl RunningBackend {
     {
         let (shutdown, signal) = oneshot::channel();
         wait_for_site_store_release(&site_paths).await;
-        let backend = dotcore_backend::composition::Backend::prepare_with_snapshot_collector(
-            dotcore_backend::composition::BackendConfiguration {
+        let backend = dotcore::composition::Backend::prepare_with_snapshot_collector(
+            dotcore::composition::BackendConfiguration {
                 site_paths,
                 telemetry_directory: None,
                 dotcore_sources: Default::default(),
-                role: dotcore_backend::composition::BackendRole::Manager(
-                    dotcore_backend::composition::ServerConfiguration {
+                role: dotcore::composition::BackendRole::Manager(
+                    dotcore::composition::ServerConfiguration {
                         management_bind_address: bind_address_at(
                             std::net::Ipv4Addr::LOCALHOST.into(),
                         ),
@@ -2555,13 +2554,13 @@ impl RunningBackend {
     ) -> Self {
         let (shutdown, signal) = oneshot::channel();
         wait_for_site_store_release(&site_paths).await;
-        let backend = dotcore_backend::composition::Backend::prepare_with_test_support(
-            dotcore_backend::composition::BackendConfiguration {
+        let backend = dotcore::composition::Backend::prepare_with_test_support(
+            dotcore::composition::BackendConfiguration {
                 site_paths,
                 telemetry_directory,
                 dotcore_sources,
-                role: dotcore_backend::composition::BackendRole::Manager(
-                    dotcore_backend::composition::ServerConfiguration {
+                role: dotcore::composition::BackendRole::Manager(
+                    dotcore::composition::ServerConfiguration {
                         management_bind_address: bind_address_at(bind_address),
                         inference_bind_address: bind_address_at(bind_address),
                         private_listener: test_private_listener(),
@@ -2572,7 +2571,7 @@ impl RunningBackend {
             async move {
                 let _ = signal.await;
             },
-            dotcore_backend::composition::BackendTestSupport {
+            dotcore::composition::BackendTestSupport {
                 simulated_runtime: simulated_runtime_test_support,
                 simulated_inference: simulated_inference_test_support,
                 ..Default::default()
@@ -2585,10 +2584,7 @@ impl RunningBackend {
 
     /// Serves a prepared backend until `shutdown` fires, once its management listener accepts a
     /// connection.
-    async fn serve(
-        backend: dotcore_backend::composition::Backend,
-        shutdown: oneshot::Sender<()>,
-    ) -> Self {
+    async fn serve(backend: dotcore::composition::Backend, shutdown: oneshot::Sender<()>) -> Self {
         let addresses = backend.addresses();
         let endpoint = tonic::transport::Endpoint::from_shared(format!(
             "http://{}",

@@ -14,7 +14,7 @@ use std::{
 
 use anyhow::Context;
 use clap::Args;
-use dotcore_backend::{
+use dotcore::{
     composition::{
         DEFAULT_INFERENCE_PORT, DEFAULT_PRIVATE_PORT, ManagerPrivateListener, PRIVATE_ADDR_ENV,
     },
@@ -91,7 +91,7 @@ pub(crate) async fn node_add(paths: &RootPathArgs, arguments: NodeAddArgs) -> an
         &site_dir,
         &SiteInputBundleValidator::new(
             declaration_validator(),
-            dotcore_backend::model::site_declaration_rules(),
+            dotcore::model::site_declaration_rules(),
         ),
     )
     .map_err(|error| {

@@ -16,7 +16,7 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
-use dotcore_backend::model::engine::declaration_validator;
+use dotcore::model::engine::declaration_validator;
 use dotcore_domain::hardware_observation::HardwareSnapshotSource;
 use dotcore_launcher::workload::{LauncherRecord, ProcessRecord, StoredRecord};
 use dotcore_node_hardware::{
@@ -437,7 +437,7 @@ impl AppleSite {
             InitialSiteInputs::compose(&request, identities, &probe).expect("Apple site inputs");
         InitialSiteInputWriter::new(SiteInputBundleValidator::new(
             declaration_validator(),
-            dotcore_backend::model::site_declaration_rules(),
+            dotcore::model::site_declaration_rules(),
         ))
         .create(&root, &inputs)
         .expect("write the Apple site");

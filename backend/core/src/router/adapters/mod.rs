@@ -1459,7 +1459,7 @@ mod tests {
         // default filter; this checks the lines the backend itself emits.
         let backend_output = output
             .lines()
-            .filter(|line| line.contains(": dotcore_backend::"))
+            .filter(|line| line.contains(": dotcore::"))
             .collect::<Vec<_>>()
             .join("\n");
         assert!(backend_output.contains("failure_stage=\"completion_decoding\""));

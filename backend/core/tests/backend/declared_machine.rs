@@ -19,7 +19,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use dotcore_backend::composition::BackendTestSupport;
+use dotcore::composition::BackendTestSupport;
 use dotcore_domain::{
     ExecutionPlatform,
     hardware_observation::{HardwareSample, HardwareSnapshotSource, NodeHardwareObservation},

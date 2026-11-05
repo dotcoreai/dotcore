@@ -1,5 +1,5 @@
 [package]
-name = "dotcore-backend"
+name = "dotcore"
 description = "Top backend crate: controllers, inference router, dispatch, logs, server and composition."
 version = "0.1.0"
 edition = "2024"
@@ -66,7 +66,7 @@ test-support = [
 [dev-dependencies]
 rcgen = { workspace = true, features = ["x509-parser"] }
 x509-parser.workspace = true
-dotcore-backend = { path = ".", features = ["test-support"] }
+dotcore = { path = ".", features = ["test-support"] }
 dotcore-nvml = { path = "../nvml" }
 bollard = { version = "0.21.0", default-features = false, features = ["pipe"] }
 async-openai = { version = "0.41.3", default-features = false, features = ["chat-completion", "model"] }

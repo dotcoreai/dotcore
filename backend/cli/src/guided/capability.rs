@@ -12,7 +12,7 @@
 
 use std::collections::BTreeSet;
 
-use dotcore_backend::composition::DEV_SOURCE_FLAKE_ENV;
+use dotcore::composition::DEV_SOURCE_FLAKE_ENV;
 use dotcore_node_hardware::{MachineDescription, hardware::UnavailableReason};
 use dotcore_proto::dotcore::observation::v1::AcceleratorFacts;
 use dotcore_site::initial::{

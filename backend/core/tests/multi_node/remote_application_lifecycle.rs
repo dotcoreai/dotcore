@@ -168,7 +168,7 @@ async fn manager_controls_a_worker_hosted_application_across_restarts_and_discon
     // A preparation step the worker retains reads and follows through the manager, ahead of the
     // service source.
     let step_source = format!("prepare:{SERVICE_NAME}:build");
-    dotcore_backend::testing::append_preparation_log(
+    dotcore::testing::append_preparation_log(
         &harness.worker().site_root().join("node"),
         &deployment_id,
         &step_source,

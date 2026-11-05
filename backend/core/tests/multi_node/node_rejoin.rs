@@ -246,11 +246,8 @@ async fn rejoin_and_verify(mut harness: TwoProcessObservationHarness, new_host: 
         .join(WORKER_PIN_DIRECTORY)
         .join(format!("{WORKER_NODE_ID}.sha256"));
     let site_before = harness.manager_site();
-    let listing_before = list_site_nodes(
-        &manager_root,
-        &dotcore_backend::model::site_declaration_rules(),
-    )
-    .expect("node listing before");
+    let listing_before = list_site_nodes(&manager_root, &dotcore::model::site_declaration_rules())
+        .expect("node listing before");
     let pin_before = std::fs::read(&pin).expect("worker pin before");
     let folder_before = harness.node_folder();
     let certificate_before = folder_before.worker_certificate_der().to_vec();
@@ -283,11 +280,8 @@ async fn rejoin_and_verify(mut harness: TwoProcessObservationHarness, new_host: 
         .node
         .host = new_host.to_string();
     assert_eq!(
-        list_site_nodes(
-            &manager_root,
-            &dotcore_backend::model::site_declaration_rules()
-        )
-        .expect("node listing after"),
+        list_site_nodes(&manager_root, &dotcore::model::site_declaration_rules())
+            .expect("node listing after"),
         expected_listing
     );
     assert_eq!(std::fs::read(&pin).expect("worker pin after"), pin_before);

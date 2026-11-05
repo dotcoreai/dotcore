@@ -1,5 +1,5 @@
 [package]
-name = "dotcore-cli"
+name = "dotc"
 description = "The dotc executable: Site, node, model, application and image cleanup commands, guided prompts and terminal output."
 version = "0.1.0"
 edition = "2024"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 anyhow.workspace = true
 clap.workspace = true
 dotcore-artifact = { path = "../artifact" }
-dotcore-backend = { path = "../core" }
+dotcore = { path = "../core" }
 dotcore-catalog = { path = "../catalog" }
 dotcore-domain = { path = "../domain" }
 dotcore-node-hardware = { path = "../node_hardware" }
@@ -41,7 +41,7 @@ rustls.workspace = true
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
 
 [dev-dependencies]
-dotcore-backend = { path = "../core", features = ["test-support"] }
+dotcore = { path = "../core", features = ["test-support"] }
 tempfile.workspace = true
 tonic.workspace = true
 vt100 = "0.16.2"

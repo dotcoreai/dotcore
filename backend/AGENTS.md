@@ -4,8 +4,8 @@
 
 ```
 backend/
-├── cli/               `dotc` executable (dotcore-cli): commands, root path options, guided prompts, terminal layout
-├── core/              top crate (dotcore-backend): controllers, router, dispatch, logs, server, composition
+├── cli/               `dotc` executable (dotc): commands, root path options, guided prompts, terminal layout
+├── core/              top crate (dotcore): controllers, router, dispatch, logs, server, composition
 │   ├── src/composition/    composition root: process configuration and wiring
 │   ├── src/model/          inference controller
 │   ├── src/application/    application controller
@@ -86,7 +86,7 @@ backend/
 
 ## Tests
 
-- Test-only items with no production caller compile only under their crate's `test-support` feature, which test builds enable and production never does. `dotcore-backend`'s feature enables the lower crates' features; integration and CLI tests reach test-only items through `dotcore_backend::testing`, unit tests through `crate::`. The feature only adds items and never changes default behavior, because CLI process tests run the `dotc` built with it.
+- Test-only items with no production caller compile only under their crate's `test-support` feature, which test builds enable and production never does. `dotcore`'s feature enables the lower crates' features; integration and CLI tests reach test-only items through `dotcore::testing`, unit tests through `crate::`. The feature only adds items and never changes default behavior, because CLI process tests run the `dotc` built with it.
 - Test-only methods stay in their type's impl, last in that impl, gated `#[cfg(any(test, feature = "test-support"))]` (`#[cfg(test)]` when only unit tests use them). Test-only free items (fixtures, fakes, helpers) go after `mod tests`.
 - Code that reads the backend clock waits through it, never a Tokio timer (`sleep`, `sleep_until`, `timeout`, `interval`), so a manual clock's advance reaches the wait.
 - Unit tests stay in the module file; a test block over about 1k lines may move to `<module>/tests.rs`. Module-local test support goes after the tests that use it.

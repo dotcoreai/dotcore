@@ -9,7 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use dotcore_backend::testing::LIVENESS_TTL;
+use dotcore::testing::LIVENESS_TTL;
 use dotcore_proto::{
     dotcore::{
         metrics::v1::{

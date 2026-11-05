@@ -746,7 +746,7 @@ async fn upstream_health_churn_preserves_simulated_route_and_lifecycle() {
     fs::set_permissions(&site_path, fs::Permissions::from_mode(0o600)).expect("Site permissions");
     let runtime_support =
         dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport::with_stop_failures(0);
-    let inference_support = dotcore_backend::testing::SimulatedInferenceTestSupport::blocked();
+    let inference_support = dotcore::testing::SimulatedInferenceTestSupport::blocked();
     let backend = support::RunningBackend::start_with_simulated_test_supports(
         support::configuration(&fixture),
         runtime_support,
@@ -1690,19 +1690,18 @@ async fn startup_rejects_over_permissive_credential_bearing_yaml() {
     )
     .expect("site YAML");
     fs::set_permissions(&site_path, fs::Permissions::from_mode(0o644)).expect("permissive mode");
-    let error = match dotcore_backend::composition::Backend::prepare(
-        dotcore_backend::composition::BackendConfiguration {
+    let error = match dotcore::composition::Backend::prepare(
+        dotcore::composition::BackendConfiguration {
             site_paths: support::configuration(&fixture),
             telemetry_directory: None,
             dotcore_sources: Default::default(),
-            role: dotcore_backend::composition::BackendRole::Manager(
-                dotcore_backend::composition::ServerConfiguration {
+            role: dotcore::composition::BackendRole::Manager(
+                dotcore::composition::ServerConfiguration {
                     management_bind_address: "127.0.0.1:0".parse().expect("management"),
                     inference_bind_address: "127.0.0.1:0".parse().expect("inference"),
-                    private_listener:
-                        dotcore_backend::composition::ManagerPrivateListener::SiteDefault {
-                            port: 0,
-                        },
+                    private_listener: dotcore::composition::ManagerPrivateListener::SiteDefault {
+                        port: 0,
+                    },
                     allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],
                 },
             ),
@@ -2364,9 +2363,7 @@ async fn wait_for_removed(client: &mut ModelClient) {
 async fn wait_for_state_release(fixture: &Path) {
     tokio::time::timeout(READY_TIMEOUT, async {
         loop {
-            match dotcore_backend::composition::model_service_for(&support::configuration(fixture))
-                .await
-            {
+            match dotcore::composition::model_service_for(&support::configuration(fixture)).await {
                 Ok(service) => {
                     drop(service);
                     return;

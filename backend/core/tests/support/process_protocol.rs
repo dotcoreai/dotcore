@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dotcore_backend::{
+use dotcore::{
     composition::BackendTestSupport,
     testing::{ManualClock, SimulatedInferenceTestSupport},
 };

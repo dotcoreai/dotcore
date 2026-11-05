@@ -8,7 +8,7 @@
 
 use std::{fmt, net::IpAddr, str::FromStr};
 
-use dotcore_backend::composition::DEFAULT_INFERENCE_PORT;
+use dotcore::composition::DEFAULT_INFERENCE_PORT;
 use tonic::{codegen::http::uri::InvalidUri, transport::Uri};
 
 /// A validated inference API address, shown as its origin: scheme, host and port.

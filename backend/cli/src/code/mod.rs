@@ -18,7 +18,7 @@ use std::{ffi::OsString, io, os::unix::process::CommandExt, process::Command};
 
 use anyhow::Context;
 use clap::Args;
-use dotcore_backend::composition::INFERENCE_ADDR_ENV;
+use dotcore::composition::INFERENCE_ADDR_ENV;
 
 use crate::{RootPathArgs, terminal::open_terminal};
 use address::InferenceAddress;

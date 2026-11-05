@@ -13,7 +13,7 @@ use clap::{
     Args,
     builder::{OsStringValueParser, TypedValueParser},
 };
-use dotcore_backend::composition::PathOverrides;
+use dotcore::composition::PathOverrides;
 use dotcore_domain::{
     CACHE_DIR, CATALOG_DIR, HOME, ResolvedSitePaths, SITE_DIR, SitePaths, XDG_CACHE_HOME,
     XDG_STATE_HOME,
@@ -119,7 +119,7 @@ impl RootPathArgs {
     /// Returns the telemetry folder: its variable, else the site folder when one was given, else
     /// none.
     pub(crate) fn telemetry_dir(&self) -> Result<Option<PathBuf>> {
-        let telemetry = environment_value(dotcore_backend::telemetry::TELEMETRY_DIR)?;
+        let telemetry = environment_value(dotcore::telemetry::TELEMETRY_DIR)?;
         self.telemetry_dir_in(telemetry.as_deref())
     }
 
@@ -138,7 +138,7 @@ impl RootPathArgs {
             .is_some()
             .then(|| self.site_dir())
             .transpose()?;
-        Ok(dotcore_backend::telemetry::resolve_directory(
+        Ok(dotcore::telemetry::resolve_directory(
             telemetry.map(Path::new),
             site.as_deref(),
         ))

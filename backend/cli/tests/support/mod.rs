@@ -29,7 +29,7 @@ pub mod simulated_manager;
 /// full sync.
 #[allow(dead_code, reason = "not every test crate creates fixture directories")]
 pub fn canonical_temp_dir() -> std::path::PathBuf {
-    dotcore_backend::testing::relax_sync_for_tests();
+    dotcore::testing::relax_sync_for_tests();
     std::fs::canonicalize(std::env::temp_dir()).expect("canonical temporary directory")
 }
 

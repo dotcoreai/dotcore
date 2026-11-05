@@ -517,8 +517,7 @@ pub(crate) async fn prepare_initial_site(
 /// when no valid site is there.
 pub(crate) fn recorded_host(site_dir: &Path) -> Option<SiteNodeHost> {
     let inputs =
-        InitialSiteInputs::load(site_dir, &dotcore_backend::model::site_declaration_rules())
-            .ok()?;
+        InitialSiteInputs::load(site_dir, &dotcore::model::site_declaration_rules()).ok()?;
     SiteNodeHost::parse(&output::local_node(&inputs).ok()?.host).ok()
 }
 
@@ -566,8 +565,8 @@ fn validate(paths: &RootPathArgs) -> anyhow::Result<()> {
 
 fn validator(catalog_dir: Option<&Path>) -> SiteInputBundleValidator {
     let validator = SiteInputBundleValidator::new(
-        dotcore_backend::model::engine::declaration_validator(),
-        dotcore_backend::model::site_declaration_rules(),
+        dotcore::model::engine::declaration_validator(),
+        dotcore::model::site_declaration_rules(),
     )
     .with_oci_artifact_policy(OciArtifactPolicy::Development);
     match catalog_dir {
@@ -648,7 +647,7 @@ mod tests {
     use std::{collections::BTreeSet, net::Ipv4Addr};
 
     use clap::error::ErrorKind;
-    use dotcore_backend::testing::FakeHostResolver;
+    use dotcore::testing::FakeHostResolver;
     use dotcore_node_hardware::MachineDescription;
 
     use super::{

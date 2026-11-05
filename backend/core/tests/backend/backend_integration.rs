@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dotcore_backend::{
+use dotcore::{
     application::repository::CurrentApplicationRepository, composition::catalog_service_for,
 };
 use dotcore_proto::dotcore::{

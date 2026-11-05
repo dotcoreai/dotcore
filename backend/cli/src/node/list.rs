@@ -31,7 +31,7 @@ pub struct NodeListArgs {
 /// Lists the site's nodes on the terminal, else as records.
 pub(crate) fn node_list(paths: &RootPathArgs, arguments: NodeListArgs) -> anyhow::Result<()> {
     let site_dir = paths.site_dir()?;
-    let listing = list_site_nodes(&site_dir, &dotcore_backend::model::site_declaration_rules())
+    let listing = list_site_nodes(&site_dir, &dotcore::model::site_declaration_rules())
         .with_context(|| format!("cannot list the nodes of {}", site_dir.display()))?;
 
     if controlling_terminal_condition() == TerminalCondition::Interactive {

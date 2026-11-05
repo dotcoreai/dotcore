@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
-use dotcore_backend::model::{
+use dotcore::model::{
     resolution::{
         EngineArtifactSelection, EngineLaunchIdentity, ModelLaunchResolutionError,
         resolve_local_launch, resolve_upstream_snapshot, select_engine_artifact,
@@ -263,7 +263,7 @@ fn repository_catalog_sizing_is_linear_in_the_total_context() {
 /// readings through the site's reconciliation, so no hardware is needed.
 #[test]
 fn repository_largest_fits_fill_free_memory_on_every_simulated_choice() {
-    use dotcore_backend::{model::sizing_scenario::SizingScenario, testing::profile_compatibility};
+    use dotcore::{model::sizing_scenario::SizingScenario, testing::profile_compatibility};
     use dotcore_node_hardware::MachineDescription;
     use dotcore_proto::dotcore::{
         deployment::v1::MemoryFit,
@@ -594,7 +594,7 @@ fn llama_cpp_request_state_scales_the_estimate_with_the_parallel_requests() {
     let catalog = Catalog::load_with_policy(
         &root,
         dotcore_catalog::OciArtifactPolicy::Development,
-        dotcore_backend::model::engine::declaration_validator(),
+        dotcore::model::engine::declaration_validator(),
     )
     .expect("parallel request sizing catalog");
     std::fs::remove_dir_all(root).expect("remove fixture catalog");
@@ -640,7 +640,7 @@ async fn catalog_service_lists_engine_releases_in_identity_order_without_changin
     earlier.engine_release_id = "a-release".to_owned();
     let service = CatalogService::new(Arc::new(
         catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("later.yaml", later.clone())
             .engine_release("earlier.yaml", earlier.clone())
             .build()
@@ -725,7 +725,7 @@ async fn catalog_lists_a_valid_intelligence_score_and_loads_models_without_one()
     unscored.model_id = "unscored-model".to_owned();
     let service = CatalogService::new(Arc::new(
         catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("scored.yaml", scored)
             .model("unscored.yaml", unscored)
@@ -770,7 +770,7 @@ fn catalog_rejects_invalid_intelligence_scores() {
         let mut model = synthetic_model();
         model.intelligence = Some(IntelligenceScore { overall });
         let error = catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", model)
             .build()
@@ -786,7 +786,7 @@ fn catalog_accepts_intelligence_score_bounds() {
         let mut model = synthetic_model();
         model.intelligence = Some(IntelligenceScore { overall });
         catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", model)
             .build()
@@ -800,7 +800,7 @@ fn catalog_rejects_a_model_without_a_maximum_context() {
     model.maximum_context_tokens = 0;
 
     let error = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model)
         .build()
@@ -819,7 +819,7 @@ fn catalog_rejects_a_configuration_maximum_context_above_the_model_maximum() {
         let mut model = synthetic_model();
         model.configurations[0].maximum_context_tokens = Some(maximum_context_tokens);
         catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", model)
             .build()
@@ -857,7 +857,7 @@ async fn catalog_lists_a_valid_license_and_loads_models_without_one() {
     unlicensed.model_id = "unlicensed-model".to_owned();
     let service = CatalogService::new(Arc::new(
         catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("licensed.yaml", licensed)
             .model("unlicensed.yaml", unlicensed)
@@ -956,7 +956,7 @@ fn catalog_rejects_invalid_licenses() {
             terms_url: terms_url.to_owned(),
         });
         let error = catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", model)
             .build()
@@ -983,7 +983,7 @@ fn catalog_accepts_valid_licenses() {
             terms_url: terms_url.to_owned(),
         });
         catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", model)
             .build()
@@ -997,7 +997,7 @@ fn catalog_preserves_profile_presentation() {
     model.profiles[0].display_name = "Balanced".to_owned();
     model.profiles[0].description = "Balances quality and resource use.".to_owned();
     let catalog = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model)
         .build()
@@ -1016,7 +1016,7 @@ fn catalog_accepts_omitted_profile_presentation() {
     model.profiles[0].description.clear();
 
     catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model)
         .build()
@@ -1049,14 +1049,14 @@ fn catalog_accepts_multi_platform_artifacts_and_non_overlapping_approved_alterna
     ];
 
     catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", release)
         .model("model.yaml", model)
         .build()
         .expect("non-overlapping approved artifact alternatives");
 
     catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", synthetic_model())
         .build()
@@ -1202,7 +1202,7 @@ fn catalog_rejects_invalid_platform_driver_and_approved_artifact_sets() {
 
     for (label, release, model, expected) in cases {
         let error = catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", release)
             .model("model.yaml", model)
             .build()
@@ -1411,7 +1411,7 @@ fn one_configuration_approving_two_releases_pins_the_selected_artifacts_own_rele
         hardware_requirements: None,
     });
     let catalog = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .engine_release("engine-macos.yaml", synthetic_macos_engine_release())
         .model("model.yaml", model)
@@ -1505,7 +1505,7 @@ fn locked_nix_deployment_retains_its_catalog_store_paths_for_the_hosting_node_ac
             &inventory,
         )
         .expect("selection"),
-        EngineArtifactSelection::Nix(dotcore_backend::model::resolution::NixEngineSelection {
+        EngineArtifactSelection::Nix(dotcore::model::resolution::NixEngineSelection {
             flake: LOCKED_FLAKE.to_owned(),
             package: "engines.llama-cpp.native".to_owned(),
         })
@@ -1655,7 +1655,7 @@ fn catalog_resolves_hardware_support_against_the_shared_classes() {
             hardware_requirements: None,
         }];
         catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", model)
             .build()
@@ -1693,7 +1693,7 @@ fn catalog_accepts_a_model_artifact_with_an_omitted_digest() {
     file.provenance_digest.clear();
 
     catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model)
         .build()
@@ -1728,7 +1728,7 @@ fn catalog_rejects_unsafe_or_ambiguous_hugging_face_sources() {
         }));
 
         let error = catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", model)
             .build()
@@ -1748,7 +1748,7 @@ fn catalog_rejects_unsafe_or_ambiguous_hugging_face_sources() {
         .expect("Hugging Face source")
         .content = None;
     let error = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", missing_content)
         .build()
@@ -1772,7 +1772,7 @@ fn catalog_resolves_file_artifacts_in_repository_subdirectories() {
         "MTP/projector.gguf",
     );
     let catalog = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model)
         .build()
@@ -1839,7 +1839,7 @@ fn catalog_rejects_unsafe_file_artifact_paths() {
             ),
         ] {
             let error = catalog_builder()
-                .engine_validator(dotcore_backend::model::engine::declaration_validator())
+                .engine_validator(dotcore::model::engine::declaration_validator())
                 .engine_release("engine.yaml", synthetic_engine_release())
                 .model("model.yaml", model)
                 .build()
@@ -1866,7 +1866,7 @@ fn catalog_loads_a_split_gguf_snapshot_model_artifact_for_llama_cpp() {
     }));
 
     let catalog = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model.clone())
         .build()
@@ -1890,7 +1890,7 @@ fn catalog_rejects_a_llama_cpp_snapshot_that_is_not_a_split_gguf_set() {
     }));
 
     let error = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model)
         .build()
@@ -1921,7 +1921,7 @@ fn catalog_rejects_bindings_missing_or_duplicating_fixed_auxiliaries() {
         invalid.configurations[0].artifact_bindings[0].auxiliary_artifact_ids =
             auxiliary_artifact_ids;
         let error = catalog_builder()
-            .engine_validator(dotcore_backend::model::engine::declaration_validator())
+            .engine_validator(dotcore::model::engine::declaration_validator())
             .engine_release("engine.yaml", synthetic_engine_release())
             .model("model.yaml", invalid)
             .build()
@@ -1957,7 +1957,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
         ..Default::default()
     };
     assert_eq!(
-        dotcore_backend::model::resolution::resolve_local_launch(
+        dotcore::model::resolution::resolve_local_launch(
             &catalog,
             &model_id,
             "balanced",
@@ -1971,7 +1971,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
         "invalid engine parameter values: profile \"balanced\" engine parameter \"total-context\" value 16777217 is outside its range 1024..=16777216"
     );
     assert_eq!(
-        dotcore_backend::model::resolution::resolve_local_launch(
+        dotcore::model::resolution::resolve_local_launch(
             &catalog,
             &model_id,
             "balanced",
@@ -2094,7 +2094,7 @@ fn llama_cpp_launch_rejects_a_context_per_request_above_the_configuration_maximu
     let mut model = synthetic_model();
     model.configurations[0].maximum_context_tokens = Some(65_536);
     let catalog = catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", model)
         .build()
@@ -2159,7 +2159,7 @@ fn vllm_launch_rejects_a_context_per_request_above_the_model_maximum() {
         &repository_catalog_root(),
         &site_root,
         dotcore_catalog::OciArtifactPolicy::Development,
-        dotcore_backend::model::engine::declaration_validator(),
+        dotcore::model::engine::declaration_validator(),
     )
     .expect("vLLM fixture catalog");
     std::fs::remove_dir_all(site_root).expect("remove fixture catalog");
@@ -2213,7 +2213,7 @@ fn catalog_retains_boolean_engine_parameters_and_their_schema() {
         .local_defaults_for(&model_id, "balanced")
         .expect("validated boolean defaults");
 
-    let snapshot = dotcore_backend::model::resolution::resolve_local_launch(
+    let snapshot = dotcore::model::resolution::resolve_local_launch(
         &catalog,
         &model_id,
         "balanced",
@@ -2569,7 +2569,7 @@ fn repository_catalog() -> Catalog {
     Catalog::load_with_policy(
         &repository_catalog_root(),
         dotcore_catalog::OciArtifactPolicy::Development,
-        dotcore_backend::model::engine::declaration_validator(),
+        dotcore::model::engine::declaration_validator(),
     )
     .expect("repository catalog")
 }
@@ -2673,7 +2673,7 @@ fn placeholder_image_identity(reference: &str) -> EngineLaunchIdentity {
 
 fn synthetic_local_catalog() -> Catalog {
     catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .model("model.yaml", synthetic_model())
         .build()
@@ -2712,7 +2712,7 @@ fn synthetic_sizing_catalog() -> Catalog {
     let catalog = Catalog::load_with_policy(
         &root,
         dotcore_catalog::OciArtifactPolicy::Development,
-        dotcore_backend::model::engine::declaration_validator(),
+        dotcore::model::engine::declaration_validator(),
     )
     .expect("synthetic sizing catalog");
     std::fs::remove_dir_all(root).expect("remove fixture catalog");
@@ -2836,7 +2836,7 @@ fn try_macos_catalog(
     macos_release: EngineRelease,
 ) -> Result<Catalog, dotcore_catalog::CatalogError> {
     catalog_builder()
-        .engine_validator(dotcore_backend::model::engine::declaration_validator())
+        .engine_validator(dotcore::model::engine::declaration_validator())
         .engine_release("engine.yaml", synthetic_engine_release())
         .engine_release("engine-macos.yaml", macos_release)
         .model("model.yaml", synthetic_two_release_model())

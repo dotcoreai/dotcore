@@ -11,7 +11,7 @@ mod deployment;
 use std::{collections::HashMap, fmt, str::FromStr, time::Duration};
 
 use clap::Args;
-use dotcore_backend::composition::{DEFAULT_MANAGEMENT_ADDR, MANAGEMENT_ADDR_ENV};
+use dotcore::composition::{DEFAULT_MANAGEMENT_ADDR, MANAGEMENT_ADDR_ENV};
 use dotcore_proto::dotcore::{
     application::v1::application_deployment_service_client::ApplicationDeploymentServiceClient,
     model::v1::model_deployment_service_client::ModelDeploymentServiceClient,

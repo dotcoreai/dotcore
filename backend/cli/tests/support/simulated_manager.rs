@@ -203,7 +203,7 @@ impl Drop for SimulatedManager {
 /// simulated application target, and the synthetic catalog application.
 fn initialize_site() -> PathBuf {
     let root = super::canonical_temp_dir().join(format!(
-        "dotcore-cli-simulated-manager-{}-{}",
+        "dotc-simulated-manager-{}-{}",
         std::process::id(),
         SITE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));

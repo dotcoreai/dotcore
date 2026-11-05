@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use dotcore_backend::development::{DevelopmentOwnershipHandle, DevelopmentOwnershipState};
+use dotcore::development::{DevelopmentOwnershipHandle, DevelopmentOwnershipState};
 use serde_json::{Value, json};
 
 use super::{CommonArgs, Runtime, connect, handle_root, print_success};

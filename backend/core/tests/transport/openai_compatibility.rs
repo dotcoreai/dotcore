@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_backend::composition::model_service_for;
+use dotcore::composition::model_service_for;
 use dotcore_proto::dotcore::{
     catalog::v1::{UpstreamModelBoundary, UpstreamModelDataEgressClass, UpstreamModelLocality},
     inference::v1::{
@@ -47,7 +47,7 @@ struct FixtureRouter {
     address: SocketAddr,
     management: tonic::transport::Channel,
     shutdown: oneshot::Sender<()>,
-    server: JoinHandle<dotcore_backend::composition::CompositionResult<()>>,
+    server: JoinHandle<dotcore::composition::CompositionResult<()>>,
 }
 
 struct HttpResponse {
@@ -1772,7 +1772,7 @@ async fn read_through_first_sse_frame(stream: &mut tokio::net::TcpStream) -> Vec
 
 async fn connect_management(
     address: SocketAddr,
-    server: &JoinHandle<dotcore_backend::composition::CompositionResult<()>>,
+    server: &JoinHandle<dotcore::composition::CompositionResult<()>>,
 ) -> tonic::transport::Channel {
     let endpoint = tonic::transport::Endpoint::from_shared(format!("http://{address}"))
         .expect("Management endpoint");
@@ -2308,7 +2308,7 @@ fn trace_capture() -> &'static TraceCapture {
                 tracing_subscriber::fmt::layer()
                     .with_ansi(false)
                     .with_writer(move || CaptureWriter(Arc::clone(&output)))
-                    .with_filter(tracing_subscriber::EnvFilter::new("dotcore_backend=trace")),
+                    .with_filter(tracing_subscriber::EnvFilter::new("dotcore=trace")),
             )
             .try_init()
             .expect("the trace capture is the only subscriber");
@@ -2353,7 +2353,7 @@ where
         event: &tracing::Event<'_>,
         context: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        if !event.metadata().target().starts_with("dotcore_backend") {
+        if !event.metadata().target().starts_with("dotcore") {
             return;
         }
         let mut fields = BTreeMap::new();

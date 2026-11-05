@@ -5115,7 +5115,7 @@ struct FakeDockerDaemon {
 impl FakeDockerDaemon {
     fn start() -> Self {
         let socket_path = crate::support::canonical_temp_dir().join(format!(
-            "dotcore-cli-fake-docker-{}-{}.sock",
+            "dotc-fake-docker-{}-{}.sock",
             std::process::id(),
             FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
@@ -5397,7 +5397,7 @@ fn rich_guided_init(site_dir: &Path, extra: &[&str]) -> Command {
         // A development workspace offers simulated inference, so the inference selector shows
         // on a host without accelerators.
         .env(
-            dotcore_backend::composition::DEV_SOURCE_FLAKE_ENV,
+            dotcore::composition::DEV_SOURCE_FLAKE_ENV,
             "git+file:///dev/null",
         )
         .env("TERM", "xterm-256color");
@@ -5848,7 +5848,7 @@ struct TemporarySite {
 impl TemporarySite {
     fn empty() -> Self {
         let root = crate::support::canonical_temp_dir().join(format!(
-            "dotcore-cli-site-init-test-{}-{}",
+            "dotc-site-init-test-{}-{}",
             std::process::id(),
             FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));
@@ -5858,7 +5858,7 @@ impl TemporarySite {
 
     fn new() -> Self {
         let root = crate::support::canonical_temp_dir().join(format!(
-            "dotcore-cli-server-test-{}-{}",
+            "dotc-server-test-{}-{}",
             std::process::id(),
             FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
         ));

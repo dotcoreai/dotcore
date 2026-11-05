@@ -342,7 +342,7 @@ async fn manager_created_model_is_realized_only_by_the_provisioned_worker_proces
     assert!(manager_paused_state.failure.is_none());
     // A preparation step the worker retains reads and follows through the manager, ahead of the
     // workload source.
-    dotcore_backend::testing::append_preparation_log(
+    dotcore::testing::append_preparation_log(
         &harness.worker().site_root().join("node"),
         &deployment_id,
         "prepare:engine-build",
@@ -2262,7 +2262,7 @@ fn deployment_telemetry(
     if !directory.is_dir() {
         return Vec::new();
     }
-    dotcore_backend::telemetry::WorkloadResourceRecords::read(&[directory])
+    dotcore::telemetry::WorkloadResourceRecords::read(&[directory])
         .expect("telemetry records")
         .records
         .into_iter()

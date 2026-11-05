@@ -7,7 +7,7 @@
 
 use anyhow::Context;
 use clap::Args;
-use dotcore_backend::model::engine::declaration_validator;
+use dotcore::model::engine::declaration_validator;
 use dotcore_proto::dotcore::site::v1::{ExecutionTarget, execution_target::RuntimeBinding};
 use dotcore_site::{
     initial::validation::SiteInputBundleValidator,
@@ -53,7 +53,7 @@ pub(crate) fn node_remove(paths: &RootPathArgs, arguments: NodeRemoveArgs) -> an
         &site_dir,
         &SiteInputBundleValidator::new(
             declaration_validator(),
-            dotcore_backend::model::site_declaration_rules(),
+            dotcore::model::site_declaration_rules(),
         ),
     )
     .map_err(|error| {

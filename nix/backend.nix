@@ -64,7 +64,7 @@ let
     src = backendSrc;
     cargoLock = root + "/backend/Cargo.lock";
     sourceRoot = "source/backend";
-    cargoExtraArgs = "--locked --package dotcore-cli --bin dotc --package dotcore-launcher --bin dotcore-launcher";
+    cargoExtraArgs = "--locked --package dotc --bin dotc --package dotcore-launcher --bin dotcore-launcher";
     strictDeps = true;
     nativeBuildInputs = with pkgs; [
       clang

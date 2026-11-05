@@ -144,11 +144,11 @@ build-launcher profile="":
 
 # Start the development backend with Cargo.
 run-dev: build-launcher
-  exec cargo run --locked --package dotcore-cli --bin dotc -- server start
+  exec cargo run --locked --package dotc --bin dotc -- server start
 
 # Start the development backend with Cargo's release profile.
 run-dev-release: (build-launcher "--release")
-  exec cargo run --locked --release --package dotcore-cli --bin dotc -- server start
+  exec cargo run --locked --release --package dotc --bin dotc -- server start
 
 # Fail unless the development site exists, which the backend needs to start.
 [no-exit-message]

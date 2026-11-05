@@ -983,31 +983,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "dotcore-artifact"
+name = "dotc"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
- "bollard",
+ "clap",
+ "crossterm",
+ "dotcore",
+ "dotcore-artifact",
+ "dotcore-catalog",
  "dotcore-domain",
+ "dotcore-node-hardware",
  "dotcore-proto",
- "fs4",
+ "dotcore-runtime",
+ "dotcore-runtime-backends",
+ "dotcore-site",
+ "filedescriptor",
  "futures-util",
- "hf-hub",
+ "getifaddrs",
  "libc",
+ "ratatui",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
- "tokio-stream",
  "tokio-util",
+ "tonic",
  "tracing",
+ "url",
+ "vt100",
 ]
 
 [[package]]
-name = "dotcore-backend"
+name = "dotcore"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -1015,8 +1026,8 @@ dependencies = [
  "base64 0.22.1",
  "bollard",
  "bytes",
+ "dotcore",
  "dotcore-artifact",
- "dotcore-backend",
  "dotcore-catalog",
  "dotcore-domain",
  "dotcore-host-process",
@@ -1065,6 +1076,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotcore-artifact"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bollard",
+ "dotcore-domain",
+ "dotcore-proto",
+ "fs4",
+ "futures-util",
+ "hf-hub",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "dotcore-catalog"
 version = "0.1.0"
 dependencies = [
@@ -1079,41 +1114,6 @@ dependencies = [
  "tonic",
  "tracing",
  "url",
-]
-
-[[package]]
-name = "dotcore-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "crossterm",
- "dotcore-artifact",
- "dotcore-backend",
- "dotcore-catalog",
- "dotcore-domain",
- "dotcore-node-hardware",
- "dotcore-proto",
- "dotcore-runtime",
- "dotcore-runtime-backends",
- "dotcore-site",
- "filedescriptor",
- "futures-util",
- "getifaddrs",
- "libc",
- "ratatui",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "tokio-util",
- "tonic",
- "tracing",
- "url",
- "vt100",
 ]
 
 [[package]]

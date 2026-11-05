@@ -15,7 +15,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand, ValueEnum};
-use dotcore_backend::{
+use dotcore::{
     development::{
         DevelopmentAcceleratorTransport, DevelopmentLaunchProgress, DevelopmentRuntimeChoice,
         DevelopmentWorkloadProcessIdentity, DirectWorkloadFacade, DirectWorkloadFacadeConfig,
@@ -492,7 +492,7 @@ fn record_measurement(
         }
         Ok(None) => format!(
             "no telemetry directory: set {} or pass --site-dir or set DOTCORE_SITE_DIR",
-            dotcore_backend::telemetry::TELEMETRY_DIR
+            dotcore::telemetry::TELEMETRY_DIR
         ),
         Err(error) => format!("{error:#}"),
     };
@@ -965,7 +965,7 @@ fn absolute_path(value: &str) -> Result<PathBuf, String> {
 mod tests {
     use std::path::{Path, PathBuf};
 
-    use dotcore_backend::development::DevelopmentWorkloadProcessIdentity;
+    use dotcore::development::DevelopmentWorkloadProcessIdentity;
     use dotcore_node_hardware::vram::{
         VramAccounting, VramAvailability, VramGpuIdentity, VramGpuMemory, VramObservation,
         VramOtherProcess, VramProcess, VramSample,

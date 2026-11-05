@@ -204,11 +204,9 @@ mod tests {
                 ))
                 .expect("initialize Apple site");
 
-            let inputs = InitialSiteInputs::load(
-                &site_dir,
-                &dotcore_backend::model::site_declaration_rules(),
-            )
-            .expect("Site inputs");
+            let inputs =
+                InitialSiteInputs::load(&site_dir, &dotcore::model::site_declaration_rules())
+                    .expect("Site inputs");
             let model = inputs
                 .site()
                 .execution_targets
@@ -379,7 +377,7 @@ mod tests {
         );
         let matching_arguments = init_arguments(ApplicationsChoice::Docker);
         let existing =
-            InitialSiteInputs::load(&site_dir, &dotcore_backend::model::site_declaration_rules())
+            InitialSiteInputs::load(&site_dir, &dotcore::model::site_declaration_rules())
                 .expect("existing site inputs");
         assert_eq!(
             success_records(

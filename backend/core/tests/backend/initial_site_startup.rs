@@ -12,9 +12,7 @@ use std::{
     },
 };
 
-use dotcore_backend::composition::{
-    Backend, BackendConfiguration, BackendRole, ServerConfiguration,
-};
+use dotcore::composition::{Backend, BackendConfiguration, BackendRole, ServerConfiguration};
 use dotcore_catalog::OciArtifactPolicy;
 use dotcore_domain::SitePaths;
 use dotcore_node_hardware::hardware::{AcceleratorUnavailable, AcceleratorVendorAdapter};
@@ -42,7 +40,7 @@ const SYSTEM_INFO_JSON: &str = r#"{"OperatingSystem":"NixOS 26.05 (Yarara)","OST
 #[tokio::test]
 async fn joined_node_folders_are_accepted_by_backend_preparation_for_all_combinations() {
     // This suite does not include the shared support module that relaxes file sync.
-    dotcore_backend::testing::relax_sync_for_tests();
+    dotcore::testing::relax_sync_for_tests();
     let _docker_host_guard = DOCKER_HOST_LOCK
         .get_or_init(tokio::sync::Mutex::default)
         .lock()
@@ -82,14 +80,14 @@ async fn joined_node_folders_are_accepted_by_backend_preparation_for_all_combina
         let fixture = SiteFixture::new();
         let site_root = fixture.root.join("site");
         InitialSiteInputWriter::new(SiteInputBundleValidator::new(
-            dotcore_backend::model::engine::declaration_validator(),
-            dotcore_backend::model::site_declaration_rules(),
+            dotcore::model::engine::declaration_validator(),
+            dotcore::model::site_declaration_rules(),
         ))
         .create(&site_root, &inputs)
         .expect("write generated initial inputs");
         SiteInputBundleValidator::new(
-            dotcore_backend::model::engine::declaration_validator(),
-            dotcore_backend::model::site_declaration_rules(),
+            dotcore::model::engine::declaration_validator(),
+            dotcore::model::site_declaration_rules(),
         )
         // Whole-catalog invariant: generated initial inputs compose with the shipped catalog.
         .with_platform_catalog_root(workspace_root().join("catalog"))
@@ -104,7 +102,7 @@ async fn joined_node_folders_are_accepted_by_backend_preparation_for_all_combina
             role: BackendRole::Manager(ServerConfiguration {
                 management_bind_address: "127.0.0.1:0".parse().expect("management address"),
                 inference_bind_address: "127.0.0.1:0".parse().expect("inference address"),
-                private_listener: dotcore_backend::composition::ManagerPrivateListener::Configured(
+                private_listener: dotcore::composition::ManagerPrivateListener::Configured(
                     "127.0.0.1:0".parse().expect("private address"),
                 ),
                 allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],

@@ -43,7 +43,7 @@ fn configuration_snapshot_survives_environment_removal_through_prepare_and_serve
 #[ignore = "subprocess helper"]
 async fn configuration_snapshot_prepare_serve_helper() {
     assert_eq!(std::env::var(SNAPSHOT_HELPER).as_deref(), Ok("1"));
-    let configuration = dotcore_backend::composition::BackendConfiguration::from_environment()
+    let configuration = dotcore::composition::BackendConfiguration::from_environment()
         .expect("configuration snapshot");
     for variable in [
         "DOTCORE_SITE_DIR",
@@ -57,7 +57,7 @@ async fn configuration_snapshot_prepare_serve_helper() {
         unsafe { std::env::remove_var(variable) };
     }
     let (shutdown, signal) = tokio::sync::oneshot::channel();
-    let backend = dotcore_backend::composition::Backend::prepare(configuration, async move {
+    let backend = dotcore::composition::Backend::prepare(configuration, async move {
         let _ = signal.await;
     })
     .await

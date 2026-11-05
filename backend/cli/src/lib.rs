@@ -116,7 +116,7 @@ enum ServerSubcommand {
 /// events; `RUST_LOG` overrides this.
 pub fn initialize_tracing() {
     let words = command_words(std::env::args_os());
-    dotcore_backend::logging::initialize_with_default_filter(if quiet_by_default(&words) {
+    dotcore::logging::initialize_with_default_filter(if quiet_by_default(&words) {
         "warn"
     } else {
         "info"

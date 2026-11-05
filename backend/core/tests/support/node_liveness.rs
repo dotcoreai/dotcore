@@ -8,7 +8,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
-use dotcore_backend::testing::{LIVENESS_TTL, ManualClock, NodeLiveness, NodeLivenessAges};
+use dotcore::testing::{LIVENESS_TTL, ManualClock, NodeLiveness, NodeLivenessAges};
 
 /// Longest age of a live node's contact at an advance; what is left of its lease after the
 /// advance is the real time it has to renew again. A live node sends a message at least every

@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use dotcore_backend::composition::PathOverrides;
+use dotcore::composition::PathOverrides;
 use tokio::sync::oneshot::{self, error::TryRecvError};
 use tracing::{error, info, warn};
 
@@ -39,16 +39,13 @@ pub async fn start(paths: &PathOverrides) -> Result<()> {
         &TokioSignalRegistrar,
         |shutdown, mut shutdown_outcome| async move {
             let configuration =
-                dotcore_backend::composition::BackendConfiguration::from_environment_with_paths(
-                    paths,
-                )
-                .map_err(anyhow::Error::from)?;
+                dotcore::composition::BackendConfiguration::from_environment_with_paths(paths)
+                    .map_err(anyhow::Error::from)?;
             let Some(backend) = prepare_or_shutdown(
                 async {
-                    let result =
-                        dotcore_backend::composition::Backend::prepare(configuration, shutdown)
-                            .await
-                            .map_err(anyhow::Error::from);
+                    let result = dotcore::composition::Backend::prepare(configuration, shutdown)
+                        .await
+                        .map_err(anyhow::Error::from);
                     if let Err(error) = &result {
                         error!(
                             event_kind = "cli_backend_preparation_failed",
@@ -103,7 +100,7 @@ pub async fn start(paths: &PathOverrides) -> Result<()> {
     Ok(())
 }
 
-fn write_startup_protocol(addresses: dotcore_backend::server::ServerAddresses) -> io::Result<()> {
+fn write_startup_protocol(addresses: dotcore::server::ServerAddresses) -> io::Result<()> {
     let stdout = io::stdout();
     write_startup_protocol_to(&mut stdout.lock(), addresses)
 }
@@ -112,7 +109,7 @@ fn write_startup_protocol(addresses: dotcore_backend::server::ServerAddresses) -
 /// channel reports that address instead.
 fn write_startup_protocol_to(
     output: &mut impl Write,
-    addresses: dotcore_backend::server::ServerAddresses,
+    addresses: dotcore::server::ServerAddresses,
 ) -> io::Result<()> {
     writeln!(output, "Dotcore server starting")?;
     if let Some(address) = addresses.management {
@@ -766,7 +763,7 @@ mod tests {
         let mut output = FlushRecordingWriter::default();
         super::write_startup_protocol_to(
             &mut output,
-            dotcore_backend::server::ServerAddresses {
+            dotcore::server::ServerAddresses {
                 management: None,
                 inference: None,
                 private: Some("127.0.0.2:50053".parse().expect("private address")),
@@ -781,8 +778,8 @@ mod tests {
         assert_eq!(output.flushes, 1);
     }
 
-    fn public_addresses() -> dotcore_backend::server::ServerAddresses {
-        dotcore_backend::server::ServerAddresses {
+    fn public_addresses() -> dotcore::server::ServerAddresses {
+        dotcore::server::ServerAddresses {
             management: Some("127.0.0.1:50051".parse().expect("management address")),
             inference: Some("127.0.0.1:50052".parse().expect("inference address")),
             private: None,
