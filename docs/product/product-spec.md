@@ -69,7 +69,7 @@
 - Applications declare typed deployment parameters, shown as basic or advanced, that operators set when creating a deployment; the resolved values are retained with the deployment.
 - Optionally link an inference route to applications that declare such a dependency; route availability does not gate application launch.
 - Preserve stable application-to-route links across route renaming; a missing linked route fails the deployment rather than silently substituting another route.
-- Inspect application lifecycle, readiness, access information, and available workload diagnostics.
+- Inspect application lifecycle, readiness, access information, resource use, and available workload diagnostics.
 - Pause/resume retained deployments and tear them down through explicit lifecycle operations; teardown remains available while paused.
 - Productize protected application access, version selection, updates, rollback, and data-retention/removal policy through the delivery stages below.
 - Keep administrator-supplied images distinct from verified catalog applications.
@@ -81,7 +81,7 @@
 - Discover locally present accelerators for production-supported vendors independently of site execution configuration.
 - Keep supported-vendor observations explicit when empty or unavailable; distinguish unavailable observations from absent hardware or an unhealthy machine.
 - Treat vendor-wide observations as distinct from configured-device attribution, execution readiness, allocatable capacity, and scheduling eligibility.
-- Relate model deployments to observed machine/GPU placement and resource use when authoritative attribution exists.
+- Relate model and application deployments to observed machine/GPU placement and resource use when authoritative attribution exists.
 - Provide fleet summaries and machine-level inspection without inferring per-device fit from aggregate capacity.
 - Expand toward compatibility checks, placement controls, resource history, diagnostics, maintenance, and automated scheduling as their milestone support is established.
 
@@ -126,7 +126,7 @@ These stages allocate product outcomes, not current completion status. Capabilit
 - Prove narrow application workloads, with Hermes and n8n as the reference applications, and their declared Inference integration; broader application lifecycle and protected access remain later scope.
 - Provide bounded workload and backend diagnostics without implying productized telemetry or remote-access security.
 - Provide current per-node hardware and model-deployment accelerator-memory observations with explicit freshness and unavailability.
-- Provide bounded in-memory metric history for hardware observations (memory, CPU, GPU utilization, power, temperature, storage) and inference request metrics, per site, machine, device, deployment, and route, with a site overview; history is lost on restart and is not usage accounting.
+- Provide bounded in-memory metric history for hardware observations (memory, CPU, GPU utilization, power, temperature, storage), per-deployment resource use (accelerator memory for model deployments; CPU, memory and accelerator memory for application deployments) and inference request metrics, per site, machine, device, deployment, and route, with a site overview; history is lost on restart and is not usage accounting.
 - Keep representative console/fixture experiences clearly distinct from infrastructure-backed capabilities.
 - Limit artifact support to deployment prerequisites: artifacts stay available while deployments use them, and operators can reclaim image disk no deployment uses, and shared workload storage unused for a configurable time; general artifact/storage management is Milestone 2.
 - Do not claim production identity, access enforcement, multi-machine scheduling, security, networking, high availability, or recovery beyond limited local reconciliation.

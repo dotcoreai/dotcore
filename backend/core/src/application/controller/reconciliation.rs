@@ -115,6 +115,9 @@ impl ApplicationRealizer {
             if let Some(attribution) = &self.accelerator_attribution {
                 attribution.retain(&BTreeSet::new());
             }
+            if let Some(resources) = &self.resource_attribution {
+                resources.retain(&BTreeSet::new());
+            }
             return Ok(ReconciliationState::Settled);
         }
 
@@ -130,6 +133,9 @@ impl ApplicationRealizer {
             .map(|(deployment, _)| deployment.application_deployment_id.as_str())
             .collect::<BTreeSet<_>>();
         self.startup.retain(&retained_ids);
+        if let Some(resources) = &self.resource_attribution {
+            resources.retain(&retained_ids);
+        }
         if let Some(attribution) = &self.accelerator_attribution {
             attribution.retain(&retained_ids);
             for (deployment, _) in &retained {
@@ -235,9 +241,29 @@ impl ApplicationRealizer {
                 )));
             }
         };
+        self.track_resources(&effective, &launch);
         DeploymentPass::reconciled(
             reconcile_deployment(self, &effective, &launch, &token, observations).await,
         )
+    }
+
+    /// Reads the host resources of the group a present deployment runs as `launch` with every
+    /// hardware collection; any other deployment's group is not read.
+    fn track_resources(
+        &self,
+        deployment: &ApplicationDeploymentDeclaration,
+        launch: &WorkloadGroupLaunch,
+    ) {
+        let Some(resources) = &self.resource_attribution else {
+            return;
+        };
+        let deployment_id = deployment.application_deployment_id.as_str();
+        match (desired_state(deployment), deployment.placement.as_ref()) {
+            (Ok(ApplicationDeploymentDesiredState::Present), Some(placement)) => {
+                resources.track(deployment_id, &placement.execution_target_id, launch);
+            }
+            _ => resources.forget(deployment_id),
+        }
     }
 
     /// Checks a deployment's node records before any runtime action: a recovery barrier

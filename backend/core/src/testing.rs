@@ -40,13 +40,14 @@ pub fn profile_compatibility(
     )
 }
 
-/// Declarations of the metrics each writer exports, in the order node hardware, forwarder, router
-/// and model deployments. The composed catalog must contain every one.
+/// Declarations of the metrics each writer exports, in the order node hardware, forwarder, router,
+/// model deployments and application deployments. The composed catalog must contain every one.
 pub fn writer_metric_descriptors() -> Vec<dotcore_observability::MetricDescriptor> {
     let mut descriptors = dotcore_site::node::metrics::hardware_metric_descriptors();
     descriptors.extend(dotcore_observability::forwarder_metric_descriptors());
     descriptors.extend(crate::router::metrics::router_metric_descriptors());
     descriptors.extend(crate::model::controller::metrics::deployment_metric_descriptors());
+    descriptors.extend(crate::application::application_metric_descriptors());
     descriptors
 }
 

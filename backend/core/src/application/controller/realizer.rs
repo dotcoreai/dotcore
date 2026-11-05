@@ -49,6 +49,7 @@ pub(crate) struct ApplicationRealizer {
     pub(super) node: NodeRealization,
     pub(super) accelerator_attribution:
         Option<super::accelerator_memory::GroupAcceleratorAttribution>,
+    pub(super) resource_attribution: Option<super::resources::GroupResourceAttribution>,
     pub(super) startup: StartupTracker,
     pub(super) active_reconciliation: Mutex<Option<tokio_util::sync::CancellationToken>>,
     pub(super) shutdown: tokio_util::sync::CancellationToken,
@@ -83,6 +84,10 @@ pub(super) struct RealizerDependencies {
     pub(super) node: NodeRealization,
     pub(super) accelerator_attribution:
         Option<super::accelerator_memory::GroupAcceleratorAttribution>,
+
+    /// Host resource attribution of the groups this node realizes, read with each hardware
+    /// collection.
+    pub(super) resource_attribution: Option<super::resources::GroupResourceAttribution>,
 }
 
 /// Serialization of one realizer's reconciliation passes and the wakeup that schedules the next.
@@ -116,6 +121,7 @@ impl ApplicationRealizer {
             },
             node: dependencies.node,
             accelerator_attribution: dependencies.accelerator_attribution,
+            resource_attribution: dependencies.resource_attribution,
             startup: StartupTracker::new(STARTUP_GRACE),
             active_reconciliation: Mutex::new(None),
             shutdown: tokio_util::sync::CancellationToken::new(),

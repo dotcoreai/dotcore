@@ -1,6 +1,6 @@
 //! Private boundary over the local Docker Engine API: it opens the daemon connection
 //! and performs each container and network operation the Docker backend needs (list,
-//! create, inspect, start, stop, remove, logs, networks).
+//! create, inspect, start, stop, remove, logs, stats, networks).
 //!
 //! The operation set is an injectable contract so tests can supply a fake, every
 //! operation is bounded by a thirty-second timeout, and every failure surfaces as a
@@ -24,7 +24,7 @@ use bollard::{
     query_parameters::{
         CreateContainerOptionsBuilder, InspectNetworkOptionsBuilder, ListContainersOptionsBuilder,
         ListNetworksOptionsBuilder, LogsOptionsBuilder, RemoveContainerOptionsBuilder,
-        StopContainerOptionsBuilder,
+        StatsOptionsBuilder, StopContainerOptionsBuilder,
     },
 };
 use futures_util::{Stream, StreamExt as _, stream};
@@ -183,6 +183,12 @@ pub(super) trait DockerClient: Send + Sync {
         _container_id: &str,
     ) -> impl Future<Output = Result<DockerGroupExecution, ClientError>> + Send {
         async { Err(ClientError::new("Docker group containers are unavailable")) }
+    }
+    fn container_stats(
+        &self,
+        _container_id: &str,
+    ) -> impl Future<Output = Result<DockerContainerStats, ClientError>> + Send {
+        async { Err(ClientError::new("Docker container stats are unavailable")) }
     }
 }
 
@@ -762,6 +768,37 @@ impl DockerClient for LocalDockerClient {
             mounts,
         })
     }
+
+    async fn container_stats(
+        &self,
+        container_id: &str,
+    ) -> Result<DockerContainerStats, ClientError> {
+        // One-shot skips the daemon's second CPU sample, which callers don't need: they derive
+        // rates from their own consecutive readings.
+        let options = StatsOptionsBuilder::default()
+            .stream(false)
+            .one_shot(true)
+            .build();
+        let response =
+            bounded_operation("Docker container stats", DOCKER_OPERATION_TIMEOUT, async {
+                self.docker
+                    .stats(container_id, Some(options))
+                    .next()
+                    .await
+                    .transpose()
+            })
+            .await?
+            .ok_or_else(|| ClientError::new("Docker container stats response is empty"))?;
+        let memory = response.memory_stats.unwrap_or_default();
+        Ok(DockerContainerStats {
+            cpu_time_ns: response
+                .cpu_stats
+                .and_then(|stats| stats.cpu_usage)
+                .and_then(|usage| usage.total_usage),
+            memory_usage_bytes: memory.usage,
+            memory_stat: memory.stats.unwrap_or_default().into_iter().collect(),
+        })
+    }
 }
 
 /// Maps one container listing entry without Docker Desktop annotations, so a listing matches an
@@ -930,6 +967,20 @@ pub(super) struct DockerGroupExecution {
     pub(super) argv: Vec<String>,
     pub(super) environment: Vec<String>,
     pub(super) mounts: Vec<DockerMount>,
+}
+
+/// One container's resource figures as the Docker Engine reports them. A container that is not
+/// running reports none.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct DockerContainerStats {
+    /// Cumulative CPU time of the container's processes.
+    pub(super) cpu_time_ns: Option<u64>,
+
+    /// Memory the container's control group charges, file cache included.
+    pub(super) memory_usage_bytes: Option<u64>,
+
+    /// The control group's memory statistics, whose keys differ between cgroup v1 and v2.
+    pub(super) memory_stat: BTreeMap<String, u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

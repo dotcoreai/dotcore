@@ -39,6 +39,14 @@ use dotcore_proto::dotcore::model::v1::{
     CreateModelDeploymentRequest, DirectRouteExposure, ModelDeploymentExposure,
     model_deployment_exposure,
 };
+use dotcore_runtime::{
+    WorkloadCorrelation, WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupLaunch, WorkloadPort,
+    WorkloadPublicationRequest, WorkloadUnitLaunch, WorkloadUnitName, WorkloadUnitResources,
+    WorkloadUnitResourcesUnavailable,
+};
+use dotcore_runtime_backends::docker::{
+    DockerAcceleratorTransport, DockerBackendFactory, DockerRuntimeFactory,
+};
 use fs4::fs_std::FileExt;
 use prost::Message;
 use serde_json::Value;
@@ -88,6 +96,8 @@ const NVIDIA_CDI_SELECTOR: &str = "nvidia.com/gpu=0";
 /// GPU memory the accelerator-memory fixture's unit allocates on top of its CUDA context.
 #[cfg(not(target_os = "macos"))]
 const GPU_FIXTURE_ALLOCATION_BYTES: u64 = 256 * 1024 * 1024;
+/// Execution target of the runtime the group resources check drives directly.
+const RESOURCES_TARGET_ID: &str = "docker-resources-target";
 
 #[test]
 fn temporary_site_configuration_supplies_its_own_publication_host() {
@@ -1341,6 +1351,84 @@ async fn hw_docker_nvidia_group_units_report_attributed_accelerator_memory() {
 
 #[tokio::test]
 #[ignore = "hardware: just backend::test-docker"]
+async fn hw_docker_group_units_report_growing_cpu_time_and_memory_until_stopped() {
+    let resources = TestResources::new()
+        .await
+        .expect("Docker preflight and temporary site");
+    let port = support::ports::reserve_port();
+    let result: Result<(), String> = async {
+        let runtime = DockerRuntimeFactory::new(
+            resources.site_id.clone(),
+            resources.root.clone(),
+            resources.root.join("resources-data"),
+            resources.root.join("resources-cache"),
+        )
+        .application_backend(
+            DockerAcceleratorTransport::Cdi,
+            RESOURCES_TARGET_ID.to_owned(),
+        )
+        .await
+        .map_err(|error| format!("connect the Docker application runtime: {error}"))?;
+        let group = busy_unit_group(&resources, port.port())?;
+        runtime
+            .create_workload_group(&group)
+            .await
+            .map_err(|error| format!("create the busy group: {error:#}"))?;
+
+        let (first_cpu, first_memory) = busy_unit_resources(&*runtime, &group)
+            .await?
+            .ok_or_else(|| "the running busy unit reported no figures".to_owned())?;
+        if first_memory == 0 {
+            return Err("the running busy unit reported no memory".to_owned());
+        }
+        // The unit spins one CPU, so its CPU time grows between two readings.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let (grown_cpu, grown_memory) = loop {
+            let reading = busy_unit_resources(&*runtime, &group)
+                .await?
+                .ok_or_else(|| "the running busy unit stopped reporting figures".to_owned())?;
+            if reading.0 > first_cpu {
+                break reading;
+            }
+            if Instant::now() >= deadline {
+                return Err(format!(
+                    "the busy unit's CPU time never grew past {first_cpu} ns: last {reading:?}"
+                ));
+            }
+            sleep(Duration::from_millis(200)).await;
+        };
+        if grown_memory == 0 {
+            return Err("the running busy unit reported no memory".to_owned());
+        }
+        eprintln!(
+            "[docker-apps] operation=group_resources first_cpu_ns={first_cpu} grown_cpu_ns={grown_cpu} memory_bytes={grown_memory}"
+        );
+
+        runtime
+            .stop_workload_group(&group)
+            .await
+            .map_err(|error| format!("stop the busy group: {error:#}"))?;
+        if let Some(reading) = busy_unit_resources(&*runtime, &group).await? {
+            return Err(format!("the stopped busy unit reported figures: {reading:?}"));
+        }
+        runtime
+            .remove_workload_group(&group)
+            .await
+            .map_err(|error| format!("remove the busy group: {error:#}"))
+    }
+    .await;
+    drop(port);
+    let cleanup = resources.cleanup();
+    match (result, cleanup) {
+        (Ok(()), Ok(())) => {}
+        (Err(primary), Ok(())) => panic!("{primary}"),
+        (Ok(()), Err(cleanup)) => panic!("cleanup: {cleanup}"),
+        (Err(primary), Err(cleanup)) => panic!("{primary}; cleanup: {cleanup}"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "hardware: just backend::test-docker"]
 async fn hw_docker_lightweight_application_logs_are_owned_filtered_and_cancellable() {
     let resources = TestResources::new_log_fixture()
         .await
@@ -2374,6 +2462,84 @@ struct DockerRetainedResources {
     cpu_limit: Value,
     memory_limit: Value,
     gpu_devices: Value,
+}
+
+/// A one-unit group whose unit keeps one CPU busy until it is stopped, on the resources test's
+/// own execution target.
+fn busy_unit_group(
+    resources: &TestResources,
+    host_port: u16,
+) -> Result<WorkloadGroupLaunch, String> {
+    let unit = WorkloadUnitName("busy".to_owned());
+    Ok(WorkloadGroupLaunch {
+        group_id: WorkloadGroupId("busy-resources".to_owned()),
+        correlation: WorkloadCorrelation {
+            owner_id: "busy-resources".to_owned(),
+            reconcile_generation: 1,
+        },
+        execution_target: dotcore_runtime::ExecutionTarget {
+            managed_node_id: dotcore_domain::SiteNodeId::parse("docker-apps")
+                .map_err(|error| format!("resources test node: {error}"))?,
+            accelerator_device_ids: Vec::new(),
+        },
+        execution_target_id: RESOURCES_TARGET_ID.to_owned(),
+        required_platform: dotcore_domain::ExecutionPlatform::try_from(&resources.platform)
+            .map_err(|error| format!("resources test platform: {error}"))?,
+        units: std::collections::BTreeMap::from([(
+            unit.clone(),
+            WorkloadUnitLaunch {
+                image: BUSYBOX_IMAGE.to_owned(),
+                // A shell PID 1 that traps SIGTERM stops at once while its child spins.
+                command: vec![
+                    "sh".to_owned(),
+                    "-c".to_owned(),
+                    "trap 'exit 0' TERM; while :; do :; done & wait $!".to_owned(),
+                ],
+                arguments: Vec::new(),
+                environment: Default::default(),
+                reconfigurable_environment: Default::default(),
+                storage: Vec::new(),
+                ports: vec![WorkloadPort {
+                    name: "http".to_owned(),
+                    container_port: 8080,
+                }],
+                dependencies: Vec::new(),
+                ready_launch_gate: None,
+            },
+        )]),
+        publication: WorkloadPublicationRequest {
+            unit_name: unit,
+            port_name: "http".to_owned(),
+            configured_host: resources.publication_host,
+            host_port: std::num::NonZeroU16::new(host_port)
+                .ok_or_else(|| "reserved port is zero".to_owned())?,
+        },
+        host_aliases: Default::default(),
+    })
+}
+
+/// The busy unit's CPU time and memory, or none when it is not running; any other answer fails.
+async fn busy_unit_resources(
+    runtime: &dyn WorkloadGroupBackend,
+    group: &WorkloadGroupLaunch,
+) -> Result<Option<(u64, u64)>, String> {
+    let mut observations = runtime
+        .observe_group_resources(group)
+        .await
+        .map_err(|error| format!("observe the busy group's resources: {error:#}"))?;
+    let observation = observations
+        .remove(&WorkloadUnitName("busy".to_owned()))
+        .ok_or_else(|| "the busy unit has no resource observation".to_owned())?;
+    match observation.resources {
+        WorkloadUnitResources::Available {
+            cpu_time_ns,
+            memory_bytes,
+        } => Ok(Some((cpu_time_ns, memory_bytes))),
+        WorkloadUnitResources::Unavailable(WorkloadUnitResourcesUnavailable::NotRunning) => {
+            Ok(None)
+        }
+        other => Err(format!("the busy unit has unexpected resources: {other:?}")),
+    }
 }
 
 struct TestResources {
