@@ -86,10 +86,10 @@ preview:
 typecheck:
   npm run typecheck
 
-# Run the frontend test suite once.
-test:
+# Run the frontend test suite once; extra arguments go to Vitest.
+test *args:
   node tools/eslint-accessibility.test.mjs
-  npm run test
+  npm run test -- {{args}}
   node tools/runtime-config.test.mjs
 
 # Run the frontend test suite through the Nix test derivation.
@@ -131,15 +131,21 @@ format-check:
   npm run format:check
 
 # Run all frontend validation operations (format-check, lint, test, build, npm-hash-check).
-check:
+check: ci-check
+
+# Run the frontend validations CI runs, without changing files.
+ci-check: ci-lint ci-test
+
+# Run the frontend's static checks CI runs, without changing files: formatting, lint, build and the Nix npm hash.
+ci-lint:
   just format-check
   just lint
-  just test
   just build
   just npm-hash-check
 
-# Run the frontend validations CI runs, without changing files.
-ci-check: check
+# Run the frontend tests CI runs; a part such as `1/2` runs only that share of the Vitest tests.
+ci-test part="":
+  just test {{ if part == "" { "" } else { "--shard=" + part } }}
 
 # Fail when the Nix build's npm dependency hash doesn't match package-lock.json.
 npm-hash-check:
