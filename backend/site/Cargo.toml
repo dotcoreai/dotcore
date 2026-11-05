@@ -3,6 +3,7 @@ name = "dotcore-site"
 description = "Site state authority: desired site repository, site and node stores, node views and fencing, membership, initial site and reset."
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 rust-version = "1.88"
 publish = false
 

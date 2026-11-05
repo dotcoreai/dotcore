@@ -3,6 +3,7 @@ name = "dotcore-runtime-backends"
 description = "Runtime backends over the contracts: Docker, native launcher-held processes and simulated on a declared machine, plus the backend registry."
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 rust-version = "1.88"
 publish = false
 

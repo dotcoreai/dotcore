@@ -3,6 +3,7 @@ name = "dotcore-host-process"
 description = "Raw host process facts: start tokens, parents, children, memory, exit watch and process ancestry."
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 rust-version = "1.88"
 publish = false
 

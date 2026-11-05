@@ -3,6 +3,7 @@ name = "dotcore-launcher"
 description = "Per-workload process holder that outlives the backend, and the supervisor client that creates, stops and reads it."
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 rust-version = "1.88"
 publish = false
 

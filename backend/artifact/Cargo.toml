@@ -3,6 +3,7 @@ name = "dotcore-artifact"
 description = "Artifact manager: prepares model, engine and auxiliary artifacts from Hugging Face, OCI images and Nix."
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 rust-version = "1.88"
 publish = false
 

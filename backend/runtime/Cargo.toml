@@ -3,6 +3,7 @@ name = "dotcore-runtime"
 description = "Owner-neutral runtime contracts: workload intent, observations, logs, site cleanup and host capability probes."
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 rust-version = "1.88"
 publish = false
 

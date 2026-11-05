@@ -3,6 +3,7 @@ name = "dotcore-domain"
 description = "Lowest backend layer: shared identifiers, references, platform values, the backend clock and durable file flushes."
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 rust-version = "1.88"
 publish = false
 
