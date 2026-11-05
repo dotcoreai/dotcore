@@ -72,8 +72,12 @@ describe("MachinesResources", () => {
     );
     expect(within(resources).queryByText(/Not counted/)).not.toBeInTheDocument();
 
-    expect(watchMetrics).toHaveBeenCalledTimes(1);
-    const queries = (watchMetrics.mock.calls[0][0].queries ?? []).map(({ query }) => query);
+    // The resources stream, and the machines table's one-second stream of its own.
+    expect(watchMetrics).toHaveBeenCalledTimes(2);
+    const [resourcesRequest] = watchMetrics.mock.calls
+      .map(([request]) => request)
+      .sort((a, b) => (a.queries?.length ?? 0) - (b.queries?.length ?? 0));
+    const queries = (resourcesRequest.queries ?? []).map(({ query }) => query);
     expect(queries.map((query) => [query?.metric, query?.groupBy])).toEqual([
       ["node.host.cpu.utilization", ["node"]],
       ["node.filesystem.used", ["node"]],
@@ -183,21 +187,22 @@ describe("MachinesResources", () => {
     const chart = await screen.findByRole("group", { name: "CPU history" });
     expect(chartReadout(chart)).toBe("gpu1 12% spark-01 46%");
     expect(swatchColors(chart)).toEqual([cssColor("gpu1"), cssColor("spark")]);
-    expect(watchMetrics).toHaveBeenCalledTimes(2);
+    // The table's stream, the current stream and the history stream.
+    expect(watchMetrics).toHaveBeenCalledTimes(3);
 
     await user.click(within(resources).getByRole("button", { name: "All machines" }));
     expect(chartReadout(screen.getByRole("group", { name: "CPU history" }))).toBe("CPU 25%");
     await user.click(within(resources).getByRole("button", { name: "RAM" }));
     const ram = chartReadout(await screen.findByRole("group", { name: "RAM history" }));
     expect(ram).toBe("Used 103 GiB Capacity 181 GiB");
-    expect(watchMetrics).toHaveBeenCalledTimes(2);
+    expect(watchMetrics).toHaveBeenCalledTimes(3);
 
     await user.click(within(resources).getByRole("button", { name: "CPU" }));
     await user.click(within(resources).getByRole("button", { name: "RAM" }));
     expect(screen.queryByRole("group", { name: "RAM history" })).toBeNull();
     // Reopening history after every row closed needs a new stream: the last one was closed.
     await user.click(within(resources).getByRole("button", { name: "CPU" }));
-    await waitFor(() => expect(watchMetrics).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(watchMetrics).toHaveBeenCalledTimes(4));
   });
 
   it("adds a line per measured model to the memory row its machine runs models in", async () => {
@@ -228,8 +233,8 @@ describe("MachinesResources", () => {
     const vram = await screen.findByRole("group", { name: "VRAM history" });
     expect(chartReadout(vram)).toBe("Used 512 MiB Capacity 32 GiB Gemma 3 27B 256 MiB");
     expect(swatchColors(vram).at(-1)).toBe(cssColor("gemma"));
-    // One current stream, and one history stream while rows are expanded.
-    expect(watchMetrics).toHaveBeenCalledTimes(2);
+    // The table's stream, the current stream, and one history stream while rows are expanded.
+    expect(watchMetrics).toHaveBeenCalledTimes(3);
 
     await user.click(within(resources).getByRole("button", { name: "By machine" }));
     expect(chartReadout(screen.getByRole("group", { name: "RAM history" }))).toBe(
@@ -298,26 +303,22 @@ describe("MachinesResources", () => {
   });
 });
 
-describe("machine cards", () => {
-  it("describes each card by its hardware, and a machine not counted by its state", async () => {
+describe("machine rows", () => {
+  it("describes each row by its hardware, and a machine not counted by its state", async () => {
     renderPage(metricsClientWith(staticWatch(answer())), [
       [listedMachine("gpu1", "gpu1"), workstationSnapshot()],
       [listedMachine("spark", "spark-01", NodeObservationState.STALE), gb10Snapshot()],
     ]);
 
-    const gpu1 = await screen.findByRole("button", { name: "View details for gpu1" });
+    const gpu1 = await screen.findByRole("row", { name: "gpu1" });
     await waitFor(() =>
-      expect(gpu1.querySelector('[data-slot="card-description"]')).toHaveTextContent(
-        "NVIDIA RTX 5090 · 32 CPUs",
-      ),
+      expect(gpu1.querySelector("td")).toHaveTextContent("NVIDIA RTX 5090 · 32 CPUs"),
     );
     expect(gpu1.querySelector('[data-slot="badge"]')).toHaveTextContent("Connected");
 
-    const spark = screen.getByRole("button", { name: "View details for spark-01" });
+    const spark = screen.getByRole("row", { name: "spark-01" });
     expect(spark.querySelector('[data-slot="badge"]')).toHaveTextContent("Stale");
-    expect(spark.querySelector('[data-slot="card-description"]')).toHaveTextContent(
-      "Hardware unavailable",
-    );
+    expect(spark.querySelector("td")).toHaveTextContent("Hardware unavailable");
   });
 });
 

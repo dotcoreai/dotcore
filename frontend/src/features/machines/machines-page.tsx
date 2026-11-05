@@ -10,6 +10,9 @@ import {
   useWatchedModelDeployments,
   useWatchedNodeMemory,
 } from "@/app/resource-watch";
+import { DataTable } from "@/components/data-table/data-table";
+import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
+import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { AddAction } from "@/components/ui/add-action";
 import { Notice } from "@/components/ui/notice";
 import {
@@ -18,23 +21,26 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
-import { ResourceCard } from "@/components/ui/resource-card";
-import { nodeConnectionStatus } from "@/features/deployments/execution-target";
 import { AddMachineDialog } from "@/features/machines/add-machine-dialog";
 import { useHardwareSnapshots } from "@/features/memory/use-hardware-snapshots";
 import { useMemoryView } from "@/features/memory/use-memory-view";
+import { useMachinesNow } from "@/features/overview/use-machines-now";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { buildDataTable } from "@/lib/data-table-model";
 import { mapRead } from "@/lib/read-state";
 
-import {
-  inspectedMachineId,
-  machineInspectorPanelId,
-  machineSelectionLocation,
-} from "./machine-panels";
+import { inspectedMachineId, machineSelectionLocation } from "./machine-panels";
 import { machineSummary } from "./machine-resources";
 import { MachineSidebarHost } from "./machine-sidebar-host";
+import {
+  machineRows,
+  machineTableDefinition,
+  machineTableUi,
+  machineViewCodec,
+} from "./machine-table";
 import { MachinesResources } from "./machines-resources";
+import { useMachineFleet } from "./use-machine-fleet";
 import { useMachineResources } from "./use-machine-resources";
 
 export interface MachinesPageProps {
@@ -82,6 +88,37 @@ export function MachinesPage({ metricsClient = defaultMetricsClient }: MachinesP
     nodeMemory,
   );
   const [view, setView] = useMemoryView();
+  const fleet = useMachineFleet(machines, snapshots);
+  const now = useMachinesNow(metricsClient, fleet.facts);
+  const tableView = useDataTableView(machineViewCodec);
+  const summaries = useMemo(
+    () =>
+      new Map<string, string>([
+        ...resources.counted.map((entry): [string, string] => [
+          entry.machineId,
+          machineSummary(entry.snapshot),
+        ]),
+        ...resources.uncounted.map((entry): [string, string] => [
+          entry.machineId,
+          "Hardware unavailable",
+        ]),
+      ]),
+    [resources.counted, resources.uncounted],
+  );
+  const machineTable = useMemo(
+    () =>
+      buildDataTable(
+        machineTableDefinition,
+        machineRows(machines ?? noMachines, {
+          applications: applications?.value,
+          models: deployments?.value,
+          now: now?.machines,
+          summaries,
+        }),
+        tableView.state,
+      ),
+    [applications, deployments, machines, now, summaries, tableView.state],
+  );
   const selectedMachineId = inspectedMachineId(location.search);
 
   return (
@@ -124,41 +161,25 @@ export function MachinesPage({ metricsClient = defaultMetricsClient }: MachinesP
             <Notice role="status">No machines are configured for this site.</Notice>
           ) : null}
           {!inventoryLoadingVisible && machines?.length ? (
-            <ul aria-label="Machine inventory" className="inspector-card-grid">
-              {machines.map((machine) => {
-                const counted = resources.counted.find(
-                  (entry) => entry.machineId === machine.machineId,
-                );
-                const uncounted = resources.uncounted.some(
-                  (entry) => entry.machineId === machine.machineId,
-                );
-                return (
-                  <li key={machine.machineId}>
-                    <ResourceCard
-                      accessibleName={machine.displayName}
-                      colorKey={machine.machineId}
-                      description={
-                        counted
-                          ? machineSummary(counted.snapshot)
-                          : uncounted
-                            ? "Hardware unavailable"
-                            : undefined
-                      }
-                      name={machine.displayName}
-                      onSelect={(opener) => {
-                        openerRef.current = opener;
-                        panelNavigation.navigatePanel(
-                          machineSelectionLocation(location, machine.machineId),
-                        );
-                      }}
-                      panelId={machineInspectorPanelId}
-                      selected={machine.machineId === selectedMachineId}
-                      status={nodeConnectionStatus(machine.observationFreshness?.state)}
-                    />
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="flex min-w-0 flex-col gap-3">
+              <DataTableToolbar
+                facets={machineTable.facets}
+                onViewChange={tableView.set}
+                ui={machineTableUi}
+                view={tableView.state}
+              />
+              <DataTable
+                onOpenRow={({ row }, opener) => {
+                  openerRef.current = opener;
+                  panelNavigation.navigatePanel(machineSelectionLocation(location, row.machineId));
+                }}
+                onViewChange={tableView.set}
+                selection={selectedMachineId ? { rowId: selectedMachineId } : undefined}
+                table={machineTable}
+                ui={machineTableUi}
+                view={tableView.state}
+              />
+            </div>
           ) : null}
         </section>
         <MachineSidebarHost metricsClient={metricsClient} openerRef={openerRef} />

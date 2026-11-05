@@ -243,11 +243,11 @@ function profileTableUi(
     columns: {
       intelligence: {
         cell: ({ row }) => <IntelligenceValue score={row.referenceScore} />,
-        wide: true,
+        showFrom: "32rem",
       },
       maximumContext: {
         cell: ({ row }) => <ContextValue context={row.maximumContext} />,
-        wide: true,
+        showFrom: "32rem",
       },
       memory: {
         cell: ({ row }, table) => <MemoryValue memory={row.memory} pending={table.memoryPending} />,
@@ -259,7 +259,7 @@ function profileTableUi(
       },
       totalContext: {
         cell: ({ row }) => <ContextValue context={row.totalContext} />,
-        wide: true,
+        showFrom: "32rem",
       },
     },
     definition,

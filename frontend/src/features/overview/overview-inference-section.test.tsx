@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
+import { inferenceCardIds } from "@/features/inference/inference-card-specs";
+import { InferenceSection } from "@/features/inference/inference-section";
 import {
   counterPoint,
   distributionPoint,
@@ -18,13 +20,7 @@ import { InferenceRouteViewSchema } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
 
-import {
-  inferenceCardIds,
-  overviewCardSpecs,
-  overviewSplitIds,
-  overviewSplits,
-} from "./overview-card-specs";
-import { OverviewInferenceSection } from "./overview-inference-section";
+import { overviewCardSpecs, overviewSplitIds, overviewSplits } from "./overview-card-specs";
 
 vi.mock("uplot", () => ({
   default: class {
@@ -174,7 +170,7 @@ function renderSection(
       initialSplit: overviewSplitIds.model,
       splits,
     });
-    return <OverviewInferenceSection metrics={metrics.current} />;
+    return <InferenceSection metrics={metrics.current} />;
   }
   act(() => {
     render(<Page />);

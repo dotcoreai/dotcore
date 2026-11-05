@@ -1,33 +1,47 @@
+import type { ReactNode } from "react";
+
 import { MetricCardGrid } from "@/components/metrics/metric-card/metric-card";
 import { Notice } from "@/components/ui/notice";
 import { PageSectionHeading } from "@/components/ui/page-header";
 import { CardChartDetail, ReadingCard, ReadingsStoppedNote } from "@/features/metrics/card-panel";
 import type { MetricCards } from "@/features/metrics/use-metric-cards";
 
-import { inferenceCardIds, overviewSplitIds } from "./overview-card-specs";
+import { inferenceCardIds, inferenceSplitIds } from "./inference-card-specs";
 
 const splitOptions = [
-  { label: "By model", value: overviewSplitIds.model },
-  { label: "By route", value: overviewSplitIds.route },
+  { label: "By model", value: inferenceSplitIds.model },
+  { label: "By route", value: inferenceSplitIds.route },
 ];
 
 /**
- * The overview's inference section: the site's request cards with sparklines in columns, and
- * below them the selected card's chart, which can be broken down by model or by route. It shows
- * only the inference cards of the page's shared metrics, so a card of another section never draws
- * its chart here.
+ * A page's inference section: the request cards with sparklines in columns, and below them the
+ * selected card's chart, which can be broken down by model or by route. It shows only the
+ * inference cards of the page's metrics, so a card of another section never draws its chart here.
+ * Leading cards come first and stay when the metrics cannot be read.
  */
-export function OverviewInferenceSection({ metrics }: { metrics: MetricCards }) {
+export function InferenceSection({
+  leading,
+  metrics,
+}: {
+  /** Cards shown before the request cards, such as counts; they do not depend on the metrics. */
+  leading?: ReactNode;
+  metrics: MetricCards;
+}) {
   const cards = metrics.cards.filter((card) => isInferenceCard(card.id));
   const selected =
     metrics.selected && isInferenceCard(metrics.selected) ? metrics.selected : undefined;
   const chart = selected && metrics.chart?.id === selected ? metrics.chart : undefined;
 
   return (
-    <section aria-labelledby="overview-inference-heading" className="flex flex-col gap-3">
-      <PageSectionHeading id="overview-inference-heading">Inference</PageSectionHeading>
+    <section aria-labelledby="inference-heading" className="flex flex-col gap-3">
+      <PageSectionHeading id="inference-heading">Inference</PageSectionHeading>
       {metrics.unavailable ? (
-        <Notice tone="destructive">Inference metrics could not be read.</Notice>
+        <>
+          {leading ? (
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">{leading}</div>
+          ) : null}
+          <Notice tone="destructive">Inference metrics could not be read.</Notice>
+        </>
       ) : (
         <>
           <MetricCardGrid
@@ -36,6 +50,7 @@ export function OverviewInferenceSection({ metrics }: { metrics: MetricCards }) 
             onSelectedChange={metrics.setSelected}
             selected={selected}
           >
+            {leading}
             {cards.map((card) => (
               <ReadingCard card={card} key={card.id} sparkline />
             ))}

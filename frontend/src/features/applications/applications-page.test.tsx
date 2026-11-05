@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ import {
   ApplicationDeploymentDesiredState,
   ApplicationDeploymentSchema,
   ApplicationSelectedInferenceRouteSchema,
+  ApplicationServiceAcceleratorMemorySchema,
 } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   type ListApplicationDeploymentsResponse,
@@ -121,7 +122,7 @@ describe("ApplicationsPage", () => {
     );
   });
 
-  it("reads h1 page, h2 section, h3 card with no skipped level", async () => {
+  it("reads h1 page and h2 section with no skipped level", async () => {
     const application = app("open-webui", "OpenWebUI");
     renderAppsSection({
       client: clientFor(
@@ -133,7 +134,7 @@ describe("ApplicationsPage", () => {
       expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
         "Installed",
       ]);
-      expectHeadingOutline(document.body, [1, 2, 3]);
+      expectHeadingOutline(document.body, [1, 2]);
     });
   });
 
@@ -243,7 +244,7 @@ describe("ApplicationsPage", () => {
     expect(screen.queryByText(/Serving Models|Serving scope|model-a/)).not.toBeInTheDocument();
   });
 
-  it("renders exactly one projected status badge per deployment card", async () => {
+  it("renders exactly one projected status badge per deployment row", async () => {
     const application = app("open-webui", "OpenWebUI");
     const client = clientFor(
       [],
@@ -258,14 +259,14 @@ describe("ApplicationsPage", () => {
 
     renderAppsSection({ client });
 
-    const card = await screen.findByRole("article", { name: "OpenWebUI deployment" });
-    expect(card.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
-    expect(within(card).getByText("Queued")).toBeVisible();
+    const row = await screen.findByRole("row", { name: "OpenWebUI" });
+    expect(row.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
+    expect(within(row).getByText("Queued")).toBeVisible();
     // Lifecycle and readiness are no longer joined into one badge string.
-    expect(card).not.toHaveTextContent(" · Not ready");
-    // The readiness detail qualifies the badge, so it rides its tooltip rather than the card.
-    expect(within(card).queryByText("Waiting for endpoint")).not.toBeInTheDocument();
-    expect(card.querySelector('[data-slot="badge"]')).toHaveAttribute(
+    expect(row).not.toHaveTextContent(" · Not ready");
+    // The readiness detail qualifies the badge, so it rides its tooltip rather than the row.
+    expect(within(row).queryByText("Waiting for endpoint")).not.toBeInTheDocument();
+    expect(row.querySelector('[data-slot="badge"]')).toHaveAttribute(
       "title",
       "Waiting for endpoint",
     );
@@ -304,7 +305,7 @@ describe("ApplicationsPage", () => {
 
     renderAppsSection({ client });
     await act(async () => {});
-    fireEvent.click(screen.getByRole("button", { name: "View details for OpenWebUI deployment" }));
+    fireEvent.click(screen.getByRole("row", { name: "OpenWebUI" }));
     pickMoreAction("Teardown…");
     fireEvent.click(screen.getByRole("button", { name: "Teardown" }));
     await act(async () => {});
@@ -313,13 +314,13 @@ describe("ApplicationsPage", () => {
     expect(client.application.removeApplicationDeployment).toHaveBeenCalledWith({
       applicationDeploymentId: "remove-me",
     });
-    // Card and open panel both state it
+    // Row and open panel both state it
     expect(screen.getAllByText("Tearing down")).toHaveLength(2);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await Promise.resolve();
     });
-    expect(screen.queryByRole("article", { name: "OpenWebUI deployment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: "OpenWebUI" })).not.toBeInTheDocument();
     expect(screen.queryByRole("complementary", { name: "open-webui-1" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Apps" })).toHaveFocus();
   });
@@ -333,9 +334,7 @@ describe("ApplicationsPage", () => {
     );
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for OpenWebUI deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
     await chooseMoreAction(user, "Teardown…");
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     await chooseMoreAction(user, "Teardown…");
@@ -345,7 +344,7 @@ describe("ApplicationsPage", () => {
     expect(client.application.removeApplicationDeployment).not.toHaveBeenCalled();
   });
 
-  it("applies an accepted Pause immediately, disables conflicts, suppresses endpoint access, and restores card focus", async () => {
+  it("applies an accepted Pause immediately, disables conflicts, suppresses endpoint access, and restores row focus", async () => {
     const user = userEvent.setup();
     const application = app("pause-app", "Pause App");
     const ready = deployment(
@@ -378,9 +377,7 @@ describe("ApplicationsPage", () => {
     );
 
     renderAppsSection({ client });
-    const opener = await screen.findByRole("button", {
-      name: "View details for Pause App deployment",
-    });
+    const opener = await screen.findByRole("row", { name: "Pause App" });
     await user.click(opener);
     await chooseMoreAction(user, "Pause");
 
@@ -393,9 +390,8 @@ describe("ApplicationsPage", () => {
       menu: ["Edit", "Teardown… (disabled)"],
     });
     expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
-    const card = screen.getByRole("article", { name: "Pause App deployment" });
-    expect(card).not.toHaveTextContent("Endpoint pending");
-    expect(card).not.toHaveTextContent("Endpoint assigned");
+    const row = screen.getByRole("row", { name: "Pause App" });
+    expect(within(row).queryByRole("link", { name: /^Open/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Close inspector" }));
@@ -443,9 +439,7 @@ describe("ApplicationsPage", () => {
       );
 
       renderAppsSection({ client });
-      const opener = await screen.findByRole("button", {
-        name: `View details for Pause ${_label} deployment`,
-      });
+      const opener = await screen.findByRole("row", { name: `Pause ${_label}` });
       await user.click(opener);
       await chooseMoreAction(user, "Pause");
 
@@ -498,9 +492,7 @@ describe("ApplicationsPage", () => {
     );
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for Resume App deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "Resume App" }));
     await user.click(screen.getByRole("button", { name: "Resume" }));
 
     expect(client.application.resumeDeployment).toHaveBeenCalledWith({
@@ -543,11 +535,7 @@ describe("ApplicationsPage", () => {
     }
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", {
-        name: `View details for ${action} Error App deployment`,
-      }),
-    );
+    await user.click(await screen.findByRole("row", { name: `${action} Error App` }));
     await (action === "Pause"
       ? chooseMoreAction(user, "Pause")
       : user.click(screen.getByRole("button", { name: action })));
@@ -598,15 +586,13 @@ describe("ApplicationsPage", () => {
     client.application.removeApplicationDeployment = vi.fn(() => Promise.resolve(response));
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for OpenWebUI deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
     await chooseMoreAction(user, "Teardown…");
     await user.click(screen.getByRole("button", { name: "Teardown" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
     expect(
-      within(screen.getByRole("list", { name: "Installed applications" })).getByText("Ready"),
+      within(screen.getByRole("table", { name: "Installed applications" })).getByText("Ready"),
     ).toBeVisible();
   });
 
@@ -635,15 +621,13 @@ describe("ApplicationsPage", () => {
       );
 
       renderAppsSection({ client });
-      await user.click(
-        await screen.findByRole("button", { name: "View details for OpenWebUI deployment" }),
-      );
+      await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
       await chooseMoreAction(user, "Teardown…");
       await user.click(screen.getByRole("button", { name: "Teardown" }));
 
       expect(await screen.findByRole("alert")).toHaveTextContent(message);
       expect(
-        within(screen.getByRole("list", { name: "Installed applications" })).getByText("Ready"),
+        within(screen.getByRole("table", { name: "Installed applications" })).getByText("Ready"),
       ).toBeVisible();
     },
   );
@@ -666,9 +650,7 @@ describe("ApplicationsPage", () => {
     );
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for OpenWebUI deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
     await chooseMoreAction(user, "Teardown…");
     await user.click(screen.getByRole("button", { name: "Teardown" }));
     expect(client.application.removeApplicationDeployment).toHaveBeenCalledTimes(1);
@@ -713,9 +695,7 @@ describe("ApplicationsPage", () => {
     );
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for OpenWebUI deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
     await chooseMoreAction(user, "Teardown…");
     await user.click(screen.getByRole("button", { name: "Teardown" }));
     await act(async () => {});
@@ -741,11 +721,11 @@ describe("ApplicationsPage", () => {
 
     renderAppsSection({ client });
 
-    expect(await screen.findByRole("article", { name: "Historic App deployment" })).toBeVisible();
+    expect(await screen.findByRole("row", { name: "Historic App" })).toBeVisible();
     const heading = screen.getByRole("heading", { level: 2, name: "Installed" });
     expect(heading).toHaveAttribute("data-slot", "page-section-heading");
     expect(screen.queryByRole("heading", { name: "Catalog" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("article", { name: "OpenWebUI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: "OpenWebUI" })).not.toBeInTheDocument();
     expect(client.catalog.listApplications).toHaveBeenCalledWith({}, expect.anything());
     expect(client.site.listConfiguredExecutionTargets).toHaveBeenCalledWith({});
     expect(client.application.listApplicationDeployments).toHaveBeenCalledWith({});
@@ -769,15 +749,13 @@ describe("ApplicationsPage", () => {
     const client = clientFor([], [assigned]);
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for OpenWebUI deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
 
     const open = screen.getByRole("link", { name: "Open" });
     expect(open).toBeEnabled();
     expect(open).toHaveAttribute("href", "http://100.64.0.7:49152");
     expect(
-      within(screen.getByRole("list", { name: "Installed applications" })).getByText("Not ready"),
+      within(screen.getByRole("table", { name: "Installed applications" })).getByText("Not ready"),
     ).toBeVisible();
   });
 
@@ -837,11 +815,11 @@ describe("ApplicationsPage", () => {
 
     renderAppsSection({ client, machines });
     await act(async () => {});
-    const cards = screen.getByRole("list", { name: "Installed applications" });
-    expect(within(cards).getByTitle("Machine stale")).toHaveTextContent("Ready");
-    expect(within(cards).getByText("1.0 · gb10-host-2 / Docker applications")).toBeVisible();
+    const table = screen.getByRole("table", { name: "Installed applications" });
+    expect(within(table).getByTitle("Machine stale")).toHaveTextContent("Ready");
+    expect(within(table).getByText("gb10-host-2")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "View details for OpenWebUI deployment" }));
+    fireEvent.click(screen.getByRole("row", { name: "OpenWebUI" }));
     await act(async () => {});
     const status = screen.getByRole("region", { name: "Status" });
     expect(within(status).getByRole("status")).toHaveTextContent(
@@ -915,9 +893,9 @@ describe("ApplicationsPage", () => {
 
     renderAppsSection({ client });
     await act(async () => {});
-    const cards = screen.getByRole("list", { name: "Installed applications" });
-    expect(within(cards).getByText("Starting")).toBeVisible();
-    expect(cards.querySelector('[data-slot="badge"]')).toHaveAttribute(
+    const table = screen.getByRole("table", { name: "Installed applications" });
+    expect(within(table).getByText("Starting")).toBeVisible();
+    expect(table.querySelector('[data-slot="badge"]')).toHaveAttribute(
       "title",
       "Waiting for endpoint",
     );
@@ -925,13 +903,13 @@ describe("ApplicationsPage", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
-    expect(within(cards).getByText("Starting")).toBeVisible();
+    expect(within(table).getByText("Starting")).toBeVisible();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
-    expect(within(cards).queryByText("Starting")).not.toBeInTheDocument();
-    expect(within(cards).getByText("Ready")).toBeVisible();
+    expect(within(table).queryByText("Starting")).not.toBeInTheDocument();
+    expect(within(table).getByText("Ready")).toBeVisible();
   });
 
   it.each(["Pause", "Resume"] as const)(
@@ -958,9 +936,7 @@ describe("ApplicationsPage", () => {
       }
       const acceptedLabel = action === "Pause" ? "Pausing" : "Starting";
 
-      fireEvent.click(
-        await screen.findByRole("button", { name: `View details for ${action} Live deployment` }),
-      );
+      fireEvent.click(await screen.findByRole("row", { name: `${action} Live` }));
       chooseLifecycleAction(action);
       await act(async () => {});
       expect(screen.getAllByText(acceptedLabel)[0]).toBeVisible();
@@ -1000,11 +976,7 @@ describe("ApplicationsPage", () => {
         Promise.resolve(createResumeResponse(accepted)),
       );
 
-      fireEvent.click(
-        await screen.findByRole("button", {
-          name: `View details for ${action} Teardown deployment`,
-        }),
-      );
+      fireEvent.click(await screen.findByRole("row", { name: `${action} Teardown` }));
       chooseLifecycleAction(action);
       await act(async () => {});
 
@@ -1012,9 +984,7 @@ describe("ApplicationsPage", () => {
       expect(screen.getAllByText("Tearing down")[0]).toBeVisible();
 
       await publish([]);
-      expect(
-        screen.queryByRole("article", { name: `${action} Teardown deployment` }),
-      ).not.toBeInTheDocument();
+      expect(screen.queryByRole("row", { name: `${action} Teardown` })).not.toBeInTheDocument();
     },
   );
 
@@ -1028,15 +998,13 @@ describe("ApplicationsPage", () => {
       ),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "View details for Deleted deployment" }),
-    );
+    fireEvent.click(await screen.findByRole("row", { name: "Deleted" }));
     chooseLifecycleAction("Pause");
     await act(async () => {});
     expect(screen.getAllByText("Pausing")[0]).toBeVisible();
 
     await publish([]);
-    expect(screen.queryByRole("article", { name: "Deleted deployment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: "Deleted" })).not.toBeInTheDocument();
   });
 
   it("lists a deployment created elsewhere without any mutation", async () => {
@@ -1047,7 +1015,7 @@ describe("ApplicationsPage", () => {
     await publish([
       deployment(application, ApplicationLifecycleState.READY, ApplicationReadinessState.READY),
     ]);
-    expect(screen.getByRole("article", { name: "OpenWebUI deployment" })).toBeVisible();
+    expect(screen.getByRole("row", { name: "OpenWebUI" })).toBeVisible();
   });
 
   it("keeps the last deployments and reports Installed unavailable while live updates fail", async () => {
@@ -1058,9 +1026,7 @@ describe("ApplicationsPage", () => {
       ApplicationReadinessState.NOT_READY,
     );
     const { client, watch } = renderLive([application], [starting]);
-    expect(
-      await screen.findByRole("article", { name: "Retry Application deployment" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("row", { name: "Retry Application" })).toBeVisible();
 
     client.application.listApplicationDeployments = vi.fn(() =>
       Promise.reject(new Error("temporary service failure")),
@@ -1070,7 +1036,7 @@ describe("ApplicationsPage", () => {
     expect(screen.getByRole("alert", { name: "Installed status" })).toHaveTextContent(
       "Installed deployments are unavailable",
     );
-    expect(screen.getByRole("article", { name: "Retry Application deployment" })).toBeVisible();
+    expect(screen.getByRole("row", { name: "Retry Application" })).toBeVisible();
   });
 
   it("shows a retained TEARDOWN deployment until it is gone", async () => {
@@ -1119,11 +1085,9 @@ describe("ApplicationsPage", () => {
 
     renderAppsSection({ client });
 
-    expect(await screen.findByRole("article", { name: "Historic App deployment" })).toBeVisible();
+    expect(await screen.findByRole("row", { name: "Historic App" })).toBeVisible();
     expect(screen.queryByRole("alert", { name: "Catalog status" })).not.toBeInTheDocument();
-    await user.click(
-      screen.getByRole("button", { name: "View details for Historic App deployment" }),
-    );
+    await user.click(screen.getByRole("row", { name: "Historic App" }));
     expect((await inspectorActionList(user)).menu).toContain("Teardown…");
   });
 
@@ -1144,7 +1108,7 @@ describe("ApplicationsPage", () => {
     expect(currentLocation(router)).toBe("/apps?panel=apps%2Fdeployment%3Adeployment-1");
   });
 
-  it("selects exactly the deployment card whose inspector is open", async () => {
+  it("selects exactly the deployment row whose inspector is open", async () => {
     const user = userEvent.setup();
     const first = deployment(
       app("first-app", "First App"),
@@ -1159,32 +1123,24 @@ describe("ApplicationsPage", () => {
     const client = clientFor([], [first, second]);
 
     renderAppsSection({ client });
-    const firstButton = await screen.findByRole("button", {
-      name: "View details for First App deployment",
-    });
-    const secondButton = screen.getByRole("button", {
-      name: "View details for Second App deployment",
-    });
-    expect(firstButton).toHaveAttribute("aria-expanded", "false");
-    expect(firstButton).not.toHaveAttribute("data-selected");
+    const firstRow = await screen.findByRole("row", { name: "First App" });
+    const secondRow = screen.getByRole("row", { name: "Second App" });
+    expect(firstRow).not.toHaveAttribute("data-state");
+    expect(secondRow).not.toHaveAttribute("data-state");
 
-    await user.click(firstButton);
+    await user.click(firstRow);
 
-    expect(firstButton).toHaveAttribute("aria-expanded", "true");
-    expect(firstButton).toHaveAttribute("data-selected", "true");
-    expect(secondButton).toHaveAttribute("aria-expanded", "false");
-    expect(secondButton).not.toHaveAttribute("data-selected");
+    expect(firstRow).toHaveAttribute("data-state", "selected");
+    expect(secondRow).not.toHaveAttribute("data-state");
 
     await user.click(screen.getByRole("button", { name: "Close inspector" }));
-    await user.click(secondButton);
+    await user.click(secondRow);
 
-    expect(secondButton).toHaveAttribute("aria-expanded", "true");
-    expect(secondButton).toHaveAttribute("data-selected", "true");
-    expect(firstButton).toHaveAttribute("aria-expanded", "false");
-    expect(firstButton).not.toHaveAttribute("data-selected");
+    expect(secondRow).toHaveAttribute("data-state", "selected");
+    expect(firstRow).not.toHaveAttribute("data-state");
   });
 
-  it("marks the deployment card and its inspector with the deployment's own color", async () => {
+  it("marks the deployment row and its inspector with the deployment's own color", async () => {
     const user = userEvent.setup();
     const application = app("installed-app", "Installed App");
     const installed = deployment(
@@ -1194,18 +1150,16 @@ describe("ApplicationsPage", () => {
     );
     renderAppsSection({ client: clientFor([application], [installed]) });
 
-    const deploymentCard = await screen.findByRole("article", { name: "Installed App deployment" });
-    expectResourceMarker(deploymentCard.querySelector("h3"), "installed-app-deployment");
-    expect(deploymentCard.querySelector("h3")).toHaveTextContent(/^Installed App$/);
-    expectResourceMarker(
-      within(deploymentCard).getByText("1.0 · local / Docker applications"),
-      "local",
-    );
-    expect(deploymentCard).not.toHaveTextContent("installed-app-1");
+    const row = await screen.findByRole("row", { name: "Installed App" });
+    const [appCell, , machineCell] = within(row).getAllByRole("cell");
+    const appName = appCell.querySelector(".font-semibold");
+    expectResourceMarker(appName, "installed-app-deployment");
+    expect(appName).toHaveTextContent(/^Installed App$/);
+    expect(appCell).toHaveTextContent("Installed App · 1.0");
+    expectResourceMarker(machineCell.querySelector(":scope > span"), "local");
+    expect(row).not.toHaveTextContent("installed-app-1");
 
-    await user.click(
-      screen.getByRole("button", { name: "View details for Installed App deployment" }),
-    );
+    await user.click(screen.getByRole("row", { name: "Installed App" }));
     expectResourceMarker(
       inspectorTitle(screen.getByRole("complementary", { name: "Installed App" })),
       "installed-app-deployment",
@@ -1231,9 +1185,7 @@ describe("ApplicationsPage", () => {
     );
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for Editable App deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "Editable App" }));
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const nameInput = screen.getByRole("textbox", { name: "Name" });
     await user.clear(nameInput);
@@ -1247,7 +1199,7 @@ describe("ApplicationsPage", () => {
         fields: ["displayName"],
       },
     );
-    expect(await screen.findByRole("article", { name: "Renamed App deployment" })).toBeVisible();
+    expect(await screen.findByRole("row", { name: "Renamed App" })).toBeVisible();
   });
 
   it("does not accept an uncertain Name update from duplicate immutable-ID records", async () => {
@@ -1277,9 +1229,7 @@ describe("ApplicationsPage", () => {
     );
 
     renderAppsSection({ client });
-    await user.click(
-      await screen.findByRole("button", { name: "View details for Editable App deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "Editable App" }));
     await user.click(screen.getByRole("button", { name: "Edit" }));
     const nameInput = screen.getByRole("textbox", { name: "Name" });
     await user.clear(nameInput);
@@ -1306,9 +1256,7 @@ describe("ApplicationsPage", () => {
     );
     renderAppsSection({ client: clientFor([], [installed]) });
 
-    await user.click(
-      await screen.findByRole("button", { name: "View details for Editable App deployment" }),
-    );
+    await user.click(await screen.findByRole("row", { name: "Editable App" }));
     expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Edit" }));
@@ -1345,6 +1293,157 @@ describe("ApplicationsPage", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Back to machine" })).toBeVisible(),
     );
+  });
+});
+
+describe("Apps table", () => {
+  const GIB = 1024n ** 3n;
+
+  /** A running deployment on a named machine, route and endpoint, measured on two services. */
+  function servingDeployment() {
+    const application = routeInputApp();
+    const serving = deployment(
+      application,
+      ApplicationLifecycleState.READY,
+      ApplicationReadinessState.READY,
+    );
+    serving.applicationDeploymentName = "Team chat";
+    serving.placement = create(ExactPlacementSchema, {
+      siteNodeId: "worker",
+      executionTargetId: "remote-app",
+    });
+    serving.selectedInferenceRoute = create(ApplicationSelectedInferenceRouteSchema, {
+      inferenceRouteId: "route-1",
+      routeName: "private-chat",
+    });
+    serving.state = create(ApplicationDeploymentStateSchema, {
+      endpoint: { url: "http://100.64.0.7:49152" },
+      lifecycleState: ApplicationLifecycleState.READY,
+      readinessState: ApplicationReadinessState.READY,
+    });
+    serving.serviceAcceleratorMemory = [
+      ["web", 3n * GIB],
+      ["worker", 1n * GIB + GIB / 2n],
+    ].map(([serviceName, usedMemoryBytes]) =>
+      create(ApplicationServiceAcceleratorMemorySchema, {
+        acceleratorMemory: {
+          result: {
+            case: "available",
+            value: { devices: [{ deviceId: "gpu-0", usedMemoryBytes: usedMemoryBytes as bigint }] },
+          },
+        },
+        serviceName: serviceName as string,
+      }),
+    );
+    return serving;
+  }
+
+  function idleDeployment() {
+    const application = app("notes", "Notes");
+    return deployment(
+      application,
+      ApplicationLifecycleState.PAUSED,
+      ApplicationReadinessState.UNSPECIFIED,
+    );
+  }
+
+  function renderTable(initialEntry = "/apps") {
+    const serving = servingDeployment();
+    const idle = idleDeployment();
+    idle.desiredState = ApplicationDeploymentDesiredState.PAUSED;
+    return renderAppsSection({
+      client: clientFor([routeInputApp(), app("notes", "Notes")], [serving, idle]),
+      initialEntry,
+      machines: [{ displayName: "gb10-host-2", machineId: "worker" }],
+    });
+  }
+
+  it("shows each deployment's app, status, machine, route, endpoint and summed VRAM", async () => {
+    renderTable();
+
+    const table = await screen.findByRole("table", { name: "Installed applications" });
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["App", "Status", "Machine", "Route", "Endpoint", "VRAM"]);
+    const cellTexts = (name: string) =>
+      within(within(table).getByRole("row", { name }))
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent);
+    expect(cellTexts("Team chat")).toEqual([
+      "Team chatOpenWebUI · 1.0",
+      "Ready",
+      "gb10-host-2",
+      "private-chat",
+      "Open",
+      "4.5 GiB",
+    ]);
+    // A deployment with no route, endpoint or measure reads "—".
+    expect(cellTexts("Notes")).toEqual(["NotesNotes · 1.0", "Paused", "local", "—", "—", "—"]);
+  });
+
+  it("links the endpoint in a new tab without opening the panel", async () => {
+    const user = userEvent.setup();
+    const { router } = renderTable();
+
+    const link = await screen.findByRole("link", { name: "Open Team chat" });
+    expect(link).toHaveAttribute("href", "http://100.64.0.7:49152");
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+
+    // Following the link neither navigates the console nor opens the row's panel.
+    link.addEventListener("click", (event) => event.preventDefault());
+    await user.click(link);
+    expect(currentLocation(router)).toBe("/apps");
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["Enter", "{Enter}"],
+    ["Space", " "],
+  ])("opens a row's panel and marks it selected on %s", async (_name, key) => {
+    const user = userEvent.setup();
+    const { router } = renderTable();
+
+    const row = await screen.findByRole("row", { name: "Team chat" });
+    expect(row).not.toHaveAttribute("data-state");
+    row.focus();
+    await user.keyboard(key);
+
+    expect(await screen.findByRole("complementary", { name: "Team chat" })).toBeVisible();
+    expect(currentLocation(router)).toBe("/apps?panel=apps%2Fdeployment%3Aopen-webui-deployment");
+    expect(row).toHaveAttribute("data-state", "selected");
+    expect(screen.getByRole("row", { name: "Notes" })).not.toHaveAttribute("data-state");
+  });
+
+  it("sorts by status label and machine name", async () => {
+    renderTable("/apps?sort=status");
+    await screen.findByRole("row", { name: "Notes" });
+    const names = () =>
+      screen
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.getAttribute("aria-label"));
+    // "Paused" sorts after "Ready".
+    expect(names()).toEqual(["Notes", "Team chat"]);
+    cleanup();
+
+    renderTable("/apps?sort=machine");
+    await screen.findByRole("row", { name: "Notes" });
+    // "gb10-host-2" sorts before "local".
+    expect(names()).toEqual(["Team chat", "Notes"]);
+  });
+
+  it("filters by status and machine from the view", async () => {
+    renderTable("/apps?status=Paused");
+    expect(await screen.findByRole("row", { name: "Notes" })).toBeVisible();
+    expect(screen.queryByRole("row", { name: "Team chat" })).not.toBeInTheDocument();
+    cleanup();
+
+    renderTable("/apps?machine=gb10-host-2");
+    expect(await screen.findByRole("row", { name: "Team chat" })).toBeVisible();
+    expect(screen.queryByRole("row", { name: "Notes" })).not.toBeInTheDocument();
   });
 });
 
