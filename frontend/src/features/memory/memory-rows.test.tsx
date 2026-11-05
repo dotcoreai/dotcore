@@ -7,7 +7,6 @@ import { MetricRows } from "@/components/metrics/metric-row/metric-row";
 import { getResourceColor } from "@/lib/resource-color";
 import { expectResourceMarker } from "@/test/resource-marker";
 
-import { MemoryHoverProvider } from "./memory-hover";
 import { MemoryMetricRows, type MemoryRowCapacity, MemoryRows } from "./memory-rows";
 import type { MemoryRow, MemorySegment, MemorySpan } from "./site-memory";
 
@@ -344,40 +343,6 @@ describe("MemoryRows", () => {
         name: "RAM — / 36 GiB, this model: not measured, process not running",
       }),
     ).toBeVisible();
-  });
-
-  it("links a hovered segment to the shared hover state", async () => {
-    const user = userEvent.setup();
-    render(
-      <MemoryHoverProvider>
-        <MemoryRows rows={[row("vram", [gpu1])]} />
-      </MemoryHoverProvider>,
-    );
-
-    const [gemma, qwen] = [...screen.getByRole("img").children];
-    await user.hover(gemma);
-
-    expect(gemma.className).not.toContain("grayscale");
-    expect(qwen.className).toContain("grayscale");
-    expect(await screen.findByText("gpu1 · 10 GiB")).toBeVisible();
-  });
-
-  it("leaves the shared hover state alone when an application segment is hovered", async () => {
-    const user = userEvent.setup();
-    const comfy = { ...segment("app-comfy", "ComfyUI", 2n), owner: "application" as const };
-    render(
-      <MemoryHoverProvider>
-        <MemoryRows
-          rows={[row("vram", [span("gpu1", 32n, [segment("gemma", "Gemma", 10n), comfy], 0n)])]}
-        />
-      </MemoryHoverProvider>,
-    );
-
-    const [gemma, app] = [...screen.getByRole("img").children];
-    await user.hover(app);
-
-    expect(gemma.className).not.toContain("grayscale");
-    expect(app.className).not.toContain("grayscale");
   });
 
   it("opens a row's breakdown on a click anywhere on the row, and closes it outside", async () => {

@@ -54,7 +54,7 @@ const flatUi: DataTableUiDefinition<Album, Album, FlatColumn, FlatField> = {
   codec: createDataTableViewCodec(flatAlbums),
   columns: {
     title: { cell: ({ row }) => row.name },
-    tracks: { cell: ({ row }) => <Metric value={row.tracks.length} /> },
+    tracks: { cell: ({ row }) => <Metric value={row.tracks.length} />, showFrom: "40rem" },
   },
   definition: flatAlbums,
   fields: { genre: { icon: ListMusicIcon } },
@@ -119,6 +119,22 @@ describe("DataTable", () => {
     expect(bodyRows()).toEqual(["Abbey Road", "empty", "Kind of Blue", "Paranoid", "Zebra"]);
     expect(screen.queryByRole("button", { name: /^(Show|Hide) / })).not.toBeInTheDocument();
     expect(screen.getByText("5 of 5 albums")).toBeInTheDocument();
+  });
+
+  it("limits a column to tables of its width, in the header and every row", () => {
+    renderTable();
+
+    const table = screen.getByRole("table", { name: "Albums" });
+    const [titleHeader, tracksHeader] = within(table).getAllByRole("columnheader");
+    const [, body] = within(table).getAllByRole("rowgroup");
+    const tracksCells = within(body)
+      .getAllByRole("row")
+      .map((row) => within(row).getAllByRole("cell").at(-1));
+
+    expect(titleHeader).not.toHaveClass("hidden");
+    expect(tracksHeader).toHaveClass("hidden", "@min-[40rem]:table-cell");
+    expect(tracksCells).toHaveLength(5);
+    for (const cell of tracksCells) expect(cell).toHaveClass("hidden", "@min-[40rem]:table-cell");
   });
 
   it("sorts from a header menu and hides a column, but never the pinned one", async () => {

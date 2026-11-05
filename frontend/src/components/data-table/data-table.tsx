@@ -81,9 +81,12 @@ export interface DataTableUiDefinition<
 export interface DataTableColumnUi<T extends ResultRows> {
   cell: (row: RowOf<T>, table: T) => ReactNode;
   childCell?: (child: ChildOf<T>, table: T) => ReactNode;
-  /** Shows the column only once the table is at least 32rem wide, such as a secondary metric. */
-  wide?: boolean;
+  /** Shows the column only once the table is at least this wide, so narrow tables keep what matters. */
+  showFrom?: DataTableShowFrom;
 }
+
+/** Table widths at which a column appears; each maps to a fixed class so Tailwind sees it. */
+export type DataTableShowFrom = keyof typeof showFromClasses;
 
 export interface DataTableChildUi<T extends ResultRows> {
   id: (child: ChildOf<T>) => string;
@@ -228,7 +231,7 @@ export function DataTable<
                 className={cn(
                   "h-auto px-3 py-2 text-xs text-muted-foreground",
                   column.pinned && "w-full",
-                  wideOnly(ui.columns[column.id]),
+                  showFromClass(ui.columns[column.id]),
                 )}
                 key={column.id}
               >
@@ -236,7 +239,7 @@ export function DataTable<
                   <ColumnMenu
                     hideable={!column.pinned && !ui.fixedColumns}
                     label={column.label}
-                    nameSort={column.sort.kind === "name"}
+                    nameSort={column.sort.kind !== "value"}
                     onHide={() =>
                       onViewChange(
                         ui.codec.setColumns(
@@ -265,7 +268,7 @@ export function DataTable<
               const open = row.expandable && expanded.has(rowId);
               const cells = columns.map((column) => (
                 <TableCell
-                  className={cn("px-3 py-3 text-[13px]", wideOnly(ui.columns[column.id]))}
+                  className={cn("px-3 py-3 text-[13px]", showFromClass(ui.columns[column.id]))}
                   key={column.id}
                 >
                   {column.pinned ? (
@@ -344,7 +347,7 @@ export function DataTable<
                               <TableCell
                                 className={cn(
                                   "px-3 py-2 text-[12.5px]",
-                                  wideOnly(ui.columns[column.id]),
+                                  showFromClass(ui.columns[column.id]),
                                 )}
                                 key={column.id}
                               >
@@ -474,9 +477,17 @@ function SelectableRow({
   );
 }
 
-// Wide-only columns leave narrow tables, such as on phones, to the pinned column and the rest.
-function wideOnly(column: { wide?: boolean }): string | undefined {
-  return column.wide ? "hidden @lg:table-cell" : undefined;
+const showFromClasses = {
+  "32rem": "hidden @min-[32rem]:table-cell",
+  "34rem": "hidden @min-[34rem]:table-cell",
+  "40rem": "hidden @min-[40rem]:table-cell",
+  "46rem": "hidden @min-[46rem]:table-cell",
+  "56rem": "hidden @min-[56rem]:table-cell",
+  "64rem": "hidden @min-[64rem]:table-cell",
+} as const;
+
+function showFromClass(column: { showFrom?: DataTableShowFrom }): string | undefined {
+  return column.showFrom && showFromClasses[column.showFrom];
 }
 
 function ColumnMenu({

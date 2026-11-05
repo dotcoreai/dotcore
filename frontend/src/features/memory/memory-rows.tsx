@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 
 import { useResourceColors } from "@/app/resource-color-context";
 import {
@@ -12,7 +12,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { formatBytes, formatGib, formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import { useHoveredDeployment, useMemoryHoverSetter } from "./memory-hover-store";
 import {
   type MemoryKind,
   type MemoryRow,
@@ -91,13 +90,7 @@ export function MemoryRows({
   surface?: "page" | "panel";
   unavailable?: readonly UnavailableMemory[];
 }) {
-  const hovered = useHoveredDeployment();
-  const setHovered = useMemoryHoverSetter();
-  const highlighted = focusDeploymentId ?? hovered;
   const renderedKinds = new Set(rows.map((row) => row.kind));
-
-  // A hovered segment that unmounts never sends its pointer leave, so the link clears here.
-  useEffect(() => () => setHovered(undefined), [setHovered]);
 
   return (
     <div
@@ -117,7 +110,7 @@ export function MemoryRows({
           <MemoryRowLine
             capacity={capacity?.[row.kind]}
             deviceLabel={deviceLabel}
-            highlighted={highlighted}
+            highlighted={focusDeploymentId}
             focusDeploymentId={focusDeploymentId}
             focusStatus={focusDeploymentId ? focusStatus?.[row.kind] : undefined}
             key={row.kind}
@@ -189,13 +182,7 @@ export function MemoryMetricRows({
   surface?: "page" | "panel";
   unavailable?: readonly UnavailableMemory[];
 }) {
-  const hovered = useHoveredDeployment();
-  const setHovered = useMemoryHoverSetter();
-  const highlighted = focusDeploymentId ?? hovered;
   const renderedKinds = new Set(rows.map((row) => row.kind));
-
-  // A hovered segment that unmounts never sends its pointer leave, so the link clears here.
-  useEffect(() => () => setHovered(undefined), [setHovered]);
 
   const known = rows.map((row, index) => {
     // Pools without a row of their own, such as unreadable VRAM, surface on the last row.
@@ -214,7 +201,7 @@ export function MemoryMetricRows({
         focusDeploymentId={focusDeploymentId}
         focusStatus={focusDeploymentId ? focusStatus?.[row.kind] : undefined}
         freeByMachine={freeByMachine}
-        highlighted={highlighted}
+        highlighted={focusDeploymentId}
         key={row.kind}
         label={label?.(row) ?? kindLabels[row.kind]}
         mode={mode}
@@ -679,7 +666,6 @@ function Bar({
   surface: "page" | "panel";
   totalBytes: bigint;
 }) {
-  const setHovered = useMemoryHoverSetter();
   const { colorOf } = useResourceColors();
   const otherBytes = sum(otherParts.map((span) => span.otherBytes));
   const drawn = sum(segments.map((segment) => segment.bytes)) + otherBytes;
@@ -712,10 +698,6 @@ function Bar({
                     "opacity-45 grayscale",
                 )}
                 data-deployment-id={segment.deploymentId}
-                onPointerEnter={() =>
-                  setHovered(segment.owner === "application" ? undefined : segment.deploymentId)
-                }
-                onPointerLeave={() => setHovered(undefined)}
                 render={<span />}
                 style={{
                   backgroundColor: colorOf(segment.colorKey),

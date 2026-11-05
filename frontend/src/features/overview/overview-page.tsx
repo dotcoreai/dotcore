@@ -6,12 +6,12 @@ import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
 import { OverviewSectionIcon } from "@/app/console-section-icons";
 import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
-import { SegmentedControl } from "@/components/ui/segmented-control";
+import { InferenceSection } from "@/features/inference/inference-section";
+import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 
-import { OverviewInferenceSection } from "./overview-inference-section";
+import { InferenceCountCards, OverviewAppsSection } from "./overview-count-cards";
 import { OverviewMachinesSection } from "./overview-machines-section";
 import { OverviewSidebar } from "./overview-sidebar";
-import { OverviewTablesSection } from "./overview-tables-section";
 import { useOverviewMetrics } from "./use-overview-metrics";
 
 export interface OverviewPageProps {
@@ -20,7 +20,7 @@ export interface OverviewPageProps {
   routeClient?: RouteClient;
 }
 
-/** The site overview page: an at-a-glance view of the site's inference, models, routes and machines. */
+/** The site overview page: an at-a-glance view of the site's inference, models, routes, apps and machines. */
 export function OverviewPage({
   metricsClient = defaultMetricsClient,
   modelClient,
@@ -39,28 +39,16 @@ export function OverviewPage({
           </PageHeaderHeading>
           {metrics.ranges.length > 1 ? (
             <PageActions>
-              <SegmentedControl
-                aria-label="Overview range"
-                onValueChange={metrics.setRange}
-                options={metrics.ranges.map((range) => ({
-                  label: range.label,
-                  value: range.label,
-                }))}
-                value={metrics.range?.label}
-              />
+              <MetricRangeControl label="Overview range" metrics={metrics} />
             </PageActions>
           ) : null}
         </PageHeader>
 
-        <OverviewInferenceSection metrics={metrics} />
+        <InferenceSection leading={<InferenceCountCards />} metrics={metrics} />
 
-        <OverviewTablesSection metrics={metrics} openerRef={openerRef} />
+        <OverviewAppsSection />
 
-        <OverviewMachinesSection
-          metrics={metrics}
-          metricsClient={metricsClient}
-          openerRef={openerRef}
-        />
+        <OverviewMachinesSection metrics={metrics} metricsClient={metricsClient} />
 
         <OverviewSidebar
           fallbackFocusRef={headingRef}

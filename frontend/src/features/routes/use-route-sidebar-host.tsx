@@ -557,7 +557,8 @@ export function useRouteSidebarHost({
   };
 }
 
-const inspectorPanelId = "route-inspector-panel";
+/** The id of the route sidebar, which rows and openers name in `aria-controls`. */
+export const inspectorPanelId = "route-inspector-panel";
 const rejectedMutationCodes = new Set([
   Code.InvalidArgument,
   Code.NotFound,

@@ -200,11 +200,7 @@ export function gpuReading(
     }
 
     const readings = supported.flatMap((device) => {
-      const value = currentValue(
-        deviceSeries(utilization, machine.machineId, device.deviceId),
-        freshSteps,
-        fresh,
-      );
+      const value = currentDeviceUtilization(utilization, machine.machineId, device.deviceId);
       return value === undefined ? [] : [value];
     });
     for (const device of devices) {
@@ -245,6 +241,18 @@ export function gpuReading(
     powerWatts,
     value: reporting ? utilizationSum / reporting : undefined,
   };
+}
+
+/**
+ * One GPU's current utilization, as a ratio, from a grid grouped by node and device. Undefined
+ * without a recent reading.
+ */
+export function currentDeviceUtilization(
+  utilization: MetricGrid | undefined,
+  machineId: string,
+  deviceId: string,
+): number | undefined {
+  return currentValue(deviceSeries(utilization, machineId, deviceId), freshSteps, fresh);
 }
 
 /** Used storage across the counted machines' real filesystems, against their summed sizes. */

@@ -25,7 +25,7 @@ import type { ModelClient } from "@/api/model-client";
 import type { SiteClient } from "@/api/site-client";
 import { PanelNavigationProvider, usePanelNavigation } from "@/app/console-layout";
 import type { ResourcePayload } from "@/app/resource-watch";
-import { listedMachine } from "@/features/memory/machine-test-support";
+import { hardwareSnapshot, listedMachine } from "@/features/memory/machine-test-support";
 import {
   devicePool,
   hostPool,
@@ -34,7 +34,14 @@ import {
   nodeMemoryPayload,
   other,
 } from "@/features/memory/node-memory-test-support";
-import { idleMetricsClient } from "@/features/metrics/metric-test-support";
+import {
+  gaugePoint,
+  idleMetricsClient,
+  metricsClientWith,
+  metricSeries,
+  queryResult,
+  staticWatch,
+} from "@/features/metrics/metric-test-support";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentSchema,
@@ -48,6 +55,7 @@ import {
   ApplicationReadinessState,
 } from "@/gen/dotcore/application/v1/state_pb";
 import { AcceleratorMemoryObservationSchema } from "@/gen/dotcore/deployment/v1/accelerator_memory_pb";
+import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { type ModelDeployment, ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
@@ -388,7 +396,7 @@ describe("MachinesPage", () => {
     expect(screen.queryByRole("button", { name: /^Back to/ })).toBeNull();
   });
 
-  it("reads h1 page, h2 section, h3 card with no skipped level", async () => {
+  it("reads h1 page, h2 section with no skipped level", async () => {
     render(
       <MachinesPage
         applicationClient={applicationClientFor()}
@@ -396,12 +404,12 @@ describe("MachinesPage", () => {
         modelClient={modelClientFor()}
       />,
     );
-    await screen.findByRole("list", { name: "Machine inventory" });
+    await screen.findByRole("table", { name: "Machine inventory" });
 
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
     ).toEqual(["Resources", "Inventory"]);
-    expectHeadingOutline(document.body, [1, 2, 2, 3, 3]);
+    expectHeadingOutline(document.body, [1, 2, 2]);
   });
 
   it("delays inventory feedback and holds completed Machines content for the minimum", async () => {
@@ -441,7 +449,7 @@ describe("MachinesPage", () => {
     expect(screen.queryByText("Loading machines…")).not.toBeInTheDocument();
     expect(screen.getByText("No machines are configured for this site.")).toBeVisible();
   });
-  it("renders an explicit card grid without selecting a machine", async () => {
+  it("lists each machine as an unselected row", async () => {
     const client = clientFor([
       availableMachine("one", "Machine one"),
       availableMachine("two", "Machine two"),
@@ -455,16 +463,18 @@ describe("MachinesPage", () => {
       />,
     );
 
-    const one = await screen.findByRole("button", { name: "View details for Machine one" });
-    expect(one).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: "View details for Machine two" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    // No raw node ID and no "Hardware snapshot available" sentence.
-    expect(one).not.toHaveTextContent("one ");
+    const table = await screen.findByRole("table", { name: "Machine inventory" });
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => [row.getAttribute("aria-label"), row.getAttribute("data-state")]),
+    ).toEqual([
+      ["Machine one", null],
+      ["Machine two", null],
+    ]);
+    expect(screen.getByText("2 of 2 machines")).toBeVisible();
     expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument();
-    expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
   });
 
   it("shows an opened inspector the machine's snapshot from the shared watch", async () => {
@@ -485,19 +495,71 @@ describe("MachinesPage", () => {
       />,
     );
 
-    await user.click(await screen.findByRole("button", { name: "View details for Machine one" }));
+    await user.click(await screen.findByRole("row", { name: "Machine one" }));
     expect(await screen.findByText("host-one")).toBeVisible();
   });
 
-  it("badges each card with its machine's connection, never the snapshot message", async () => {
+  it("shows readings and running counts for a connected machine, dashes for the others", async () => {
+    const client = clientFor([
+      listedMachine("one", "Machine one"),
+      listedMachine("two", "Machine two", NodeObservationState.DISCONNECTED),
+      listedMachine("three", "Machine three", NodeObservationState.STALE),
+    ]);
+    const snapshot = hardwareSnapshot({
+      cpuCount: 8,
+      devices: [{ deviceId: "gpu0", model: "RTX 5090", vram: { totalGib: 24, usedGib: 6 } }],
+      memory: { availableGib: 32, totalGib: 64 },
+    });
+    client.watched.hardwareSnapshots = () =>
+      Promise.resolve(
+        hardwareSnapshotsPayload({
+          one: create(MachineHardwareSnapshotSchema, { snapshot }),
+          three: create(MachineHardwareSnapshotSchema, { snapshot }),
+          two: create(MachineHardwareSnapshotSchema, { snapshot }),
+        }),
+      );
+    const placed = (siteNodeId: string) => ({ executionTargetId: "target", siteNodeId });
+    const modelDeployment = (id: string, siteNodeId: string) =>
+      create(ModelDeploymentSchema, {
+        intent: { placement: placed(siteNodeId) },
+        modelDeploymentId: id,
+      });
+    const appDeployment = (id: string, siteNodeId: string) =>
+      create(ApplicationDeploymentSchema, {
+        applicationDeploymentId: id,
+        placement: placed(siteNodeId),
+      });
+
+    render(
+      <MachinesPage
+        applicationClient={applicationClientFor([
+          appDeployment("app-1", "one"),
+          appDeployment("app-2", "three"),
+        ])}
+        client={client}
+        metricsClient={metricsClientWith(staticWatch(machineAnswer))}
+        modelClient={modelClientFor([
+          modelDeployment("m-1", "one"),
+          modelDeployment("m-2", "one"),
+          modelDeployment("m-3", "two"),
+        ])}
+      />,
+    );
+
+    const table = await screen.findByRole("table", { name: "Machine inventory" });
+    await waitFor(() => expect(rowTexts(table)[0]).toContain("32 / 64 GiB"));
+    expect(rowTexts(table)).toEqual([
+      "Machine one | RTX 5090 · 8 CPUs | Connected | 50% | 32 / 64 GiB | 6 / 24 GiB | 2 models · 1 app",
+      "Machine three | Hardware unavailable | Stale | — | — | — | 1 app",
+      "Machine two | Hardware unavailable | Disconnected | — | — | — | 1 model",
+    ]);
+  });
+
+  it("filters machines by connection from the URL", async () => {
     const client = clientFor([
       listedMachine("one", "Machine one"),
       listedMachine("two", "Machine two", NodeObservationState.DISCONNECTED),
     ]);
-    client.watched.hardwareSnapshots = () =>
-      Promise.resolve(
-        hardwareSnapshotsPayload({ one: readable("host-one"), two: readable("host-one") }),
-      );
 
     render(
       <MachinesPage
@@ -506,16 +568,79 @@ describe("MachinesPage", () => {
         metricsClient={idleMetricsClient()}
         modelClient={modelClientFor()}
       />,
+      ["/machines?connection=Disconnected"],
     );
 
-    const connected = await screen.findByRole("button", { name: "View details for Machine one" });
-    const disconnected = screen.getByRole("button", { name: "View details for Machine two" });
-    expect(connected.querySelector('[data-slot="badge"]')).toHaveTextContent("Connected");
-    expect(disconnected.querySelector('[data-slot="badge"]')).toHaveTextContent("Disconnected");
-    expect(screen.queryByText("not connected")).not.toBeInTheDocument();
+    const table = await screen.findByRole("table", { name: "Machine inventory" });
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.getAttribute("aria-label")),
+    ).toEqual(["Machine two"]);
+    expect(screen.getByText("1 of 2 machines")).toBeVisible();
   });
 
-  it("opens a selected card in the shared inspector with an exact panel URL and selected accent", async () => {
+  it("sorts machines by their connection label, descending from the URL", async () => {
+    const client = clientFor([
+      listedMachine("one", "Machine one"),
+      listedMachine("two", "Machine two", NodeObservationState.DISCONNECTED),
+      listedMachine("three", "Machine three", NodeObservationState.STALE),
+    ]);
+
+    render(
+      <MachinesPage
+        applicationClient={applicationClientFor()}
+        client={client}
+        metricsClient={idleMetricsClient()}
+        modelClient={modelClientFor()}
+      />,
+      ["/machines?sort=-connection"],
+    );
+
+    const table = await screen.findByRole("table", { name: "Machine inventory" });
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .slice(1)
+        .map((row) => row.getAttribute("aria-label")),
+    ).toEqual(["Machine three", "Machine two", "Machine one"]);
+  });
+
+  it.each([
+    ["Enter", "{Enter}"],
+    ["Space", " "],
+    ["a click", undefined],
+  ])("opens the machine panel from a row with %s", async (_, key) => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <MachinesPage
+          applicationClient={applicationClientFor()}
+          client={clientFor([availableMachine("one", "Machine one")])}
+          metricsClient={idleMetricsClient()}
+          modelClient={modelClientFor()}
+        />
+        <LocationProbe />
+      </>,
+    );
+    const row = await screen.findByRole("row", { name: "Machine one" });
+
+    if (key) {
+      row.focus();
+      await user.keyboard(key);
+    } else {
+      await user.click(row);
+    }
+
+    expect(await screen.findByRole("complementary", { name: "Machine one" })).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/machines?panel=machines%2Fmachine%3Aone",
+    );
+    expect(row).toHaveAttribute("data-state", "selected");
+  });
+
+  it("opens a selected row in the shared inspector with an exact panel URL and selected accent", async () => {
     const client = clientFor([availableMachine("one", "Machine one")]);
     let resolveSnapshot!: (value: ResourcePayload<"hardwareSnapshots">) => void;
     client.watched.hardwareSnapshots = () =>
@@ -533,21 +658,23 @@ describe("MachinesPage", () => {
         <LocationProbe />
       </>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "View details for Machine one" }));
+    fireEvent.click(await screen.findByRole("row", { name: "Machine one" }));
 
     const panel = await screen.findByRole("complementary", { name: "Machine one" });
     expect(panel).toBeVisible();
     expectResourceMarker(inspectorTitle(panel), "one");
     expectResourceMarker(
-      screen.getByRole("list", { name: "Machine inventory" }).querySelector("h3"),
+      Array.from(screen.getByRole("row", { name: "Machine one" }).querySelectorAll("td div")).find(
+        (line) => !line.querySelector("div"),
+      ),
       "one",
     );
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/machines?panel=machines%2Fmachine%3Aone",
     );
-    expect(screen.getByRole("button", { name: "View details for Machine one" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
+    expect(screen.getByRole("row", { name: "Machine one" })).toHaveAttribute(
+      "data-state",
+      "selected",
     );
     expect(
       within(screen.getByTestId("inspector-content")).queryByRole("status"),
@@ -814,7 +941,7 @@ describe("MachinesPage", () => {
         <LocationProbe />
       </>,
     );
-    const opener = await screen.findByRole("button", { name: "View details for Machine one" });
+    const opener = await screen.findByRole("row", { name: "Machine one" });
     fireEvent.click(opener);
     fireEvent.click(await screen.findByRole("button", { name: "Close inspector" }));
 
@@ -906,7 +1033,7 @@ describe("MachinesPage", () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View details for Machine one" })).toBeVisible();
+    expect(screen.getByRole("row", { name: "Machine one" })).toBeVisible();
   });
 
   it("streams machines so a worker's connection change reaches its open inspector", async () => {
@@ -1158,9 +1285,9 @@ describe("MachinesPage execution target screen", () => {
     expect(currentLocation(router)).toBe(
       "/machines?panel=machines%2Fmachine%3Aone&panel=machines%2Fexecution-target%3Aone-models",
     );
-    expect(screen.getByRole("button", { name: "View details for Machine one" })).toHaveAttribute(
-      "aria-expanded",
-      "true",
+    expect(screen.getByRole("row", { name: "Machine one" })).toHaveAttribute(
+      "data-state",
+      "selected",
     );
     const facts = within(targetPanel).getByRole("region", { name: "Target" });
     expect([...facts.querySelectorAll("dl > *")].map((row) => row.textContent)).toEqual([
@@ -1288,7 +1415,7 @@ describe("MachinesPage execution target screen", () => {
     const applicationClient = applicationClientFor();
     renderExecutionTargets(["/machines"], applicationClient);
 
-    await screen.findByRole("button", { name: "View details for Machine one" });
+    await screen.findByRole("row", { name: "Machine one" });
 
     await waitFor(() =>
       expect(applicationClient.application.listApplicationDeployments).toHaveBeenCalledTimes(1),
@@ -1418,4 +1545,55 @@ function target(
     siteNodeId,
     workloadKind,
   });
+}
+
+/** The text of each body row: the name cell's lines joined by " · ", then the other cells. */
+function rowTexts(table: HTMLElement): string[] {
+  return within(table)
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) =>
+      Array.from(row.querySelectorAll("td"))
+        .map((cell, index) =>
+          index === 0
+            ? Array.from(cell.querySelectorAll("div"))
+                .filter((line) => !line.querySelector("div"))
+                .map((line) => line.textContent)
+                .join(" | ")
+            : cell.textContent,
+        )
+        .join(" | "),
+    );
+}
+
+const GiB = 1024 ** 3;
+
+/** Steady readings for every machine, so only the connection decides what a row shows. */
+function machineAnswer(query: MessageInitShape<typeof MetricQuerySchema> | undefined) {
+  const nodes = ["one", "two", "three"];
+  const perNode = (value: number, extra: Record<string, string> = {}) =>
+    nodes.map((node) =>
+      metricSeries(
+        { node, ...extra },
+        Array.from({ length: 10 }, (_, step) => gaugePoint(step, value)),
+      ),
+    );
+  const series = (() => {
+    switch (query?.metric) {
+      case "node.host.cpu.utilization":
+        return perNode(0.5);
+      case "node.host.memory.total":
+        return perNode(64 * GiB);
+      case "node.host.memory.available":
+        return perNode(32 * GiB);
+      case "node.accelerator.memory.total":
+        return perNode(24 * GiB, { device: "gpu0" });
+      case "node.accelerator.memory.used":
+        return perNode(6 * GiB, { device: "gpu0" });
+      default:
+        return [];
+    }
+  })();
+
+  return queryResult({ series, stepCount: 10 });
 }

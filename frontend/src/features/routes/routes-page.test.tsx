@@ -22,7 +22,14 @@ import { PanelLink, PanelNavigationProvider } from "@/app/console-layout";
 import { createPanelTitleLookup } from "@/app/panel-title-lookup";
 import { PanelTitlesProvider } from "@/app/panel-titles";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
-import { queryResult, staticWatch } from "@/features/metrics/metric-test-support";
+import {
+  counterPoint,
+  distributionPoint,
+  metricsClientWith,
+  metricSeries,
+  queryResult,
+  staticWatch,
+} from "@/features/metrics/metric-test-support";
 import { ModelsPage } from "@/features/models/models-page";
 import { ModelsPollingProvider } from "@/features/models/models-polling-provider";
 import { modelsResourceWatch } from "@/features/models/models-section-test-support";
@@ -93,6 +100,14 @@ const idleMetricsClient: MetricsClient = {
 };
 
 const watches: FakeResourceWatch[] = [];
+
+/** The names of the table's route rows in display order, without the header row. */
+function routeRowNames() {
+  return screen
+    .queryAllByRole("row", { hidden: true })
+    .filter((row) => row.hasAttribute("aria-controls"))
+    .map((row) => row.getAttribute("aria-label"));
+}
 
 /** Reads the latest page's sources again and sends them, like the manager's next tick. */
 async function tick() {
@@ -393,15 +408,58 @@ afterEach(() => {
 });
 
 describe("RoutesPage", () => {
-  it("reads h1 page, h2 section, h3 card with no skipped level", async () => {
+  it("reads h1 page, h2 sections, and the route table with no skipped level", async () => {
     const { model, route } = clients([
       routeView({ id: "route-available", name: "available", enabled: true, available: true }),
     ]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
-    await screen.findByTestId("route-available");
+    await screen.findByRole("row", { name: "available" });
 
-    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("Routes");
-    expectHeadingOutline(document.body, [1, 2, 3]);
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
+      "Inference",
+      "Routes",
+    ]);
+    expectHeadingOutline(document.body, [1, 2, 2]);
+  });
+
+  it("shows the site's inference and opens a route on the page's range", async () => {
+    const user = userEvent.setup();
+    const watchMetrics = vi.fn(
+      staticWatch((query) =>
+        queryResult({
+          series:
+            query?.metric === "router.requests"
+              ? [metricSeries({}, [counterPoint(0, 0, false, 4)])]
+              : [],
+          stepCount: 1,
+        }),
+      ),
+    );
+    const { model, route } = clients([routeView({ id: "route-a", name: "chat" })]);
+    render(
+      <RoutesPage
+        client={route}
+        metricsClient={metricsClientWith(watchMetrics)}
+        modelClient={model}
+      />,
+    );
+
+    const inference = await screen.findByRole("region", { name: "Inference" });
+    await waitFor(() =>
+      expect(within(inference).getByRole("button", { name: /^Requests/ })).toHaveTextContent(
+        "Requests4",
+      ),
+    );
+    // Scoped to routes, the cards count the requests routes handled.
+    expect(watchMetrics.mock.calls[0][0].queries?.[0].query?.metric).toBe("router.requests");
+
+    const range = screen.getByRole("radiogroup", { name: "Routes range" });
+    await user.click(within(range).getByRole("radio", { name: "6h" }));
+    await waitFor(() => expect(watchMetrics).toHaveBeenCalledTimes(2));
+
+    await user.click(await screen.findByRole("row", { name: "chat" }));
+    const panel = await screen.findByRole("complementary", { name: "chat" });
+    expect(await within(panel).findByRole("radio", { name: "6h" })).toBeChecked();
   });
 
   it("delays initial feedback and holds completed Routes content for the minimum", async () => {
@@ -486,7 +544,7 @@ describe("RoutesPage", () => {
     expect(screen.queryByText("Loading options…")).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Local model Ready/i })).toBeVisible();
   });
-  it("uses minimal selectable cards and renders details inside the inspector", async () => {
+  it("lists routes as rows with status and members, and opens details inside the inspector", async () => {
     const user = userEvent.setup();
     const { model, route } = clients([
       routeView({ id: "route-disabled", name: "disabled", enabled: false, available: true }),
@@ -495,26 +553,25 @@ describe("RoutesPage", () => {
     ]);
     const router = renderIntegratedAt(["/routes?tab=traffic"], route, model);
 
-    const disabled = await screen.findByTestId("route-disabled");
-    expect(disabled).toHaveTextContent("Disabled");
-    expect(disabled).toHaveTextContent("Local model");
-    expect(disabled).not.toHaveTextContent("Generation");
+    const disabled = await screen.findByRole("row", { name: "disabled" });
+    expect(within(disabled).getByText("Disabled")).toHaveAttribute("data-variant", "neutral");
+    expect(within(disabled).getByTestId("route-flow")).toHaveTextContent("Local model");
     expect(disabled).not.toHaveTextContent("route-disabled");
     expect(disabled).not.toHaveTextContent("deployment-a");
-    const available = await screen.findByTestId("route-available");
-    expect(available).toHaveTextContent("Available");
-    expect(available).toHaveTextContent("Local model");
+    const available = await screen.findByRole("row", { name: "available" });
+    expect(within(available).getByText("Available")).toHaveAttribute("data-variant", "success");
+    expect(within(available).getByTestId("route-flow")).toHaveTextContent("Local model");
+    expect(routeRowNames()).toEqual(["available", "disabled", "unavailable"]);
 
-    const card = within(disabled).getByRole("button", { name: "View details for disabled" });
-    await user.click(card);
-    expect(card).toHaveAttribute("aria-expanded", "true");
-    expect(card).toHaveAttribute("aria-controls", "route-inspector-panel");
+    await user.click(disabled);
+    expect(disabled).toHaveAttribute("data-state", "selected");
+    expect(disabled).toHaveAttribute("aria-controls", "route-inspector-panel");
     expect(screen.getByTestId("inspector-content")).toContainElement(
       screen.getByTestId("route-inspector"),
     );
     expect(screen.queryByRole("form", { name: "Edit" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "More actions" })).toBeVisible();
-    expectResourceMarker(disabled.querySelector("h3"), "route-disabled");
+    expectResourceMarker(within(disabled).getByText("disabled"), "route-disabled");
     expectResourceMarker(
       inspectorTitle(screen.getByRole("complementary", { name: "disabled" })),
       "route-disabled",
@@ -523,15 +580,87 @@ describe("RoutesPage", () => {
       "/routes?tab=traffic&panel=routes%2Froute%3Aroute-disabled",
     );
 
-    await user.click(within(available).getByRole("button", { name: "View details for available" }));
+    await user.click(available);
     expect(router.state.location.pathname + router.state.location.search).toBe(
       "/routes?tab=traffic&panel=routes%2Froute%3Aroute-available",
     );
-    expect(card).toHaveAttribute("aria-expanded", "false");
+    expect(disabled).not.toHaveAttribute("data-state", "selected");
+    expect(available).toHaveAttribute("data-state", "selected");
     expectResourceMarker(
       inspectorTitle(screen.getByRole("complementary", { name: "available" })),
       "route-available",
     );
+  });
+
+  it("opens a row with Enter and Space", async () => {
+    const user = userEvent.setup();
+    const { model, route } = clients([routeView({ id: "route-a", name: "chat" })]);
+    const router = renderIntegratedAt(["/routes"], route, model);
+
+    (await screen.findByRole("row", { name: "chat" })).focus();
+    await user.keyboard("{Enter}");
+    expect(router.state.location.search).toBe("?panel=routes%2Froute%3Aroute-a");
+  });
+
+  it("shows each route's traffic over the range, with a dash where it has no speed", async () => {
+    const watchMetrics = staticWatch((query) => {
+      const byRoute = query?.groupBy?.includes("route");
+      const labels: Record<string, string> = byRoute ? { route: "route-busy" } : {};
+      switch (query?.metric) {
+        case "router.requests":
+          return queryResult({
+            series: [metricSeries(labels, [counterPoint(0, 0, false, 1200)])],
+            stepCount: 1,
+          });
+        case "router.tokens.completion":
+          return queryResult({
+            series: [metricSeries(labels, [counterPoint(0, 0, false, 4000)])],
+            stepCount: 1,
+          });
+        case "router.attempt.decode_rate":
+          return queryResult({
+            series: [
+              metricSeries(labels, [
+                distributionPoint(0, { 0.95: 200 }, false, { count: 4, sum: 200 }),
+              ]),
+            ],
+            stepCount: 1,
+          });
+        default:
+          return queryResult({ series: [], stepCount: 1 });
+      }
+    });
+    const { model, route } = clients([
+      routeView({ id: "route-busy", name: "busy" }),
+      routeView({ id: "route-idle", name: "idle" }),
+    ]);
+    render(
+      <RoutesPage
+        client={route}
+        metricsClient={metricsClientWith(watchMetrics)}
+        modelClient={model}
+      />,
+    );
+
+    const cells = (name: string) =>
+      within(screen.getByRole("row", { name }))
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent);
+    await waitFor(() => expect(cells("busy")[3]).toBe("1,200"));
+    expect(cells("busy")).toEqual([
+      "busy",
+      "Available",
+      "Local model",
+      "1,200",
+      "4,000",
+      "50 tokens/s",
+    ]);
+    // No traffic in the range: zero counts, no speed.
+    expect(cells("idle")).toEqual(["idle", "Available", "Local model", "0", "0", "—"]);
+    // Time to first token is hidden until the View menu shows it.
+    expect(
+      screen.queryByRole("columnheader", { name: /Time to first token/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("returns from Connect to the selected route without changing the URL", async () => {
@@ -564,7 +693,7 @@ describe("RoutesPage", () => {
     const routeLocation =
       "/routes?panel=models%2Fdeployment%3Adeployment-a&panel=routes%2Froute%3Aroute-a";
 
-    await user.click(await screen.findByRole("button", { name: "View details for Local model" }));
+    await user.click(await screen.findByRole("row", { name: "Local model" }));
     expect(router.state.location.pathname + router.state.location.search).toBe(modelLocation);
     await user.click(await screen.findByRole("link", { name: "selected" }));
 
@@ -640,7 +769,7 @@ describe("RoutesPage", () => {
   it("lists routes created elsewhere and drops routes deleted elsewhere", async () => {
     const { model, route } = clients([routeView({ id: "route-a", name: "alpha" })]);
     renderAt(["/routes"], route, model);
-    expect(await screen.findByRole("button", { name: "View details for alpha" })).toBeVisible();
+    expect(await screen.findByRole("row", { name: "alpha" })).toBeVisible();
 
     vi.mocked(route.route.listRoutes).mockResolvedValue(
       create(ListRoutesResponseSchema, {
@@ -651,17 +780,13 @@ describe("RoutesPage", () => {
       }),
     );
     await tick();
-    expect(
-      screen.getAllByRole("button", { name: /^View details for / }).map((card) => card.ariaLabel),
-    ).toEqual(["View details for alpha", "View details for beta"]);
+    expect(routeRowNames()).toEqual(["alpha", "beta"]);
 
     vi.mocked(route.route.listRoutes).mockResolvedValue(
       create(ListRoutesResponseSchema, { routes: [routeView({ id: "route-b", name: "beta" })] }),
     );
     await tick();
-    expect(
-      screen.getAllByRole("button", { name: /^View details for / }).map((card) => card.ariaLabel),
-    ).toEqual(["View details for beta"]);
+    expect(routeRowNames()).toEqual(["beta"]);
   });
 
   it("holds the listed routes while a route is being edited, then shows what changed", async () => {
@@ -687,7 +812,7 @@ describe("RoutesPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Close inspector" }));
     await user.click(await screen.findByRole("button", { name: "Discard changes" }));
-    expect(await screen.findByRole("button", { name: "View details for renamed" })).toBeVisible();
+    expect(await screen.findByRole("row", { name: "renamed" })).toBeVisible();
   });
 
   it("keeps an accepted change over a stream payload read before it", async () => {
@@ -707,7 +832,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(await screen.findByRole("button", { name: "View details for chat" }));
+    await user.click(await screen.findByRole("row", { name: "chat" }));
     const panel = screen.getByRole("complementary", { name: "chat" });
     await chooseMoreAction(user, "Disable", panel);
     expect(await within(panel).findByText("Disabled")).toBeVisible();
@@ -853,7 +978,7 @@ describe("RoutesPage", () => {
     setViewportWidth(1024);
     renderConsoleAt(["/routes"], route, model);
 
-    await user.click(await screen.findByRole("button", { name: "View details for responsive" }));
+    await user.click(await screen.findByRole("row", { name: "responsive" }));
     expect(screen.getByTestId("inspector-content").tagName).toBe("ASIDE");
     expect(screen.getByTestId("route-inspector")).toBeInTheDocument();
 
@@ -922,7 +1047,7 @@ describe("RoutesPage", () => {
       ],
     );
     renderConsoleAt(["/routes"], route, model);
-    await user.click(await screen.findByRole("button", { name: "View details for route-a" }));
+    await user.click(await screen.findByRole("row", { name: "route-a" }));
     await chooseMoreAction(user, "Edit");
     await user.click(screen.getByRole("combobox", { name: "Primary deployments" }));
     expect(screen.getByRole("option", { name: "Ready model Ready" })).toBeVisible();
@@ -997,7 +1122,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(await screen.findByRole("button", { name: "View details for fallback" }));
+    await user.click(await screen.findByRole("row", { name: "fallback" }));
     await chooseMoreAction(user, "Edit");
     await user.click(screen.getByRole("button", { name: "Remove Recovery" }));
     await user.click(screen.getByRole("button", { name: "Show Fallback 1 deployments options" }));
@@ -1079,7 +1204,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(await screen.findByRole("button", { name: "View details for gemma" }));
+    await user.click(await screen.findByRole("row", { name: "gemma" }));
     await chooseMoreAction(user, "Edit");
     await user.click(screen.getByRole("button", { name: "Add fallback" }));
     await user.click(screen.getByRole("button", { name: "Show Fallback 1 deployments options" }));
@@ -1110,7 +1235,7 @@ describe("RoutesPage", () => {
     vi.mocked(route.route.deleteRoute).mockRejectedValue(new Error("delete failed"));
     renderConsoleAt(["/routes"], route, model);
 
-    await user.click(await screen.findByRole("button", { name: "View details for route-a" }));
+    await user.click(await screen.findByRole("row", { name: "route-a" }));
     await chooseMoreAction(user, "Edit");
     expectResourceMarker(
       inspectorTitle(screen.getByRole("complementary", { name: "route-a · Edit" })),
@@ -1163,7 +1288,7 @@ describe("RoutesPage", () => {
     const visited: string[] = [];
     router.subscribe((state) => visited.push(state.location.pathname));
 
-    await user.click(await screen.findByRole("button", { name: "View details for selected" }));
+    await user.click(await screen.findByRole("row", { name: "selected" }));
     await chooseMoreAction(user, "Delete…");
     const confirmation = screen.getByRole("dialog", { name: "Delete route?" });
     await user.click(within(confirmation).getByRole("button", { name: "Delete" }));
@@ -1210,9 +1335,7 @@ describe("RoutesPage", () => {
     ]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await userEvent
-      .setup()
-      .click(await screen.findByRole("button", { name: "View details for unavailable" }));
+    await userEvent.setup().click(await screen.findByRole("row", { name: "unavailable" }));
     const inspector = screen.getByTestId("route-inspector");
     // The card and the inspector header project the same status, so a disabled route reads
     // Disabled on both rather than Disabled on the card and Unavailable in the inspector.
@@ -1220,9 +1343,7 @@ describe("RoutesPage", () => {
     expect(within(panel).getByText("Disabled")).toHaveAttribute("data-slot", "badge");
     expect(inspector).not.toContainElement(within(panel).getByText("Disabled"));
     expect(
-      within(screen.getByRole("button", { name: "View details for unavailable" })).getByText(
-        "Disabled",
-      ),
+      within(screen.getByRole("row", { name: "unavailable" })).getByText("Disabled"),
     ).toBeVisible();
     const card = within(within(inspector).getByRole("list", { name: "Primary members" })).getByRole(
       "listitem",
@@ -1272,7 +1393,7 @@ describe("RoutesPage", () => {
         { selection: FallbackGroupSelection.SINGLE, modelDeploymentIds: ["deployment-a"] },
       ],
     });
-    await user.click(await screen.findByRole("button", { name: "View details for chat-new" }));
+    await user.click(await screen.findByRole("row", { name: "chat-new" }));
     await chooseMoreAction(user, "Edit");
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save route" })).not.toBeInTheDocument();
@@ -1316,7 +1437,7 @@ describe("RoutesPage", () => {
       );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(await screen.findByRole("button", { name: "View details for chat" }));
+    await user.click(await screen.findByRole("row", { name: "chat" }));
     const panel = screen.getByRole("complementary", { name: "chat" });
     expect(within(panel).getByText("Available")).toHaveAttribute("data-slot", "badge");
     await chooseMoreAction(user, "Disable", panel);
@@ -1352,7 +1473,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(await screen.findByRole("button", { name: "View details for chat" }));
+    await user.click(await screen.findByRole("row", { name: "chat" }));
     await chooseMoreAction(user, "Disable");
     expect(
       await within(screen.getByTestId("route-inspector")).findByRole("alert"),
@@ -1633,7 +1754,7 @@ describe("RoutesPage", () => {
     const panel = await screen.findByRole("complementary", { name: "created" });
     expect(within(panel).getByRole("heading", { name: "created" })).toHaveFocus();
     expect(within(panel).getByTestId("route-inspector")).toBeVisible();
-    expect(screen.getByRole("button", { name: "View details for created" })).toBeVisible();
+    expect(screen.getByRole("row", { name: "created" })).toBeVisible();
   });
 
   it("opens the created route above a cross-page model deployment parent", async () => {
@@ -1922,7 +2043,7 @@ describe("RoutesPage", () => {
     );
     expect(route.route.createRoute).toHaveBeenCalledOnce();
     expect(route.route.listRoutes).toHaveBeenCalledTimes(2);
-    expect(screen.getAllByRole("button", { name: "View details for reconciled" })).toHaveLength(1);
+    expect(screen.getAllByRole("row", { name: "reconciled" })).toHaveLength(1);
     const panel = await screen.findByRole("complementary", { name: "reconciled" });
     expect(within(panel).getByRole("heading", { name: "reconciled" })).toHaveFocus();
   });
@@ -1976,7 +2097,7 @@ describe("RoutesPage", () => {
       "Route creation outcome is uncertain (Unavailable): timed out",
     );
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(" reconciled ");
-    expect(screen.queryAllByRole("button", { name: /View details for/ })).toHaveLength(0);
+    expect(routeRowNames()).toEqual([]);
     expect(route.route.createRoute).toHaveBeenCalledOnce();
     expect(route.route.listRoutes).toHaveBeenCalledTimes(2);
   });
@@ -2003,7 +2124,7 @@ describe("RoutesPage", () => {
       "Route creation outcome is uncertain (Unavailable): timed out",
     );
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue(" reconciled ");
-    expect(screen.queryAllByRole("button", { name: /View details for/ })).toHaveLength(0);
+    expect(routeRowNames()).toEqual([]);
     expect(route.route.createRoute).toHaveBeenCalledOnce();
     expect(route.route.listRoutes).toHaveBeenCalledTimes(2);
   });
@@ -2025,7 +2146,7 @@ describe("RoutesPage", () => {
       await screen.findByText("Route creation outcome is uncertain (Unavailable): timed out"),
     ).toHaveAttribute("role", "alert");
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("reconciled");
-    expect(screen.queryAllByRole("button", { name: /View details for/ })).toHaveLength(0);
+    expect(routeRowNames()).toEqual([]);
     expect(route.route.createRoute).toHaveBeenCalledOnce();
     expect(route.route.listRoutes).toHaveBeenCalledTimes(2);
   });
@@ -2044,7 +2165,7 @@ describe("RoutesPage", () => {
       "Route creation was rejected (AlreadyExists): name already exists",
     );
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("duplicate");
-    expect(screen.queryAllByRole("button", { name: /View details for/ })).toHaveLength(0);
+    expect(routeRowNames()).toEqual([]);
     expect(route.route.createRoute).toHaveBeenCalledOnce();
     expect(route.route.listRoutes).toHaveBeenCalledOnce();
   });
@@ -2061,7 +2182,7 @@ describe("RoutesPage", () => {
       "Route creation response protocol error: missing created route.",
     );
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("malformed");
-    expect(screen.queryAllByRole("button", { name: /View details for/ })).toHaveLength(0);
+    expect(routeRowNames()).toEqual([]);
     expect(route.route.createRoute).toHaveBeenCalledOnce();
     expect(route.route.listRoutes).toHaveBeenCalledOnce();
   });
@@ -2079,7 +2200,7 @@ describe("RoutesPage", () => {
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
     const heading = screen.getByRole("heading", { level: 1, name: "Routes" });
-    await user.click(await screen.findByRole("button", { name: "View details for to-delete" }));
+    await user.click(await screen.findByRole("row", { name: "to-delete" }));
     await chooseMoreAction(user, "Delete…");
     const confirmation = screen.getByRole("dialog", { name: "Delete route?" });
     const cancel = within(confirmation).getByRole("button", { name: "Cancel" });
@@ -2092,7 +2213,7 @@ describe("RoutesPage", () => {
     expect(cancel).toBeDisabled();
     expect(confirm).toBeDisabled();
     expect(screen.getByRole("dialog", { name: "Delete route?" })).toBeVisible();
-    expect(screen.getAllByTestId("route-to-delete")).toHaveLength(1);
+    expect(routeRowNames()).toEqual(["to-delete"]);
     expect(route.route.listRoutes).toHaveBeenCalledOnce();
 
     resolveDelete();
@@ -2106,7 +2227,7 @@ describe("RoutesPage", () => {
     const { model, route } = clients([routeView({ id: "route-delete", name: "to-delete" })]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    const card = await screen.findByRole("button", { name: "View details for to-delete" });
+    const card = await screen.findByRole("row", { name: "to-delete" });
     const heading = screen.getByRole("heading", { level: 1, name: "Routes" });
     await user.click(card);
     await chooseMoreAction(user, "Delete…");

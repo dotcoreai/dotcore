@@ -1,0 +1,105 @@
+import { useMemo } from "react";
+
+import type { MetricsClient } from "@/api/metrics-client";
+import {
+  currentDeviceUtilization,
+  resourcesCurrentWindow,
+} from "@/features/machines/machine-resources";
+import type { MetricGrid } from "@/features/metrics/metric-grid";
+import { dimensionNames, metricNames } from "@/features/metrics/metric-names";
+import { useMetricsPausedByLogs } from "@/features/metrics/metric-pause";
+import type { MetricRange } from "@/features/metrics/metric-ranges";
+import { type MetricHistoryQuery, useMetricAnswers } from "@/features/metrics/use-metric-watch";
+import type { AcceleratorMemoryDeviceUsage } from "@/gen/dotcore/deployment/v1/accelerator_memory_pb";
+import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
+
+/** The GPU use of the devices a model deployment runs on. */
+export interface DeploymentGpu {
+  /** Whether another listed deployment measures memory on one of the same devices. */
+  shared: boolean;
+  /** Current utilization ratio, averaged over the devices with a reading; absent without one. */
+  utilization?: number;
+}
+
+/**
+ * The GPU use of each listed model deployment, watched live in one small stream of per-device
+ * utilization. The stream opens only while some deployment measures memory on a device.
+ */
+export function useDeploymentGpus(
+  client: MetricsClient,
+  deployments: readonly ModelDeployment[],
+): ReadonlyMap<string, DeploymentGpu> {
+  const paused = useMetricsPausedByLogs();
+  const measured = deployments.some((deployment) => measuredDevices(deployment).length > 0);
+  const watch = useMetricAnswers(
+    client,
+    measured ? utilizationQueries : [],
+    measured ? utilizationWindow : undefined,
+    { paused },
+  );
+  const grid = watch?.value?.[0]?.grid;
+
+  return useMemo(() => deploymentGpus(deployments, grid), [deployments, grid]);
+}
+
+/**
+ * Each deployment's GPU use from a utilization grid grouped by node and device. A deployment maps
+ * to the devices its accelerator memory is measured on, so deployments on the same device read the
+ * same value and are marked as shared. A deployment with no measured device is absent.
+ */
+export function deploymentGpus(
+  deployments: readonly ModelDeployment[],
+  utilization: MetricGrid | undefined,
+): Map<string, DeploymentGpu> {
+  const devices = new Map(
+    deployments.map((deployment) => [
+      deployment.modelDeploymentId,
+      uniqueDevices(measuredDevices(deployment)),
+    ]),
+  );
+  const users = new Map<string, number>();
+  for (const keys of devices.values()) {
+    for (const key of keys.keys()) users.set(key, (users.get(key) ?? 0) + 1);
+  }
+
+  const gpus = new Map<string, DeploymentGpu>();
+  for (const [deploymentId, keys] of devices) {
+    if (!keys.size) continue;
+
+    const readings = [...keys.values()].flatMap((device) => {
+      const value = currentDeviceUtilization(utilization, device.managedNodeId, device.deviceId);
+      return value === undefined ? [] : [value];
+    });
+    gpus.set(deploymentId, {
+      shared: [...keys.keys()].some((key) => (users.get(key) ?? 0) > 1),
+      utilization: readings.length
+        ? readings.reduce((total, value) => total + value, 0) / readings.length
+        : undefined,
+    });
+  }
+
+  return gpus;
+}
+
+/** The devices a deployment's accelerator memory is measured on; none without a measure. */
+export function measuredDevices(deployment: ModelDeployment): AcceleratorMemoryDeviceUsage[] {
+  const result = deployment.acceleratorMemory?.result;
+  return result?.case === "available" ? result.value.devices : [];
+}
+
+const utilizationQueries: readonly MetricHistoryQuery[] = [
+  {
+    groupBy: [dimensionNames.node, dimensionNames.device],
+    matchers: {},
+    metric: metricNames.nodeAcceleratorUtilization,
+  },
+];
+
+const utilizationWindow: MetricRange = { ...resourcesCurrentWindow, label: "now" };
+
+/** The devices by their node and device key, each once. */
+function uniqueDevices(
+  devices: readonly AcceleratorMemoryDeviceUsage[],
+): Map<string, AcceleratorMemoryDeviceUsage> {
+  return new Map(devices.map((device) => [`${device.managedNodeId}/${device.deviceId}`, device]));
+}
