@@ -37,7 +37,7 @@ Follow the installer's instructions. See [docs/install.md](docs/install.md) for 
 
 ## Contributing
 
-Questions and ideas go to [Discussions](https://github.com/dotcoreai/dotcore/discussions). To send a change, read [CONTRIBUTING.md](CONTRIBUTING.md).
+Questions, ideas and bug reports go to [Discussions](https://github.com/dotcoreai/dotcore/discussions). Pull requests fix an accepted issue. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security
 

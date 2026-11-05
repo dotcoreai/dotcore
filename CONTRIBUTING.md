@@ -14,8 +14,8 @@ Security problems never go to Discussions. Follow [SECURITY.md](SECURITY.md) ins
 
 ## Send a pull request
 
-- Small fixes (typos, clear bugs, docs) can go straight to a pull request.
-- For anything larger, link the discussion where a maintainer agreed with the approach.
+- Every pull request links the issue it fixes (`Fixes #123`). Issues come from a discussion a maintainer accepted, so start there.
+- Small fixes (typos, broken links, docs) don't need an issue.
 - Keep one change per pull request, with tests for the behavior it changes.
 - Run `just check` before you push. It runs the repository-wide checks.
 - Follow the commit format in the [root `AGENTS.md`](AGENTS.md#version-control).

@@ -1,6 +1,6 @@
 ## Summary
 
-<!-- What this changes and why. Link the discussion for anything larger than a small fix. -->
+<!-- What this changes and why. Link the issue it fixes (`Fixes #123`), unless it's a small fix. -->
 
 ## Testing
 
