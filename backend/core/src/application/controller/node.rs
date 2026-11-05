@@ -11,11 +11,14 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Ipv4Addr, SocketAddrV4},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use dotcore_domain::{
-    deployment::launch_pin::LaunchPinResolver, inference_route::is_valid_route_name,
+    SiteNodeId, clock::Clock, deployment::launch_pin::LaunchPinResolver,
+    inference_route::is_valid_route_name,
 };
+use dotcore_observability::MetricRecorder;
 use dotcore_proto::dotcore::{
     application::{
         private::v1::{
@@ -36,7 +39,10 @@ use dotcore_proto::dotcore::{
         v1::{ExecutionTarget, execution_target},
     },
 };
-use dotcore_site::node::hardware_inventory::HardwareCollection;
+use dotcore_site::node::{
+    agent::CollectionReading,
+    hardware_inventory::{HardwareCollection, HardwareInventorySource},
+};
 use dotcore_site::{
     repository::ApplicationSiteSnapshot,
     store::{FileNodeState, StoreError},
@@ -59,8 +65,12 @@ use super::{
     accelerator_memory::GroupAcceleratorAttribution,
     configuration,
     logs::NodeApplicationLogs,
+    metrics::{
+        ApplicationResourceWriter, HostedApplication, HostedApplicationResources, HostedService,
+    },
     outcome_uncertain_with_source,
     realizer::{ApplicationRealizer, NodeRealization, RealizerDependencies},
+    resources::GroupResourceAttribution,
 };
 use crate::{
     application::repository::CurrentApplicationRepository,
@@ -91,16 +101,23 @@ pub(crate) struct NodeApplicationComposition {
 
     /// Preparation logs the node keeps for its deployments, removed with their cleanup.
     pub(crate) preparation_logs: PreparationLogs,
+
+    /// Hardware collections of this node, which its application resources are attributed from.
+    pub(crate) inventory: Arc<dyn HardwareInventorySource>,
 }
 
 /// Composed node apps-controller realizer, the status owner reporting what it realized, and
 /// the log owner reading what it launched.
 ///
-/// Dropping it stops the realizer's observer; runtime groups it created keep running.
+/// Dropping it stops the realizer's observer and its resource writer; runtime groups it created
+/// keep running.
 pub(crate) struct NodeApplicationRealizer {
     realizer: Arc<ApplicationRealizer>,
     status: Arc<NodeApplicationStatus>,
     logs: Arc<NodeApplicationLogs>,
+
+    /// Task recording the resources the status attributes, once started.
+    resource_writer: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 impl NodeApplicationRealizer {
@@ -116,6 +133,7 @@ impl NodeApplicationRealizer {
             artifact_manager,
             publication_host,
             preparation_logs,
+            inventory,
         } = composition;
         if publication_host.is_unspecified() {
             return Err(configuration(
@@ -141,6 +159,8 @@ impl NodeApplicationRealizer {
             lifecycle.clone(),
         ));
         let accelerator_attribution = GroupAcceleratorAttribution::default();
+        let resource_attribution =
+            GroupResourceAttribution::new(inventory, Arc::new(runtimes.clone()));
         let realizer = ApplicationRealizer::new(
             Arc::clone(&view) as Arc<dyn ApplicationRealizationInput>,
             Arc::new(state.clone()),
@@ -158,6 +178,7 @@ impl NodeApplicationRealizer {
                     reconciled: reconciled.clone(),
                 },
                 accelerator_attribution: Some(accelerator_attribution.clone()),
+                resource_attribution: Some(resource_attribution.clone()),
             },
         );
         Ok(Self {
@@ -167,8 +188,10 @@ impl NodeApplicationRealizer {
                 state,
                 reconciled,
                 accelerator_memory: accelerator_attribution,
+                resources: resource_attribution,
             }),
             logs,
+            resource_writer: Mutex::new(None),
         })
     }
 
@@ -188,6 +211,41 @@ impl NodeApplicationRealizer {
         Arc::clone(&self.logs) as Arc<dyn crate::deployment_logs::DeploymentLogOwner>
     }
 
+    /// Returns the reading of every realized group's host resources, to take with each of the
+    /// node's hardware collections.
+    pub(crate) fn resource_reading(&self) -> Arc<dyn CollectionReading> {
+        Arc::new(self.status.resources.clone())
+    }
+
+    /// Starts recording the resources this node's status attributes to its application services
+    /// every second, as SiteNode `node_id`, through `recorder` on `clock`. Figures older than
+    /// twice `refresh_interval` plus the collection allowance record nothing.
+    pub(crate) fn start_resource_writer(
+        &self,
+        node_id: &str,
+        recorder: Arc<dyn MetricRecorder>,
+        clock: Arc<dyn Clock>,
+        refresh_interval: Duration,
+    ) {
+        let writer = ApplicationResourceWriter::new(
+            node_id,
+            Arc::clone(&self.status) as Arc<dyn HostedApplicationResources>,
+            recorder,
+            clock,
+            refresh_interval,
+            crate::metric_resend::COLLECTION_ALLOWANCE,
+        );
+        let task = tokio::spawn(writer.run());
+        if let Some(previous) = self
+            .resource_writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace(task.abort_handle())
+        {
+            previous.abort();
+        }
+    }
+
     #[cfg(test)]
     pub(super) async fn reconcile_for_test(&self) -> Result<(), ApplicationLifecycleError> {
         self.realizer.reconcile().await.map(|_| ())
@@ -197,6 +255,14 @@ impl NodeApplicationRealizer {
 impl Drop for NodeApplicationRealizer {
     fn drop(&mut self) {
         self.realizer.shutdown_token().cancel();
+        if let Some(writer) = self
+            .resource_writer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
+            writer.abort();
+        }
     }
 }
 
@@ -442,6 +508,9 @@ struct NodeApplicationStatus {
     /// Attributes accelerator memory to the units of the groups this node observes, so its
     /// status reports carry the node's own projection.
     accelerator_memory: GroupAcceleratorAttribution,
+
+    /// Attributes host CPU and memory to the units of the groups this node realizes.
+    resources: GroupResourceAttribution,
 }
 
 impl NodeApplicationStatusOwner for NodeApplicationStatus {
@@ -561,6 +630,56 @@ impl NodeApplicationStatusOwner for NodeApplicationStatus {
         {
             warn!(event_kind = "node_application_cleanup_retirement", outcome = "failed", error = %error, "Node could not retire acknowledged application cleanup evidence");
         }
+    }
+}
+
+impl HostedApplicationResources for NodeApplicationStatus {
+    /// Attributes every deployment the status reports, all from one collection: each unit's host
+    /// CPU and memory beside its accelerator memory exactly as the status reports it.
+    fn hosted_application_resources(&self) -> Vec<HostedApplication> {
+        let collection = self.resources.collection();
+        let Some(section) = self.status_section(&collection) else {
+            return Vec::new();
+        };
+        section
+            .deployments
+            .into_iter()
+            .map(|status| {
+                let host = status
+                    .placement
+                    .as_ref()
+                    .and_then(|placement| SiteNodeId::parse(&placement.site_node_id).ok())
+                    .map(|node| {
+                        self.resources.projection(
+                            &status.application_deployment_id,
+                            &node,
+                            &collection,
+                        )
+                    })
+                    .unwrap_or_default();
+                let mut accelerator = status
+                    .service_accelerator_memory
+                    .into_iter()
+                    .map(|unit| (unit.service_name, unit.accelerator_memory))
+                    .collect::<BTreeMap<_, _>>();
+                let names = host
+                    .keys()
+                    .chain(accelerator.keys())
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                HostedApplication {
+                    deployment_id: status.application_deployment_id,
+                    services: names
+                        .into_iter()
+                        .map(|service_name| HostedService {
+                            host: host.get(&service_name).copied(),
+                            accelerator_memory: accelerator.remove(&service_name).flatten(),
+                            service_name,
+                        })
+                        .collect(),
+                }
+            })
+            .collect()
     }
 }
 
@@ -2664,6 +2783,7 @@ mod tests {
                 artifact_manager: artifacts,
                 publication_host: Ipv4Addr::LOCALHOST,
                 preparation_logs: self.preparation_logs(),
+                inventory: Arc::new(HardwareInventoryPublisher::new().1),
             })
             .expect("node realizer")
         }

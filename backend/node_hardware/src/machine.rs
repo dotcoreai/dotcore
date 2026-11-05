@@ -375,6 +375,11 @@ impl MachineDescription {
         &self.platform
     }
 
+    /// Returns the machine's total host memory, in bytes.
+    pub fn host_memory_bytes(&self) -> u64 {
+        self.host_memory.total_bytes
+    }
+
     /// Returns the ID of every GPU of the machine, in the order the machine lists them.
     pub fn gpu_ids(&self) -> impl Iterator<Item = &str> {
         self.gpus.iter().map(|gpu| gpu.id.as_str())

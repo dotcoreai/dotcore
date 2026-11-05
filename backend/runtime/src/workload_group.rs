@@ -88,6 +88,32 @@ pub trait WorkloadGroupBackend: Send + Sync {
         group: &'a WorkloadGroupLaunch,
     ) -> RuntimeFuture<'a, WorkloadGroupObservation>;
 
+    /// Measures the CPU time and memory each unit of the requested group uses right now, for
+    /// resource attribution.
+    ///
+    /// Callers sample it on their own interval and derive rates from consecutive readings; the
+    /// runtime keeps no samples. Runtimes that cannot measure their units report every unit as
+    /// not reported.
+    fn observe_group_resources<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>> {
+        let observed_at = SystemTime::now();
+        Box::pin(std::future::ready(Ok(group
+            .units
+            .keys()
+            .map(|name| {
+                (
+                    name.clone(),
+                    WorkloadUnitResourceObservation {
+                        observed_at,
+                        resources: WorkloadUnitResources::NotReported,
+                    },
+                )
+            })
+            .collect())))
+    }
+
     /// Removes all exactly owned infrastructure for the requested group.
     fn remove_workload_group<'a>(&'a self, group: &'a WorkloadGroupLaunch)
     -> RuntimeFuture<'a, ()>;
@@ -357,6 +383,45 @@ pub struct WorkloadUnitObservation {
     pub state: WorkloadUnitState,
     pub ready_launch_gate: Option<ReadyLaunchGateOutcome>,
     pub host_process: Option<dotcore_domain::host_process::HostProcessIdentity>,
+}
+
+/// CPU time and memory one workload unit used at one instant.
+#[derive(Debug)]
+pub struct WorkloadUnitResourceObservation {
+    pub observed_at: SystemTime,
+    pub resources: WorkloadUnitResources,
+}
+
+/// Resource use of one workload unit's processes, or why it has no figures.
+#[derive(Debug)]
+pub enum WorkloadUnitResources {
+    /// Figures the runtime read for the unit's processes, in full.
+    Available {
+        /// CPU time the unit's processes used across all CPUs since the unit started; it starts
+        /// again from zero when the unit restarts.
+        cpu_time_ns: u64,
+
+        /// Host memory the unit's processes hold, not counting file cache the kernel can
+        /// reclaim.
+        memory_bytes: u64,
+    },
+
+    /// The runtime measures its units but has no figures for this one; a value is never
+    /// estimated.
+    Unavailable(WorkloadUnitResourcesUnavailable),
+
+    /// The runtime does not measure the resources of its units.
+    NotReported,
+}
+
+/// Why a runtime that measures its units has no figures for one unit.
+#[derive(Debug, thiserror::Error)]
+pub enum WorkloadUnitResourcesUnavailable {
+    #[error("workload unit is not running")]
+    NotRunning,
+
+    #[error("workload unit resources could not be read")]
+    Read(#[source] anyhow::Error),
 }
 
 /// Infrastructure lifecycle state for one named workload unit.
@@ -768,5 +833,105 @@ mod tests {
                 ReadyLaunchGateFailure::ConnectionFailed
             ))
         );
+    }
+
+    #[tokio::test]
+    async fn runtimes_without_unit_measurement_report_every_unit_as_not_reported() {
+        let unit = WorkloadUnitLaunch {
+            image: "registry.example/web@sha256:def".to_owned(),
+            command: Vec::new(),
+            arguments: Vec::new(),
+            environment: BTreeMap::new(),
+            reconfigurable_environment: BTreeSet::new(),
+            storage: Vec::new(),
+            ports: Vec::new(),
+            dependencies: Vec::new(),
+            ready_launch_gate: None,
+        };
+        let launch = WorkloadGroupLaunch {
+            group_id: WorkloadGroupId("open-webui-01".to_owned()),
+            correlation: WorkloadCorrelation {
+                owner_id: "application-deployment-01".to_owned(),
+                reconcile_generation: 1,
+            },
+            execution_target: ExecutionTarget {
+                managed_node_id: SiteNodeId::for_test("node-a"),
+                accelerator_device_ids: Vec::new(),
+            },
+            execution_target_id: "application-target-a".to_owned(),
+            required_platform: dotcore_domain::ExecutionPlatform::linux_amd64(),
+            units: BTreeMap::from([
+                (WorkloadUnitName("cache".to_owned()), unit.clone()),
+                (WorkloadUnitName("web".to_owned()), unit),
+            ]),
+            publication: WorkloadPublicationRequest {
+                unit_name: WorkloadUnitName("web".to_owned()),
+                port_name: "http".to_owned(),
+                configured_host: Ipv4Addr::LOCALHOST,
+                host_port: NonZeroU16::new(30_000).expect("nonzero port"),
+            },
+            host_aliases: Default::default(),
+        };
+
+        let observations = UnmeasuredGroupRuntime
+            .observe_group_resources(&launch)
+            .await
+            .expect("default observation");
+
+        assert_eq!(
+            observations.keys().cloned().collect::<Vec<_>>(),
+            vec![
+                WorkloadUnitName("cache".to_owned()),
+                WorkloadUnitName("web".to_owned()),
+            ]
+        );
+        assert!(
+            observations
+                .values()
+                .all(|unit| matches!(unit.resources, WorkloadUnitResources::NotReported))
+        );
+    }
+
+    /// Group runtime implementing only the required operations.
+    struct UnmeasuredGroupRuntime;
+
+    impl WorkloadGroupBackend for UnmeasuredGroupRuntime {
+        fn backend_id(&self) -> RuntimeBackendId {
+            RuntimeBackendId("runtime/unmeasured".to_owned())
+        }
+
+        fn execution_platform<'a>(
+            &'a self,
+            _: &'a str,
+        ) -> RuntimeFuture<'a, dotcore_domain::ExecutionPlatform> {
+            unreachable!("not used by the resource observation")
+        }
+
+        fn discover_workload_groups<'a>(
+            &'a self,
+        ) -> RuntimeFuture<'a, Vec<WorkloadGroupObservation>> {
+            unreachable!("not used by the resource observation")
+        }
+
+        fn create_workload_group<'a>(
+            &'a self,
+            _: &'a WorkloadGroupLaunch,
+        ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
+            unreachable!("not used by the resource observation")
+        }
+
+        fn inspect_workload_group<'a>(
+            &'a self,
+            _: &'a WorkloadGroupLaunch,
+        ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
+            unreachable!("not used by the resource observation")
+        }
+
+        fn remove_workload_group<'a>(
+            &'a self,
+            _: &'a WorkloadGroupLaunch,
+        ) -> RuntimeFuture<'a, ()> {
+            unreachable!("not used by the resource observation")
+        }
     }
 }

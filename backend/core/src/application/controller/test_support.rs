@@ -1270,6 +1270,7 @@ where
                 lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
                 inference_route_resolver,
                 accelerator_attribution: None,
+                resource_attribution: None,
                 node: super::realizer::NodeRealization {
                     records,
                     reconciled: ReconciledAssignments::default(),

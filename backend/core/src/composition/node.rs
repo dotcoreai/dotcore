@@ -396,7 +396,7 @@ pub(super) async fn compose_node(
         metric_forwarder.recorder(crate::model::controller::metrics::DEPLOYMENT_MEMORY_SOURCE),
         Arc::clone(&clock),
         observation.refresh_interval,
-        crate::model::controller::metrics::COLLECTION_ALLOWANCE,
+        crate::metric_resend::COLLECTION_ALLOWANCE,
     );
     let model_construction = Arc::clone(&model_lifecycle.construction);
     let model_memory_writer = Arc::clone(&model_lifecycle.memory_writer);
@@ -463,6 +463,7 @@ pub(super) async fn compose_node(
                 store_paths: test_support.local_development_store_paths.clone(),
             },
             preparation_logs,
+            inventory: observation.inventory(),
         },
         publication_host,
     )
@@ -471,8 +472,27 @@ pub(super) async fn compose_node(
     let application_status = application
         .as_ref()
         .map(|application| application.status_owner());
+    // Application group resources are read with each collection, beside the runtime-reported
+    // workload memory.
+    let observation = match &application {
+        Some(application) => observation.with_collection_reading(application.resource_reading()),
+        None => observation,
+    };
+    let application_recorder =
+        metric_forwarder.recorder(crate::application::APPLICATION_RESOURCES_SOURCE);
+    let application_clock = Arc::clone(&clock);
+    let application_node_id = node_id.clone();
+    let application_refresh_interval = observation.refresh_interval;
     let application_start: Box<dyn FnOnce() + Send> = match application.clone() {
         Some(application) => Box::new(move || {
+            // Records the resources the node's application status attributes, so their history
+            // never diverges from the current value.
+            application.start_resource_writer(
+                &application_node_id,
+                application_recorder,
+                application_clock,
+                application_refresh_interval,
+            );
             application.start_observer();
             info!(
                 event_kind = "node_application_composition",
@@ -861,6 +881,7 @@ struct ApplicationRealizerSources {
     nix: dotcore_artifact::NixSources,
     fixed_pins: FixedLaunchPins,
     preparation_logs: crate::deployment_logs::PreparationLogs,
+    inventory: Arc<dyn HardwareInventorySource>,
 }
 
 async fn application_realizer_for(
@@ -876,6 +897,7 @@ async fn application_realizer_for(
         nix,
         fixed_pins,
         preparation_logs,
+        inventory,
     } = sources;
     let application_targets = targets
         .iter()
@@ -939,6 +961,7 @@ async fn application_realizer_for(
             artifact_manager,
             publication_host,
             preparation_logs,
+            inventory,
         },
     )
     .map(Some)

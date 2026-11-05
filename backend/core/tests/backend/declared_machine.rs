@@ -5,10 +5,11 @@
 //! counts once in the fits, starting values and placement previews of the next one, and a node
 //! memory watch follows a deployment's claim, then its measured use, then its removal, never
 //! drawing a deployment's memory twice when its measured use arrives, nor dropping the estimate
-//! of a model that turns ready before a reading measures it.
+//! of a model that turns ready before a reading measures it. A simulated app's services record
+//! the CPU and memory they take on the machine as metric history.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs,
     ops::RangeInclusive,
     path::Path,
@@ -26,11 +27,18 @@ use dotcore_domain::{
 };
 use dotcore_node_hardware::{MachineDescription, MachineWorkload};
 use dotcore_proto::dotcore::{
+    application::v1::CreateApplicationDeploymentRequest,
     capacity::v1::{
         MemoryPool, MemoryPoolKind, MemoryPoolPreview, MemorySegment, MemorySegmentSource,
         NodeMemoryState, PlacementPreview, memory_segment,
     },
     deployment::v1::{MemoryFit, accelerator_memory_observation},
+    metrics::v1::{
+        ListMetricDescriptorsRequest, MetricAggregate, MetricDescriptor, MetricDimension,
+        MetricKind, MetricProvenance, MetricQuery, MetricReduce, MetricSeries, MetricUnit,
+        QueryMetricsRequest, metric_point, metric_query,
+        metrics_service_client::MetricsServiceClient,
+    },
     model::v1::{
         CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest,
         EstimateLocalModelResourcesRequest, ListModelDeploymentsRequest,
@@ -49,7 +57,7 @@ use dotcore_proto::dotcore::{
         resource_watch_service_client::ResourceWatchServiceClient, watch_resources_response,
     },
 };
-use dotcore_proto::google::protobuf::Timestamp;
+use dotcore_proto::google::protobuf::{Duration as ProtoDuration, Timestamp};
 use dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport;
 
 use crate::support;
@@ -509,6 +517,216 @@ async fn two_deployments_that_fit_a_dedicated_gpu_never_read_past_its_total() {
 #[tokio::test]
 async fn two_models_ready_before_their_first_reading_keep_their_estimates_until_measured() {
     ready_models_keep_their_estimates("rtx-5090", &[5_530 * MIB, 8_192 * MIB]).await;
+}
+
+#[tokio::test]
+async fn a_simulated_app_records_its_services_cpu_and_memory_as_metric_history() {
+    let root = support::temporary_fast_fixture();
+    let machine = support::declare_fixture_machine(&root, &["rtx-5090"]);
+    support::configure_observation_interval(&root, 1);
+    let backend = support::RunningBackend::start_with_snapshot_collector(
+        support::configuration(&root),
+        fast_simulation(),
+        RealHardware::new().0,
+    )
+    .await;
+    let mut metrics = backend.metrics_client();
+
+    let descriptors = metrics
+        .list_metric_descriptors(ListMetricDescriptorsRequest {})
+        .await
+        .expect("list metric descriptors")
+        .into_inner()
+        .descriptors;
+    let dimension = |name: &str, required| MetricDimension {
+        name: name.to_owned(),
+        required,
+    };
+    let service_dimensions = vec![
+        dimension("deployment", true),
+        dimension("service", true),
+        dimension("node", true),
+    ];
+    let gauge = |name: &str, unit: MetricUnit, dimensions: Vec<MetricDimension>| MetricDescriptor {
+        name: name.to_owned(),
+        kind: MetricKind::Gauge as i32,
+        unit: unit as i32,
+        dimensions,
+        provenance: MetricProvenance::Node as i32,
+        sample_interval: Some(ProtoDuration {
+            seconds: 1,
+            nanos: 0,
+        }),
+        histogram_scale: None,
+    };
+    assert_eq!(
+        descriptors
+            .into_iter()
+            .filter(|descriptor| descriptor.name.starts_with("application."))
+            .collect::<Vec<_>>(),
+        vec![
+            gauge(
+                "application.accelerator.memory.used",
+                MetricUnit::Bytes,
+                [service_dimensions.clone(), vec![dimension("device", false)]].concat(),
+            ),
+            gauge(
+                "application.host.cpu.utilization",
+                MetricUnit::Ratio,
+                service_dimensions.clone(),
+            ),
+            gauge(
+                "application.host.memory.used",
+                MetricUnit::Bytes,
+                service_dimensions,
+            ),
+        ]
+    );
+
+    let mut applications = backend.application_client();
+    let deployment_id = applications
+        .create_application_deployment(CreateApplicationDeploymentRequest {
+            application_id: "open-webui".to_owned(),
+            placement: Some(support::exact_placement(
+                "fixture-node",
+                "fixture-application-target",
+            )),
+            inference_route_id: None,
+            expected_inference_route_generation: 0,
+            application_deployment_name: None,
+            parameter_values: Vec::new(),
+        })
+        .await
+        .expect("create the application")
+        .into_inner()
+        .deployment
+        .expect("created application")
+        .application_deployment_id;
+    let labels = HashMap::from([
+        ("deployment".to_owned(), deployment_id.clone()),
+        ("service".to_owned(), "web".to_owned()),
+        ("node".to_owned(), "fixture-node".to_owned()),
+    ]);
+
+    // Each running unit holds a 256th of the machine's host memory.
+    let memory =
+        wait_for_application_series(&mut metrics, "application.host.memory.used", &deployment_id)
+            .await;
+    assert_eq!(memory.labels, labels);
+    assert_eq!(
+        gauge_values(&memory),
+        vec![(machine.host_memory_bytes() / 256) as f64; memory.points.len()]
+    );
+
+    // It keeps a quarter of one CPU busy, a share of the machine's logical CPUs.
+    let logical_cpus = match render(&machine, &[])
+        .host
+        .and_then(|host| host.result)
+        .expect("declared host facts")
+    {
+        host_observation::Result::Facts(facts) => facts.cpu_count,
+        host_observation::Result::Unavailable(unavailable) => {
+            panic!("declared host facts are unavailable: {unavailable:?}")
+        }
+    };
+    let cpu = wait_for_application_series(
+        &mut metrics,
+        "application.host.cpu.utilization",
+        &deployment_id,
+    )
+    .await;
+    assert_eq!(cpu.labels, labels);
+    let expected = 0.25 / f64::from(logical_cpus);
+    // Whole nanoseconds of CPU time leave at most a few parts per billion of rounding.
+    for value in gauge_values(&cpu) {
+        assert!(
+            (value - expected).abs() < expected * 1e-6,
+            "CPU share {value} is not {expected}"
+        );
+    }
+
+    // A unit without an accelerator device has no accelerator memory, never a false zero.
+    assert_eq!(
+        query_application_series(
+            &mut metrics,
+            "application.accelerator.memory.used",
+            &deployment_id,
+        )
+        .await,
+        Vec::new()
+    );
+    backend.stop().await;
+}
+
+/// Waits until the manager serves points of `metric` for the services of `deployment_id`, then
+/// returns its only series.
+async fn wait_for_application_series(
+    metrics: &mut MetricsServiceClient<tonic::transport::Channel>,
+    metric: &str,
+    deployment_id: &str,
+) -> MetricSeries {
+    let mut last = Vec::new();
+    tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
+        loop {
+            last = query_application_series(metrics, metric, deployment_id).await;
+            if last.iter().any(|series| !series.points.is_empty()) {
+                assert_eq!(last.len(), 1, "one series: {last:?}");
+                return last.remove(0);
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{metric} history; last series: {last:?}"))
+}
+
+/// The series of `metric` for the services of `deployment_id` over the last minute, per second.
+async fn query_application_series(
+    metrics: &mut MetricsServiceClient<tonic::transport::Channel>,
+    metric: &str,
+    deployment_id: &str,
+) -> Vec<MetricSeries> {
+    metrics
+        .query_metrics(QueryMetricsRequest {
+            query: Some(MetricQuery {
+                metric: metric.to_owned(),
+                matchers: HashMap::from([("deployment".to_owned(), deployment_id.to_owned())]),
+                group_by: vec![
+                    "deployment".to_owned(),
+                    "service".to_owned(),
+                    "node".to_owned(),
+                ],
+                reduce: MetricReduce::Last as i32,
+                aggregate: MetricAggregate::Sum as i32,
+                range: Some(metric_query::Range::Last(ProtoDuration {
+                    seconds: 60,
+                    nanos: 0,
+                })),
+                step_hint: Some(ProtoDuration {
+                    seconds: 1,
+                    nanos: 0,
+                }),
+                ..MetricQuery::default()
+            }),
+        })
+        .await
+        .expect("application metric query")
+        .into_inner()
+        .result
+        .expect("query result")
+        .series
+}
+
+/// The gauge value of every point of `series`.
+fn gauge_values(series: &MetricSeries) -> Vec<f64> {
+    series
+        .points
+        .iter()
+        .map(|point| match point.value {
+            Some(metric_point::Value::Gauge(value)) => value,
+            ref other => panic!("a gauge point, not {other:?}"),
+        })
+        .collect()
 }
 
 /// Deploys one probe model per entry of `accelerator_bytes` on the declared `machine`, holds them
