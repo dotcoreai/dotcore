@@ -29,10 +29,14 @@ jobs:
           - { name: backend lint, recipe: "backend::ci-lint", cargo: lint }
           - { name: backend test 1/2, recipe: "backend::ci-test", part: "1/2", cargo: test }
           - { name: backend test 2/2, recipe: "backend::ci-test", part: "2/2", cargo: test }
-          - { name: dev, recipe: "dev::ci-check", nix-save: true }
+          - { name: dev, recipe: "dev::ci-check", nix-upload: true }
           - { name: installer, recipe: "installer::ci-check" }
         runner: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"]') }}
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      # Lets hestia see evicted cache entries upfront.
+      actions: read
     timeout-minutes: 90
     env:
       # Smaller build output to cache.
@@ -46,12 +50,13 @@ jobs:
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
 
-      # Shared per platform; saved by the dev task, which builds the most.
-      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+      # Nix binary cache on the Actions cache. Only the dev job uploads: it builds the most, and
+      # parallel jobs would upload the same dev shell. Paths cache.nixos.org serves are skipped.
+      - uses: Mic92/hestia@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
         with:
-          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', '**/*.nix') }}
-          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
-          save: ${{ matrix.task.nix-save == true }}
+          version: v3.1.0
+          upstream-cache-filter: true
+          read-only: ${{ !matrix.task.nix-upload }}
 
       # Clippy and test builds differ, so each keeps its own entry.
       - if: matrix.task.cargo
