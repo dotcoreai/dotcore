@@ -1,16 +1,18 @@
 [package]
 name = "dotcore-launcher"
 description = "Per-workload process holder that outlives the backend, and the supervisor client that creates, stops and reads it."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [dependencies]
 anyhow.workspace = true
-dotcore-host-process = { path = "../host_process" }
-dotcore-proto = { path = "../proto" }
+dotcore-host-process.workspace = true
+dotcore-proto.workspace = true
 libc.workspace = true
 prost.workspace = true
 sha2.workspace = true

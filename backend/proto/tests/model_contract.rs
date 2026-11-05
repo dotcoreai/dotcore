@@ -1919,9 +1919,9 @@ fn model_descriptors_preserve_existing_status_values_and_define_pause_api() {
 #[test]
 fn public_model_contracts_exclude_runtime_native_details_outside_log_vocabulary() {
     let contracts = [
-        include_str!("../../../proto/dotcore/model/v1/deployment.proto"),
-        include_str!("../../../proto/dotcore/model/v1/state.proto"),
-        include_str!("../../../proto/dotcore/model/v1/service.proto"),
+        include_str!("../dotcore/model/v1/deployment.proto"),
+        include_str!("../dotcore/model/v1/state.proto"),
+        include_str!("../dotcore/model/v1/service.proto"),
     ];
 
     for contract in contracts {

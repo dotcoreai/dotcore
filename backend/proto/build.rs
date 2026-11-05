@@ -14,54 +14,55 @@ use std::{
 };
 
 const PROTO_FILES: &[&str] = &[
-    "../../proto/dotcore/application/private/v1/controller.proto",
-    "../../proto/dotcore/application/v1/deployment.proto",
-    "../../proto/dotcore/application/v1/service.proto",
-    "../../proto/dotcore/application/v1/state.proto",
-    "../../proto/dotcore/capacity/v1/service.proto",
-    "../../proto/dotcore/catalog/v1/application.proto",
-    "../../proto/dotcore/deployment/private/v1/logs.proto",
-    "../../proto/dotcore/deployment/v1/artifact.proto",
-    "../../proto/dotcore/deployment/v1/placement.proto",
-    "../../proto/dotcore/diagnostic/private/v1/service.proto",
-    "../../proto/dotcore/diagnostic/v1/service.proto",
-    "../../proto/dotcore/catalog/v1/engine_release.proto",
-    "../../proto/dotcore/catalog/v1/model_capabilities.proto",
-    "../../proto/dotcore/catalog/v1/execution.proto",
-    "../../proto/dotcore/catalog/v1/model.proto",
-    "../../proto/dotcore/catalog/v1/service.proto",
-    "../../proto/dotcore/engine/llama_cpp/v1/model.proto",
-    "../../proto/dotcore/engine/ninfer/v1/model.proto",
-    "../../proto/dotcore/engine/vllm/v1/model.proto",
-    "../../proto/dotcore/engine/v1/engine.proto",
-    "../../proto/dotcore/inference/private/v1/peer.proto",
-    "../../proto/dotcore/inference/v1/chat.proto",
-    "../../proto/dotcore/inference/v1/models.proto",
-    "../../proto/dotcore/inference/v1/routes.proto",
-    "../../proto/dotcore/launcher/store/v1/workload.proto",
-    "../../proto/dotcore/metrics/private/v1/bucket_stream.proto",
-    "../../proto/dotcore/metrics/v1/metric.proto",
-    "../../proto/dotcore/metrics/v1/service.proto",
-    "../../proto/dotcore/model/v1/state.proto",
-    "../../proto/dotcore/model/v1/deployment.proto",
-    "../../proto/dotcore/model/v1/service.proto",
-    "../../proto/dotcore/model/private/v1/controller.proto",
-    "../../proto/dotcore/runtime/store/v1/native.proto",
-    "../../proto/dotcore/site/v1/site.proto",
-    "../../proto/dotcore/site/v1/service.proto",
-    "../../proto/dotcore/site/private/v1/desired_view.proto",
-    "../../proto/dotcore/site/private/v1/node_control.proto",
-    "../../proto/dotcore/site/store/v1/snapshot.proto",
-    "../../proto/dotcore/node/v1/config.proto",
-    "../../proto/dotcore/node/v1/join.proto",
-    "../../proto/dotcore/observation/v1/observation.proto",
-    "../../proto/dotcore/telemetry/v1/workload_resource.proto",
-    "../../proto/dotcore/watch/v1/service.proto",
+    "dotcore/application/private/v1/controller.proto",
+    "dotcore/application/v1/deployment.proto",
+    "dotcore/application/v1/service.proto",
+    "dotcore/application/v1/state.proto",
+    "dotcore/capacity/v1/service.proto",
+    "dotcore/catalog/v1/application.proto",
+    "dotcore/deployment/private/v1/logs.proto",
+    "dotcore/deployment/v1/artifact.proto",
+    "dotcore/deployment/v1/placement.proto",
+    "dotcore/diagnostic/private/v1/service.proto",
+    "dotcore/diagnostic/v1/service.proto",
+    "dotcore/catalog/v1/engine_release.proto",
+    "dotcore/catalog/v1/model_capabilities.proto",
+    "dotcore/catalog/v1/execution.proto",
+    "dotcore/catalog/v1/model.proto",
+    "dotcore/catalog/v1/service.proto",
+    "dotcore/engine/llama_cpp/v1/model.proto",
+    "dotcore/engine/ninfer/v1/model.proto",
+    "dotcore/engine/vllm/v1/model.proto",
+    "dotcore/engine/v1/engine.proto",
+    "dotcore/inference/private/v1/peer.proto",
+    "dotcore/inference/v1/chat.proto",
+    "dotcore/inference/v1/models.proto",
+    "dotcore/inference/v1/routes.proto",
+    "dotcore/launcher/store/v1/workload.proto",
+    "dotcore/metrics/private/v1/bucket_stream.proto",
+    "dotcore/metrics/v1/metric.proto",
+    "dotcore/metrics/v1/service.proto",
+    "dotcore/model/v1/state.proto",
+    "dotcore/model/v1/deployment.proto",
+    "dotcore/model/v1/service.proto",
+    "dotcore/model/private/v1/controller.proto",
+    "dotcore/runtime/store/v1/native.proto",
+    "dotcore/site/v1/site.proto",
+    "dotcore/site/v1/service.proto",
+    "dotcore/site/private/v1/desired_view.proto",
+    "dotcore/site/private/v1/node_control.proto",
+    "dotcore/site/store/v1/snapshot.proto",
+    "dotcore/node/v1/config.proto",
+    "dotcore/node/v1/join.proto",
+    "dotcore/observation/v1/observation.proto",
+    "dotcore/telemetry/v1/workload_resource.proto",
+    "dotcore/watch/v1/service.proto",
 ];
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // `dotcore` links to the repository's contract tree, so a packaged crate carries a copy of it.
     // The listed files import others, so watch the whole contract tree rather than the roots.
-    println!("cargo:rerun-if-changed=../../proto/dotcore");
+    println!("cargo:rerun-if-changed=dotcore");
     println!("cargo:rerun-if-env-changed=PROTOC");
     println!("cargo:rerun-if-env-changed=PROTOC_INCLUDE");
 
@@ -103,7 +104,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "#[allow(clippy::large_enum_variant)]",
         )
         .file_descriptor_set_path(&descriptor_path)
-        .compile_protos(PROTO_FILES, &["../../proto", &protoc_include])?;
+        .compile_protos(PROTO_FILES, &[".", &protoc_include])?;
     pbjson_build::Builder::new()
         .register_descriptors(&fs::read(descriptor_path)?)?
         .build(&[

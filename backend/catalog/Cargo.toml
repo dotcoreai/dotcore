@@ -1,16 +1,18 @@
 [package]
 name = "dotcore-catalog"
 description = "Immutable catalog of models, engine releases, applications and upstream model templates, with sizing and the catalog API."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [dependencies]
 anyhow.workspace = true
-dotcore-domain = { path = "../domain" }
-dotcore-proto = { path = "../proto" }
+dotcore-domain.workspace = true
+dotcore-proto.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml_ng.workspace = true

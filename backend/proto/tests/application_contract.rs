@@ -756,10 +756,10 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
 #[test]
 fn public_application_contracts_exclude_runtime_native_details() {
     let contracts = [
-        include_str!("../../../proto/dotcore/catalog/v1/application.proto"),
-        include_str!("../../../proto/dotcore/application/v1/deployment.proto"),
-        include_str!("../../../proto/dotcore/application/v1/state.proto"),
-        include_str!("../../../proto/dotcore/application/v1/service.proto"),
+        include_str!("../dotcore/catalog/v1/application.proto"),
+        include_str!("../dotcore/application/v1/deployment.proto"),
+        include_str!("../dotcore/application/v1/state.proto"),
+        include_str!("../dotcore/application/v1/service.proto"),
     ];
 
     for contract in contracts {

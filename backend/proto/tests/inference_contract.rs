@@ -198,8 +198,8 @@ fn generated_bindings_preserve_chat_payload_semantics() {
 #[test]
 fn inference_contracts_keep_payloads_private() {
     for contract in [
-        include_str!("../../../proto/dotcore/inference/v1/chat.proto"),
-        include_str!("../../../proto/dotcore/inference/v1/decision.proto"),
+        include_str!("../dotcore/inference/v1/chat.proto"),
+        include_str!("../dotcore/inference/v1/decision.proto"),
     ] {
         assert!(!contract.contains("\nservice "));
         assert!(!contract.contains("deployment_id"));

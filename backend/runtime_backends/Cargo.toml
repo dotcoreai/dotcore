@@ -1,21 +1,23 @@
 [package]
 name = "dotcore-runtime-backends"
 description = "Runtime backends over the contracts: Docker, native launcher-held processes and simulated on a declared machine, plus the backend registry."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [dependencies]
 anyhow.workspace = true
 bollard = { version = "0.21.0", default-features = false, features = ["pipe"] }
-dotcore-domain = { path = "../domain" }
-dotcore-host-process = { path = "../host_process" }
-dotcore-launcher = { path = "../launcher" }
-dotcore-node-hardware = { path = "../node_hardware" }
-dotcore-proto = { path = "../proto" }
-dotcore-runtime = { path = "../runtime" }
+dotcore-domain.workspace = true
+dotcore-host-process.workspace = true
+dotcore-launcher.workspace = true
+dotcore-node-hardware.workspace = true
+dotcore-proto.workspace = true
+dotcore-runtime.workspace = true
 futures-util.workspace = true
 humantime = "2.4.0"
 prost.workspace = true

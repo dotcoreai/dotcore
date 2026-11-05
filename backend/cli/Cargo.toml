@@ -1,11 +1,13 @@
 [package]
 name = "dotc"
 description = "The dotc executable: Site, node, model, application and image cleanup commands, guided prompts and terminal output."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [[bin]]
 name = "dotc"
@@ -14,15 +16,15 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
-dotcore-artifact = { path = "../artifact" }
-dotcore = { path = "../core" }
-dotcore-catalog = { path = "../catalog" }
-dotcore-domain = { path = "../domain" }
-dotcore-node-hardware = { path = "../node_hardware" }
-dotcore-proto = { path = "../proto" }
-dotcore-runtime = { path = "../runtime" }
-dotcore-runtime-backends = { path = "../runtime_backends" }
-dotcore-site = { path = "../site" }
+dotcore-artifact.workspace = true
+dotcore.workspace = true
+dotcore-catalog.workspace = true
+dotcore-domain.workspace = true
+dotcore-node-hardware.workspace = true
+dotcore-proto.workspace = true
+dotcore-runtime.workspace = true
+dotcore-runtime-backends.workspace = true
+dotcore-site.workspace = true
 futures-util.workspace = true
 getifaddrs = "0.6.2"
 reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }

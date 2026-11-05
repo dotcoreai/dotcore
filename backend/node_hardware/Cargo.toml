@@ -1,18 +1,20 @@
 [package]
 name = "dotcore-node-hardware"
 description = "Node hardware collection: host facts and per-device accelerator observations for NVIDIA, AMD and Apple, and declared machines described as data."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [dependencies]
 anyhow.workspace = true
-dotcore-domain = { path = "../domain" }
-dotcore-host-process = { path = "../host_process" }
-dotcore-nvml = { path = "../nvml" }
-dotcore-proto = { path = "../proto" }
+dotcore-domain.workspace = true
+dotcore-host-process.workspace = true
+dotcore-nvml.workspace = true
+dotcore-proto.workspace = true
 libc.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_yaml_ng.workspace = true

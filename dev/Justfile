@@ -10,7 +10,7 @@ help:
 
 # Test development-owned workspace, process, backend, and site recipe behavior.
 test:
-  node --test workspace-environment.test.mjs process-compose.test.mjs site-recipes.test.mjs clean-recipe.test.mjs bootstrap-check.test.mjs cluster/cluster.test.mjs remote/remote-exec.test.mjs
+  node --test workspace-environment.test.mjs process-compose.test.mjs site-recipes.test.mjs clean-recipe.test.mjs bootstrap-check.test.mjs publish-recipe.test.mjs cluster/cluster.test.mjs remote/remote-exec.test.mjs
 
 # Run all validation operations (format, clippy, test).
 check:

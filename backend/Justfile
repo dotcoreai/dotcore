@@ -175,3 +175,71 @@ check:
   just gate-nvml-single-owner
   just test
   just gate-hardware-coverage
+
+# Publish the backend crates to crates.io with your `cargo login` token after a dry run and your confirmation, waiting out the new-crate rate limit; a rerun skips versions already published, and extra arguments go to `cargo publish`.
+[script]
+publish *args:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source ../dev/confirm.sh
+  retry_seconds="${DOTCORE_PUBLISH_RETRY_SECONDS:-600}"
+  index=$(mktemp)
+  log=$(mktemp)
+  trap 'rm -f "$index" "$log"' EXIT
+
+  # Succeeds when crates.io holds this crate version. Reads the public sparse index, never a token.
+  is_published() {
+    local name="$1" version="$2" prefix status
+    case ${#name} in
+      1) prefix=1 ;;
+      2) prefix=2 ;;
+      3) prefix="3/${name:0:1}" ;;
+      *) prefix="${name:0:2}/${name:2:2}" ;;
+    esac
+    status=$(curl -sS -o "$index" -w '%{http_code}' "https://index.crates.io/$prefix/$name")
+    case "$status" in
+      200) jq -n -e --arg version "$version" '[inputs | select(.vers == $version)] | length > 0' < "$index" > /dev/null ;;
+      404) return 1 ;;
+      *) echo "crates.io index answered $status for $name; try again later" >&2; exit 1 ;;
+    esac
+  }
+
+  # Splits the workspace crates into the ones to publish and `--exclude` flags for the published ones.
+  scan() {
+    pending=()
+    skipped=()
+    excludes=()
+    while read -r name version; do
+      if is_published "$name" "$version"; then
+        skipped+=("  $name $version")
+        excludes+=(--exclude "$name")
+      else
+        pending+=("  $name $version")
+      fi
+    done < <(cargo metadata --locked --no-deps --format-version 1 | jq -r '.packages[] | "\(.name) \(.version)"' | sort)
+  }
+
+  scan
+  if [ ${#pending[@]} -eq 0 ]; then
+    echo "every backend crate version is already on crates.io; nothing to publish"
+    exit 0
+  fi
+
+  cargo publish --locked --workspace ${excludes[@]+"${excludes[@]}"} --dry-run "$@"
+
+  summary=("crates to publish:" "${pending[@]}")
+  if [ ${#skipped[@]} -gt 0 ]; then
+    summary+=("already published, skipped:" "${skipped[@]}")
+  fi
+  confirm_or_exit "publishing" "Publish these crates to crates.io?" "${summary[@]}"
+
+  # The dry run verified every crate, so the upload skips rebuilding them on each attempt.
+  until cargo publish --locked --workspace ${excludes[@]+"${excludes[@]}"} --no-verify "$@" 2>&1 | tee "$log"; do
+    # crates.io answers 429 once too many new crates were published recently.
+    if ! grep -q 'status 429' "$log"; then
+      exit 1
+    fi
+    echo "crates.io rate limit reached; retrying the remaining crates in ${retry_seconds}s" >&2
+    sleep "$retry_seconds"
+    scan
+  done

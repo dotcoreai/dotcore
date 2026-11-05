@@ -1,16 +1,18 @@
 [package]
 name = "dotcore-domain"
 description = "Lowest backend layer: shared identifiers, references, platform values, the backend clock and durable file flushes."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [dependencies]
 anyhow.workspace = true
-dotcore-host-process = { path = "../host_process" }
-dotcore-proto = { path = "../proto" }
+dotcore-host-process.workspace = true
+dotcore-proto.workspace = true
 futures-util.workspace = true
 libc.workspace = true
 serde = { workspace = true, features = ["derive"] }

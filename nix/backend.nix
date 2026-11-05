@@ -18,6 +18,10 @@ let
     toString path == toString (root + "/backend/cli/src/code/dotcore-provider.ts")
     || pkgs.lib.hasPrefix (toString (root + "/backend/node_hardware/simulated")) (toString path);
 
+  # The protocol crate reaches the repository's contract tree through this link, so a packaged crate
+  # carries the contracts.
+  isProtoLink = path: toString path == toString (root + "/backend/proto/dotcore");
+
   # The production source contains only Cargo inputs, protocol definitions, and embedded files.
   backendSrc = pkgs.lib.cleanSourceWith {
     src = root;
@@ -27,6 +31,7 @@ let
       && (
         craneLib.filterCargoSources path type
         || pkgs.lib.hasSuffix ".proto" path
+        || isProtoLink path
         || isEmbeddedSource path
       );
   };
@@ -49,6 +54,7 @@ let
       && (
         craneLib.filterCargoSources path type
         || isEmbeddedSource path
+        || isProtoLink path
         || pkgs.lib.hasPrefix (toString (root + "/proto")) pathString
         || pkgs.lib.hasPrefix (toString (root + "/backend/fixtures")) pathString
         || pkgs.lib.hasPrefix (toString (root + "/backend/core/tests/gated/machines")) pathString

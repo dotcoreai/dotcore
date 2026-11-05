@@ -304,7 +304,7 @@ fn route_descriptors_define_management_and_availability_without_private_details(
         "request_history",
     ] {
         assert!(
-            !include_str!("../../../proto/dotcore/inference/v1/routes.proto")
+            !include_str!("../dotcore/inference/v1/routes.proto")
                 .to_ascii_lowercase()
                 .contains(private_name),
             "route contract must exclude {private_name}"

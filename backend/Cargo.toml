@@ -3,9 +3,29 @@ members = ["artifact", "catalog", "cli", "core", "domain", "host_process", "laun
 resolver = "3"
 
 [workspace.package]
+version = "0.1.0"
 license = "Apache-2.0"
+repository = "https://github.com/dotcoreai/dotcore"
+homepage = "https://dotcore.ai"
+readme = "../README.md"
 
 [workspace.dependencies]
+# Workspace crates carry the version publishing needs. Their dev-dependencies stay path-only, which
+# publishing drops, since the published tests need the repository's fixtures anyway.
+dotcore = { path = "core", version = "0.1.0" }
+dotcore-artifact = { path = "artifact", version = "0.1.0" }
+dotcore-catalog = { path = "catalog", version = "0.1.0" }
+dotcore-domain = { path = "domain", version = "0.1.0" }
+dotcore-host-process = { path = "host_process", version = "0.1.0" }
+dotcore-launcher = { path = "launcher", version = "0.1.0" }
+dotcore-node-hardware = { path = "node_hardware", version = "0.1.0" }
+dotcore-nvml = { path = "nvml", version = "0.1.0" }
+dotcore-observability = { path = "observability", version = "0.1.0" }
+dotcore-proto = { path = "proto", version = "0.1.0" }
+dotcore-runtime = { path = "runtime", version = "0.1.0" }
+dotcore-runtime-backends = { path = "runtime_backends", version = "0.1.0" }
+dotcore-site = { path = "site", version = "0.1.0" }
+
 anyhow = "1.0.104"
 base64 = "0.22.1"
 clap = { version = "4.5.53", features = ["derive", "env"] }

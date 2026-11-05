@@ -1,15 +1,17 @@
 [package]
 name = "dotcore-runtime"
 description = "Owner-neutral runtime contracts: workload intent, observations, logs, site cleanup and host capability probes."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [dependencies]
 anyhow.workspace = true
-dotcore-domain = { path = "../domain" }
+dotcore-domain.workspace = true
 futures-util.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

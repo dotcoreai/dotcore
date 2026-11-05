@@ -1,26 +1,28 @@
 [package]
 name = "dotcore"
 description = "Top backend crate: controllers, inference router, dispatch, logs, server and composition."
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 rust-version = "1.88"
-publish = false
 
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
-dotcore-artifact = { path = "../artifact" }
-dotcore-catalog = { path = "../catalog" }
-dotcore-domain = { path = "../domain" }
-dotcore-host-process = { path = "../host_process" }
-dotcore-proto = { path = "../proto" }
-dotcore-launcher = { path = "../launcher" }
-dotcore-node-hardware = { path = "../node_hardware" }
-dotcore-observability = { path = "../observability" }
-dotcore-runtime = { path = "../runtime" }
-dotcore-runtime-backends = { path = "../runtime_backends" }
-dotcore-site = { path = "../site" }
+dotcore-artifact.workspace = true
+dotcore-catalog.workspace = true
+dotcore-domain.workspace = true
+dotcore-host-process.workspace = true
+dotcore-proto.workspace = true
+dotcore-launcher.workspace = true
+dotcore-node-hardware.workspace = true
+dotcore-observability.workspace = true
+dotcore-runtime.workspace = true
+dotcore-runtime-backends.workspace = true
+dotcore-site.workspace = true
 fs4.workspace = true
 futures-util.workspace = true
 getrandom = { workspace = true, features = ["std"] }
