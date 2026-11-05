@@ -1,0 +1,49 @@
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Maintainers turn confirmed bugs into issues.
+        Report security problems privately instead, as described in SECURITY.md.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Deploy the model ...
+        2. Send a request ...
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Dotcore revision
+      description: The commit you run, from `git rev-parse HEAD` in your checkout.
+    validations:
+      required: true
+
+  - type: textarea
+    id: machines
+    attributes:
+      label: Machines
+      description: For each machine, the OS, CPU architecture, and GPU with its memory.
+      placeholder: Ubuntu 24.04, x86_64, NVIDIA RTX 4090 24 GB
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output, with addresses and secrets removed.
+      render: text

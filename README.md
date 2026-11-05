@@ -45,4 +45,10 @@ Report a vulnerability privately, as described in [SECURITY.md](SECURITY.md).
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Copyright 2026 Dotcore Inc. and contributors. Licensed under Apache-2.0, see [LICENSE](LICENSE).
+
+The license covers the code, not the Dotcore name or logo:
+
+- Projects built for Dotcore may say "for Dotcore" or "compatible with Dotcore".
+- Modified versions you distribute must use a different name and logo.
+- The Dotcore logo is for the official software and website only.

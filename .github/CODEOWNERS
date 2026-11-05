@@ -1,0 +1,7 @@
+# Maintainers review every change. Agent instructions, skills and repository automation are listed
+# explicitly so they keep a maintainer review if the default owner ever narrows.
+*                   @dotcoreai/maintainers
+**/AGENTS.md        @dotcoreai/maintainers
+/.agents/           @dotcoreai/maintainers
+/.claude/           @dotcoreai/maintainers
+/.github/           @dotcoreai/maintainers

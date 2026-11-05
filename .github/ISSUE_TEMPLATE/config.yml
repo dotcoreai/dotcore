@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a bug
+    url: https://github.com/dotcoreinc/dotcore/discussions/new?category=bug-triage
+    about: Open a bug triage discussion. Maintainers turn confirmed bugs into issues.
+
+  - name: Ask a question or share an idea
+    url: https://github.com/dotcoreinc/dotcore/discussions
+    about: Questions and ideas go to Discussions.
+
+  - name: Report a vulnerability
+    url: https://github.com/dotcoreinc/dotcore/security/advisories/new
+    about: Report security problems privately.
