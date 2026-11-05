@@ -201,7 +201,7 @@ impl NixPreparer {
         sources: &DotcoreSources,
     ) -> Result<String, NixPreparationError> {
         let reference = NixFlakeReference::parse(&request.flake).map_err(|_| {
-            invalid_request("flake reference is not a locked dotcoreinc/dotcore revision or self")
+            invalid_request("flake reference is not a locked dotcoreai/dotcore revision or self")
         })?;
         if request.policy != reference.preparation_policy() {
             return Err(invalid_request(
@@ -1025,7 +1025,7 @@ mod tests {
 
         assert!(
             matches!(&error, NixPreparationError::InvalidRequest { reason }
-                if reason.contains("dotcoreinc/dotcore")),
+                if reason.contains("dotcoreai/dotcore")),
             "{error:?}"
         );
         assert!(fixture.calls().is_empty(), "nix must not run");

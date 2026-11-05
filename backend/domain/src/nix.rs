@@ -4,7 +4,7 @@
 //! discovers the host's `nix` executable, in the system or default profile before `PATH`.
 //!
 //! A catalog Nix artifact names either an exact GitHub revision of the Dotcore repository flake,
-//! `github:dotcoreinc/dotcore/<40 hex>`, or `self`, the development source of the backend that
+//! `github:dotcoreai/dotcore/<40 hex>`, or `self`, the development source of the backend that
 //! evaluates it. Branches, local paths, query parameters, unlocked repositories, and locked
 //! revisions of any other repository are rejected, so an accepted reference always names exact
 //! Dotcore sources or an explicit development source.
@@ -24,7 +24,7 @@ pub(crate) const STORE_HASH_LENGTH: usize = 32;
 pub(crate) const STORE_HASH_ALPHABET: &[u8] = b"0123456789abcdfghijklmnpqrsvwxyz";
 const GITHUB_SCHEME: &str = "github:";
 const DEVELOPMENT_SOURCE: &str = "self";
-const TRUSTED_OWNER: &str = "dotcoreinc";
+const TRUSTED_OWNER: &str = "dotcoreai";
 const TRUSTED_REPOSITORY: &str = "dotcore";
 
 // Mirrors the loader in `nix/docker-images/loader.sh`, which applies the same tag; change both
@@ -57,7 +57,7 @@ pub enum NixFlakeReference {
 }
 
 impl NixFlakeReference {
-    /// Parses a locked `github:dotcoreinc/dotcore/<revision>` reference or a `self`
+    /// Parses a locked `github:dotcoreai/dotcore/<revision>` reference or a `self`
     /// development-source reference; locked references to other repositories are untrusted.
     pub fn parse(value: &str) -> Result<Self, NixFlakeReferenceError> {
         if value.contains(['?', '#']) {
@@ -133,12 +133,12 @@ impl NixFlakeReference {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum NixFlakeReferenceError {
     #[error(
-        "Nix flake reference must be a locked github:dotcoreinc/dotcore/<revision> or self reference"
+        "Nix flake reference must be a locked github:dotcoreai/dotcore/<revision> or self reference"
     )]
     UnsupportedReference,
 
     #[error(
-        "Nix GitHub flake reference must name the dotcoreinc/dotcore repository; other repositories are not allowed"
+        "Nix GitHub flake reference must name the dotcoreai/dotcore repository; other repositories are not allowed"
     )]
     UntrustedRepository,
 
@@ -444,9 +444,9 @@ mod tests {
     #[test]
     fn locked_github_and_development_source_references_parse() {
         assert_eq!(
-            NixFlakeReference::parse(&format!("github:dotcoreinc/dotcore/{REVISION}")),
+            NixFlakeReference::parse(&format!("github:dotcoreai/dotcore/{REVISION}")),
             Ok(NixFlakeReference::Locked {
-                owner: "dotcoreinc".to_owned(),
+                owner: "dotcoreai".to_owned(),
                 repository: "dotcore".to_owned(),
                 revision: REVISION.to_owned(),
             })
@@ -459,7 +459,7 @@ mod tests {
 
     #[test]
     fn unlocked_path_and_malformed_references_are_rejected_with_their_reason() {
-        let locked_with_directory = format!("github:dotcoreinc/dotcore/{REVISION}?dir=engines/a");
+        let locked_with_directory = format!("github:dotcoreai/dotcore/{REVISION}?dir=engines/a");
         let cases = [
             ("", NixFlakeReferenceError::UnsupportedReference),
             (
@@ -476,19 +476,19 @@ mod tests {
                 NixFlakeReferenceError::UnsupportedReference,
             ),
             (
-                "github:dotcoreinc/dotcore",
+                "github:dotcoreai/dotcore",
                 NixFlakeReferenceError::UnlockedReference,
             ),
             (
-                "github:dotcoreinc/dotcore/main",
+                "github:dotcoreai/dotcore/main",
                 NixFlakeReferenceError::InvalidRevision,
             ),
             (
-                "github:dotcoreinc/dotcore/0123456789ABCDEF0123456789abcdef01234567",
+                "github:dotcoreai/dotcore/0123456789ABCDEF0123456789abcdef01234567",
                 NixFlakeReferenceError::InvalidRevision,
             ),
             (
-                "github:dotcoreinc/dotcore/0123456789abcdef",
+                "github:dotcoreai/dotcore/0123456789abcdef",
                 NixFlakeReferenceError::InvalidRevision,
             ),
             (
@@ -496,7 +496,7 @@ mod tests {
                 NixFlakeReferenceError::UntrustedRepository,
             ),
             (
-                "github:dotcoreinc/other/0123456789abcdef0123456789abcdef01234567",
+                "github:dotcoreai/other/0123456789abcdef0123456789abcdef01234567",
                 NixFlakeReferenceError::UntrustedRepository,
             ),
             (
@@ -504,11 +504,11 @@ mod tests {
                 NixFlakeReferenceError::UntrustedRepository,
             ),
             (
-                "github:dotcoreinc",
+                "github:dotcoreai",
                 NixFlakeReferenceError::InvalidRepository,
             ),
             (
-                "github:dotcoreinc/../0123456789abcdef0123456789abcdef01234567",
+                "github:dotcoreai/../0123456789abcdef0123456789abcdef01234567",
                 NixFlakeReferenceError::InvalidRepository,
             ),
             ("self?ref=main", NixFlakeReferenceError::UnsupportedQuery),
@@ -536,11 +536,11 @@ mod tests {
 
     #[test]
     fn source_urls_keep_locked_sources_and_replace_self_with_the_development_source() {
-        let locked = NixFlakeReference::parse(&format!("github:dotcoreinc/dotcore/{REVISION}"))
+        let locked = NixFlakeReference::parse(&format!("github:dotcoreai/dotcore/{REVISION}"))
             .expect("locked");
         assert_eq!(
             locked.source_url(None).as_deref(),
-            Some(format!("github:dotcoreinc/dotcore/{REVISION}").as_str())
+            Some(format!("github:dotcoreai/dotcore/{REVISION}").as_str())
         );
 
         let development = NixFlakeReference::parse("self").expect("self");
@@ -684,7 +684,7 @@ mod tests {
             assert_eq!(LocalDotcoreSource::parse(&invalid), None, "{invalid:?}");
         }
         assert_eq!(
-            NixFlakeReference::parse(&format!("github:dotcoreinc/dotcore/{revision}"))
+            NixFlakeReference::parse(&format!("github:dotcoreai/dotcore/{revision}"))
                 .expect("locked")
                 .revision(),
             Some(revision)

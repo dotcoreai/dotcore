@@ -22,7 +22,7 @@ pub const DOCKER_IMAGE_LAUNCH_REFERENCE: &str =
 
 /// Returns a locked GitHub flake reference to the fixture engine directory.
 pub fn locked_flake() -> String {
-    format!("github:dotcoreinc/dotcore/{REVISION}")
+    format!("github:dotcoreai/dotcore/{REVISION}")
 }
 
 /// Builds a Nix engine artifact of package `engines.llama-cpp.native` running `llama-server`, with one
