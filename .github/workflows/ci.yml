@@ -1,6 +1,6 @@
-# Runs the repository gates (`just ci::check`) in the Nix dev shell. Pull requests run on x86_64
-# Linux only; `main` and manual runs add arm64 Linux and arm64 macOS. Hardware-gated tests stay on
-# the remote development hosts.
+# Runs each area's gates (`just <area>::ci-check`) in the Nix dev shell, one job per area. Pull
+# requests run on x86_64 Linux only; `main` and manual runs add arm64 Linux and arm64 macOS.
+# Hardware-gated tests stay on the remote development hosts.
 name: CI
 
 on:
@@ -18,13 +18,19 @@ concurrency:
 
 jobs:
   check:
-    name: check (${{ matrix.runner }})
+    name: ${{ matrix.area }} (${{ matrix.runner }})
     strategy:
       fail-fast: false
       matrix:
+        # Keep in step with `just ci::check`.
+        area: [proto, frontend, backend, dev, installer]
         runner: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"]') }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    timeout-minutes: 90
+    env:
+      # Smaller, cacheable build output: no debug info and no incremental state, which CI never reuses.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -32,14 +38,30 @@ jobs:
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
 
-      # Keys are per platform, so the three runners don't evict each other's store on every run.
+      # One Nix store cache per platform, shared by the areas. Only the dev job saves it: it builds
+      # the most derivations (the image checks) on top of the dev shell every job needs.
       - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
         with:
           primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', '**/*.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          save: ${{ matrix.area == 'dev' }}
 
-      - name: Install frontend dependencies
+      # Cargo dependencies and build output, keyed on the lock files so a dependency or toolchain
+      # change starts a fresh entry from the closest older one.
+      - if: matrix.area == 'backend'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            backend/target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/Cargo.lock', 'flake.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ runner.arch }}-
+
+      - if: matrix.area == 'frontend'
+        name: Install frontend dependencies
         run: nix develop -c just frontend::bootstrap
 
       - name: Check
-        run: nix develop -c just ci::check
+        run: nix develop -c just ${{ matrix.area }}::ci-check
