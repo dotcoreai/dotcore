@@ -44,7 +44,10 @@ backend/
 
 - Use `just backend::<recipe>` from the repository root. Before completing backend changes, run `format`, `clippy`, `test` and `build`.
 - Follow [`dev/AGENTS.md`](../dev/AGENTS.md) for the development stack, the workspace environment and `DOTCORE_BACKEND_RUN_MODE`. Composition owns the `DOTCORE_*` variables the backend reads; `dev/workspace-environment.mjs` derives them.
-- Every crate is published to crates.io, and each one must build from its own package: no build input outside its folder. `proto/dotcore` is a link to the repository's contracts for that reason; keep it a link. A new workspace crate gets a `[workspace.dependencies]` entry with its version.
+- Every crate is published to crates.io, and each one must build from its own package: no build input outside its folder. `proto/dotcore` is a link to the repository's contracts for that reason; keep it a link. A new workspace crate:
+  - inherits the shared package fields (`version`, `license`, `repository`, `homepage`, `readme`) with `.workspace = true`, and gets a `[workspace.dependencies]` entry with its version
+  - must pass `cargo package` before it lands
+  - tell the maintainers in the change description: once it is first published, a maintainer adds the maintainers team as its owner with `cargo owner --add github:dotcoreai:maintainers <crate>`
 - Publishing is a maintainer action through `just backend::publish`. Agents may run `cargo package` or `cargo publish --dry-run`, never a real publish.
 
 ## Design
