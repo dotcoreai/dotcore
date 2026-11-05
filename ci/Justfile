@@ -1,0 +1,11 @@
+# List CI module recipes.
+help:
+  @just --list
+
+# Run every area's CI validations, without changing files; needs `just frontend::bootstrap` first.
+check:
+  cd .. && just proto::ci-check
+  cd .. && just frontend::ci-check
+  cd .. && just backend::ci-check
+  cd .. && just dev::ci-check
+  cd .. && just installer::ci-check

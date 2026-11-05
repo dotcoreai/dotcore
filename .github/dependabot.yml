@@ -1,0 +1,32 @@
+# Cooldowns hold back new releases until they have been public long enough for a compromised
+# version to be caught and pulled; npm waits longest, since it sees the most supply chain attacks.
+# Security updates are not delayed.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+
+  - package-ecosystem: cargo
+    directory: /backend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 30
+
+  - package-ecosystem: nix
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14

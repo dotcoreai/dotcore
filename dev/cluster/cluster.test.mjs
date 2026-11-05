@@ -487,7 +487,7 @@ async function fixture(t) {
     await mkdir(path.dirname(path.join(root, file)), { recursive: true });
     await copyFile(path.join(repositoryRoot, file), path.join(root, file));
   }
-  for (const module of ["frontend", "backend", "proto", "apps", "engines", "installer"]) {
+  for (const module of ["frontend", "backend", "proto", "apps", "engines", "installer", "ci"]) {
     await mkdir(path.join(root, module));
     // The manager stack refuses to start unbootstrapped, so the stubs report a bootstrapped workspace.
     await writeFile(path.join(root, module, "Justfile"), "clean:\n  @true\n\nbootstrap-check:\n  @true\n");

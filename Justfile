@@ -5,6 +5,7 @@ mod dev 'dev/Justfile'
 mod apps 'apps/Justfile'
 mod engines 'engines/Justfile'
 mod installer 'installer/Justfile'
+mod ci 'ci/Justfile'
 
 # List all recipes with descriptions.
 help:
@@ -30,6 +31,9 @@ help:
 
     @printf '%s\n' '' '--- installer ---'
     just installer::help
+
+    @printf '%s\n' '' '--- ci ---'
+    just ci::help
 
 # Initialize local environment
 bootstrap:

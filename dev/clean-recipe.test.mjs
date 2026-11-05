@@ -37,7 +37,7 @@ async function fixture(t) {
     await copyFile(path.join(repositoryRoot, "dev", file), path.join(root, "dev", file));
   }
   await copyFile(path.join(repositoryRoot, "Justfile"), path.join(root, "Justfile"));
-  for (const module of ["frontend", "backend", "proto", "apps", "engines", "installer"]) {
+  for (const module of ["frontend", "backend", "proto", "apps", "engines", "installer", "ci"]) {
     await mkdir(path.join(root, module));
     await writeFile(path.join(root, module, "Justfile"), `clean:\n  @echo "${module} clean" >> "$TEST_CALLS"\n`);
   }

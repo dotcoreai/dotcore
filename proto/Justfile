@@ -22,3 +22,19 @@ generate:
 
 # Run all protobuf validation operations (format, lint, build).
 check: format lint build
+
+# Run the protobuf validations CI runs, without changing files.
+ci-check: check generate-check
+
+# Fail when the committed TypeScript bindings differ from a fresh generation.
+generate-check:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  out=$(mktemp -d)
+  trap 'rm -rf "$out"' EXIT
+  # Buf resolves each plugin's `out` under `-o`, so the fresh copy lands at the same relative path.
+  buf generate -o "$out/proto"
+  if ! diff -r "$out/frontend/src/gen" ../frontend/src/gen; then
+    echo 'generated protobuf bindings are stale; run `just proto::generate` and commit the result' >&2
+    exit 1
+  fi

@@ -7,6 +7,12 @@
 - `just backend::test` takes nextest filters to run some tests only, for example `just backend::test -E 'test(/^server::/)'`.
 - `just backend::test-diagnostics` runs the backend tests without retries and writes a JUnit report, to investigate flaky tests.
 
+## CI
+
+- CI runs `just ci::check`: the same gates as `just check`, but it fails instead of reformatting or regenerating files. Run it locally to reproduce a CI failure.
+- Pull requests run on x86_64 Linux. `main` and manual runs also cover arm64 Linux and arm64 macOS.
+- CI skips the hardware tests below.
+
 ## Hardware tests
 
 Some backend tests need real hardware. `just test` and `just check` skip them. Each kind has its own recipe:

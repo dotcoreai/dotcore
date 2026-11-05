@@ -12,6 +12,10 @@ bootstrap:
 format:
   cargo fmt --all
 
+# Check rust formatting without changing files.
+format-check:
+  cargo fmt --all --check
+
 # Run rust lint checks.
 clippy:
   cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
@@ -171,6 +175,11 @@ run:
 # Run all backend validation operations (format, clippy, test).
 check:
   just format
+  just ci-check
+
+# Run the backend validations CI runs, without changing files.
+ci-check:
+  just format-check
   just clippy
   just gate-nvml-single-owner
   just test

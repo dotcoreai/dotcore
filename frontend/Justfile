@@ -136,3 +136,6 @@ check:
   just lint
   just test
   just build
+
+# Run the frontend validations CI runs, without changing files.
+ci-check: check
