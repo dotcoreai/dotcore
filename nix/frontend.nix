@@ -70,6 +70,7 @@ let
     frontendArgs
     // {
       passthru.tests.default = frontendTest;
+      meta.license = pkgs.lib.licenses.asl20;
       installPhase = ''
         runHook preInstall
         mkdir -p "$out"

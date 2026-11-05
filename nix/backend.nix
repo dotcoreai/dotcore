@@ -124,7 +124,10 @@ let
           --set-default SSL_CERT_FILE "${caBundlePath}"
       '';
 
-      meta.mainProgram = "dotc";
+      meta = {
+        mainProgram = "dotc";
+        license = pkgs.lib.licenses.asl20;
+      };
 
       passthru.tests.default = backendTest;
 

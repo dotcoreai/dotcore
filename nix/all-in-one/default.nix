@@ -274,6 +274,7 @@ in
     };
     meta = (old.meta or { }) // {
       mainProgram = "dotcore";
+      license = pkgs.lib.licenses.asl20;
     };
   });
 }
