@@ -8,3 +8,6 @@ lint:
 
 # Run all installer validations.
 check: lint
+
+# Run the installer validations CI runs, without changing files.
+ci-check: check

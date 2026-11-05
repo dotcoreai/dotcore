@@ -1,0 +1,76 @@
+# Runs the CI recipes in the Nix dev shell. PRs: x86_64 Linux; `main`: also arm64 Linux and macOS.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: ${{ matrix.task.name }} (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in step with `just ci::check`.
+        task:
+          - { name: proto, recipe: "proto::ci-check" }
+          - { name: frontend lint, recipe: "frontend::ci-lint", npm: true }
+          - { name: frontend test 1/2, recipe: "frontend::ci-test", part: "1/2", npm: true }
+          - { name: frontend test 2/2, recipe: "frontend::ci-test", part: "2/2", npm: true }
+          - { name: backend lint, recipe: "backend::ci-lint", cargo: lint }
+          - { name: backend test 1/2, recipe: "backend::ci-test", part: "1/2", cargo: test }
+          - { name: backend test 2/2, recipe: "backend::ci-test", part: "2/2", cargo: test }
+          - { name: dev, recipe: "dev::ci-check", nix-save: true }
+          - { name: installer, recipe: "installer::ci-check" }
+        runner: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04"]' || '["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"]') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      # Smaller build output to cache.
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+
+      # Shared per platform; saved by the dev task, which builds the most.
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
+        with:
+          primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', '**/*.nix') }}
+          restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
+          save: ${{ matrix.task.nix-save == true }}
+
+      # Clippy and test builds differ, so each keeps its own entry.
+      - if: matrix.task.cargo
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            backend/target
+          key: cargo-${{ matrix.task.cargo }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/Cargo.lock', 'flake.lock') }}
+          restore-keys: cargo-${{ matrix.task.cargo }}-${{ runner.os }}-${{ runner.arch }}-
+
+      - if: matrix.task.npm
+        name: Install frontend dependencies
+        run: nix develop -c just frontend::bootstrap
+
+      - name: Check
+        env:
+          RECIPE: ${{ matrix.task.recipe }}
+          PART: ${{ matrix.task.part }}
+        run: nix develop -c just "$RECIPE" ${PART:+"$PART"}

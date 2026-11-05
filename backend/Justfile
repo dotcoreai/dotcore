@@ -12,6 +12,10 @@ bootstrap:
 format:
   cargo fmt --all
 
+# Check rust formatting without changing files.
+format-check:
+  cargo fmt --all --check
+
 # Run rust lint checks.
 clippy:
   cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
@@ -171,9 +175,20 @@ run:
 # Run all backend validation operations (format, clippy, test).
 check:
   just format
+  just ci-check
+
+# Run the backend validations CI runs, without changing files.
+ci-check: ci-lint ci-test
+
+# Run the backend's static checks CI runs, without changing files: formatting, clippy and the NVML gate.
+ci-lint:
+  just format-check
   just clippy
   just gate-nvml-single-owner
-  just test
+
+# Run the backend tests CI runs and the hardware coverage gate; a part such as `1/2` runs only that share of the tests.
+ci-test part="":
+  just test {{ if part == "" { "" } else { "--partition count:" + part } }}
   just gate-hardware-coverage
 
 # Publish the backend crates to crates.io with your `cargo login` token after a dry run and your confirmation, waiting out the new-crate rate limit; a rerun skips versions already published, and extra arguments go to `cargo publish`.

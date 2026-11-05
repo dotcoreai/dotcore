@@ -26,6 +26,7 @@ to it instead of repeating it. This file owns the repository-wide rules and the 
 - `installer/`: the guided host installer. [`installer/AGENTS.md`](installer/AGENTS.md)
 - `dev/`: the development stack, workspace environment, development site, remote hosts and
   cluster. [`dev/AGENTS.md`](dev/AGENTS.md)
+- `ci/`: the recipes CI runs (`just ci::check`); the workflows live in `.github/workflows/`.
 - `docs/`: the user guides, the development guides (`docs/development/`), and the design documents
   in `docs/architecture/` and `docs/product/`, each with its own `AGENTS.md`.
 - `utils/`: standalone tools with no build integration; each has its own README.
@@ -92,6 +93,9 @@ in the same change that adds, removes or renames a folder it lists.
   instead of human convenience recipes.
 - Run the owning area's documented gates before completing work; `just check` runs the
   repository-wide aggregate.
+- Each area's `ci-check` recipe runs its gates without changing files, and `just ci::check` runs
+  them all, as CI does. An area that adds a `check` recipe adds a `ci-check` and joins
+  `ci::check`.
 
 ## Platform scope
 

@@ -17,6 +17,9 @@ check:
   just test
   just docker-images-check
 
+# Run the development validations CI runs, without changing files.
+ci-check: check
+
 # Build the sandbox checks of the Docker image derivations: evaluation properties, the loader against fake Docker and Nix, its formats against the backend samples, and stale store build records.
 docker-images-check:
   cd .. && system=$(nix eval --raw --impure --expr builtins.currentSystem) && nix build --no-link ".#checks.$system.docker-images-eval" ".#checks.$system.docker-images-loader" ".#checks.$system.docker-images-samples" ".#checks.$system.docker-images-records"
