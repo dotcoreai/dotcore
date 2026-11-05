@@ -11,4 +11,4 @@
 - [ ] I used AI tools for this change. Tool: <!-- name it -->
 - [ ] I understand every line of this change and can explain it in review.
 
-See [AI tools](https://github.com/dotcoreinc/dotcore/blob/main/CONTRIBUTING.md#ai-tools) in the contributing guide.
+See [AI tools](https://github.com/dotcoreai/dotcore/blob/main/CONTRIBUTING.md#ai-tools) in the contributing guide.

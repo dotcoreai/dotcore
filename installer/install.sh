@@ -8,7 +8,7 @@
 
 set -eu
 
-DEFAULT_FLAKE_REF="github:dotcoreinc/dotcore"
+DEFAULT_FLAKE_REF="github:dotcoreai/dotcore"
 DETERMINATE_INSTALL_URL="https://install.determinate.systems/nix"
 DETERMINATE_DOCS_URL="https://docs.determinate.systems/determinate-nix/"
 NIX_UNINSTALL_DOCS_URL="https://nix.dev/manual/nix/stable/installation/uninstall.html"

@@ -58,7 +58,7 @@ holds the build code. These rules cover what agents get wrong.
 
 ## Master catalog
 
-- The packaged master catalog points its Nix artifacts at `github:dotcoreinc/dotcore/<rev>`, with
+- The packaged master catalog points its Nix artifacts at `github:dotcoreai/dotcore/<rev>`, with
   store paths for every system, evaluated but not built. `just dev::catalog-materialize` builds it.
 - Built from an uncommitted tree, it has no revision: artifacts keep pointing at the local flake
   and evaluation warns.

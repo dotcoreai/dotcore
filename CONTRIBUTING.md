@@ -4,7 +4,7 @@ Thanks for helping. Dotcore is in alpha and moves fast, so start a conversation 
 
 ## Start in Discussions
 
-Issues are open to maintainers only. Everything starts in [Discussions](https://github.com/dotcoreinc/dotcore/discussions):
+Issues are open to maintainers only. Everything starts in [Discussions](https://github.com/dotcoreai/dotcore/discussions):
 
 - **Questions:** ask in Q&A.
 - **Bugs:** open a Bug triage discussion. Maintainers turn confirmed bugs into issues.
