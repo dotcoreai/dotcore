@@ -260,6 +260,46 @@ let
     jq '.["apps.n8n.docker"].systems["x86_64-linux"].mainProgram = "docker-image-other"' \
       ${masterCatalog.catalogArtifactsJson} > renamed-loader.json
     expect_failure apps.n8n.docker "runs docker-image-other (meta.mainProgram), but nodes run the loader its store entry names, docker-image-n8n" renamed-loader.json
+
+    # Every Nix artifact of the master catalog names this repository (a locked revision) or `self`.
+    # Prints the document, the position of the artifact in it and the reference of each offender.
+    check_repository() {
+      local directory=$1 failed=0 document offenders
+      while IFS= read -r -d "" document; do
+        offenders=$(yq -o=json '.' "$document" | jq -r '
+          [paths(type == "object" and has("flake")) as $path
+            | getpath($path) as $nix
+            | select(($nix.flake | type) != "string"
+                or ($nix.flake != "self" and ($nix.flake | test("^github:dotcoreai/dotcore/[0-9a-f]{40}$") | not)))
+            | "  \($path | map(tostring) | join(".")): \($nix.flake)"]
+          | .[]')
+        if [[ -n "$offenders" ]]; then
+          echo "$document: Nix artifact outside github:dotcoreai/dotcore (or self):" >&2
+          echo "$offenders" >&2
+          failed=1
+        fi
+      done < <(find "$directory" -name '*.yaml' -print0)
+      return "$failed"
+    }
+    check_repository ${catalogRoot}
+    check_repository "$catalog"
+
+    # A catalog entry naming another repository fails with a message naming the entry and reference.
+    mkdir -p foreign/engines
+    cat > foreign/engines/foreign.yaml <<'YAML'
+    artifacts:
+      - artifactId: foreign-engine
+        nix:
+          flake: github:example/engines/0123456789abcdef0123456789abcdef01234567
+          package: engines.foreign.native
+    YAML
+    if check_repository foreign 2> foreign.log; then
+      echo "a catalog naming another repository unexpectedly passed" >&2
+      exit 1
+    fi
+    grep -qF -- "foreign/engines/foreign.yaml: Nix artifact outside" foreign.log \
+      && grep -qF -- "artifacts.0.nix: github:example/engines/0123456789abcdef0123456789abcdef01234567" foreign.log \
+      || { echo "unexpected failure: $(cat foreign.log)" >&2; exit 1; }
     touch "$out"
   '';
 
