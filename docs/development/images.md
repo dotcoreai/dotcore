@@ -35,6 +35,10 @@ A Dockerfile image is built from a pinned source. `docker-image.stored.json` rec
 
 In a development checkout, engines and apps are built from the checkout itself. A node only sees files that version control tracks, so run any `jj` command after adding a file.
 
+## Nix artifacts from another repository
+
+A site or development catalog may point a Nix artifact at a locked revision of any GitHub flake. The flake exposes the package as `legacyPackages.<system>.<package>`, an image package follows the loader conventions of [`nix/docker-images/`](../../nix/docker-images/) (a `docker-image-<name>` loader), and the catalog entry lists each system's store path, printed by `nix eval --raw <flake>#legacyPackages.<system>.<package>.outPath`.
+
 ## Disk use
 
 - A stored image takes space twice, in the Nix store and in Docker. CUDA images take 10 to 20 GB each.

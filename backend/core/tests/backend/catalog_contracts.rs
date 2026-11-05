@@ -1237,19 +1237,14 @@ fn catalog_validates_nix_artifacts_and_rejects_invalid_flake_references() {
             "revision must be 40 lowercase hexadecimal characters",
         ),
         (
-            "other repository",
-            "github:example/engines/0123456789abcdef0123456789abcdef01234567",
-            "must name the dotcoreai/dotcore repository",
-        ),
-        (
             "path reference",
             "path:/src/dotcore",
-            "must be a locked github:dotcoreai/dotcore/<revision> or self reference",
+            "must be a locked github:<owner>/<repository>/<revision> or self reference",
         ),
         (
             "absolute path",
             "/src/dotcore",
-            "must be a locked github:dotcoreai/dotcore/<revision> or self reference",
+            "must be a locked github:<owner>/<repository>/<revision> or self reference",
         ),
         (
             "subdirectory flake",
@@ -1312,6 +1307,42 @@ fn catalog_validates_nix_artifacts_and_rejects_invalid_flake_references() {
         let error = try_macos_catalog(release).expect_err(label).to_string();
         assert!(error.contains(expected), "{label}: {error}");
     }
+}
+
+#[test]
+fn site_catalog_accepts_a_locked_revision_of_another_repository() {
+    const OTHER_FLAKE: &str = "github:example/engines/0123456789abcdef0123456789abcdef01234567";
+    let site_root = temporary_catalog_root();
+    create_empty_catalog_source(&site_root);
+    let mut release = synthetic_macos_engine_release();
+    let nix = nix_artifact_mut(&mut release);
+    nix.flake = OTHER_FLAKE.to_owned();
+    nix.store_paths = vec![darwin_store_path()];
+    std::fs::write(
+        site_root.join("engines/fixture-engine-macos.yaml"),
+        dotcore_proto::yaml::to_string(&release).expect("site engine release"),
+    )
+    .expect("write site engine release");
+
+    let catalog = Catalog::load_sources_with_policy(
+        &repository_catalog_root(),
+        &site_root,
+        dotcore_catalog::OciArtifactPolicy::Development,
+        dotcore::model::engine::declaration_validator(),
+    );
+    std::fs::remove_dir_all(site_root).expect("remove site catalog");
+
+    let release = catalog
+        .expect("site catalog")
+        .list_engine_releases()
+        .into_iter()
+        .find(|release| release.engine_release_id == "fixture-engine-macos")
+        .expect("site engine release");
+    assert!(matches!(
+        release.artifacts[0].kind.as_ref(),
+        Some(EngineArtifactKind::Nix(nix))
+            if nix.flake == OTHER_FLAKE && nix.store_paths == [darwin_store_path()]
+    ));
 }
 
 #[test]

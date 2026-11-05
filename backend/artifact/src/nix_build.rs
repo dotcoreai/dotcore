@@ -201,7 +201,7 @@ impl NixPreparer {
         sources: &DotcoreSources,
     ) -> Result<String, NixPreparationError> {
         let reference = NixFlakeReference::parse(&request.flake).map_err(|_| {
-            invalid_request("flake reference is not a locked dotcoreai/dotcore revision or self")
+            invalid_request("flake reference is not a locked GitHub revision or self")
         })?;
         if request.policy != reference.preparation_policy() {
             return Err(invalid_request(
@@ -1001,14 +1001,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn locked_reference_to_another_repository_is_rejected_before_nix_runs() {
+    async fn locked_reference_to_another_repository_builds_from_github() {
+        let fixture = Fixture::new();
+        let flake = format!(
+            "github:example/engines/{}",
+            "0123456789abcdef".repeat(2) + "01234567"
+        );
+        let nix = fixture.nix(&format!(
+            "ln -sfn '{STORE_PATH}' \"$link\"\necho '{STORE_PATH}'"
+        ));
+
+        fixture
+            .preparer(nix)
+            .prepare(
+                &request(&flake),
+                &DotcoreSources::default(),
+                CancellationToken::new(),
+                &discarded(),
+            )
+            .await
+            .expect("another repository's locked revision");
+
+        assert_eq!(
+            fixture.calls(),
+            [format!(
+                "--extra-experimental-features nix-command flakes build --no-write-lock-file --log-format internal-json --print-out-paths --out-link {} {flake}#legacyPackages.aarch64-darwin.engines.llama-cpp.native",
+                fixture.out_link().display()
+            )]
+        );
+    }
+
+    #[tokio::test]
+    async fn unlocked_reference_is_rejected_before_nix_runs() {
         let fixture = Fixture::new();
         let request = NixPreparationRequest {
-            flake: format!(
-                "github:example/engines/{}",
-                "0123456789abcdef".repeat(2) + "01234567"
-            ),
-            policy: ArtifactPreparationPolicy::ImmutableRemote,
+            flake: "github:example/engines".to_owned(),
             ..request(&locked_flake())
         };
 
@@ -1021,14 +1048,59 @@ mod tests {
                 &discarded(),
             )
             .await
-            .expect_err("untrusted repository");
+            .expect_err("unlocked reference");
 
         assert!(
             matches!(&error, NixPreparationError::InvalidRequest { reason }
-                if reason.contains("dotcoreai/dotcore")),
+                if *reason == "flake reference is not a locked GitHub revision or self"),
             "{error:?}"
         );
         assert!(fixture.calls().is_empty(), "nix must not run");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a network connection to GitHub and the NixOS binary cache, and a local Nix"]
+    async fn net_builds_a_locked_revision_of_a_public_flake() {
+        let root = tempfile::tempdir_in(dotcore_domain::test_support::canonical_temp_dir())
+            .expect("fixture root");
+        let preparer = NixPreparer::default().with_roots(root.path().join("roots"));
+        let nix = preparer.nix_executable().expect("local nix");
+        let system = dotcore_domain::nix::host_system().expect("Nix system of this host");
+        let flake = "github:NixOS/nixpkgs/1f607aa79b6356ed45d3cd3c8079c196e79efa2c";
+        // Store paths of another repository's flake come from evaluating it, as an operator does.
+        let evaluated = tokio::process::Command::new(nix)
+            .args(EXPERIMENTAL_FEATURES)
+            .args(["eval", "--raw"])
+            .arg(format!("{flake}#legacyPackages.{system}.hello.outPath"))
+            .output()
+            .await
+            .expect("nix eval");
+        assert!(evaluated.status.success(), "{evaluated:?}");
+        let store_path = String::from_utf8(evaluated.stdout).expect("store path");
+        let request = NixPreparationRequest {
+            flake: flake.to_owned(),
+            package: "hello".to_owned(),
+            system: system.to_owned(),
+            store_path: store_path.clone(),
+            policy: ArtifactPreparationPolicy::ImmutableRemote,
+        };
+
+        preparer
+            .prepare(
+                &request,
+                &DotcoreSources::default(),
+                CancellationToken::new(),
+                &discarded(),
+            )
+            .await
+            .expect("public flake build");
+
+        let entry = store_entry(&store_path).expect("top-level store path");
+        assert_eq!(
+            std::fs::read_link(root.path().join("roots").join(entry)).expect("root"),
+            Path::new(&store_path)
+        );
+        assert!(Path::new(&store_path).join("bin/hello").is_file());
     }
 
     #[tokio::test]

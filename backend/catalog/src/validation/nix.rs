@@ -1,9 +1,9 @@
 //! Catalog Nix artifact validation shared by engine artifacts and application services.
 //!
-//! A Nix artifact names a trusted flake reference, the package to build, and what the package
-//! provides: a native executable or a Docker image its loader makes available. A locked reference
-//! carries one store path per Nix system its declared platforms need, and a `self` reference
-//! carries none because the hosting node pins the path it evaluates.
+//! A Nix artifact names a locked or `self` flake reference, the package to build, and what the
+//! package provides: a native executable or a Docker image its loader makes available. A locked
+//! reference carries one store path per Nix system its declared platforms need, and a `self`
+//! reference carries none because the hosting node pins the path it evaluates.
 
 use std::collections::BTreeSet;
 
@@ -251,11 +251,6 @@ mod tests {
                 nix("github:dotcoreai/dotcore"),
                 &darwin,
                 NixArtifactError::InvalidFlake(NixFlakeReferenceError::UnlockedReference),
-            ),
-            (
-                nix(&format!("github:example/engines/{}", fixture::REVISION)),
-                &darwin,
-                NixArtifactError::InvalidFlake(NixFlakeReferenceError::UntrustedRepository),
             ),
             (
                 nix("github:dotcoreai/dotcore/main"),
