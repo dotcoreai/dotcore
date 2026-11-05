@@ -1,9 +1,7 @@
-# Reads the npm dependency hash the Nix frontend build pins, and computes the one package-lock.json
-# needs. Sourced by the frontend recipes, from the frontend folder.
+# The npm dependency hash pinned by the Nix frontend build, and the one package-lock.json needs.
 
 NPM_HASH_FILE=../nix/frontend.nix
 
-# The hash pinned in the Nix build's npm dependency fetch.
 npm_hash_committed() {
   local hash
   hash=$(sed -n 's/^ *hash = "\(sha256-[^"]*\)";$/\1/p' "$NPM_HASH_FILE")
@@ -14,11 +12,11 @@ npm_hash_committed() {
   printf '%s\n' "$hash"
 }
 
-# The hash of package-lock.json, computed with the flake's nixpkgs so it matches the Nix build.
+# Uses the flake's nixpkgs, so the hash matches the Nix build.
 npm_hash_locked() {
   local log
   log=$(mktemp)
-  # The tool prints download progress on stderr; show it only when it fails.
+  # Progress goes to stderr; show it only on failure.
   if ! nix shell --inputs-from .. nixpkgs#prefetch-npm-deps -c prefetch-npm-deps package-lock.json 2> "$log"; then
     cat "$log" >&2
     rm -f "$log"

@@ -32,7 +32,6 @@ generate-check:
   set -euo pipefail
   out=$(mktemp -d)
   trap 'rm -rf "$out"' EXIT
-  # Buf resolves each plugin's `out` under `-o`, so the fresh copy lands at the same relative path.
   buf generate -o "$out/proto"
   if ! diff -r "$out/frontend/src/gen" ../frontend/src/gen; then
     echo 'generated protobuf bindings are stale; run `just proto::generate` and commit the result' >&2

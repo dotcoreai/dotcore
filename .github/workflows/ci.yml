@@ -1,6 +1,4 @@
-# Runs each area's CI recipes in the Nix dev shell, one job per task; the slow test suites run in
-# two parts. Pull requests run on x86_64 Linux only; `main` and manual runs add arm64 Linux and
-# arm64 macOS. Hardware-gated tests stay on the remote development hosts.
+# Runs the CI recipes in the Nix dev shell. PRs: x86_64 Linux; `main`: also arm64 Linux and macOS.
 name: CI
 
 on:
@@ -22,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Together these cover `just ci::check`; keep them in step with each area's `ci-check`.
+        # Keep in step with `just ci::check`.
         task:
           - { name: proto, recipe: "proto::ci-check" }
           - { name: frontend lint, recipe: "frontend::ci-lint", npm: true }
@@ -37,9 +35,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     env:
-      # Smaller, cacheable build output: no debug info and no incremental state, which CI never reuses.
+      # Smaller build output to cache.
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
+
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -47,17 +46,14 @@ jobs:
 
       - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
 
-      # One Nix store cache per platform, shared by the tasks. Only the dev task saves it: it builds
-      # the most derivations (the image checks) on top of the dev shell every task needs.
+      # Shared per platform; saved by the dev task, which builds the most.
       - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7.0.2
         with:
           primary-key: nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('flake.lock', '**/*.nix') }}
           restore-prefixes-first-match: nix-${{ runner.os }}-${{ runner.arch }}-
           save: ${{ matrix.task.nix-save == true }}
 
-      # Cargo dependencies and build output, keyed on the lock files so a dependency or toolchain
-      # change starts a fresh entry from the closest older one. Clippy and test builds produce
-      # different output, so each kind keeps its own entry.
+      # Clippy and test builds differ, so each keeps its own entry.
       - if: matrix.task.cargo
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
