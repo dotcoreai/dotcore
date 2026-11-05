@@ -18,7 +18,7 @@ serde_yaml_ng.workspace = true
 thiserror.workspace = true
 tonic.workspace = true
 tonic-prost.workspace = true
-yaml-rust2 = "0.10.4"
+yaml-rust2 = "0.13.0"
 
 [build-dependencies]
 pbjson-build = "0.8.0"
