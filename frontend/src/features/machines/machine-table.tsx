@@ -47,7 +47,7 @@ export interface MachineRowSources {
 }
 
 /**
- * The machines as a data table: one row per machine, filtered on its connection. Connection sorts by its
+ * The machines as a data table: one row per machine, filtered on its status. Status sorts by its
  * label, CPU, RAM and VRAM sort by the share in use, and Running by the number of deployments.
  */
 export const machineTableDefinition: DataTableDefinition<
@@ -62,7 +62,7 @@ export const machineTableDefinition: DataTableDefinition<
       defaultVisible: true,
       id: "connection",
       key: "connection",
-      label: "Connection",
+      label: "Status",
       sort: { kind: "text", value: (machine) => machine.connection.label },
     },
     {
@@ -106,7 +106,7 @@ export const machineTableDefinition: DataTableDefinition<
       domain: { kind: "open" },
       id: "connection",
       key: "connection",
-      label: "Connection",
+      label: "Status",
       match: "any",
       values: (machine) => [machine.connection.label],
     },

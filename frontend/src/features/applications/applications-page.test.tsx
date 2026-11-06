@@ -1430,11 +1430,11 @@ describe("Apps table", () => {
       "App",
       "Status",
       "Machine",
-      "Endpoint",
       "CPU",
       "RAM",
       "VRAM",
       "GPU",
+      "Endpoint",
     ]);
     const cellTexts = (name: string) =>
       within(within(table).getByRole("row", { name }))
@@ -1445,12 +1445,22 @@ describe("Apps table", () => {
         "Team chatOpenWebUI · 1.0",
         "Ready",
         "gb10-host-2",
-        "Open",
         "25%",
         "1.5 GiB",
         "4.5 GiB",
         "60%",
+        "Open",
       ]),
+    );
+    // Endpoint is a button-styled link with the side panel's open icon, last in the row.
+    const open = within(within(table).getByRole("row", { name: "Team chat" })).getByRole("link", {
+      name: "Open Team chat",
+    });
+    expect(open).toHaveAttribute("href", "http://100.64.0.7:49152");
+    expect(open).toHaveAttribute("target", "_blank");
+    expect(open.querySelector("svg")).toHaveClass("lucide-external-link");
+    expect(within(table).getByRole("row", { name: "Team chat" }).lastElementChild).toContainElement(
+      open,
     );
     // A deployment with no endpoint, reading or measure reads "—".
     expect(cellTexts("Notes")).toEqual([
@@ -1465,7 +1475,7 @@ describe("Apps table", () => {
     ]);
   });
 
-  it("marks the GPU as shared when another app holds memory on the same device", async () => {
+  it("names the other apps on the GPU in an info icon next to the figure", async () => {
     const other = servingDeployment();
     other.applicationDeploymentId = "other-deployment";
     other.applicationDeploymentName = "Wiki";
@@ -1475,20 +1485,41 @@ describe("Apps table", () => {
       metricsClient: resourceWatch().client,
     });
 
-    for (const name of ["Team chat", "Wiki"]) {
+    for (const [name, sharer] of [
+      ["Team chat", "Wiki"],
+      ["Wiki", "Team chat"],
+    ]) {
       const row = await screen.findByRole("row", { name });
-      await waitFor(() =>
-        expect(within(row).getAllByRole("cell").at(-1)).toHaveTextContent("60%shared"),
-      );
+      await waitFor(() => expect(within(row).getAllByRole("cell").at(-2)).toHaveTextContent("60%"));
+      const note = `GPU use of the whole device, shared with ${sharer}`;
+      const icon = within(row).getByRole("button", { name: note });
+      expect(icon.querySelector("svg")).toHaveClass("lucide-info");
+      expect(within(row).queryByText("shared")).not.toBeInTheDocument();
     }
+
+    // The tooltip shows the same text on hover.
+    const user = userEvent.setup();
+    await user.hover(
+      within(screen.getByRole("row", { name: "Team chat" })).getByRole("button", {
+        name: /shared with Wiki/,
+      }),
+    );
+    expect(
+      await screen.findByText("GPU use of the whole device, shared with Wiki"),
+    ).toHaveAttribute("data-slot", "tooltip-content");
   });
 
-  it("keeps the GPU and its shared mark out of an app with no measured device", async () => {
+  it("shows no info icon for an unshared device or an app with no measured device", async () => {
     renderTable();
 
-    const row = await screen.findByRole("row", { name: "Notes" });
-    expect(within(row).getAllByRole("cell").at(-1)).toHaveTextContent("—");
-    expect(within(row).queryByText("shared")).not.toBeInTheDocument();
+    const row = await screen.findByRole("row", { name: "Team chat" });
+    await waitFor(() => expect(within(row).getAllByRole("cell").at(-2)).toHaveTextContent("60%"));
+    expect(within(row).queryByRole("button")).not.toBeInTheDocument();
+
+    const notes = screen.getByRole("row", { name: "Notes" });
+    expect(within(notes).getAllByRole("cell").at(-2)).toHaveTextContent("—");
+    expect(within(notes).queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByText("shared")).not.toBeInTheDocument();
   });
 
   it("watches CPU and memory by deployment and GPU use in two streams", async () => {
@@ -1522,26 +1553,26 @@ describe("Apps table", () => {
       "App",
       "Status",
       "Machine",
-      "Endpoint",
       "CPU",
       "RAM",
       "VRAM",
       "GPU",
       "Route",
+      "Endpoint",
     ]);
     expect(currentLocation(router)).toBe(
-      "/apps?cols=app%2Cstatus%2Cmachine%2Cendpoint%2Ccpu%2Cram%2Cvram%2Cgpu%2Croute",
+      "/apps?cols=app%2Cstatus%2Cmachine%2Ccpu%2Cram%2Cvram%2Cgpu%2Croute%2Cendpoint",
     );
     expect(
       within(within(table).getByRole("row", { name: "Team chat" }))
         .getAllByRole("cell")
-        .at(-1),
+        .at(-2),
     ).toHaveTextContent("private-chat");
     cleanup();
 
     renderTable(currentLocation(router));
     const restored = await screen.findByRole("table", { name: "Installed applications" });
-    expect(columnTexts(restored).at(-1)).toBe("Route");
+    expect(columnTexts(restored).at(-2)).toBe("Route");
   });
 
   it.each([

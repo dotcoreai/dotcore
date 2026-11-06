@@ -1,5 +1,9 @@
 import { machineName, placementMachine } from "@/features/deployments/placement";
-import type { DeploymentGpu, GpuDeviceRef } from "@/features/models/model-deployment-gpu";
+import {
+  type DeploymentGpu,
+  type GpuDeviceRef,
+  withSharerNames,
+} from "@/features/models/model-deployment-gpu";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
@@ -48,9 +52,17 @@ export function projectApplicationDeploymentRows(
   deployments: readonly ApplicationDeployment[],
   { gpus, machines, resources }: ApplicationDeploymentRowSources,
 ): ApplicationDeploymentRow[] {
+  const nameById = new Map(
+    deployments.map((deployment) => [
+      deployment.applicationDeploymentId,
+      applicationDeploymentPresentationName(deployment),
+    ]),
+  );
+
   return deployments.map((deployment) => {
     const id = deployment.applicationDeploymentId;
-    return projectApplicationDeploymentRow(deployment, machines, gpus.get(id), resources.get(id));
+    const gpu = withSharerNames(gpus.get(id), (other) => nameById.get(other) ?? other);
+    return projectApplicationDeploymentRow(deployment, machines, gpu, resources.get(id));
   });
 }
 

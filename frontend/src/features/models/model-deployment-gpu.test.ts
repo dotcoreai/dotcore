@@ -25,7 +25,7 @@ describe("deploymentGpus", () => {
   it("reads the utilization of the one device a deployment runs on", () => {
     const gpus = deploymentGpus([deployment("one", [["gpu1", "GPU-a"]])], utilization);
 
-    expect(gpus).toEqual(new Map([["one", { shared: false, utilization: 0.6 }]]));
+    expect(gpus).toEqual(new Map([["one", { sharedWith: [], utilization: 0.6 }]]));
   });
 
   it("averages the devices a deployment spans", () => {
@@ -40,10 +40,10 @@ describe("deploymentGpus", () => {
     );
 
     expect(gpus.get("split")?.utilization).toBeCloseTo(0.4);
-    expect(gpus.get("split")?.shared).toBe(false);
+    expect(gpus.get("split")?.sharedWith).toEqual([]);
   });
 
-  it("marks deployments on the same device as shared, matching the node too", () => {
+  it("names the other deployments on the same device, matching the node too", () => {
     const gpus = deploymentGpus(
       [
         deployment("first", [["gpu1", "GPU-a"]]),
@@ -56,9 +56,9 @@ describe("deploymentGpus", () => {
 
     expect(gpus).toEqual(
       new Map([
-        ["first", { shared: true, utilization: 0.6 }],
-        ["second", { shared: true, utilization: 0.6 }],
-        ["elsewhere", { shared: false, utilization: 0.9 }],
+        ["first", { sharedWith: ["second"], utilization: 0.6 }],
+        ["second", { sharedWith: ["first"], utilization: 0.6 }],
+        ["elsewhere", { sharedWith: [], utilization: 0.9 }],
       ]),
     );
   });
@@ -76,7 +76,7 @@ describe("deploymentGpus", () => {
       utilization,
     );
 
-    expect(gpus.get("first")).toEqual({ shared: true, utilization: undefined });
+    expect(gpus.get("first")).toEqual({ sharedWith: ["second"], utilization: undefined });
   });
 });
 
