@@ -67,11 +67,11 @@ holds the build code. These rules cover what agents get wrong.
 
 ## Checks
 
-- `just dev::docker-images-check` runs the image checks. Other flake checks:
+- `just dev::docker-images-check` runs the image checks, and `just dev::catalog-check` the
+  `dotcore-catalog` check: the master catalog build at a fixed revision, and a check that every Nix
+  artifact points at this repository or `self`. Other flake checks:
   - `dotcore-tests`: the packaged runtime.
   - `dotcore-failures`: the backend and Caddy exiting under the launcher.
-  - `dotcore-catalog`: the master catalog build at a fixed revision, and a check that every Nix
-    artifact points at this repository or `self`.
   - `legacy-packages-eval`: evaluates every `legacyPackages` leaf on every system, which
     `nix flake check` skips, and catches builds that read source metadata.
 - No check covers Caddy forwarding SSE and gRPC-Web: test it by hand after changing the ingress.
