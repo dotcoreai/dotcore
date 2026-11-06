@@ -1,0 +1,45 @@
+# Model recommendations for NVIDIA GPUs with their own memory, best first. Minimums per GPU separate
+# card sizes: 8, 16, 24 and 32 GB. Entries a GPU can't run, such as ninfer off an RTX 5090, are
+# skipped for it.
+hardwareClassId: "nvidia-dedicated"
+useCases:
+  - useCase: "USE_CASE_CODING_AND_AGENTS"
+    entries:
+      - modelId: "qwen3-8-27b"
+        profileId: "ninfer-nvfp4"
+      - modelId: "qwen3-8-27b"
+        profileId: "q4-xl"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "24000000000"
+      - modelId: "qwen3-5-9b"
+        profileId: "q4-xl"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "12000000000"
+      - modelId: "qwen3-5-4b"
+        profileId: "q4-xl"
+  - useCase: "USE_CASE_GENERAL_ASSISTANT"
+    entries:
+      - modelId: "qwen3-8-27b"
+        profileId: "ninfer-nvfp4"
+      - modelId: "qwen3-8-27b"
+        profileId: "q4-xl"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "24000000000"
+      - modelId: "gemma-4-12b-it-qat"
+        profileId: "gpu"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "12000000000"
+      - modelId: "qwen3-5-4b"
+        profileId: "q4-xl"
+  - useCase: "USE_CASE_TRANSLATION"
+    entries:
+      - modelId: "gemma-4-26b-a4b-it"
+        profileId: "q4-xl"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "24000000000"
+      - modelId: "gemma-4-12b-it-qat"
+        profileId: "gpu"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "12000000000"
+      - modelId: "qwen3-5-4b"
+        profileId: "q4-xl"

@@ -1,0 +1,10 @@
+# Model recommendations shared by every NVIDIA target. Dedicated and unified targets use their own
+# class's list for a use case first and fall back to this one.
+hardwareClassId: "nvidia"
+useCases:
+  - useCase: "USE_CASE_DECISION_MAKING"
+    entries:
+      - modelId: "clef-flash"
+        profileId: "q8-0"
+      - modelId: "clef-flash"
+        profileId: "q4-k-m"
