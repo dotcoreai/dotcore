@@ -27,7 +27,10 @@ use dotcore::{
     testing::{LIVENESS_TTL, SimulatedInferenceTestSupport, relax_sync_for_tests},
 };
 use dotcore_domain::hardware_observation::HardwareSnapshotSource;
-use dotcore_domain::{APPLE_GPU_DEVICE_ID, ExecutionPlatform, SiteNodeHost};
+use dotcore_domain::{
+    APPLE_GPU_DEVICE_ID, ExecutionPlatform, SiteNodeHost,
+    test_support::ports::{ReservedPort, reserve_port},
+};
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::{
     dotcore::{
@@ -91,10 +94,8 @@ use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Identity};
 
 pub mod node_control;
 pub mod node_liveness;
-pub mod ports;
 pub mod process_protocol;
 
-use ports::ReservedPort;
 pub use process_protocol::ProcessCommand;
 use process_protocol::{CommandChannel, PROCESS_SETTINGS, ProcessSettings};
 
@@ -551,8 +552,8 @@ impl TwoProcessObservationHarness {
             return None;
         }
 
-        let manager_private_port = ports::reserve_port();
-        let worker_private_port = ports::reserve_port();
+        let manager_private_port = reserve_port();
+        let worker_private_port = reserve_port();
         let manager_private_address =
             SocketAddr::from((Ipv4Addr::LOCALHOST, manager_private_port.port()));
         let (manager_fixture, worker_fixture) = temporary_observation_fixtures(
@@ -1996,7 +1997,7 @@ fn temporary_observation_fixtures(
 /// and client in this process over loopback, and installs its node folder at `node_root`, which
 /// must not exist. The node proposes `host` (an address or a name) explicitly, since the manager
 /// refuses an observed loopback address, and records `private_port` as its private port; a worker
-/// process that binds that recorded port needs it from [`ports::reserve_port`]. With
+/// process that binds that recorded port needs it from [`reserve_port`]. With
 /// `manager_host`, the node dials the join listener at that address through a forwarder, as a
 /// node on another network would, and keeps that manager address; `host` must then be an IPv4
 /// address, which the forwarder connects from.

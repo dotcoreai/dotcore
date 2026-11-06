@@ -9,8 +9,12 @@
 //! code it controls.
 
 pub use dotcore_domain::{
-    clock::ManualClock, fs_sync::relax_sync_for_tests,
-    test_support::host_resolver::FakeHostResolver,
+    clock::ManualClock,
+    fs_sync::relax_sync_for_tests,
+    test_support::{
+        host_resolver::FakeHostResolver,
+        ports::{ReservedPort, reserve_port},
+    },
 };
 pub use dotcore_site::node::control::{LIVENESS_TTL, NodeLivenessAges};
 

@@ -894,7 +894,7 @@ async fn joined_node_folder_starts_without_site_replica_and_second_custodian_fai
 #[tokio::test]
 async fn joined_node_folder_binds_a_private_host_name_resolved_at_startup() {
     let fixture = PrivateFixture::new();
-    let reserved = support::ports::reserve_port();
+    let reserved = dotcore_domain::test_support::ports::reserve_port();
     let port = reserved.port();
     let manifest = fixture.node_root.join(WORKER_MANIFEST_FILE);
     let text = fs::read_to_string(&manifest).expect("worker manifest");
