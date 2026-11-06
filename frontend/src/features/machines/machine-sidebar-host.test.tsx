@@ -71,7 +71,7 @@ describe("MachineSidebarHost", () => {
 
     await user.click(screen.getByRole("button", { name: "Close inspector" }));
     await waitFor(() => expect(currentLocation(router)).toBe("/overview"));
-    expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument());
   });
 
   it("opens an execution target and its deployment on the overview, and returns to the machine", async () => {

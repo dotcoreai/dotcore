@@ -55,7 +55,7 @@ describe("RouteSidebarHost", () => {
 
     await user.click(screen.getByRole("button", { name: "Close inspector" }));
     await waitFor(() => expect(currentLocation(router)).toBe("/overview"));
-    expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument());
   });
 
   it("edits a route on the overview behind the dirty guard, then returns to its details", async () => {
@@ -107,7 +107,7 @@ describe("RouteSidebarHost", () => {
       expectedGeneration: 1n,
     });
     await waitFor(() => expect(currentLocation(router)).toBe("/overview"));
-    expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument());
   });
 });
 
