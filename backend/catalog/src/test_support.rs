@@ -234,6 +234,30 @@ pub fn create_empty_catalog_source(root: &std::path::Path) {
     }
 }
 
+/// Adds a `fast` profile to the sizing fixture model, defaulting to its second binding, for
+/// fixtures that need two profiles of one configuration.
+pub fn add_fast_sizing_profile(root: &std::path::Path) {
+    let path = root.join("models/fixture.yaml");
+    let mut model = fs::read_to_string(&path).expect("sizing model fixture");
+    model.push_str(&format!(
+        r#"
+  - profileId: "fast"
+    configurationId: "local"
+    defaultModelArtifactBindingId: "second"
+    engineParameterDefaults:
+      values:
+{SIZING_ENGINE_CACHE_DEFAULT}"#
+    ));
+    fs::write(&path, model).expect("sizing model fixture with a fast profile");
+}
+
+/// Writes one hardware class's model recommendations file with the given YAML body.
+pub fn write_recommendations(root: &std::path::Path, file_name: &str, body: &str) {
+    let directory = root.join("recommendations");
+    fs::create_dir_all(&directory).expect("recommendation directory");
+    fs::write(directory.join(format!("{file_name}.yaml")), body).expect("recommendation fixture");
+}
+
 /// Writes the `nvidia` and `apple` hardware classes, each matching one accelerator vendor.
 pub fn write_hardware_classes(root: &std::path::Path) {
     let directory = root.join("hardware-classes");

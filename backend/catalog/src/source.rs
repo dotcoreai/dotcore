@@ -1,9 +1,9 @@
 //! Reads the typed catalog declarations out of a catalog root's YAML files and records
 //! where each problem came from.
 //!
-//! It walks the model, engine, hardware class, application, and upstream-template directories and
-//! parses every file into a typed record, extracting each configuration's private sizing layers
-//! along the way.
+//! It walks the model, engine, hardware class, recommendation, application, and upstream-template
+//! directories and parses every file into a typed record, extracting each configuration's private
+//! sizing layers along the way. Only the master catalog may declare model recommendations.
 //! A file that cannot be read or parsed is reported as a located diagnostic rather than
 //! aborting the whole load, so one bad file never hides the rest.
 
@@ -14,7 +14,8 @@ use std::{
 
 use dotcore_proto::{
     dotcore::catalog::v1::{
-        Application, EngineRelease, HardwareClass, Model, UpstreamModelTemplate,
+        Application, EngineRelease, HardwareClass, HardwareClassRecommendations, Model,
+        UpstreamModelTemplate,
     },
     yaml,
 };
@@ -28,11 +29,11 @@ use super::{
 pub(super) fn load_catalog_source(
     catalog_root: &Path,
     source: &str,
-    required: bool,
+    role: CatalogSourceRole,
     records: &mut CatalogSourceRecords,
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) {
-    if !validate_catalog_root(catalog_root, source, required, diagnostics) {
+    if !validate_catalog_root(catalog_root, source, role, diagnostics) {
         return;
     }
     load_models(
@@ -49,6 +50,13 @@ pub(super) fn load_catalog_source(
         &mut records.hardware_classes,
         diagnostics,
     );
+    load_recommendations(
+        catalog_root,
+        source,
+        role,
+        &mut records.recommendations,
+        diagnostics,
+    );
     load_applications(catalog_root, source, &mut records.applications, diagnostics);
     load_upstream_model_templates(
         catalog_root,
@@ -58,12 +66,21 @@ pub(super) fn load_catalog_source(
     );
 }
 
+/// What a catalog source is: the required master catalog, or an optional layer added on top of it,
+/// such as a site or development catalog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CatalogSourceRole {
+    Master,
+    Layer,
+}
+
 #[derive(Default)]
 pub(super) struct CatalogSourceRecords {
     pub(super) models: Vec<(String, Model)>,
     pub(super) sizing_sources: Vec<(String, CatalogSizingSource)>,
     pub(super) engines: Vec<(String, EngineRelease)>,
     pub(super) hardware_classes: Vec<(String, HardwareClass)>,
+    pub(super) recommendations: Vec<(String, HardwareClassRecommendations)>,
     pub(super) applications: Vec<(String, Application)>,
     pub(super) upstream_model_templates: Vec<(String, UpstreamModelTemplate)>,
 }
@@ -71,6 +88,7 @@ pub(super) struct CatalogSourceRecords {
 pub(super) const MODEL_DIRECTORY: &str = "models";
 pub(super) const ENGINE_DIRECTORY: &str = "engines";
 pub(super) const HARDWARE_CLASS_DIRECTORY: &str = "hardware-classes";
+pub(super) const RECOMMENDATION_DIRECTORY: &str = "recommendations";
 pub(super) const APPLICATION_DIRECTORY: &str = "applications";
 pub(super) const UPSTREAM_MODEL_DIRECTORY: &str = "upstream";
 pub(super) const UPSTREAM_MODEL_TEMPLATE_DIRECTORY: &str = "models/upstream";
@@ -247,6 +265,35 @@ fn load_hardware_classes(
     }
 }
 
+/// Loads the master catalog's model recommendations. A layer can't add or replace them, since a
+/// file for a narrower class would shadow the master's list for that hardware, so each of its
+/// recommendation files is reported instead.
+fn load_recommendations(
+    catalog_root: &Path,
+    source: &str,
+    role: CatalogSourceRole,
+    recommendations: &mut Vec<(String, HardwareClassRecommendations)>,
+    diagnostics: &mut Vec<CatalogDiagnostic>,
+) {
+    for file in optional_catalog_files(catalog_root, source, RECOMMENDATION_DIRECTORY, diagnostics)
+    {
+        if role == CatalogSourceRole::Layer {
+            diagnostics.push(CatalogDiagnostic::new(
+                file.location,
+                anyhow::anyhow!("model recommendations can only be declared by the master catalog"),
+            ));
+            continue;
+        }
+        match yaml::from_file(&file.path) {
+            Ok(value) => recommendations.push((file.location, value)),
+            Err(error) => diagnostics.push(CatalogDiagnostic::new(
+                file.location,
+                anyhow::Error::new(error),
+            )),
+        }
+    }
+}
+
 fn load_applications(
     catalog_root: &Path,
     source: &str,
@@ -289,13 +336,13 @@ fn load_upstream_model_templates(
 fn validate_catalog_root(
     root: &Path,
     source: &str,
-    required: bool,
+    role: CatalogSourceRole,
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) -> bool {
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) => {
-            if !required && error.kind() == std::io::ErrorKind::NotFound {
+            if role == CatalogSourceRole::Layer && error.kind() == std::io::ErrorKind::NotFound {
                 return false;
             }
             diagnostics.push(CatalogDiagnostic::new(
@@ -325,13 +372,14 @@ fn validate_catalog_root(
                         MODEL_DIRECTORY
                             | ENGINE_DIRECTORY
                             | HARDWARE_CLASS_DIRECTORY
+                            | RECOMMENDATION_DIRECTORY
                             | APPLICATION_DIRECTORY
                     ) =>
                 {
             }
             Ok(_) => diagnostics.push(CatalogDiagnostic::new(
                 catalog_location(source, name),
-                anyhow::anyhow!("unexpected catalog root entry; expected \"models\", \"engines\", \"hardware-classes\", or \"applications\" directory"),
+                anyhow::anyhow!("unexpected catalog root entry; expected \"models\", \"engines\", \"hardware-classes\", \"recommendations\", or \"applications\" directory"),
             )),
             Err(error) => diagnostics.push(CatalogDiagnostic::new(
                 catalog_location(source, name),

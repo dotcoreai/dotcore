@@ -17,8 +17,8 @@ use std::{collections::BTreeMap, error::Error as StdError, fmt, path::Path};
 
 use dotcore_proto::dotcore::catalog::v1::{
     Application, EngineArtifact, EngineParameterValues, EngineRelease, HardwareClass,
-    HardwareRequirements, Model, ModelArtifact, ModelArtifactBinding, ModelEngineConfiguration,
-    ModelOptionValues, ModelProfile, UpstreamModelTemplate,
+    HardwareClassRecommendations, HardwareRequirements, Model, ModelArtifact, ModelArtifactBinding,
+    ModelEngineConfiguration, ModelOptionValues, ModelProfile, UpstreamModelTemplate,
 };
 #[cfg(test)]
 use dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot;
@@ -40,7 +40,7 @@ pub use sizing::{
     SizingFitModel,
 };
 use sizing::{CompiledSizing, SizingKey};
-use source::{CatalogSourceRecords, load_catalog_source};
+use source::{CatalogSourceRecords, CatalogSourceRole, load_catalog_source};
 pub use validation::CatalogDiagnostic;
 pub use validation::EngineDeclarationValidator;
 pub use validation::{
@@ -56,6 +56,7 @@ pub struct Catalog {
     models: BTreeMap<String, Model>,
     engines: BTreeMap<String, EngineRelease>,
     hardware_classes: BTreeMap<String, HardwareClass>,
+    recommendations: BTreeMap<String, HardwareClassRecommendations>,
     applications: BTreeMap<String, Application>,
     upstream_model_templates: BTreeMap<String, UpstreamModelTemplate>,
     sizing: BTreeMap<SizingKey, CompiledSizing>,
@@ -82,7 +83,7 @@ impl Catalog {
         engine_validator: &dyn EngineDeclarationValidator,
     ) -> Result<Self, CatalogError> {
         Self::load_from_sources(
-            &[("", catalog_root, true)],
+            &[("", catalog_root, CatalogSourceRole::Master)],
             oci_artifact_policy,
             engine_validator,
         )
@@ -111,8 +112,12 @@ impl Catalog {
     ) -> Result<Self, CatalogError> {
         Self::load_from_sources(
             &[
-                ("master catalog", master_catalog_root, true),
-                ("site catalog", site_catalog_root, false),
+                (
+                    "master catalog",
+                    master_catalog_root,
+                    CatalogSourceRole::Master,
+                ),
+                ("site catalog", site_catalog_root, CatalogSourceRole::Layer),
             ],
             oci_artifact_policy,
             engine_validator,
@@ -127,8 +132,16 @@ impl Catalog {
     ) -> Result<Self, CatalogError> {
         Self::load_from_sources(
             &[
-                ("master catalog", master_catalog_root, true),
-                ("development catalog", development_catalog_root, false),
+                (
+                    "master catalog",
+                    master_catalog_root,
+                    CatalogSourceRole::Master,
+                ),
+                (
+                    "development catalog",
+                    development_catalog_root,
+                    CatalogSourceRole::Layer,
+                ),
             ],
             OciArtifactPolicy::Development,
             engine_validator,
@@ -162,6 +175,12 @@ impl Catalog {
     /// Returns cloned hardware class declarations in deterministic identity order.
     pub fn list_hardware_classes(&self) -> Vec<HardwareClass> {
         self.hardware_classes.values().cloned().collect()
+    }
+
+    /// Returns the model recommendations of every hardware class that declares them, ordered by
+    /// class id, each list in its declared priority order.
+    pub fn list_hardware_class_recommendations(&self) -> Vec<HardwareClassRecommendations> {
+        self.recommendations.values().cloned().collect()
     }
 
     /// Returns cloned application declarations in deterministic identity order.
@@ -526,20 +545,14 @@ impl Catalog {
     }
 
     fn load_from_sources(
-        sources: &[(&str, &Path, bool)],
+        sources: &[(&str, &Path, CatalogSourceRole)],
         oci_artifact_policy: OciArtifactPolicy,
         engine_validator: &dyn EngineDeclarationValidator,
     ) -> Result<Self, CatalogError> {
         let mut diagnostics = Vec::new();
         let mut records = CatalogSourceRecords::default();
-        for (source, catalog_root, required) in sources {
-            load_catalog_source(
-                catalog_root,
-                source,
-                *required,
-                &mut records,
-                &mut diagnostics,
-            );
+        for (source, catalog_root, role) in sources {
+            load_catalog_source(catalog_root, source, *role, &mut records, &mut diagnostics);
         }
         let validated = validation::validate_catalog(
             records,
@@ -552,6 +565,7 @@ impl Catalog {
                 models: validated.models,
                 engines: validated.engines,
                 hardware_classes: validated.hardware_classes,
+                recommendations: validated.recommendations,
                 applications: validated.applications,
                 upstream_model_templates: validated.upstream_model_templates,
                 sizing: validated.sizing,
@@ -623,6 +637,10 @@ impl fmt::Debug for Catalog {
             .field(
                 "hardware_class_ids",
                 &self.hardware_classes.keys().collect::<Vec<_>>(),
+            )
+            .field(
+                "recommendation_hardware_class_ids",
+                &self.recommendations.keys().collect::<Vec<_>>(),
             )
             .field(
                 "application_ids",
@@ -721,6 +739,7 @@ pub struct CatalogBuilder {
     models: Vec<(String, Model)>,
     engines: Vec<(String, EngineRelease)>,
     hardware_classes: Vec<(String, HardwareClass)>,
+    recommendations: Vec<(String, HardwareClassRecommendations)>,
     applications: Vec<(String, Application)>,
     upstream_model_templates: Vec<(String, UpstreamModelTemplate)>,
 }
@@ -792,6 +811,18 @@ impl CatalogBuilder {
         self
     }
 
+    /// Adds one hardware class's model recommendations identified by a deterministic source
+    /// location.
+    pub fn recommendations(
+        mut self,
+        location: impl Into<String>,
+        recommendations: HardwareClassRecommendations,
+    ) -> Self {
+        self.recommendations
+            .push((location.into(), recommendations));
+        self
+    }
+
     /// Adds one application declaration identified by a deterministic source location.
     pub fn application(mut self, location: impl Into<String>, application: Application) -> Self {
         self.applications.push((location.into(), application));
@@ -819,6 +850,7 @@ impl CatalogBuilder {
                 sizing_sources: Vec::new(),
                 engines: self.engines,
                 hardware_classes: self.hardware_classes,
+                recommendations: self.recommendations,
                 applications: self.applications,
                 upstream_model_templates: self.upstream_model_templates,
             },
@@ -831,6 +863,7 @@ impl CatalogBuilder {
                 models: validated.models,
                 engines: validated.engines,
                 hardware_classes: validated.hardware_classes,
+                recommendations: validated.recommendations,
                 applications: validated.applications,
                 upstream_model_templates: validated.upstream_model_templates,
                 sizing: validated.sizing,
@@ -928,7 +961,7 @@ mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
             ApplicationDependencyCondition, ApplicationServiceDependency, EngineParameterValue,
-            EngineParameterValues, EngineRelease, UpstreamWireProtocol,
+            EngineParameterValues, EngineRelease, UpstreamWireProtocol, UseCase,
             engine_parameter_value::Value as ParameterValue,
         },
         engine::v1::EngineKind,
@@ -2094,6 +2127,343 @@ artifacts:
     static REQUIRE_SIZING_ENGINE_VALIDATOR: RequireSizingEngineValidator =
         RequireSizingEngineValidator;
 
+    const NVIDIA_RECOMMENDATIONS: &str = r#"hardwareClassId: "nvidia"
+useCases:
+  - useCase: "USE_CASE_CODING_AND_AGENTS"
+    entries:
+      - modelId: "fixture-model"
+        profileId: "balanced"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "32000000000"
+      - modelId: "fixture-model"
+        profileId: "fast"
+  - useCase: "USE_CASE_TRANSLATION"
+    entries:
+      - modelId: "fixture-model"
+        profileId: "fast"
+"#;
+
+    #[test]
+    fn master_catalog_recommendations_load_in_declared_order() {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        super::test_support::write_sizing_engine(&root);
+        super::test_support::write_sizing_model(&root, "");
+        super::test_support::add_fast_sizing_profile(&root);
+        super::test_support::write_recommendations(&root, "nvidia", NVIDIA_RECOMMENDATIONS);
+
+        let catalog = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("catalog with recommendations loads");
+
+        let recommendations = catalog.list_hardware_class_recommendations();
+        let lists = recommendations
+            .iter()
+            .flat_map(|class| {
+                class.use_cases.iter().map(|list| {
+                    (
+                        class.hardware_class_id.as_str(),
+                        list.use_case(),
+                        list.entries
+                            .iter()
+                            .map(|entry| {
+                                (
+                                    entry.profile_id.as_str(),
+                                    entry.hardware_requirements.as_ref().map(|requirements| {
+                                        requirements.minimum_memory_bytes_per_device
+                                    }),
+                                )
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            lists,
+            [
+                (
+                    "nvidia",
+                    UseCase::CodingAndAgents,
+                    vec![("balanced", Some(32_000_000_000)), ("fast", None)]
+                ),
+                ("nvidia", UseCase::Translation, vec![("fast", None)]),
+            ]
+        );
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
+    fn catalog_without_recommendations_loads_with_none() {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        super::test_support::write_sizing_engine(&root);
+        super::test_support::write_sizing_model(&root, "");
+
+        let catalog = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("catalog without recommendations loads");
+
+        assert_eq!(catalog.list_hardware_class_recommendations(), []);
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
+    fn catalog_layers_cannot_declare_recommendations() {
+        let root = temporary_catalog_root();
+        let master = root.join("master");
+        let layer = root.join("layer");
+        create_empty_catalog_source(&master);
+        super::test_support::write_sizing_engine(&master);
+        super::test_support::write_sizing_model(&master, "");
+        create_empty_catalog_source(&layer);
+        super::test_support::write_recommendations(&layer, "nvidia", NVIDIA_RECOMMENDATIONS);
+
+        let development =
+            Catalog::load_development_sources(&master, &layer, &ACCEPT_ENGINE_DECLARATIONS)
+                .expect_err("a development layer must not declare recommendations");
+        let site = Catalog::load_sources_with_policy(
+            &master,
+            &layer,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("a site layer must not declare recommendations");
+
+        assert_eq!(
+            development.to_string(),
+            "Catalog diagnostics: development catalog recommendations/nvidia.yaml: model recommendations can only be declared by the master catalog"
+        );
+        assert_eq!(
+            site.to_string(),
+            "Catalog diagnostics: site catalog recommendations/nvidia.yaml: model recommendations can only be declared by the master catalog"
+        );
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
+    fn recommendations_on_wider_and_narrower_classes_than_the_supported_one_are_valid() {
+        let root = recommendation_fixture("      - hardwareClassId: \"nvidia\"\n");
+        for (class, selector) in [
+            (
+                "gpu",
+                "selector:\n  accelerators: [\"nvidia\", \"apple\"]\n",
+            ),
+            (
+                "nvidia-dedicated",
+                "selector:\n  accelerators: [\"nvidia\"]\n  memoryArchitecture: \"ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED\"\n",
+            ),
+        ] {
+            write_hardware_class(&root, class, selector);
+            super::test_support::write_recommendations(
+                &root,
+                class,
+                &format!(
+                    "hardwareClassId: \"{class}\"\nuseCases:\n  - useCase: \"USE_CASE_GENERAL_ASSISTANT\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n"
+                ),
+            );
+        }
+
+        let catalog = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("recommendations on related classes are valid");
+
+        assert_eq!(
+            catalog
+                .list_hardware_class_recommendations()
+                .into_iter()
+                .map(|class| class.hardware_class_id)
+                .collect::<Vec<_>>(),
+            ["gpu", "nvidia-dedicated"]
+        );
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
+    fn invalid_recommendations_are_rejected_with_their_file_use_case_and_entry() {
+        let list = |use_case: &str, entries: &[(&str, &str)]| {
+            let mut list = String::new();
+            if !use_case.is_empty() {
+                list.push_str(&format!("  - useCase: \"{use_case}\"\n    entries:\n"));
+            } else {
+                list.push_str("  - entries:\n");
+            }
+            for (model, profile) in entries {
+                list.push_str(&format!(
+                    "      - modelId: \"{model}\"\n        profileId: \"{profile}\"\n"
+                ));
+            }
+            list
+        };
+        let file = |class: &str, lists: &[String]| {
+            format!(
+                "hardwareClassId: \"{class}\"\nuseCases:\n{}",
+                lists.concat()
+            )
+        };
+        let assistant = |entries: &[(&str, &str)]| list("USE_CASE_GENERAL_ASSISTANT", entries);
+        let balanced = [("fixture-model", "balanced")];
+        let entry = "use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"fixture-model\" profile \"balanced\")";
+        let nvidia_support = "      - hardwareClassId: \"nvidia\"\n";
+        let minimum_support = "      - hardwareClassId: \"nvidia\"\n        hardwareRequirements:\n          minimumMemoryBytesPerDevice: \"16000000000\"\n";
+
+        for (case, support, files, expected) in [
+            (
+                "unknown class",
+                nvidia_support,
+                vec![("missing", file("missing", &[assistant(&balanced)]))],
+                "recommendations/missing.yaml: model recommendations reference unknown hardware class \"missing\"".to_owned(),
+            ),
+            (
+                "unspecified use case",
+                nvidia_support,
+                vec![("nvidia", file("nvidia", &[list("", &balanced)]))],
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" require a use case on every list".to_owned(),
+            ),
+            (
+                "repeated use case",
+                nvidia_support,
+                vec![("nvidia", file("nvidia", &[assistant(&balanced), assistant(&[("fixture-model", "fast")])]))],
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" list use case USE_CASE_GENERAL_ASSISTANT more than once".to_owned(),
+            ),
+            (
+                "unknown model",
+                nvidia_support,
+                vec![("nvidia", file("nvidia", &[assistant(&[("missing", "balanced")])]))],
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"missing\" profile \"balanced\") references an unknown model".to_owned(),
+            ),
+            (
+                "unknown profile",
+                nvidia_support,
+                vec![("nvidia", file("nvidia", &[assistant(&[("fixture-model", "missing")])]))],
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"fixture-model\" profile \"missing\") references an unknown profile".to_owned(),
+            ),
+            (
+                "unrelated class",
+                nvidia_support,
+                vec![("apple", file("apple", &[assistant(&balanced)]))],
+                format!("recommendations/apple.yaml: model recommendations for hardware class \"apple\" {entry} runs a configuration that supports neither this hardware class, a class containing it, nor a class nested in it"),
+            ),
+            (
+                "decision making without decision requests",
+                nvidia_support,
+                vec![("nvidia", file("nvidia", &[list("USE_CASE_DECISION_MAKING", &balanced)]))],
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_DECISION_MAKING entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_DECISION requests".to_owned(),
+            ),
+            (
+                "entry minimum below the configuration's",
+                minimum_support,
+                vec![(
+                    "nvidia",
+                    file("nvidia", &[assistant(&balanced)]).replace(
+                        "profileId: \"balanced\"\n",
+                        "profileId: \"balanced\"\n        hardwareRequirements:\n          minimumMemoryBytesPerDevice: \"8000000000\"\n",
+                    ),
+                )],
+                format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets minimum memory per device 8000000000 bytes, below its configuration's 16000000000 bytes"),
+            ),
+            (
+                "repeated entry",
+                nvidia_support,
+                vec![("nvidia", file("nvidia", &[assistant(&[balanced[0], balanced[0]])]))],
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 2 (model \"fixture-model\" profile \"balanced\") repeats an earlier entry".to_owned(),
+            ),
+            (
+                "class declared twice",
+                nvidia_support,
+                vec![
+                    ("copy", file("nvidia", &[assistant(&balanced)])),
+                    ("nvidia", file("nvidia", &[assistant(&balanced)])),
+                ],
+                "recommendations/nvidia.yaml: duplicate model recommendations for hardware class id \"nvidia\"; first declared by recommendations/copy.yaml".to_owned(),
+            ),
+            (
+                "overlapping classes",
+                nvidia_support,
+                vec![
+                    ("mixed", "hardwareClassId: \"mixed\"\n".to_owned()),
+                    ("nvidia", file("nvidia", &[assistant(&balanced)])),
+                ],
+                "recommendations/nvidia.yaml: model recommendations for hardware classes \"mixed\" and \"nvidia\" overlap without one nesting in the other".to_owned(),
+            ),
+        ] {
+            let root = recommendation_fixture(support);
+            write_hardware_class(
+                &root,
+                "mixed",
+                "selector:\n  accelerators: [\"nvidia\", \"apple\"]\n  memoryArchitecture: \"ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED\"\n",
+            );
+            for (file_name, body) in &files {
+                super::test_support::write_recommendations(&root, file_name, body);
+            }
+
+            let error = Catalog::load_with_policy(
+                &root,
+                OciArtifactPolicy::Development,
+                &ACCEPT_ENGINE_DECLARATIONS,
+            )
+            .expect_err(case)
+            .to_string();
+
+            assert_eq!(error, format!("Catalog diagnostics: {expected}"), "{case}");
+            fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+        }
+    }
+
+    #[test]
+    fn chat_use_cases_require_a_configuration_accepting_chat_requests() {
+        let root = recommendation_fixture("      - hardwareClassId: \"nvidia\"\n");
+        let path = root.join("models/fixture.yaml");
+        let model = fs::read_to_string(&path).expect("fixture model");
+        fs::write(
+            &path,
+            model.replace(
+                "requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']",
+                "requestKinds: ['INFERENCE_REQUEST_KIND_DECISION']",
+            ),
+        )
+        .expect("decision-only fixture model");
+        super::test_support::write_recommendations(
+            &root,
+            "nvidia",
+            "hardwareClassId: \"nvidia\"\nuseCases:\n  - useCase: \"USE_CASE_DECISION_MAKING\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n  - useCase: \"USE_CASE_TRANSLATION\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n",
+        );
+
+        let error = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("a chat use case on a decision-only configuration must reject")
+        .to_string();
+
+        assert_eq!(
+            error,
+            "Catalog diagnostics: recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_TRANSLATION entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_CHAT requests"
+        );
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    /// Writes a catalog with the sizing fixture model, its `balanced` and `fast` profiles and the
+    /// given hardware support entries, ready for recommendation files.
+    fn recommendation_fixture(hardware_support: &str) -> std::path::PathBuf {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        write_sizing_engine(&root);
+        write_support_model(&root, hardware_support);
+        super::test_support::add_fast_sizing_profile(&root);
+        root
+    }
+
     #[test]
     fn development_source_cannot_shadow_a_master_catalog_identity() {
         let root = temporary_catalog_root();
@@ -2350,7 +2720,7 @@ artifacts:
 
         assert!(error.contains("upstream-provider-templates"));
         assert!(error.contains(
-            "expected \"models\", \"engines\", \"hardware-classes\", or \"applications\" directory"
+            "expected \"models\", \"engines\", \"hardware-classes\", \"recommendations\", or \"applications\" directory"
         ));
         fs::remove_dir_all(root).expect("Catalog fixture cleanup");
     }

@@ -587,7 +587,7 @@ fn validate_class_artifact_coverage(
 
 /// Returns the first two classes whose selectors can match one target without one being strictly
 /// more specific, which would leave the most specific match ambiguous.
-fn non_nested_classes<'a>(classes: &[&'a HardwareClass]) -> Option<(&'a str, &'a str)> {
+pub(super) fn non_nested_classes<'a>(classes: &[&'a HardwareClass]) -> Option<(&'a str, &'a str)> {
     classes.iter().enumerate().find_map(|(index, first)| {
         classes[index + 1..].iter().find_map(|second| {
             let relation = match (first.selector.as_ref(), second.selector.as_ref()) {
