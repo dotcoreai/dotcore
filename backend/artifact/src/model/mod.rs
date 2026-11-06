@@ -387,6 +387,9 @@ impl ModelArtifactCache {
                 if let Some(progress) = reports.progress {
                     progress.file_started((missing.len() - index - 1) as u64);
                 }
+                let _file_lock = self
+                    .lock_hugging_face_file(repository, revision, path, cancellation)
+                    .await?;
                 let source = self
                     .fetch_hugging_face_file(
                         repository,
@@ -487,6 +490,12 @@ impl ModelArtifactCache {
                             SnapshotRepairCause::IncompleteRemote,
                         )?;
                     }
+                    // Taking the file lock before releasing the coordinate lock makes a concurrent
+                    // writer's source probe wait for this fetch, so it never reads the recorded
+                    // failure of a repair that is still in progress as a finished one.
+                    let _file_lock = self
+                        .lock_hugging_face_file(repository, revision, &path, cancellation)
+                        .await?;
                     drop(lock);
                     if let Some(progress) = reports.progress {
                         progress.file_started(0);
@@ -644,9 +653,26 @@ impl ModelArtifactCache {
             .await
     }
 
+    /// Takes the lock of one Hub file, which serializes its downloads and cache probes.
+    async fn lock_hugging_face_file(
+        &self,
+        repository: &str,
+        revision: &str,
+        path: &str,
+        cancellation: &CancellationToken,
+    ) -> Result<File, ArtifactCacheError> {
+        acquire_lock(
+            self.hub_file_lock_path(repository, revision, path),
+            cancellation,
+            None,
+        )
+        .await
+    }
+
     /// Downloads one Hub file unless it is already cached, and returns its canonical cached
-    /// path. The file's lock spans the download and the probe that follows it, so concurrent
-    /// callers download the file once and never read its pointer while the Hub client rewrites it.
+    /// path. Callers hold the file's lock across the call, so it spans the download and the
+    /// probe that follows it: concurrent callers download the file once and never read its
+    /// pointer while the Hub client rewrites it.
     async fn fetch_hugging_face_file(
         &self,
         repository: &str,
@@ -656,12 +682,6 @@ impl ModelArtifactCache {
         cancellation: &CancellationToken,
         download: impl Future<Output = Result<(), ArtifactCacheError>>,
     ) -> Result<Option<PathBuf>, ArtifactCacheError> {
-        let _file_lock = acquire_lock(
-            self.hub_file_lock_path(repository, revision, path),
-            cancellation,
-            None,
-        )
-        .await?;
         if !force
             && let Some(cached) = self
                 .probe_hugging_face_file(repository, revision, path, cancellation)
@@ -694,6 +714,9 @@ impl ModelArtifactCache {
         download: impl Future<Output = Result<(), ArtifactCacheError>>,
     ) -> Result<(), ArtifactCacheError> {
         let (repository, revision, file, _) = ArtifactCacheError::artifact_parts(artifact)?;
+        let _file_lock = self
+            .lock_hugging_face_file(repository, revision, file, cancellation)
+            .await?;
         self.fetch_hugging_face_file(repository, revision, file, force, cancellation, download)
             .await
             .map(|_| ())
