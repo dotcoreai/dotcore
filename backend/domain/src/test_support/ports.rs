@@ -18,7 +18,7 @@ use tokio::net::TcpSocket;
 
 /// Ports test reservations come from, below the Linux (32768–60999) and macOS (49152–65535)
 /// default ephemeral ranges.
-pub const RESERVED_PORTS: RangeInclusive<u16> = 20000..=20999;
+const RESERVED_PORTS: RangeInclusive<u16> = 20000..=20999;
 
 /// One reserved port, kept from other test processes while this value lives. Nothing is bound
 /// on it, so a process that stops listening on it refuses connections as usual.
@@ -175,6 +175,9 @@ mod tests {
 
     use super::*;
 
+    /// A loopback alias that Linux binds by default and macOS only with an added alias.
+    const OTHER_LOOPBACK_ADDRESS: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 2);
+
     #[test]
     fn concurrent_reservations_hold_distinct_ports() {
         let first = reserve_port();
@@ -188,8 +191,8 @@ mod tests {
     #[test]
     fn a_port_bound_on_any_ipv4_address_is_skipped() {
         let mut addresses = vec![Ipv4Addr::LOCALHOST, Ipv4Addr::UNSPECIFIED];
-        if super::super::worker_loopback_address_available() {
-            addresses.push(super::super::WORKER_LOOPBACK_HOST);
+        if TcpListener::bind((OTHER_LOOPBACK_ADDRESS, 0)).is_ok() {
+            addresses.push(OTHER_LOOPBACK_ADDRESS);
         }
         for address in addresses {
             // Both candidates are held in the shared claims, so no other test process uses them.

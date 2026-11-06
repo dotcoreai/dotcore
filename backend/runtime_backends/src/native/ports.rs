@@ -44,12 +44,14 @@ fn reserve(port: u16) -> io::Result<TcpSocket> {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::test_support::ports::{ReservedPort, reserve_port};
+
     use super::*;
 
     #[test]
     fn free_previous_ports_are_kept_and_taken_ones_are_reassigned() {
         let declared = [port("http"), port("metrics")];
-        let first = assign_ports(&declared, &BTreeMap::new()).expect("first assignment");
+        let (_held, first) = reserved_assignment(&["http", "metrics"]);
         let taken =
             std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, first["metrics"])).expect("take");
 
@@ -65,7 +67,7 @@ mod tests {
     #[test]
     fn a_port_another_process_listens_on_for_every_address_is_not_reused() {
         let declared = [port("http")];
-        let first = assign_ports(&declared, &BTreeMap::new()).expect("first assignment");
+        let (_held, first) = reserved_assignment(&["http"]);
         let wildcard = std::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, first["http"]))
             .expect("listen on every address");
 
@@ -73,6 +75,17 @@ mod tests {
 
         assert_ne!(second["http"], first["http"]);
         drop(wildcard);
+    }
+
+    /// Reserves one pool port per name; the reservations must outlive the assignment under test.
+    fn reserved_assignment(names: &[&str]) -> (Vec<ReservedPort>, BTreeMap<String, u16>) {
+        let held: Vec<ReservedPort> = names.iter().map(|_| reserve_port()).collect();
+        let assignment = names
+            .iter()
+            .zip(&held)
+            .map(|(name, held)| ((*name).to_owned(), held.port()))
+            .collect();
+        (held, assignment)
     }
 
     fn port(name: &str) -> WorkloadPort {

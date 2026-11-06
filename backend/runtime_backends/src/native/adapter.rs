@@ -929,6 +929,7 @@ mod tests {
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
+    use dotcore_domain::test_support::ports::reserve_port;
     use dotcore_launcher::workload::{
         LAUNCH_FILE, LAUNCHER_FILE, LauncherRecord, PROCESS_FILE, ProcessRecord, StoredRecord,
     };
@@ -1441,9 +1442,15 @@ mod tests {
         let native = Native::new(SERVE);
         let launch = native.fixture.launch();
         let id = WorkloadId(workload_id(&launch.correlation));
+        // The first assignment is a pool port, so the one taken below can't be an ephemeral port.
+        let reserved = reserve_port();
         native
             .backend
-            .create_workload(&launch)
+            .launch(
+                &id.0,
+                &launch,
+                BTreeMap::from([("http".to_owned(), reserved.port())]),
+            )
             .await
             .expect("create");
         native.wait_ready(&id.0).await;
@@ -1463,6 +1470,7 @@ mod tests {
         drop(taken);
         native.backend.remove_workload(&id).await.expect("remove");
 
+        assert_eq!(previous["http"], reserved.port());
         assert_ne!(reassigned["http"], previous["http"]);
         assert_eq!(restarted, WorkloadObservation::Running(reassigned_identity));
         assert_eq!(adopted, [restarted]);

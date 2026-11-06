@@ -1873,9 +1873,16 @@ async fn prepared_backend_retains_exact_port_zero_listeners() {
 #[tokio::test]
 async fn dropping_a_prepared_backend_releases_both_listeners_without_serving() {
     let root = support::temporary_fast_fixture();
-    let backend = support::prepare_backend(support::configuration(&root), std::future::pending())
-        .await
-        .expect("prepared backend");
+    let management_port = dotcore_domain::test_support::ports::reserve_port();
+    let inference_port = dotcore_domain::test_support::ports::reserve_port();
+    let backend = support::prepare_backend_on_ports(
+        support::configuration(&root),
+        management_port.port(),
+        inference_port.port(),
+        std::future::pending(),
+    )
+    .await
+    .expect("prepared backend");
     let addresses = backend.addresses();
 
     drop(backend);

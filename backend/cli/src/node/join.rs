@@ -830,7 +830,8 @@ mod tests {
 
     #[test]
     fn an_unreachable_token_address_fails_without_prompting_and_names_the_flag() {
-        let port = closed_port();
+        let closed = dotcore::testing::reserve_port();
+        let port = closed.port();
         let token = token_at(port);
 
         let error = block_on(connect_to_manager(&token, None))
@@ -850,7 +851,8 @@ mod tests {
 
     #[test]
     fn an_unreachable_manager_host_flag_is_the_address_reported() {
-        let port = closed_port();
+        let closed = dotcore::testing::reserve_port();
+        let port = closed.port();
         let token = token_at(port);
 
         let error = block_on(connect_to_manager(
@@ -1251,15 +1253,6 @@ mod tests {
             .build()
             .expect("runtime")
             .block_on(future)
-    }
-
-    /// Returns a loopback port nothing listens on.
-    fn closed_port() -> u16 {
-        std::net::TcpListener::bind("127.0.0.1:0")
-            .expect("listener")
-            .local_addr()
-            .unwrap()
-            .port()
     }
 
     fn token() -> JoinToken {

@@ -516,9 +516,11 @@ async fn application_retains_its_creation_base_url_across_inference_listener_cha
     let root = support::temporary_fast_fixture();
     let configuration = support::configuration(&root);
     let first_runtime = SimulatedRuntimeTestSupport::with_application_endpoint(health.port());
-    let backend = support::RunningBackend::start_with_simulated_runtime_test_support(
+    let reserved_inference_port = dotcore_domain::test_support::ports::reserve_port();
+    let backend = support::RunningBackend::start_on_inference_port(
         configuration.clone(),
         first_runtime.clone(),
+        reserved_inference_port.port(),
     )
     .await;
     let first_port = backend.inference_address().port();
@@ -555,6 +557,7 @@ async fn application_retains_its_creation_base_url_across_inference_listener_cha
         second_runtime.clone(),
     )
     .await;
+    assert_eq!(first_port, reserved_inference_port.port());
     assert_ne!(restarted.inference_address().port(), first_port);
     let mut restarted_client = restarted.application_client();
     let second_ready = wait_for_application_lifecycle(
@@ -582,6 +585,7 @@ async fn application_retains_its_creation_base_url_across_inference_listener_cha
     );
     restarted.stop().await;
     drop(old_port_guard);
+    drop(reserved_inference_port);
 }
 
 #[tokio::test]

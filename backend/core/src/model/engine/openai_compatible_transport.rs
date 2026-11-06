@@ -498,11 +498,8 @@ mod tests {
 
     #[tokio::test]
     async fn an_invalid_request_fails_before_contacting_the_engine_and_never_falls_back() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("reserved loopback port");
-        let port = listener.local_addr().expect("reserved address").port();
-        drop(listener);
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let port = reserved.port();
         let invoker = super::super::loopback_http::LoopbackInvoker::bind(
             port,
             TEST_SERVED_MODEL_ID.to_owned(),
@@ -527,11 +524,8 @@ mod tests {
 
     #[tokio::test]
     async fn refused_loopback_connection_is_the_only_safe_fallback_attempt() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("reserved loopback port");
-        let port = listener.local_addr().expect("reserved address").port();
-        drop(listener);
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let port = reserved.port();
         let (cancellation, _client, _route) = uncancelled();
 
         let attempt = AdapterAttempt::from_result(invoke(port, request(false), cancellation).await);

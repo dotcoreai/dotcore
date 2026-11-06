@@ -641,10 +641,8 @@ mod tests {
 
     #[tokio::test]
     async fn unreachable_peer_target_is_refused_before_dispatch_and_falls_back_to_the_next_group() {
-        let unreachable = std::net::TcpListener::bind("127.0.0.1:0")
-            .expect("reserved worker address")
-            .local_addr()
-            .expect("reserved worker address");
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let unreachable = std::net::SocketAddr::from(([127, 0, 0, 1], reserved.port()));
         let peer = NodeServingTarget::new(
             ModelDeploymentId("peer".to_owned()),
             1,

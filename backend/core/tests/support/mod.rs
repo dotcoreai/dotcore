@@ -27,7 +27,10 @@ use dotcore::{
     testing::{LIVENESS_TTL, SimulatedInferenceTestSupport, relax_sync_for_tests},
 };
 use dotcore_domain::hardware_observation::HardwareSnapshotSource;
-use dotcore_domain::{APPLE_GPU_DEVICE_ID, ExecutionPlatform, SiteNodeHost};
+use dotcore_domain::{
+    APPLE_GPU_DEVICE_ID, ExecutionPlatform, SiteNodeHost,
+    test_support::ports::{ReservedPort, reserve_port},
+};
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::{
     dotcore::{
@@ -91,10 +94,8 @@ use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Identity};
 
 pub mod node_control;
 pub mod node_liveness;
-pub mod ports;
 pub mod process_protocol;
 
-use ports::ReservedPort;
 pub use process_protocol::ProcessCommand;
 use process_protocol::{CommandChannel, PROCESS_SETTINGS, ProcessSettings};
 
@@ -314,8 +315,41 @@ where
             dotcore_sources,
             role: dotcore::composition::BackendRole::Manager(
                 dotcore::composition::ServerConfiguration {
-                    management_bind_address: bind_address_at(bind_address),
-                    inference_bind_address: bind_address_at(bind_address),
+                    management_bind_address: bind_address_at(bind_address, 0),
+                    inference_bind_address: bind_address_at(bind_address, 0),
+                    private_listener: test_private_listener(),
+                    allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],
+                },
+            ),
+        },
+        shutdown,
+    )
+    .await
+}
+
+/// Prepares a manager backend on loopback whose management and inference listeners bind the given
+/// ports, numbers from [`reserve_port`] that the test keeps held, so it can bind them again after
+/// the backend drops.
+pub async fn prepare_backend_on_ports<F>(
+    site_paths: dotcore_domain::SitePaths,
+    management_port: u16,
+    inference_port: u16,
+    shutdown: F,
+) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    wait_for_site_store_release(&site_paths).await;
+    let loopback: std::net::IpAddr = std::net::Ipv4Addr::LOCALHOST.into();
+    dotcore::composition::Backend::prepare(
+        dotcore::composition::BackendConfiguration {
+            site_paths,
+            telemetry_directory: None,
+            dotcore_sources: Default::default(),
+            role: dotcore::composition::BackendRole::Manager(
+                dotcore::composition::ServerConfiguration {
+                    management_bind_address: bind_address_at(loopback, management_port),
+                    inference_bind_address: bind_address_at(loopback, inference_port),
                     private_listener: test_private_listener(),
                     allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],
                 },
@@ -397,9 +431,9 @@ where
     .await
 }
 
-/// Listener address at `host` on an ephemeral port.
-fn bind_address_at(host: std::net::IpAddr) -> dotcore_domain::BindAddress {
-    std::net::SocketAddr::new(host, 0)
+/// Listener address at `host` on `port`; port 0 is an ephemeral port.
+fn bind_address_at(host: std::net::IpAddr, port: u16) -> dotcore_domain::BindAddress {
+    std::net::SocketAddr::new(host, port)
         .to_string()
         .parse()
         .expect("IPv4 bind address")
@@ -551,8 +585,8 @@ impl TwoProcessObservationHarness {
             return None;
         }
 
-        let manager_private_port = ports::reserve_port();
-        let worker_private_port = ports::reserve_port();
+        let manager_private_port = reserve_port();
+        let worker_private_port = reserve_port();
         let manager_private_address =
             SocketAddr::from((Ipv4Addr::LOCALHOST, manager_private_port.port()));
         let (manager_fixture, worker_fixture) = temporary_observation_fixtures(
@@ -1996,7 +2030,7 @@ fn temporary_observation_fixtures(
 /// and client in this process over loopback, and installs its node folder at `node_root`, which
 /// must not exist. The node proposes `host` (an address or a name) explicitly, since the manager
 /// refuses an observed loopback address, and records `private_port` as its private port; a worker
-/// process that binds that recorded port needs it from [`ports::reserve_port`]. With
+/// process that binds that recorded port needs it from [`reserve_port`]. With
 /// `manager_host`, the node dials the join listener at that address through a forwarder, as a
 /// node on another network would, and keeps that manager address; `host` must then be an IPv4
 /// address, which the forwarder connects from.
@@ -2149,7 +2183,10 @@ where
                 )
                 .expect("open manager site");
                 let identity = site.host_identity().expect("manager join identity");
-                let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                // The forwarder binds the same number on another address, so it must come from the
+                // reserved pool, which no ephemeral socket can hold.
+                let join_port = reserve_port();
+                let listener = tokio::net::TcpListener::bind(("127.0.0.1", join_port.port()))
                     .await
                     .expect("bind join listener");
                 let token = identity
@@ -2193,6 +2230,7 @@ where
                     .await
                     .expect("join host task")
                     .expect("join host result");
+                drop(join_port);
                 joined
             })
     })
@@ -2430,6 +2468,27 @@ impl RunningBackend {
             None,
             None,
             Default::default(),
+            0,
+        )
+        .await
+    }
+
+    /// Starts a backend like `start_with_simulated_runtime_test_support` whose inference listener
+    /// binds `inference_port`, a number from [`reserve_port`] that the test keeps held, so it can
+    /// bind that number again after the backend stops.
+    pub async fn start_on_inference_port(
+        site_paths: dotcore_domain::SitePaths,
+        simulated_runtime_test_support: SimulatedRuntimeTestSupport,
+        inference_port: u16,
+    ) -> Self {
+        Self::start_at_with_test_supports(
+            site_paths,
+            "127.0.0.1".parse().expect("loopback bind address"),
+            Some(simulated_runtime_test_support),
+            None,
+            None,
+            Default::default(),
+            inference_port,
         )
         .await
     }
@@ -2446,6 +2505,7 @@ impl RunningBackend {
             Some(simulated_inference_test_support),
             None,
             Default::default(),
+            0,
         )
         .await
     }
@@ -2464,6 +2524,7 @@ impl RunningBackend {
             None,
             None,
             dotcore_sources,
+            0,
         )
         .await
     }
@@ -2483,6 +2544,7 @@ impl RunningBackend {
             None,
             Some(telemetry_directory),
             dotcore_sources,
+            0,
         )
         .await
     }
@@ -2499,6 +2561,7 @@ impl RunningBackend {
             None,
             None,
             Default::default(),
+            0,
         )
         .await
     }
@@ -2524,9 +2587,11 @@ impl RunningBackend {
                     dotcore::composition::ServerConfiguration {
                         management_bind_address: bind_address_at(
                             std::net::Ipv4Addr::LOCALHOST.into(),
+                            0,
                         ),
                         inference_bind_address: bind_address_at(
                             std::net::Ipv4Addr::LOCALHOST.into(),
+                            0,
                         ),
                         private_listener: test_private_listener(),
                         allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],
@@ -2551,6 +2616,7 @@ impl RunningBackend {
         simulated_inference_test_support: Option<SimulatedInferenceTestSupport>,
         telemetry_directory: Option<std::path::PathBuf>,
         dotcore_sources: dotcore_domain::nix::DotcoreSources,
+        inference_port: u16,
     ) -> Self {
         let (shutdown, signal) = oneshot::channel();
         wait_for_site_store_release(&site_paths).await;
@@ -2561,8 +2627,8 @@ impl RunningBackend {
                 dotcore_sources,
                 role: dotcore::composition::BackendRole::Manager(
                     dotcore::composition::ServerConfiguration {
-                        management_bind_address: bind_address_at(bind_address),
-                        inference_bind_address: bind_address_at(bind_address),
+                        management_bind_address: bind_address_at(bind_address, 0),
+                        inference_bind_address: bind_address_at(bind_address, inference_port),
                         private_listener: test_private_listener(),
                         allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],
                     },

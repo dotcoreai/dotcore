@@ -13,7 +13,10 @@ use std::{
 
 use dotcore_domain::{
     ExecutionPlatform, HostResolver, SiteNodeHost, SystemHostResolver,
-    test_support::host_resolver::FakeHostResolver,
+    test_support::{
+        host_resolver::FakeHostResolver,
+        ports::{ReservedPort, reserve_port},
+    },
 };
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::dotcore::{
@@ -253,6 +256,7 @@ async fn a_split_network_join_records_both_addresses() {
     }
     let harness = Harness::start(Options {
         allow_observed_loopback: true,
+        reserved_listener_port: true,
         ..Options::default()
     })
     .await;
@@ -1855,6 +1859,9 @@ struct Options {
     /// Resolver both sides look host names up with; the system resolver when `None`.
     resolver: Option<Arc<FakeHostResolver>>,
     allow_observed_loopback: bool,
+    /// Binds the join listener on a reserved port, for tests that bind the same number on
+    /// another address.
+    reserved_listener_port: bool,
     decisions: Vec<JoinDecision>,
     review_delay: Duration,
     hold_reviews: bool,
@@ -1869,6 +1876,7 @@ impl Default for Options {
             manager_host: None,
             resolver: None,
             allow_observed_loopback: false,
+            reserved_listener_port: false,
             decisions: Vec::new(),
             review_delay: Duration::ZERO,
             hold_reviews: false,
@@ -1883,6 +1891,8 @@ struct Harness {
     fixture: InitializedSite,
     token: JoinToken,
     host_address: SocketAddr,
+    /// Keeps the join listener's number from other test processes while the harness lives.
+    _reserved_port: Option<ReservedPort>,
     approval: Arc<ApprovalScript>,
     site_writer: Arc<RecordingSite>,
     resolver: Arc<dyn HostResolver>,
@@ -1928,9 +1938,13 @@ impl Harness {
     ) -> Self {
         site_writer.set_hooks(options.after_publish, options.failing_publish);
         let identity = site_writer.inner.host_identity().expect("manager identity");
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-            .await
-            .expect("join listener");
+        let reserved_port = options.reserved_listener_port.then(reserve_port);
+        let listener = TcpListener::bind((
+            Ipv4Addr::LOCALHOST,
+            reserved_port.as_ref().map_or(0, ReservedPort::port),
+        ))
+        .await
+        .expect("join listener");
         let host_address = listener.local_addr().expect("listener address");
         let token_host = options
             .manager_host
@@ -1968,6 +1982,7 @@ impl Harness {
             fixture,
             token,
             host_address,
+            _reserved_port: reserved_port,
             approval,
             site_writer,
             resolver,

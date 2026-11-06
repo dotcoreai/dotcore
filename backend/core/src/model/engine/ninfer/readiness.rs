@@ -335,11 +335,8 @@ mod tests {
 
     #[tokio::test]
     async fn refused_connection_is_not_ready() {
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-            .await
-            .expect("loopback listener");
-        let port = listener.local_addr().expect("listener address").port();
-        drop(listener);
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let port = reserved.port();
 
         assert!(
             !is_ready(&endpoint(port), "qwen3-8-27b")

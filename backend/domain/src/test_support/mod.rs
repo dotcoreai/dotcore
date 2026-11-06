@@ -6,6 +6,7 @@ pub mod host_resolver;
 pub mod model;
 pub mod nix;
 pub mod oci;
+pub mod ports;
 pub mod tracing;
 
 /// Returns the system temporary directory with symlinks resolved, because the product rejects

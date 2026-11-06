@@ -1041,7 +1041,7 @@ struct WorkerHealthServer {
     address: SocketAddr,
     task: tokio::task::JoinHandle<()>,
     /// Held because a split-network forwarder binds the same port on another loopback address.
-    _port: support::ports::ReservedPort,
+    _port: dotcore_domain::test_support::ports::ReservedPort,
 }
 
 impl WorkerHealthServer {
@@ -1050,7 +1050,7 @@ impl WorkerHealthServer {
         if !support::worker_loopback_address_available() {
             return None;
         }
-        let port = support::ports::reserve_port();
+        let port = dotcore_domain::test_support::ports::reserve_port();
         let listener = tokio::net::TcpListener::bind((support::WORKER_LOOPBACK_HOST, port.port()))
             .await
             .expect("worker readiness listener");

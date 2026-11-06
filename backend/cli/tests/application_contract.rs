@@ -335,9 +335,8 @@ fn an_unknown_or_ambiguous_reference_fails_with_exit_code_1() {
 
 #[test]
 fn an_unreachable_manager_fails_with_exit_code_1() {
-    let address = std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|listener| listener.local_addr())
-        .expect("free loopback port");
+    let reserved = dotcore::testing::reserve_port();
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], reserved.port()));
 
     let output = dotc_at("application", &address.to_string(), &["list"])
         .output()
