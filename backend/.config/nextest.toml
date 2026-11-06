@@ -2,6 +2,7 @@ nextest-version = { required = "0.9.103" }
 
 [profile.default]
 retries = 0
+fail-fast = false
 
 # Hardware profiles select one class by name prefix and run it serially; run them with
 # `--run-ignored only` through the `test-<class>` recipes.
@@ -29,7 +30,6 @@ test-threads = 1
 
 [profile.diagnostic]
 inherits = "default"
-fail-fast = false
 slow-timeout = "5s"
 
 [profile.diagnostic.junit]
