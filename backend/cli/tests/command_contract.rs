@@ -5588,16 +5588,16 @@ fn join_node(site_dir: &Path, node_dir: &Path, name: &str, host: &str) {
 
 const MANAGER_LIST_BLOCK: &str = "Node\nDOTCORE_NODE_ID=cli-test-node\nDOTCORE_NODE_NAME=CLI test node\nDOTCORE_NODE_ROLE=manager\nDOTCORE_NODE_HOST=127.0.0.2\nDOTCORE_NODE_MANAGER_HOST=default\nDOTCORE_NODE_PIN=own identity\nDOTCORE_NODE_EXECUTION_TARGET=cli-test-target model linux/amd64\nDOTCORE_NODE_EXECUTION_TARGET=cli-test-application-target application linux/amd64\nDOTCORE_NODE_MODEL_DEPLOYMENTS=0\nDOTCORE_NODE_APPLICATION_DEPLOYMENTS=0\n";
 
-/// The joined worker's `node list` block: its simulated models run on the GPU of the default
-/// declared machine, a linux/amd64 desktop, and its simulated applications take this host's
-/// architecture.
+/// The joined worker's `node list` block: its simulated models run on the default simulated GPU,
+/// which the declared machine puts on a Linux host of this machine's architecture, and its
+/// simulated applications take that architecture too.
 fn worker_list_block() -> String {
     let platform = match std::env::consts::ARCH {
         "aarch64" => "linux/arm64",
         _ => "linux/amd64",
     };
     format!(
-        "Node\nDOTCORE_NODE_ID=node-7b836d678d251736\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_ROLE=worker\nDOTCORE_NODE_HOST=127.0.0.3\nDOTCORE_NODE_MANAGER_HOST=default\nDOTCORE_NODE_PIN=yes\nDOTCORE_NODE_EXECUTION_TARGET=execution-target-7182af3d809190c5-simulated-4d747ac0 model linux/amd64\nDOTCORE_NODE_EXECUTION_TARGET=application-execution-target-7182af3d809190c5-simulated application {platform}\nDOTCORE_NODE_MODEL_DEPLOYMENTS=0\nDOTCORE_NODE_APPLICATION_DEPLOYMENTS=0\n"
+        "Node\nDOTCORE_NODE_ID=node-7b836d678d251736\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_ROLE=worker\nDOTCORE_NODE_HOST=127.0.0.3\nDOTCORE_NODE_MANAGER_HOST=default\nDOTCORE_NODE_PIN=yes\nDOTCORE_NODE_EXECUTION_TARGET=execution-target-7182af3d809190c5-simulated-4d747ac0 model {platform}\nDOTCORE_NODE_EXECUTION_TARGET=application-execution-target-7182af3d809190c5-simulated application {platform}\nDOTCORE_NODE_MODEL_DEPLOYMENTS=0\nDOTCORE_NODE_APPLICATION_DEPLOYMENTS=0\n"
     )
 }
 

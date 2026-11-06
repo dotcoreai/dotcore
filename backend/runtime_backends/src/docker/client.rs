@@ -194,8 +194,14 @@ pub(super) struct LocalDockerClient {
 impl LocalDockerClient {
     /// Connects to the configured local Docker daemon.
     pub(super) fn connect() -> Result<Self, ClientError> {
+        Self::connect_at(&dotcore_domain::docker::local_endpoint())
+    }
+
+    /// Connects to the Docker daemon behind one Unix socket. The connection is lazy: only the
+    /// socket path must exist until the first call.
+    pub(super) fn connect_at(endpoint: &str) -> Result<Self, ClientError> {
         Docker::connect_with_unix(
-            &dotcore_domain::docker::local_endpoint(),
+            endpoint,
             dotcore_domain::docker::DOCKER_CLIENT_TIMEOUT_SECONDS,
             bollard::API_DEFAULT_VERSION,
         )

@@ -952,10 +952,14 @@ mod tests {
         let directory = tempfile::tempdir_in(dotcore_domain::test_support::canonical_temp_dir())
             .expect("data root");
         let data_root = directory.path().to_path_buf();
-        // The Docker client connects lazily; data removal never reaches the daemon here.
+        // The Docker client connects lazily and only checks that its socket path exists, so a
+        // placeholder file stands in for the daemon, which data removal never reaches.
+        let socket = directory.path().join("docker.sock");
+        std::fs::write(&socket, b"").expect("placeholder Docker socket");
         let backend = DockerRuntimeBackend {
             inner: DockerAdapter::new(
-                LocalDockerClient::connect().expect("Docker client"),
+                LocalDockerClient::connect_at(socket.to_str().expect("UTF-8 socket path"))
+                    .expect("Docker client"),
                 DockerRuntimeConfig {
                     application_data_root: data_root.clone(),
                     ..config()
