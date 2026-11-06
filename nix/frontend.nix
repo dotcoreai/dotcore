@@ -30,7 +30,7 @@ let
   frontendNpmDeps = pkgs.fetchNpmDeps {
     name = "dotcore-frontend-npm-deps";
     src = frontendSrc;
-    hash = "sha256-9uR+mZhoEmVAbBu187x1FtrLWyJ6vwvBcj3zcEqKJaA=";
+    hash = "sha256-NSga659NyLgNItZktGbowl0ADXPZParxlDc3Tj6d40w=";
   };
 
   frontendArgs = {

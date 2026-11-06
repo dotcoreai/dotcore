@@ -8,6 +8,7 @@
 use std::{
     fs::File,
     io::{Read, Write},
+    num::NonZeroU16,
     os::{
         fd::{AsRawFd, FromRawFd, RawFd},
         unix::process::CommandExt,
@@ -447,7 +448,11 @@ struct Terminal {
 impl Terminal {
     fn new() -> Self {
         Self {
-            parser: vt100::Parser::new(ROWS, COLS, SCROLLBACK_ROWS),
+            parser: vt100::Parser::new(
+                NonZeroU16::new(ROWS).expect("rows are non-zero"),
+                NonZeroU16::new(COLS).expect("columns are non-zero"),
+                SCROLLBACK_ROWS,
+            ),
             shown: String::new(),
         }
     }
