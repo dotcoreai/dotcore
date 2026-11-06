@@ -26,7 +26,8 @@ to it instead of repeating it. This file owns the repository-wide rules and the 
 - `installer/`: the guided host installer. [`installer/AGENTS.md`](installer/AGENTS.md)
 - `dev/`: the development stack, workspace environment, development site, remote hosts and
   cluster. [`dev/AGENTS.md`](dev/AGENTS.md)
-- `ci/`: the recipes CI runs (`just ci::check`); the workflows live in `.github/workflows/`.
+- `ci/`: the recipes CI runs (`just ci::check`). The workflows live in `.github/workflows/`;
+  [`.github/AGENTS.md`](.github/AGENTS.md) owns their rules.
 - `docs/`: the user guides, the development guides (`docs/development/`), and the design documents
   in `docs/architecture/` and `docs/product/`, each with its own `AGENTS.md`.
 - `utils/`: standalone tools with no build integration; each has its own README.
