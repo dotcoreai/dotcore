@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/selector.proto.
  */
 export const file_dotcore_catalog_v1_selector: GenFile = /*@__PURE__*/
-  fileDesc("CiFkb3Rjb3JlL2NhdGFsb2cvdjEvc2VsZWN0b3IucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSLUAQoIU2VsZWN0b3ISMQoIcGxhdGZvcm0YASABKAsyHy5kb3Rjb3JlLmNhdGFsb2cudjEuT2NpUGxhdGZvcm0SFAoMYWNjZWxlcmF0b3JzGAIgAygJEisKI21pbmltdW1fbnZpZGlhX2RyaXZlcl9tYWpvcl92ZXJzaW9uGAMgASgNElIKE21lbW9yeV9hcmNoaXRlY3R1cmUYBCABKA4yNS5kb3Rjb3JlLm9ic2VydmF0aW9uLnYxLkFjY2VsZXJhdG9yTWVtb3J5QXJjaGl0ZWN0dXJlYgZwcm90bzM", [file_dotcore_catalog_v1_oci, file_dotcore_observation_v1_observation]);
+  fileDesc("CiFkb3Rjb3JlL2NhdGFsb2cvdjEvc2VsZWN0b3IucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSLrAQoIU2VsZWN0b3ISMQoIcGxhdGZvcm0YASABKAsyHy5kb3Rjb3JlLmNhdGFsb2cudjEuT2NpUGxhdGZvcm0SFAoMYWNjZWxlcmF0b3JzGAIgAygJEisKI21pbmltdW1fbnZpZGlhX2RyaXZlcl9tYWpvcl92ZXJzaW9uGAMgASgNElIKE21lbW9yeV9hcmNoaXRlY3R1cmUYBCABKA4yNS5kb3Rjb3JlLm9ic2VydmF0aW9uLnYxLkFjY2VsZXJhdG9yTWVtb3J5QXJjaGl0ZWN0dXJlEhUKDWRldmljZV9tb2RlbHMYBSADKAliBnByb3RvMw", [file_dotcore_catalog_v1_oci, file_dotcore_observation_v1_observation]);
 
 /**
  * Typed condition over an execution target's platform and observed facts. A dimension the
@@ -50,6 +50,14 @@ export type Selector = Message<"dotcore.catalog.v1.Selector"> & {
    * @generated from field: dotcore.observation.v1.AcceleratorMemoryArchitecture memory_architecture = 4;
    */
   memoryArchitecture: AcceleratorMemoryArchitecture;
+
+  /**
+   * Accelerator product names, exactly as reported; every device the target uses must report one.
+   * Only hardware classes set it, with an accelerator vendor.
+   *
+   * @generated from field: repeated string device_models = 5;
+   */
+  deviceModels: string[];
 };
 
 /**
