@@ -6,7 +6,14 @@ import { gaugePoint, metricSeries, queryResult } from "@/features/metrics/metric
 import { AcceleratorMemoryObservationSchema } from "@/gen/dotcore/deployment/v1/accelerator_memory_pb";
 import { ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
 
-import { deploymentGpus } from "./model-deployment-gpu";
+import { deploymentGpus as gpusOf, modelDeploymentDevices } from "./model-deployment-gpu";
+
+function deploymentGpus(
+  deployments: Parameters<typeof modelDeploymentDevices>[0],
+  utilization: MetricGrid,
+) {
+  return gpusOf(modelDeploymentDevices(deployments), utilization);
+}
 
 describe("deploymentGpus", () => {
   const utilization = grid([

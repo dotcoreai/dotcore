@@ -13,7 +13,13 @@ import { type MetricHistoryQuery, useMetricAnswers } from "@/features/metrics/us
 import type { AcceleratorMemoryDeviceUsage } from "@/gen/dotcore/deployment/v1/accelerator_memory_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 
-/** The GPU use of the devices a model deployment runs on. */
+/** A GPU as a metrics series names it: the machine it sits in and its device identity. */
+export interface GpuDeviceRef {
+  deviceId: string;
+  managedNodeId: string;
+}
+
+/** The GPU use of the devices a deployment runs on. */
 export interface DeploymentGpu {
   /** Whether another listed deployment measures memory on one of the same devices. */
   shared: boolean;
@@ -22,15 +28,16 @@ export interface DeploymentGpu {
 }
 
 /**
- * The GPU use of each listed model deployment, watched live in one small stream of per-device
- * utilization. The stream opens only while some deployment measures memory on a device.
+ * The GPU use of each listed deployment, given the devices its accelerator memory is measured on
+ * by deployment id, watched live in one small stream of per-device utilization. The stream opens
+ * only while some deployment measures memory on a device.
  */
 export function useDeploymentGpus(
   client: MetricsClient,
-  deployments: readonly ModelDeployment[],
+  devicesById: ReadonlyMap<string, readonly GpuDeviceRef[]>,
 ): ReadonlyMap<string, DeploymentGpu> {
   const paused = useMetricsPausedByLogs();
-  const measured = deployments.some((deployment) => measuredDevices(deployment).length > 0);
+  const measured = [...devicesById.values()].some((devices) => devices.length > 0);
   const watch = useMetricAnswers(
     client,
     measured ? utilizationQueries : [],
@@ -39,7 +46,7 @@ export function useDeploymentGpus(
   );
   const grid = watch?.value?.[0]?.grid;
 
-  return useMemo(() => deploymentGpus(deployments, grid), [deployments, grid]);
+  return useMemo(() => deploymentGpus(devicesById, grid), [devicesById, grid]);
 }
 
 /**
@@ -48,14 +55,11 @@ export function useDeploymentGpus(
  * same value and are marked as shared. A deployment with no measured device is absent.
  */
 export function deploymentGpus(
-  deployments: readonly ModelDeployment[],
+  devicesById: ReadonlyMap<string, readonly GpuDeviceRef[]>,
   utilization: MetricGrid | undefined,
 ): Map<string, DeploymentGpu> {
   const devices = new Map(
-    deployments.map((deployment) => [
-      deployment.modelDeploymentId,
-      uniqueDevices(measuredDevices(deployment)),
-    ]),
+    [...devicesById].map(([deploymentId, refs]) => [deploymentId, uniqueDevices(refs)]),
   );
   const users = new Map<string, number>();
   for (const keys of devices.values()) {
@@ -81,6 +85,15 @@ export function deploymentGpus(
   return gpus;
 }
 
+/** The measured devices of each model deployment by id. */
+export function modelDeploymentDevices(
+  deployments: readonly ModelDeployment[],
+): Map<string, AcceleratorMemoryDeviceUsage[]> {
+  return new Map(
+    deployments.map((deployment) => [deployment.modelDeploymentId, measuredDevices(deployment)]),
+  );
+}
+
 /** The devices a deployment's accelerator memory is measured on; none without a measure. */
 export function measuredDevices(deployment: ModelDeployment): AcceleratorMemoryDeviceUsage[] {
   const result = deployment.acceleratorMemory?.result;
@@ -98,8 +111,6 @@ const utilizationQueries: readonly MetricHistoryQuery[] = [
 const utilizationWindow: MetricRange = { ...resourcesCurrentWindow, label: "now" };
 
 /** The devices by their node and device key, each once. */
-function uniqueDevices(
-  devices: readonly AcceleratorMemoryDeviceUsage[],
-): Map<string, AcceleratorMemoryDeviceUsage> {
+function uniqueDevices(devices: readonly GpuDeviceRef[]): Map<string, GpuDeviceRef> {
   return new Map(devices.map((device) => [`${device.managedNodeId}/${device.deviceId}`, device]));
 }

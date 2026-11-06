@@ -7,6 +7,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ApplicationClient } from "@/api/application-client";
 import type { DeploymentLogOperations } from "@/api/deployment-log-client";
+import type { MetricsClient } from "@/api/metrics-client";
+import {
+  gaugePoint,
+  metricsClientWith,
+  metricSeries,
+  queryResult,
+  staticWatch,
+} from "@/features/metrics/metric-test-support";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
@@ -1300,7 +1308,7 @@ describe("Apps table", () => {
   const GIB = 1024n ** 3n;
 
   /** A running deployment on a named machine, route and endpoint, measured on two services. */
-  function servingDeployment() {
+  function servingDeployment(deviceId = "gpu-0") {
     const application = routeInputApp();
     const serving = deployment(
       application,
@@ -1329,7 +1337,15 @@ describe("Apps table", () => {
         acceleratorMemory: {
           result: {
             case: "available",
-            value: { devices: [{ deviceId: "gpu-0", usedMemoryBytes: usedMemoryBytes as bigint }] },
+            value: {
+              devices: [
+                {
+                  deviceId,
+                  managedNodeId: "worker",
+                  usedMemoryBytes: usedMemoryBytes as bigint,
+                },
+              ],
+            },
           },
         },
         serviceName: serviceName as string,
@@ -1347,92 +1363,232 @@ describe("Apps table", () => {
     );
   }
 
-  function renderTable(initialEntry = "/apps") {
+  function renderTable(initialEntry = "/apps", metrics = resourceWatch()) {
     const serving = servingDeployment();
     const idle = idleDeployment();
     idle.desiredState = ApplicationDeploymentDesiredState.PAUSED;
-    return renderAppsSection({
-      client: clientFor([routeInputApp(), app("notes", "Notes")], [serving, idle]),
-      initialEntry,
-      machines: [{ displayName: "gb10-host-2", machineId: "worker" }],
-    });
+    return {
+      ...renderAppsSection({
+        client: clientFor([routeInputApp(), app("notes", "Notes")], [serving, idle]),
+        initialEntry,
+        machines: [{ displayName: "gb10-host-2", machineId: "worker" }],
+        metricsClient: metrics.client,
+      }),
+      metrics,
+    };
   }
 
-  it("shows each deployment's app, status, machine, route, endpoint and summed VRAM", async () => {
+  /**
+   * A metrics client answering the serving deployment's CPU and memory, and the GPU use of the
+   * device it holds memory on, counting the watch streams it holds open.
+   */
+  function resourceWatch(overrides: Record<string, ReturnType<typeof metricSeries>[]> = {}) {
+    const byMetric: Record<string, ReturnType<typeof metricSeries>[]> = {
+      "application.host.cpu.utilization": [
+        metricSeries({ deployment: "open-webui-deployment" }, [gaugePoint(9, 0.25)]),
+      ],
+      "application.host.memory.used": [
+        metricSeries({ deployment: "open-webui-deployment" }, [gaugePoint(9, 1.5 * 1024 ** 3)]),
+      ],
+      "node.accelerator.utilization": [
+        metricSeries({ device: "gpu-0", node: "worker" }, [gaugePoint(9, 0.6)]),
+      ],
+      ...overrides,
+    };
+    const answer = staticWatch((query) =>
+      queryResult({ series: byMetric[query?.metric ?? ""] ?? [], stepCount: 10 }),
+    );
+    let open = 0;
+    const watch = vi.fn<MetricsClient["metrics"]["watchMetrics"]>((request, options) => {
+      open += 1;
+      options?.signal?.addEventListener("abort", () => (open -= 1));
+      return answer(request, options);
+    });
+
+    return {
+      client: metricsClientWith(watch),
+      open: () => open,
+      queries: (call: number) =>
+        (watch.mock.calls[call][0].queries ?? []).map(({ query }) => [
+          query?.metric,
+          query?.groupBy,
+        ]),
+      watch,
+    };
+  }
+
+  const columnTexts = (table: HTMLElement) =>
+    within(table)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent);
+
+  it("shows each deployment's app, status, machine, endpoint, CPU, RAM, summed VRAM and GPU", async () => {
     renderTable();
 
     const table = await screen.findByRole("table", { name: "Installed applications" });
-    expect(
-      within(table)
-        .getAllByRole("columnheader")
-        .map((header) => header.textContent),
-    ).toEqual(["App", "Status", "Machine", "Route", "Endpoint", "VRAM"]);
+    expect(columnTexts(table)).toEqual([
+      "App",
+      "Status",
+      "Machine",
+      "Endpoint",
+      "CPU",
+      "RAM",
+      "VRAM",
+      "GPU",
+    ]);
     const cellTexts = (name: string) =>
       within(within(table).getByRole("row", { name }))
         .getAllByRole("cell")
         .map((cell) => cell.textContent);
-    expect(cellTexts("Team chat")).toEqual([
-      "Team chatOpenWebUI · 1.0",
-      "Ready",
-      "gb10-host-2",
-      "private-chat",
-      "Open",
-      "4.5 GiB",
+    await waitFor(() =>
+      expect(cellTexts("Team chat")).toEqual([
+        "Team chatOpenWebUI · 1.0",
+        "Ready",
+        "gb10-host-2",
+        "Open",
+        "25%",
+        "1.5 GiB",
+        "4.5 GiB",
+        "60%",
+      ]),
+    );
+    // A deployment with no endpoint, reading or measure reads "—".
+    expect(cellTexts("Notes")).toEqual([
+      "NotesNotes · 1.0",
+      "Paused",
+      "local",
+      "—",
+      "—",
+      "—",
+      "—",
+      "—",
     ]);
-    // A deployment with no route, endpoint or measure reads "—".
-    expect(cellTexts("Notes")).toEqual(["NotesNotes · 1.0", "Paused", "local", "—", "—", "—"]);
   });
 
-  it("links the endpoint in a new tab without opening the panel", async () => {
+  it("marks the GPU as shared when another app holds memory on the same device", async () => {
+    const other = servingDeployment();
+    other.applicationDeploymentId = "other-deployment";
+    other.applicationDeploymentName = "Wiki";
+    renderAppsSection({
+      client: clientFor([routeInputApp()], [servingDeployment(), other]),
+      machines: [{ displayName: "gb10-host-2", machineId: "worker" }],
+      metricsClient: resourceWatch().client,
+    });
+
+    for (const name of ["Team chat", "Wiki"]) {
+      const row = await screen.findByRole("row", { name });
+      await waitFor(() =>
+        expect(within(row).getAllByRole("cell").at(-1)).toHaveTextContent("60%shared"),
+      );
+    }
+  });
+
+  it("keeps the GPU and its shared mark out of an app with no measured device", async () => {
+    renderTable();
+
+    const row = await screen.findByRole("row", { name: "Notes" });
+    expect(within(row).getAllByRole("cell").at(-1)).toHaveTextContent("—");
+    expect(within(row).queryByText("shared")).not.toBeInTheDocument();
+  });
+
+  it("watches CPU and memory by deployment and GPU use in two streams", async () => {
+    const { metrics } = renderTable();
+
+    await screen.findByRole("table", { name: "Installed applications" });
+    await waitFor(() => expect(metrics.open()).toBe(2));
+    expect(metrics.queries(0)).toEqual([
+      ["application.host.cpu.utilization", ["deployment"]],
+      ["application.host.memory.used", ["deployment"]],
+    ]);
+    expect(metrics.queries(1)).toEqual([["node.accelerator.utilization", ["node", "device"]]]);
+    expect(metrics.watch).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers Route in the View menu, hidden by default, and keeps it in the URL", async () => {
     const user = userEvent.setup();
     const { router } = renderTable();
 
-    const link = await screen.findByRole("link", { name: "Open Team chat" });
-    expect(link).toHaveAttribute("href", "http://100.64.0.7:49152");
-    expect(link).toHaveAttribute("target", "_blank");
-    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    const table = await screen.findByRole("table", { name: "Installed applications" });
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const route = within(await screen.findByRole("menu")).getByRole("menuitemcheckbox", {
+      name: "Route",
+    });
+    expect(route).not.toBeChecked();
 
-    // Following the link neither navigates the console nor opens the row's panel.
-    link.addEventListener("click", (event) => event.preventDefault());
-    await user.click(link);
-    expect(currentLocation(router)).toBe("/apps");
-    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    await user.click(route);
+    await user.keyboard("{Escape}");
+
+    expect(columnTexts(table)).toEqual([
+      "App",
+      "Status",
+      "Machine",
+      "Endpoint",
+      "CPU",
+      "RAM",
+      "VRAM",
+      "GPU",
+      "Route",
+    ]);
+    expect(currentLocation(router)).toBe(
+      "/apps?cols=app%2Cstatus%2Cmachine%2Cendpoint%2Ccpu%2Cram%2Cvram%2Cgpu%2Croute",
+    );
+    expect(
+      within(within(table).getByRole("row", { name: "Team chat" }))
+        .getAllByRole("cell")
+        .at(-1),
+    ).toHaveTextContent("private-chat");
+    cleanup();
+
+    renderTable(currentLocation(router));
+    const restored = await screen.findByRole("table", { name: "Installed applications" });
+    expect(columnTexts(restored).at(-1)).toBe("Route");
   });
 
   it.each([
-    ["Enter", "{Enter}"],
-    ["Space", " "],
-  ])("opens a row's panel and marks it selected on %s", async (_name, key) => {
-    const user = userEvent.setup();
-    const { router } = renderTable();
-
-    const row = await screen.findByRole("row", { name: "Team chat" });
-    expect(row).not.toHaveAttribute("data-state");
-    row.focus();
-    await user.keyboard(key);
-
-    expect(await screen.findByRole("complementary", { name: "Team chat" })).toBeVisible();
-    expect(currentLocation(router)).toBe("/apps?panel=apps%2Fdeployment%3Aopen-webui-deployment");
-    expect(row).toHaveAttribute("data-state", "selected");
-    expect(screen.getByRole("row", { name: "Notes" })).not.toHaveAttribute("data-state");
-  });
-
-  it("sorts by status label and machine name", async () => {
-    renderTable("/apps?sort=status");
-    await screen.findByRole("row", { name: "Notes" });
+    ["cpu", ["Team chat", "Wiki", "Notes"], ["Wiki", "Team chat", "Notes"]],
+    ["ram", ["Wiki", "Team chat", "Notes"], ["Team chat", "Wiki", "Notes"]],
+    ["gpu", ["Wiki", "Team chat", "Notes"], ["Team chat", "Wiki", "Notes"]],
+  ])("sorts by %s value, apps without a value last", async (key, ascending, descending) => {
+    const wiki = servingDeployment("gpu-1");
+    wiki.applicationDeploymentId = "wiki-deployment";
+    wiki.applicationDeploymentName = "Wiki";
+    const notes = idleDeployment();
+    const metrics = resourceWatch({
+      "application.host.cpu.utilization": [
+        metricSeries({ deployment: "open-webui-deployment" }, [gaugePoint(9, 0.25)]),
+        metricSeries({ deployment: "wiki-deployment" }, [gaugePoint(9, 0.5)]),
+      ],
+      "application.host.memory.used": [
+        metricSeries({ deployment: "open-webui-deployment" }, [gaugePoint(9, 3 * 1024 ** 3)]),
+        metricSeries({ deployment: "wiki-deployment" }, [gaugePoint(9, 1024 ** 3)]),
+      ],
+      "node.accelerator.utilization": [
+        metricSeries({ device: "gpu-0", node: "worker" }, [gaugePoint(9, 0.6)]),
+        metricSeries({ device: "gpu-1", node: "worker" }, [gaugePoint(9, 0.2)]),
+      ],
+    });
     const names = () =>
       screen
         .getAllByRole("row")
         .slice(1)
         .map((row) => row.getAttribute("aria-label"));
-    // "Paused" sorts after "Ready".
-    expect(names()).toEqual(["Notes", "Team chat"]);
+    const render = (sort: string) =>
+      renderAppsSection({
+        client: clientFor(
+          [routeInputApp(), app("notes", "Notes")],
+          [servingDeployment(), wiki, notes],
+        ),
+        initialEntry: `/apps?sort=${sort}`,
+        machines: [{ displayName: "gb10-host-2", machineId: "worker" }],
+        metricsClient: metrics.client,
+      });
+
+    render(key);
+    await waitFor(() => expect(names()).toEqual(ascending));
     cleanup();
 
-    renderTable("/apps?sort=machine");
-    await screen.findByRole("row", { name: "Notes" });
-    // "gb10-host-2" sorts before "local".
-    expect(names()).toEqual(["Team chat", "Notes"]);
+    render(`-${key}`);
+    await waitFor(() => expect(names()).toEqual(descending));
   });
 
   it("filters by status and machine from the view", async () => {

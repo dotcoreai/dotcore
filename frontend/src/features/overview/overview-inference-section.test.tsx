@@ -77,13 +77,14 @@ describe("OverviewInferenceSection", () => {
     const { metrics } = renderSection(metricsClientWith(watchMetrics));
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
 
-    // Eight inference queries for six cards and seventeen machine queries for seven cards (a mean
-    // and an extreme per gauge), plus each inference card regrouped for the model and route
-    // splits; the machine cards chart their split from their own answers.
+    // Eight inference queries for six cards, three app queries for three cards and seventeen
+    // machine queries for seven cards (a mean and an extreme per gauge), plus each inference card
+    // regrouped for the model and route splits; the app and machine cards chart their split from
+    // their own answers.
     expect(watchMetrics).toHaveBeenCalledTimes(1);
     const queries = watchMetrics.mock.calls[0][0].queries ?? [];
-    expect(queries.length).toBe(8 + 17 + inferenceCardIds.length * 2);
-    expect(overviewCardSpecs().reduce((count, spec) => count + spec.queries.length, 0)).toBe(25);
+    expect(queries.length).toBe(8 + 3 + 17 + inferenceCardIds.length * 2);
+    expect(overviewCardSpecs().reduce((count, spec) => count + spec.queries.length, 0)).toBe(28);
 
     await user.click(screen.getByRole("button", { name: /^Requests/ }));
     await user.click(screen.getByRole("radio", { name: "Total" }));

@@ -2,8 +2,10 @@ import { ActivityIcon, ServerIcon } from "lucide-react";
 import type { MouseEvent } from "react";
 
 import type { DataTableUiDefinition } from "@/components/data-table/data-table";
+import { formatChartValue } from "@/components/metrics/time-series-chart/chart-data";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
+import type { DeploymentGpu } from "@/features/models/model-deployment-gpu";
 import type { DataTableDefinition } from "@/lib/data-table-model";
 import { createDataTableViewCodec } from "@/lib/data-table-view";
 import { formatBytes } from "@/lib/format";
@@ -13,7 +15,7 @@ import { applicationInspectorPanelId } from "./application-inspector-panel";
 
 /** A column of the Apps table, in display order. */
 export type ApplicationDeploymentColumnId =
-  "app" | "status" | "machine" | "route" | "endpoint" | "vram";
+  "app" | "status" | "machine" | "endpoint" | "cpu" | "ram" | "vram" | "gpu" | "route";
 
 /** A filter field of the Apps table. */
 export type ApplicationDeploymentField = "status" | "machine";
@@ -44,8 +46,21 @@ export const applicationDeploymentTableDefinition: DataTableDefinition<
       label: "Machine",
       sort: { kind: "text", value: (row) => row.machineName },
     },
-    { defaultVisible: true, id: "route", key: "route", label: "Route" },
     { defaultVisible: true, id: "endpoint", key: "endpoint", label: "Endpoint" },
+    {
+      defaultVisible: true,
+      id: "cpu",
+      key: "cpu",
+      label: "CPU",
+      sort: { kind: "value", value: (row) => row.cpu },
+    },
+    {
+      defaultVisible: true,
+      id: "ram",
+      key: "ram",
+      label: "RAM",
+      sort: { kind: "value", value: (row) => row.memoryBytes },
+    },
     {
       defaultVisible: true,
       id: "vram",
@@ -56,6 +71,14 @@ export const applicationDeploymentTableDefinition: DataTableDefinition<
         value: (row) => (row.vramBytes === undefined ? undefined : Number(row.vramBytes)),
       },
     },
+    {
+      defaultVisible: true,
+      id: "gpu",
+      key: "gpu",
+      label: "GPU",
+      sort: { kind: "value", value: (row) => row.gpu?.utilization },
+    },
+    { id: "route", key: "route", label: "Route" },
   ],
   defaultSort: { column: "app", direction: "asc" },
   fields: [
@@ -102,17 +125,28 @@ export const applicationDeploymentTableUi: DataTableUiDefinition<
   codec: applicationDeploymentViewCodec,
   columns: {
     app: { cell: ({ row }) => appCell(row) },
+    cpu: {
+      cell: ({ row }) =>
+        figure(row.cpu === undefined ? undefined : formatChartValue("ratio", row.cpu)),
+      showFrom: "40rem",
+    },
     endpoint: { cell: ({ row }) => endpointCell(row), showFrom: "34rem" },
+    gpu: { cell: ({ row }) => gpuCell(row.gpu), showFrom: "46rem" },
     machine: { cell: ({ row }) => machineCell(row), showFrom: "32rem" },
+    ram: {
+      cell: ({ row }) =>
+        figure(
+          row.memoryBytes === undefined
+            ? undefined
+            : formatBytes(BigInt(Math.round(row.memoryBytes))),
+        ),
+      showFrom: "40rem",
+    },
     route: { cell: ({ row }) => textOrDash(row.routeName), showFrom: "40rem" },
     status: { cell: ({ row }) => <StatusBadge status={row.status} /> },
     vram: {
       cell: ({ row }) =>
-        row.vramBytes === undefined ? (
-          dash
-        ) : (
-          <span className="tabular-nums">{formatBytes(row.vramBytes)}</span>
-        ),
+        figure(row.vramBytes === undefined ? undefined : formatBytes(row.vramBytes)),
       showFrom: "46rem",
     },
   },
@@ -130,6 +164,25 @@ const dash = <span className="text-muted-foreground">—</span>;
 
 function textOrDash(value: string | undefined) {
   return value ? <span>{value}</span> : dash;
+}
+
+function figure(text: string | undefined) {
+  return text === undefined ? dash : <span className="tabular-nums">{text}</span>;
+}
+
+function gpuCell(gpu: DeploymentGpu | undefined) {
+  if (!gpu) return dash;
+
+  return (
+    <>
+      <div>
+        {figure(
+          gpu.utilization === undefined ? undefined : formatChartValue("ratio", gpu.utilization),
+        )}
+      </div>
+      {gpu.shared ? <div className="mt-0.5 text-xs text-muted-foreground">shared</div> : null}
+    </>
+  );
 }
 
 function appCell(row: ApplicationDeploymentRow) {
