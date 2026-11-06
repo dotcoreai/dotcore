@@ -2,6 +2,8 @@ name: CI
 
 on:
   pull_request:
+    # Labeled: adding `ci:macos` to an open PR starts a run with macOS.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
   workflow_dispatch:
@@ -10,12 +12,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # Other labels get their own group, so they don't cancel the PR's run.
+  group: ${{ github.event.action == 'labeled' && github.event.label.name != 'ci:macos' && github.run_id || format('ci-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
     name: ${{ matrix.task.name }} (${{ matrix.runner }})
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci:macos'
     strategy:
       fail-fast: false
       matrix:
@@ -25,7 +29,8 @@ jobs:
           - { name: backend test 1/2, recipe: "backend::ci-test", part: "1/2", cargo: test }
           - { name: backend test 2/2, recipe: "backend::ci-test", part: "2/2", cargo: test }
           - { name: dev, recipe: "dev::ci-check", nix-upload: true }
-        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+        # macOS runners are few and queue under load: PRs use them only with the `ci:macos` label.
+        runner: ${{ fromJSON((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos')) && '["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"]' || '["ubuntu-24.04", "ubuntu-24.04-arm"]') }}
         # Platform-independent checks run on x86_64 Linux only.
         include:
           - runner: ubuntu-24.04
