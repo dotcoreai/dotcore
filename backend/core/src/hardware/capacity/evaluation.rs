@@ -326,6 +326,27 @@ pub(crate) fn below_device_minimum(
     })
 }
 
+/// Combines a configuration's declared minimums with extra ones a caller adds on top, such as a
+/// model recommendation's, into the larger of each: the result is above a pool's total whenever
+/// either one is. Absent when neither declares any; a zero value sets no minimum.
+pub(crate) fn combined_minimums(
+    declared: Option<&HardwareRequirements>,
+    extra: Option<&HardwareRequirements>,
+) -> Option<HardwareRequirements> {
+    match (declared, extra) {
+        (None, None) => None,
+        (Some(minimums), None) | (None, Some(minimums)) => Some(*minimums),
+        (Some(declared), Some(extra)) => Some(HardwareRequirements {
+            minimum_system_memory_bytes: declared
+                .minimum_system_memory_bytes
+                .max(extra.minimum_system_memory_bytes),
+            minimum_memory_bytes_per_device: declared
+                .minimum_memory_bytes_per_device
+                .max(extra.minimum_memory_bytes_per_device),
+        }),
+    }
+}
+
 /// Judges a pool's share of a demand and the declared minimums it can be compared with: a minimum
 /// above its total exceeds it, otherwise the share fits when it is at most what the policy lets it
 /// use, and a missing share or pool fact is unknown.

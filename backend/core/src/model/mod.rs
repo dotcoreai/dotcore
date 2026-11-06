@@ -15,6 +15,14 @@ pub mod domain;
 pub mod engine;
 pub(crate) mod engine_pin;
 mod placement_preview;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the site recommendation read and the no-site path call it next"
+    )
+)]
+mod recommendation;
 pub mod repository;
 pub mod resolution;
 pub mod resolved;

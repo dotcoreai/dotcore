@@ -20,8 +20,8 @@ use super::{
     DeviceMemory, Estimate, HostMemory, NodeHardware, Occupancy, Policy, Pool, PoolDevice,
     PoolKind, PoolPreview, PoolView, Segment, SegmentSource,
     StartingTotalContext::{LargestFit, ProfileDefault},
-    TargetCapacity, Workload, WorkloadKey, WorkloadPhase, demand, fit, largest_total_context,
-    preview, starting_total_context,
+    TargetCapacity, Workload, WorkloadKey, WorkloadPhase, combined_minimums, demand, fit,
+    largest_total_context, preview, starting_total_context,
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -1341,6 +1341,23 @@ fn a_missing_accelerator_estimate_or_total_reads_unknown() {
         on_total(Unified, None, Some(0), Some(0), Some(&minimums(POOL, POOL))),
         Unknown,
         "a minimum needs a total to compare"
+    );
+}
+
+#[test]
+fn extra_minimums_raise_each_declared_minimum_they_exceed() {
+    let declared = minimums(16 * GIB, 64 * GIB);
+    assert_eq!(combined_minimums(None, None), None);
+    assert_eq!(combined_minimums(Some(&declared), None), Some(declared));
+    assert_eq!(combined_minimums(None, Some(&declared)), Some(declared));
+    // Each field keeps the larger value; a zero sets none.
+    assert_eq!(
+        combined_minimums(Some(&declared), Some(&minimums(24 * GIB, 0))),
+        Some(minimums(24 * GIB, 64 * GIB))
+    );
+    assert_eq!(
+        combined_minimums(Some(&declared), Some(&minimums(8 * GIB, 96 * GIB))),
+        Some(minimums(16 * GIB, 96 * GIB))
     );
 }
 
