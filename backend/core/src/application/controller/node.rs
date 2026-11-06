@@ -99,6 +99,9 @@ pub(crate) struct NodeApplicationComposition {
 
     /// Hardware collections of this node, which its application resources are attributed from.
     pub(crate) inventory: Arc<dyn HardwareInventorySource>,
+
+    /// When the realizer's observer runs its next reconciliation pass.
+    pub(crate) reconcile: dotcore_domain::timing::ReconcileSchedule,
 }
 
 /// Composed node apps-controller realizer, the status owner reporting what it realized, and
@@ -125,6 +128,7 @@ impl NodeApplicationRealizer {
             publication_host,
             preparation_logs,
             inventory,
+            reconcile,
         } = composition;
         if publication_host.is_unspecified() {
             return Err(configuration(
@@ -170,6 +174,7 @@ impl NodeApplicationRealizer {
                 },
                 accelerator_attribution: Some(accelerator_attribution.clone()),
                 resource_attribution: Some(resource_attribution.clone()),
+                reconcile,
             },
         );
         Ok(Self {
@@ -2742,6 +2747,7 @@ mod tests {
                 publication_host: Ipv4Addr::LOCALHOST,
                 preparation_logs: self.preparation_logs(),
                 inventory: Arc::new(HardwareInventoryPublisher::new().1),
+                reconcile: dotcore_domain::timing::Timing::production().application_reconcile,
             })
             .expect("node realizer")
         }

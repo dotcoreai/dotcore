@@ -1271,6 +1271,7 @@ where
                 inference_route_resolver,
                 accelerator_attribution: None,
                 resource_attribution: None,
+                reconcile: dotcore_domain::timing::Timing::production().application_reconcile,
                 node: super::realizer::NodeRealization {
                     records,
                     reconciled: ReconciledAssignments::default(),

@@ -13,7 +13,10 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::diagnostic::diagnostic_chain;
+use dotcore_domain::{
+    diagnostic::diagnostic_chain,
+    timing::{ReconcileCadence, ReconciliationState, Timing},
+};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentStatus,
 };
@@ -25,7 +28,6 @@ use tracing::{Instrument, debug, error, field, info};
 
 use super::{
     DesiredDeploymentRepository, ModelLifecycleError, is_upstream_deployment,
-    reconciliation::{ReconcileCadence, ReconciliationState},
     serving_targets::{ServingTarget, ServingTargetsPublisher, upstream_serving_targets},
     state::{
         current_error, deployment_status_state, desired_error, is_absent, loading_state,
@@ -560,7 +562,8 @@ where
     D: DesiredDeploymentRepository,
     S: CurrentStateRepository,
 {
-    let mut cadence = ReconcileCadence::new();
+    // The site manager's upstream observer runs the production schedule under every timing.
+    let mut cadence = ReconcileCadence::new(Timing::production().model_reconcile);
     loop {
         let Some(reconciler) = reconciler.upgrade() else {
             info!(

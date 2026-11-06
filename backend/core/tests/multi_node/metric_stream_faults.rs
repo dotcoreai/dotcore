@@ -9,7 +9,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use dotcore::testing::LIVENESS_TTL;
+use dotcore::testing::Timing;
 use dotcore_proto::{
     dotcore::{
         metrics::v1::{
@@ -30,11 +30,19 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const HISTORY_RANGE_SECONDS: i64 = 120;
 /// Time after the outage a skip of its last seconds may still be logged in.
 const SKIP_LOG_GRACE_MILLIS: i64 = 2_000;
+/// Manager liveness window of the outage test, long enough for the outage to span whole buckets.
+const OUTAGE_LIVENESS_TTL: Duration = Duration::from_secs(5);
 
 #[tokio::test]
 async fn a_silent_manager_path_leaves_no_gap_and_no_double_count_after_it_recovers() {
     let Some(harness) = support::TwoProcessObservationHarness::start_split(
-        support::ProcessTestControls::default(),
+        support::ProcessTestControls {
+            timing: Timing {
+                node_liveness_ttl: OUTAGE_LIVENESS_TTL,
+                ..Timing::test()
+            },
+            ..support::ProcessTestControls::default()
+        },
         support::ProcessTestControls::default(),
         &[],
     ) else {
@@ -69,7 +77,7 @@ async fn a_silent_manager_path_leaves_no_gap_and_no_double_count_after_it_recove
     // The worker was last heard up to a second before the path went silent, and the partial
     // seconds at both ends are not whole buckets.
     assert!(
-        outage.len() as u64 >= LIVENESS_TTL.as_secs() - 3,
+        outage.len() as u64 >= OUTAGE_LIVENESS_TTL.as_secs() - 3,
         "the outage {outage_start}..{outage_end} spans the liveness window"
     );
     let worker_root = harness.worker().site_root().to_owned();

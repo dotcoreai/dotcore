@@ -12,7 +12,10 @@
 use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
-use dotcore_domain::clock::{Clock, next_boundary};
+use dotcore_domain::{
+    clock::{Clock, next_boundary},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     application::private::v1::ApplicationCleanupDisposition,
     model::private::v1::ModelCleanupDisposition,
@@ -52,25 +55,8 @@ use crate::{
     },
 };
 
-/// Default pause after the node's last message before it sends a heartbeat.
-const DEFAULT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
-
-/// Default manager silence after which the node reopens its stream: three missed publications at
-/// the manager's default republish interval.
-const DEFAULT_MANAGER_SILENCE_BOUND: Duration = Duration::from_secs(60);
-
-/// Default pause between the node's checks for a changed status that no change signal announced,
-/// such as a new memory reading.
-const DEFAULT_STATUS_CHECK_INTERVAL: Duration = Duration::from_secs(1);
-
-/// Window in which status triggers share one message, ending at a wall-second boundary.
-const STATUS_COALESCE_INTERVAL: Duration = Duration::from_secs(1);
-
 /// Messages the node queues toward its stream before it waits for the transport.
 const OUTBOUND_MESSAGES: usize = 16;
-
-/// First pause before the node reopens a stream that failed or ended.
-const INITIAL_RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
 /// One node process's control exchange with the site manager, reopened for as long as it runs.
 ///
@@ -173,11 +159,13 @@ impl NodeControlSession {
             acknowledgement_sequence: 1,
             status_rejected: false,
         };
-        let mut backoff = RetryBackoff::default();
+        let mut backoff = RetryBackoff::new(self.configuration.retry_backoff);
         loop {
             match self.serve_stream(&mut cursors, &mut triggers).await {
                 StreamOutcome::NotOpened => {}
-                StreamOutcome::Ended => backoff = RetryBackoff::default(),
+                StreamOutcome::Ended => {
+                    backoff = RetryBackoff::new(self.configuration.retry_backoff);
+                }
                 StreamOutcome::Stopped => return,
             }
             backoff.wait(self.clock.as_ref()).await;
@@ -571,7 +559,8 @@ impl NodeControlSession {
     fn request_status(&self, link: &mut StreamLink) {
         link.status_wanted = true;
         if link.status_due.is_none() {
-            link.status_due = Some(self.aligned_deadline(STATUS_COALESCE_INTERVAL));
+            link.status_due =
+                Some(self.aligned_deadline(self.configuration.status_coalesce_window));
         }
     }
 
@@ -774,38 +763,40 @@ pub struct NodeControlSessionConfiguration {
     heartbeat_interval: Duration,
     manager_silence_bound: Duration,
     status_check_interval: Duration,
+    status_coalesce_window: Duration,
+    retry_backoff: Duration,
 }
 
 impl NodeControlSessionConfiguration {
-    /// Sends a heartbeat after `heartbeat_interval` without any other message, and reopens the
-    /// stream after `manager_silence_bound` without any manager message, which also bounds the
-    /// wait for the manager's answer to an open. A changed status is looked for at every wall-second
-    /// boundary, and triggered statuses go out at the next one.
-    pub fn new(
-        heartbeat_interval: Duration,
-        manager_silence_bound: Duration,
-    ) -> Result<Self, NodeControlSessionConfigurationError> {
-        if heartbeat_interval.is_zero() || manager_silence_bound.is_zero() {
+    /// Takes the stream's schedule from `timing`. The node sends a heartbeat after an idle
+    /// heartbeat interval, and reopens the stream after the manager stays silent past its bound,
+    /// which also bounds the wait for the manager's answer to an open. A changed status is looked
+    /// for at every wall-aligned check slot, and triggered statuses go out at the end of the
+    /// current wall-aligned coalesce window.
+    pub fn new(timing: &Timing) -> Result<Self, NodeControlSessionConfigurationError> {
+        let configuration = Self {
+            heartbeat_interval: timing.node_heartbeat_interval,
+            manager_silence_bound: timing.manager_silence_bound,
+            status_check_interval: timing.node_status_check_interval,
+            status_coalesce_window: timing.node_status_coalesce_window,
+            retry_backoff: timing.node_stream_retry_backoff,
+        };
+        if [
+            configuration.heartbeat_interval,
+            configuration.manager_silence_bound,
+            configuration.status_check_interval,
+            configuration.status_coalesce_window,
+            configuration.retry_backoff,
+        ]
+        .iter()
+        .any(Duration::is_zero)
+        {
             return Err(NodeControlSessionConfigurationError);
         }
-        Ok(Self {
-            heartbeat_interval,
-            manager_silence_bound,
-            status_check_interval: DEFAULT_STATUS_CHECK_INTERVAL,
-        })
+        Ok(configuration)
     }
 
-    /// Pause after the node's last message before it sends a heartbeat.
-    pub fn heartbeat_interval(&self) -> Duration {
-        self.heartbeat_interval
-    }
-
-    /// Manager silence after which the node reopens its stream.
-    pub fn manager_silence_bound(&self) -> Duration {
-        self.manager_silence_bound
-    }
-
-    /// Checks for an unannounced status change every `interval` instead of every second.
+    /// Checks for an unannounced status change every `interval` instead.
     #[cfg(test)]
     fn with_status_check_interval(mut self, interval: Duration) -> Self {
         self.status_check_interval = interval;
@@ -813,19 +804,9 @@ impl NodeControlSessionConfiguration {
     }
 }
 
-impl Default for NodeControlSessionConfiguration {
-    fn default() -> Self {
-        Self {
-            heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
-            manager_silence_bound: DEFAULT_MANAGER_SILENCE_BOUND,
-            status_check_interval: DEFAULT_STATUS_CHECK_INTERVAL,
-        }
-    }
-}
-
 /// An invalid node control stream timing.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("the node heartbeat interval and manager silence bound must be nonzero")]
+#[error("every node control stream interval and bound must be nonzero")]
 pub struct NodeControlSessionConfigurationError;
 
 /// The node's latest observation, shared between its reporter and its control stream: the stream
@@ -1074,15 +1055,11 @@ struct RetryBackoff {
     next: Duration,
 }
 
-impl Default for RetryBackoff {
-    fn default() -> Self {
-        Self {
-            next: INITIAL_RETRY_BACKOFF,
-        }
-    }
-}
-
 impl RetryBackoff {
+    fn new(initial: Duration) -> Self {
+        Self { next: initial }
+    }
+
     async fn wait(&mut self, clock: &dyn Clock) {
         clock.sleep_until(clock.now() + self.next).await;
         self.next = (self.next * 2).min(Duration::from_millis(u64::from(

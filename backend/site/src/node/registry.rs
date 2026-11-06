@@ -1020,7 +1020,7 @@ mod tests {
             .accept(report(&site, incarnation('1'), 1))
             .expect("first report accepted");
 
-        advance(crate::node::control::LIVENESS_TTL).await;
+        advance(dotcore_domain::timing::Timing::production().node_liveness_ttl).await;
         assert_eq!(state(), NodeConnectionState::Connected);
         assert!(matches!(
             registry.accept(report(&site, incarnation('2'), 1)),
@@ -1047,7 +1047,11 @@ mod tests {
             [incarnation('1')].into_iter().collect()
         );
         assert_eq!(replacement.connection_state, NodeConnectionState::Connected);
-        advance(crate::node::control::LIVENESS_TTL + Duration::from_millis(1)).await;
+        advance(
+            dotcore_domain::timing::Timing::production().node_liveness_ttl
+                + Duration::from_millis(1),
+        )
+        .await;
         assert_eq!(state(), NodeConnectionState::Disconnected);
     }
 
@@ -1143,7 +1147,11 @@ mod tests {
         };
         assert_eq!(devices(&reading), reported);
 
-        advance(crate::node::control::LIVENESS_TTL + Duration::from_millis(1)).await;
+        advance(
+            dotcore_domain::timing::Timing::production().node_liveness_ttl
+                + Duration::from_millis(1),
+        )
+        .await;
         let memory = registry.node_memory().expect("node memory");
         assert_eq!(
             memory[0],
@@ -1175,7 +1183,7 @@ mod tests {
                     .connection_state
             };
 
-            advance(crate::node::control::LIVENESS_TTL).await;
+            advance(dotcore_domain::timing::Timing::production().node_liveness_ttl).await;
             assert_eq!(
                 state(),
                 NodeConnectionState::Connected,

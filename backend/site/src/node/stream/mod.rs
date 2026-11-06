@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::clock::Clock;
+use dotcore_domain::{clock::Clock, timing::Timing};
 use dotcore_proto::dotcore::site::private::v1::{
     NodeControlMessageKind, NodeControlOpened, NodeControlRejection, NodeControlRejectionCode,
     NodeControllerStatus, NodeDesiredView, NodeObservation, NodeViewAcknowledgement,
@@ -50,9 +50,6 @@ use crate::{
     },
 };
 
-/// Default pause between publications of an unchanged view.
-const DEFAULT_REPUBLISH_INTERVAL: Duration = Duration::from_secs(20);
-
 /// Default number of replies a stream queues before its node is considered not to read them.
 const DEFAULT_OUTBOUND_REPLIES: usize = 32;
 
@@ -61,7 +58,8 @@ const DEFAULT_OUTBOUND_REPLIES: usize = 32;
 const MISSED_PUBLICATIONS_BEFORE_REOPEN: u32 = 3;
 
 const _: () = assert!(
-    DEFAULT_REPUBLISH_INTERVAL.as_millis() * MISSED_PUBLICATIONS_BEFORE_REOPEN as u128
+    Timing::production().view_republish_interval.as_millis()
+        * MISSED_PUBLICATIONS_BEFORE_REOPEN as u128
         + (MAXIMUM_RETRY_BACKOFF_MILLIS as u128)
         < (FRESHNESS_WINDOW_SECONDS as u128) * 1_000
 );
@@ -192,7 +190,7 @@ impl NodeControlStreamConfiguration {
 impl Default for NodeControlStreamConfiguration {
     fn default() -> Self {
         Self {
-            republish_interval: DEFAULT_REPUBLISH_INTERVAL,
+            republish_interval: Timing::production().view_republish_interval,
             outbound_replies: DEFAULT_OUTBOUND_REPLIES,
         }
     }

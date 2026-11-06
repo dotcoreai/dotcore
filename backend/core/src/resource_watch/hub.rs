@@ -1,5 +1,5 @@
-//! Publishes console-facing owner reads once per manager tick, a short grace after each wall
-//! second.
+//! Publishes console-facing owner reads once per manager tick, a short grace after each
+//! wall-aligned tick slot.
 //!
 //! Each watched resource kind is read from its owner once per tick however many watches follow
 //! it, and only while at least one does; a read whose encoding changed goes to every watch at
@@ -13,7 +13,10 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use dotcore_domain::clock::{Clock, next_boundary};
+use dotcore_domain::{
+    clock::{Clock, next_boundary},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::watch::v1::keyed_resource::Payload;
 use futures_util::future::BoxFuture;
 use tokio::{
@@ -25,9 +28,6 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-
-/// Spacing of manager ticks, aligned on wall seconds.
-const TICK_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Publications a watch may fall behind by before it is cut as lagged: about ten ticks of every
 /// kind changing.
@@ -123,19 +123,30 @@ impl ResourceReads {
 /// Tick and admission settings of the hub.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ResourceWatchConfig {
-    /// Delay after each wall second before the tick reads, so readings of that second arrive.
+    /// Spacing of ticks, aligned on multiples of it since the epoch.
+    pub(crate) tick_interval: Duration,
+
+    /// Delay after each tick slot starts before the tick reads, so readings of that slot arrive.
     pub(crate) grace: Duration,
 
     /// Most watches open at once across the process.
     pub(crate) max_watches: usize,
 }
 
-impl Default for ResourceWatchConfig {
-    fn default() -> Self {
+impl ResourceWatchConfig {
+    /// Ticks on the watch slots of `timing`, admitting the default number of watches.
+    pub(crate) fn new(timing: &Timing) -> Self {
         Self {
-            grace: Duration::from_millis(250),
+            tick_interval: timing.watch_tick_interval,
+            grace: timing.watch_tick_grace,
             max_watches: 256,
         }
+    }
+}
+
+impl Default for ResourceWatchConfig {
+    fn default() -> Self {
+        Self::new(&Timing::production())
     }
 }
 
@@ -159,6 +170,7 @@ impl ResourceWatchHub {
                 manager_session_id,
                 reads,
                 clock,
+                tick_interval: config.tick_interval,
                 grace: config.grace,
                 max_watches: config.max_watches,
                 permits: Arc::new(Semaphore::new(config.max_watches)),
@@ -341,6 +353,7 @@ struct Shared {
     manager_session_id: String,
     reads: ResourceReads,
     clock: Arc<dyn Clock>,
+    tick_interval: Duration,
     grace: Duration,
     max_watches: usize,
     permits: Arc<Semaphore>,
@@ -485,7 +498,7 @@ struct Latest {
     encoding: Vec<u8>,
 }
 
-/// Ticks a grace after every wall second until parked or shut down, starting one read per
+/// Ticks a grace after every tick slot until parked or shut down, starting one read per
 /// watched kind with none in flight. A wall clock stepped across the awaited tick, or a wake
 /// delayed past it, resumes at the next tick after the wall time it observes: never a burst of
 /// catch-up ticks, never a wait for a tick that has passed.
@@ -494,7 +507,7 @@ async fn run(shared: Arc<Shared>, epoch: u64) {
     let mut reads = JoinSet::new();
     loop {
         let wall = shared.clock.wall_now();
-        let due = next_tick_at(wall, shared.grace);
+        let due = next_tick_at(wall, shared.tick_interval, shared.grace);
         let wait = due.duration_since(wall).unwrap_or_default();
         tokio::select! {
             biased;
@@ -503,7 +516,7 @@ async fn run(shared: Arc<Shared>, epoch: u64) {
         }
 
         let woken = shared.clock.wall_now();
-        if woken < due || woken >= due + TICK_INTERVAL {
+        if woken < due || woken >= due + shared.tick_interval {
             continue;
         }
         while reads.try_join_next().is_some() {}
@@ -528,9 +541,9 @@ async fn read_and_publish(shared: Arc<Shared>, epoch: u64, kind: ResourceKind) {
     shared.publish(epoch, kind, result);
 }
 
-/// First tick strictly after `wall`: a wall second plus `grace`.
-fn next_tick_at(wall: SystemTime, grace: Duration) -> SystemTime {
-    next_boundary(wall.checked_sub(grace).unwrap_or(UNIX_EPOCH), TICK_INTERVAL) + grace
+/// First tick strictly after `wall`: a multiple of `interval` since the epoch plus `grace`.
+fn next_tick_at(wall: SystemTime, interval: Duration, grace: Duration) -> SystemTime {
+    next_boundary(wall.checked_sub(grace).unwrap_or(UNIX_EPOCH), interval) + grace
 }
 
 #[cfg(test)]
@@ -871,14 +884,39 @@ mod tests {
     }
 
     #[test]
-    fn ticks_fall_a_grace_after_each_wall_second() {
-        let grace = Duration::from_millis(250);
+    fn production_ticks_fall_a_quarter_second_after_each_wall_second() {
+        let config = ResourceWatchConfig::default();
+        let next = |millis: u64| {
+            next_tick_at(
+                UNIX_EPOCH + Duration::from_millis(millis),
+                config.tick_interval,
+                config.grace,
+            )
+        };
         let at = |millis: u64| UNIX_EPOCH + Duration::from_millis(millis);
 
-        assert_eq!(next_tick_at(at(1_000_000), grace), at(1_000_250));
-        assert_eq!(next_tick_at(at(1_000_249), grace), at(1_000_250));
-        assert_eq!(next_tick_at(at(1_000_250), grace), at(1_001_250));
-        assert_eq!(next_tick_at(at(1_000_900), grace), at(1_001_250));
+        assert_eq!(next(1_000_000), at(1_000_250));
+        assert_eq!(next(1_000_249), at(1_000_250));
+        assert_eq!(next(1_000_250), at(1_001_250));
+        assert_eq!(next(1_000_900), at(1_001_250));
+    }
+
+    #[test]
+    fn test_policy_ticks_fall_a_grace_after_each_wall_aligned_slot() {
+        let config = ResourceWatchConfig::new(&Timing::test());
+        let next = |millis: u64| {
+            next_tick_at(
+                UNIX_EPOCH + Duration::from_millis(millis),
+                config.tick_interval,
+                config.grace,
+            )
+        };
+        let at = |millis: u64| UNIX_EPOCH + Duration::from_millis(millis);
+
+        assert_eq!(next(1_000_000), at(1_000_020));
+        assert_eq!(next(1_000_019), at(1_000_020));
+        assert_eq!(next(1_000_020), at(1_000_120));
+        assert_eq!(next(1_000_090), at(1_000_120));
     }
 }
 
@@ -910,7 +948,7 @@ pub(super) mod test_support {
 
     use super::{
         HubWatch, Publication, PublishedRead, ResourceKind, ResourceRead, ResourceReadError,
-        ResourceReads, ResourceWatchConfig, ResourceWatchHub, TICK_INTERVAL,
+        ResourceReads, ResourceWatchConfig, ResourceWatchHub,
     };
 
     /// Wall second the harness clock starts on, so ticks fall at its quarter seconds.
@@ -934,6 +972,7 @@ pub(super) mod test_support {
         pub(crate) clock: VirtualClock,
         pub(crate) hub: ResourceWatchHub,
         owners: BTreeMap<ResourceKind, Arc<FakeRead>>,
+        tick_interval: Duration,
         grace: Duration,
     }
 
@@ -986,6 +1025,7 @@ pub(super) mod test_support {
                 clock,
                 hub,
                 owners,
+                tick_interval: config.tick_interval,
                 grace: config.grace,
             }
         }
@@ -994,7 +1034,7 @@ pub(super) mod test_support {
         /// stepped.
         pub(crate) async fn tick(&self) {
             self.clock
-                .advance_to_next_wake_within(TICK_INTERVAL + self.grace)
+                .advance_to_next_wake_within(self.tick_interval + self.grace)
                 .await;
         }
 

@@ -30,7 +30,7 @@ backend/
 ├── runtime_backends/  Docker, native and simulated backends, backend registry (dotcore-runtime-backends)
 ├── node_hardware/     node hardware facts, signal sampling, declared machines and the hardware simulated inference offers, in `simulated/` (dotcore-node-hardware)
 ├── observability/     metric descriptors, time-aligned aggregates, metric store boundary and in-memory store, node metric forwarder and bucket stream ingest (dotcore-observability)
-├── domain/            shared primitives, backend clock, fs_sync, shared unit-test support (dotcore-domain)
+├── domain/            shared primitives, backend clock and timing policy, fs_sync, shared unit-test support (dotcore-domain)
 ├── host_process/      raw host process facts (dotcore-host-process)
 ├── launcher/          per-workload process holder binary and its supervisor client (dotcore-launcher)
 ├── nvml/              sole NVML boundary (dotcore-nvml)

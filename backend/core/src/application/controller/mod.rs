@@ -92,7 +92,6 @@ use realizer::ApplicationRealizer;
 pub use serving::{InferenceRouteResolutionError, InferenceRouteResolver, ResolvedInferenceRoute};
 use state::*;
 
-const RECONCILE_CADENCE: Duration = Duration::from_secs(30);
 const READINESS_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// How long a deployment may boot in one start before it reports `Unavailable` instead of

@@ -543,7 +543,9 @@ async fn a_view_that_cannot_be_built_at_open_answers_with_the_last_published_vie
     ));
 
     fixture.applications.set_unbuildable(false);
-    fixture.clock.advance(DEFAULT_REPUBLISH_INTERVAL);
+    fixture
+        .clock
+        .advance(Timing::production().view_republish_interval);
     let recovered = reopened.publication().await;
     let identity = recovered.identity.as_ref().expect("identity");
     assert_eq!(
@@ -693,7 +695,10 @@ async fn outbound_keeps_every_reply_and_only_the_latest_view() {
 #[test]
 fn a_republish_interval_must_keep_nodes_inside_their_action_lease() {
     assert_eq!(
-        NodeControlStreamConfiguration::new(DEFAULT_REPUBLISH_INTERVAL, DEFAULT_OUTBOUND_REPLIES),
+        NodeControlStreamConfiguration::new(
+            Timing::production().view_republish_interval,
+            DEFAULT_OUTBOUND_REPLIES
+        ),
         Ok(NodeControlStreamConfiguration::default())
     );
     assert!(NodeControlStreamConfiguration::new(Duration::from_secs(28), 1).is_ok());

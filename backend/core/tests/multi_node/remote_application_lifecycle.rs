@@ -15,6 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use dotcore::testing::Timing;
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeployment, ApplicationDeploymentDesiredState, ApplicationLifecycleState,
@@ -626,12 +627,22 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
             site_catalog: APPLICATION_CATALOG,
-            liveness_silence_bound: Some(LONG_SILENCE_BOUND),
-            view_republish_interval: Some(LONG_REPUBLISH_INTERVAL),
+            timing: Timing {
+                node_liveness_ttl: LONG_SILENCE_BOUND,
+                view_republish_interval: LONG_REPUBLISH_INTERVAL,
+                ..Timing::test()
+            },
             ..ProcessTestControls::default()
         },
         ProcessTestControls {
             application_endpoint_port: Some(health.address.port()),
+            // The worker waits out the long republish interval as the production ratios do: it
+            // neither reopens its stream nor loses its action lease between republications.
+            timing: Timing {
+                manager_silence_bound: LONG_REPUBLISH_INTERVAL * 3,
+                node_action_lease: LONG_REPUBLISH_INTERVAL * 4,
+                ..Timing::test()
+            },
             ..ProcessTestControls::default()
         },
     ) else {
@@ -727,7 +738,10 @@ async fn the_resource_watch_shows_a_worker_deployment_status_and_its_closed_stre
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
             site_catalog: APPLICATION_CATALOG,
-            liveness_silence_bound: Some(LONG_SILENCE_BOUND),
+            timing: Timing {
+                node_liveness_ttl: LONG_SILENCE_BOUND,
+                ..Timing::test()
+            },
             ..ProcessTestControls::default()
         },
         ProcessTestControls {

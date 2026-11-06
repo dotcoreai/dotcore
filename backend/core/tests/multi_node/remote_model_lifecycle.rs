@@ -21,6 +21,7 @@
 
 use std::{fs, time::Duration};
 
+use dotcore::testing::Timing;
 use dotcore_proto::dotcore::{
     deployment::v1::{
         ExactPlacement, NodeResolvedLaunchIdentity,
@@ -88,7 +89,10 @@ async fn manager_created_model_is_realized_only_by_the_provisioned_worker_proces
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls::manual_clock(),
         ProcessTestControls {
-            capability_max_age: Some(WORKER_CAPABILITY_MAX_AGE),
+            timing: Timing {
+                target_capability_max_age: WORKER_CAPABILITY_MAX_AGE,
+                ..Timing::test()
+            },
             model_transition_gates: true,
             ..ProcessTestControls::default()
         },
@@ -633,7 +637,10 @@ async fn one_follow_opened_before_preparation_receives_the_workload_and_its_end(
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls::manual_clock(),
         ProcessTestControls {
-            capability_max_age: Some(WORKER_CAPABILITY_MAX_AGE),
+            timing: Timing {
+                target_capability_max_age: WORKER_CAPABILITY_MAX_AGE,
+                ..Timing::test()
+            },
             model_transition_gates: true,
             ..ProcessTestControls::default()
         },
@@ -787,12 +794,19 @@ async fn a_worker_deployment_stays_controllable_past_its_action_lease_with_an_un
     // ratio that lets republications renew the lease.
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
-            view_republish_interval: Some(SHORT_REPUBLISH_INTERVAL),
+            timing: Timing {
+                view_republish_interval: SHORT_REPUBLISH_INTERVAL,
+                ..Timing::test()
+            },
             ..ProcessTestControls::default()
         },
         ProcessTestControls {
             model_transition_gates: true,
-            node_action_lease: Some(SHORT_ACTION_LEASE),
+            timing: Timing {
+                node_action_lease: SHORT_ACTION_LEASE,
+                manager_silence_bound: SHORT_REPUBLISH_INTERVAL * 3,
+                ..Timing::test()
+            },
             ..ProcessTestControls::default()
         },
     ) else {

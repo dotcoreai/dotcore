@@ -249,9 +249,12 @@ mod tests {
         agent::NodeObservationFeed,
         target_inventory::{
             CapabilityObservation, DeviceMemoryFacts, HostMemoryFacts, NodeMemoryFacts,
-            TARGET_CAPABILITY_MAX_AGE, TargetCapabilities,
+            TargetCapabilities,
         },
     };
+
+    const TARGET_CAPABILITY_MAX_AGE: std::time::Duration =
+        dotcore_domain::timing::Timing::production().target_capability_max_age;
 
     #[test]
     fn refreshed_collection_restores_capabilities_after_the_max_age() {

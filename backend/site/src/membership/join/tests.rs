@@ -17,6 +17,7 @@ use dotcore_domain::{
         host_resolver::FakeHostResolver,
         ports::{ReservedPort, reserve_port},
     },
+    timing::Timing,
 };
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::dotcore::{
@@ -39,10 +40,10 @@ use tonic::{
 };
 
 use super::{
-    DEFAULT_JOIN_CONNECT_TIMEOUT, JOIN_SECRET_BYTES, JoinApproval, JoinConnection, JoinDecision,
-    JoinHost, JoinHostError, JoinHostLimits, JoinHostSettings, JoinHostSource, JoinProposal,
-    JoinReview, JoinSecret, JoinSiteError, JoinSiteWriter, JoinToken, JoinedNode, NodeFolderError,
-    NodeJoinError, NodeKey, NodeRejoin, RejoinProposal, RejoiningNodeFolder, ReviewedJoin,
+    JOIN_SECRET_BYTES, JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostError,
+    JoinHostLimits, JoinHostSettings, JoinHostSource, JoinProposal, JoinReview, JoinSecret,
+    JoinSiteError, JoinSiteWriter, JoinToken, JoinedNode, NodeFolderError, NodeJoinError, NodeKey,
+    NodeRejoin, RejoinProposal, RejoiningNodeFolder, ReviewedJoin,
     test_fixtures::{InitializedSite, initialized_site, initialized_site_with_manager_host},
     verifier::JoinHostVerifier,
 };
@@ -273,7 +274,7 @@ async fn a_split_network_join_records_both_addresses() {
     let joined = JoinConnection::connect(
         harness.token.clone(),
         Some(ipv4_host(DIALED)),
-        DEFAULT_JOIN_CONNECT_TIMEOUT,
+        Timing::production().join_connect_timeout,
     )
     .await
     .expect("connect at the dialed manager address")
@@ -531,9 +532,10 @@ async fn wrong_secrets_are_rejected_without_writes_and_stop_the_host_at_the_limi
     let site_before = harness.site_bytes();
     let mut wrong = harness.token.clone();
     wrong.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    let mut connection = JoinConnection::connect(wrong, None, DEFAULT_JOIN_CONNECT_TIMEOUT)
-        .await
-        .expect("the host is authentic even with a wrong secret");
+    let mut connection =
+        JoinConnection::connect(wrong, None, Timing::production().join_connect_timeout)
+            .await
+            .expect("the host is authentic even with a wrong secret");
     let node_root = harness.node_root();
 
     let error = connection
@@ -792,7 +794,7 @@ async fn a_lost_commit_reply_keeps_the_folder_and_it_authenticates_to_the_manage
     let node_root = harness.node_root();
     let key = NodeKey::generate().expect("key");
 
-    let error = JoinConnection::connect(token, None, DEFAULT_JOIN_CONNECT_TIMEOUT)
+    let error = JoinConnection::connect(token, None, Timing::production().join_connect_timeout)
         .await
         .expect("connect through the proxy")
         .join(&proposal("worker", WORKER_HOST), &key, &node_root)
@@ -978,17 +980,25 @@ async fn connections_beyond_the_limit_are_refused_until_one_closes() {
     .await;
     let held = harness.raw_client().await;
 
-    let error = JoinConnection::connect(harness.token.clone(), None, DEFAULT_JOIN_CONNECT_TIMEOUT)
-        .await
-        .err()
-        .expect("a second connection is refused");
+    let error = JoinConnection::connect(
+        harness.token.clone(),
+        None,
+        Timing::production().join_connect_timeout,
+    )
+    .await
+    .err()
+    .expect("a second connection is refused");
     assert!(matches!(error, NodeJoinError::Connect(_)), "{error:?}");
 
     drop(held);
     let mut connected = None;
     for _ in 0..200 {
-        if let Ok(connection) =
-            JoinConnection::connect(harness.token.clone(), None, DEFAULT_JOIN_CONNECT_TIMEOUT).await
+        if let Ok(connection) = JoinConnection::connect(
+            harness.token.clone(),
+            None,
+            Timing::production().join_connect_timeout,
+        )
+        .await
         {
             connected = Some(connection);
             break;
@@ -1607,13 +1617,16 @@ async fn an_unknown_rejoin_commit_outcome_keeps_the_folder_and_rejoining_again_c
     let manifest = fs::read(node_root.join(WORKER_MANIFEST_FILE)).expect("worker.yaml");
 
     let folder = RejoiningNodeFolder::open(&node_root, &token).expect("open folder");
-    let error =
-        JoinConnection::connect(token, Some(host("localhost")), DEFAULT_JOIN_CONNECT_TIMEOUT)
-            .await
-            .expect("connect through the proxy")
-            .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
-            .await
-            .expect_err("the commit reply is lost");
+    let error = JoinConnection::connect(
+        token,
+        Some(host("localhost")),
+        Timing::production().join_connect_timeout,
+    )
+    .await
+    .expect("connect through the proxy")
+    .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
+    .await
+    .expect_err("the commit reply is lost");
     drop(folder);
     assert!(
         matches!(&error, NodeJoinError::CommitOutcomeUnknown { root, .. } if *root == node_root),
@@ -2000,7 +2013,7 @@ impl Harness {
         JoinConnection::connect(
             self.token.clone(),
             manager_host.map(|value| SiteNodeHost::normalize(value).expect("manager host")),
-            DEFAULT_JOIN_CONNECT_TIMEOUT,
+            Timing::production().join_connect_timeout,
         )
         .await
         .expect("connect to the join host")
@@ -2447,7 +2460,7 @@ async fn authenticate_to_manager(
 }
 
 async fn assert_connect_refused(token: JoinToken, reason: &str) {
-    let error = JoinConnection::connect(token, None, DEFAULT_JOIN_CONNECT_TIMEOUT)
+    let error = JoinConnection::connect(token, None, Timing::production().join_connect_timeout)
         .await
         .err()
         .unwrap_or_else(|| panic!("{reason}: the host must not be accepted"));
