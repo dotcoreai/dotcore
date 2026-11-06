@@ -1534,6 +1534,7 @@ impl Worker {
                     manager.0.as_slice(),
                 )],
             ),
+            &dotcore_domain::timing::Timing::production(),
             PrivateServiceAssembly::new(move |context, routes| {
                 routes.add_service(
                     DeploymentLogService::new(

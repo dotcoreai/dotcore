@@ -1142,6 +1142,7 @@ profiles:
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
     }
 

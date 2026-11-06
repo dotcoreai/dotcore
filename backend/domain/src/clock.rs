@@ -67,6 +67,10 @@ impl Clock for SystemClock {
         SystemTime::now()
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the system clock's wait is the backend's one real-time timer"
+    )]
     fn sleep_until(&self, deadline: Instant) -> ClockSleep {
         Box::pin(tokio::time::sleep_until(deadline))
     }

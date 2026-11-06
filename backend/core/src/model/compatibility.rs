@@ -38,7 +38,7 @@ use crate::{
     },
     hardware::selection::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetCapabilitySelectionError,
-        select_last_observed_target_capabilities, select_target_capabilities_at,
+        select_last_observed_target_capabilities, select_target_capabilities,
     },
     model::{
         advisory::local_deployment_advisories,
@@ -154,7 +154,7 @@ pub(crate) fn check_targets<'a>(
         .map(|target| {
             let mut unreachable = false;
             let check = match inventory {
-                Some(inventory) => match select_target_capabilities_at(target, inventory, now) {
+                Some(inventory) => match select_target_capabilities(target, inventory, now) {
                     Err(
                         TargetCapabilitySelectionError::StalePlatform { .. }
                         | TargetCapabilitySelectionError::StaleAccelerator { .. },

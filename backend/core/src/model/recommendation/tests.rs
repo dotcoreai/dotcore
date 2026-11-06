@@ -516,7 +516,7 @@ fn site(
     let stale = |index: usize| index == 0 && first_stale;
     let reported_at = |index: usize| {
         if stale(index) {
-            now - 2 * dotcore_site::node::target_inventory::TARGET_CAPABILITY_MAX_AGE
+            now - 2 * dotcore_domain::timing::Timing::production().target_capability_max_age
         } else {
             now
         }

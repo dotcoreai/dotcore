@@ -1118,7 +1118,8 @@ mod tests {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs: PreparationLogs::on_system_clock(directory),
                 workload_lifecycle: workload_lifecycle.clone(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             },
             current.clone(),
             builder.build().expect("Runtime map"),
@@ -1386,7 +1387,8 @@ mod tests {
             serving_targets_source,
             accelerator_attribution: None,
             shutdown: tokio_util::sync::CancellationToken::new(),
-            reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+            timing: dotcore_domain::timing::Timing::production(),
+            clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         }
     }
 }

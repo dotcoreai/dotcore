@@ -1383,6 +1383,10 @@ impl PointerRewriteGate {
             ArtifactCacheError::context("test pointer rewrite removal failed", error)
         })?;
         self.opened.notify_one();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "bounds a test seam's wait for a real cache probe"
+        )]
         let _ = tokio::time::timeout(
             std::time::Duration::from_secs(2),
             self.probe_contended.notified(),
@@ -2522,6 +2526,10 @@ enum LockMode {
     Shared,
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "polls a file lock another process may hold"
+)]
 async fn acquire_lock_as(
     path: PathBuf,
     cancellation: &CancellationToken,

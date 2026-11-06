@@ -50,11 +50,14 @@ where
     S: CurrentStateRepository + Clone + 'static,
 {
     /// Creates the manager-owned lifecycle authority over `desired` declarations and the owner's
-    /// current `state`, after checking that both belong to the same site.
+    /// current `state`, after checking that both belong to the same site. It runs `timing` and
+    /// waits through `clock`.
     pub(crate) fn new(
         desired: D,
         state: S,
         target_capabilities: Arc<dyn TargetCapabilitySource>,
+        timing: dotcore_domain::timing::Timing,
+        clock: Arc<dyn dotcore_domain::clock::Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let verification_http = Arc::new(
             crate::model::upstream::ReqwestVerificationHttp::new().map_err(|source| {
@@ -65,7 +68,7 @@ where
             desired,
             state,
             target_capabilities,
-            system_health(verification_http),
+            health(verification_http, timing, clock),
         )
     }
 
@@ -79,7 +82,11 @@ where
             desired,
             state,
             crate::model::controller::test_support::test_target_capability_source(),
-            system_health(verification_http),
+            health(
+                verification_http,
+                dotcore_domain::timing::Timing::production(),
+                Arc::new(dotcore_domain::clock::SystemClock),
+            ),
         )
     }
 
@@ -99,6 +106,8 @@ where
             ));
         }
         let operation = Arc::new(AsyncMutex::new(()));
+        let node_progress_write_interval = health.timing.node_progress_write_interval;
+        let clock = Arc::clone(&health.clock);
         let (serving_targets_publisher, serving_targets_source) = ServingTargetsPublisher::new();
         let upstream = super::upstream::UpstreamReconciler::new(
             desired.clone(),
@@ -120,6 +129,8 @@ where
                 remote_status: std::sync::RwLock::new(None),
                 node_logs: std::sync::RwLock::new(None),
                 site_workloads: std::sync::RwLock::new(None),
+                node_progress_write_interval,
+                clock,
             }),
         })
     }
@@ -200,7 +211,8 @@ where
             serving_targets_source,
             accelerator_attribution,
             shutdown: dependencies.shutdown,
-            reconcile: dependencies.reconcile,
+            timing: dependencies.timing,
+            clock: dependencies.clock,
         }),
     };
     Ok(realizer)
@@ -336,7 +348,8 @@ where
                 shutdown: node.shutdown,
                 preparation_logs: node.preparation_logs,
                 workload_lifecycle: node.workload_lifecycle,
-                reconcile: node.reconcile,
+                timing: node.timing,
+                clock: node.clock,
             },
         )
     }
@@ -408,7 +421,8 @@ where
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs,
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             },
         )
     }
@@ -443,8 +457,11 @@ pub(crate) struct NodeModelRealizerDependencies<D: super::ModelRealizationInput>
     /// removed.
     pub(crate) workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
 
-    /// When the realizer's observer runs its next reconciliation pass.
-    pub(crate) reconcile: dotcore_domain::timing::ReconcileSchedule,
+    /// Timing of the realizer's observer passes and of its stored download progress.
+    pub(crate) timing: dotcore_domain::timing::Timing,
+
+    /// Backend clock the realizer waits through.
+    pub(crate) clock: Arc<dyn dotcore_domain::clock::Clock>,
 }
 
 #[derive(Clone)]
@@ -466,17 +483,22 @@ struct ControllerDependencies {
     shutdown: tokio_util::sync::CancellationToken,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
-    reconcile: dotcore_domain::timing::ReconcileSchedule,
+    timing: dotcore_domain::timing::Timing,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 }
 
-/// Upstream health dependencies on the process clock and stable per-deployment jitter.
-fn system_health(
+/// Upstream health dependencies on the backend's `timing` and `clock`, with stable
+/// per-deployment jitter.
+fn health(
     verification_http: Arc<dyn crate::model::upstream::VerificationHttp>,
+    timing: dotcore_domain::timing::Timing,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 ) -> crate::model::upstream::HealthDependencies {
     crate::model::upstream::HealthDependencies {
         verification_http,
-        clock: Arc::new(crate::model::upstream::SystemHealthClock::new()),
+        clock,
         jitter: Arc::new(crate::model::upstream::StableHealthJitter),
+        timing,
     }
 }
 
@@ -572,6 +594,8 @@ mod tests {
             desired,
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
+            dotcore_domain::timing::Timing::production(),
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .err()
         .expect("mismatched owner state");
@@ -993,7 +1017,8 @@ mod tests {
                 crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
             shutdown: tokio_util::sync::CancellationToken::new(),
             workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-            reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+            timing: dotcore_domain::timing::Timing::production(),
+            clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(directory),
         }
     }

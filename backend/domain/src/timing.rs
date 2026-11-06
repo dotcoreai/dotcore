@@ -1,7 +1,7 @@
-//! Holds the timing policy of one composed backend: how often its loops run, how long it
-//! coalesces, waits between retries and treats something as still live.
+//! Holds the timing policy of one process: how often its loops run, how long it coalesces, waits
+//! between retries and treats something as still live.
 //!
-//! Composition hands one policy to every component, so a backend runs either the production
+//! Composition hands one policy to every component, so a process runs either the production
 //! schedule or, in tests, the same behavior compressed into milliseconds. Wall-aligned schedules
 //! keep their alignment under every policy, and bounds on real I/O stay out of it.
 
@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-/// Every behavior duration of one composed backend, by the component that waits on it.
+/// Every behavior duration of one process, by the component that waits on it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Timing {
     /// Pause after a node's last control message before it sends a heartbeat.
@@ -63,6 +63,55 @@ pub struct Timing {
 
     /// Bound on a join's commit round trip; past it the outcome is unknown.
     pub join_commit_timeout: Duration,
+
+    /// Age after which the site manager reports a node's controller status as stale.
+    pub node_controller_status_freshness: Duration,
+
+    /// Longest pause before a node retries a failed model realizer construction; a change of its
+    /// accepted view retries sooner.
+    pub model_construction_retry: Duration,
+
+    /// Least time between two stored download progress updates of one model preparation.
+    pub download_progress_write_interval: Duration,
+
+    /// Least time between two stored records of a node-hosted model that differ only in progress.
+    pub node_progress_write_interval: Duration,
+
+    /// Pause between two verifications of a healthy upstream endpoint, before its jitter.
+    pub upstream_healthy_interval: Duration,
+
+    /// First pause before a failed upstream verification runs again; it doubles up to the
+    /// maximum.
+    pub upstream_retry_initial: Duration,
+
+    /// Longest pause before a failed upstream verification runs again.
+    pub upstream_retry_max: Duration,
+
+    /// How long an application deployment may boot before it no longer counts as starting.
+    pub application_startup_grace: Duration,
+
+    /// Longest a management watch stays silent; an idle watch then sends a heartbeat, so a
+    /// vanished watcher's broken connection is noticed.
+    pub watch_heartbeat_interval: Duration,
+
+    /// How often the metric store trims expired history and records its own health.
+    pub metric_store_sweep_interval: Duration,
+
+    /// Pause before a failed pass over a node's Nix roots runs again, when no pin change triggers
+    /// one sooner.
+    pub nix_root_retry: Duration,
+
+    /// Pause between keepalive pings on a private connection between the site manager and a
+    /// worker.
+    pub private_keepalive_interval: Duration,
+
+    /// Time a private connection's keepalive ping may go unanswered before the connection counts
+    /// as lost.
+    pub private_keepalive_timeout: Duration,
+
+    /// Time a terminal may take to answer a cursor-position query before it counts as one that
+    /// never answers.
+    pub terminal_cursor_query_timeout: Duration,
 }
 
 impl Timing {
@@ -95,7 +144,36 @@ impl Timing {
             simulated_startup_step: Duration::from_millis(1_200),
             join_connect_timeout: Duration::from_secs(10),
             join_commit_timeout: Duration::from_secs(30),
+            node_controller_status_freshness: Duration::from_secs(90),
+            model_construction_retry: Duration::from_secs(5),
+            download_progress_write_interval: Duration::from_secs(1),
+            node_progress_write_interval: Duration::from_secs(2),
+            upstream_healthy_interval: Duration::from_secs(60),
+            upstream_retry_initial: Duration::from_secs(10),
+            upstream_retry_max: Duration::from_secs(15 * 60),
+            application_startup_grace: Duration::from_secs(5 * 60),
+            watch_heartbeat_interval: Duration::from_secs(15),
+            metric_store_sweep_interval: Duration::from_secs(10),
+            nix_root_retry: Duration::from_secs(60),
+            private_keepalive_interval: Duration::from_secs(10),
+            private_keepalive_timeout: Duration::from_secs(5),
+            terminal_cursor_query_timeout: Duration::from_secs(2),
         }
+    }
+
+    /// The policy this process runs: production, unless a test build was handed another through
+    /// its environment.
+    ///
+    /// # Panics
+    ///
+    /// In a test build, when the handed policy cannot be decoded.
+    pub fn for_process() -> Self {
+        #[cfg(feature = "test-support")]
+        if let Some(encoded) = std::env::var_os(TEST_TIMING_ENVIRONMENT) {
+            let encoded = encoded.to_str().expect("the test timing policy is UTF-8");
+            return serde_json::from_str(encoded).expect("decode the test timing policy");
+        }
+        Self::production()
     }
 
     /// The production schedule compressed for tests: the same behavior, in milliseconds where
@@ -122,9 +200,7 @@ impl Timing {
             model_reconcile: ReconcileSchedule {
                 pending_initial: Duration::from_millis(5),
                 pending_max: Duration::from_millis(50),
-                // A settled model pass after a manual clock advance withdraws a ready binding,
-                // so tests keep the production safety scan; changes wake the observer without it.
-                settled: production.model_reconcile.settled,
+                settled: Duration::from_secs(1),
             },
             application_reconcile: ReconcileSchedule {
                 pending_initial: Duration::from_millis(10),
@@ -135,9 +211,39 @@ impl Timing {
             simulated_startup_step: Duration::from_millis(10),
             join_connect_timeout: production.join_connect_timeout,
             join_commit_timeout: production.join_commit_timeout,
+            // Stale reports, watch heartbeats, metric store health and application startup
+            // failures would show in tests that idle for a moment; they keep production values.
+            node_controller_status_freshness: production.node_controller_status_freshness,
+            model_construction_retry: Duration::from_millis(100),
+            download_progress_write_interval: Duration::from_millis(50),
+            node_progress_write_interval: Duration::from_millis(100),
+            upstream_healthy_interval: production.upstream_healthy_interval,
+            upstream_retry_initial: Duration::from_millis(200),
+            upstream_retry_max: Duration::from_secs(2),
+            application_startup_grace: production.application_startup_grace,
+            watch_heartbeat_interval: production.watch_heartbeat_interval,
+            metric_store_sweep_interval: production.metric_store_sweep_interval,
+            nix_root_retry: Duration::from_millis(500),
+            // A lost private connection is noticed within two seconds; a loopback ping answers
+            // far sooner even on a loaded host.
+            private_keepalive_interval: Duration::from_secs(1),
+            private_keepalive_timeout: Duration::from_secs(1),
+            // Long enough for a test terminal that answers, short enough that one that never
+            // answers costs little.
+            terminal_cursor_query_timeout: Duration::from_millis(250),
         }
     }
+
+    /// This policy encoded for [`TEST_TIMING_ENVIRONMENT`], which [`Self::for_process`] decodes.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn to_environment(&self) -> String {
+        serde_json::to_string(self).expect("encode the timing policy")
+    }
 }
+
+/// Environment variable through which a test hands a process it starts its timing policy.
+#[cfg(any(test, feature = "test-support"))]
+pub const TEST_TIMING_ENVIRONMENT: &str = "DOTCORE_TEST_TIMING";
 
 impl Default for Timing {
     fn default() -> Self {
@@ -283,6 +389,16 @@ mod tests {
     }
 
     #[test]
+    fn an_encoded_policy_decodes_to_the_same_policy() {
+        let encoded = Timing::test().to_environment();
+
+        assert_eq!(
+            serde_json::from_str::<Timing>(&encoded).expect("decode"),
+            Timing::test()
+        );
+    }
+
+    #[test]
     fn the_test_policy_never_waits_longer_than_production() {
         let production = Timing::production();
         let test = Timing::test();
@@ -319,6 +435,36 @@ mod tests {
             (
                 test.simulated_startup_step,
                 production.simulated_startup_step,
+            ),
+            (
+                test.model_construction_retry,
+                production.model_construction_retry,
+            ),
+            (
+                test.download_progress_write_interval,
+                production.download_progress_write_interval,
+            ),
+            (
+                test.node_progress_write_interval,
+                production.node_progress_write_interval,
+            ),
+            (
+                test.upstream_retry_initial,
+                production.upstream_retry_initial,
+            ),
+            (test.upstream_retry_max, production.upstream_retry_max),
+            (test.nix_root_retry, production.nix_root_retry),
+            (
+                test.private_keepalive_interval,
+                production.private_keepalive_interval,
+            ),
+            (
+                test.private_keepalive_timeout,
+                production.private_keepalive_timeout,
+            ),
+            (
+                test.terminal_cursor_query_timeout,
+                production.terminal_cursor_query_timeout,
             ),
         ];
         for (test, production) in pairs {

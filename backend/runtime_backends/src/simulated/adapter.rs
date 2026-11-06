@@ -101,7 +101,7 @@ impl InMemoryRuntimeBackend {
 
     fn observation(&self, workload: &mut FakeWorkload) -> WorkloadObservation {
         if workload.state == FakeWorkloadState::Loading
-            && tokio::time::Instant::now() >= workload.transition_at
+            && self.config.clock.now() >= workload.transition_at
             && self
                 .config
                 .test_support
@@ -111,7 +111,7 @@ impl InMemoryRuntimeBackend {
             workload.state = FakeWorkloadState::Ready;
         }
         if workload.state == FakeWorkloadState::Unloading
-            && tokio::time::Instant::now() >= workload.transition_at
+            && self.config.clock.now() >= workload.transition_at
             && self
                 .config
                 .test_support
@@ -747,7 +747,9 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
                     () = cancellation.cancelled() => {
                         return Err(RuntimeBackendError::preparation_cancelled());
                     }
-                    () = tokio::time::sleep(startup.step_duration) => {}
+                    () = self.config.clock.sleep_until(
+                        self.config.clock.now() + startup.step_duration
+                    ) => {}
                 }
             }
             Ok(())
@@ -843,7 +845,7 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
         let mut created = FakeWorkload {
             identity: identity.clone(),
             machine_process,
-            transition_at: tokio::time::Instant::now() + delay,
+            transition_at: self.config.clock.now() + delay,
             state: FakeWorkloadState::Loading,
         };
         let observation = self.observation(&mut created);
@@ -866,7 +868,7 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
             .get_mut(&workload_id.0)
             .map(|workload| {
                 workload.state = FakeWorkloadState::Loading;
-                workload.transition_at = tokio::time::Instant::now()
+                workload.transition_at = self.config.clock.now()
                     + self.ready_delay_for(&workload.identity.correlation.owner_id);
                 self.observation(workload)
             })
@@ -915,7 +917,7 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
                     FakeWorkloadState::Unloading | FakeWorkloadState::Stopped
                 ) {
                     workload.state = FakeWorkloadState::Unloading;
-                    workload.transition_at = tokio::time::Instant::now()
+                    workload.transition_at = self.config.clock.now()
                         + self.stop_delay_for(&workload.identity.correlation.owner_id);
                 }
                 Ok(())

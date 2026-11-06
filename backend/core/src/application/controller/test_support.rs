@@ -1271,7 +1271,8 @@ where
                 inference_route_resolver,
                 accelerator_attribution: None,
                 resource_attribution: None,
-                reconcile: dotcore_domain::timing::Timing::production().application_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: Arc::new(dotcore_domain::clock::SystemClock),
                 node: super::realizer::NodeRealization {
                     records,
                     reconciled: ReconciledAssignments::default(),

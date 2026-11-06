@@ -131,15 +131,20 @@ pub(crate) struct ResourceWatchConfig {
 
     /// Most watches open at once across the process.
     pub(crate) max_watches: usize,
+
+    /// Longest a watch stream stays silent before it sends a heartbeat.
+    pub(crate) heartbeat_interval: Duration,
 }
 
 impl ResourceWatchConfig {
-    /// Ticks on the watch slots of `timing`, admitting the default number of watches.
+    /// Ticks on the watch slots of `timing` and sends its heartbeats, admitting the default
+    /// number of watches.
     pub(crate) fn new(timing: &Timing) -> Self {
         Self {
             tick_interval: timing.watch_tick_interval,
             grace: timing.watch_tick_grace,
             max_watches: 256,
+            heartbeat_interval: timing.watch_heartbeat_interval,
         }
     }
 }
@@ -173,6 +178,7 @@ impl ResourceWatchHub {
                 tick_interval: config.tick_interval,
                 grace: config.grace,
                 max_watches: config.max_watches,
+                heartbeat_interval: config.heartbeat_interval,
                 permits: Arc::new(Semaphore::new(config.max_watches)),
                 shutdown: CancellationToken::new(),
                 publications,
@@ -187,6 +193,11 @@ impl ResourceWatchHub {
 
     pub(crate) fn clock(&self) -> Arc<dyn Clock> {
         Arc::clone(&self.shared.clock)
+    }
+
+    /// Longest a watch stream of this hub stays silent before it sends a heartbeat.
+    pub(crate) fn heartbeat_interval(&self) -> Duration {
+        self.shared.heartbeat_interval
     }
 
     /// Opens a watch of `kinds`, starting the ticks if none ran. The watch first holds the latest
@@ -356,6 +367,7 @@ struct Shared {
     tick_interval: Duration,
     grace: Duration,
     max_watches: usize,
+    heartbeat_interval: Duration,
     permits: Arc<Semaphore>,
     shutdown: CancellationToken,
 

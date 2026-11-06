@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use dotcore_domain::SiteNodeHost;
+use dotcore_domain::{SiteNodeHost, timing::Timing};
 use dotcore_proto::dotcore::site::v1::Site;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Identity};
 
@@ -33,13 +33,8 @@ use crate::{
 };
 
 /// Longest wait for a worker to accept the connection, and again to complete the TLS handshake.
+// Not a behavior duration: bound on a real network connect and handshake.
 const WORKER_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Interval of HTTP/2 pings that detect a lost worker connection, including while idle.
-const WORKER_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
-
-/// Longest wait for a ping acknowledgement before the worker connection is considered lost.
-const WORKER_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The manager's single holder of worker certificate pins and per-worker private channels.
 ///
@@ -49,6 +44,12 @@ const WORKER_KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct WorkerChannels {
     identity: Arc<ManagerClientIdentity>,
     channels: Arc<Mutex<BTreeMap<(String, WorkerChannelPurpose), WorkerChannel>>>,
+
+    /// Interval of HTTP/2 pings that detect a lost worker connection, including while idle.
+    keepalive_interval: Duration,
+
+    /// Longest wait for a ping acknowledgement before the worker connection is considered lost.
+    keepalive_timeout: Duration,
 }
 
 impl WorkerChannels {
@@ -68,6 +69,18 @@ impl WorkerChannels {
                     .collect(),
             }),
             channels: Arc::default(),
+            keepalive_interval: Timing::production().private_keepalive_interval,
+            keepalive_timeout: Timing::production().private_keepalive_timeout,
+        }
+    }
+
+    /// Detects lost worker connections at the keepalive interval and timeout of `timing`
+    /// instead of the production ones.
+    pub fn with_timing(self, timing: &Timing) -> Self {
+        Self {
+            keepalive_interval: timing.private_keepalive_interval,
+            keepalive_timeout: timing.private_keepalive_timeout,
+            ..self
         }
     }
 
@@ -175,8 +188,8 @@ impl WorkerChannels {
             .context("build the worker endpoint")
             .map_err(WorkerChannelError::Endpoint)?
             .connect_timeout(WORKER_CONNECT_TIMEOUT)
-            .http2_keep_alive_interval(WORKER_KEEPALIVE_INTERVAL)
-            .keep_alive_timeout(WORKER_KEEPALIVE_TIMEOUT)
+            .http2_keep_alive_interval(self.keepalive_interval)
+            .keep_alive_timeout(self.keepalive_timeout)
             .keep_alive_while_idle(true)
             .tls_config_with_verifier(
                 // No verifier checks the server name; the worker is authenticated by its pin.

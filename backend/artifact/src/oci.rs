@@ -22,6 +22,7 @@ use super::{
 
 /// Longest wait for one bounded Docker Engine request: API version negotiation or an image
 /// inspection.
+// Not a behavior duration: bound on one real Docker Engine request.
 const DOCKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Injectable private preparation boundary for one catalog-selected OCI image.
@@ -701,6 +702,10 @@ fn image_matches_fields(
 
 /// Bounds one Docker Engine request, so a daemon that stops answering fails the operation instead
 /// of hanging it. The image pull stream is not bounded; cancellation stops it.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "bounds one real Docker Engine request"
+)]
 async fn bounded<F: Future>(
     operation: &'static str,
     timeout: Duration,

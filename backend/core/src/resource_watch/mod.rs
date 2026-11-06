@@ -44,9 +44,6 @@ const MAX_SUBSCRIPTIONS: usize = 16;
 /// Longest key naming a subscription, in bytes.
 const MAX_KEY_BYTES: usize = 64;
 
-/// Longest a stream stays silent before it sends a heartbeat.
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
-
 /// Public management `ResourceWatchService` over the process's watch hub.
 #[derive(Clone)]
 pub(crate) struct ResourceWatchService {
@@ -100,6 +97,7 @@ impl ResourceWatchServiceContract for ResourceWatchService {
             completed: false,
             queued: VecDeque::new(),
             tick: 0,
+            heartbeat_interval: self.hub.heartbeat_interval(),
             sent_at: clock.now(),
             clock,
         };
@@ -150,6 +148,9 @@ struct ResourceStream {
     /// Latest tick sent on this stream.
     tick: u64,
 
+    /// Longest this stream stays silent before it sends a heartbeat.
+    heartbeat_interval: Duration,
+
     /// When the latest event was sent.
     sent_at: Instant,
 }
@@ -169,7 +170,7 @@ impl ResourceStream {
                 continue;
             }
 
-            let heartbeat_at = self.sent_at + HEARTBEAT_INTERVAL;
+            let heartbeat_at = self.sent_at + self.heartbeat_interval;
             tokio::select! {
                 biased;
                 publication = self.watch.next() => {
@@ -384,7 +385,7 @@ mod tests {
                 .wall_now()
                 .duration_since(completed_at)
                 .expect("later"),
-            HEARTBEAT_INTERVAL
+            dotcore_domain::timing::Timing::production().watch_heartbeat_interval
         );
         assert_eq!(heartbeat.manager_session_id, "a".repeat(32));
         assert!(matches!(

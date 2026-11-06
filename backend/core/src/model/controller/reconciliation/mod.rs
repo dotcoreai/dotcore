@@ -20,6 +20,7 @@ use dotcore_artifact::{
     ModelArtifactStageObserver, PreparedModelArtifacts,
 };
 use dotcore_domain::{
+    clock::Clock,
     diagnostic::diagnostic_chain,
     timing::{ReconcileCadence, ReconciliationState},
 };
@@ -308,6 +309,7 @@ where
                 let mut publication = DownloadProgressPublication::new(
                     ticket.clone(),
                     download_progress_kind(requirements),
+                    self.timing.download_progress_write_interval,
                 );
                 publication.quiet_revalidation = quiet_revalidation;
                 let artifact_progress = publication.observer(progress_notification.clone());
@@ -369,14 +371,15 @@ where
             if model_tasks.is_empty() {
                 break;
             }
+            let now = self.clock.now();
             let next_progress_write = progress_publications
                 .values()
-                .filter_map(DownloadProgressPublication::next_due_write)
+                .filter_map(|publication| publication.next_due_write(now))
                 .min();
             let joined = tokio::select! {
                 biased;
                 joined = model_tasks.join_next() => joined,
-                () = wait_for_progress_write(next_progress_write) => {
+                () = wait_for_progress_write(self.clock.as_ref(), next_progress_write) => {
                     collect_observed_download_progress(&mut progress_publications);
                     self.flush_due_download_progress(
                         &mut progress_publications,
@@ -825,7 +828,7 @@ where
         publications: &mut BTreeMap<String, DownloadProgressPublication>,
         operations: &BTreeMap<String, LifecycleOperationToken>,
     ) -> Result<(), ModelLifecycleError> {
-        let now = Instant::now();
+        let now = self.clock.now();
         let due = publications
             .iter()
             .filter(|(_, publication)| publication.write_is_due(now))
@@ -937,7 +940,7 @@ where
         operation: &LifecycleOperationToken,
         force: bool,
     ) -> Result<(), ModelLifecycleError> {
-        let now = Instant::now();
+        let now = self.clock.now();
         let Some((ticket, observed, kind, first)) =
             publications.get(deployment_id).and_then(|publication| {
                 publication
@@ -1988,7 +1991,10 @@ where
             .await
             .map_err(ModelLifecycleError::configuration_source)?;
         match crate::model::selection::validate_retained_target_capabilities(
-            target, &inventory, resolved,
+            target,
+            &inventory,
+            resolved,
+            self.clock.wall_now(),
         ) {
             Ok(()) => Ok(None),
             Err(error) if error.is_observation_gap() => {
@@ -2718,7 +2724,7 @@ where
                     target: target.clone(),
                     generation: workload.correlation.reconcile_generation,
                     inputs: launch.telemetry_inputs(),
-                    ready_at: std::time::SystemTime::now(),
+                    ready_at: self.clock.wall_now(),
                     first_ready,
                     interval: hardware_refresh_interval(site),
                     engine_facts: super::resource_telemetry::engine_facts_future(
@@ -2728,11 +2734,13 @@ where
                         target.execution_target_id.clone(),
                         workload.workload_id.clone(),
                     ),
+                    clock: Arc::clone(&self.clock),
                 })
             },
         );
     }
 
+    #[expect(clippy::disallowed_methods, reason = "bounds a real runtime log read")]
     async fn capture_startup_output_tail(
         &self,
         target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
@@ -2849,10 +2857,17 @@ struct DownloadProgressPublication {
     persisted: Option<ObservedPreparationProgress>,
     quiet_revalidation: bool,
     next_write_at: Option<Instant>,
+
+    /// Least time between two stored progress updates.
+    write_interval: Duration,
 }
 
 impl DownloadProgressPublication {
-    fn new(ticket: PreparationTicket, kind: DownloadProgressKind) -> Self {
+    fn new(
+        ticket: PreparationTicket,
+        kind: DownloadProgressKind,
+        write_interval: Duration,
+    ) -> Self {
         Self {
             ticket,
             kind,
@@ -2863,6 +2878,7 @@ impl DownloadProgressPublication {
             persisted: None,
             quiet_revalidation: false,
             next_write_at: None,
+            write_interval,
         }
     }
 
@@ -2930,9 +2946,9 @@ impl DownloadProgressPublication {
         }
     }
 
-    fn next_due_write(&self) -> Option<Instant> {
+    fn next_due_write(&self, now: Instant) -> Option<Instant> {
         if !self.pending_stages.is_empty() {
-            return Some(Instant::now());
+            return Some(now);
         }
         (self.latest != self.persisted)
             .then_some(self.next_write_at)
@@ -2968,11 +2984,9 @@ impl DownloadProgressPublication {
 
     fn mark_persisted(&mut self, progress: ObservedPreparationProgress, now: Instant) {
         self.persisted = Some(progress);
-        self.next_write_at = Some(now + DOWNLOAD_PROGRESS_WRITE_INTERVAL);
+        self.next_write_at = Some(now + self.write_interval);
     }
 }
-
-const DOWNLOAD_PROGRESS_WRITE_INTERVAL: Duration = Duration::from_secs(1);
 
 fn collect_observed_download_progress(
     publications: &mut BTreeMap<String, DownloadProgressPublication>,
@@ -2982,9 +2996,9 @@ fn collect_observed_download_progress(
     }
 }
 
-async fn wait_for_progress_write(deadline: Option<Instant>) {
+async fn wait_for_progress_write(clock: &dyn Clock, deadline: Option<Instant>) {
     if let Some(deadline) = deadline {
-        tokio::time::sleep_until(deadline).await;
+        clock.sleep_until(deadline).await;
     } else {
         std::future::pending::<()>().await;
     }
@@ -3115,7 +3129,8 @@ where
         drop(started);
         let inner = Arc::downgrade(&self.inner);
         let wakeup = Arc::clone(&self.inner.wakeup);
-        let schedule = self.inner.reconcile;
+        let schedule = self.inner.timing.model_reconcile;
+        let clock = Arc::clone(&self.inner.clock);
         let task_span = info_span!("model_observer", operation = "model_observer");
         let observer_span = task_span.clone();
         tokio::spawn(
@@ -3162,7 +3177,7 @@ where
                     drop(inner);
                     tokio::select! {
                         _ = wakeup.notified() => cadence.reset(),
-                        _ = tokio::time::sleep(delay) => {},
+                        () = clock.sleep_until(clock.now() + delay) => {},
                     }
                 }
             }

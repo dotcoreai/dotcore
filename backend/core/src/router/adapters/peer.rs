@@ -1220,6 +1220,7 @@ mod tests {
                         manager_certificate.as_slice(),
                     )],
                 ),
+                &dotcore_domain::timing::Timing::production(),
                 worker
                     .private_services()
                     .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),

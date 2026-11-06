@@ -437,6 +437,8 @@ async fn supplied_input_model_owner_composition_does_not_reload_site() {
         &inputs,
         Arc::new(StaticTargetCapabilitySource::default()),
         crate::management_logs::ManagementLogAdmission::new(),
+        dotcore_domain::timing::Timing::production(),
+        Arc::new(dotcore_domain::clock::SystemClock),
     )
     .await
     .expect("model owner composition");

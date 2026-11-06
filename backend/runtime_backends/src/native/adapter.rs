@@ -45,9 +45,11 @@ use super::{
 pub const BACKEND_ID: &str = "runtime/native";
 
 /// Interval between the checks of a new workload while its ports settle.
+// Not a behavior duration: poll of a real workload process.
 const PORT_SETTLE_POLL: Duration = Duration::from_millis(50);
 
 /// Longest wait for a connection that tells whether a loopback port is in use.
+// Not a behavior duration: bound on a real loopback connect.
 const PORT_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// Runtime backend that runs workloads of one execution target as launcher-held host processes.
@@ -392,6 +394,10 @@ impl NativeRuntimeBackend {
     /// accepts connections on one of its assigned ports, the port was taken between assignment
     /// and the engine's bind: the workload is removed and the create fails, so a retried create
     /// assigns new ports.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "polls a real workload process during its port-settle window"
+    )]
     async fn settle_ports(
         &self,
         id: &str,
@@ -826,6 +832,7 @@ impl KnownWorkload {
 
 /// Whether some process accepts connections on a loopback port. Connecting, unlike binding,
 /// never takes the port away from the process that is about to listen on it.
+#[expect(clippy::disallowed_methods, reason = "bounds a real loopback connect")]
 async fn accepts_connections(port: u16) -> bool {
     tokio::time::timeout(
         PORT_CONNECT_TIMEOUT,

@@ -25,6 +25,7 @@ use anyhow::anyhow;
 use dotcore_catalog::{Catalog, service::CatalogService};
 use dotcore_domain::SitePaths;
 use dotcore_domain::hardware_observation::HardwareSnapshotSource;
+use dotcore_domain::timing::Timing;
 use dotcore_observability::{
     InMemoryMetricStore, InMemoryStoreConfig, InProcessBucketTransport, MetricBucketIngest,
     MetricDescriptor, forwarder_metric_descriptors,
@@ -274,17 +275,17 @@ where
                 error,
             )
         })?;
+        let timing = test_support.timing;
         let manager_node_control = ManagerNodeControlCoordinator::with_clock(
             manager_session,
             backend_clock(&test_support),
         )
-        .with_silence_bound(test_support.timing.node_liveness_ttl);
-        let timing = test_support.timing;
+        .with_timing(&timing);
         // Site-wide metric history lives with the site manager for this process's lifetime.
         let clock = backend_clock(&test_support);
         let metric_store = Arc::new(
             InMemoryMetricStore::start(
-                InMemoryStoreConfig::default(),
+                InMemoryStoreConfig::default().with_timing(&timing),
                 metric_catalog(dotcore_site::validation::hardware_refresh_interval(
                     &inputs.site,
                 )),
@@ -335,6 +336,8 @@ where
             &inputs,
             Arc::clone(&target_capabilities),
             log_admission.clone(),
+            timing,
+            Arc::clone(&clock),
         )
         .await?;
         let manager_host = bound_node_host(&bound_node)?;
@@ -577,11 +580,13 @@ fn backend_clock(test_support: &BackendTestSupport) -> Arc<dyn dotcore_domain::c
 }
 
 /// Composes the inference controller that owns model declarations, over the site's owner current
-/// state.
+/// state, running `timing` on `clock`.
 async fn model_owner_for(
     inputs: &CompleteCompositionInputs,
     target_capabilities: Arc<dyn TargetCapabilitySource>,
     log_admission: crate::management_logs::ManagementLogAdmission,
+    timing: Timing,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 ) -> CompositionResult<SelectedModelService> {
     let inventory = target_capabilities.observe().await.map_err(|error| {
         CompositionError::composition_with_source("target capability observation failed", error)
@@ -592,8 +597,13 @@ async fn model_owner_for(
         inventory,
         inputs.current.clone(),
     );
-    let controller =
-        InferenceController::new(desired, inputs.current.clone(), target_capabilities)?;
+    let controller = InferenceController::new(
+        desired,
+        inputs.current.clone(),
+        target_capabilities,
+        timing,
+        clock,
+    )?;
     Ok(ModelDeploymentService::new(controller, log_admission))
 }
 

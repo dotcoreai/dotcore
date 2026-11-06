@@ -60,7 +60,8 @@ pub struct RuntimePlatformObservation {
 }
 
 impl RuntimePlatformObservation {
-    /// Creates a fresh platform observation for one execution target.
+    /// Creates a platform observation for one execution target, stamped now on the system clock.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn available(execution_target_id: impl Into<String>, platform: ExecutionPlatform) -> Self {
         Self::available_at(execution_target_id, platform, SystemTime::now())
     }
@@ -293,7 +294,9 @@ impl NodeAcceleratorObservation {
         }
     }
 
-    /// Creates a fresh NVIDIA observation with a raw driver version for one managed node.
+    /// Creates an NVIDIA observation with a raw driver version for one managed node, stamped now
+    /// on the system clock.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn nvidia(managed_node_id: impl Into<String>, driver_version: impl Into<String>) -> Self {
         Self::available(
             managed_node_id,
@@ -301,7 +304,8 @@ impl NodeAcceleratorObservation {
         )
     }
 
-    /// Creates a fresh accelerator observation for one managed node.
+    /// Creates an accelerator observation for one managed node, stamped now on the system clock.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn available(managed_node_id: impl Into<String>, facts: NodeAcceleratorFacts) -> Self {
         Self::available_at(managed_node_id, facts, SystemTime::now())
     }

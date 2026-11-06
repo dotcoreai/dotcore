@@ -38,7 +38,6 @@ use crate::{
 };
 
 const MAX_OFFERED_VIEWS: usize = 32;
-const CONTROLLER_STATUS_FRESHNESS: Duration = Duration::from_secs(90);
 
 /// Manager-side owner of node incarnations, protocol cursors, observations, and published views.
 ///
@@ -76,18 +75,20 @@ impl ManagerNodeControlCoordinator {
         Self {
             manager_session,
             state: Arc::new(Mutex::new(CoordinatorState::default())),
-            status_freshness: CONTROLLER_STATUS_FRESHNESS,
+            status_freshness: Timing::production().node_controller_status_freshness,
             silence_bound: Timing::production().node_liveness_ttl,
             clock,
             serving_evidence_changed: Arc::new(Notify::new()),
         }
     }
 
-    /// Ends liveness after `silence_bound` without contact instead of the production liveness
-    /// window. Every message of the incarnation's open node control stream renews it, so it is
+    /// Follows `timing` instead of the production timing: liveness ends after its liveness
+    /// window without contact, and a controller status counts as fresh for its status freshness.
+    /// Every message of the incarnation's open node control stream renews liveness, so it is
     /// independent of the site's observation interval and of how long hardware collection takes.
-    pub fn with_silence_bound(mut self, silence_bound: Duration) -> Self {
-        self.silence_bound = silence_bound;
+    pub fn with_timing(mut self, timing: &Timing) -> Self {
+        self.silence_bound = timing.node_liveness_ttl;
+        self.status_freshness = timing.node_controller_status_freshness;
         self
     }
 
@@ -1313,6 +1314,9 @@ mod tests {
 
     const LIVENESS_TTL: Duration = Timing::production().node_liveness_ttl;
 
+    const CONTROLLER_STATUS_FRESHNESS: Duration =
+        Timing::production().node_controller_status_freshness;
+
     #[test]
     fn mixed_channels_share_one_incarnation_owner_and_replacement_restarts_at_sequence_one() {
         let clock = ManualClock::new();
@@ -2247,7 +2251,10 @@ mod tests {
     fn a_configured_silence_bound_sets_liveness_and_serving() {
         let clock = ManualClock::new();
         let bound = Duration::from_secs(60);
-        let coordinator = controlled_coordinator(&clock).with_silence_bound(bound);
+        let coordinator = controlled_coordinator(&clock).with_timing(&Timing {
+            node_liveness_ttl: bound,
+            ..Timing::production()
+        });
         let node = incarnation('1');
         coordinator
             .register_observation(&observation_request(&node, 1), observation_input(&node, 1))

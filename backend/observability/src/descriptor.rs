@@ -437,9 +437,11 @@ const HISTOGRAM_LABELS: &[&str] = &["le", "quantile"];
 const COUNTER_SUFFIX_WORDS: &[&str] = &["count", "total"];
 
 /// Closing grace of manager-measured metrics.
+// Not a behavior duration: part of the metric bucket closing contract.
 const MANAGER_CLOSING_GRACE: Duration = Duration::from_millis(250);
 
 /// Closing grace added to a node-reported metric's sample interval.
+// Not a behavior duration: part of the metric bucket closing contract.
 const NODE_TRANSPORT_GRACE: Duration = Duration::from_secs(1);
 
 /// Whether `name` fits the Prometheus label name charset, lowercase only: `[a-z_][a-z0-9_]*`.

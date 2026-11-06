@@ -477,6 +477,7 @@ mod tests {
                     manager,
                     [(WORKER_ID, PrivateNodeRole::Worker, worker.0.as_slice())],
                 ),
+                &dotcore_domain::timing::Timing::production(),
                 PrivateServiceAssembly::new(move |context, routes| {
                     routes.add_service(
                         MetricBucketStreamService::new(ingest, &context).into_server(),

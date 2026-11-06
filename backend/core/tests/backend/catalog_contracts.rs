@@ -127,6 +127,7 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                                 &deployment_configuration,
                                 target,
                                 inventory,
+                                std::time::SystemTime::now(),
                             )
                             .is_err()),
                         "profile {:?} of {:?} resolves on {platform:?}, which its approved artifacts do not declare",
@@ -693,6 +694,7 @@ fn llama_cpp_request_state_scales_the_estimate_with_the_parallel_requests() {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("resolved parallel requests")
         .sizing
@@ -1495,6 +1497,7 @@ fn two_releases_of_one_engine_kind_validate_together_and_each_configuration_reso
                     &default_configuration(&catalog, profile_id),
                     target,
                     inventory,
+                    std::time::SystemTime::now()
                 ),
                 Err(ModelLaunchResolutionError::EngineArtifactSelection(_))
             ),
@@ -1598,6 +1601,7 @@ fn locked_nix_deployment_retains_its_catalog_store_paths_for_the_hosting_node_ac
             &darwin,
             &inventory,
             identity,
+            std::time::SystemTime::now(),
         )
     };
 
@@ -1610,6 +1614,7 @@ fn locked_nix_deployment_retains_its_catalog_store_paths_for_the_hosting_node_ac
             &default_configuration(&catalog, "metal"),
             &darwin,
             &inventory,
+            std::time::SystemTime::now()
         )
         .expect("selection"),
         EngineArtifactSelection::Nix(dotcore::model::resolution::NixEngineSelection {
@@ -1711,6 +1716,7 @@ fn development_source_nix_deployment_leaves_its_store_path_for_the_hosting_node(
             &darwin,
             &inventory,
             identity,
+            std::time::SystemTime::now(),
         )
     };
 
@@ -1894,6 +1900,7 @@ fn catalog_resolves_file_artifacts_in_repository_subdirectories() {
         &target,
         &inventory,
         None,
+        std::time::SystemTime::now(),
     )
     .expect("resolved nested file artifacts");
 
@@ -2072,6 +2079,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now()
         )
         .expect_err("out-of-range parameter")
         .to_string(),
@@ -2090,6 +2098,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now()
         )
         .expect_err("unsupported binding")
         .to_string(),
@@ -2119,6 +2128,7 @@ fn llama_cpp_launch_rejects_a_context_per_request_above_the_model_maximum() {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
     };
 
@@ -2227,6 +2237,7 @@ fn llama_cpp_launch_rejects_a_context_per_request_above_the_configuration_maximu
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
     };
 
@@ -2299,6 +2310,7 @@ fn vllm_launch_rejects_a_context_per_request_above_the_model_maximum() {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
     };
 
@@ -2332,6 +2344,7 @@ fn catalog_retains_boolean_engine_parameters_and_their_schema() {
         &target,
         &inventory,
         None,
+        std::time::SystemTime::now(),
     )
     .expect("boolean parameter resolves");
 
@@ -3001,6 +3014,7 @@ fn resolve_local_launch_with_placeholder_identity(
         configuration,
         target,
         inventory,
+        std::time::SystemTime::now(),
     )?;
     // Nix engine artifacts never take an identity: a locked one is precomputed, and the hosting
     // node pins a development-source one.
@@ -3019,6 +3033,7 @@ fn resolve_local_launch_with_placeholder_identity(
         target,
         inventory,
         identity.as_ref(),
+        std::time::SystemTime::now(),
     )
 }
 

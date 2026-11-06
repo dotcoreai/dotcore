@@ -67,6 +67,7 @@ pub const HARDWARE_SAMPLING_SKIPPED: &str = "node.hardware.sampling.skipped";
 pub const HARDWARE_SOURCE: &str = "hardware";
 
 /// Interval at which every node samples its hardware.
+// Not a behavior duration: the one-second metric bucket contract.
 pub const HARDWARE_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Declarations of the hardware metrics, sampled every [`HARDWARE_SAMPLE_INTERVAL`], and of the

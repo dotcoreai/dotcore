@@ -51,6 +51,10 @@ impl JoinConnections {
 
     /// Wraps an accepted stream, or refuses it when the limit of open connections is reached.
     /// Refusals and streams that closed before acceptance use an error kind the listener skips.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "closes a real idle join connection"
+    )]
     pub(super) fn accept(self: &Arc<Self>, stream: TcpStream) -> io::Result<JoinConnectionIo> {
         if self.open.fetch_add(1, Ordering::SeqCst) >= self.max_open {
             self.open.fetch_sub(1, Ordering::SeqCst);

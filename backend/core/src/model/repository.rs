@@ -147,6 +147,7 @@ impl ModelDeclarationRepository {
         let mut selected = crate::hardware::selection::select_target_capabilities(
             execution_target,
             target.inventory,
+            target.now,
         )
         .map_err(|error| ModelDeclarationRepositoryError::TargetCapability(Box::new(error)))?;
         if let Some(workloads) = target.workloads.get(&execution_target.site_node_id) {
@@ -176,6 +177,7 @@ impl ModelDeclarationRepository {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn load_model(
         &self,
         model_id: &str,
@@ -184,6 +186,7 @@ impl ModelDeclarationRepository {
         configuration: &LocalModelDeploymentConfiguration,
         exposure: &ModelDeploymentExposureIntent,
         name: Option<&str>,
+        now: SystemTime,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
         let deployment_id = self.site.reserve_model_deployment_id()?;
         let snapshot = self.site.model_snapshot()?;
@@ -193,6 +196,7 @@ impl ModelDeclarationRepository {
             profile_id,
             placement,
             configuration,
+            now,
         )?;
         deployment.model_deployment_id = deployment_id;
         deployment.lifecycle_generation =
@@ -212,20 +216,28 @@ impl ModelDeclarationRepository {
         Ok(deployment)
     }
 
-    /// Resolves a local deployment without changing desired site state.
+    /// Resolves a local deployment without changing desired site state, judging the target's
+    /// observations fresh at `now`.
     pub(crate) fn preview_local_model(
         &self,
         model_id: &str,
         profile_id: &str,
         placement: &ExactPlacement,
         configuration: &LocalModelDeploymentConfiguration,
+        now: SystemTime,
     ) -> Result<
         dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot,
         ModelDeclarationRepositoryError,
     > {
         let site = self.site.model_snapshot()?;
-        let deployment =
-            self.resolve_model_deployment(&site, model_id, profile_id, placement, configuration)?;
+        let deployment = self.resolve_model_deployment(
+            &site,
+            model_id,
+            profile_id,
+            placement,
+            configuration,
+            now,
+        )?;
         match deployment.snapshot.and_then(|snapshot| snapshot.source) {
             Some(ModelDeploymentSnapshotSource::Local(local)) => Ok(local),
             Some(ModelDeploymentSnapshotSource::Upstream(_)) | None => {
@@ -612,6 +624,7 @@ impl ModelDeclarationRepository {
         profile_id: &str,
         placement: &ExactPlacement,
         configuration: &LocalModelDeploymentConfiguration,
+        now: SystemTime,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
         let catalog_model_id = CatalogModelId(model_id.to_owned());
         validate_model_profile(
@@ -639,6 +652,7 @@ impl ModelDeclarationRepository {
                 .unwrap_or_else(|value| value.into_inner()),
             // The SiteNode named by the exact placement pins a local-development engine itself.
             None,
+            now,
         )
         .map_err(launch_resolution_error)?;
         if local.model_id != model_id || local.profile_id != profile_id {
@@ -673,6 +687,8 @@ pub(crate) struct EstimateTarget<'a> {
     pub(crate) placement: &'a ExactPlacement,
     pub(crate) inventory: &'a TargetCapabilityInventory,
     pub(crate) workloads: &'a crate::hardware::capacity::NodeWorkloads,
+    /// Backend wall time the target's observations are judged fresh at.
+    pub(crate) now: SystemTime,
 }
 
 /// Returns the execution target named by an exact placement when its SiteNode owns it.
@@ -1266,6 +1282,7 @@ mod tests {
                 "fixture-profile",
                 &placement,
                 &configuration,
+                std::time::SystemTime::now(),
             )
             .expect("unpinned preview");
         let created = repository
@@ -1276,6 +1293,7 @@ mod tests {
                 &configuration,
                 &ModelDeploymentExposureIntent::Hidden,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("accepted unpinned deployment on the manager's node");
 
@@ -1343,6 +1361,7 @@ mod tests {
                 "fixture-profile",
                 &placement,
                 &configuration,
+                std::time::SystemTime::now(),
             )
             .expect("unpinned preview");
         let created = repository
@@ -1353,6 +1372,7 @@ mod tests {
                 &configuration,
                 &ModelDeploymentExposureIntent::Hidden,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("accepted unpinned deployment on the worker node");
 
@@ -1432,6 +1452,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("direct launch resolution");
 
@@ -1444,6 +1465,7 @@ mod tests {
                     execution_target_id: "fixture-target".to_owned(),
                 },
                 &configuration,
+                std::time::SystemTime::now(),
             )
             .expect("resolved preview");
 
@@ -1534,6 +1556,7 @@ mod tests {
                 &configuration,
                 &ModelDeploymentExposureIntent::Hidden,
                 Some("Preview parity"),
+                std::time::SystemTime::now(),
             )
             .expect("created deployment");
         let allocator = before
@@ -1628,6 +1651,7 @@ mod tests {
                 "fixture-profile",
                 &placement,
                 &configuration,
+                std::time::SystemTime::now(),
             );
             let Some(device_count) = device_count else {
                 preview.expect("one-device preview");
@@ -1641,6 +1665,7 @@ mod tests {
                     &configuration,
                     &ModelDeploymentExposureIntent::Hidden,
                     None,
+                    std::time::SystemTime::now(),
                 )
                 .expect_err("mismatched creation");
 
@@ -1846,6 +1871,7 @@ mod tests {
                 &configuration,
                 &ModelDeploymentExposureIntent::Hidden,
                 Some("Remote fixture"),
+                std::time::SystemTime::now(),
             )
             .expect("remote node admission");
 
@@ -1876,6 +1902,7 @@ mod tests {
                 &other_configuration,
                 &ModelDeploymentExposureIntent::Hidden,
                 Some("Other node fixture"),
+                std::time::SystemTime::now(),
             )
             .expect("other-node admission");
         let upstream_secret = "unrelated-upstream-api-secret";
@@ -1978,6 +2005,7 @@ mod tests {
                 },
                 &ModelDeploymentExposureIntent::Hidden,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("accepted node deployment");
         initial
@@ -2359,6 +2387,7 @@ mod tests {
                 &crate::test_support::local_model_configuration(),
                 &ModelDeploymentExposureIntent::Hidden,
                 None,
+                std::time::SystemTime::now()
             ),
             Err(ModelDeclarationRepositoryError::ModelNotFound(_))
         ));
@@ -2707,6 +2736,7 @@ mod tests {
                         placement: &placement,
                         inventory: &inventory,
                         workloads: &Default::default(),
+                        now: std::time::SystemTime::now(),
                     }),
                 )
                 .map(|response| {
@@ -2869,7 +2899,13 @@ mod tests {
             .map(only_class)
             .expect("estimate with profile defaults");
         let preview = repository
-            .preview_local_model("fixture-model", "fixture-profile", &placement, &omitted)
+            .preview_local_model(
+                "fixture-model",
+                "fixture-profile",
+                &placement,
+                &omitted,
+                std::time::SystemTime::now(),
+            )
             .expect("preview with profile defaults");
         let explicit = repository
             .preview_local_model(
@@ -2877,6 +2913,7 @@ mod tests {
                 "fixture-profile",
                 &placement,
                 &crate::test_support::local_model_configuration(),
+                std::time::SystemTime::now(),
             )
             .expect("preview with the explicit profile defaults");
         let created = repository
@@ -2887,6 +2924,7 @@ mod tests {
                 &omitted,
                 &ModelDeploymentExposureIntent::Hidden,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("create with profile defaults");
         let created_snapshot = |deployment: &ModelDeploymentDeclaration| match deployment
@@ -2950,7 +2988,13 @@ mod tests {
         );
         assert_eq!(
             edited_repository
-                .preview_local_model("fixture-model", "fixture-profile", &placement, &omitted)
+                .preview_local_model(
+                    "fixture-model",
+                    "fixture-profile",
+                    &placement,
+                    &omitted,
+                    std::time::SystemTime::now()
+                )
                 .expect("preview with edited defaults")
                 .engine_parameter_values,
             Some(resolved_values(

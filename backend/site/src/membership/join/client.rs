@@ -343,6 +343,10 @@ impl JoinConnection {
     }
 
     /// Commits the offer `offer_id`; past the commit timeout the outcome is unknown.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds a real join commit round trip"
+    )]
     async fn commit(&mut self, offer_id: String) -> Result<(), Status> {
         let commit = CommitRequest {
             join_secret: self.token.secret.as_bytes().to_vec(),

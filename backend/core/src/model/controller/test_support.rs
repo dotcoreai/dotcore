@@ -643,6 +643,7 @@ impl DesiredDeploymentRepository for TestDesired {
         _configuration: &dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration,
         _exposure: &super::ModelDeploymentExposureIntent,
         _name: Option<&str>,
+        _now: std::time::SystemTime,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
         let failure = self.operation("desired load")?;
         let mut deployment =
@@ -1365,6 +1366,7 @@ impl AcquisitionControllerHarness {
                 &crate::test_support::local_model_configuration(),
                 &super::ModelDeploymentExposureIntent::Hidden,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("present intent");
         self.desired.listener().notify_one();

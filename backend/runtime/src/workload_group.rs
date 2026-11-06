@@ -18,6 +18,7 @@ use super::{
 };
 
 pub const MAX_READY_LAUNCH_GATE_PATH_BYTES: usize = 2_048;
+// Not a behavior duration: limit on a declared launch gate.
 pub const MAX_READY_LAUNCH_GATE_TIMEOUT: Duration = Duration::from_secs(300);
 pub const MAX_WORKLOAD_GROUP_STALE_REASON_BYTES: usize = 128;
 

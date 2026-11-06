@@ -20,6 +20,7 @@ use crate::{
 };
 
 const MAX_HTTP_RESPONSE_BYTES: usize = 1024 * 1024;
+// Not a behavior duration: bound on real loopback I/O of a readiness probe.
 const READINESS_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Probes one llama.cpp service on its loopback endpoint for readiness under its served model id.
@@ -174,6 +175,10 @@ async fn get_loopback(port: u16, path: &str) -> Result<HttpResponse, EngineProbe
     get_loopback_until(port, path, Instant::now() + READINESS_IO_TIMEOUT).await
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "bounds real loopback I/O of a readiness probe"
+)]
 async fn get_loopback_until(
     port: u16,
     path: &str,
@@ -194,6 +199,10 @@ async fn get_loopback_until(
     collect_response(&mut stream, deadline).await
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "bounds real loopback I/O of a readiness probe"
+)]
 async fn collect_response(
     stream: &mut TcpStream,
     deadline: Instant,

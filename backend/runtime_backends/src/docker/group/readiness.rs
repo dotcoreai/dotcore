@@ -19,6 +19,10 @@ use super::super::{
 const MAX_HTTP_RESPONSE_HEADER_BYTES: usize = 16 * 1024;
 
 impl<C: DockerClient> DockerAdapter<C> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "probes a real container at its declared gate interval and timeout"
+    )]
     pub(super) async fn wait_ready(
         &self,
         container_id: &str,
@@ -73,6 +77,10 @@ impl<C: DockerClient> DockerAdapter<C> {
     }
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "bounds one real HTTP probe of a container"
+)]
 async fn probe_http(
     address: std::net::Ipv4Addr,
     port: u16,

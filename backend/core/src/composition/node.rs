@@ -295,8 +295,11 @@ pub(super) async fn compose_node(
         &site_node_id,
         test_support.native_launcher.as_deref(),
         test_support.timing.native_port_settle_window,
-        test_support.simulated_runtime.clone(),
-        declared_machine,
+        super::runtime::SimulatedRuntimeInputs {
+            test_support: test_support.simulated_runtime.clone(),
+            machine: declared_machine,
+            clock: Arc::clone(&clock),
+        },
     )?;
     let runtimes = super::runtime::node_runtime_targets_for(
         &installed_targets,
@@ -318,6 +321,7 @@ pub(super) async fn compose_node(
         &runtimes,
         observation.reporter.observations(),
         test_support.timing.target_capability_max_age,
+        Arc::clone(&clock),
     )
     .await?;
     // One set of sources serves both pinning and building, so a node always builds the store
@@ -334,7 +338,8 @@ pub(super) async fn compose_node(
             state: state.clone(),
         }),
     )
-    .with_clock(Arc::clone(&clock));
+    .with_clock(Arc::clone(&clock))
+    .with_retry_delay(test_support.timing.nix_root_retry);
     let artifacts = crate::model::controller::ArtifactDependencies {
         oci_preparer: super::controllers::oci_preparer_for(
             &installed_targets,
@@ -402,7 +407,8 @@ pub(super) async fn compose_node(
     ));
     let model_construction = Arc::clone(&model_lifecycle.construction);
     let model_shutdown = model_lifecycle.shutdown.clone();
-    let model_reconcile = test_support.timing.model_reconcile;
+    let model_timing = test_support.timing;
+    let model_clock = Arc::clone(&clock);
     let model_root_keeper = Arc::clone(&model_lifecycle.root_keeper);
     let model_preparation_logs = preparation_logs.clone();
     let model_start = Box::new(move || {
@@ -415,7 +421,8 @@ pub(super) async fn compose_node(
         let listener =
             crate::model::controller::ModelRealizationInput::register_change_listener(&model_input);
         let construction = tokio::spawn(async move {
-            let realizer = construct_with_retry(listener, MODEL_CONSTRUCTION_RETRY, || {
+            let retry = model_timing.model_construction_retry;
+            let realizer = construct_with_retry(listener, Arc::clone(&model_clock), retry, || {
                 construct_model_realizer(
                     crate::model::controller::NodeModelRealizerDependencies {
                         input: pinned_model_input.clone(),
@@ -424,7 +431,8 @@ pub(super) async fn compose_node(
                         shutdown: model_shutdown.clone(),
                         preparation_logs: model_preparation_logs.clone(),
                         workload_lifecycle: model_workload_lifecycle.clone(),
-                        reconcile: model_reconcile,
+                        timing: model_timing,
+                        clock: Arc::clone(&model_clock),
                     },
                     model_state.clone(),
                     model_runtimes.clone(),
@@ -460,7 +468,8 @@ pub(super) async fn compose_node(
             },
             preparation_logs,
             inventory: observation.inventory(),
-            reconcile: test_support.timing.application_reconcile,
+            timing: test_support.timing,
+            clock: Arc::clone(&clock),
         },
         publication_host,
     )
@@ -812,15 +821,13 @@ type SiteNodeReporter = NodeReporter<
     Arc<dyn ObservationReportSink + Send + Sync>,
 >;
 
-/// Upper bound between retries of a failed model realizer construction. Accepted-view changes
-/// retry sooner, and an unchanged view still recovers from transient failures.
-const MODEL_CONSTRUCTION_RETRY: Duration = Duration::from_secs(5);
-
 /// Waits for the first accepted-view notification, then runs `attempt` until it succeeds. After
-/// a failure the next attempt starts on the next view change or after `retry`, whichever comes
-/// first, and only one attempt is ever in flight.
+/// a failure the next attempt starts on the next view change or after `retry` on `clock`,
+/// whichever comes first, and only one attempt is ever in flight. Retrying after `retry` even on
+/// an unchanged view recovers from transient failures.
 async fn construct_with_retry<T, F, A>(
     listener: Arc<tokio::sync::Notify>,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
     retry: Duration,
     mut attempt: A,
 ) -> T
@@ -844,7 +851,7 @@ where
         }
         tokio::select! {
             () = listener.notified() => {}
-            () = tokio::time::sleep(retry) => {}
+            () = clock.sleep_until(clock.now() + retry) => {}
         }
     }
 }
@@ -872,12 +879,13 @@ async fn construct_model_realizer(
 
 /// Confirms every installed model target's runtime platform matches its installed configuration,
 /// then returns capabilities refreshed by each completed infrastructure collection and reported
-/// stale once the latest collection is older than `max_age`.
+/// stale once the latest collection is older than `max_age` on `clock`.
 async fn target_capability_source(
     targets: &[ExecutionTarget],
     runtimes: &crate::dispatch::model::RuntimeTargetMap,
     observations: NodeObservationFeed,
     max_age: Duration,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 ) -> Result<Arc<dyn TargetCapabilitySource>, CompositionError> {
     for target in targets.iter().filter(|target| {
         matches!(
@@ -915,6 +923,7 @@ async fn target_capability_source(
         targets,
         observations,
         max_age,
+        clock,
     )))
 }
 
@@ -928,7 +937,8 @@ struct ApplicationRealizerSources {
     fixed_pins: FixedLaunchPins,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     inventory: Arc<dyn HardwareInventorySource>,
-    reconcile: dotcore_domain::timing::ReconcileSchedule,
+    timing: dotcore_domain::timing::Timing,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 }
 
 async fn application_realizer_for(
@@ -945,7 +955,8 @@ async fn application_realizer_for(
         fixed_pins,
         preparation_logs,
         inventory,
-        reconcile,
+        timing,
+        clock,
     } = sources;
     let application_targets = targets
         .iter()
@@ -1010,7 +1021,8 @@ async fn application_realizer_for(
             publication_host,
             preparation_logs,
             inventory,
-            reconcile,
+            timing,
+            clock,
         },
     )
     .map(Some)
@@ -1273,6 +1285,7 @@ mod tests {
         let attempts = Arc::new(AtomicUsize::new(0));
         let construction = tokio::spawn(construct_with_retry(
             Arc::clone(&listener),
+            Arc::new(dotcore_domain::clock::SystemClock),
             Duration::from_secs(5),
             {
                 let attempts = Arc::clone(&attempts);
@@ -1318,6 +1331,7 @@ mod tests {
             &builder.build().expect("node targets"),
             observations.clone(),
             dotcore_domain::timing::Timing::production().target_capability_max_age,
+            Arc::new(dotcore_domain::clock::SystemClock),
         )
         .await
         .expect("node capability source");
@@ -1359,6 +1373,7 @@ mod tests {
             crate::hardware::selection::select_target_capabilities(
                 &node_target,
                 &source.observe().await.expect("aged inventory"),
+                std::time::SystemTime::now()
             ),
             Err(
                 crate::hardware::selection::TargetCapabilitySelectionError::StalePlatform {
@@ -1375,6 +1390,7 @@ mod tests {
         let refreshed = crate::hardware::selection::select_target_capabilities(
             &node_target,
             &source.observe().await.expect("refreshed inventory"),
+            std::time::SystemTime::now(),
         )
         .expect("refreshed node capabilities");
 

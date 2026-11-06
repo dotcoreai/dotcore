@@ -22,6 +22,7 @@ use tokio_stream::StreamExt;
 pub const SITE_DATA_CLEANUP_IMAGE: &str =
     "busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662";
 
+// Not a behavior duration: bound on one real Docker Engine operation.
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 const CLEANUP_COMMAND: &str = "rm -rf /site/* /site/.[!.]* /site/..?*";
 
@@ -64,6 +65,10 @@ pub async fn cleanup_root_owned_site_data(site_root: &Path) -> anyhow::Result<()
         .condition("not-running")
         .build();
     let mut waiting = docker.wait_container(&created.id, Some(options));
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds a real Docker Engine operation"
+    )]
     let outcome = tokio::time::timeout(OPERATION_TIMEOUT, waiting.next())
         .await
         .map_err(|source| anyhow::Error::new(source).context("root-owned site cleanup timed out"))
@@ -120,6 +125,10 @@ async fn remove_on_host(folder: PathBuf) -> io::Result<()> {
     .map_err(io::Error::other)?
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "bounds a real Docker Engine operation"
+)]
 async fn provision_cleanup_image(docker: &Docker) -> anyhow::Result<()> {
     match bounded(
         "pinned site cleanup image inspection",
@@ -207,6 +216,10 @@ async fn remove_failed_cleanup_container(docker: &Docker, container_id: &str) {
     .await;
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "bounds a real Docker Engine operation"
+)]
 async fn bounded<T>(
     operation: &'static str,
     future: impl Future<Output = Result<T, bollard::errors::Error>>,

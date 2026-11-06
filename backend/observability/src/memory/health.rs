@@ -14,7 +14,6 @@ use std::{
 
 use tokio::time::Instant;
 
-use super::SWEEP_INTERVAL;
 use crate::{
     descriptor::{MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricUnit},
     labels::{self, LabelSet},
@@ -43,14 +42,18 @@ pub(crate) const RECORDER_DROPPED: &str = "observability.recorder.dropped";
 
 /// Most an up reading lies past its bucket's start, which keeps a reading recorded as its bucket
 /// starts within the store's tolerance for future observations.
+// Not a behavior duration: part of the metric bucket contract.
 const UP_READING_OFFSET: Duration = Duration::from_millis(500);
 
 /// Label value standing for every undeclared metric name.
 const UNKNOWN_METRIC: &str = "unknown";
 
 /// Declarations of the metrics the store records about itself, with up readings every
-/// `up_interval`.
-pub(super) fn health_metric_descriptors(up_interval: Duration) -> Vec<MetricDescriptor> {
+/// `up_interval` and memory readings every `sweep_interval`.
+pub(super) fn health_metric_descriptors(
+    up_interval: Duration,
+    sweep_interval: Duration,
+) -> Vec<MetricDescriptor> {
     let gauge = |name: &str, unit, interval| MetricDescriptor {
         name: name.to_owned(),
         kind: MetricKind::Gauge,
@@ -71,8 +74,8 @@ pub(super) fn health_metric_descriptors(up_interval: Duration) -> Vec<MetricDesc
     };
     vec![
         gauge(STORE_UP, MetricUnit::Ratio, up_interval),
-        gauge(STORE_MEMORY, MetricUnit::Bytes, SWEEP_INTERVAL),
-        gauge(STORE_SERIES, MetricUnit::Series, SWEEP_INTERVAL),
+        gauge(STORE_MEMORY, MetricUnit::Bytes, sweep_interval),
+        gauge(STORE_SERIES, MetricUnit::Series, sweep_interval),
         counter(
             SAMPLES_REJECTED,
             vec![

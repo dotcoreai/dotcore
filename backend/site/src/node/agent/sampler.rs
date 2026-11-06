@@ -25,6 +25,7 @@ use crate::node::metrics::{
 
 /// Longest a backward wall-clock step pauses sampling: beyond it, the node's metric forwarder has
 /// already let go of the seconds the clock went back to, so sampling starts over.
+// Not a behavior duration: limit tied to how long the metric forwarder keeps past seconds.
 const MAX_BACKWARD_PAUSE: Duration = Duration::from_secs(15 * 60);
 
 /// Samples one node's hardware memory every wall-clock second into a metric recorder.

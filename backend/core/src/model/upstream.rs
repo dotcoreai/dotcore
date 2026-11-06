@@ -7,11 +7,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use dotcore_domain::{clock::Clock, timing::Timing};
 use tokio_util::sync::CancellationToken;
 
-const HEALTHY_INTERVAL: Duration = Duration::from_secs(60);
-const RETRY_INITIAL_DELAY: Duration = Duration::from_secs(10);
-const RETRY_MAX_DELAY: Duration = Duration::from_secs(15 * 60);
+// Not a behavior duration: bound on one real HTTP verification round trip.
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const MAX_PROBE_BODY_BYTES: usize = 64 * 1024;
 
@@ -104,6 +103,10 @@ impl ReqwestVerificationHttp {
 }
 
 impl VerificationHttp for ReqwestVerificationHttp {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds one real HTTP verification"
+    )]
     fn verify(
         &self,
         request: VerificationRequest,
@@ -209,51 +212,53 @@ impl HealthState {
     }
 }
 
+/// Pauses between verifications of one upstream endpoint: the healthy interval and the retry
+/// back-off after a failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProbePacing {
+    healthy: Duration,
+    retry_initial: Duration,
+    retry_max: Duration,
+}
+
+impl ProbePacing {
+    /// The pacing `timing` sets for upstream verifications.
+    pub(crate) fn new(timing: &Timing) -> Self {
+        Self {
+            healthy: timing.upstream_healthy_interval,
+            retry_initial: timing.upstream_retry_initial,
+            retry_max: timing.upstream_retry_max,
+        }
+    }
+
+    /// Pause after a success, spread by the deployment's `jitter_fraction`.
+    pub(crate) fn healthy_delay(&self, jitter_fraction: f64) -> Duration {
+        self.healthy
+            .mul_f64((1.0 + jitter_fraction).clamp(0.8, 1.2))
+    }
+}
+
 /// Deterministic retry delay calculation. Jitter is applied by the scheduler.
 #[derive(Clone, Debug)]
 pub(crate) struct RetrySchedule {
+    pacing: ProbePacing,
     delay: Duration,
 }
 
 impl RetrySchedule {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(pacing: ProbePacing) -> Self {
         Self {
-            delay: RETRY_INITIAL_DELAY,
+            pacing,
+            delay: pacing.retry_initial,
         }
     }
     pub(crate) fn next(&mut self, minimum: Option<Duration>) -> Duration {
         let delay = self.delay.max(minimum.unwrap_or_default());
-        self.delay = self.delay.saturating_mul(2).min(RETRY_MAX_DELAY);
+        self.delay = self.delay.saturating_mul(2).min(self.pacing.retry_max);
         delay
     }
     pub(crate) fn reset(&mut self) {
-        self.delay = RETRY_INITIAL_DELAY;
-    }
-}
-
-pub(crate) fn healthy_delay(jitter_fraction: f64) -> Duration {
-    HEALTHY_INTERVAL.mul_f64((1.0 + jitter_fraction).clamp(0.8, 1.2))
-}
-
-/// Injected monotonic time source for controller health scheduling.
-pub(crate) trait HealthClock: Send + Sync {
-    fn now(&self) -> Duration;
-}
-
-/// Process monotonic clock used by production controller health scheduling.
-pub(crate) struct SystemHealthClock {
-    started: std::time::Instant,
-}
-impl SystemHealthClock {
-    pub(crate) fn new() -> Self {
-        Self {
-            started: std::time::Instant::now(),
-        }
-    }
-}
-impl HealthClock for SystemHealthClock {
-    fn now(&self) -> Duration {
-        self.started.elapsed()
+        self.delay = self.pacing.retry_initial;
     }
 }
 
@@ -276,24 +281,31 @@ impl HealthJitter for StableHealthJitter {
 /// Controller-owned injectable health boundary dependencies.
 pub(crate) struct HealthDependencies {
     pub(crate) verification_http: std::sync::Arc<dyn VerificationHttp>,
-    pub(crate) clock: std::sync::Arc<dyn HealthClock>,
+
+    /// Backend clock health scheduling reads and waits through.
+    pub(crate) clock: std::sync::Arc<dyn Clock>,
     pub(crate) jitter: std::sync::Arc<dyn HealthJitter>,
+
+    /// Timing of the verifications and of the observer's passes.
+    pub(crate) timing: Timing,
 }
 
 /// Time-injected per-target health scheduling and stale-readiness control.
 #[derive(Clone, Debug)]
 pub(crate) struct HealthSchedule {
     health: HealthState,
+    pacing: ProbePacing,
     retry: RetrySchedule,
     last_success_at: Option<Duration>,
     next_probe_at: Duration,
 }
 
 impl HealthSchedule {
-    pub(crate) fn new(now: Duration) -> Self {
+    pub(crate) fn new(now: Duration, pacing: ProbePacing) -> Self {
         Self {
             health: HealthState::new(),
-            retry: RetrySchedule::new(),
+            pacing,
+            retry: RetrySchedule::new(pacing),
             last_success_at: None,
             next_probe_at: now,
         }
@@ -320,7 +332,7 @@ impl HealthSchedule {
             ProbeClassification::Success => {
                 self.last_success_at = Some(now);
                 self.retry.reset();
-                self.next_probe_at = now.saturating_add(healthy_delay(jitter_fraction));
+                self.next_probe_at = now.saturating_add(self.pacing.healthy_delay(jitter_fraction));
             }
             ProbeClassification::TransientFailure | ProbeClassification::ImmediateWithdrawal => {
                 self.next_probe_at = now.saturating_add(self.retry.next(minimum_retry))
@@ -742,7 +754,7 @@ mod tests {
 
     #[test]
     fn retry_schedule_obeys_exponential_cap_and_provider_minimum() {
-        let mut retry = RetrySchedule::new();
+        let mut retry = RetrySchedule::new(ProbePacing::new(&Timing::production()));
         assert_eq!(retry.next(None), Duration::from_secs(10));
         assert_eq!(retry.next(None), Duration::from_secs(20));
         assert_eq!(
@@ -773,7 +785,10 @@ mod tests {
     }
     #[test]
     fn health_schedule_uses_exact_injected_retry_deadline() {
-        let mut schedule = HealthSchedule::new(Duration::from_secs(5));
+        let mut schedule = HealthSchedule::new(
+            Duration::from_secs(5),
+            ProbePacing::new(&Timing::production()),
+        );
         schedule.record(
             Duration::from_secs(5),
             ProbeClassification::TransientFailure,

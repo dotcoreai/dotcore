@@ -14,7 +14,10 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::clock::{Clock, SystemClock};
+use dotcore_domain::{
+    clock::{Clock, SystemClock},
+    timing::Timing,
+};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -26,9 +29,6 @@ use super::{
 
 /// Directory of a node's garbage-collector roots, beside its node store.
 pub const NIX_ROOTS_DIRECTORY: &str = "nix-roots";
-
-/// Delay before a failed pass runs again when no pin change triggers one sooner.
-const RETRY_DELAY: Duration = Duration::from_secs(60);
 
 /// The Nix store paths a node pins, read from the node's durable records.
 pub trait PinnedStorePaths: Send + Sync {
@@ -57,7 +57,7 @@ impl NixRootKeeper {
             pins,
             command: NixCommand::Discover,
             clock: Arc::new(SystemClock),
-            retry_delay: RETRY_DELAY,
+            retry_delay: Timing::production().nix_root_retry,
             passes: watch::channel(0).0,
         }
     }
@@ -65,6 +65,13 @@ impl NixRootKeeper {
     /// Waits through `clock`, the backend's time source.
     pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
         self.clock = clock;
+        self
+    }
+
+    /// Runs a failed pass again after `delay` when no pin change triggers one sooner, instead of
+    /// the production delay.
+    pub fn with_retry_delay(mut self, delay: Duration) -> Self {
+        self.retry_delay = delay;
         self
     }
 
@@ -224,13 +231,6 @@ impl NixRootKeeper {
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_executable(mut self, executable: PathBuf) -> Self {
         self.command = NixCommand::Executable(executable);
-        self
-    }
-
-    /// Retries a failed pass after `delay` instead of the production delay.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn with_retry_delay(mut self, delay: Duration) -> Self {
-        self.retry_delay = delay;
         self
     }
 

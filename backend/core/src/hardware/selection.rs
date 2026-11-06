@@ -66,16 +66,9 @@ impl TargetAccelerator {
     }
 }
 
-/// Validates an execution target against its fresh capability observation.
+/// Validates an execution target against its capability observation, judging freshness at `now`,
+/// the backend clock's wall time.
 pub(crate) fn select_target_capabilities(
-    target: &ExecutionTarget,
-    inventory: &TargetCapabilityInventory,
-) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    select_target_capabilities_at(target, inventory, SystemTime::now())
-}
-
-/// Validates an execution target against its capability observation, judging freshness at `now`.
-pub(crate) fn select_target_capabilities_at(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
     now: SystemTime,
@@ -395,7 +388,6 @@ pub(crate) mod tests {
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetAccelerator,
         TargetCapabilitySelectionError, select_hardware_class,
         select_last_observed_target_capabilities, select_target_capabilities,
-        select_target_capabilities_at,
     };
     use crate::hardware::capacity::TargetCapacity;
 
@@ -444,7 +436,8 @@ pub(crate) mod tests {
                 [RuntimePlatformObservation::available("target-a", platform)],
                 [accelerator],
             );
-            let capabilities = select_target_capabilities(&target, &inventory)?;
+            let capabilities =
+                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())?;
             Ok::<_, TargetCapabilitySelectionError>(selected_class_id(&supported, &capabilities))
         };
         let gb10 = || {
@@ -521,7 +514,8 @@ pub(crate) mod tests {
                 )],
             );
             let capabilities =
-                select_target_capabilities(&target, &inventory).expect("target capabilities");
+                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
+                    .expect("target capabilities");
             let class = selected_class_id(&supported, &capabilities).expect("hardware class");
             (class, capabilities.memory_pool_total_bytes())
         };
@@ -576,7 +570,8 @@ pub(crate) mod tests {
                 )],
             );
             let capabilities =
-                select_target_capabilities(&target, &inventory).expect("target capabilities");
+                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
+                    .expect("target capabilities");
             selected_class_id(supported, &capabilities)
         };
         let no_match = Err(HardwareClassSelectionError::NoMatch {
@@ -752,7 +747,7 @@ pub(crate) mod tests {
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
         );
         let kinds = |target: &ExecutionTarget| {
-            select_target_capabilities(target, &inventory)
+            select_target_capabilities(target, &inventory, std::time::SystemTime::now())
                 .expect("target capabilities")
                 .artifact_kinds
         };
@@ -789,8 +784,9 @@ pub(crate) mod tests {
                 ],
             );
 
-            let selected = select_target_capabilities(&target, &inventory)
-                .expect("fresh exact target capabilities");
+            let selected =
+                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
+                    .expect("fresh exact target capabilities");
             assert_eq!(selected.platform, platform);
             assert_eq!(
                 selected.accelerator,
@@ -805,7 +801,11 @@ pub(crate) mod tests {
     fn target_capabilities_reject_missing_stale_and_mismatched_observations_distinctly() {
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
         assert_eq!(
-            select_target_capabilities(&target, &TargetCapabilityInventory::default()),
+            select_target_capabilities(
+                &target,
+                &TargetCapabilityInventory::default(),
+                std::time::SystemTime::now()
+            ),
             Err(TargetCapabilitySelectionError::MissingObservation {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -817,7 +817,7 @@ pub(crate) mod tests {
             std::iter::empty(),
         );
         assert_eq!(
-            select_target_capabilities(&target, &missing),
+            select_target_capabilities(&target, &missing, std::time::SystemTime::now()),
             Err(TargetCapabilitySelectionError::PlatformUnavailable {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -835,7 +835,7 @@ pub(crate) mod tests {
             )],
         );
         assert_eq!(
-            select_target_capabilities(&target, &stale),
+            select_target_capabilities(&target, &stale, std::time::SystemTime::now()),
             Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -850,7 +850,7 @@ pub(crate) mod tests {
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
         );
         assert_eq!(
-            select_target_capabilities(&target, &mismatched),
+            select_target_capabilities(&target, &mismatched, std::time::SystemTime::now()),
             Err(TargetCapabilitySelectionError::PlatformMismatch {
                 execution_target_id: "target-a".to_owned(),
                 observed_operating_system: "linux".to_owned(),
@@ -957,7 +957,8 @@ pub(crate) mod tests {
         assert_eq!(
             select_target_capabilities(
                 &target,
-                &inventory(NodeAcceleratorObservation::nvidia("node-a", "driver-580"))
+                &inventory(NodeAcceleratorObservation::nvidia("node-a", "driver-580")),
+                std::time::SystemTime::now()
             ),
             Err(TargetCapabilitySelectionError::NvidiaDriverUnavailable {
                 execution_target_id: "target-a".to_owned(),
@@ -966,7 +967,8 @@ pub(crate) mod tests {
         assert_eq!(
             select_target_capabilities(
                 &target,
-                &inventory(NodeAcceleratorObservation::unavailable("node-a"))
+                &inventory(NodeAcceleratorObservation::unavailable("node-a")),
+                std::time::SystemTime::now()
             ),
             Err(TargetCapabilitySelectionError::AcceleratorUnavailable {
                 execution_target_id: "target-a".to_owned(),
@@ -978,7 +980,8 @@ pub(crate) mod tests {
                 &inventory(NodeAcceleratorObservation::available(
                     "node-a",
                     NodeAcceleratorFacts::apple()
-                ))
+                )),
+                std::time::SystemTime::now()
             )
             .map(|selected| selected.accelerator),
             Ok(TargetAccelerator::Apple)
@@ -1005,7 +1008,7 @@ pub(crate) mod tests {
         );
 
         assert_eq!(
-            select_target_capabilities_at(&target, &inventory, now),
+            select_target_capabilities(&target, &inventory, now),
             Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -1025,7 +1028,7 @@ pub(crate) mod tests {
             )],
         );
         assert_eq!(
-            select_target_capabilities_at(&target, &stale_accelerator, now),
+            select_target_capabilities(&target, &stale_accelerator, now),
             Err(TargetCapabilitySelectionError::StaleAccelerator {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -1046,7 +1049,7 @@ pub(crate) mod tests {
                 [NodeAcceleratorObservation::nvidia("node-a", "580")
                     .with_device_memory("GPU-a", total, None)],
             );
-            select_target_capabilities(&target, &inventory)
+            select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
                 .expect("selection never fails on the memory-pool total")
                 .memory_pool_total_bytes()
         };

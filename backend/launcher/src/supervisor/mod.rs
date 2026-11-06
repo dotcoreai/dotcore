@@ -31,9 +31,11 @@ use crate::workload::{
 };
 
 /// Age after which a workload directory without a launcher record is an interrupted create.
+// Not a behavior duration: age of another process's files, judged across process restarts.
 pub const INTERRUPTED_CREATE_AGE: Duration = Duration::from_secs(60);
 
 /// Longest wait for a started launcher to detach; the launcher bounds its own wait below this.
+// Not a behavior duration: bound on a real launcher process start.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Name prefix of a workload directory that is still being staged.
@@ -248,6 +250,10 @@ impl Supervisor {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .output();
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "bounds a real launcher process start"
+        )]
         let output = tokio::time::timeout(START_TIMEOUT, output)
             .await
             .map_err(|_| SupervisorError::LaunchTimedOut)?

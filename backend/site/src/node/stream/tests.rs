@@ -753,7 +753,10 @@ impl Fixture {
             ManagerSession::parse("a".repeat(32)).expect("manager session"),
             Arc::new(clock.clone()),
         )
-        .with_silence_bound(silence_bound);
+        .with_timing(&Timing {
+            node_liveness_ttl: silence_bound,
+            ..Timing::production()
+        });
         let registry = NodeRegistry::with_coordinator(Arc::new(site.clone()), coordinator.clone());
         let status_owner = Arc::new(ScriptedModelStatus::default());
         let applications = Arc::new(TestApplications::default());

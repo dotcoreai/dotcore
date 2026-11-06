@@ -163,6 +163,10 @@ pub(super) async fn primary_endpoint_ready(
         .ok_or_else(|| configuration("Application endpoint has invalid protocol"))?
         .parse::<SocketAddr>()
         .map_err(|source| configuration_with_source("Application endpoint is invalid", source))?;
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds one real HTTP readiness probe"
+    )]
     let result = tokio::time::timeout(READINESS_TIMEOUT, async {
         let mut stream = tokio::net::TcpStream::connect(address).await?;
         stream

@@ -869,6 +869,7 @@ mod tests {
                 &target,
                 &inventory,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("vLLM launch on a GPU of a mixed machine");
             let total = launch
@@ -1205,6 +1206,7 @@ profiles:
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
     }
 

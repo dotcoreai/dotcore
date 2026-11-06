@@ -24,13 +24,15 @@ use crate::hardware::selection::{
     memory_architecture_name, select_target_capabilities, selector_matches,
 };
 
-/// Revalidates a retained concrete selection against the current exact target observation.
+/// Revalidates a retained concrete selection against the current exact target observation,
+/// judged fresh at `now`.
 pub(crate) fn validate_retained_target_capabilities(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
     resolved: &crate::model::resolved::ResolvedModelLaunch,
+    now: std::time::SystemTime,
 ) -> Result<(), RetainedTargetCapabilityError> {
-    let current = select_target_capabilities(target, inventory)
+    let current = select_target_capabilities(target, inventory, now)
         .map_err(RetainedTargetCapabilityError::Target)?;
     let retained = ExecutionPlatform::normalize(
         &resolved.engine.platform.operating_system,
@@ -487,7 +489,8 @@ mod tests {
             )],
         );
         let capabilities =
-            select_target_capabilities(&target, &inventory).expect("Apple target capabilities");
+            select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
+                .expect("Apple target capabilities");
         assert_eq!(capabilities.accelerator, TargetAccelerator::Apple);
         assert_eq!(
             capabilities.memory_architecture,
@@ -562,8 +565,12 @@ mod tests {
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
         );
-        let docker = select_target_capabilities(&execution_target(&linux, &["target-a"]), &docker)
-            .expect("Docker target capabilities");
+        let docker = select_target_capabilities(
+            &execution_target(&linux, &["target-a"]),
+            &docker,
+            std::time::SystemTime::now(),
+        )
+        .expect("Docker target capabilities");
         let linux_nix = nix_artifact("cuda-nix", "linux", "amd64", "nvidia");
         let linux_oci = single_platform_artifact("cuda13-amd64", "amd64", 'a');
 
@@ -612,8 +619,12 @@ mod tests {
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
         );
-        let docker = select_target_capabilities(&execution_target(&linux, &["target-a"]), &docker)
-            .expect("Docker target capabilities");
+        let docker = select_target_capabilities(
+            &execution_target(&linux, &["target-a"]),
+            &docker,
+            std::time::SystemTime::now(),
+        )
+        .expect("Docker target capabilities");
         let mut image = nix_artifact("cuda-image", "linux", "amd64", "nvidia");
         let Some(ArtifactKind::Nix(nix)) = image.kind.as_mut() else {
             unreachable!("Nix fixture artifact");
@@ -696,7 +707,12 @@ mod tests {
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
         );
         assert!(matches!(
-            validate_retained_target_capabilities(&arm64_target, &arm64_inventory, &resolved),
+            validate_retained_target_capabilities(
+                &arm64_target,
+                &arm64_inventory,
+                &resolved,
+                std::time::SystemTime::now()
+            ),
             Err(RetainedTargetCapabilityError::PlatformMismatch { .. })
         ));
 
@@ -710,7 +726,12 @@ mod tests {
             [NodeAcceleratorObservation::nvidia("node-a", "579")],
         );
         assert_eq!(
-            validate_retained_target_capabilities(&amd64_target, &downgraded_inventory, &resolved),
+            validate_retained_target_capabilities(
+                &amd64_target,
+                &downgraded_inventory,
+                &resolved,
+                std::time::SystemTime::now()
+            ),
             Err(RetainedTargetCapabilityError::DriverBelowMinimum {
                 observed_major: 579,
                 required_major: 580,
@@ -737,7 +758,12 @@ mod tests {
         );
 
         assert_eq!(
-            validate_retained_target_capabilities(&target, &inventory, &resolved),
+            validate_retained_target_capabilities(
+                &target,
+                &inventory,
+                &resolved,
+                std::time::SystemTime::now()
+            ),
             Err(RetainedTargetCapabilityError::AcceleratorMismatch {
                 target: "apple",
                 retained: "nvidia".to_owned(),
@@ -760,7 +786,12 @@ mod tests {
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
         );
         assert_eq!(
-            validate_retained_target_capabilities(&target, &inventory, &resolved),
+            validate_retained_target_capabilities(
+                &target,
+                &inventory,
+                &resolved,
+                std::time::SystemTime::now()
+            ),
             Ok(())
         );
 
@@ -771,7 +802,12 @@ mod tests {
         };
 
         assert_eq!(
-            validate_retained_target_capabilities(&target, &inventory, &resolved),
+            validate_retained_target_capabilities(
+                &target,
+                &inventory,
+                &resolved,
+                std::time::SystemTime::now()
+            ),
             Err(RetainedTargetCapabilityError::ArtifactKindUnrealizable {
                 retained: WorkloadArtifactKind::Nix,
             })
@@ -853,7 +889,12 @@ mod tests {
         );
 
         assert_eq!(
-            validate_retained_target_capabilities(&target, &inventory, &resolved),
+            validate_retained_target_capabilities(
+                &target,
+                &inventory,
+                &resolved,
+                std::time::SystemTime::now()
+            ),
             Ok(())
         );
     }
@@ -881,7 +922,8 @@ mod tests {
             validate_retained_target_capabilities(
                 &target,
                 &inventory(MemoryArchitecture::Dedicated),
-                &resolved
+                &resolved,
+                std::time::SystemTime::now()
             ),
             Ok(())
         );
@@ -889,7 +931,8 @@ mod tests {
             validate_retained_target_capabilities(
                 &target,
                 &inventory(MemoryArchitecture::Unified),
-                &resolved
+                &resolved,
+                std::time::SystemTime::now()
             ),
             Err(RetainedTargetCapabilityError::MemoryArchitectureMismatch {
                 target: MemoryArchitecture::Unified,
@@ -927,13 +970,23 @@ mod tests {
 
         let matching = resolved_with_class_memory(AcceleratorMemoryArchitecture::Dedicated);
         assert_eq!(
-            validate_retained_target_capabilities(&target, &inventory, &matching),
+            validate_retained_target_capabilities(
+                &target,
+                &inventory,
+                &matching,
+                std::time::SystemTime::now()
+            ),
             Ok(())
         );
 
         let stale = resolved_with_class_memory(AcceleratorMemoryArchitecture::Unified);
-        let error = validate_retained_target_capabilities(&target, &inventory, &stale)
-            .expect_err("stale hardware class");
+        let error = validate_retained_target_capabilities(
+            &target,
+            &inventory,
+            &stale,
+            std::time::SystemTime::now(),
+        )
+        .expect_err("stale hardware class");
         let hardware_class_id = stale
             .snapshot
             .hardware_support

@@ -9,6 +9,7 @@ use dotcore_domain::{ExecutionPlatform, ExecutionPlatformError};
 use crate::docker::client::{LocalDockerClient, WORKLOAD_LOG_DRIVER, bounded_operation};
 
 const DAEMON_CAPABILITY_PROBE: &str = "Docker daemon capability probe";
+// Not a behavior duration: bound on one real Docker Engine request.
 const DOCKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Effective platform and CDI facts reported by one Docker daemon.

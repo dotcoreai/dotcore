@@ -6,7 +6,12 @@
 //! simulated target's node reports its declared machine. It never re-stamps an older fact: a
 //! failed probe reads as unavailable, and a collection older than the maximum age reads as stale.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+
+use dotcore_domain::clock::Clock;
 
 use dotcore_proto::dotcore::{
     observation::v1::runtime_observation,
@@ -28,15 +33,19 @@ pub struct NodeTargetCapabilitySource {
     targets: Vec<ExecutionTarget>,
     observations: NodeObservationFeed,
     max_age: Duration,
+
+    /// Backend clock whose wall time judges collections fresh, the clock that stamps them.
+    clock: Arc<dyn Clock>,
 }
 
 impl NodeTargetCapabilitySource {
     /// Creates a source for the node's model execution targets. Collections older than
-    /// `max_age` are reported stale.
+    /// `max_age` on `clock` are reported stale.
     pub fn new(
         targets: &[ExecutionTarget],
         observations: NodeObservationFeed,
         max_age: Duration,
+        clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             targets: targets
@@ -51,6 +60,7 @@ impl NodeTargetCapabilitySource {
                 .collect(),
             observations,
             max_age,
+            clock,
         }
     }
 
@@ -91,7 +101,7 @@ impl TargetCapabilitySource for NodeTargetCapabilitySource {
                 + '_,
         >,
     > {
-        Box::pin(std::future::ready(self.inventory_at(SystemTime::now())))
+        Box::pin(std::future::ready(self.inventory_at(self.clock.wall_now())))
     }
 }
 
@@ -260,8 +270,12 @@ mod tests {
     fn refreshed_collection_restores_capabilities_after_the_max_age() {
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
-        let source =
-            NodeTargetCapabilitySource::new(&[target()], feed.clone(), TARGET_CAPABILITY_MAX_AGE);
+        let source = NodeTargetCapabilitySource::new(
+            &[target()],
+            feed.clone(),
+            TARGET_CAPABILITY_MAX_AGE,
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+        );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
             1,
@@ -535,8 +549,12 @@ mod tests {
     fn failed_collection_never_restamps_earlier_facts() {
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
-        let source =
-            NodeTargetCapabilitySource::new(&[target()], feed.clone(), TARGET_CAPABILITY_MAX_AGE);
+        let source = NodeTargetCapabilitySource::new(
+            &[target()],
+            feed.clone(),
+            TARGET_CAPABILITY_MAX_AGE,
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+        );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
             1,
@@ -566,8 +584,12 @@ mod tests {
     fn injected_max_age_marks_an_older_collection_stale() {
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
-        let source =
-            NodeTargetCapabilitySource::new(&[target()], feed.clone(), Duration::from_secs(1));
+        let source = NodeTargetCapabilitySource::new(
+            &[target()],
+            feed.clone(),
+            Duration::from_secs(1),
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+        );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
             1,
@@ -586,6 +608,7 @@ mod tests {
             &[target()],
             NodeObservationFeed::default(),
             TARGET_CAPABILITY_MAX_AGE,
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         );
 
         assert!(source.inventory_at(SystemTime::now()).is_err());

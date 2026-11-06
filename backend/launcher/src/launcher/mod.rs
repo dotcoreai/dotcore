@@ -36,6 +36,7 @@ use crate::workload::{
 };
 
 /// Longest wait of the starting process for the detached launcher to record its identity.
+// Not a behavior duration: bound on a real workload process reaching readiness.
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Signals that ask the launcher to stop the held process.

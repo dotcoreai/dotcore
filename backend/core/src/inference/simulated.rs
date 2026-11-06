@@ -38,6 +38,7 @@ const SIMULATED_TEXT_TOKENS: [&str; 3] = ["Simulated", " response", "."];
 
 /// Pause between streamed text tokens outside tests: a generation speed of 50 tokens per second,
 /// so the router measures token generation for simulated deployments as it does for engines.
+// Not a behavior duration: the simulated engine's generation speed, which tests set through its test support.
 const DEFAULT_TOKEN_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Test-only controls for deterministic native simulated inference. Under them, streamed tokens
@@ -201,6 +202,10 @@ struct SimulatedInvoker {
     token_interval: Duration,
 }
 impl EngineInvoker for SimulatedInvoker {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "paces simulated engine output in real time, as an engine streams it"
+    )]
     fn invoke<'a>(
         &'a self,
         request: ChatRequest,

@@ -3,6 +3,8 @@
 //! Resolution is pure and controller-owned. It overlays generic values, dispatches
 //! engine-owned realization and translation, then returns one self-contained snapshot.
 
+use std::time::SystemTime;
+
 use dotcore_artifact::{ArtifactManager, LocalImageIdentityResolutionError};
 use dotcore_catalog::{
     ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogError, CatalogModelId, HOST_MEMORY_RESOURCE,
@@ -149,11 +151,13 @@ pub(crate) struct LocalModelSelection {
     pub(crate) model_artifact: ModelArtifact,
 }
 
-/// Resolves one local catalog selection into its immutable portable launch snapshot.
+/// Resolves one local catalog selection into its immutable portable launch snapshot, judging the
+/// target's observations fresh at `now`.
 ///
 /// `engine_identity` is the local image ID a caller resolved for a selected tag-only image, which
 /// may instead be left to the hosting SiteNode. It must name the selected image and is rejected
 /// for a digest-pinned image or a Nix artifact.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_local_launch(
     catalog: &Catalog,
     model_id: &CatalogModelId,
@@ -162,8 +166,9 @@ pub fn resolve_local_launch(
     target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
     target_inventory: &TargetCapabilityInventory,
     engine_identity: Option<&EngineLaunchIdentity>,
+    now: SystemTime,
 ) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelLaunchResolutionError> {
-    let selected_target = select_target_capabilities(target, target_inventory)
+    let selected_target = select_target_capabilities(target, target_inventory, now)
         .map_err(ModelLaunchResolutionError::TargetCapability)?;
     resolve_local_launch_on_selected_target(
         catalog,
@@ -177,7 +182,7 @@ pub fn resolve_local_launch(
 }
 
 /// Resolves one local catalog selection into its launch snapshot like [`resolve_local_launch`],
-/// on target capabilities the caller already selected, so it judges freshness at its own time.
+/// on target capabilities the caller already selected.
 pub(crate) fn resolve_local_launch_on_selected_target(
     catalog: &Catalog,
     model_id: &CatalogModelId,
@@ -317,8 +322,8 @@ fn validate_target_accelerator_devices(
     }
 }
 
-/// Selects the engine artifact one local catalog selection would launch on the target, without
-/// resolving values or building a snapshot.
+/// Selects the engine artifact one local catalog selection would launch on the target, judging
+/// its observations fresh at `now`, without resolving values or building a snapshot.
 pub fn select_engine_artifact(
     catalog: &Catalog,
     model_id: &CatalogModelId,
@@ -326,8 +331,9 @@ pub fn select_engine_artifact(
     configuration: &LocalModelDeploymentConfiguration,
     target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
     target_inventory: &TargetCapabilityInventory,
+    now: SystemTime,
 ) -> Result<EngineArtifactSelection, ModelLaunchResolutionError> {
-    let target = select_target_capabilities(target, target_inventory)
+    let target = select_target_capabilities(target, target_inventory, now)
         .map_err(ModelLaunchResolutionError::TargetCapability)?;
     let selection = select_local_model(
         catalog,
@@ -585,7 +591,8 @@ pub(crate) fn resolve_local_values_each_class(
 }
 
 /// Resolves generic selection and values for one configured execution target, whose observed
-/// facts pick the engine artifact and the hardware class, without building a snapshot.
+/// facts, judged fresh at `now`, pick the engine artifact and the hardware class, without
+/// building a snapshot.
 pub(crate) fn resolve_local_values_on_target(
     catalog: &Catalog,
     model_id: &CatalogModelId,
@@ -593,8 +600,9 @@ pub(crate) fn resolve_local_values_on_target(
     configuration: &LocalModelDeploymentConfiguration,
     target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
     target_inventory: &TargetCapabilityInventory,
+    now: SystemTime,
 ) -> Result<ResolvedLocalModelValues, ModelLaunchResolutionError> {
-    let selected_target = select_target_capabilities(target, target_inventory)
+    let selected_target = select_target_capabilities(target, target_inventory, now)
         .map_err(ModelLaunchResolutionError::TargetCapability)?;
     resolve_local_values_for_target(
         catalog,
@@ -1210,6 +1218,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("unified snapshot");
 
@@ -1275,6 +1284,7 @@ mod tests {
                 &target,
                 &inventory,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("snapshot")
         };
@@ -1312,6 +1322,7 @@ mod tests {
                 &target,
                 &inventory,
                 None,
+                std::time::SystemTime::now(),
             )
             .expect("manager admission");
 
@@ -1378,6 +1389,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("snapshot artifact admission");
 
@@ -1439,6 +1451,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("derived snapshot");
         let values =
@@ -1503,6 +1516,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("snapshot on the nvidia class");
         let launch = ResolvedHardwareRequirementsValue::single_device(
@@ -1575,6 +1589,7 @@ mod tests {
                 &target,
                 &inventory,
                 None,
+                std::time::SystemTime::now(),
             )
         };
 
@@ -1733,6 +1748,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("supplied snapshot");
 
@@ -2156,6 +2172,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("disabled vision snapshot");
 
@@ -2226,6 +2243,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("digest-pinned snapshot");
 
@@ -2293,6 +2311,7 @@ mod tests {
                 &crate::test_support::local_model_configuration(),
                 &target,
                 &inventory,
+                std::time::SystemTime::now(),
             )
             .expect("engine artifact selection")
         };
@@ -2564,6 +2583,7 @@ mod tests {
                 target,
                 &inventory,
                 None,
+                std::time::SystemTime::now(),
             )
         };
 
@@ -2664,6 +2684,7 @@ mod tests {
             &target,
             &inventory,
             engine_identity,
+            std::time::SystemTime::now(),
         )
     }
 

@@ -43,6 +43,7 @@ const MAX_HISTORY_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_FIELDS: usize = 32;
 const MAX_FIELD_KEY_BYTES: usize = 128;
 const MAX_FIELD_VALUE_BYTES: usize = 1024;
+// Not a behavior duration: poll of a real log file for new lines.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const REDACTION: &str = "[REDACTED]";
 
@@ -508,6 +509,10 @@ impl FileIdentity {
         Self(metadata.dev(), metadata.ino())
     }
 }
+#[expect(
+    clippy::disallowed_methods,
+    reason = "polls a real log file for new lines"
+)]
 async fn wait(cancellation: &CancellationToken) {
     tokio::select! { () = cancellation.cancelled() => {}, () = tokio::time::sleep(POLL_INTERVAL) => {} }
 }

@@ -37,8 +37,12 @@ const OUTAGE_LIVENESS_TTL: Duration = Duration::from_secs(5);
 async fn a_silent_manager_path_leaves_no_gap_and_no_double_count_after_it_recovers() {
     let Some(harness) = support::TwoProcessObservationHarness::start_split(
         support::ProcessTestControls {
+            // The outage lasts the liveness window, so keepalive pings that would notice the
+            // silent path sooner keep their production timing.
             timing: Timing {
                 node_liveness_ttl: OUTAGE_LIVENESS_TTL,
+                private_keepalive_interval: Timing::production().private_keepalive_interval,
+                private_keepalive_timeout: Timing::production().private_keepalive_timeout,
                 ..Timing::test()
             },
             ..support::ProcessTestControls::default()

@@ -22,6 +22,10 @@ pub(super) const HISTORY_CANDIDATE_BYTES: usize = 4 * 1024 * 1024;
 const LOG_ENTRY_OVERHEAD_BYTES: usize = 256;
 
 impl<C: DockerClient> DockerAdapter<C> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds a real Docker Engine operation"
+    )]
     pub(super) async fn read_logs(
         &self,
         workload_id: &WorkloadId,

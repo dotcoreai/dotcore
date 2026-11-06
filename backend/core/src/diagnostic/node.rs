@@ -444,6 +444,7 @@ mod tests {
                 (worker_certificate.clone(), worker_key),
                 [(MANAGER_ID, PrivateNodeRole::Manager, manager.0.as_slice())],
             ),
+            &dotcore_domain::timing::Timing::production(),
             PrivateServiceAssembly::new(move |context, routes| {
                 routes.add_service(NodeDiagnosticService::new(reader, &context).into_server());
             })

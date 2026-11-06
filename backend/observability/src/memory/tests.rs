@@ -1125,7 +1125,7 @@ async fn an_idle_ended_watch_sends_heartbeats() {
     };
     assert_eq!(next_event(&mut watch).await, WatchEvent::BackfillComplete);
 
-    clock.advance(super::watch::HEARTBEAT_INTERVAL);
+    clock.advance(dotcore_domain::timing::Timing::production().watch_heartbeat_interval);
 
     assert_eq!(
         next_event(&mut watch).await,
@@ -1282,7 +1282,7 @@ async fn the_sweep_records_rejected_and_late_records() {
         .expect("ingest");
     store.drain().await.expect("drain");
 
-    clock.advance(SWEEP_INTERVAL);
+    clock.advance(InMemoryStoreConfig::default().sweep_interval);
     wait_for_gauge(&store, health::STORE_SERIES, clock.wall_now()).await;
 
     assert_eq!(
@@ -1336,7 +1336,7 @@ async fn the_sweep_records_drops_of_a_full_queue() {
     }
     // Lets the ingest task start, and schedule its first sweep, before time moves.
     store.drain().await.expect("drain");
-    clock.advance(SWEEP_INTERVAL);
+    clock.advance(InMemoryStoreConfig::default().sweep_interval);
     wait_for_gauge(&store, health::STORE_SERIES, clock.wall_now()).await;
 
     assert_eq!(store.dropped_records(), 6);

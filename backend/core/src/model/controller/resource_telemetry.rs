@@ -16,7 +16,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use dotcore_domain::SiteNodeId;
+use dotcore_domain::{SiteNodeId, clock::Clock};
 use dotcore_proto::{
     dotcore::{
         deployment::v1::{
@@ -161,6 +161,9 @@ pub(super) struct ReadyRealization {
     pub(super) first_ready: bool,
     pub(super) interval: Duration,
     pub(super) engine_facts: EngineFactsFuture,
+
+    /// Backend clock the samples are scheduled on.
+    pub(super) clock: Arc<dyn Clock>,
 }
 
 /// Reads engine startup facts of a deployment's workload through its execution target's runtime.
@@ -230,6 +233,7 @@ async fn sample(
         first_ready,
         interval,
         engine_facts,
+        clock,
     } = realization;
     // Facts are read once at readiness, before request logs push the startup lines out of
     // history, concurrently with sampling so a slow read cannot delay the startup sample.
@@ -251,7 +255,7 @@ async fn sample(
         status: ModelDeploymentStatus::Ready as i32,
         ..ModelDeploymentState::default()
     };
-    let mut next_sample = tokio::time::Instant::now() + interval;
+    let mut next_sample = clock.now() + interval;
     loop {
         tokio::select! {
             () = cancellation.cancelled() => return,
@@ -262,13 +266,13 @@ async fn sample(
                 pending_facts = None;
                 continue;
             }
-            () = tokio::time::sleep_until(next_sample) => {}
+            () = clock.sleep_until(next_sample) => {}
         }
         next_sample += interval;
         // One collection for the attribution and the node facts recorded with it.
         let collection = view.collection();
         let observation = view.projection(&desired, &ready, Some(&target), &collection);
-        let Some(mut record) = sampler.observe(&observation, &collection, SystemTime::now()) else {
+        let Some(mut record) = sampler.observe(&observation, &collection, clock.wall_now()) else {
             continue;
         };
         if let Some(observation) = record.observation.as_mut()
@@ -646,6 +650,7 @@ mod tests {
             first_ready,
             interval: Duration::from_millis(5),
             engine_facts: Box::pin(async { Some(facts()) }),
+            clock: Arc::new(dotcore_domain::clock::SystemClock),
         }
     }
 

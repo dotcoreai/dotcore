@@ -23,6 +23,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use dotcore::testing::{TEST_TIMING_ENVIRONMENT, Timing};
+
 const ROWS: u16 = 24;
 const COLS: u16 = 80;
 const STEP_TIMEOUT: Duration = Duration::from_secs(10);
@@ -202,6 +204,8 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
     // once the session leader exits, while the master keeps reporting the slave's settings.
     let termios_before = termios(master.as_raw_fd());
 
+    // The test timing bounds the wait on a terminal that never answers a cursor query.
+    command.env(TEST_TIMING_ENVIRONMENT, Timing::test().to_environment());
     command.stdout(Stdio::piped());
     if session.stderr_on_terminal {
         command.stderr(Stdio::from(slave.try_clone().expect("clone pty slave")));

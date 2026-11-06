@@ -18,9 +18,11 @@ format-check:
 
 # Run rust lint checks.
 clippy:
-  cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+  # Tests may bound their waits on real time, so only production code is held to the clock.
+  cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -A clippy::disallowed_methods
 
-  # Production build without `test-support`, which every test build enables.
+  # Production build without `test-support`, which every test build enables; it rejects direct
+  # Tokio timers outside a reasoned allow (`clippy.toml`).
   cargo clippy --locked --workspace --lib --bins -- -D warnings
 
 # Run rust tests.
@@ -62,6 +64,37 @@ gate-nvml-single-owner:
     exit 1
   fi
   echo "nvml single-owner gate: OK (nvml-wrapper only in $expected)"
+
+# Fail when production code declares a `Duration` constant outside the timing policy
+# (`domain/src/timing.rs`) without a `// Not a behavior duration: <reason>` line above it.
+[script]
+gate-timing-policy:
+  set -euo pipefail
+  # Test files are skipped, and a file's scan stops at its `#[cfg(test)] mod … {` block.
+  violations=$(find . -path ./target -prune -o -path ./proto -prune -o -name '*.rs' -print \
+    | grep -vE '/tests/|/tests\.rs$|/test_support(/|\.rs$)|/testing\.rs$|^\./fixtures/|^\./domain/src/timing\.rs$' \
+    | sort \
+    | xargs awk '
+        FNR == 1 { stop = 0; marked = 0; gated = 0; previous = "" }
+        stop { next }
+        previous ~ /^#\[cfg\(test\)\]$/ && /^(pub(\([a-z]+\))? )?mod [a-z_]+ \{/ { stop = 1; next }
+        { previous = $0 }
+        /^[[:space:]]*(\/\/|#\[)/ {
+          if ($0 ~ /\/\/ Not a behavior duration: [^[:space:]]/) marked = 1
+          if ($0 ~ /#\[cfg\((test|any\(test, feature = "test-support"\))\)\]/) gated = 1
+          next
+        }
+        /^[[:space:]]*(pub(\([a-z]+\))? )?(const|static) [A-Z0-9_]+: (std::time::)?Duration([^A-Za-z0-9_]|$)/ {
+          if (!marked && !gated) print FILENAME ":" FNR ": " $0
+        }
+        { marked = 0; gated = 0 }
+      ')
+  if [ -n "$violations" ]; then
+    echo "timing policy gate: Duration constants outside the timing policy (move a behavior duration into \`Timing\`; mark a real I/O bound or fixed contract with \`// Not a behavior duration: <reason>\`):" >&2
+    echo "$violations" | sed 's/^/  /' >&2
+    exit 1
+  fi
+  echo "timing policy gate: OK"
 
 # Run the NVIDIA hardware tests (profile `nvidia`); extra arguments narrow the selection.
 test-nvidia *args:
@@ -180,11 +213,12 @@ check:
 # Run the backend validations CI runs, without changing files.
 ci-check: ci-lint ci-test
 
-# Run the backend's static checks CI runs, without changing files: formatting, clippy and the NVML gate.
+# Run the backend's static checks CI runs, without changing files: formatting, clippy, the NVML gate and the timing policy gate.
 ci-lint:
   just format-check
   just clippy
   just gate-nvml-single-owner
+  just gate-timing-policy
 
 # Run the backend tests CI runs and the hardware coverage gate; a part such as `1/2` runs only that share of the tests.
 ci-test part="":

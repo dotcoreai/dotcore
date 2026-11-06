@@ -20,6 +20,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::SystemTime,
 };
 
 use dotcore_artifact::{
@@ -27,6 +28,7 @@ use dotcore_artifact::{
 };
 use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_domain::{
+    clock::Clock as _,
     deployment::launch_pin::{LaunchPinResolver as _, RetainedArtifact, pin_source},
     hardware_observation::HardwareSnapshotSource,
     names_every_cdi_device,
@@ -222,7 +224,7 @@ impl DirectWorkloadFacade {
         configuration: &LocalModelDeploymentConfiguration,
         execution_target: &ExecutionTarget,
     ) -> Result<(), DirectWorkloadLaunchError> {
-        let (configured_target, target_inventory) = self
+        let (configured_target, target_inventory, observed_at) = self
             .observe_direct_target_capabilities(execution_target)
             .await?;
         resolve_local_values_on_target(
@@ -232,26 +234,39 @@ impl DirectWorkloadFacade {
             configuration,
             &configured_target,
             &target_inventory,
+            observed_at,
         )
         .map(|_| ())
         .map_err(DirectWorkloadLaunchError::resolution)
     }
 
+    /// Observes the direct launch target's capabilities and returns them with the system wall
+    /// time they were observed at, which judges their freshness.
     async fn observe_direct_target_capabilities(
         &self,
         target: &ExecutionTarget,
-    ) -> Result<(SiteExecutionTarget, TargetCapabilityInventory), DirectWorkloadLaunchError> {
+    ) -> Result<
+        (SiteExecutionTarget, TargetCapabilityInventory, SystemTime),
+        DirectWorkloadLaunchError,
+    > {
+        // Direct launches run outside a composed backend, on the system clock that also stamps
+        // the hardware collection.
+        let clock = dotcore_domain::clock::SystemClock;
         #[cfg(test)]
         if let Some((platform, driver)) = &self.test_target_capabilities {
-            return Ok(direct_target_capabilities(
+            let accelerator = NodeAcceleratorObservation::nvidia(
+                target.managed_node_id.to_string(),
+                driver.major().to_string(),
+            );
+            let now = clock.wall_now();
+            let (target, inventory) = direct_target_capabilities(
                 target,
                 self.runtime_adapter(),
                 platform.clone(),
-                NodeAcceleratorObservation::nvidia(
-                    target.managed_node_id.to_string(),
-                    driver.major().to_string(),
-                ),
-            ));
+                accelerator,
+                now,
+            );
+            return Ok((target, inventory, now));
         }
 
         let platform = self
@@ -267,7 +282,8 @@ impl DirectWorkloadFacade {
         })
         .await
         .map_err(DirectWorkloadLaunchError::resolution)?;
-        Ok(direct_target_capabilities(
+        let now = clock.wall_now();
+        let (target, inventory) = direct_target_capabilities(
             target,
             self.runtime_adapter(),
             platform,
@@ -276,7 +292,9 @@ impl DirectWorkloadFacade {
                 &snapshot,
                 false,
             ),
-        ))
+            now,
+        );
+        Ok((target, inventory, now))
     }
 
     /// Pins a Nix engine artifact the snapshot leaves to its hosting node to the store path of this
@@ -334,7 +352,7 @@ impl DirectWorkloadFacade {
         {
             return Err(DirectWorkloadLaunchError::EveryAcceleratorDevice);
         }
-        let (configured_target, target_inventory) = self
+        let (configured_target, target_inventory, observed_at) = self
             .observe_direct_target_capabilities(&request.execution_target)
             .await?;
         let selection = select_engine_artifact(
@@ -344,6 +362,7 @@ impl DirectWorkloadFacade {
             &request.configuration,
             &configured_target,
             &target_inventory,
+            observed_at,
         )
         .map_err(DirectWorkloadLaunchError::resolution)?;
         let engine_identity = selection
@@ -358,6 +377,7 @@ impl DirectWorkloadFacade {
             &configured_target,
             &target_inventory,
             engine_identity.as_ref(),
+            observed_at,
         )
         .map_err(DirectWorkloadLaunchError::resolution)?;
         self.pin_nix_engine(&mut snapshot, &cancellation).await?;
@@ -1149,6 +1169,7 @@ fn direct_target_capabilities(
     adapter: model_runtime_binding::Adapter,
     platform: dotcore_domain::ExecutionPlatform,
     accelerator: NodeAcceleratorObservation,
+    observed_at: SystemTime,
 ) -> (SiteExecutionTarget, TargetCapabilityInventory) {
     let execution_target_id = "development-target";
     let development_target = SiteExecutionTarget {
@@ -1163,9 +1184,10 @@ fn direct_target_capabilities(
     };
     let inventory = TargetCapabilityReconciler::reconcile(
         [(execution_target_id, target.managed_node_id.as_str())],
-        [RuntimePlatformObservation::available(
+        [RuntimePlatformObservation::available_at(
             execution_target_id,
             platform,
+            observed_at,
         )],
         [accelerator],
     );

@@ -1695,7 +1695,8 @@ mod tests {
                     serving_targets: ServingTargetsPublisher::new().0,
                     shutdown: self.shutdown.clone(),
                     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                    reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                    timing: dotcore_domain::timing::Timing::production(),
+                    clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
                     preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                         self._directory.path(),
                     ),

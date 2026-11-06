@@ -22,6 +22,7 @@ const MAX_LABEL_LENGTH: usize = 63;
 
 /// Longest wait for the system resolver, so an unreachable DNS server fails startup, a join, or
 /// a container creation instead of stalling it.
+// Not a behavior duration: bound on a real host-name lookup.
 const LOOKUP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Host of a SiteNode: a specific IPv4 address or a DNS host name in canonical form (lowercase,
@@ -314,6 +315,7 @@ pub trait HostResolver: Send + Sync {
 pub struct SystemHostResolver;
 
 impl HostResolver for SystemHostResolver {
+    #[expect(clippy::disallowed_methods, reason = "bounds a real host-name lookup")]
     fn lookup_ipv4<'a>(&'a self, name: &'a str) -> BoxFuture<'a, std::io::Result<Vec<Ipv4Addr>>> {
         Box::pin(async move {
             let addresses =

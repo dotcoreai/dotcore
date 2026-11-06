@@ -37,6 +37,7 @@ use url::Url;
 
 use crate::repository::SiteRepositoryError;
 
+// Not a behavior duration: default of the site-declared hardware refresh interval.
 pub(crate) const DEFAULT_HARDWARE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 const MIN_HARDWARE_REFRESH_INTERVAL_SECONDS: u32 = 1;
 const MAX_HARDWARE_REFRESH_INTERVAL_SECONDS: u32 = 3_600;

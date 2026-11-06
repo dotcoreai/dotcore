@@ -36,6 +36,7 @@ use crate::{
 
 /// How long a stream may stay silent before the manager ends it; a node forwarder sends every
 /// second while it records.
+// Not a behavior duration: bound on a real stream that went quiet.
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Sessions remembered per node for deduplication, so a forwarder of an older process that still

@@ -50,6 +50,10 @@ impl RequestWatchers {
         self.sender.subscribe()
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "ends a real inference request at its deadline"
+    )]
     pub(super) fn start_timeout(&mut self, deadline: tokio::time::Instant) {
         let sender = self.sender.clone();
         self.timeout = Some(tokio::spawn(

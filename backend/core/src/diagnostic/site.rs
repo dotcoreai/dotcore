@@ -323,6 +323,10 @@ impl MachineDiagnostics for NodeDiagnostics {
                 page_size,
                 before_position: before,
             };
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "bounds a real call to a node's diagnostics service"
+            )]
             let response = match tokio::time::timeout(self.deadline, connection.read(request)).await
             {
                 Ok(Ok(response)) => response,
@@ -365,6 +369,10 @@ impl MachineDiagnostics for NodeDiagnostics {
                 let first = frames.next().await.transpose()?;
                 Ok::<_, Status>((frames, first))
             };
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "bounds a real call to a node's diagnostics service"
+            )]
             let (frames, first) = match tokio::time::timeout(self.deadline, opening).await {
                 Ok(Ok(opened)) => opened,
                 Ok(Err(status)) => {

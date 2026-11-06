@@ -8,6 +8,7 @@ use super::{ServerError, ServerResult};
 use crate::router::InferenceRouter;
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 4;
+// Not a behavior duration: bound on one real inference connection.
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 pub(super) fn prepare<F>(
@@ -49,6 +50,7 @@ where
                     let router = router.clone();
                     let deadline = tokio::time::Instant::now() + CONNECTION_TIMEOUT;
                     connections.spawn(async move {
+                        #[expect(clippy::disallowed_methods, reason = "bounds one real inference connection")]
                         let result = tokio::time::timeout_at(
                             deadline,
                             crate::router::http::handle_inference_connection(

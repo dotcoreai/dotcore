@@ -104,6 +104,10 @@ impl<C: DockerClient> WorkloadGroupBackend for DockerAdapter<C> {
 }
 
 impl<C: DockerClient> DockerAdapter<C> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds a real Docker Engine operation"
+    )]
     async fn read_group_logs(
         &self,
         group: &WorkloadGroupLaunch,

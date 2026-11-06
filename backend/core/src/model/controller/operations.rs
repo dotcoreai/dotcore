@@ -444,7 +444,7 @@ where
     let _operation = inner.operation.lock().await;
     inner
         .desired
-        .preview_local_model(request)
+        .preview_local_model(request, inner.clock.wall_now())
         .map_err(ModelLifecycleError::from_model_repository)
 }
 
@@ -493,6 +493,7 @@ where
                 placement,
                 inventory: &inventory,
                 workloads: &workloads,
+                now: inner.clock.wall_now(),
             }),
         )
         .map_err(ModelLifecycleError::from_model_repository)
@@ -560,7 +561,7 @@ where
             scenario,
             inventory.as_ref(),
             &workloads,
-            std::time::SystemTime::now(),
+            inner.clock.wall_now(),
         )
         .map_err(ModelLifecycleError::from_model_repository)
 }
@@ -626,6 +627,7 @@ where
         configuration,
         exposure,
         name,
+        inner.clock.wall_now(),
     ) {
         Ok(desired) => desired,
         Err(error) => {
@@ -1581,6 +1583,8 @@ mod tests {
             desired,
             current,
             crate::model::controller::test_support::test_target_capability_source(),
+            dotcore_domain::timing::Timing::production(),
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("controller");
 
@@ -1630,6 +1634,8 @@ mod tests {
             desired.clone(),
             current,
             crate::model::controller::test_support::test_target_capability_source(),
+            dotcore_domain::timing::Timing::production(),
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("controller");
         desired.fail_next(TestFailure::Failed);
@@ -1689,6 +1695,8 @@ mod tests {
             desired.clone(),
             current.clone(),
             crate::model::controller::test_support::test_target_capability_source(),
+            dotcore_domain::timing::Timing::production(),
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("controller");
         let desired_before = desired.state.lock().expect("desired state").clone();

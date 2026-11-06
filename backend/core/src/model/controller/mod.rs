@@ -165,6 +165,8 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         read: &mut DeclaredDeploymentIds<'_>,
     ) -> Result<(), ModelLifecycleError>;
 
+    /// Declares a local deployment, judging its target's observations fresh at `now`.
+    #[allow(clippy::too_many_arguments)]
     fn load_model(
         &self,
         model_id: &str,
@@ -173,11 +175,13 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         configuration: &dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration,
         exposure: &ModelDeploymentExposureIntent,
         name: Option<&str>,
+        now: std::time::SystemTime,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError>;
 
     fn preview_local_model(
         &self,
         _request: &CreateLocalModelDeploymentRequest,
+        _now: std::time::SystemTime,
     ) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelDeclarationRepositoryError> {
         Err(ModelDeclarationRepositoryError::InvalidState(
             "local deployment preview is unavailable",
@@ -427,6 +431,7 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
         configuration: &dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration,
         exposure: &ModelDeploymentExposureIntent,
         name: Option<&str>,
+        now: std::time::SystemTime,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
         self.load_model(
             model_id,
@@ -435,12 +440,14 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
             configuration,
             exposure,
             name,
+            now,
         )
     }
 
     fn preview_local_model(
         &self,
         request: &CreateLocalModelDeploymentRequest,
+        now: std::time::SystemTime,
     ) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelDeclarationRepositoryError> {
         let configuration =
             request
@@ -459,6 +466,7 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
                     "local deployment preview has no exact placement",
                 ))?,
             configuration,
+            now,
         )
     }
 
@@ -620,6 +628,13 @@ pub(super) struct ManagerInferenceControllerInner<D, S> {
     /// What every lane's deployments hold of each node's memory, once composition installs it;
     /// until then estimates count only this controller's deployments.
     site_workloads: std::sync::RwLock<Option<Arc<dyn SiteWorkloadSource>>>,
+
+    /// Least time between two stored records of a node-hosted model that differ only in
+    /// progress.
+    node_progress_write_interval: std::time::Duration,
+
+    /// Backend clock whose wall time judges target observations fresh.
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 }
 
 impl<D, S> ManagerInferenceControllerInner<D, S>
@@ -663,8 +678,11 @@ pub(super) struct InferenceControllerInner<D, S, R> {
     /// such as a development engine evaluation.
     shutdown: tokio_util::sync::CancellationToken,
 
-    /// When the observer runs its next reconciliation pass.
-    reconcile: dotcore_domain::timing::ReconcileSchedule,
+    /// Timing of the observer's passes and of stored download progress.
+    timing: dotcore_domain::timing::Timing,
+
+    /// Backend clock the observer and download progress writes wait through.
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 }
 
 impl<D, S> InferenceController<D, S> {

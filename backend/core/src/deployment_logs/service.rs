@@ -67,6 +67,7 @@ const FRAME_BUFFER: usize = 64;
 
 /// Longest a follow of a removed deployment waits for its open sources to end, so their last
 /// lines still arrive while a source that never ends cannot hold the follow.
+// Not a behavior duration: bound on the drain of real log streams.
 const REMOVAL_GRACE: Duration = Duration::from_secs(5);
 
 /// Node-hosted private receiver for manager deployment-log reads.
@@ -553,6 +554,10 @@ impl SourceForwarders {
 
     /// Lets every forwarder finish its current stream without opening another, waiting at
     /// most `grace` for them all to stop.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds the drain of real log streams"
+    )]
     async fn drain(self, grace: Duration) {
         let Self {
             shared,

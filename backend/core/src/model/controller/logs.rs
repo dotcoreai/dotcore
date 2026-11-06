@@ -1108,6 +1108,8 @@ mod tests {
             desired.clone(),
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
+            dotcore_domain::timing::Timing::production(),
+            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("model owner");
         let id = ModelDeploymentId("private-upstream".to_owned());

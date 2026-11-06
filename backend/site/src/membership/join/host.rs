@@ -92,6 +92,10 @@ impl JoinHost {
 
     /// Serves the join on `listener` until one node is committed, the token expires, or too many
     /// wrong secrets arrive. Returns the recorded node.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds a live join session and its shutdown in real time"
+    )]
     pub async fn serve(self, listener: TcpListener) -> Result<JoinedNode, JoinHostError> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let shared = Arc::new(self.shared);

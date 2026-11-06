@@ -11,6 +11,7 @@ use std::{
 };
 
 use dotcore_catalog::{CatalogBuilder, OciArtifactPolicy};
+use dotcore_domain::clock::SystemClock;
 use dotcore_domain::test_support::oci::{ServiceArtifactOci as _, digest_artifact};
 use dotcore_domain::test_support::tracing::{Record, capture_records_async};
 use dotcore_domain::timing::{ReconcileCadence, ReconciliationState, Timing};
@@ -241,6 +242,7 @@ async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
     let mut cadence = ReconcileCadence::new(Timing::production().application_reconcile);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
+        &SystemClock,
         cadence.next_delay(ReconciliationState::Settled),
     ));
 
@@ -259,6 +261,7 @@ async fn observer_wakeup_retries_a_pending_endpoint_within_a_quarter_second() {
     let mut cadence = ReconcileCadence::new(Timing::production().application_reconcile);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
+        &SystemClock,
         cadence.next_delay(ReconciliationState::Pending),
     ));
 
@@ -273,7 +276,7 @@ async fn observer_wakeup_reports_an_intent_change() {
     let desired = Notify::new();
     desired.notify_one();
 
-    assert!(wait_for_observer_wakeup(&desired, Duration::from_secs(30)).await);
+    assert!(wait_for_observer_wakeup(&desired, &SystemClock, Duration::from_secs(30)).await);
 }
 
 #[test]

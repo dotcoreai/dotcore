@@ -53,9 +53,9 @@ use tokio::{
 use tracing::{debug, info, info_span};
 
 use super::{
-    DOWNLOAD_PROGRESS_WRITE_INTERVAL, DownloadProgressKind, DownloadProgressPublication,
-    ModelLifecycleError, ObservedPreparationProgress, ReconciliationState, emit_observer_failure,
-    paused_initial_state, replace_stale_workload, runtime_startup_progress_state,
+    DownloadProgressKind, DownloadProgressPublication, ModelLifecycleError,
+    ObservedPreparationProgress, ReconciliationState, emit_observer_failure, paused_initial_state,
+    replace_stale_workload, runtime_startup_progress_state,
 };
 use crate::{
     dispatch::model::{RuntimeTargetMapBuilder, TargetObservation},
@@ -659,8 +659,11 @@ async fn download_progress_publication_writes_first_changed_interval_and_final_s
         .entry(&declaration.model_deployment_id)
         .register(declaration)
         .expect("preparation lease");
-    let mut publication =
-        DownloadProgressPublication::new(lease.ticket(), DownloadProgressKind::Artifact);
+    let mut publication = DownloadProgressPublication::new(
+        lease.ticket(),
+        DownloadProgressKind::Artifact,
+        DOWNLOAD_PROGRESS_WRITE_INTERVAL,
+    );
     let started = tokio::time::Instant::now();
     let first = ObservedPreparationProgress::artifact(ModelArtifactProgress {
         completed: 10,
@@ -709,8 +712,11 @@ async fn download_progress_observer_coalesces_a_flood_to_one_latest_snapshot() {
         .entry(&declaration.model_deployment_id)
         .register(declaration)
         .expect("preparation lease");
-    let mut publication =
-        DownloadProgressPublication::new(lease.ticket(), DownloadProgressKind::Artifact);
+    let mut publication = DownloadProgressPublication::new(
+        lease.ticket(),
+        DownloadProgressKind::Artifact,
+        DOWNLOAD_PROGRESS_WRITE_INTERVAL,
+    );
     let notification = Arc::new(Notify::new());
     let observer = publication.observer(notification.clone());
 
@@ -750,8 +756,11 @@ async fn artifact_stage_observer_retains_transfer_order_across_transitions() {
         .entry(&declaration.model_deployment_id)
         .register(declaration)
         .expect("preparation lease");
-    let mut publication =
-        DownloadProgressPublication::new(lease.ticket(), DownloadProgressKind::Artifact);
+    let mut publication = DownloadProgressPublication::new(
+        lease.ticket(),
+        DownloadProgressKind::Artifact,
+        DOWNLOAD_PROGRESS_WRITE_INTERVAL,
+    );
     let notification = Arc::new(Notify::new());
     let progress = publication.observer(notification.clone());
     let stage = publication.stage_observer(notification);
@@ -1403,7 +1412,8 @@ async fn reconciliation_from(
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+        timing: dotcore_domain::timing::Timing::production(),
+        clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     calls.lock().expect("calls").clear();
     let mut reconciled = true;
@@ -1513,7 +1523,8 @@ async fn reconciliation_stops_and_removes_a_valid_owned_orphan() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+        timing: dotcore_domain::timing::Timing::production(),
+        clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
 
     assert!(matches!(
@@ -1595,7 +1606,8 @@ async fn node_pass_never_treats_changed_or_newly_declared_workloads_as_orphans()
                     crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
                 preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                     directory.path(),
                 ),
@@ -1694,7 +1706,8 @@ async fn paused_stopped_workload_projects_paused_without_runtime_mutation() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+        timing: dotcore_domain::timing::Timing::production(),
+        clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     calls.lock().expect("calls").clear();
 
@@ -2665,7 +2678,8 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+        timing: dotcore_domain::timing::Timing::production(),
+        clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     let controller = manager_test_controller(
         desired.clone(),
@@ -3551,7 +3565,8 @@ async fn retained_docker_workload_restarts_after_pause_and_resume() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
     );
@@ -3771,7 +3786,8 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
     );
@@ -3947,7 +3963,8 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
         serving_targets_publisher,
         serving_targets_source,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+        timing: dotcore_domain::timing::Timing::production(),
+        clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
 
     inner.reconcile().await.expect("replacement reconciliation");
@@ -4072,7 +4089,8 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
     );
@@ -4161,7 +4179,8 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
     );
@@ -4539,7 +4558,8 @@ async fn repaired_docker_artifact_recreates_a_stopped_workload_before_ready() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+        timing: dotcore_domain::timing::Timing::production(),
+        clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     let mut changes = inner.workload_lifecycle.subscribe("deployment");
 
@@ -4686,7 +4706,8 @@ async fn preparation_failure_cancels_and_drains_other_deployments_before_returni
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
     );
@@ -4838,7 +4859,8 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
     );
@@ -4986,7 +5008,8 @@ async fn pause_intent_is_not_undone_by_stale_final_publication_and_other_deploym
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
+                timing: dotcore_domain::timing::Timing::production(),
+                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
     );
@@ -5433,6 +5456,7 @@ async fn an_input_change_wakes_a_settled_observer_without_waiting_for_the_safety
             &crate::test_support::local_model_configuration(),
             &ModelDeploymentExposureIntent::Hidden,
             None,
+            std::time::SystemTime::now(),
         )
         .expect("Load");
     desired.listener().notify_one();
@@ -5964,3 +5988,7 @@ fn model_started() -> crate::deployment_logs::WorkloadChange {
         source_name: "model".to_owned(),
     }
 }
+
+/// Least time between two stored download progress updates under the production timing.
+const DOWNLOAD_PROGRESS_WRITE_INTERVAL: Duration =
+    dotcore_domain::timing::Timing::production().download_progress_write_interval;

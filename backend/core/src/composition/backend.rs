@@ -32,6 +32,7 @@ use super::{
 };
 
 /// Longest time startup waits for a site writer to release the site input lock.
+// Not a behavior duration: bound on a wait for a file lock another process holds.
 const SITE_INPUT_LOCK_WAIT: Duration = Duration::from_secs(30);
 
 /// Complete prepared backend and the only whole-product composition façade.
@@ -48,7 +49,8 @@ pub struct Backend {
 }
 
 impl Backend {
-    /// Completes fallible composition and transport preparation without starting observers or reconciliation tasks.
+    /// Completes fallible composition and transport preparation without starting observers or
+    /// reconciliation tasks. The backend runs this process's timing policy.
     pub async fn prepare<F>(
         configuration: BackendConfiguration,
         shutdown: F,
@@ -59,7 +61,7 @@ impl Backend {
         Self::prepare_with_snapshot_collector_factory(
             configuration,
             shutdown,
-            BackendTestSupport::development(),
+            BackendTestSupport::development_on(Timing::for_process()),
             |_, _, clock| Ok(system_collector(clock)),
             || {},
             crate::server::private::PrivateServiceAssembly::empty(),
@@ -265,8 +267,11 @@ impl Backend {
                     "the manager's inference listener is not bound",
                 )
             })?;
+        let timing = test_support.timing;
         // One holder of worker pins and channels serves both forwarded inference and logs.
-        let worker_channels = private_configuration.as_ref().map(WorkerChannels::new);
+        let worker_channels = private_configuration
+            .as_ref()
+            .map(|configuration| WorkerChannels::new(configuration).with_timing(&timing));
         let capabilities = compose_capabilities_with_current(
             &configuration.site_paths,
             super::ManagerNodeProcessInputs {
@@ -291,19 +296,19 @@ impl Backend {
             resource_watch.shutdown();
         };
         let private_services = private_services.combine(manager_private_services);
-        let private_routes = match &private_configuration {
-            Some(configuration) => {
-                private_services.assemble(configuration.local_role, &configuration.local_node_id)
-            }
-            None => tonic::service::Routes::default(),
-        };
+        let private_listener =
+            private_configuration.map(|configuration| crate::server::private::PrivateListener {
+                routes: private_services
+                    .assemble(configuration.local_role, &configuration.local_node_id),
+                configuration,
+                timing,
+            });
         let server = crate::server::Server::prepare(
             transports,
             server.allowed_origins,
             routes,
             Some(router),
-            private_configuration,
-            private_routes,
+            private_listener,
             shutdown,
         )
         .await
@@ -426,6 +431,7 @@ where
         )
     })?;
     let clock = super::backend_clock(&test_support);
+    let timing = test_support.timing;
     let declared_machine = folder.declared_machine().map(|machine| {
         dotcore_runtime_backends::simulated::DeclaredMachine::new(machine, Arc::clone(&clock))
     });
@@ -501,8 +507,11 @@ where
         Vec::new(),
         tonic::service::Routes::default(),
         None,
-        Some(private_configuration),
-        private_routes,
+        Some(crate::server::private::PrivateListener {
+            configuration: private_configuration,
+            routes: private_routes,
+            timing,
+        }),
         shutdown,
     )
     .await?;

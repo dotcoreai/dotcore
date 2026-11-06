@@ -427,6 +427,7 @@ fn qualification_case(
         &target,
         &inventory,
         None,
+        std::time::SystemTime::now(),
     )?;
     let snapshot = ModelDeploymentSnapshot {
         source: Some(

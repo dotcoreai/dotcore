@@ -37,6 +37,7 @@ use super::{
     },
 };
 
+// Not a behavior duration: bound on one real Docker Engine request.
 pub(super) const DOCKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 /// Log driver of every workload container, so log history does not depend on the daemon default
 /// (a journald default drops lines under its rate limit) and keeps its rotated size bound.
@@ -1254,6 +1255,10 @@ async fn list_network_summaries_by_label(
     })
 }
 
+#[expect(
+    clippy::disallowed_methods,
+    reason = "bounds a real Docker Engine operation"
+)]
 pub(super) async fn bounded_operation<T, F>(
     operation: &'static str,
     timeout: Duration,

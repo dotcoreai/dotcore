@@ -3,8 +3,8 @@
 //! the terminal however a prompt ends.
 //!
 //! Nothing here writes to process stdout or stderr. The cursor position is
-//! asked for on the terminal itself with a two-second limit, which also tells
-//! apart terminals that never answer the question, and when a prompt
+//! asked for on the terminal itself with the timing policy's limit, which also
+//! tells apart terminals that never answer the question, and when a prompt
 //! fails or the process panics, its half-drawn rows are erased, raw mode is
 //! turned off, and the cursor is shown again before anything else is printed.
 
@@ -16,14 +16,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+use dotcore_domain::timing::Timing;
 use ratatui::{
     backend::{Backend, ClearType, CrosstermBackend, WindowSize},
     buffer::Cell,
     layout::{Position, Size},
 };
-
-/// How long a terminal may take to answer the cursor-position query.
-const CURSOR_QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// The prompt currently holding raw mode, if any, with the top row of its viewport once known.
 ///
@@ -72,7 +70,7 @@ impl Drop for RawModeGuard {
 /// Nothing is drawn, and the terminal is restored before returning.
 pub(super) fn probe_cursor_reports(tty: &File) -> io::Result<()> {
     let _raw = RawModeGuard::enable()?;
-    query_cursor_position(tty, CURSOR_QUERY_TIMEOUT)?;
+    query_cursor_position(tty, cursor_query_timeout())?;
     Ok(())
 }
 
@@ -130,7 +128,7 @@ impl Backend for TtyBackend {
 
     fn get_cursor_position(&mut self) -> io::Result<Position> {
         Backend::flush(&mut self.inner)?;
-        query_cursor_position(&self.tty, CURSOR_QUERY_TIMEOUT)
+        query_cursor_position(&self.tty, cursor_query_timeout())
     }
 
     fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
@@ -189,6 +187,12 @@ fn install_panic_restore() {
             previous(info);
         }));
     });
+}
+
+/// How long a terminal may take to answer the cursor-position query, from this process's timing
+/// policy.
+fn cursor_query_timeout() -> Duration {
+    Timing::for_process().terminal_cursor_query_timeout
 }
 
 /// Sends `ESC[6n` on the terminal and parses its `ESC[row;columnR` reply; bytes typed before

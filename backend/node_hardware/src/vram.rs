@@ -27,8 +27,11 @@ use crate::{
     nvidia::{NvidiaObservationSource, SystemNvidiaObservationSource},
 };
 
+// Not a behavior duration: limit on a requested measurement.
 const MAX_DURATION: Duration = Duration::from_secs(60 * 60);
+// Not a behavior duration: limit on a requested measurement.
 const MIN_INTERVAL: Duration = Duration::from_millis(20);
+// Not a behavior duration: limit on a requested measurement.
 const MAX_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Cancellation token shared with one bounded VRAM observation.

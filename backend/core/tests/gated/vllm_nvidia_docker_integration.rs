@@ -734,6 +734,7 @@ fn qualification_case(
         &execution_target,
         &target_inventory,
         None,
+        std::time::SystemTime::now(),
     )
     .with_context(|| format!("resolve vLLM qualification profile {profile_id:?}"))?;
     let plan = snapshot

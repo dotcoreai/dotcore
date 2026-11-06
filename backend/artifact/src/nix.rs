@@ -20,6 +20,7 @@ pub(super) const EXPERIMENTAL_FEATURES: [&str; 2] =
 const EVALUATION_EXPRESSION: &str = "package: { storePath = package.outPath; }";
 
 /// Longest an evaluation may run. A first evaluation of a source may fetch it and its inputs.
+// Not a behavior duration: bound on a real Nix evaluation process.
 const EVALUATION_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Bounded number of trailing stderr bytes kept with an evaluation failure.
@@ -74,6 +75,10 @@ impl CommandNixEvaluator {
 }
 
 impl NixEvaluator for CommandNixEvaluator {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "bounds a real Nix evaluation process"
+    )]
     fn evaluate<'a>(
         &'a self,
         installable: &'a str,
