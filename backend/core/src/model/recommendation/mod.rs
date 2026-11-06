@@ -22,6 +22,10 @@ use dotcore_proto::dotcore::{
 use dotcore_site::node::target_inventory::TargetCapabilityInventory;
 use tracing::{debug, warn};
 
+mod machine;
+
+pub use machine::{IdleMachine, IdleMachineError};
+
 use crate::{
     hardware::selection::{
         HardwareClassSelectionError, SelectedTargetCapabilities, select_hardware_class,
@@ -38,41 +42,41 @@ use crate::{
 
 /// One use case's recommended model profiles for a site, best first.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct UseCaseRecommendations {
-    pub(crate) use_case: UseCase,
+pub struct UseCaseRecommendations {
+    pub use_case: UseCase,
 
-    pub(crate) rows: Vec<Recommendation>,
+    pub rows: Vec<Recommendation>,
 }
 
 /// One recommended model profile and the targets that can run it.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct Recommendation {
-    pub(crate) model_id: String,
+pub struct Recommendation {
+    pub model_id: String,
 
-    pub(crate) profile_id: String,
+    pub profile_id: String,
 
     /// Targets whose list has the profile and that can run it, by node then target.
-    pub(crate) targets: Vec<TargetRecommendation>,
+    pub targets: Vec<TargetRecommendation>,
 }
 
 /// How a recommended profile fits one target.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TargetRecommendation {
-    pub(crate) placement: ExactPlacement,
+pub struct TargetRecommendation {
+    pub placement: ExactPlacement,
 
-    pub(crate) fit: RecommendationFit,
+    pub fit: RecommendationFit,
 
     /// Whether a model deployment of the same model and profile is placed on the target.
-    pub(crate) deployed: bool,
+    pub deployed: bool,
 
     /// Total context in tokens a deployment of the profile starts from there; absent without a
     /// largest fit or a profile default.
-    pub(crate) starting_total_context_tokens: Option<u64>,
+    pub starting_total_context_tokens: Option<u64>,
 }
 
 /// A recommended profile's memory fit on a target whose total memory can hold it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RecommendationFit {
+pub enum RecommendationFit {
     /// It fits beside what runs there now.
     FitsNow,
 

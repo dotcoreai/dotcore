@@ -30,7 +30,7 @@ use dotcore_proto::dotcore::{
     },
     catalog::v1::{
         EngineParameterValue, EngineParameterValues, ListApplicationsRequest,
-        ListEngineReleasesRequest, ListModelsRequest,
+        ListEngineReleasesRequest, ListModelsRequest, UseCase,
         catalog_service_server::CatalogService as CatalogServiceContract, engine_parameter_value,
     },
     deployment::v1::MemoryFit,
@@ -38,11 +38,13 @@ use dotcore_proto::dotcore::{
     model::v1::{
         CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest, DirectRouteExposure,
         ListModelDeploymentsRequest, ListModelProfileCompatibilityRequest,
-        ModelCompatibilityStatus, ModelDeployment, ModelDeploymentDeclaration,
-        ModelDeploymentDesiredState, ModelDeploymentExposure, ModelDeploymentMetadata,
-        ModelDeploymentState, ModelDeploymentStatus, PauseModelRequest,
-        PreviewLocalModelDeploymentRequest, RemoveModelDeploymentRequest, ResumeModelRequest,
-        SizingScenario, SizingScenarioUnsupportedReason, UpdateModelDeploymentMetadataRequest,
+        ListModelRecommendationsRequest, ModelCompatibilityStatus, ModelDeployment,
+        ModelDeploymentDeclaration, ModelDeploymentDesiredState, ModelDeploymentExposure,
+        ModelDeploymentMetadata, ModelDeploymentState, ModelDeploymentStatus,
+        ModelRecommendationFit, PauseModelRequest, PreviewLocalModelDeploymentRequest,
+        RecommendedModelProfile, RecommendedProfileTarget, RemoveModelDeploymentRequest,
+        ResumeModelRequest, SizingScenario, SizingScenarioUnsupportedReason,
+        UpdateModelDeploymentMetadataRequest, UseCaseModelRecommendations,
         create_model_deployment_request, model_deployment_exposure,
         model_deployment_service_server::ModelDeploymentService as ModelServiceContract,
         model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
@@ -4975,6 +4977,132 @@ async fn profile_compatibility_reads_the_simulated_site_through_the_model_servic
     assert_eq!(
         application_target.message(),
         "Site execution target \"fixture-application-target\" is not a model execution target"
+    );
+}
+
+/// Master catalog copy whose only recommendations are the synthetic ones the recommendation read
+/// test expects: coding lists the fixture profile on the fixture class, and decision making lists
+/// nothing.
+fn recommendation_master_catalog(root: &Path) -> PathBuf {
+    let master = root.join("cache/recommendation-master-catalog");
+    support::copy_directory(&support::simulated_master_catalog(), &master);
+    let recommendations = master.join("recommendations");
+    fs::remove_dir_all(&recommendations).expect("master recommendations");
+    dotcore_catalog::test_support::write_recommendations(
+        &master,
+        "fixture-nvidia",
+        r#"hardwareClassId: "fixture-nvidia"
+useCases:
+  - useCase: "USE_CASE_CODING_AND_AGENTS"
+    entries:
+      - modelId: "fixture-model"
+        profileId: "fixture-profile"
+"#,
+    );
+    master
+}
+
+#[tokio::test]
+async fn model_recommendations_rank_the_simulated_site_through_the_model_service() {
+    let root = support::temporary_fast_fixture();
+    // A sized model on a declared machine gives the fit a memory estimate and observed memory.
+    support::declare_fixture_machine(&root, &["rtx-5090"]);
+    fs::write(
+        root.join("catalog/models/fixture-model.yaml"),
+        support::SIZED_FIXTURE_MODEL,
+    )
+    .expect("sized fixture model");
+    let mut paths = support::configuration(&root);
+    paths.master_catalog_root = Some(recommendation_master_catalog(&root));
+    let service = model_service_for(&paths).await.expect("model service");
+    let read = |use_cases: Vec<UseCase>| {
+        ModelServiceContract::list_model_recommendations(
+            &service,
+            Request::new(ListModelRecommendationsRequest {
+                use_cases: use_cases
+                    .into_iter()
+                    .map(|use_case| use_case as i32)
+                    .collect(),
+            }),
+        )
+    };
+
+    // The manager's own node reports its first observation asynchronously after composition.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let response = loop {
+        let response = read(vec![UseCase::CodingAndAgents])
+            .await
+            .expect("recommendation read")
+            .into_inner();
+        if response
+            .use_cases
+            .iter()
+            .any(|ranked| !ranked.rows.is_empty())
+            || Instant::now() >= deadline
+        {
+            break response;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+
+    // The starting context is the one the compatibility read gives the same profile.
+    let compatibility = ModelServiceContract::list_model_profile_compatibility(
+        &service,
+        Request::new(ListModelProfileCompatibilityRequest {
+            model_id: Some("fixture-model".to_owned()),
+            target: None,
+            scenario: None,
+        }),
+    )
+    .await
+    .expect("compatibility read")
+    .into_inner();
+    let [compatible] = compatibility.entries.as_slice() else {
+        panic!("one compatibility entry: {compatibility:?}");
+    };
+    let starting_total_context_tokens = compatible
+        .starting_total_context_tokens
+        .map(u64::from)
+        .expect("a starting total context");
+    assert_eq!(
+        response.use_cases,
+        [UseCaseModelRecommendations {
+            use_case: UseCase::CodingAndAgents as i32,
+            rows: vec![RecommendedModelProfile {
+                model_id: "fixture-model".to_owned(),
+                profile_id: "fixture-profile".to_owned(),
+                targets: vec![RecommendedProfileTarget {
+                    target: Some(support::exact_placement("fixture-node", "fixture-target")),
+                    fit: ModelRecommendationFit::FitsNow as i32,
+                    deployed: false,
+                    starting_total_context_tokens: Some(starting_total_context_tokens),
+                }],
+            }],
+        }]
+    );
+
+    // No use case asks for all four, each ranked even when nothing is recommended.
+    let all = read(Vec::new()).await.expect("all use cases").into_inner();
+    assert_eq!(
+        all.use_cases
+            .iter()
+            .map(|ranked| (ranked.use_case, ranked.rows.len()))
+            .collect::<Vec<_>>(),
+        [
+            (UseCase::CodingAndAgents as i32, 1),
+            (UseCase::GeneralAssistant as i32, 0),
+            (UseCase::Translation as i32, 0),
+            (UseCase::DecisionMaking as i32, 0),
+        ]
+    );
+
+    let unspecified = read(vec![UseCase::CodingAndAgents, UseCase::Unspecified])
+        .await
+        .expect_err("unspecified use case");
+    assert_eq!(unspecified.code(), tonic::Code::InvalidArgument);
+    assert_eq!(
+        unspecified.message(),
+        "Model recommendations require specified use cases"
     );
 }
 

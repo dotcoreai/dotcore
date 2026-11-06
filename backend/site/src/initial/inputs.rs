@@ -2,7 +2,8 @@
 //!
 //! Given an initial request, the new site's identities and the probe report of probed capabilities,
 //! bundles the validated site with its node configuration, ready for the caller to write so the new
-//! site can start.
+//! site can start. The same target choice also gives the targets a machine description would
+//! declare, for planning a machine that has no site.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -256,6 +257,10 @@ pub enum InitialSiteCompositionError {
     #[error("Simulated applications need a supported host architecture: {0}")]
     UnsupportedHostPlatform(#[source] ExecutionPlatformError),
 
+    /// A described machine's architecture has no Linux platform for Docker to run.
+    #[error("the described machine's architecture has no Linux platform for Docker")]
+    DescribedPlatform(#[source] ExecutionPlatformError),
+
     /// Generated site configuration violated the shared site semantic validation rules.
     #[error("generated initial site is invalid: {0}")]
     InvalidSite(#[source] SiteRepositoryError),
@@ -483,10 +488,35 @@ impl NodeTargetChoices {
         Ok(choices)
     }
 
+    /// Resolves the targets a node of `machine` declares when it offers everything its hardware
+    /// can: inference on each of its GPUs and Docker applications, resolved as on a host whose
+    /// probe found that hardware.
+    pub fn described(machine: &MachineDescription) -> Result<Self, InitialSiteCompositionError> {
+        let probe = InitialSiteProbeReport::described(machine)
+            .map_err(InitialSiteCompositionError::DescribedPlatform)?;
+        let nvidia = probe.nvidia().map(|_| InitialInferenceRuntime::Nvidia);
+        let apple = probe.apple().map(|_| InitialInferenceRuntime::Apple);
+        let request = InitialSiteRequest::new(
+            nvidia.into_iter().chain(apple),
+            [InitialApplicationRuntime::Docker],
+        );
+        Self::resolve(&request, &probe, machine.platform().architecture())
+    }
+
     /// Returns how many execution targets the node declares.
     pub fn target_count(&self) -> usize {
         self.model_targets.len() + self.application_targets.len()
     }
+}
+
+/// Returns the execution targets node `node_id` declares on a machine of `machine`'s hardware,
+/// chosen as site setup chooses them for a host that offers all of it.
+pub fn described_execution_targets(
+    node_id: &str,
+    machine: &MachineDescription,
+) -> Result<Vec<ExecutionTarget>, InitialSiteCompositionError> {
+    let choices = NodeTargetChoices::described(machine)?;
+    Ok(build_execution_targets(node_id, &choices))
 }
 
 /// Returns the devices an application target of `applications` holds beside `model_targets`: a
@@ -967,6 +997,87 @@ mod tests {
             ]
         );
         assert!(inputs.matches_requested_intent(&request, &inputs));
+    }
+
+    #[test]
+    fn a_described_machine_declares_the_targets_its_hardware_offers() {
+        use dotcore_domain::ExecutionPlatform;
+
+        let mac = MachineDescription::named("mac-64g").expect("named machine");
+        let two_gpus = MachineDescription::from_yaml("two-gpus", TWO_NVIDIA_GPUS).expect("machine");
+        let no_gpu = MachineDescription::from_yaml("no-gpu", NO_GPU).expect("machine");
+        let selectors = ["nvidia.com/gpu=gpu0", "nvidia.com/gpu=gpu1"].map(str::to_owned);
+
+        // A Mac runs models natively on its GPU and applications in Docker Desktop's Linux.
+        assert_eq!(
+            described_details("node-a", &mac),
+            [
+                (
+                    derive_model_execution_target_id(
+                        "node-a",
+                        InitialInferenceRuntime::Apple,
+                        Some("apple-gpu-0")
+                    ),
+                    "Apple M4 Max".to_owned(),
+                    ExecutionPlatform::darwin_arm64(),
+                    vec!["apple-gpu-0".to_owned()],
+                    "native",
+                ),
+                (
+                    derive_application_execution_target_id(
+                        "node-a",
+                        InitialApplicationRuntime::Docker
+                    ),
+                    "Docker applications".to_owned(),
+                    ExecutionPlatform::linux_arm64(),
+                    Vec::new(),
+                    "docker",
+                ),
+            ]
+        );
+
+        // Each NVIDIA GPU gets its own Docker target, and the application target holds them all.
+        let gpu_target = |index: usize| {
+            (
+                derive_model_execution_target_id(
+                    "node-b",
+                    InitialInferenceRuntime::Nvidia,
+                    Some(&selectors[index]),
+                ),
+                format!("{RTX_5090} · GPU {index}"),
+                ExecutionPlatform::linux_amd64(),
+                vec![selectors[index].clone()],
+                "docker",
+            )
+        };
+        assert_eq!(
+            described_details("node-b", &two_gpus),
+            [
+                gpu_target(0),
+                gpu_target(1),
+                (
+                    derive_application_execution_target_id(
+                        "node-b",
+                        InitialApplicationRuntime::Docker
+                    ),
+                    "Docker applications".to_owned(),
+                    ExecutionPlatform::linux_amd64(),
+                    selectors.to_vec(),
+                    "docker",
+                ),
+            ]
+        );
+
+        assert_eq!(
+            described_details("node-c", &no_gpu),
+            [(
+                derive_application_execution_target_id("node-c", InitialApplicationRuntime::Docker),
+                "Docker applications".to_owned(),
+                ExecutionPlatform::linux_arm64(),
+                Vec::new(),
+                "docker",
+            )]
+        );
     }
 
     #[test]
@@ -1850,6 +1961,80 @@ mod tests {
     }
 
     /// Each model target's name and devices, in site order.
+    /// Each target node `node_id` declares on `machine`: its ID, name, platform, devices and
+    /// runtime kind, in site order.
+    fn described_details(
+        node_id: &str,
+        machine: &MachineDescription,
+    ) -> Vec<(
+        String,
+        String,
+        dotcore_domain::ExecutionPlatform,
+        Vec<String>,
+        &'static str,
+    )> {
+        super::described_execution_targets(node_id, machine)
+            .expect("described targets")
+            .into_iter()
+            .map(|target| {
+                let runtime = match &target.runtime_binding {
+                    Some(execution_target::RuntimeBinding::ModelRuntime(binding)) => {
+                        match binding.adapter {
+                            Some(model_runtime_binding::Adapter::NativeRuntime(_)) => "native",
+                            Some(model_runtime_binding::Adapter::DockerRuntime(_)) => "docker",
+                            _ => "other",
+                        }
+                    }
+                    Some(execution_target::RuntimeBinding::ApplicationRuntime(binding)) => {
+                        match binding.adapter {
+                            Some(
+                                dotcore_proto::dotcore::site::v1::application_runtime_binding::Adapter::DockerRuntime(_),
+                            ) => "docker",
+                            _ => "other",
+                        }
+                    }
+                    None => "other",
+                };
+                assert_eq!(target.site_node_id, node_id);
+                (
+                    target.execution_target_id,
+                    target.display_name,
+                    dotcore_domain::ExecutionPlatform::try_from(
+                        target.platform.as_ref().expect("target platform"),
+                    )
+                    .expect("supported platform"),
+                    target.accelerator_device_ids,
+                    runtime,
+                )
+            })
+            .collect()
+    }
+
+    /// Two dedicated RTX 5090 GPUs on Linux amd64.
+    const TWO_NVIDIA_GPUS: &str = r#"
+platform: linux/amd64
+cpuCount: 16
+hostMemory: { totalBytes: 68719476736, idleUsedBytes: 4294967296 }
+gpus:
+  - id: GPU-fixture-0
+    vendor: nvidia
+    model: NVIDIA GeForce RTX 5090
+    driverVersion: "580.173.02"
+    memory: { architecture: dedicated, totalBytes: 34190917632, reservedBytes: 536870912 }
+  - id: GPU-fixture-1
+    vendor: nvidia
+    model: NVIDIA GeForce RTX 5090
+    driverVersion: "580.173.02"
+    memory: { architecture: dedicated, totalBytes: 34190917632, reservedBytes: 536870912 }
+"#;
+
+    /// A Linux arm64 machine without a GPU.
+    const NO_GPU: &str = r#"
+platform: linux/arm64
+cpuCount: 4
+hostMemory: { totalBytes: 8589934592, idleUsedBytes: 1073741824 }
+"#;
+
     fn model_target_devices(inputs: &InitialSiteInputs) -> Vec<(&str, Vec<String>)> {
         inputs
             .site()

@@ -303,18 +303,29 @@ let
     touch "$out"
   '';
 
+  # The backend's `dotc` with the packaged catalog and source as defaults, the same ones the
+  # launcher gives the server, so commands that read the catalog work outside the launcher. A
+  # caller's own values win; `.#backend` stays without a catalog.
+  dotc = pkgs.runCommand "dotc" { nativeBuildInputs = [ pkgs.makeWrapper ]; } ''
+    makeWrapper ${backend}/bin/dotc $out/bin/dotc \
+      --set-default DOTCORE_CATALOG_DIR ${catalog} \
+      ${pkgs.lib.optionalString (packagedSource != "") "--set-default DOTCORE_PACKAGED_SOURCE_FLAKE ${pkgs.lib.escapeShellArg packagedSource}"}
+  '';
+
 in
 {
-  package = launcher.overrideAttrs (old: {
-    passthru = (old.passthru or { }) // {
+  package = pkgs.symlinkJoin {
+    name = "dotcore";
+    paths = [ launcher dotc ];
+    passthru = (launcher.passthru or { }) // {
       inherit caddyfile catalog;
       tests.default = packageTests;
       tests.failures = realChildFailureTests;
       tests.catalog = catalogTests;
     };
-    meta = (old.meta or { }) // {
+    meta = (launcher.meta or { }) // {
       mainProgram = "dotcore";
       license = pkgs.lib.licenses.asl20;
     };
-  });
+  };
 }

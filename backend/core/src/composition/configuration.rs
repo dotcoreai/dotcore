@@ -298,7 +298,7 @@ pub const PRIVATE_ADDR_ENV: &str = "DOTCORE_PRIVATE_ADDR";
 /// composition depends on them.
 pub const DEFAULT_PRIVATE_PORT: u16 = 50053;
 pub const DEV_SOURCE_FLAKE_ENV: &str = "DOTCORE_DEV_SOURCE_FLAKE";
-pub(super) const PACKAGED_SOURCE_FLAKE_ENV: &str = "DOTCORE_PACKAGED_SOURCE_FLAKE";
+pub const PACKAGED_SOURCE_FLAKE_ENV: &str = "DOTCORE_PACKAGED_SOURCE_FLAKE";
 
 /// Role a node folder plays, derived from its contents.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

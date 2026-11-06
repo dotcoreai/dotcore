@@ -594,7 +594,7 @@ gpus:
 
 /// A dedicated 32 GiB NVIDIA GPU of the model the GPU-model class names, beside 64 GiB of host
 /// memory.
-const NVIDIA_X_32G: &str = r#"
+pub(super) const NVIDIA_X_32G: &str = r#"
 platform: linux/amd64
 cpuCount: 16
 hostMemory: { totalBytes: 68719476736, idleUsedBytes: 4294967296 }
@@ -625,7 +625,7 @@ gpus:
 "#;
 
 /// A 64 GiB Mac, 8 GiB in use at idle.
-const MAC_64G: &str = r#"
+pub(super) const MAC_64G: &str = r#"
 platform: darwin/arm64
 cpuCount: 16
 hostMemory: { totalBytes: 68719476736, idleUsedBytes: 8589934592 }
@@ -705,7 +705,7 @@ const CHAT_CLASSES: &[&str] = &["nvidia-dedicated", "nvidia-unified", "apple"];
 /// Writes and loads the made-up catalog: the vendor, memory architecture and GPU-model classes,
 /// one llama.cpp engine for linux/amd64, linux/arm64 and darwin/arm64, the fixture models, and
 /// their recommendation lists.
-fn catalog() -> Catalog {
+pub(super) fn catalog() -> Catalog {
     let root = tempfile::tempdir().expect("catalog root");
     let mut files = vec![
         ("hardware-classes/nvidia.yaml", class("nvidia", "")),

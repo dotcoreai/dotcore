@@ -1,0 +1,6 @@
+hardwareClassId: "nvidia-x"
+displayName: "nvidia-x"
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED"
+  deviceModels: ["Fixture GPU X"]

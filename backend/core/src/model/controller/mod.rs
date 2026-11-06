@@ -21,8 +21,9 @@ use dotcore_domain::diagnostic::truncate_utf8_with_ellipsis;
 use dotcore_proto::dotcore::model::v1::{
     CreateLocalModelDeploymentRequest, CreateUpstreamModelDeploymentRequest,
     EstimateLocalModelResourcesResponse, ListModelDeploymentsResponse,
-    ListModelProfileCompatibilityResponse, ModelDeployment, ModelDeploymentDeclaration,
-    ResolvedLocalModelDeploymentSnapshot, UpstreamModelDesiredConfiguration,
+    ListModelProfileCompatibilityResponse, ListModelRecommendationsResponse, ModelDeployment,
+    ModelDeploymentDeclaration, ResolvedLocalModelDeploymentSnapshot,
+    UpstreamModelDesiredConfiguration,
 };
 #[cfg(test)]
 use dotcore_site::store::FileCurrentState;
@@ -209,6 +210,18 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         ))
     }
 
+    fn model_recommendations(
+        &self,
+        _use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
+        _inventory: Option<&TargetCapabilityInventory>,
+        _deployments: &[ModelDeployment],
+        _now: std::time::SystemTime,
+    ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
+        Err(ModelDeclarationRepositoryError::InvalidState(
+            "model recommendations are unavailable",
+        ))
+    }
+
     fn load_upstream_model(
         &self,
         _request: &CreateUpstreamModelDeploymentRequest,
@@ -313,6 +326,19 @@ pub trait ModelLifecycleController: Send + Sync {
     {
         std::future::ready(Err(ModelLifecycleError::configuration(
             "model profile compatibility is unavailable",
+        )))
+    }
+
+    /// Ranks the catalog's recommended model profiles for each of `use_cases` on the site's
+    /// configured model execution targets, marking the profiles already deployed. Advisory: it
+    /// never changes deployments, admission or placement.
+    fn list_model_recommendations(
+        &self,
+        _use_cases: Vec<dotcore_proto::dotcore::catalog::v1::UseCase>,
+    ) -> impl Future<Output = Result<ListModelRecommendationsResponse, ModelLifecycleError>> + Send
+    {
+        std::future::ready(Err(ModelLifecycleError::configuration(
+            "model recommendations are unavailable",
         )))
     }
 
@@ -456,6 +482,16 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
         now: std::time::SystemTime,
     ) -> Result<ListModelProfileCompatibilityResponse, ModelDeclarationRepositoryError> {
         self.profile_compatibility(model_id, target, scenario, inventory, workloads, now)
+    }
+
+    fn model_recommendations(
+        &self,
+        use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
+        inventory: Option<&TargetCapabilityInventory>,
+        deployments: &[ModelDeployment],
+        now: std::time::SystemTime,
+    ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
+        self.model_recommendations(use_cases, inventory, deployments, now)
     }
 
     fn load_upstream_model(

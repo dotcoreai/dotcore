@@ -41,3 +41,4 @@ A site can span several machines that reach each other directly. The first one i
 - `dotc model` and `dotc app` list, pause, resume and remove deployments.
 - `dotc code` starts a coding agent.
 - `dotc gc` cleans up unused images and storage.
+- `dotc hardware` prints this machine's hardware for bug reports (`show`) and recommends models for it (`recommend`), without a site.

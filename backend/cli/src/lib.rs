@@ -21,6 +21,7 @@ mod config;
 mod failure;
 mod gc;
 pub mod guided;
+mod hardware;
 mod hint;
 mod hosts;
 mod management;
@@ -93,6 +94,10 @@ pub enum Command {
     /// Remove Docker image names on this machine that no Docker-delivered Nix artifact uses,
     /// after listing them and asking for confirmation.
     Gc(gc::GcCommand),
+
+    /// Describe this machine's hardware and recommend models for it, without a site: `show` and
+    /// `recommend`.
+    Hardware(hardware::HardwareCommand),
 }
 
 /// Commands for the local server process.
@@ -144,6 +149,7 @@ pub async fn dispatch(cli: Cli) -> Result<()> {
         Command::Code(command) => command.dispatch(paths).await,
         Command::Dev(command) => command.dispatch(paths).await,
         Command::Gc(command) => command.dispatch(paths).await,
+        Command::Hardware(command) => command.dispatch(paths),
     }
 }
 
@@ -232,7 +238,10 @@ fn quiet_by_default(words: &[String]) -> bool {
         (
             Some("node"),
             Some("add" | "join" | "remove" | "leave" | "list")
-        ) | (Some("model" | "application" | "app" | "code" | "gc"), _)
+        ) | (
+            Some("model" | "application" | "app" | "code" | "gc" | "hardware"),
+            _
+        )
     )
 }
 
@@ -349,7 +358,8 @@ impl Cli {
             | Command::Server(_)
             | Command::Code(_)
             | Command::Dev(_)
-            | Command::Gc(_) => None,
+            | Command::Gc(_)
+            | Command::Hardware(_) => None,
         }
     }
 }

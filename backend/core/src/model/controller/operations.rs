@@ -165,6 +165,32 @@ where
         .instrument(span)
     }
 
+    fn list_model_recommendations(
+        &self,
+        use_cases: Vec<dotcore_proto::dotcore::catalog::v1::UseCase>,
+    ) -> impl std::future::Future<
+        Output = Result<
+            dotcore_proto::dotcore::model::v1::ListModelRecommendationsResponse,
+            super::ModelLifecycleError,
+        >,
+    > + Send {
+        let inner = self.inner.clone();
+        // The console polls this read, so its span stays at debug.
+        let span = debug_span!(
+            "model_recommendations",
+            operation = "model_recommendations",
+            outcome = field::Empty,
+            error_kind = field::Empty,
+        );
+        let operation_span = span.clone();
+        async move {
+            let result = execute_model_recommendations(&inner, &use_cases).await;
+            record_operation_result(&operation_span, &result);
+            result
+        }
+        .instrument(span)
+    }
+
     fn load_model(
         &self,
         model_id: dotcore_catalog::CatalogModelId,
@@ -534,6 +560,39 @@ where
             scenario,
             inventory.as_ref(),
             &workloads,
+            std::time::SystemTime::now(),
+        )
+        .map_err(ModelLifecycleError::from_model_repository)
+}
+
+async fn execute_model_recommendations<D, S>(
+    inner: &ManagerInferenceControllerInner<D, S>,
+    use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
+) -> Result<dotcore_proto::dotcore::model::v1::ListModelRecommendationsResponse, ModelLifecycleError>
+where
+    D: super::DesiredDeploymentRepository,
+    S: CurrentStateRepository,
+{
+    // Reads observations and deployments as the compatibility read does, without the operation
+    // lock or a retained inventory write.
+    let inventory = inner
+        .target_capabilities
+        .observe()
+        .await
+        .inspect_err(|error| {
+            warn!(
+                error = %diagnostic_chain(error),
+                "target observations are unavailable; model recommendations list nothing"
+            );
+        })
+        .ok();
+    let deployments = inner.public_projection()?.deployments;
+    inner
+        .desired
+        .model_recommendations(
+            use_cases,
+            inventory.as_ref(),
+            &deployments,
             std::time::SystemTime::now(),
         )
         .map_err(ModelLifecycleError::from_model_repository)
