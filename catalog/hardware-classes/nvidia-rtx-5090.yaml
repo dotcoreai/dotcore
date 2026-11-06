@@ -1,0 +1,8 @@
+# NVIDIA GeForce RTX 5090 cards, for engines built only for them. Nested in nvidia-dedicated.
+hardwareClassId: "nvidia-rtx-5090"
+displayName: "NVIDIA RTX 5090"
+description: "An NVIDIA GeForce RTX 5090 with its own 32 GB of memory."
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED"
+  deviceModels: ["NVIDIA GeForce RTX 5090"]
