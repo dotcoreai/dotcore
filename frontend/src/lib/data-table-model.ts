@@ -44,11 +44,13 @@ export interface DataTableColumn<Unit, C extends string> extends DataTableViewCo
 /**
  * How a column sorts rows. A name sort orders rows by display name, then id. A value sort orders
  * rows by their lowest matching value ascending and their highest descending, missing values last,
- * then by name, and orders each row's children by their own value.
+ * then by name, and orders each row's children by their own value. A text sort does the same on
+ * strings, comparing ignoring case and accents.
  */
 export type DataTableColumnSort<Unit> =
   | { key?: string; kind: "name" }
-  | { key?: string; kind: "value"; value: (unit: Unit) => number | undefined };
+  | { key?: string; kind: "value"; value: (unit: Unit) => number | undefined }
+  | { key?: string; kind: "text"; value: (unit: Unit) => string | undefined };
 
 /**
  * A filter field. Values of an "any" field are alternatives; values of an "all" field must all hold
@@ -124,10 +126,7 @@ export function buildDataTable<Row, Unit, C extends string, F extends string>(
     rows: shown.map(({ matching, row, units }) => ({
       children: hasChildren
         ? [...matching].sort(
-            (left, right) =>
-              (sort.kind === "value"
-                ? compareValues(sort.value(left), sort.value(right), sort.direction)
-                : 0) || compareChildren(left, right),
+            (left, right) => compareUnits(sort, left, right) || compareChildren(left, right),
           )
         : [],
       expandable: hasChildren && matching.length > 0,
@@ -175,6 +174,11 @@ type ResolvedSort<Unit> =
       direction: DataTableSortDirection;
       kind: "value";
       value: (unit: Unit) => number | undefined;
+    }
+  | {
+      direction: DataTableSortDirection;
+      kind: "text";
+      value: (unit: Unit) => string | undefined;
     };
 
 interface MatchedRow<Row, Unit> {
@@ -189,8 +193,8 @@ function sortOf<Row, Unit, C extends string, F extends string>(
   view: DataTableView<C, F>,
 ): ResolvedSort<Unit> {
   const sort = definition.columns.find(({ id }) => id === view.sort.column)?.sort;
-  return sort?.kind === "value"
-    ? { direction: view.sort.direction, kind: "value", value: sort.value }
+  return sort?.kind === "value" || sort?.kind === "text"
+    ? ({ direction: view.sort.direction, kind: sort.kind, value: sort.value } as ResolvedSort<Unit>)
     : { direction: sort ? view.sort.direction : "asc", kind: "name" };
 }
 
@@ -284,12 +288,48 @@ function compareRows<Row, Unit, C extends string, F extends string>(
     return sort.direction === "asc" ? byName : -byName;
   }
 
+  if (sort.kind === "text") {
+    // Ascending orders rows by their lowest matching text and descending by their highest.
+    const texts = (matched: MatchedRow<Row, Unit>) =>
+      matched.matching.flatMap((unit) => sort.value(unit) ?? []).sort(compareTexts);
+    const summarize = (matched: MatchedRow<Row, Unit>) => {
+      const sorted = texts(matched);
+      return sort.direction === "asc" ? sorted[0] : sorted.at(-1);
+    };
+    return compareOptionalTexts(summarize(left), summarize(right), sort.direction);
+  }
+
   // Ascending orders rows by their lowest matching value and descending by their highest.
   const summary = ({ matching }: MatchedRow<Row, Unit>) => {
     const range = valueRange(matching.map(sort.value));
     return sort.direction === "asc" ? range?.min : range?.max;
   };
   return compareValues(summary(left), summary(right), sort.direction);
+}
+
+function compareUnits<Unit>(sort: ResolvedSort<Unit>, left: Unit, right: Unit): number {
+  if (sort.kind === "value")
+    return compareValues(sort.value(left), sort.value(right), sort.direction);
+  if (sort.kind === "text") {
+    return compareOptionalTexts(sort.value(left), sort.value(right), sort.direction);
+  }
+  return 0;
+}
+
+function compareTexts(left: string, right: string): number {
+  return left.localeCompare(right, undefined, { sensitivity: "base" });
+}
+
+// A missing text sorts after every present text in both directions.
+function compareOptionalTexts(
+  left: string | undefined,
+  right: string | undefined,
+  direction: DataTableSortDirection,
+): number {
+  if (left === undefined || right === undefined) {
+    return left === right ? 0 : left === undefined ? 1 : -1;
+  }
+  return direction === "asc" ? compareTexts(left, right) : compareTexts(right, left);
 }
 
 function compareNames<Row, Unit, C extends string, F extends string>(

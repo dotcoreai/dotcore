@@ -217,7 +217,7 @@ describe("application router", () => {
     expect(await screen.findByText("No models running")).toBeVisible();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
-    ).toEqual(["Running"]);
+    ).toEqual(["Inference", "Running"]);
     expect(screen.getByRole("heading", { level: 2, name: "Running" })).toHaveAttribute(
       "data-slot",
       "page-section-heading",
@@ -353,11 +353,9 @@ describe("application router", () => {
     };
     renderAt("/routes", undefined, deterministicSiteClient, routeClient);
 
-    expect(
-      await screen.findByRole("button", { name: "View details for production" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("row", { name: "production" })).toBeVisible();
     expect(routeClient.route.listRoutes).toHaveBeenCalledWith({});
-    await user.click(screen.getByRole("button", { name: "View details for production" }));
+    await user.click(screen.getByRole("row", { name: "production" }));
     const inspector = screen.getByTestId("route-inspector");
     expect(screen.getByTestId("inspector-content")).toContainElement(inspector);
     expect(inspector).not.toHaveTextContent("production");
@@ -479,12 +477,10 @@ describe("application router", () => {
       },
     );
 
-    const inventory = await screen.findByRole("list", { name: "Machine inventory" });
-    expect(within(inventory).getAllByRole("button")).toHaveLength(2);
+    const inventory = await screen.findByRole("table", { name: "Machine inventory" });
+    expect(within(inventory).getAllByRole("row")).toHaveLength(3);
 
-    fireEvent.click(
-      within(inventory).getByRole("button", { name: "View details for Local machine" }),
-    );
+    fireEvent.click(within(inventory).getByRole("row", { name: "Local machine" }));
     expect(
       await screen.findByRole("complementary", { name: "Local machine" }),
     ).not.toHaveTextContent("Loading current hardware snapshot…");

@@ -20,9 +20,10 @@ pub struct SimulatedRuntimeConfig {
     /// SiteNode of the execution target, naming the node of every simulated workload process.
     pub managed_node_id: Option<SiteNodeId>,
 
-    /// Machine the node declares, on which every model workload takes its expected memory as a
-    /// simulated process. Composition always sets it for model targets; application targets
-    /// take no machine memory and leave it unset.
+    /// Machine the node declares, on which every model workload takes its expected memory and
+    /// every running application unit its synthetic memory, as simulated processes. Composition
+    /// sets it on every target of a node that declares a machine, and model targets require it;
+    /// without it, application units report no resources.
     pub machine: Option<super::DeclaredMachine>,
 
     /// Ready delay used unless test support or the deployment sets one.

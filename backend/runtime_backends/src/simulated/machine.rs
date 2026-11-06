@@ -2,14 +2,16 @@
 //! of a real reading, with the memory its running simulated workloads take.
 //!
 //! Every simulated model workload of the node takes the memory its owner expects it to use, from
-//! its start until its removal. The node's hardware observations, and the per-process rows that
-//! memory attribution reads, then move as they would on the real machine. Nothing here reads the
-//! host's hardware.
+//! its start until its removal, and every running application unit takes a deterministic share of
+//! host memory and CPU time drawn from the machine. The node's hardware observations, and the
+//! per-process rows that memory attribution reads, then move as they would on the real machine.
+//! Nothing here reads the host's hardware.
 
 use std::{
     collections::BTreeMap,
     fmt,
     sync::{Arc, Mutex},
+    time::SystemTime,
 };
 
 use dotcore_domain::{
@@ -24,7 +26,14 @@ use dotcore_domain::{
 };
 use dotcore_node_hardware::{MachineDescription, MachineError, MachineWorkload};
 use dotcore_proto::dotcore::observation::v1::{AcceleratorVendor, HardwareSnapshot};
-use dotcore_runtime::WorkloadExpectedMemory;
+use dotcore_runtime::{
+    WorkloadExpectedMemory, WorkloadUnitResourceObservation, WorkloadUnitResources,
+};
+
+/// One running application unit takes this fraction of the machine's host memory: a 256th.
+const APPLICATION_UNIT_HOST_MEMORY_DIVISOR: u64 = 256;
+/// One running application unit keeps this fraction of one CPU busy: a quarter.
+const APPLICATION_UNIT_CPU_DIVISOR: u128 = 4;
 
 /// One node's declared machine and the simulated workloads running on it. Clones share the
 /// running workloads, so the node's runtimes and its hardware collection see the same machine.
@@ -82,6 +91,53 @@ impl DeclaredMachine {
             .expect("declared machine workloads")
             .running
             .remove(identity);
+    }
+
+    /// Starts one simulated application unit process on `node`, which takes a fixed share of the
+    /// machine's host memory until it ends and uses CPU time at a steady rate.
+    pub(super) fn start_application_unit(&self, node: &SiteNodeId) -> ApplicationUnitProcess {
+        let memory = WorkloadExpectedMemory {
+            device_bytes: BTreeMap::new(),
+            host_bytes: self.description.host_memory_bytes() / APPLICATION_UNIT_HOST_MEMORY_DIVISOR,
+        };
+        let identity = self
+            .start_workload(node, &memory)
+            .expect("an application unit uses no GPU, so every machine runs it");
+        ApplicationUnitProcess {
+            identity,
+            started_at: self.clock.wall_now(),
+            host_bytes: memory.host_bytes,
+        }
+    }
+
+    /// Returns the machine's current wall time.
+    pub(super) fn wall_now(&self) -> SystemTime {
+        self.clock.wall_now()
+    }
+
+    /// Ends a simulated application unit process, releasing its memory on the machine.
+    pub(super) fn end_application_unit(&self, process: &ApplicationUnitProcess) {
+        self.end_workload(&process.identity);
+    }
+
+    /// The resources a running application unit process uses now: the host memory it takes and
+    /// the CPU time it used since it started.
+    pub(super) fn application_unit_resources(
+        &self,
+        process: &ApplicationUnitProcess,
+    ) -> WorkloadUnitResourceObservation {
+        let observed_at = self.clock.wall_now();
+        let running = observed_at
+            .duration_since(process.started_at)
+            .unwrap_or_default();
+        WorkloadUnitResourceObservation {
+            observed_at,
+            resources: WorkloadUnitResources::Available {
+                cpu_time_ns: u64::try_from(running.as_nanos() / APPLICATION_UNIT_CPU_DIVISOR)
+                    .unwrap_or(u64::MAX),
+                memory_bytes: process.host_bytes,
+            },
+        }
     }
 
     /// One process row per GPU each running workload uses, grouped by the vendors of the
@@ -147,6 +203,15 @@ impl fmt::Debug for DeclaredMachine {
             .field("machine", &self.description.name())
             .finish_non_exhaustive()
     }
+}
+
+/// One running simulated application unit process: its process on the machine, when it started
+/// and the host memory it takes.
+#[derive(Clone, Debug)]
+pub(super) struct ApplicationUnitProcess {
+    identity: HostProcessIdentity,
+    started_at: SystemTime,
+    host_bytes: u64,
 }
 
 /// The simulated workload processes running on a declared machine, and the memory each takes.
@@ -270,6 +335,30 @@ mod tests {
 
         assert_eq!(available_host_memory(&machine), idle - 20 * GIB - 3);
         machine.end_workload(&identity);
+        assert_eq!(available_host_memory(&machine), idle);
+    }
+
+    #[test]
+    fn an_application_unit_takes_a_share_of_host_memory_and_steady_cpu_time() {
+        let (machine, clock) = declared("rtx-5090");
+        let node = SiteNodeId::for_test("node-a");
+        let idle = available_host_memory(&machine);
+        let unit_bytes = machine.description().host_memory_bytes() / 256;
+
+        let process = machine.start_application_unit(&node);
+        clock.advance(Duration::from_secs(8));
+        let observation = machine.application_unit_resources(&process);
+
+        assert_eq!(available_host_memory(&machine), idle - unit_bytes);
+        assert_eq!(observation.observed_at, clock.wall_now());
+        assert!(matches!(
+            observation.resources,
+            WorkloadUnitResources::Available {
+                cpu_time_ns: 2_000_000_000,
+                memory_bytes,
+            } if memory_bytes == unit_bytes
+        ));
+        machine.end_application_unit(&process);
         assert_eq!(available_host_memory(&machine), idle);
     }
 

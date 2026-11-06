@@ -8,7 +8,7 @@
 
 use std::{
     sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime},
 };
 
 use dotcore_domain::clock::Clock;
@@ -21,6 +21,8 @@ use dotcore_proto::dotcore::deployment::v1::{
     AcceleratorMemoryObservation, accelerator_memory_observation,
 };
 
+use crate::metric_resend::{Freshness, RESEND_INTERVAL, resend_every_second};
+
 /// Accelerator memory attributed to one model deployment on its hosting node, per device when the
 /// node names one. The value is held from the latest attribution, which refreshes only at the
 /// site's hardware refresh interval, so minimum and maximum over coarser buckets describe held
@@ -30,13 +32,6 @@ pub(crate) const DEPLOYMENT_ACCELERATOR_MEMORY_USED: &str = "deployment.accelera
 /// Writer name a node's deployment memory writer records under, the `source` of its
 /// `node.observing` window.
 pub(crate) const DEPLOYMENT_MEMORY_SOURCE: &str = "deployment_memory";
-
-/// Time an observation may take to collect beyond twice the hardware refresh interval before its
-/// attribution is too old to record.
-pub(crate) const COLLECTION_ALLOWANCE: Duration = Duration::from_secs(5);
-
-/// Interval at which a node re-sends the memory of the deployments it hosts.
-const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Declarations of the deployment memory metrics hosting nodes record.
 pub(crate) fn deployment_metric_descriptors() -> Vec<MetricDescriptor> {
@@ -50,7 +45,7 @@ pub(crate) fn deployment_metric_descriptors() -> Vec<MetricDescriptor> {
             MetricDimension::optional(labels::DEVICE),
         ],
         provenance: MetricProvenance::Node,
-        sample_interval: Some(SAMPLE_INTERVAL),
+        sample_interval: Some(RESEND_INTERVAL),
     }]
 }
 
@@ -67,10 +62,7 @@ pub(crate) struct DeploymentMemoryWriter {
     hosted: Arc<dyn HostedAcceleratorMemory>,
     recorder: Arc<dyn MetricRecorder>,
     clock: Arc<dyn Clock>,
-
-    /// Oldest attribution still recorded: twice the hardware refresh interval plus the collection
-    /// allowance.
-    max_age: Duration,
+    freshness: Freshness,
 }
 
 impl DeploymentMemoryWriter {
@@ -90,33 +82,17 @@ impl DeploymentMemoryWriter {
             hosted,
             recorder,
             clock,
-            max_age: refresh_interval * 2 + collection_allowance,
+            freshness: Freshness::new(refresh_interval, collection_allowance),
         }
     }
 
     /// Records at the start of every wall-clock second until dropped; a second the writer missed
     /// stays absent.
     pub(crate) async fn run(self) {
-        let mut last_second = None;
-        loop {
-            let into_second =
-                Duration::from_nanos(u64::from(since_epoch(self.clock.wall_now()).subsec_nanos()));
-            self.clock
-                .sleep_until(self.clock.now() + (SAMPLE_INTERVAL - into_second))
-                .await;
-            let at = self.clock.wall_now();
-            let second = since_epoch(at).as_secs();
-            // Woken just before the boundary: wait for it rather than record a second twice.
-            if last_second == Some(second) {
-                continue;
-            }
-            last_second = Some(second);
-
-            let records = self.records(at);
-            if !records.is_empty() {
-                self.recorder.record(records);
-            }
-        }
+        resend_every_second(self.clock.as_ref(), self.recorder.as_ref(), |at| {
+            self.records(at)
+        })
+        .await;
     }
 
     /// One record per device row of every hosted deployment whose attribution is available and
@@ -124,7 +100,11 @@ impl DeploymentMemoryWriter {
     fn records(&self, at: SystemTime) -> Vec<MetricRecord> {
         let mut records = vec![];
         for (deployment_id, memory) in self.hosted.hosted_accelerator_memory() {
-            if !self.fresh(&memory, at) {
+            let observed_at = memory
+                .observed_at
+                .as_ref()
+                .and_then(crate::metrics::system_time);
+            if !self.freshness.admits(observed_at, at) {
                 continue;
             }
             let Some(accelerator_memory_observation::Result::Available(usage)) = memory.result
@@ -150,28 +130,11 @@ impl DeploymentMemoryWriter {
         }
         records
     }
-
-    /// Whether `memory` was observed within the age bound of `at`. An observation after `at`, as
-    /// when the wall clock stepped back, counts as fresh; one without a time never does.
-    fn fresh(&self, memory: &AcceleratorMemoryObservation, at: SystemTime) -> bool {
-        memory
-            .observed_at
-            .as_ref()
-            .and_then(crate::metrics::system_time)
-            .is_some_and(|observed_at| {
-                at.duration_since(observed_at)
-                    .map_or(true, |age| age <= self.max_age)
-            })
-    }
-}
-
-fn since_epoch(time: SystemTime) -> Duration {
-    time.duration_since(UNIX_EPOCH).unwrap_or_default()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{sync::Mutex, time::UNIX_EPOCH};
 
     use dotcore_domain::clock::VirtualClock;
     use dotcore_proto::dotcore::deployment::v1::{
@@ -181,6 +144,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::*;
+    use crate::metric_resend::COLLECTION_ALLOWANCE;
 
     #[tokio::test]
     async fn every_second_records_each_device_row_of_every_available_deployment() {

@@ -228,8 +228,8 @@ describe("AppCatalogPage", () => {
     );
     expect(await screen.findByText("accepted-deployment")).toBeVisible();
     expect(
-      within(screen.getByRole("list", { name: "Installed applications" })).getByRole("article", {
-        name: "OpenWebUI deployment",
+      within(screen.getByRole("table", { name: "Installed applications" })).getByRole("row", {
+        name: "OpenWebUI",
       }),
     ).toBeVisible();
 
@@ -265,16 +265,15 @@ describe("AppCatalogPage", () => {
       expect(currentLocation(router)).toBe("/apps?panel=apps%2Fdeployment%3Aaccepted-deployment"),
     );
 
-    // The location moves before the panel re-renders; closing the stale catalog content is a no-op.
+    // The location moves before the panel re-renders, and the deployment panel may replace the
+    // catalog one; closing the stale catalog content is a no-op.
+    await screen.findByRole("heading", { name: "Status" });
     const panel = screen.getByRole("complementary", { name: "OpenWebUI" });
-    await within(panel).findByRole("heading", { name: "Status" });
     await user.click(within(panel).getByRole("button", { name: "Close inspector" }));
 
     await waitFor(() => expect(currentLocation(router)).toBe("/apps"));
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
-    expect(
-      await screen.findByRole("button", { name: "View details for OpenWebUI deployment" }),
-    ).toBeVisible();
+    expect(await screen.findByRole("row", { name: "OpenWebUI" })).toBeVisible();
   });
 
   it("stays where the operator went when a deploy is accepted after leaving the Catalog", async () => {
@@ -312,7 +311,7 @@ describe("AppCatalogPage", () => {
       await accepted.promise;
     });
 
-    expect(await screen.findByRole("article", { name: "OpenWebUI deployment" })).toBeVisible();
+    expect(await screen.findByRole("row", { name: "OpenWebUI" })).toBeVisible();
     expect(currentLocation(router)).toBe("/apps");
   });
 
@@ -882,9 +881,7 @@ describe("AppCatalogPage", () => {
         .slice(1)
         .map((row) => row.getAttribute("aria-label")),
     ).toEqual(["OpenWebUI"]);
-    expect(
-      screen.queryByRole("article", { name: "Historic App deployment" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("row", { name: "Historic App" })).not.toBeInTheDocument();
   });
 
   it("renders an actionable empty state", async () => {

@@ -45,6 +45,12 @@ describe("useOverviewMetrics", () => {
     act(() => metrics.current.setSplit(overviewSplitIds.machine));
     act(() => metrics.current.setSelected("requests"));
     expect(metrics.current.split).toBe(overviewSplitIds.model);
+
+    act(() => metrics.current.setSelected("app-cpu"));
+    expect(metrics.current.split).toBe(overviewSplitIds.app);
+
+    act(() => metrics.current.setSelected("cpu"));
+    expect(metrics.current.split).toBe(overviewSplitIds.machine);
     expect(watchMetrics).toHaveBeenCalledTimes(1);
   });
 

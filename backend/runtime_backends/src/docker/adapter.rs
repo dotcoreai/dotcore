@@ -20,6 +20,7 @@ use dotcore_runtime::{
     RuntimeLogStream, RuntimeWorkloadLogFollowQuery, RuntimeWorkloadLogQuery, WorkloadCorrelation,
     WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupLaunch, WorkloadGroupObservation,
     WorkloadId, WorkloadLaunch, WorkloadObservation, WorkloadServiceBinding, WorkloadStorageKey,
+    WorkloadUnitName, WorkloadUnitResourceObservation,
 };
 
 pub(super) use super::configuration::{DockerAcceleratorTransport, DockerRuntimeConfig};
@@ -295,6 +296,12 @@ impl WorkloadGroupBackend for DockerRuntimeBackend {
         group: &'a WorkloadGroupLaunch,
     ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
         self.inner.inspect_workload_group(group)
+    }
+    fn observe_group_resources<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>> {
+        self.inner.observe_group_resources(group)
     }
     fn remove_workload_group<'a>(
         &'a self,

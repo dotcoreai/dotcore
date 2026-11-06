@@ -4,9 +4,11 @@ import { createMemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { vi } from "vitest";
 
 import type { ApplicationClient } from "@/api/application-client";
+import type { MetricsClient } from "@/api/metrics-client";
 import type { RouteClient } from "@/api/route-client";
 import { PanelNavigationProvider } from "@/app/console-layout";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
+import { idleMetricsClient } from "@/features/metrics/metric-test-support";
 import {
   ApplicationDeploymentDesiredState,
   ApplicationDeploymentSchema,
@@ -57,12 +59,15 @@ export function renderAppsSection({
   client,
   initialEntry = "/apps",
   machines = [],
+  metricsClient = idleMetricsClient(),
   routeClient = routeClientFor([]),
 }: {
   client: ApplicationClient;
   initialEntry?: string;
   /** The machines the watch sends; defaults to none. */
   machines?: MessageInitShape<typeof MachineSchema>[];
+  /** The metrics the Apps page watches; defaults to a client that never answers. */
+  metricsClient?: MetricsClient;
   routeClient?: RouteClient;
 }) {
   const watch = appsResourceWatch(client, routeClient, machines);
@@ -85,7 +90,10 @@ export function renderAppsSection({
               </ApplicationsPollingProvider>
             ),
             children: [
-              { index: true, element: <ApplicationsPage client={client} /> },
+              {
+                index: true,
+                element: <ApplicationsPage client={client} metricsClient={metricsClient} />,
+              },
               {
                 path: "catalog",
                 element: <AppCatalogPage client={client} />,

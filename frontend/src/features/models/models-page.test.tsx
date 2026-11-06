@@ -8,22 +8,17 @@ import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import { workstationSnapshot } from "@/features/memory/machine-test-support";
 import {
-  gib,
-  hostPool,
-  nodeMemory,
-  other,
-  unsized,
-} from "@/features/memory/node-memory-test-support";
-import {
+  counterPoint,
+  distributionPoint,
   gaugePoint,
   metricsClientWith,
   metricSeries,
   queryResult,
   staticWatch,
 } from "@/features/metrics/metric-test-support";
-import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ModelArtifactSchema, ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
 import { ListModelsResponseSchema } from "@/gen/dotcore/catalog/v1/service_pb";
-import { MemoryView } from "@/gen/dotcore/console/v1/preferences_pb";
+import { AcceleratorMemoryObservationSchema } from "@/gen/dotcore/deployment/v1/accelerator_memory_pb";
 import {
   InferenceRouteAvailabilitySchema,
   InferenceRouteSchema,
@@ -31,6 +26,7 @@ import {
   ListRoutesResponseSchema,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import {
+  type ModelDeployment,
   ModelDeploymentDesiredState,
   ModelDeploymentIntentSchema,
   ModelDeploymentSchema,
@@ -43,21 +39,20 @@ import {
   ModelDeploymentStateSchema,
   ModelDeploymentStatus,
 } from "@/gen/dotcore/model/v1/state_pb";
-import { MachineSchema } from "@/gen/dotcore/site/v1/service_pb";
 import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
-import { readMemoryView } from "@/lib/console-preferences";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction } from "@/test/inspector-actions";
-import { expectResourceMarker } from "@/test/resource-marker";
 
 import { projectModelSnapshot } from "./model-projection";
 import {
   catalogModel,
+  currentLocation,
   localDeployment,
   modelTarget,
   readableMachine,
   renderModelsSection,
   unifiedSnapshot,
+  upstreamDeployment,
   upstreamTemplate,
 } from "./models-section-test-support";
 
@@ -85,8 +80,8 @@ describe("ModelsPage data contract", () => {
   });
 });
 
-describe("ModelsPage cards", () => {
-  it("reads h1 page, h2 section, h3 card with no skipped level", async () => {
+describe("ModelsPage table", () => {
+  it("reads h1 page, then h2 sections with no skipped level", async () => {
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     renderModelsSection({
       models: [gemma],
@@ -95,14 +90,16 @@ describe("ModelsPage cards", () => {
       ],
     });
     await waitFor(() => {
-      // Memory holds its place while the machines are read, so it heads the page from the start.
+      // Inference holds its place while metrics are read, so it heads the page from the start.
       expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
-        "Memory",
+        "Inference",
         "Running",
       ]);
-      expectHeadingOutline(document.body, [1, 2, 2, 3]);
+      expectHeadingOutline(document.body, [1, 2, 2]);
     });
-    expect(screen.getByRole("region", { name: "Memory" })).toHaveTextContent("MemoryVRAM—RAM—");
+    const deploy = screen.getByRole("link", { name: "Deploy" });
+    expect(deploy).toHaveAttribute("href", "/models/catalog");
+    expect(deploy.querySelector("svg")).toHaveClass("lucide-rocket");
   });
 
   it("shows no Catalog section; the Catalog has its own page", async () => {
@@ -151,42 +148,126 @@ describe("ModelsPage cards", () => {
     expect(screen.queryByText("Loading models…")).not.toBeInTheDocument();
     expect(screen.getByText("No models running")).toBeVisible();
   });
-  it("describes only its own deployment on each running card", async () => {
+  it("shows each deployment's name, status, machine, requests and VRAM", async () => {
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
+    const qwen = catalogModel("qwen", "Qwen", ["default"]);
+    const template = upstreamTemplate();
     renderModelsSection({
-      models: [gemma],
       deployments: [
-        localDeployment("deployment-a", gemma, {
-          status: ModelDeploymentStatus.LOADING,
-          progress: {
-            percent: 40,
-            completed: 40n,
-            total: 100n,
-            unit: ModelDeploymentProgressUnit.BYTES,
-          },
-        }),
-        localDeployment("deployment-b", gemma, {
-          status: ModelDeploymentStatus.FAILED,
-          failure: { message: "Engine exited" },
-        }),
+        placedDeployment(
+          localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
+          "gpu1",
+          [["GPU-0", 4n * GiB]],
+        ),
+        placedDeployment(
+          localDeployment("deployment-b", qwen, { status: ModelDeploymentStatus.READY }),
+          "gpu1",
+          [
+            ["GPU-0", 2n * GiB],
+            ["GPU-1", 1n * GiB],
+          ],
+        ),
+        placedDeployment(
+          localDeployment("deployment-c", gemma, {
+            status: ModelDeploymentStatus.FAILED,
+            failure: { message: "Engine exited" },
+          }),
+        ),
+        upstreamDeployment(template, ModelDeploymentStatus.READY),
       ],
+      machines: [readableMachine("gpu1", "Workstation")],
+      metricsClient: trafficWatch().client,
+      models: [gemma, qwen],
+      templates: [template],
     });
 
-    const running = await screen.findByRole("list", { name: "Running models" });
-    const first = within(running).getByRole("article", { name: "Gemma (deployment-a)" });
-    const second = within(running).getByRole("article", { name: "Gemma (deployment-b)" });
-    expect(first).not.toHaveTextContent(/\d+ deployments?/);
-    expect(second).not.toHaveTextContent(/\d+ deployments?/);
-    // The failure message reaches the reader through the badge's tooltip, not as card text; load
-    // progress stays in the inspector, so both cards keep the same single-badge shape.
-    expect(within(first).queryByText("40%")).not.toBeInTheDocument();
-    expect(first.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
-    expect(second.querySelector('[data-slot="badge"]')).toHaveAttribute("title", "Engine exited");
-    expect(within(second).queryByText("Engine exited")).not.toBeInTheDocument();
-    expect(second.querySelectorAll('[data-slot="badge"]')).toHaveLength(1);
+    const table = await screen.findByRole("table", { name: "Running models" });
+    await waitFor(() =>
+      expect(rowTexts(table)).toEqual([
+        "Gemma / Gemma · Q8_0 | Ready | Workstation | 3 | 4 GiB",
+        "Gemma / Gemma · Q8_0 | Failed | — | 0 | —",
+        "Private model / External | Ready | Upstream | 1 | —",
+        "Qwen / Qwen · Q8_0 | Ready | Workstation | 0 | 3 GiB",
+      ]),
+    );
+    expect(headerTexts(table)).toEqual(["Deployment", "Status", "Machine", "Requests", "VRAM"]);
+    // Same-named deployments and upstream ones name their id, so each row reads apart.
+    expect(screen.getByRole("row", { name: "Gemma (deployment-a)" })).toBeVisible();
+    expect(screen.getByRole("row", { name: "Private model (upstream-new)" })).toBeVisible();
+    // The failure message rides the status badge's tooltip, not the row.
+    const failed = screen.getByRole("row", { name: "Gemma (deployment-c)" });
+    expect(failed.querySelector('[data-slot="badge"]')).toHaveAttribute("title", "Engine exited");
+    expect(within(failed).queryByText("Engine exited")).not.toBeInTheDocument();
   });
 
-  it("names a transitioning state the same way on the card and in its inspector", async () => {
+  it("offers generated tokens, token generation and time to first token in the View menu", async () => {
+    const user = userEvent.setup();
+    const gemma = catalogModel("gemma", "Gemma", ["default"]);
+    renderModelsSection({
+      deployments: [
+        placedDeployment(
+          localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
+        ),
+      ],
+      metricsClient: trafficWatch().client,
+      models: [gemma],
+    });
+
+    const table = await screen.findByRole("table", { name: "Running models" });
+    await user.click(screen.getByRole("button", { name: "View" }));
+    const menu = await screen.findByRole("menu");
+    const hidden = ["Generated tokens", "Token generation", "Time to first token"];
+    for (const label of hidden) {
+      expect(within(menu).getByRole("menuitemcheckbox", { name: label })).not.toBeChecked();
+    }
+
+    for (const label of hidden) {
+      await user.click(
+        within(screen.getByRole("menu")).getByRole("menuitemcheckbox", { name: label }),
+      );
+    }
+    await user.keyboard("{Escape}");
+
+    expect(headerTexts(table).slice(-3)).toEqual(hidden);
+    await waitFor(() =>
+      expect(rowTexts(table)).toEqual([
+        "Gemma / Gemma · Q8_0 | Ready | — | 3 | — | 30 | 50 tokens/s | 250 ms",
+      ]),
+    );
+  });
+
+  it("opens a row's panel on click, Enter or Space, marks it selected, and returns focus on close", async () => {
+    const user = userEvent.setup();
+    const gemma = catalogModel("gemma", "Gemma", ["default"]);
+    const { router } = renderModelsSection({
+      deployments: [
+        localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
+      ],
+      models: [gemma],
+    });
+
+    for (const open of ["click", "{Enter}", " "]) {
+      const row = await screen.findByRole("row", { name: "Gemma" });
+      if (open === "click") {
+        await user.click(row);
+      } else {
+        row.focus();
+        await user.keyboard(open);
+      }
+
+      const panel = await screen.findByRole("complementary", { name: "Gemma" });
+      expect(currentLocation(router)).toBe("/models?panel=models%2Fdeployment%3Adeployment-a");
+      expect(row).toHaveAttribute("data-state", "selected");
+      expect(row).toHaveAttribute("aria-controls", panel.id);
+
+      await user.click(within(panel).getByRole("button", { name: /^Close/ }));
+      await waitFor(() => expect(panel).not.toBeInTheDocument());
+      expect(row).toHaveFocus();
+      expect(row).not.toHaveAttribute("data-state");
+    }
+  });
+
+  it("names a transitioning state the same way in the row and in its inspector", async () => {
     const user = userEvent.setup();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     renderModelsSection({
@@ -205,12 +286,11 @@ describe("ModelsPage cards", () => {
       ],
     });
 
-    const running = await screen.findByRole("list", { name: "Running models" });
-    const card = within(running).getByRole("article", { name: "Gemma" });
-    expect(card).toHaveTextContent("Downloading");
-    expect(card).not.toHaveTextContent("Downloading model artifacts");
+    const row = await screen.findByRole("row", { name: "Gemma" });
+    expect(row).toHaveTextContent("Downloading");
+    expect(row).not.toHaveTextContent("Downloading model artifacts");
 
-    await user.click(within(card).getByRole("button", { name: /View details/ }));
+    await user.click(row);
     const panel = await screen.findByRole("complementary", { name: "Gemma" });
     expect(panel).toHaveTextContent("Downloading");
 
@@ -231,9 +311,7 @@ describe("ModelsPage cards", () => {
       new ConnectError("transport interrupted", Code.Unavailable),
     );
 
-    const running = await screen.findByRole("list", { name: "Running models" });
-    const card = within(running).getByRole("article", { name: "Gemma" });
-    await user.click(within(card).getByRole("button", { name: /View details/ }));
+    await user.click(await screen.findByRole("row", { name: "Gemma" }));
     const inspector = await screen.findByRole("complementary", { name: "Gemma" });
     await chooseMoreAction(user, "Teardown…", inspector);
     const confirmation = screen.getByRole("dialog", { name: "Teardown Gemma?" });
@@ -270,11 +348,9 @@ describe("ModelsPage cards", () => {
       new ConnectError(dependencyError, Code.FailedPrecondition),
     );
 
-    const running = await screen.findByRole("list", { name: "Running models" });
-    const card = within(running).getByRole("article", {
-      name: "Private model (upstream-deployment)",
-    });
-    await user.click(within(card).getByRole("button", { name: /View details/ }));
+    await user.click(
+      await screen.findByRole("row", { name: "Private model (upstream-deployment)" }),
+    );
     const inspector = await screen.findByRole("complementary", { name: "Private model" });
     await chooseMoreAction(user, "Teardown…", inspector);
     const confirmation = screen.getByRole("dialog", { name: "Teardown Private model?" });
@@ -310,9 +386,7 @@ describe("ModelsPage cards", () => {
       .mockRejectedValueOnce(new ConnectError(dependencyError, Code.FailedPrecondition))
       .mockImplementationOnce(() => retryResponse);
 
-    const running = await screen.findByRole("list", { name: "Running models" });
-    const card = within(running).getByRole("article", { name: "Gemma" });
-    await user.click(within(card).getByRole("button", { name: /View details/ }));
+    await user.click(await screen.findByRole("row", { name: "Gemma" }));
     const inspector = await screen.findByRole("complementary", { name: "Gemma" });
 
     await chooseMoreAction(user, "Pause", inspector);
@@ -400,44 +474,7 @@ describe("ModelsPage deployment inspector", () => {
   });
 });
 
-describe("ModelsPage memory", () => {
-  afterEach(() => window.localStorage.clear());
-
-  it("draws VRAM empty for an all-unified site, with each model in its card color", async () => {
-    const gemma = catalogModel("gemma", "Gemma", ["default"]);
-    renderModelsSection({
-      deployments: [
-        localDeployment("deployment-a", gemma, {
-          observedPlacements: [{ managedNodeId: "spark-01" }],
-          status: ModelDeploymentStatus.READY,
-        }),
-      ],
-      machines: [readableMachine("spark-01", "Spark one")],
-      models: [gemma],
-      nodeMemory: [
-        nodeMemory("spark-01", [
-          hostPool(128n * gib, [other(68n * gib)], {}, [
-            unsized({ modelDeploymentId: "deployment-a" }),
-          ]),
-        ]),
-      ],
-      snapshots: { "spark-01": unifiedSnapshot() },
-    });
-
-    const memory = await screen.findByRole("region", { name: "Memory" });
-    const bars = await within(memory).findAllByRole("img");
-    expect(bars.map((bar) => bar.getAttribute("aria-label"))).toEqual([
-      "RAM on Spark one: 68 GiB used of 128 GiB; not measured: Gemma (measurement unavailable)",
-    ]);
-    expect(within(memory).getByRole("button", { name: "VRAM" })).toHaveTextContent("VRAM");
-    expect(memory).toHaveTextContent(/VRAM—RAM/);
-    // A single machine has nothing to split by, so the view choice stays hidden.
-    expect(within(memory).queryByRole("group", { name: "Memory view" })).not.toBeInTheDocument();
-    const deploy = screen.getByRole("link", { name: "Deploy" });
-    expect(deploy).toHaveAttribute("href", "/models/catalog");
-    expect(deploy.querySelector("svg")).toHaveClass("lucide-rocket");
-  });
-
+describe("ModelsPage deployment panel", () => {
   it("names the inspected deployment's placement by its machine and target display names", async () => {
     const user = userEvent.setup();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
@@ -456,7 +493,7 @@ describe("ModelsPage memory", () => {
       snapshots: { "spark-01": unifiedSnapshot() },
     });
 
-    await user.click(await screen.findByRole("button", { name: "View details for Gemma" }));
+    await user.click(await screen.findByRole("row", { name: "Gemma" }));
     const section = await screen.findByRole("region", { name: "Deployment" });
     await waitFor(() =>
       expect(within(section).getByText("Placement").nextElementSibling).toHaveTextContent(
@@ -505,51 +542,50 @@ describe("ModelsPage memory", () => {
     );
   });
 
-  it("keeps each machine's span when switched to By machine, and remembers the choice", async () => {
+  it("shows the site's inference and opens a deployment on the page's range", async () => {
     const user = userEvent.setup();
+    const gemma = catalogModel("gemma", "Gemma", ["default"]);
+    const streams = countedWatch();
     renderModelsSection({
-      machines: [
-        readableMachine("spark-01", "Spark one"),
-        readableMachine("spark-02", "Spark two"),
+      deployments: [
+        localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
       ],
-      snapshots: { "spark-01": unifiedSnapshot(), "spark-02": unifiedSnapshot() },
+      metricsClient: streams.client,
+      models: [gemma],
     });
 
-    const memory = await screen.findByRole("region", { name: "Memory" });
+    const inference = await screen.findByRole("region", { name: "Inference" });
     await waitFor(() =>
-      expect(within(memory).getByRole("img")).toHaveAttribute(
-        "aria-label",
-        "RAM: 136 GiB used of 256 GiB",
+      expect(within(inference).getByRole("button", { name: /^Requests/ })).toHaveTextContent(
+        "Requests3",
       ),
     );
+    // Scoped to deployments, the cards count the attempts that reached them.
+    expect(streams.queries(0)[0]).toEqual(["router.attempts", []]);
 
-    // The memory view choice lives in the memory section, not in the page header.
-    await user.click(within(memory).getByRole("button", { name: "By machine" }));
+    const range = screen.getByRole("radiogroup", { name: "Models range" });
+    await user.click(within(range).getByRole("radio", { name: "6h" }));
+    await waitFor(() => expect(streams.watch).toHaveBeenCalledTimes(2));
 
-    expect(
-      within(memory)
-        .getAllByRole("img")
-        .map((bar) => bar.getAttribute("aria-label")),
-    ).toEqual([
-      "RAM on Spark one: 68 GiB used of 128 GiB",
-      "RAM on Spark two: 68 GiB used of 128 GiB",
-    ]);
-    expect(within(memory).getByText("Spark two")).toBeVisible();
-    expectResourceMarker(within(memory).getByText("Spark one"), "spark-01");
-    expectResourceMarker(within(memory).getByText("Spark two"), "spark-02");
-    expect(readMemoryView(window.localStorage)).toBe(MemoryView.BY_MACHINE);
+    await user.click(screen.getByRole("row", { name: "Gemma" }));
+    const panel = await screen.findByRole("complementary", { name: "Gemma" });
+    expect(await within(panel).findByRole("radio", { name: "6h" })).toBeChecked();
   });
 
-  it("expands a memory row to its history with a line per model, streamed only while expanded", async () => {
+  it("holds one metric stream for the page and one for the deployment inspector", async () => {
     const user = userEvent.setup();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const streams = countedWatch();
     renderModelsSection({
       deployments: [
-        localDeployment("deployment-a", gemma, {
-          observedPlacements: [{ managedNodeId: "gpu1" }],
-          status: ModelDeploymentStatus.READY,
-        }),
+        placedDeployment(
+          localDeployment("deployment-a", gemma, {
+            observedPlacements: [{ managedNodeId: "gpu1" }],
+            status: ModelDeploymentStatus.READY,
+          }),
+          "gpu1",
+          [["gpu-0", 20n * GiB]],
+        ),
       ],
       machines: [readableMachine("gpu1", "gpu1")],
       metricsClient: streams.client,
@@ -557,82 +593,19 @@ describe("ModelsPage memory", () => {
       snapshots: { gpu1: workstationSnapshot() },
     });
 
-    const memory = await screen.findByRole("region", { name: "Memory" });
-    const vram = await within(memory).findByRole("button", { name: "VRAM" });
-    expect(within(memory).getByRole("button", { name: "RAM" })).toHaveAttribute(
-      "aria-expanded",
-      "false",
-    );
-    expect(streams.watch).not.toHaveBeenCalled();
-
-    await user.click(vram);
-    const chart = await screen.findByRole("group", { name: "VRAM history" });
-    await waitFor(() =>
-      expect(chartReadout(chart)).toBe("Used 24 GiB Capacity 32 GiB Gemma 20 GiB"),
-    );
+    // The inference cards only; the rows read no GPU use.
+    await waitFor(() => expect(streams.open()).toBe(1));
     expect(streams.watch).toHaveBeenCalledTimes(1);
-    expect(streams.queries(0)).toEqual([
-      ["node.host.memory.total", ["node"]],
-      ["node.host.memory.available", ["node"]],
-      ["node.accelerator.memory.used", ["node", "device"]],
-      ["node.accelerator.memory.total", ["node", "device"]],
-      ["deployment.accelerator.memory.used", ["deployment", "node", "device"]],
-    ]);
-
-    await user.click(vram);
-    expect(screen.queryByRole("group", { name: "VRAM history" })).toBeNull();
-    await waitFor(() => expect(streams.open()).toBe(0));
-  });
-
-  it("holds at most three metric streams with the deployment inspector open", async () => {
-    const user = userEvent.setup();
-    const gemma = catalogModel("gemma", "Gemma", ["default"]);
-    const streams = countedWatch();
-    renderModelsSection({
-      deployments: [
-        localDeployment("deployment-a", gemma, {
-          observedPlacements: [{ managedNodeId: "gpu1" }],
-          status: ModelDeploymentStatus.READY,
-        }),
-      ],
-      machines: [readableMachine("gpu1", "gpu1")],
-      metricsClient: streams.client,
-      models: [gemma],
-      snapshots: { gpu1: workstationSnapshot() },
-    });
-
-    const memory = await screen.findByRole("region", { name: "Memory" });
-    await user.click(await within(memory).findByRole("button", { name: "RAM" }));
-    await screen.findByRole("group", { name: "RAM history" });
-    await user.click(screen.getByRole("button", { name: "View details for Gemma" }));
+    await user.click(screen.getByRole("row", { name: "Gemma" }));
     await screen.findByRole("region", { name: "Deployment" });
 
-    await waitFor(() => expect(streams.open()).toBeGreaterThan(1));
-    expect(streams.open()).toBeLessThanOrEqual(3);
-  });
-
-  it("says memory is unavailable when no machine has a readable snapshot", async () => {
-    renderModelsSection({
-      machines: [
-        create(MachineSchema, {
-          currentHardwareSnapshotAvailability: {
-            availability: { case: "unavailable", value: { code: "NOT_OBSERVED", message: "no" } },
-          },
-          machineId: "spark-01",
-        }),
-      ],
-    });
-
-    expect(
-      await screen.findByText("Memory usage is unavailable: no machine reported readable memory."),
-    ).toBeVisible();
-    expect(screen.queryByRole("button", { name: "By machine" })).not.toBeInTheDocument();
+    await waitFor(() => expect(streams.open()).toBe(2));
   });
 });
 
 /**
- * A metrics client answering gpu1's memory and one deployment's VRAM, counting the watch
- * streams it holds open.
+ * A metrics client answering gpu1's memory, one deployment's VRAM and three attempts,
+ * counting the watch streams it holds open.
  */
 function countedWatch() {
   const gib = 1024 ** 3;
@@ -650,6 +623,7 @@ function countedWatch() {
     ],
     "node.host.memory.available": [metricSeries({ node: "gpu1" }, [gaugePoint(9, 47 * gib)])],
     "node.host.memory.total": [metricSeries({ node: "gpu1" }, [gaugePoint(9, 62 * gib)])],
+    "router.attempts": [metricSeries({}, [counterPoint(9, 0, false, 3)])],
   };
   const answer = staticWatch((query) =>
     queryResult({ series: byMetric[query?.metric ?? ""] ?? [], stepCount: 10 }),
@@ -670,11 +644,103 @@ function countedWatch() {
   };
 }
 
-/** The readout text above a chart's plot: each line's label and value. */
-function chartReadout(chart: HTMLElement): string {
-  return [...(chart.firstElementChild?.querySelectorAll("span") ?? [])]
-    .filter((span) => span.childElementCount === 0)
-    .map((span) => span.textContent)
-    .filter(Boolean)
-    .join(" ");
+/**
+ * A metrics client answering per-deployment traffic over the range, three attempts reaching
+ * deployment-a and one the upstream deployment.
+ */
+function trafficWatch() {
+  const watch = vi.fn<MetricsClient["metrics"]["watchMetrics"]>(
+    staticWatch((query) => {
+      const byDeployment = query?.groupBy?.includes("deployment") ?? false;
+      const counter = (count: number, labels: Record<string, string> = {}) =>
+        metricSeries(labels, [counterPoint(9, 0, false, count)]);
+      const mean = (sum: number, count: number, labels: Record<string, string> = {}) =>
+        metricSeries(labels, [distributionPoint(9, { 0.95: sum }, false, { count, sum })]);
+      const series = (() => {
+        switch (query?.metric) {
+          case "router.attempts":
+            return byDeployment
+              ? [
+                  counter(3, { deployment: "deployment-a" }),
+                  counter(1, { deployment: "upstream-new" }),
+                ]
+              : [counter(4)];
+          case "router.tokens.completion":
+            return byDeployment ? [counter(30, { deployment: "deployment-a" })] : [counter(30)];
+          case "router.attempt.decode_rate":
+            return byDeployment ? [mean(200, 4, { deployment: "deployment-a" })] : [mean(200, 4)];
+          case "router.attempt.ttft":
+            return byDeployment ? [mean(0.5, 2, { deployment: "deployment-a" })] : [mean(0.5, 2)];
+          default:
+            return [];
+        }
+      })();
+
+      return queryResult({ series, stepCount: 10 });
+    }),
+  );
+
+  return { client: metricsClientWith(watch), watch };
 }
+
+/**
+ * A local deployment declaring Q8_0 weights, placed on `node` when given, with its accelerator
+ * memory measured on the given devices.
+ */
+function placedDeployment(
+  deployment: ModelDeployment,
+  node?: string,
+  devices: [deviceId: string, bytes: bigint][] = [],
+): ModelDeployment {
+  if (deployment.snapshot?.source.case === "local") {
+    deployment.snapshot.source.value.modelArtifact = create(ModelArtifactSchema, {
+      weightQuantization: "Q8_0",
+    });
+  }
+  if (node) {
+    deployment.intent = create(ModelDeploymentIntentSchema, {
+      placement: { executionTargetId: "gpu", siteNodeId: node },
+    });
+    deployment.acceleratorMemory = create(AcceleratorMemoryObservationSchema, {
+      result: {
+        case: "available",
+        value: {
+          devices: devices.map(([deviceId, usedMemoryBytes]) => ({
+            deviceId,
+            managedNodeId: node,
+            usedMemoryBytes,
+          })),
+        },
+      },
+    });
+  }
+
+  return deployment;
+}
+
+/** The text of each body row: a cell's lines joined by " / ", cells by " | ". */
+function rowTexts(table: HTMLElement): string[] {
+  return within(table)
+    .getAllByRole("row")
+    .slice(1)
+    .map((row) =>
+      Array.from(row.querySelectorAll("td"))
+        .map((cell) => {
+          const lines = Array.from(cell.querySelectorAll("div")).filter(
+            (line) => !line.querySelector("div"),
+          );
+          return lines.length
+            ? lines.map((line) => line.textContent).join(" / ")
+            : cell.textContent;
+        })
+        .join(" | "),
+    );
+}
+
+function headerTexts(table: HTMLElement): string[] {
+  return within(table)
+    .getAllByRole("columnheader")
+    .map((header) => header.textContent ?? "");
+}
+
+const GiB = 1024n ** 3n;

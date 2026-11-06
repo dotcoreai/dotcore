@@ -5,11 +5,10 @@ import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api
 import { type ModelClient, modelClient } from "@/api/model-client";
 import { usePanelNavigation } from "@/app/console-layout";
 import { ModelsSectionIcon } from "@/app/console-section-icons";
-import {
-  useWatchedApplicationDeployments,
-  useWatchedMachines,
-  useWatchedNodeMemory,
-} from "@/app/resource-watch";
+import { useWatchedMachines } from "@/app/resource-watch";
+import { DataTable } from "@/components/data-table/data-table";
+import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
+import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { DeployActionIcon } from "@/components/ui/action-icons";
 import { AddAction } from "@/components/ui/add-action";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -19,37 +18,26 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
-import { ResourceCard } from "@/components/ui/resource-card";
-import { MemoryHoverProvider } from "@/features/memory/memory-hover";
-import {
-  useDeploymentHoverState,
-  useMemoryHoverSetter,
-  useReleaseHoverOnUnmount,
-} from "@/features/memory/memory-hover-store";
-import { useHardwareSnapshots } from "@/features/memory/use-hardware-snapshots";
-import { useMemoryHistory } from "@/features/memory/use-memory-history";
-import { useMemoryView } from "@/features/memory/use-memory-view";
-import { siteMemoryState } from "@/features/memory/use-site-memory";
-import { modelInspectorPanelId } from "@/features/models/model-inspector-panel";
-import {
-  localModelSnapshot,
-  modelDeploymentPresentationName,
-  projectModelDeploymentStatus,
-} from "@/features/models/model-projection";
+import { InferenceSection } from "@/features/inference/inference-section";
+import { useInferenceMetrics } from "@/features/inference/use-inference-metrics";
+import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
-import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { buildDataTable } from "@/lib/data-table-model";
 import {
   activePanel,
   canonicalizePanelLocation,
   panelPagePath,
   selectPanelLocation,
 } from "@/lib/panel-stack";
-import { mapRead } from "@/lib/read-state";
-import { upstreamLocalityLabel } from "@/lib/upstream-presentation";
 
 import { DeploymentSidebar } from "./deployment-sidebar";
-import { ModelsMemory } from "./models-memory";
+import {
+  modelDeploymentRows,
+  modelDeploymentTableDefinition,
+  modelDeploymentTableUi,
+  modelDeploymentViewCodec,
+} from "./model-deployment-table";
 import { useSharedModelsPolling } from "./models-polling-context";
 
 export interface ModelsPageProps {
@@ -57,16 +45,11 @@ export interface ModelsPageProps {
   metricsClient?: MetricsClient;
 }
 
-export function ModelsPage(props: ModelsPageProps) {
-  // Links hovered memory segments and running cards without re-rendering the page on hover.
-  return (
-    <MemoryHoverProvider>
-      <ModelsPageContent {...props} />
-    </MemoryHoverProvider>
-  );
-}
-
-function ModelsPageContent({
+/**
+ * The models page: the site's inference over the page range, by model deployment, then the
+ * running model deployments, each opening its sidebar on the page's range.
+ */
+export function ModelsPage({
   client = modelClient,
   metricsClient = defaultMetricsClient,
 }: ModelsPageProps) {
@@ -79,42 +62,22 @@ function ModelsPageContent({
   );
   const urlEntry = activePanel(canonical.search);
   const selectedDeploymentId = urlEntry?.page === "models" ? urlEntry.resourceId : undefined;
-  const { deploymentsFailed, error: pollingError, snapshot } = useSharedModelsPolling();
+  const { error: pollingError, snapshot } = useSharedModelsPolling();
   const loadingFeedbackVisible = useDelayedLoading(!snapshot);
-  const [memoryView, setMemoryView] = useMemoryView();
-  // A failed or reconnecting deployment read may leave segments outdated.
-  const machines = useWatchedMachines();
-  const machineList = machines?.value?.machines;
-  const snapshotDetails = useHardwareSnapshots(machineList ?? noMachines);
-  const watchedApplications = useWatchedApplicationDeployments();
-  const applications = watchedApplications?.value?.deployments;
-  const watchedNodeMemory = useWatchedNodeMemory();
-  const nodeMemory = useMemo(
-    () => mapRead(watchedNodeMemory, (value) => value.nodes),
-    [watchedNodeMemory],
+  const metrics = useInferenceMetrics(metricsClient, "deployments");
+  const machines = useWatchedMachines()?.value?.machines;
+  const runningModels = snapshot?.runningModels ?? noDeployments;
+  const view = useDataTableView(modelDeploymentViewCodec);
+  const deploymentRows = modelDeploymentRows(runningModels, {
+    machines,
+    trafficOf: metrics.rowValues,
+  });
+  // Rows read the traffic of the latest metrics, so they are built on every render.
+  const deploymentTable = buildDataTable(
+    modelDeploymentTableDefinition,
+    deploymentRows,
+    view.state,
   );
-  const deploymentsReadFailed =
-    Boolean(pollingError) || deploymentsFailed || Boolean(watchedApplications?.failed);
-  const siteMemory = useMemo(
-    () =>
-      siteMemoryState({
-        applications,
-        deployments: snapshot?.runningModels,
-        deploymentsReadFailed,
-        machines: machineList,
-        machinesReadFailed: machines?.failed ?? false,
-        nodeMemory,
-      }),
-    [
-      applications,
-      deploymentsReadFailed,
-      machineList,
-      machines?.failed,
-      nodeMemory,
-      snapshot?.runningModels,
-    ],
-  );
-  const memoryHistory = useMemoryHistory(machineList, snapshotDetails, snapshot?.runningModels);
   const openerRef = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -143,18 +106,12 @@ function ModelsPageContent({
             Models
           </PageHeaderHeading>
           <PageActions>
+            <MetricRangeControl label="Models range" metrics={metrics} />
             <AddAction icon={DeployActionIcon} label="Deploy" to={panelPagePath("model-catalog")} />
           </PageActions>
         </PageHeader>
 
-        <ModelsMemory
-          history={memoryHistory}
-          machineCount={machineList?.length ?? 0}
-          metricsClient={metricsClient}
-          onViewChange={setMemoryView}
-          state={siteMemory}
-          view={memoryView}
-        />
+        <InferenceSection metrics={metrics} />
 
         {loadingFeedbackVisible && !pollingError ? (
           <p className="text-sm text-muted-foreground" role="status">
@@ -169,55 +126,49 @@ function ModelsPageContent({
         ) : null}
 
         {snapshot && !loadingFeedbackVisible ? (
-          <>
-            <section aria-labelledby="running-models-heading" className="flex flex-col gap-4">
-              <div>
-                <PageSectionHeading id="running-models-heading">Running</PageSectionHeading>
-              </div>
-              {snapshot.runningModels.length > 0 ? (
-                <ul aria-label="Running models" className="inspector-card-grid">
-                  {snapshot.runningModels.map((deployment) => {
-                    return (
-                      <RunningModelCard
-                        key={deployment.modelDeploymentId}
-                        deployment={deployment}
-                        duplicateName={
-                          snapshot.runningModels.filter(
-                            (candidate) =>
-                              modelDeploymentPresentationName(candidate) ===
-                              modelDeploymentPresentationName(deployment),
-                          ).length > 1
-                        }
-                        onSelect={(opener) => {
-                          select(deployment.modelDeploymentId, opener);
-                        }}
-                        selected={selectedDeploymentId === deployment.modelDeploymentId}
-                      />
-                    );
-                  })}
-                </ul>
-              ) : (
-                <EmptyState
-                  action={
-                    <AddAction
-                      icon={DeployActionIcon}
-                      label="Deploy"
-                      to={panelPagePath("model-catalog")}
-                    />
-                  }
-                  description="Deploy a model from the catalog to start serving it on one of your machines."
-                  icon={ModelsSectionIcon}
-                  title="No models running"
+          <section aria-labelledby="running-models-heading" className="flex flex-col gap-4">
+            <div>
+              <PageSectionHeading id="running-models-heading">Running</PageSectionHeading>
+            </div>
+            {snapshot.runningModels.length > 0 ? (
+              <div className="flex min-w-0 flex-col gap-2">
+                <DataTableToolbar
+                  facets={deploymentTable.facets}
+                  onViewChange={view.set}
+                  ui={modelDeploymentTableUi}
+                  view={view.state}
                 />
-              )}
-            </section>
-          </>
+                <DataTable
+                  onOpenRow={({ row }, opener) => select(row.deploymentId, opener)}
+                  onViewChange={view.set}
+                  selection={selectedDeploymentId ? { rowId: selectedDeploymentId } : undefined}
+                  table={deploymentTable}
+                  ui={modelDeploymentTableUi}
+                  view={view.state}
+                />
+              </div>
+            ) : (
+              <EmptyState
+                action={
+                  <AddAction
+                    icon={DeployActionIcon}
+                    label="Deploy"
+                    to={panelPagePath("model-catalog")}
+                  />
+                }
+                description="Deploy a model from the catalog to start serving it on one of your machines."
+                icon={ModelsSectionIcon}
+                title="No models running"
+              />
+            )}
+          </section>
         ) : null}
 
         <DeploymentSidebar
           client={client}
           entry={urlEntry}
           fallbackFocusRef={headingRef}
+          initialRange={metrics.range?.label}
           metricsClient={metricsClient}
           openerRef={openerRef}
         />
@@ -226,73 +177,4 @@ function ModelsPageContent({
   );
 }
 
-interface RunningModelCardProps {
-  deployment: ModelDeployment;
-  duplicateName: boolean;
-  onSelect: (opener: HTMLElement) => void;
-  selected: boolean;
-}
-
-function RunningModelCard({
-  deployment,
-  duplicateName,
-  onSelect,
-  selected,
-}: RunningModelCardProps) {
-  const model = localModelSnapshot(deployment.snapshot);
-  const upstream =
-    deployment.snapshot?.source.case === "upstream" ? deployment.snapshot.source.value : undefined;
-  const presentationName = modelDeploymentPresentationName(deployment);
-  const accessibleName =
-    upstream || duplicateName
-      ? `${presentationName} (${deployment.modelDeploymentId})`
-      : presentationName;
-
-  const hoverState = useDeploymentHoverState(deployment.modelDeploymentId);
-  const setHovered = useMemoryHoverSetter();
-  useReleaseHoverOnUnmount(deployment.modelDeploymentId);
-
-  return (
-    <li
-      className="min-w-0 rounded-lg transition-opacity data-[memory-hover=active]:ring-1 data-[memory-hover=active]:ring-primary data-[memory-hover=dimmed]:opacity-45"
-      data-memory-hover={hoverState}
-      onPointerEnter={() => setHovered(deployment.modelDeploymentId)}
-      onPointerLeave={() => setHovered(undefined)}
-    >
-      <ResourceCard
-        accessibleName={accessibleName}
-        colorKey={deployment.modelDeploymentId}
-        description={
-          upstream
-            ? upstreamDeploymentDescription(deployment)
-            : localDeploymentDescription(model?.modelDisplayName, model?.profileId)
-        }
-        name={presentationName}
-        onSelect={onSelect}
-        panelId={modelInspectorPanelId}
-        selected={selected}
-        status={projectModelDeploymentStatus(deployment)}
-      />
-    </li>
-  );
-}
-
-function localDeploymentDescription(
-  modelDisplayName?: string,
-  profileId?: string,
-): string | undefined {
-  const parts = [modelDisplayName, profileId].filter(Boolean);
-  return parts.length ? parts.join(" · ") : undefined;
-}
-
-/**
- * An upstream deployment names what it actually is: an external model, the provider serving it, and
- * where that provider runs. The kind leads the description line rather than occupying a second badge.
- */
-function upstreamDeploymentDescription(deployment: ModelDeployment): string {
-  const boundary = deployment.upstreamDesiredConfiguration?.boundary;
-  const locality = boundary ? upstreamLocalityLabel(boundary.locality) : undefined;
-  return ["External", boundary?.trustDomain, locality].filter(Boolean).join(" · ");
-}
-
-const noMachines: readonly Machine[] = [];
+const noDeployments: readonly ModelDeployment[] = [];

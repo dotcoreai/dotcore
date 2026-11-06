@@ -12,6 +12,7 @@ mod errors;
 mod identity;
 mod launch;
 mod logs;
+mod metrics;
 mod node;
 mod node_view;
 mod observation;
@@ -24,6 +25,7 @@ mod realization;
 mod realizer;
 mod reconciliation;
 mod remote_status;
+mod resources;
 mod serving;
 mod startup;
 mod state;
@@ -69,6 +71,7 @@ pub use errors::{
 };
 use errors::{configuration, configuration_with_source, outcome_uncertain_with_source};
 pub use logs::ApplicationDeploymentLogController;
+pub(crate) use metrics::{APPLICATION_RESOURCES_SOURCE, application_metric_descriptors};
 use node::ReconciledAssignments;
 pub(crate) use node::{
     NodeApplicationComposition, NodeApplicationRealizer, classify_application_assignment,

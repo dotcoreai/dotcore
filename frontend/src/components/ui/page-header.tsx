@@ -14,8 +14,9 @@ function PageHeader({ className, ...props }: React.ComponentProps<"div">) {
       className={cn(
         // The minimum height shares the `console` button's density token, so headers with and
         // without page actions have the same height and page content starts at the same position.
-        // Page actions share the heading's row at every width, which is what keeps that height equal.
-        "flex min-h-control-action items-center justify-between gap-4",
+        // Page actions share the heading's row whenever they fit, which keeps that height equal;
+        // only actions too wide for the row wrap below the heading, instead of overflowing the page.
+        "flex min-h-control-action flex-wrap items-center justify-between gap-x-4 gap-y-3",
         className,
       )}
       {...props}
@@ -59,7 +60,11 @@ function PageHeaderDescription({ className, ...props }: React.ComponentProps<"p"
 
 function PageActions({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div data-slot="page-actions" className={cn("flex items-center gap-2", className)} {...props} />
+    <div
+      data-slot="page-actions"
+      className={cn("flex flex-wrap items-center gap-2", className)}
+      {...props}
+    />
   );
 }
 

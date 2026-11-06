@@ -52,6 +52,7 @@ pub use workload_group::{
     WorkloadDependencyCondition, WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupLaunch,
     WorkloadGroupObservation, WorkloadGroupStaleReason, WorkloadPublicationRequest,
     WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitName, WorkloadUnitObservation,
+    WorkloadUnitResourceObservation, WorkloadUnitResources, WorkloadUnitResourcesUnavailable,
     WorkloadUnitState,
 };
 pub use workload_spec::{

@@ -224,9 +224,9 @@ describe("ModelCatalogPage deploy", () => {
         }),
       ).toHaveTextContent("Queued"),
     );
-    const running = screen.getByRole("list", { name: "Running models" });
-    const card = within(running).getByRole("article", { name: "Test Model" });
-    expect(card).toHaveTextContent("Queued");
+    const running = screen.getByRole("table", { name: "Running models" });
+    const row = within(running).getByRole("row", { name: "Test Model" });
+    expect(row).toHaveTextContent("Queued");
 
     await act(async () => {
       nextRead.resolve(
@@ -238,7 +238,7 @@ describe("ModelCatalogPage deploy", () => {
       );
       await nextRead.promise;
     });
-    await waitFor(() => expect(card).toHaveTextContent("Loading"));
+    await waitFor(() => expect(row).toHaveTextContent("Loading"));
 
     await act(() => router.navigate(-1));
     expect(currentLocation(router)).toBe("/models/catalog?panel=model-catalog%2Fcatalog%3Amodel-1");
@@ -314,9 +314,9 @@ describe("ModelCatalogPage deploy", () => {
       expect(currentLocation(router)).toBe("/models?panel=models%2Fdeployment%3Aupstream-new"),
     );
     expect(await screen.findByRole("complementary", { name: "Private model" })).toBeVisible();
-    const running = screen.getByRole("list", { name: "Running models" });
+    const running = screen.getByRole("table", { name: "Running models" });
     expect(
-      within(running).getByRole("article", { name: "Private model (upstream-new)" }),
+      within(running).getByRole("row", { name: "Private model (upstream-new)" }),
     ).toHaveTextContent("Queued");
 
     await act(() => router.navigate(-1));
@@ -444,10 +444,8 @@ describe("ModelCatalogPage deploy", () => {
       await accepted.promise;
     });
 
-    const running = await screen.findByRole("list", { name: "Running models" });
-    expect(within(running).getByRole("article", { name: "Test Model" })).toHaveTextContent(
-      "Queued",
-    );
+    const running = await screen.findByRole("table", { name: "Running models" });
+    expect(within(running).getByRole("row", { name: "Test Model" })).toHaveTextContent("Queued");
     expect(currentLocation(router)).toBe("/models");
   });
 
@@ -478,9 +476,9 @@ describe("ModelCatalogPage deploy", () => {
       await accepted.promise;
     });
 
-    const running = await screen.findByRole("list", { name: "Running models" });
+    const running = await screen.findByRole("table", { name: "Running models" });
     expect(
-      within(running).getByRole("article", { name: "Private model (upstream-new)" }),
+      within(running).getByRole("row", { name: "Private model (upstream-new)" }),
     ).toHaveTextContent("Queued");
     expect(currentLocation(router)).toBe("/models");
   });
@@ -741,7 +739,7 @@ describe("ModelCatalogPage from a deployment", () => {
       initialEntry: "/models",
       models,
     });
-    await user.click(await screen.findByRole("button", { name: "View details for Gemma chat" }));
+    await user.click(await screen.findByRole("row", { name: "Gemma chat" }));
     const deploymentPanel = await screen.findByRole("complementary", { name: "Gemma chat" });
     await user.click(within(deploymentPanel).getByRole("link", { name: "Gemma" }));
     await waitFor(() => expect(currentLocation(router)).toBe(catalogLocation));
@@ -799,7 +797,7 @@ describe("ModelCatalogPage from a deployment", () => {
 
     await waitFor(() => expect(currentLocation(router)).toBe("/models"));
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
-    expect(await screen.findByRole("list", { name: "Running models" })).toBeVisible();
+    expect(await screen.findByRole("table", { name: "Running models" })).toBeVisible();
   });
 });
 

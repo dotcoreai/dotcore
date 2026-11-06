@@ -240,16 +240,25 @@ describe("rows with and without children", () => {
     expect(sorted("?sort=size")).toEqual(["cherry", "apple", "banana"]);
     expect(sorted("?sort=-size")).toEqual(["apple", "cherry", "banana"]);
   });
+
+  it("sorts rows by text ignoring case, missing last in both directions", () => {
+    const sorted = (search: string) =>
+      buildDataTable(fruitTable, fruits, fruitCodec.parse(search)).rows.map(({ row }) => row.id);
+
+    expect(sorted("?cols=origin&sort=origin")).toEqual(["cherry", "apple", "banana"]);
+    expect(sorted("?cols=origin&sort=-origin")).toEqual(["apple", "cherry", "banana"]);
+  });
 });
 
 interface Fruit {
   colors: string[];
   id: string;
   name: string;
+  origin?: string;
   size?: number;
 }
 
-const fruitTable: DataTableDefinition<Fruit, Fruit, "name" | "size", "color"> = {
+const fruitTable: DataTableDefinition<Fruit, Fruit, "name" | "size" | "origin", "color"> = {
   columns: [
     { id: "name", key: "name", label: "Name", pinned: true, sort: { kind: "name" } },
     {
@@ -258,6 +267,12 @@ const fruitTable: DataTableDefinition<Fruit, Fruit, "name" | "size", "color"> = 
       key: "size",
       label: "Size",
       sort: { kind: "value", value: (fruit) => fruit.size },
+    },
+    {
+      id: "origin",
+      key: "origin",
+      label: "Origin",
+      sort: { kind: "text", value: (fruit) => fruit.origin },
     },
   ],
   defaultSort: { column: "name", direction: "asc" },
@@ -279,7 +294,7 @@ const fruitTable: DataTableDefinition<Fruit, Fruit, "name" | "size", "color"> = 
 const fruitCodec = createDataTableViewCodec(fruitTable);
 
 const fruits: Fruit[] = [
-  { colors: ["red", "green"], id: "apple", name: "Apple", size: 3 },
+  { colors: ["red", "green"], id: "apple", name: "Apple", origin: "Spain", size: 3 },
   { colors: ["yellow"], id: "banana", name: "Banana" },
-  { colors: ["red"], id: "cherry", name: "cherry", size: 1 },
+  { colors: ["red"], id: "cherry", name: "cherry", origin: "austria", size: 1 },
 ];
