@@ -9,6 +9,8 @@ import { formatBytes, formatRelativeTime } from "@/lib/format";
 export interface UnitAcceleratorDeviceMemory {
   bytes: bigint;
   deviceId: string;
+  /** The machine the device sits in. */
+  managedNodeId: string;
 }
 
 /**
@@ -67,9 +69,10 @@ export function applicationAcceleratorMemory(
 
       return [
         {
-          devices: result.value.devices.map(({ deviceId, usedMemoryBytes }) => ({
+          devices: result.value.devices.map(({ deviceId, managedNodeId, usedMemoryBytes }) => ({
             bytes: usedMemoryBytes,
             deviceId,
+            managedNodeId,
           })),
           kind: "available",
           observedAt: observation.observedAt,

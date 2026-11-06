@@ -1,5 +1,8 @@
 /** The metric and dimension names the console queries, as exported by the backend writers. */
 export const metricNames = {
+  applicationAcceleratorMemoryUsed: "application.accelerator.memory.used",
+  applicationHostCpuUtilization: "application.host.cpu.utilization",
+  applicationHostMemoryUsed: "application.host.memory.used",
   deploymentAcceleratorMemoryUsed: "deployment.accelerator.memory.used",
   nodeAcceleratorMemoryTotal: "node.accelerator.memory.total",
   nodeAcceleratorMemoryUsed: "node.accelerator.memory.used",

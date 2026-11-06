@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ApplicationClient, applicationClient } from "@/api/application-client";
+import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { usePanelNavigation } from "@/app/console-layout";
 import { AppsSectionIcon } from "@/app/console-section-icons";
 import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
@@ -27,6 +28,7 @@ import { describeMutationError } from "@/features/applications/application-mutat
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentEditor } from "@/features/deployments/deployment-editor";
 import { placementMachine } from "@/features/deployments/placement";
+import { useDeploymentGpus } from "@/features/models/model-deployment-gpu";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
@@ -50,16 +52,21 @@ import {
 } from "@/lib/panel-stack";
 import { panelTitle } from "@/lib/panel-titles";
 
-import { projectApplicationDeploymentRows } from "./application-deployment-row";
+import {
+  applicationDeploymentDevices,
+  projectApplicationDeploymentRows,
+} from "./application-deployment-row";
 import {
   applicationDeploymentTableDefinition,
   applicationDeploymentTableUi,
   applicationDeploymentViewCodec,
 } from "./application-deployment-table";
 import { useSharedApplicationsPolling } from "./applications-polling-context";
+import { useApplicationResources } from "./use-application-resources";
 
 export interface ApplicationsPageProps {
   client?: ApplicationClient;
+  metricsClient?: MetricsClient;
 }
 
 export interface ApplicationInspectorSelection {
@@ -96,6 +103,8 @@ function deploymentPendingKey(
   return `deployment:${applicationDeploymentId}:${action}`;
 }
 
+const noDeployments: readonly ApplicationDeployment[] = [];
+
 const deploymentActions = ["pause", "resume", "remove", "update-metadata"] as const;
 
 function isDeploymentPending(
@@ -107,7 +116,10 @@ function isDeploymentPending(
   );
 }
 
-export function ApplicationsPage({ client = applicationClient }: ApplicationsPageProps) {
+export function ApplicationsPage({
+  client = applicationClient,
+  metricsClient = defaultMetricsClient,
+}: ApplicationsPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();
@@ -172,10 +184,20 @@ export function ApplicationsPage({ client = applicationClient }: ApplicationsPag
 
   const { applyDeploymentMetadataOverlay, applyDeploymentOverlay, snapshot, statuses } =
     useSharedApplicationsPolling();
+  const deployments = snapshot?.deployments ?? noDeployments;
+  const resources = useApplicationResources(metricsClient, deployments.length > 0);
+  const devices = useMemo(() => applicationDeploymentDevices(deployments), [deployments]);
+  const gpus = useDeploymentGpus(metricsClient, devices);
   const deploymentRows = useMemo(
     () =>
-      snapshot ? projectApplicationDeploymentRows(snapshot.deployments, snapshot.machines) : [],
-    [snapshot],
+      snapshot
+        ? projectApplicationDeploymentRows(snapshot.deployments, {
+            gpus,
+            machines: snapshot.machines,
+            resources,
+          })
+        : [],
+    [gpus, resources, snapshot],
   );
   const deploymentTable = useMemo(
     () => buildDataTable(applicationDeploymentTableDefinition, deploymentRows, view.state),

@@ -46,7 +46,7 @@ export function OverviewPage({
 
         <InferenceSection leading={<InferenceCountCards />} metrics={metrics} />
 
-        <OverviewAppsSection />
+        <OverviewAppsSection metrics={metrics} />
 
         <OverviewMachinesSection metrics={metrics} metricsClient={metricsClient} />
 

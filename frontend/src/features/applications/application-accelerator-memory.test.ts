@@ -74,8 +74,8 @@ describe("applicationAcceleratorMemory", () => {
     expect(memory).toEqual([
       {
         devices: [
-          { bytes: 1_000n, deviceId: "GPU-a" },
-          { bytes: 2_000n, deviceId: "GPU-b" },
+          { bytes: 1_000n, deviceId: "GPU-a", managedNodeId: "" },
+          { bytes: 2_000n, deviceId: "GPU-b", managedNodeId: "" },
         ],
         kind: "available",
         observedAt: OBSERVED_AT,
@@ -211,7 +211,7 @@ describe("formatUnitAcceleratorMemory", () => {
   it("reads a single device as its bytes and keeps the exact figure and observation time in the title", () => {
     const formatted = formatUnitAcceleratorMemory(
       unit({
-        devices: [{ bytes: 2_684_354_560n, deviceId: "GPU-a" }],
+        devices: [{ bytes: 2_684_354_560n, deviceId: "GPU-a", managedNodeId: "" }],
         observedAt: OBSERVED_AT,
         serviceName: "web",
       }),
@@ -230,8 +230,8 @@ describe("formatUnitAcceleratorMemory", () => {
     const formatted = formatUnitAcceleratorMemory(
       unit({
         devices: [
-          { bytes: 1_000n, deviceId: "GPU-a" },
-          { bytes: 2_048n, deviceId: "GPU-b" },
+          { bytes: 1_000n, deviceId: "GPU-a", managedNodeId: "" },
+          { bytes: 2_048n, deviceId: "GPU-b", managedNodeId: "" },
         ],
         serviceName: "web",
       }),
@@ -248,7 +248,7 @@ describe("formatUnitAcceleratorMemory", () => {
   it("shows a stale reading's observation time as its own line", () => {
     const formatted = formatUnitAcceleratorMemory(
       unit({
-        devices: [{ bytes: 2_684_354_560n, deviceId: "GPU-a" }],
+        devices: [{ bytes: 2_684_354_560n, deviceId: "GPU-a", managedNodeId: "" }],
         observedAt: OBSERVED_AT,
         serviceName: "web",
         stale: true,

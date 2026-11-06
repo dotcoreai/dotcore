@@ -32,7 +32,7 @@ import {
 } from "@/lib/panel-stack";
 
 import { DeploymentSidebar } from "./deployment-sidebar";
-import { useDeploymentGpus } from "./model-deployment-gpu";
+import { modelDeploymentDevices, useDeploymentGpus } from "./model-deployment-gpu";
 import {
   modelDeploymentRows,
   modelDeploymentTableDefinition,
@@ -68,7 +68,8 @@ export function ModelsPage({
   const metrics = useInferenceMetrics(metricsClient, "deployments");
   const machines = useWatchedMachines()?.value?.machines;
   const runningModels = snapshot?.runningModels ?? noDeployments;
-  const gpus = useDeploymentGpus(metricsClient, runningModels);
+  const modelDevices = useMemo(() => modelDeploymentDevices(runningModels), [runningModels]);
+  const gpus = useDeploymentGpus(metricsClient, modelDevices);
   const view = useDataTableView(modelDeploymentViewCodec);
   const deploymentRows = modelDeploymentRows(runningModels, {
     gpus,

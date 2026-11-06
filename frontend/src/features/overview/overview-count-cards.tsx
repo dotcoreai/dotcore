@@ -6,11 +6,18 @@ import {
   useWatchedModelDeployments,
   useWatchedRoutes,
 } from "@/app/resource-watch";
-import { MetricCard } from "@/components/metrics/metric-card/metric-card";
+import { MetricCard, MetricCardGrid } from "@/components/metrics/metric-card/metric-card";
+import { Notice } from "@/components/ui/notice";
 import { PageSectionHeading } from "@/components/ui/page-header";
 import { projectApplicationDeploymentStatus } from "@/features/applications/application-projection";
+import { CardChartDetail, ReadingCard, ReadingsStoppedNote } from "@/features/metrics/card-panel";
+import type { MetricCards } from "@/features/metrics/use-metric-cards";
 import { deploymentStatus } from "@/features/models/model-projection";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+
+import { appCardIds, appSplitId } from "./overview-app-specs";
+
+const appSplitOptions = [{ label: "By app", value: appSplitId }];
 
 /** A count card that opens the list page behind its number. */
 export function OverviewCountCard({
@@ -91,28 +98,72 @@ export function InferenceCountCards(): ReactNode {
   );
 }
 
-/** The overview's apps section: apps ready out of those deployed, with the failed ones called out. */
-export function OverviewAppsSection() {
+/**
+ * The overview's apps section: apps ready out of those deployed, with the failed ones called out,
+ * then the apps' CPU, RAM and VRAM over the page range. The selected card's chart can be broken
+ * down by app.
+ */
+export function OverviewAppsSection({ metrics }: { metrics: MetricCards }) {
   const deployments = useWatchedApplicationDeployments()?.value?.deployments;
   const statuses = deployments?.map(projectApplicationDeploymentStatus);
   const ready = statuses?.filter((status) => status.tone === "success").length;
   const failed = statuses?.filter((status) => status.label === "Failed").length;
+  const cards = appCardIds.flatMap((id) => metrics.cards.find((card) => card.id === id) ?? []);
+  const selected = metrics.selected && isAppCard(metrics.selected) ? metrics.selected : undefined;
+  const chart = selected && metrics.chart?.id === selected ? metrics.chart : undefined;
+  const count = (
+    <OverviewCountCard
+      label="Apps"
+      line={countLine(deployments?.length, "deployed", failed, "failed")}
+      pending={ready === undefined}
+      to="/apps"
+      unit="ready"
+      value={ready ?? 0}
+    />
+  );
 
   return (
     <section aria-labelledby="overview-apps-heading" className="flex flex-col gap-3">
       <PageSectionHeading id="overview-apps-heading">Apps</PageSectionHeading>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
-        <OverviewCountCard
-          label="Apps"
-          line={countLine(deployments?.length, "deployed", failed, "failed")}
-          pending={ready === undefined}
-          to="/apps"
-          unit="ready"
-          value={ready ?? 0}
-        />
-      </div>
+      {metrics.unavailable ? (
+        <>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">{count}</div>
+          <Notice tone="destructive">App metrics could not be read.</Notice>
+        </>
+      ) : (
+        <>
+          <MetricCardGrid
+            className="lg:grid-cols-3 xl:grid-cols-4"
+            columns={2}
+            onSelectedChange={metrics.setSelected}
+            selected={selected}
+          >
+            {count}
+            {cards.map((card) => (
+              <ReadingCard card={card} key={card.id} sparkline />
+            ))}
+          </MetricCardGrid>
+          {chart ? (
+            <CardChartDetail
+              chart={chart}
+              height={160}
+              split={{
+                label: "Split app chart by",
+                onChange: metrics.setSplit,
+                options: appSplitOptions,
+                value: metrics.split,
+              }}
+            />
+          ) : null}
+        </>
+      )}
+      <ReadingsStoppedNote failed={metrics.failed} subject="App" />
     </section>
   );
+}
+
+function isAppCard(id: string): boolean {
+  return (appCardIds as readonly string[]).includes(id);
 }
 
 function countLine(

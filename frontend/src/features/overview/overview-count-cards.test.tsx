@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
+import type { MetricCards } from "@/features/metrics/use-metric-cards";
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/application/v1/service_pb";
 import {
@@ -21,6 +22,23 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { InferenceCountCards, OverviewAppsSection } from "./overview-count-cards";
+
+// The count cards read no metrics, so the apps section gets none to show.
+const noMetrics: MetricCards = {
+  cards: [],
+  chart: undefined,
+  failed: false,
+  groupValues: () => [],
+  loadingVisible: false,
+  range: undefined,
+  ranges: [],
+  selected: undefined,
+  setRange: () => undefined,
+  setSelected: () => undefined,
+  setSplit: () => undefined,
+  split: undefined,
+  unavailable: false,
+};
 
 const modelStatuses = [
   ModelDeploymentStatus.READY,
@@ -111,7 +129,7 @@ function renderCards(data = { appDeployments, modelDeployments, routes }) {
         <div data-testid="cards">
           <InferenceCountCards />
         </div>
-        <OverviewAppsSection />
+        <OverviewAppsSection metrics={noMetrics} />
         <CurrentPath />
       </ResourceWatchProvider>
     </MemoryRouter>,

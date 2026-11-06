@@ -78,7 +78,11 @@ function renderRow(deployment: ReturnType<typeof deploymentIn>) {
       onViewChange={vi.fn()}
       table={buildDataTable(
         applicationDeploymentTableDefinition,
-        projectApplicationDeploymentRows([deployment], []),
+        projectApplicationDeploymentRows([deployment], {
+          gpus: new Map(),
+          machines: [],
+          resources: new Map(),
+        }),
         view,
       )}
       ui={applicationDeploymentTableUi}
