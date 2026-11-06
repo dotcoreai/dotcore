@@ -26,18 +26,14 @@ let
       && path != "${toString frontendRoot}/public/config.js";
   };
 
-  # Package and test builds reuse the same fetched dependency derivation.
-  frontendNpmDeps = pkgs.fetchNpmDeps {
-    name = "dotcore-frontend-npm-deps";
-    src = frontendSrc;
-    hash = "sha256-NSga659NyLgNItZktGbowl0ADXPZParxlDc3Tj6d40w=";
-  };
-
+  # Each npm package is fetched with the integrity hash package-lock.json records, so the lockfile
+  # alone pins the dependencies. Package and test builds share them.
   frontendArgs = {
     pname = "dotcore-frontend";
     version = "0.1.0";
     src = frontendSrc;
-    npmDeps = frontendNpmDeps;
+    npmDeps = pkgs.importNpmLock { npmRoot = frontendSrc; };
+    npmConfigHook = pkgs.importNpmLock.npmConfigHook;
   };
 
   frontendTest = pkgs.buildNpmPackage (

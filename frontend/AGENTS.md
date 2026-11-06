@@ -57,10 +57,9 @@ frontend/src/
   components with `npm exec shadcn -- add <component>`. These are the only commands run outside
   `just`.
 - Review `package.json` and `package-lock.json` together, then run `just frontend::bootstrap`.
-- After changing `package-lock.json`, run `just frontend::npm-hash-update`, which updates the npm
-  dependency hash in [`nix/frontend.nix`](../nix/frontend.nix), then check both builds with
-  `nix build .#frontend` and `nix build .#frontend.tests.default`. `just frontend::check` fails
-  while the hash is stale.
+- The Nix build ([`nix/frontend.nix`](../nix/frontend.nix)) reads its dependencies from
+  `package-lock.json`. After changing the lockfile, check both builds with `nix build .#frontend`
+  and `nix build .#frontend.tests.default`.
 
 ## Styling and components
 
