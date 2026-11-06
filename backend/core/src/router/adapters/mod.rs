@@ -779,14 +779,8 @@ mod tests {
 
     #[tokio::test]
     async fn openai_compatible_adapter_does_not_retry_a_connect_failure() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("reserved upstream listener");
-        let port = listener
-            .local_addr()
-            .expect("reserved upstream address")
-            .port();
-        drop(listener);
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let port = reserved.port();
 
         let attempt = invoke(
             upstream_target(port, false),
@@ -1377,12 +1371,8 @@ mod tests {
             request_extensions_json: Some(r#"{"sentinel_key":"extension-sentinel"}"#.to_owned()),
             ..Default::default()
         };
-        let refused_port = {
-            let listener = TcpListener::bind("127.0.0.1:0")
-                .await
-                .expect("reserved port");
-            listener.local_addr().expect("reserved address").port()
-        };
+        let refused = dotcore_domain::test_support::ports::reserve_port();
+        let refused_port = refused.port();
 
         let (ports, records, output) = capture_records_async(|| async {
             let (rejected_port, rejected) = serve_upstream_once(

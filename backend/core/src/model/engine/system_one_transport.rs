@@ -162,11 +162,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_state_of_several_parts_is_refused_before_contacting_the_engine() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("reserved loopback port");
-        let port = listener.local_addr().expect("reserved address").port();
-        drop(listener);
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let port = reserved.port();
 
         let attempt = attempt(
             port,
@@ -188,11 +185,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_refused_connection_is_safe_to_fall_back_from() {
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("reserved loopback port");
-        let port = listener.local_addr().expect("reserved address").port();
-        drop(listener);
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let port = reserved.port();
 
         let attempt = attempt(
             port,

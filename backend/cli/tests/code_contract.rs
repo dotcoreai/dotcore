@@ -8,6 +8,7 @@ use std::{
     process::{Command, Output},
 };
 
+use dotcore::testing::{ReservedPort, reserve_port};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -197,7 +198,7 @@ fn the_inference_address_comes_from_the_flag_before_the_environment() {
 fn the_command_never_needs_a_manager() {
     let inference = listed_routes();
     let sandbox = Sandbox::with_agent("opencode");
-    let unused = unused_address();
+    let (_reserved, unused) = unused_address();
 
     let mut command = sandbox.command(&inference, &["opencode", "--model", "chat"]);
     command.env("DOTCORE_MANAGEMENT_ADDR", unused.to_string());
@@ -255,7 +256,7 @@ fn choosing_a_route_without_a_terminal_asks_for_the_model_flag() {
 
 #[test]
 fn an_unreachable_inference_api_fails_naming_the_address() {
-    let address = unused_address();
+    let (_reserved, address) = unused_address();
     let sandbox = Sandbox::with_agent("opencode");
 
     let mut command = sandbox.bare_command(&["opencode", "--model", "chat"]);
@@ -384,11 +385,12 @@ fn listed_routes() -> FakeInference {
     FakeInference::with_routes(&["chat", "code"])
 }
 
-/// A loopback address nothing listens on.
-fn unused_address() -> std::net::SocketAddr {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|listener| listener.local_addr())
-        .expect("free loopback port")
+/// A loopback address nothing listens on, with the reservation that keeps other test processes
+/// from binding it while the caller holds it.
+fn unused_address() -> (ReservedPort, std::net::SocketAddr) {
+    let reserved = reserve_port();
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], reserved.port()));
+    (reserved, address)
 }
 
 /// The inline OpenCode configuration for the listed routes.

@@ -1226,9 +1226,8 @@ mod tests {
 
     /// Connects to a loopback port nothing listens on and returns its address and the failure.
     fn unreachable_manager() -> (std::net::SocketAddr, anyhow::Error) {
-        let address = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|listener| listener.local_addr())
-            .expect("free loopback port");
+        let reserved = dotcore::testing::reserve_port();
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], reserved.port()));
         let manager = address
             .to_string()
             .parse::<ManagerAddress>()

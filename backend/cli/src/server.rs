@@ -534,8 +534,9 @@ mod tests {
         let preparation_started_backend = Arc::clone(&preparation_started);
         let preparation_dropped = Arc::new(AtomicBool::new(false));
         let preparation_dropped_backend = Arc::clone(&preparation_dropped);
-        let listener = TcpListener::bind("127.0.0.1:0").expect("partial listener");
-        let listener_address = listener.local_addr().expect("partial listener address");
+        let reserved = dotcore::testing::reserve_port();
+        let listener_address = std::net::SocketAddr::from(([127, 0, 0, 1], reserved.port()));
+        let listener = TcpListener::bind(listener_address).expect("partial listener");
 
         let running = tokio::spawn(async move {
             start_with(

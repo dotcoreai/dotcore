@@ -3682,14 +3682,8 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
         &deployment,
         "runtime/docker",
     );
-    let unavailable_listener = TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .expect("unavailable readiness listener");
-    let unavailable_port = unavailable_listener
-        .local_addr()
-        .expect("unavailable readiness address")
-        .port();
-    drop(unavailable_listener);
+    let unavailable = dotcore_domain::test_support::ports::reserve_port();
+    let unavailable_port = unavailable.port();
     stopped_identity.loopback_endpoints = vec![dotcore_runtime::LoopbackEndpoint {
         port_name: "http".to_owned(),
         host_port: unavailable_port,
@@ -3858,14 +3852,8 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
     )
     .expect("workload launch");
     let generation = launch.correlation.reconcile_generation;
-    let unavailable_listener = TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .expect("unavailable listener");
-    let unavailable_port = unavailable_listener
-        .local_addr()
-        .expect("unavailable address")
-        .port();
-    drop(unavailable_listener);
+    let unavailable = dotcore_domain::test_support::ports::reserve_port();
+    let unavailable_port = unavailable.port();
     let stale_service = dotcore_runtime::WorkloadServiceBinding::loopback(
         "retained-workload",
         "http",

@@ -6,6 +6,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
+use dotcore_domain::test_support::ports::{ReservedPort, reserve_port};
 use dotcore_proto::dotcore::{
     deployment::{
         private::v1::{
@@ -940,13 +941,14 @@ async fn stale_hung_or_unreachable_workers_leave_sources_unavailable() {
         node_incarnation: NodeIncarnation::parse("2".repeat(32)).expect("incarnation"),
         ..listener.connection()
     };
+    let closed = reserve_port();
     let unreachable = WorkerConnection {
         channel: listener
             .channels
             .channel(
                 WORKER_NODE_ID,
                 WorkerChannelPurpose::Diagnostics,
-                closed_address().await.into(),
+                closed_address(&closed).into(),
             )
             .expect("channel"),
         ..listener.connection()
@@ -1009,13 +1011,14 @@ async fn a_follow_the_worker_cannot_open_fails() {
         DeploymentLogError::configuration(std::io::Error::other("launch does not resolve")),
     )));
     let not_installed = Worker::new(ScriptedOwner::reading(Err(DeploymentLogError::NotFound)));
+    let closed = reserve_port();
     let unreachable = WorkerConnection {
         channel: stale_listener
             .channels
             .channel(
                 WORKER_NODE_ID,
                 WorkerChannelPurpose::Diagnostics,
-                closed_address().await.into(),
+                closed_address(&closed).into(),
             )
             .expect("channel"),
         ..stale_listener.connection()
@@ -2175,12 +2178,9 @@ impl CountingProxy {
     }
 }
 
-/// A loopback address with nothing listening.
-async fn closed_address() -> SocketAddr {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("loopback listener");
-    listener.local_addr().expect("listener address")
+/// The loopback address of `reserved`, which nothing listens on.
+fn closed_address(reserved: &ReservedPort) -> SocketAddr {
+    SocketAddr::from(([127, 0, 0, 1], reserved.port()))
 }
 
 fn entry(source: &RuntimeLogSource, second: u64, content: Vec<u8>) -> RuntimeLogEntry {

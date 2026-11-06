@@ -725,11 +725,8 @@ mod tests {
 
     #[tokio::test]
     async fn network_failure_retains_the_reqwest_source_after_classification() {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("listener");
-        let address = listener.local_addr().expect("listener address");
-        drop(listener);
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let address = std::net::SocketAddr::from(([127, 0, 0, 1], reserved.port()));
         let error = reqwest::Client::new()
             .get(format!("http://{address}"))
             .send()

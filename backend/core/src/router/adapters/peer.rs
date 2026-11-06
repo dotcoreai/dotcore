@@ -831,11 +831,8 @@ mod tests {
     #[tokio::test]
     async fn an_unreachable_worker_is_safe_to_fall_back_and_its_address_stays_private() {
         let mut peer = PeerFixture::start(Script::Complete).await;
-        let unreachable = TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("reserved worker address")
-            .local_addr()
-            .expect("reserved worker address");
+        let reserved = dotcore_domain::test_support::ports::reserve_port();
+        let unreachable = std::net::SocketAddr::from(([127, 0, 0, 1], reserved.port()));
         peer.target = peer.target_with(|dispatch| {
             dispatch.transport = NodeTransport::Remote {
                 address: unreachable.into(),

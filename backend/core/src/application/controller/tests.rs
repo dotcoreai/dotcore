@@ -6082,11 +6082,8 @@ async fn completed_negative_readiness_is_observation_while_malformed_endpoint_is
 #[tokio::test]
 async fn endpoint_that_refuses_resets_or_closes_before_answering_is_not_ready_yet() {
     let desired = http_readiness_deployment();
-    let refused = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
-        .await
-        .expect("temporary listener")
-        .local_addr()
-        .expect("temporary address");
+    let reserved = dotcore_domain::test_support::ports::reserve_port();
+    let refused = std::net::SocketAddr::from((Ipv4Addr::LOCALHOST, reserved.port()));
     let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .expect("readiness listener");

@@ -333,9 +333,8 @@ fn an_unusable_path_variable_does_not_break_commands_that_do_not_use_it() {
         assert_eq!(help.status.code(), Some(0), "{variable}={value:?}");
 
         // The command parses and reaches the manager connection, which refuses.
-        let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("free port");
-        let address = closed.local_addr().expect("address").to_string();
-        drop(closed);
+        let closed = dotcore::testing::reserve_port();
+        let address = format!("127.0.0.1:{}", closed.port());
         let mut list = support::command::dotc_at("model", &address, &["list"]);
         let output = list.env(variable, value).output().expect("model list");
         assert_eq!(output.status.code(), Some(1), "{variable}={value:?}");
@@ -2612,9 +2611,8 @@ fn node_add_prints_a_join_command_that_joins_when_run_on_the_new_machine() {
 fn node_join_without_a_terminal_names_the_manager_host_flag_when_the_token_address_is_unreachable()
 {
     let nodes = TemporarySite::empty();
-    let closed = std::net::TcpListener::bind("127.0.0.1:0").expect("port");
-    let port = closed.local_addr().unwrap().port();
-    drop(closed);
+    let closed = dotcore::testing::reserve_port();
+    let port = closed.port();
     let token = JoinToken::generate(
         url::Url::parse(&format!("https://127.0.0.1:{port}")).unwrap(),
         "cli-test-site",
@@ -4086,13 +4084,10 @@ fn the_printed_start_command_starts_the_joined_node() {
     let nodes = TemporarySite::empty();
     let node_dir = nodes.root.join("joined-node");
     let token_file = nodes.root.join("join.token");
-    let private_port = {
-        let listener = std::net::TcpListener::bind("127.0.0.3:0").expect("free port");
-        listener.local_addr().unwrap().port().to_string()
-    };
+    let private_port = dotcore::testing::reserve_port();
     let add = NodeAdd::start(fixture.site_path(), &token_file);
     let mut join = node_join(&token_file, &node_dir, "Started node", "127.0.0.3");
-    join.args(["--private-port", &private_port]);
+    join.args(["--private-port", &private_port.port().to_string()]);
     let joined = join.output().expect("run node join");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(add.finish().status.code(), Some(0));
@@ -4133,7 +4128,8 @@ fn the_printed_start_command_starts_the_joined_node() {
     assert_eq!(
         lines,
         format!(
-            "Dotcore server starting\nDOTCORE_PRIVATE_ADDRESS=https://127.0.0.3:{private_port}\n"
+            "Dotcore server starting\nDOTCORE_PRIVATE_ADDRESS=https://127.0.0.3:{}\n",
+            private_port.port()
         )
     );
 }
