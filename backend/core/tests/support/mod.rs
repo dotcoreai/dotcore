@@ -398,9 +398,31 @@ where
     .await
 }
 
+/// Prepares a development manager backend on loopback that collects hardware from `collector`.
 pub async fn prepare_backend_with_snapshot_collector<F, C>(
     site_paths: dotcore_domain::SitePaths,
     shutdown: F,
+    collector: C,
+) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+    C: HardwareSnapshotSource + Send + Sync + 'static,
+{
+    prepare_backend_with_test_support_and_snapshot_collector(
+        site_paths,
+        shutdown,
+        dotcore::composition::BackendTestSupport::development(),
+        collector,
+    )
+    .await
+}
+
+/// Prepares a manager backend on loopback with explicit test controls that collects hardware
+/// from `collector`.
+pub async fn prepare_backend_with_test_support_and_snapshot_collector<F, C>(
+    site_paths: dotcore_domain::SitePaths,
+    shutdown: F,
+    test_support: dotcore::composition::BackendTestSupport,
     collector: C,
 ) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
 where
@@ -425,7 +447,7 @@ where
             ),
         },
         shutdown,
-        dotcore::composition::BackendTestSupport::development(),
+        test_support,
         collector,
     )
     .await
@@ -1658,9 +1680,9 @@ pub async fn run_external_backend_process() {
         server.private_listener =
             dotcore::composition::ManagerPrivateListener::SiteDefault { port };
     }
-    let test_support = settings.test_support();
+    let manual_clock = settings.manual_clock();
+    let test_support = settings.test_support(manual_clock.clone());
     let simulated_runtime = test_support.simulated_runtime.clone();
-    let manual_clock = test_support.clock.clone();
     let backend = dotcore::composition::Backend::prepare_with_test_support(
         configuration,
         std::future::pending(),

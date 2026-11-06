@@ -597,7 +597,7 @@ pub(super) struct ObserverTasks {
 
 /// Explicit concrete simulation controls used by backend integration fixtures.
 #[doc(hidden)]
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Default)]
 pub struct BackendTestSupport {
     pub simulated_runtime: Option<dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport>,
     pub simulated_inference: Option<crate::inference::simulated::SimulatedInferenceTestSupport>,
@@ -634,10 +634,10 @@ pub struct BackendTestSupport {
     /// publication; `None` keeps the production action lease.
     pub node_action_lease: Option<Duration>,
 
-    /// Manual clock the composed backend reads instead of system time; the test keeps a clone to
-    /// advance it. `None` keeps system time.
+    /// Clock the composed backend reads instead of system time, such as a manual or virtual test
+    /// clock; the test keeps a clone to advance it. `None` keeps system time.
     #[cfg(feature = "test-support")]
-    pub clock: Option<dotcore_domain::clock::ManualClock>,
+    pub clock: Option<Arc<dyn dotcore_domain::clock::Clock>>,
 
     /// Receives the site manager's metric recorder, so a test records metrics into the served
     /// history as in-process writers do. `None` keeps the recorder private.
@@ -675,23 +675,6 @@ impl MetricRecorderSlot {
 
     pub(super) fn fill(&self, recorder: Arc<dyn dotcore_observability::MetricRecorder>) {
         let _ = self.0.set(recorder);
-    }
-}
-
-#[cfg(feature = "test-support")]
-impl PartialEq for MetricRecorderSlot {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-#[cfg(feature = "test-support")]
-impl Eq for MetricRecorderSlot {}
-
-#[cfg(feature = "test-support")]
-impl std::fmt::Debug for MetricRecorderSlot {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("MetricRecorderSlot")
     }
 }
 

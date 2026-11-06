@@ -562,7 +562,8 @@ async fn application_retains_its_creation_base_url_across_inference_listener_cha
     assert_eq!(first_port, reserved_inference_port.port());
     assert_ne!(restarted.inference_address().port(), first_port);
     let mut restarted_client = restarted.application_client();
-    let second_ready = wait_for_application_lifecycle(
+    wait_for_group_launches(&second_runtime, 1).await;
+    let second_ready = wait_for_fresh_application_lifecycle(
         &mut restarted_client,
         &created.application_deployment_id,
         ApplicationLifecycleState::Ready,
@@ -772,7 +773,7 @@ async fn application_pause_resume_preserves_composed_records_endpoint_and_runtim
         .deployment
         .expect("starting application");
     assert_application_starting(&starting);
-    let ready_again = wait_for_application_lifecycle(
+    let ready_again = wait_for_fresh_application_lifecycle(
         &mut restarted_client,
         &created.application_deployment_id,
         ApplicationLifecycleState::Ready,
@@ -2292,15 +2293,33 @@ async fn wait_for_application_lifecycle(
     deployment_id: &str,
     lifecycle: ApplicationLifecycleState,
 ) -> ApplicationDeployment {
+    wait_for_application_state(client, deployment_id, lifecycle, false).await
+}
+
+/// Waits like [`wait_for_application_lifecycle`], but only accepts a state the hosting node
+/// reported since the backend started; after a restart, the previous run's record stays
+/// projected, marked stale, until then.
+async fn wait_for_fresh_application_lifecycle(
+    client: &mut ApplicationClient,
+    deployment_id: &str,
+    lifecycle: ApplicationLifecycleState,
+) -> ApplicationDeployment {
+    wait_for_application_state(client, deployment_id, lifecycle, true).await
+}
+
+async fn wait_for_application_state(
+    client: &mut ApplicationClient,
+    deployment_id: &str,
+    lifecycle: ApplicationLifecycleState,
+    fresh: bool,
+) -> ApplicationDeployment {
     let mut last_state = None;
     tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
         loop {
             let deployment = application_from_client(client, deployment_id).await;
-            if deployment
-                .state
-                .as_ref()
-                .is_some_and(|state| state.lifecycle_state == lifecycle as i32)
-            {
+            if deployment.state.as_ref().is_some_and(|state| {
+                state.lifecycle_state == lifecycle as i32 && !(fresh && state.observation_stale)
+            }) {
                 return deployment;
             }
             last_state = deployment.state;
@@ -2309,8 +2328,28 @@ async fn wait_for_application_lifecycle(
     })
     .await
     .unwrap_or_else(|_| {
-        panic!("expected application lifecycle state {lifecycle:?}; last state: {last_state:?}")
+        panic!(
+            "expected application lifecycle state {lifecycle:?} (fresh observation: {fresh}); last state: {last_state:?}"
+        )
     })
+}
+
+async fn wait_for_group_launches(runtime: &SimulatedRuntimeTestSupport, count: usize) {
+    tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
+        loop {
+            if runtime.group_launches().len() >= count {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "expected {count} simulated application group launches, observed {:?}",
+            runtime.group_launches()
+        )
+    });
 }
 
 /// Renames the deployment, which republishes its node assignment and so wakes the hosting
