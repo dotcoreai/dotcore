@@ -265,7 +265,10 @@ describe("AppCatalogPage", () => {
       expect(currentLocation(router)).toBe("/apps?panel=apps%2Fdeployment%3Aaccepted-deployment"),
     );
 
-    await user.click(await screen.findByRole("button", { name: "Close inspector" }));
+    // The location moves before the panel re-renders; closing the stale catalog content is a no-op.
+    const panel = screen.getByRole("complementary", { name: "OpenWebUI" });
+    await within(panel).findByRole("heading", { name: "Status" });
+    await user.click(within(panel).getByRole("button", { name: "Close inspector" }));
 
     await waitFor(() => expect(currentLocation(router)).toBe("/apps"));
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
