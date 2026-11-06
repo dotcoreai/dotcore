@@ -1,6 +1,7 @@
 //! Validates one shared hardware class declaration: its identity, display name and selector.
 //!
-//! A hardware class names the accelerator vendors it covers and may narrow them to one platform.
+//! A hardware class names the accelerator vendors it covers and may narrow them to one platform,
+//! one memory architecture, or exact device models.
 //! Driver minimums belong to engine artifacts, so a class selector never sets one, and every
 //! problem is reported rather than only the first.
 
@@ -43,6 +44,16 @@ pub fn validate_hardware_class(hardware_class: &HardwareClass) -> Vec<anyhow::Er
     if !valid_selector_memory_architecture(selector) {
         errors.push(anyhow::anyhow!(
             "hardware class {id:?} selector memory architecture must be unified, dedicated or unspecified"
+        ));
+    }
+    let mut models = BTreeSet::new();
+    if selector
+        .device_models
+        .iter()
+        .any(|model| model.trim().is_empty() || !models.insert(model.as_str()))
+    {
+        errors.push(anyhow::anyhow!(
+            "hardware class {id:?} selector requires distinct, non-empty device models"
         ));
     }
     if selector.minimum_nvidia_driver_major_version != 0 {
@@ -129,6 +140,25 @@ mod tests {
                 "hardware class \"unknown\" selector memory architecture must be unified, dedicated or unspecified"
             ]
         );
+    }
+
+    #[test]
+    fn device_models_must_be_distinct_and_non_empty() {
+        let with_models = |models: &[&str]| {
+            let mut class = hardware_class("gpu-a", &["nvidia"]);
+            class.selector.as_mut().expect("selector").device_models =
+                models.iter().map(|&model| model.to_owned()).collect();
+            class
+        };
+
+        assert!(errors(&with_models(&["GPU A", "GPU B"])).is_empty());
+        for models in [&["GPU A", "GPU A"][..], &["GPU A", " "]] {
+            assert_eq!(
+                errors(&with_models(models)),
+                ["hardware class \"gpu-a\" selector requires distinct, non-empty device models"],
+                "{models:?}"
+            );
+        }
     }
 
     fn hardware_class(id: &str, accelerators: &[&str]) -> HardwareClass {

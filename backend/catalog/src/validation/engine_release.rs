@@ -132,8 +132,8 @@ fn validate_engine_artifact(
 }
 
 /// Validates one engine artifact selector: a unique concrete platform the artifact kind can
-/// target, known accelerator vendors that each run there, and a driver minimum exactly when nvidia
-/// is listed. OCI images and Docker-delivered Nix packages target Linux only; native Nix packages
+/// target, known accelerator vendors that each run there, a driver minimum exactly when nvidia
+/// is listed, and no device models, which only hardware classes match on. OCI images and Docker-delivered Nix packages target Linux only; native Nix packages
 /// target Linux or darwin/arm64.
 fn validate_selector<'a>(
     selector: &'a Selector,
@@ -173,6 +173,9 @@ fn validate_selector<'a>(
     }
     if !platforms.insert(concrete) {
         return Err("each platform may appear in only one selector");
+    }
+    if !selector.device_models.is_empty() {
+        return Err("device models belong to hardware classes, not engine artifact selectors");
     }
     if selector.accelerators.is_empty() {
         return Err("selector requires at least one accelerator");
@@ -352,6 +355,7 @@ mod tests {
             accelerators: vec!["nvidia".to_owned()],
             minimum_nvidia_driver_major_version: 580,
             memory_architecture,
+            device_models: Vec::new(),
         };
         let oci = EngineArtifactKind::Oci(Default::default());
 
@@ -369,6 +373,30 @@ mod tests {
         assert_eq!(
             validate_selector(&selector(99), &oci, &mut BTreeSet::new()),
             Err("memory architecture must be unified, dedicated or unspecified")
+        );
+    }
+
+    #[test]
+    fn selectors_reject_device_models() {
+        let selector = Selector {
+            platform: Some(dotcore_proto::dotcore::catalog::v1::OciPlatform {
+                operating_system: "linux".to_owned(),
+                architecture: "amd64".to_owned(),
+                variant: None,
+            }),
+            accelerators: vec!["nvidia".to_owned()],
+            minimum_nvidia_driver_major_version: 580,
+            device_models: vec!["GPU A".to_owned()],
+            ..Default::default()
+        };
+
+        assert_eq!(
+            validate_selector(
+                &selector,
+                &EngineArtifactKind::Oci(Default::default()),
+                &mut BTreeSet::new()
+            ),
+            Err("device models belong to hardware classes, not engine artifact selectors")
         );
     }
 
