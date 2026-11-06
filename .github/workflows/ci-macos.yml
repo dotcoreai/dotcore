@@ -1,0 +1,48 @@
+name: CI macOS
+
+# macOS runners are few and queue under load, so a PR runs them only while it carries the
+# `ci:macos` label. `CI` runs the other platforms and doesn't depend on any label.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  # Other labels get their own group, so they don't cancel the PR's run.
+  group: ${{ github.event.action == 'labeled' && github.event.label.name != 'ci:macos' && github.run_id || format('ci-macos-{0}', github.ref) }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: ${{ matrix.task.name }} (${{ matrix.runner }})
+    if: contains(github.event.pull_request.labels.*.name, 'ci:macos') && (github.event.action != 'labeled' || github.event.label.name == 'ci:macos')
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep in step with `just ci::check`. These are the tasks that run on every platform.
+        task:
+          - { name: backend lint, recipe: "backend::ci-lint", cargo: lint }
+          - { name: backend test 1/2, recipe: "backend::ci-test", part: "1/2", cargo: test }
+          - { name: backend test 2/2, recipe: "backend::ci-test", part: "2/2", cargo: test }
+          - { name: dev, recipe: "dev::ci-check", nix-upload: true }
+        runner: [macos-15]
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      # Lets hestia see evicted cache entries upfront.
+      actions: read
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/ci-task
+        with:
+          recipe: ${{ matrix.task.recipe }}
+          part: ${{ matrix.task.part }}
+          cargo: ${{ matrix.task.cargo }}
+          nix-upload: ${{ matrix.task.nix-upload || false }}
