@@ -29,7 +29,8 @@ use dotcore_proto::dotcore::{
         EstimateLocalModelResourcesRequest, EstimateLocalModelResourcesResponse,
         FollowDeploymentLogsRequest, ListModelDeploymentsRequest, ListModelDeploymentsResponse,
         ListModelProfileCompatibilityRequest, ListModelProfileCompatibilityResponse,
-        PauseModelRequest, PauseModelResponse, PreviewLocalModelDeploymentRequest,
+        ListModelRecommendationsRequest, ListModelRecommendationsResponse, PauseModelRequest,
+        PauseModelResponse, PreviewLocalModelDeploymentRequest,
         PreviewLocalModelDeploymentResponse, ReadDeploymentLogsRequest, ReadDeploymentLogsResponse,
         RemoveModelDeploymentRequest, RemoveModelDeploymentResponse, ResumeModelRequest,
         ResumeModelResponse, UpdateModelDeploymentMetadataRequest,
@@ -138,6 +139,13 @@ impl ModelDeploymentServiceContract for IsolatedModelService {
         request: Request<ListModelProfileCompatibilityRequest>,
     ) -> Result<Response<ListModelProfileCompatibilityResponse>, Status> {
         self.service.list_model_profile_compatibility(request).await
+    }
+
+    async fn list_model_recommendations(
+        &self,
+        request: Request<ListModelRecommendationsRequest>,
+    ) -> Result<Response<ListModelRecommendationsResponse>, Status> {
+        self.service.list_model_recommendations(request).await
     }
 
     async fn create_model_deployment(

@@ -19,4 +19,8 @@ message Selector {
 
   // Memory architecture the target's accelerators must report; unspecified matches either.
   dotcore.observation.v1.AcceleratorMemoryArchitecture memory_architecture = 4;
+
+  // Accelerator product names, exactly as reported; every device the target uses must report one.
+  // Only hardware classes set it, with an accelerator vendor.
+  repeated string device_models = 5;
 }

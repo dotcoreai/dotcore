@@ -7,6 +7,7 @@
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 use dotcore::model::{
+    IdleMachine,
     resolution::{
         EngineArtifactSelection, EngineLaunchIdentity, ModelLaunchResolutionError,
         resolve_local_launch, resolve_upstream_snapshot, select_engine_artifact,
@@ -96,7 +97,7 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
         ExecutionPlatform::linux_arm64(),
         ExecutionPlatform::darwin_arm64(),
     ] {
-        let (target, inventory) = target_capabilities(platform.clone());
+        let targets = platform_targets(&platform);
         for model in &models {
             let model_id = CatalogModelId(model.model_id.clone());
             let mut resolved_configuration_ids = BTreeSet::new();
@@ -117,15 +118,17 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                     .contains(&platform)
                 {
                     assert!(
-                        select_engine_artifact(
-                            &catalog,
-                            &model_id,
-                            &profile.profile_id,
-                            &deployment_configuration,
-                            &target,
-                            &inventory,
-                        )
-                        .is_err(),
+                        targets
+                            .iter()
+                            .all(|(target, inventory)| select_engine_artifact(
+                                &catalog,
+                                &model_id,
+                                &profile.profile_id,
+                                &deployment_configuration,
+                                target,
+                                inventory,
+                            )
+                            .is_err()),
                         "profile {:?} of {:?} resolves on {platform:?}, which its approved artifacts do not declare",
                         profile.profile_id,
                         model.model_id,
@@ -134,15 +137,30 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                 }
 
                 resolved_profile_count += 1;
-                let local = resolve_local_launch_with_placeholder_identity(
-                    &catalog,
-                    &model_id,
-                    &profile.profile_id,
-                    &deployment_configuration,
-                    &target,
-                    &inventory,
-                )
-                .expect("resolved default snapshot");
+                // A profile resolves on at least one target of each platform it declares; a
+                // configuration supporting only a narrower class resolves on its hardware alone.
+                let resolutions = targets
+                    .iter()
+                    .map(|(target, inventory)| {
+                        resolve_local_launch_with_placeholder_identity(
+                            &catalog,
+                            &model_id,
+                            &profile.profile_id,
+                            &deployment_configuration,
+                            target,
+                            inventory,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let Some(local) = resolutions
+                    .iter()
+                    .find_map(|resolution| resolution.as_ref().ok())
+                else {
+                    panic!(
+                        "profile {:?} of {:?} resolves on no {platform:?} target: {resolutions:?}",
+                        profile.profile_id, model.model_id
+                    );
+                };
 
                 resolved_configuration_ids.insert(local.configuration_id.clone());
                 assert_eq!(local.model_id, model.model_id);
@@ -369,6 +387,64 @@ fn repository_largest_fits_fill_free_memory_on_every_simulated_choice() {
     println!("clamped by the engine range: {clamped:#?}");
     println!("nothing fits at idle: {nothing_fits:#?}");
     assert!(checked > 0, "no repository profile has a largest fit");
+}
+
+/// Every recommendation entry of the repository catalog runs on an idle machine of its list's
+/// class: an entry with a minimum on one with exactly that minimum, an entry without one on the
+/// smallest simulated machine of the class that can run it.
+#[test]
+fn repository_recommendation_entries_fit_idle_machines_of_their_class() {
+    let failures = recommendation_entry_failures(&repository_catalog());
+
+    assert_eq!(failures, Vec::<String>::new());
+}
+
+/// A minimum set below what the entry needs fails with a message naming the list, use case and
+/// entry, while the same lists with a sufficient minimum pass.
+#[test]
+fn recommendation_entry_checks_fail_on_a_minimum_set_too_low() {
+    let lists = |minimum: &str| {
+        format!(
+            r#"hardwareClassId: "nvidia-dedicated"
+useCases:
+  - useCase: "USE_CASE_CODING_AND_AGENTS"
+    entries:
+      - {{ modelId: "big", profileId: "q4", hardwareRequirements: {{ minimumMemoryBytesPerDevice: "{minimum}" }} }}
+      - {{ modelId: "small", profileId: "q4" }}
+"#
+        )
+    };
+    let catalog_with = |minimum: &str| {
+        let root = tempfile::tempdir().expect("catalog root");
+        copy_directory(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/recommendation-catalog"),
+            root.path(),
+        );
+        dotcore_catalog::test_support::write_recommendations(
+            root.path(),
+            "nvidia-dedicated",
+            &lists(minimum),
+        );
+        Catalog::load_with_policy(
+            root.path(),
+            dotcore_catalog::OciArtifactPolicy::Development,
+            dotcore::model::engine::declaration_validator(),
+        )
+        .expect("synthetic recommendation catalog")
+    };
+
+    assert_eq!(
+        recommendation_entry_failures(&catalog_with("24000000000")),
+        Vec::<String>::new()
+    );
+    assert_eq!(
+        recommendation_entry_failures(&catalog_with("8000000000")),
+        [
+            "recommendations/nvidia-dedicated.yaml, USE_CASE_CODING_AND_AGENTS, big/q4: \
+             not recommended on idle simulated hardware rtx-4080, rtx-4090, rtx-5090, rtx-pro-6000 \
+             resized to its minimum of 8000000000 bytes"
+        ]
+    );
 }
 
 /// Every repository configuration approving several engine releases resolves each of its profiles
@@ -2427,6 +2503,258 @@ fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (
         u32::try_from(lowest).expect("a total context in tokens"),
         context_per_request.map(|tokens| u32::try_from(tokens).expect("a context in tokens")),
     )
+}
+
+/// Returns the targets of `platform` a profile may resolve on: the fixture target, then each GPU
+/// target of each simulated hardware choice on that platform.
+fn platform_targets(
+    platform: &ExecutionPlatform,
+) -> Vec<(ExecutionTarget, TargetCapabilityInventory)> {
+    let mut targets = vec![target_capabilities(platform.clone())];
+    for choice in dotcore_node_hardware::MachineDescription::simulated_choices() {
+        let description = simulated_alone(choice.name);
+        if description.platform() != platform {
+            continue;
+        }
+        let gpus = description.gpu_ids().count();
+        targets.extend((0..gpus).map(|gpu| simulated_target(choice.name, gpu)));
+    }
+    targets
+}
+
+/// Returns a failure for each recommendation entry of `catalog` that does not run on an idle
+/// machine of its list's class. The machines are the simulated hardware choices that read the
+/// list, those that run the entry at all (when memory is plentiful) being the ones judged: an
+/// entry with minimums on each resized to exactly them, one without on the smallest.
+fn recommendation_entry_failures(catalog: &Catalog) -> Vec<String> {
+    use dotcore_catalog::{SelectorRelation, selector_relation};
+
+    const PLENTIFUL_BYTES: u64 = 1 << 40;
+
+    let classes = catalog.list_hardware_classes();
+    let lists = catalog.list_hardware_class_recommendations();
+    let machines = simulated_class_machines(catalog);
+    let selector_of = |class_id: &str| {
+        classes
+            .iter()
+            .find(|class| class.hardware_class_id == class_id)
+            .and_then(|class| class.selector.clone())
+            .unwrap_or_default()
+    };
+    let mut failures = Vec::new();
+
+    for list in &lists {
+        let list_selector = selector_of(&list.hardware_class_id);
+        for use_case_list in &list.use_cases {
+            let use_case = use_case_list.use_case();
+            // Machines whose class the list covers and no narrower list for the use case does.
+            let readers = machines
+                .iter()
+                .filter(|machine| {
+                    let covers = |selector: &Selector| {
+                        matches!(
+                            selector_relation(&machine.selector, selector),
+                            SelectorRelation::Equal | SelectorRelation::Narrower
+                        )
+                    };
+                    covers(&list_selector)
+                        && !lists.iter().any(|other| {
+                            let other_selector = selector_of(&other.hardware_class_id);
+                            other.hardware_class_id != list.hardware_class_id
+                                && other
+                                    .use_cases
+                                    .iter()
+                                    .any(|other_list| other_list.use_case() == use_case)
+                                && covers(&other_selector)
+                                && selector_relation(&other_selector, &list_selector)
+                                    == SelectorRelation::Narrower
+                        })
+                })
+                .collect::<Vec<_>>();
+
+            for entry in &use_case_list.entries {
+                let label = format!(
+                    "recommendations/{}.yaml, {}, {}/{}",
+                    list.hardware_class_id,
+                    use_case.as_str_name(),
+                    entry.model_id,
+                    entry.profile_id,
+                );
+                let runs = |machine: &SimulatedClassMachine, memory: Memory| {
+                    let described = machine.resized(memory);
+                    let idle = IdleMachine::new(&described).expect("idle simulated machine");
+                    idle.recommend(catalog, &[use_case])
+                        .iter()
+                        .flat_map(|recommendations| &recommendations.rows)
+                        .any(|row| {
+                            row.model_id == entry.model_id
+                                && row.profile_id == entry.profile_id
+                                && !row.targets.is_empty()
+                        })
+                };
+                let capable = readers
+                    .iter()
+                    .filter(|machine| runs(machine, Memory::both(PLENTIFUL_BYTES)))
+                    .collect::<Vec<_>>();
+                if capable.is_empty() {
+                    failures.push(format!(
+                        "{label}: runs on no simulated hardware of its class, even with plentiful memory"
+                    ));
+                    continue;
+                }
+
+                let requirements = entry.hardware_requirements.unwrap_or_default();
+                if requirements.minimum_system_memory_bytes == 0
+                    && requirements.minimum_memory_bytes_per_device == 0
+                {
+                    let smallest = capable
+                        .iter()
+                        .min_by_key(|machine| machine.pool_bytes)
+                        .expect("a capable machine");
+                    if !runs(smallest, Memory::unchanged()) {
+                        failures.push(format!(
+                            "{label}: not recommended on the smallest simulated hardware of its class, {}, idle",
+                            smallest.choice
+                        ));
+                    }
+                    continue;
+                }
+                let memory = Memory {
+                    system: Some(requirements.minimum_system_memory_bytes).filter(|&b| b > 0),
+                    device: Some(requirements.minimum_memory_bytes_per_device).filter(|&b| b > 0),
+                };
+                let failing = capable
+                    .iter()
+                    .filter(|machine| !runs(machine, memory))
+                    .map(|machine| machine.choice)
+                    .collect::<Vec<_>>();
+                if !failing.is_empty() {
+                    failures.push(format!(
+                        "{label}: not recommended on idle simulated hardware {} resized to its minimum of {} bytes",
+                        failing.join(", "),
+                        memory.system.max(memory.device).unwrap_or_default(),
+                    ));
+                }
+            }
+        }
+    }
+    failures
+}
+
+/// A simulated hardware choice alone, with the hardware class selector of its model target.
+struct SimulatedClassMachine {
+    choice: &'static str,
+    selector: Selector,
+    description: serde_yaml_ng::Value,
+
+    /// Total bytes of the memory pool models load into: the GPU's, or the host's when unified.
+    pool_bytes: u64,
+}
+
+/// Memory totals to give a machine: the host's (`system`) and the GPU's own (`device`), each left
+/// as it is when absent. A unified machine has one pool, so the larger of the two sets it.
+#[derive(Clone, Copy)]
+struct Memory {
+    system: Option<u64>,
+    device: Option<u64>,
+}
+
+impl Memory {
+    fn unchanged() -> Self {
+        Self {
+            system: None,
+            device: None,
+        }
+    }
+
+    fn both(bytes: u64) -> Self {
+        Self {
+            system: Some(bytes),
+            device: Some(bytes),
+        }
+    }
+}
+
+impl SimulatedClassMachine {
+    /// Returns the machine with its memory totals set, its idle use and Metal working set limit
+    /// scaled with the host total.
+    fn resized(&self, memory: Memory) -> dotcore_node_hardware::MachineDescription {
+        let mut value = self.description.clone();
+        let unified = value["gpus"][0]["memory"].get("totalBytes").is_none();
+        let host = if unified {
+            memory.system.max(memory.device)
+        } else {
+            memory.system
+        };
+        if let Some(total) = host {
+            let old = value["hostMemory"]["totalBytes"]
+                .as_u64()
+                .expect("host total");
+            let scale =
+                |bytes: u64| (u128::from(bytes) * u128::from(total) / u128::from(old)) as u64;
+            let idle = scale(
+                value["hostMemory"]["idleUsedBytes"]
+                    .as_u64()
+                    .expect("idle use"),
+            );
+            value["hostMemory"]["totalBytes"] = total.into();
+            value["hostMemory"]["idleUsedBytes"] = idle.into();
+            if let Some(limit) = value["gpus"][0]["workingSetLimitBytes"].as_u64() {
+                value["gpus"][0]["workingSetLimitBytes"] = scale(limit).into();
+            }
+        }
+        if let (false, Some(total)) = (unified, memory.device) {
+            value["gpus"][0]["memory"]["totalBytes"] = total.into();
+        }
+        dotcore_node_hardware::MachineDescription::from_yaml(
+            self.choice,
+            &serde_yaml_ng::to_string(&value).expect("machine YAML"),
+        )
+        .expect("resized machine")
+    }
+}
+
+/// Returns each simulated hardware choice alone that has a model target of a hardware class of
+/// `catalog`.
+fn simulated_class_machines(catalog: &Catalog) -> Vec<SimulatedClassMachine> {
+    dotcore_node_hardware::MachineDescription::simulated_choices()
+        .into_iter()
+        .filter_map(|choice| {
+            let described = simulated_alone(choice.name);
+            let idle = IdleMachine::new(&described).expect("idle simulated machine");
+            let class = idle
+                .hardware_classes(catalog)
+                .into_iter()
+                .find_map(|(_, class)| class)?;
+            let description: serde_yaml_ng::Value =
+                serde_yaml_ng::from_str(&described.to_yaml().expect("machine YAML"))
+                    .expect("machine YAML value");
+            let pool_bytes = description["gpus"][0]["memory"]["totalBytes"]
+                .as_u64()
+                .or_else(|| description["hostMemory"]["totalBytes"].as_u64())
+                .expect("pool total");
+            Some(SimulatedClassMachine {
+                choice: choice.name,
+                selector: class.selector.unwrap_or_default(),
+                description,
+                pool_bytes,
+            })
+        })
+        .collect()
+}
+
+/// Copies the directory `from` and everything in it to the existing directory `to`.
+fn copy_directory(from: &Path, to: &Path) {
+    for entry in std::fs::read_dir(from).expect("fixture directory") {
+        let entry = entry.expect("fixture entry");
+        let target = to.join(entry.file_name());
+        if entry.file_type().expect("fixture entry type").is_dir() {
+            std::fs::create_dir(&target).expect("copied directory");
+            copy_directory(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).expect("copied file");
+        }
+    }
 }
 
 /// Returns the simulated hardware `choice` alone: one named GPU on the simulated host, or one named

@@ -1,0 +1,4 @@
+hardwareClassId: "nvidia"
+displayName: "nvidia"
+selector:
+  accelerators: ["nvidia"]

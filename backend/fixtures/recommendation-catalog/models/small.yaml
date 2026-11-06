@@ -1,0 +1,41 @@
+modelId: "small"
+displayName: "Fixture Small"
+version: "1"
+maximumContextTokens: 262144
+intelligence: { overall: 10 }
+artifacts:
+  - artifactId: "weights"
+    weightQuantization: "Q4"
+    source:
+      repository: "dotcore/small"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      file:
+        path: "weights.gguf"
+        provenanceDigest: "0000000000000000000000000000000000000000000000000000000000000000"
+configurations:
+  - configurationId: "llama"
+    engineArtifacts:
+      - { engineReleaseId: "llama", engineArtifactId: "linux-amd64" }
+    artifactBindings: [{ bindingId: "weights", modelArtifactId: "weights" }]
+    sizing:
+      parameters: { baseBytes: 2000000000, bytesPerContextToken: 100000 }
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: "${baseBytes} + ${bytesPerContextToken} * ${total-context}"
+    hardwareSupport:
+      - hardwareClassId: "nvidia-dedicated"
+        bindingSizing: [{ bindingId: "weights" }]
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp: { fixedSettings: { gpuLayers: 0 } }
+    executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities: { supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }
+profiles:
+  - profileId: "q4"
+    displayName: "Fixture Q4"
+    configurationId: "llama"
+    defaultModelArtifactBindingId: "weights"
+    engineParameterDefaults:
+      values: [{ parameterId: "prompt-cache-memory-mib", unsignedInteger: "0" }]

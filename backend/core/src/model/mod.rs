@@ -15,6 +15,7 @@ pub mod domain;
 pub mod engine;
 pub(crate) mod engine_pin;
 mod placement_preview;
+mod recommendation;
 pub mod repository;
 pub mod resolution;
 pub mod resolved;
@@ -23,6 +24,11 @@ pub mod service;
 pub mod sizing_scenario;
 pub mod state;
 mod upstream;
+
+pub use recommendation::{
+    IdleMachine, IdleMachineError, Recommendation, RecommendationFit, TargetRecommendation,
+    UseCaseRecommendations,
+};
 
 /// Identifies one retained application binding that prevents model deployment teardown: the site
 /// reports the application deployment that uses an inference route the teardown would remove.

@@ -1,0 +1,5 @@
+hardwareClassId: "nvidia-dedicated"
+displayName: "nvidia-dedicated"
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED"

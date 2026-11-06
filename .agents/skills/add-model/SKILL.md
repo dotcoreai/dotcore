@@ -25,11 +25,13 @@ Sizing is owned by the `model-sizing` skill. Catalog loading and validation live
    * Size each configuration with the `model-sizing` skill.
    * Leave out optional fields you cannot support.
 
-4. Validate the declaration with the catalog tests and the area gates.
+4. Decide whether the model belongs in any hardware class's lists in `catalog/recommendations/`, for each use case, and place it by priority. Lists stay short and best first; add a memory minimum only where the model fits but leaves too little room for context.
 
-5. Smoke-test one tier per engine on the target hardware with `dotc dev workload` (remote hardware follows `dev/AGENTS.md`).
+5. Validate the declaration and any list you changed with the catalog tests and the area gates.
+
+6. Smoke-test one tier per engine on the target hardware with `dotc dev workload` (remote hardware follows `dev/AGENTS.md`).
    * Check a plain chat, a reasoning request and a tool call.
    * A finished launch leaves its handle file behind; give each further launch a fresh handle path.
    * Stop and ask the user if the template, parser or load fails; do not improvise workarounds.
 
-6. Record in the change description the chosen sources and why, tiers left out, and each smoke test with its hardware.
+7. Record in the change description the chosen sources and why, tiers left out, and each smoke test with its hardware.

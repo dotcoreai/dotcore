@@ -17,8 +17,8 @@ use dotcore_site::node::target_inventory::{CapabilityObservation, NodeMemoryFact
 
 use evaluation::device_share;
 pub(crate) use evaluation::{
-    Estimate, Policy, PoolPreview, StartingTotalContext, below_device_minimum, demand, fit,
-    largest_total_context, preview, starting_total_context,
+    Estimate, Policy, PoolPreview, StartingTotalContext, below_device_minimum, combined_minimums,
+    demand, fit, largest_total_context, preview, starting_total_context,
 };
 pub(crate) use node::NodeCapacity;
 

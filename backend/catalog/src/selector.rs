@@ -44,14 +44,15 @@ impl SelectorRelation {
 pub fn selector_relation(first: &Selector, second: &Selector) -> SelectorRelation {
     combine([
         platform_relation(first.platform.as_ref(), second.platform.as_ref()),
-        accelerator_relation(&first.accelerators, &second.accelerators),
+        name_set_relation(&first.accelerators, &second.accelerators),
         memory_architecture_relation(first.memory_architecture(), second.memory_architecture()),
+        name_set_relation(&first.device_models, &second.device_models),
     ])
 }
 
 /// Combines per-dimension relations: selectors match a product of their dimensions, so one
 /// contains the other only when it does so in every dimension.
-fn combine(dimensions: [SelectorRelation; 3]) -> SelectorRelation {
+fn combine(dimensions: [SelectorRelation; 4]) -> SelectorRelation {
     let has = |relation| dimensions.contains(&relation);
     if has(SelectorRelation::Disjoint) {
         SelectorRelation::Disjoint
@@ -91,8 +92,11 @@ fn platform_key(platform: &OciPlatform) -> (&str, &str, &str) {
     )
 }
 
-/// Relates two accelerator vendor sets, where a target matches when it reports any listed vendor.
-fn accelerator_relation(first: &[String], second: &[String]) -> SelectorRelation {
+/// Relates two name sets, accelerator vendors or device models, where an empty set matches any
+/// target. A target matches a vendor set when it reports one listed vendor, and a device model set
+/// when every device it uses reports a listed model, so a subset matches a subset of targets and
+/// disjoint sets match no target in common.
+fn name_set_relation(first: &[String], second: &[String]) -> SelectorRelation {
     let first = first.iter().map(String::as_str).collect::<BTreeSet<_>>();
     let second = second.iter().map(String::as_str).collect::<BTreeSet<_>>();
     match (first.is_empty(), second.is_empty()) {
@@ -271,6 +275,54 @@ mod tests {
     }
 
     #[test]
+    fn device_model_relations() {
+        use AcceleratorMemoryArchitecture::{Dedicated, Unified};
+        let dedicated = with_memory(selector(None, &["nvidia"]), Dedicated);
+        let rtx_5090 = with_device_models(dedicated.clone(), &["GPU A"]);
+        let cases: [(&str, Selector, Selector, SelectorRelation); 6] = [
+            (
+                "a model class is narrower than its vendor class",
+                rtx_5090.clone(),
+                dedicated.clone(),
+                SelectorRelation::Narrower,
+            ),
+            (
+                "a vendor class is wider than a model class",
+                dedicated.clone(),
+                rtx_5090.clone(),
+                SelectorRelation::Wider,
+            ),
+            (
+                "different models are disjoint",
+                rtx_5090.clone(),
+                with_device_models(dedicated.clone(), &["GPU B"]),
+                SelectorRelation::Disjoint,
+            ),
+            (
+                "a model subset is narrower",
+                rtx_5090.clone(),
+                with_device_models(dedicated.clone(), &["GPU B", "GPU A"]),
+                SelectorRelation::Narrower,
+            ),
+            (
+                "overlapping model sets",
+                with_device_models(dedicated.clone(), &["GPU A", "GPU B"]),
+                with_device_models(dedicated.clone(), &["GPU B", "GPU C"]),
+                SelectorRelation::Overlapping,
+            ),
+            (
+                "another memory architecture stays disjoint",
+                rtx_5090,
+                with_memory(selector(None, &["nvidia"]), Unified),
+                SelectorRelation::Disjoint,
+            ),
+        ];
+        for (label, first, second, expected) in cases {
+            assert_eq!(selector_relation(&first, &second), expected, "{label}");
+        }
+    }
+
+    #[test]
     fn memory_architecture_relations() {
         use AcceleratorMemoryArchitecture::{Dedicated, Unified, Unspecified};
         let cases = [
@@ -383,7 +435,13 @@ mod tests {
                 .collect(),
             minimum_nvidia_driver_major_version: 580,
             memory_architecture: AcceleratorMemoryArchitecture::Unspecified.into(),
+            device_models: Vec::new(),
         }
+    }
+
+    fn with_device_models(mut selector: Selector, models: &[&str]) -> Selector {
+        selector.device_models = models.iter().map(|&model| model.to_owned()).collect();
+        selector
     }
 
     fn with_memory(

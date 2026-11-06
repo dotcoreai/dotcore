@@ -451,10 +451,8 @@ configurations:
           equation: >-
             ${host-context-mib} * MiB
     hardwareSupport:
-      # ninfer runs only on an RTX 5090 (sm_120a). Until nodes report the GPU architecture, the
-      # closest shared class is nvidia-dedicated, so admission checks only the vendor, the memory
-      # architecture and the device count.
-      - hardwareClassId: "nvidia-dedicated"
+      # ninfer runs only on an RTX 5090 (sm_120a), which its own class matches by device model.
+      - hardwareClassId: "nvidia-rtx-5090"
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "32000000000"
           # The host context budget is pinned in system memory.
