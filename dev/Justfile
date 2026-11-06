@@ -16,6 +16,7 @@ test:
 check:
   just test
   just docker-images-check
+  just catalog-check
 
 # Run the development validations CI runs, without changing files.
 ci-check: check
@@ -23,6 +24,10 @@ ci-check: check
 # Build the sandbox checks of the Docker image derivations: evaluation properties, the loader against fake Docker and Nix, its formats against the backend samples, and stale store build records.
 docker-images-check:
   cd .. && system=$(nix eval --raw --impure --expr builtins.currentSystem) && nix build --no-link ".#checks.$system.docker-images-eval" ".#checks.$system.docker-images-loader" ".#checks.$system.docker-images-samples" ".#checks.$system.docker-images-records"
+
+# Build the master catalog check: the catalog materialized at a fixed revision, validated by the backend, with every Nix artifact pointing at this repository or `self`.
+catalog-check:
+  cd .. && system=$(nix eval --raw --impure --expr builtins.currentSystem) && nix build --no-link ".#checks.$system.dotcore-catalog"
 
 # Refresh the committed samples of the image metadata and loader result the backend reads (backend/fixtures/docker-image) from the loader tests, after a deliberate format change.
 docker-images-samples:
