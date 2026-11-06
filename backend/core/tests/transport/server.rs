@@ -657,7 +657,7 @@ async fn manager_backend_server_exposes_site_inventory_and_current_snapshot_with
         },
         dotcore::composition::BackendTestSupport {
             clock: Some(Arc::new(clock)),
-            ..dotcore::composition::BackendTestSupport::development()
+            ..dotcore::composition::BackendTestSupport::test_development()
         },
         collector,
     )
@@ -1047,7 +1047,7 @@ async fn manager_backend_server_serves_distribution_percentiles() {
         },
         dotcore::composition::BackendTestSupport {
             metric_recorder: Some(recorder.clone()),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1206,7 +1206,7 @@ async fn manager_backend_server_streams_metric_watches() {
         dotcore::composition::BackendTestSupport {
             clock: Some(Arc::new(clock.clone())),
             metric_recorder: Some(recorder.clone()),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1378,7 +1378,7 @@ async fn manager_backend_server_streams_resource_watches() {
         dotcore::composition::BackendTestSupport {
             clock: Some(Arc::new(clock.clone())),
             simulated_runtime: Some(SimulatedRuntimeTestSupport::with_stop_failures(0)),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await

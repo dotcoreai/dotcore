@@ -369,8 +369,8 @@ mod tests {
     use dotcore_site::{
         node::{
             control::{
-                AcceptedNodeObservationInput, CoordinatorConnectionState, LIVENESS_TTL,
-                PublishedViewInput, ServingStatusEvidence,
+                AcceptedNodeObservationInput, CoordinatorConnectionState, PublishedViewInput,
+                ServingStatusEvidence,
             },
             observation_configuration::NodeObservationConfigurationDigest,
         },
@@ -384,6 +384,8 @@ mod tests {
         },
         route_manager::RouteAvailabilityTargetsSource,
     };
+
+    const LIVENESS_TTL: Duration = dotcore_domain::timing::Timing::production().node_liveness_ttl;
 
     #[test]
     fn publishes_only_fresh_connected_ready_evidence_for_the_present_generation() {

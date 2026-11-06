@@ -7,8 +7,11 @@
 
 use std::collections::BTreeSet;
 
-use dotcore_domain::deployment::launch_pin::{
-    LaunchPinError, LaunchPinResolver, SyntheticLaunchPins, UnpinnedSelection,
+use dotcore_domain::{
+    deployment::launch_pin::{
+        LaunchPinError, LaunchPinResolver, SyntheticLaunchPins, UnpinnedSelection,
+    },
+    timing::ReconciliationState,
 };
 use dotcore_proto::dotcore::{
     deployment::v1::NodeResolvedLaunchIdentity, site::store::v1::NodeApplicationRealization,
@@ -32,7 +35,6 @@ use super::observation::{
     group_is_all_stopped, observation_matches_group, observation_owner_id, stale_owned_group,
 };
 use super::readiness::{EndpointProbe, awaits_readiness};
-use super::realizer::ReconciliationState;
 use super::*;
 use crate::deployment_logs::PreparationOwner;
 use crate::dispatch::application::{ApplicationRuntimeError, TargetWorkloadGroupObservation};

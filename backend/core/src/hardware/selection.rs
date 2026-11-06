@@ -331,7 +331,7 @@ pub(crate) mod tests {
     };
     use dotcore_site::node::target_inventory::{
         NodeAcceleratorFacts, NodeAcceleratorObservation, RuntimePlatformObservation,
-        TARGET_CAPABILITY_MAX_AGE, TargetCapabilityInventory, TargetCapabilityReconciler,
+        TargetCapabilityInventory, TargetCapabilityReconciler,
     };
 
     use super::{
@@ -340,6 +340,9 @@ pub(crate) mod tests {
         select_target_capabilities_at,
     };
     use crate::hardware::capacity::TargetCapacity;
+
+    const TARGET_CAPABILITY_MAX_AGE: std::time::Duration =
+        dotcore_domain::timing::Timing::production().target_capability_max_age;
 
     const OCI: &[WorkloadArtifactKind] = &[WorkloadArtifactKind::Oci];
     const NIX: &[WorkloadArtifactKind] = &[WorkloadArtifactKind::Nix];

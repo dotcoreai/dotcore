@@ -4,6 +4,7 @@ mod backend;
 mod configuration;
 mod controllers;
 mod filesystem;
+#[cfg(feature = "test-support")]
 mod isolated;
 mod loading;
 #[cfg(test)]
@@ -75,6 +76,7 @@ pub use configuration::{
 #[cfg(test)]
 use controllers::default_collector;
 use controllers::system_collector;
+#[cfg(feature = "test-support")]
 pub use isolated::{IsolatedApplicationService, IsolatedModelService};
 use loading::{load_catalog, load_site};
 use services::inference_route_resolver;
@@ -126,7 +128,8 @@ struct ManagerBackendServices {
 
 /// Builds the active model service from validated catalog, site, and runtime inputs, composed
 /// with the whole site manager, including its own SiteNode in process, but without backend
-/// transports.
+/// transports, on the test timing and clock.
+#[cfg(feature = "test-support")]
 pub async fn model_service_for(
     configuration: &SitePaths,
 ) -> CompositionResult<IsolatedModelService> {
@@ -136,6 +139,7 @@ pub async fn model_service_for(
 /// Builds the active model service like `model_service_for`, with the Dotcore sources the
 /// manager's own SiteNode builds Nix artifacts from, so it can host development-source
 /// deployments.
+#[cfg(feature = "test-support")]
 pub async fn model_service_with_sources_for(
     configuration: &SitePaths,
     dotcore_sources: dotcore_domain::nix::DotcoreSources,
@@ -147,6 +151,8 @@ pub async fn model_service_with_sources_for(
         error_kind = field::Empty,
     );
     let result = async {
+        let test_support = BackendTestSupport::test();
+        let collector = system_collector(backend_clock(&test_support));
         let services = compose_capabilities_with_current(
             configuration,
             ManagerNodeProcessInputs {
@@ -154,8 +160,8 @@ pub async fn model_service_with_sources_for(
                 dotcore_sources,
             },
             0,
-            BackendTestSupport::default(),
-            system_collector(Arc::new(dotcore_domain::clock::SystemClock)),
+            test_support,
+            collector,
             None,
             None,
         )
@@ -169,8 +175,9 @@ pub async fn model_service_with_sources_for(
 }
 
 /// Builds the application service of a fully composed site manager, including its own SiteNode in
-/// process, but without backend transports. Applications publish `inference_port` as the site's
-/// inference endpoint.
+/// process, but without backend transports, on the test timing and clock. Applications publish
+/// `inference_port` as the site's inference endpoint.
+#[cfg(feature = "test-support")]
 pub async fn application_service_for(
     configuration: &SitePaths,
     inference_port: u16,
@@ -182,12 +189,14 @@ pub async fn application_service_for(
         error_kind = field::Empty,
     );
     let result = async {
+        let test_support = BackendTestSupport::test();
+        let collector = system_collector(backend_clock(&test_support));
         let services = compose_capabilities_with_current(
             configuration,
             ManagerNodeProcessInputs::default(),
             inference_port,
-            BackendTestSupport::default(),
-            system_collector(Arc::new(dotcore_domain::clock::SystemClock)),
+            test_support,
+            collector,
             None,
             None,
         )
@@ -265,13 +274,12 @@ where
                 error,
             )
         })?;
-        let mut manager_node_control = ManagerNodeControlCoordinator::with_clock(
+        let manager_node_control = ManagerNodeControlCoordinator::with_clock(
             manager_session,
             backend_clock(&test_support),
-        );
-        if let Some(silence_bound) = test_support.liveness_silence_bound {
-            manager_node_control = manager_node_control.with_silence_bound(silence_bound);
-        }
+        )
+        .with_silence_bound(test_support.timing.node_liveness_ttl);
+        let timing = test_support.timing;
         // Site-wide metric history lives with the site manager for this process's lifetime.
         let clock = backend_clock(&test_support);
         let metric_store = Arc::new(
@@ -452,7 +460,7 @@ where
                 Arc::clone(&node_memory),
             ),
             clock,
-            crate::resource_watch::ResourceWatchConfig::default(),
+            crate::resource_watch::ResourceWatchConfig::new(&timing),
         );
         let manager = ManagerBackendServices {
             catalog_service: CatalogService::new(Arc::clone(&inputs.catalog)),
@@ -538,17 +546,15 @@ fn metric_catalog() -> Vec<MetricDescriptor> {
     descriptors
 }
 
-/// Timing of the manager's node control streams: production defaults, or the test override.
+/// Timing of the manager's node control streams, from the backend's timing.
 fn node_control_stream_configuration(
     test_support: &BackendTestSupport,
 ) -> CompositionResult<NodeControlStreamConfiguration> {
-    let defaults = NodeControlStreamConfiguration::default();
-    match test_support.view_republish_interval {
-        Some(interval) => defaults.with_republish_interval(interval).map_err(|error| {
+    NodeControlStreamConfiguration::default()
+        .with_republish_interval(test_support.timing.view_republish_interval)
+        .map_err(|error| {
             CompositionError::composition_with_source("configure node control streams", error)
-        }),
-        None => Ok(defaults),
-    }
+        })
 }
 
 /// Chooses the clock of one composed backend: the test's manual clock when it supplies one,

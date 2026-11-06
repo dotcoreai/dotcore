@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore::testing::{LIVENESS_TTL, ManualClock, NodeLivenessAges};
+use dotcore::testing::{ManualClock, NodeLivenessAges, Timing};
 use dotcore_proto::{
     dotcore::{
         observation::v1::{ObservationUnavailable, RuntimeObservation, runtime_observation},
@@ -31,6 +31,8 @@ use support::{ProcessCommand, node_control::ControlStream, node_liveness, proces
 
 use crate::support;
 
+/// Liveness window of the harness's manager, which runs the test timing.
+const LIVENESS_TTL: Duration = Timing::test().node_liveness_ttl;
 const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
 /// Refusal the manager returns to a node control stream open from a process whose incarnation
 /// another one replaced.
@@ -324,7 +326,12 @@ fn renewed_live_nodes_and_silent_expiring_nodes_allow_an_advance() {
     ]);
 
     assert_eq!(
-        node_liveness::renewal_problem(&ages, &["worker-one".to_owned()], millis(2_000)),
+        node_liveness::renewal_problem(
+            &Timing::production(),
+            &ages,
+            &["worker-one".to_owned()],
+            millis(2_000)
+        ),
         None,
         "a streamed status may be old while its node renews contact"
     );
@@ -340,6 +347,7 @@ fn a_live_node_must_renew_contact_after_the_request() {
     ] {
         assert_eq!(
             node_liveness::renewal_problem(
+                &Timing::production(),
                 &BTreeMap::from([live, silent.clone()]),
                 &expiring,
                 millis(elapsed)
@@ -354,6 +362,7 @@ fn an_expiring_node_must_be_known_and_silent() {
     let manager = node_ages("manager", 100, Some(100));
     assert_eq!(
         node_liveness::renewal_problem(
+            &Timing::production(),
             &BTreeMap::from([manager.clone()]),
             &["worker-one".to_owned()],
             millis(500)
@@ -362,6 +371,7 @@ fn an_expiring_node_must_be_known_and_silent() {
     );
     assert_eq!(
         node_liveness::renewal_problem(
+            &Timing::production(),
             &BTreeMap::from([manager, node_ages("worker-one", 3_900, None)]),
             &["worker-one".to_owned()],
             millis(500)
@@ -377,6 +387,7 @@ fn an_advance_refuses_a_step_that_could_expire_a_renewing_node() {
     assert_eq!(
         node_liveness::advance(
             &clock,
+            &Timing::production(),
             BTreeMap::new,
             Duration::from_secs(9),
             &[],
@@ -393,6 +404,7 @@ fn an_advance_with_renewed_nodes_moves_the_clock() {
 
     node_liveness::advance(
         &clock,
+        &Timing::production(),
         BTreeMap::new,
         Duration::from_secs(5),
         &[],
@@ -411,6 +423,7 @@ fn a_failed_advance_reports_the_last_observed_ages() {
     assert_eq!(
         node_liveness::advance(
             &clock,
+            &Timing::production(),
             ages,
             Duration::from_secs(5),
             &["worker-one".to_owned()],

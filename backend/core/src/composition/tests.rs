@@ -336,7 +336,7 @@ async fn backend_composition_loads_catalog_once_for_all_capabilities() {
             &configuration,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await
@@ -373,7 +373,7 @@ async fn complete_composition_loads_site_once_and_retains_its_repository() {
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -418,7 +418,7 @@ async fn composed_model_and_application_services_share_log_admission() {
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -529,7 +529,7 @@ async fn upstream_only_model_declarations_skip_failing_runtime_discovery_at_star
         50052,
         BackendTestSupport {
             simulated_runtime: Some(runtime.clone()),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
         default_collector(),
     )
@@ -885,7 +885,7 @@ async fn complete_composition_shares_catalog_site_current_state_and_route_manage
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -924,7 +924,7 @@ async fn composition_rejects_a_non_manager_node() {
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -979,7 +979,7 @@ async fn composed_route_manager_changes_are_shared_by_route_application_and_rout
         50052,
         BackendTestSupport {
             simulated_runtime: Some(runtime),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
         default_collector(),
     )
@@ -1306,7 +1306,7 @@ async fn late_current_state_failure_preserves_typed_error_and_failure_telemetry(
             &configuration.site_paths,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await
@@ -1345,7 +1345,7 @@ async fn backend_composition_records_exact_success_and_early_failure_fields() {
             &configuration.site_paths,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await
@@ -1370,7 +1370,7 @@ async fn backend_composition_records_exact_success_and_early_failure_fields() {
             &failure_configuration.site_paths,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await

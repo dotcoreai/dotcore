@@ -11,7 +11,7 @@ use std::{
 };
 
 use dotcore_domain::SiteNodeId;
-use dotcore_domain::clock::Clock;
+use dotcore_domain::{clock::Clock, timing::Timing};
 use dotcore_proto::{
     dotcore::{
         application::v1::ApplicationServiceAcceleratorMemory,
@@ -39,11 +39,6 @@ use crate::{
 
 const MAX_OFFERED_VIEWS: usize = 32;
 const CONTROLLER_STATUS_FRESHNESS: Duration = Duration::from_secs(90);
-
-/// Default silence bound: the longest silence after which a node incarnation is no longer live.
-/// Every message of the incarnation's open node control stream renews it, so it is independent of
-/// the site's observation interval and of how long hardware collection takes.
-pub const LIVENESS_TTL: Duration = Duration::from_secs(10);
 
 /// Manager-side owner of node incarnations, protocol cursors, observations, and published views.
 ///
@@ -82,13 +77,15 @@ impl ManagerNodeControlCoordinator {
             manager_session,
             state: Arc::new(Mutex::new(CoordinatorState::default())),
             status_freshness: CONTROLLER_STATUS_FRESHNESS,
-            silence_bound: LIVENESS_TTL,
+            silence_bound: Timing::production().node_liveness_ttl,
             clock,
             serving_evidence_changed: Arc::new(Notify::new()),
         }
     }
 
-    /// Ends liveness after `silence_bound` without contact instead of [`LIVENESS_TTL`].
+    /// Ends liveness after `silence_bound` without contact instead of the production liveness
+    /// window. Every message of the incarnation's open node control stream renews it, so it is
+    /// independent of the site's observation interval and of how long hardware collection takes.
     pub fn with_silence_bound(mut self, silence_bound: Duration) -> Self {
         self.silence_bound = silence_bound;
         self
@@ -1147,7 +1144,7 @@ fn connection_state(
     if !incarnation.connected_at(now, silence_bound) {
         CoordinatorConnectionState::Disconnected
     } else if now.saturating_duration_since(observation.received_monotonic)
-        <= crate::node::target_inventory::TARGET_CAPABILITY_MAX_AGE
+        <= Timing::production().target_capability_max_age
     {
         CoordinatorConnectionState::Connected
     } else {
@@ -1313,6 +1310,8 @@ mod tests {
     use tokio::time::Instant;
 
     use super::*;
+
+    const LIVENESS_TTL: Duration = Timing::production().node_liveness_ttl;
 
     #[test]
     fn mixed_channels_share_one_incarnation_owner_and_replacement_restarts_at_sequence_one() {

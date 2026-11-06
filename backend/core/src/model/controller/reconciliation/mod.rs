@@ -19,7 +19,10 @@ use dotcore_artifact::{
     ModelArtifactProgress, ModelArtifactProgressObserver, ModelArtifactStage,
     ModelArtifactStageObserver, PreparedModelArtifacts,
 };
-use dotcore_domain::diagnostic::diagnostic_chain;
+use dotcore_domain::{
+    diagnostic::diagnostic_chain,
+    timing::{ReconcileCadence, ReconciliationState},
+};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivationPhase, ModelDeploymentFailure,
     ModelDeploymentStatus,
@@ -3112,11 +3115,12 @@ where
         drop(started);
         let inner = Arc::downgrade(&self.inner);
         let wakeup = Arc::clone(&self.inner.wakeup);
+        let schedule = self.inner.reconcile;
         let task_span = info_span!("model_observer", operation = "model_observer");
         let observer_span = task_span.clone();
         tokio::spawn(
             async move {
-                let mut cadence = ReconcileCadence::new();
+                let mut cadence = ReconcileCadence::new(schedule);
                 let mut awaiting_view = false;
                 loop {
                     let Some(inner) = inner.upgrade() else {
@@ -3249,56 +3253,6 @@ fn realization_failure_reason(error: &ModelLifecycleError) -> String {
         source.to_string()
     } else {
         error.to_string()
-    }
-}
-
-/// Reconcile pending lifecycle work quickly, then back off to this upper bound.
-pub(super) const RECONCILE_PENDING_INITIAL_DELAY: Duration = Duration::from_millis(25);
-pub(super) const RECONCILE_PENDING_MAX_DELAY: Duration = Duration::from_millis(250);
-
-/// Scan settled runtime state every 30 seconds for missing workloads and owned orphans.
-///
-/// Mutations notify the observer and do not wait for this safety scan.
-pub(super) const RECONCILE_SAFETY_SCAN_CADENCE: Duration = Duration::from_secs(30);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ReconciliationState {
-    Pending,
-
-    Settled,
-}
-
-#[derive(Debug)]
-pub(super) struct ReconcileCadence {
-    pending_delay: Duration,
-}
-
-impl ReconcileCadence {
-    pub(super) fn new() -> Self {
-        Self {
-            pending_delay: RECONCILE_PENDING_INITIAL_DELAY,
-        }
-    }
-
-    pub(super) fn next_delay(&mut self, state: ReconciliationState) -> Duration {
-        match state {
-            ReconciliationState::Pending => {
-                let delay = self.pending_delay;
-                self.pending_delay = self
-                    .pending_delay
-                    .saturating_mul(2)
-                    .min(RECONCILE_PENDING_MAX_DELAY);
-                delay
-            }
-            ReconciliationState::Settled => {
-                self.pending_delay = RECONCILE_PENDING_INITIAL_DELAY;
-                RECONCILE_SAFETY_SCAN_CADENCE
-            }
-        }
-    }
-
-    pub(super) fn reset(&mut self) {
-        self.pending_delay = RECONCILE_PENDING_INITIAL_DELAY;
     }
 }
 

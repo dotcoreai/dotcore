@@ -337,7 +337,10 @@ mod tests {
         ));
 
         fixture.register("worker-one", Some(47_123));
-        tokio::time::advance(crate::node::control::LIVENESS_TTL + Duration::from_secs(1)).await;
+        tokio::time::advance(
+            dotcore_domain::timing::Timing::production().node_liveness_ttl + Duration::from_secs(1),
+        )
+        .await;
 
         assert!(matches!(
             fixture.connect("worker-one"),

@@ -54,10 +54,8 @@ use tracing::{debug, info, info_span};
 
 use super::{
     DOWNLOAD_PROGRESS_WRITE_INTERVAL, DownloadProgressKind, DownloadProgressPublication,
-    ModelLifecycleError, ObservedPreparationProgress, RECONCILE_PENDING_INITIAL_DELAY,
-    RECONCILE_PENDING_MAX_DELAY, RECONCILE_SAFETY_SCAN_CADENCE, ReconcileCadence,
-    ReconciliationState, emit_observer_failure, paused_initial_state, replace_stale_workload,
-    runtime_startup_progress_state,
+    ModelLifecycleError, ObservedPreparationProgress, ReconciliationState, emit_observer_failure,
+    paused_initial_state, replace_stale_workload, runtime_startup_progress_state,
 };
 use crate::{
     dispatch::model::{RuntimeTargetMapBuilder, TargetObservation},
@@ -1405,6 +1403,7 @@ async fn reconciliation_from(
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
     };
     calls.lock().expect("calls").clear();
     let mut reconciled = true;
@@ -1514,6 +1513,7 @@ async fn reconciliation_stops_and_removes_a_valid_owned_orphan() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
     };
 
     assert!(matches!(
@@ -1595,6 +1595,7 @@ async fn node_pass_never_treats_changed_or_newly_declared_workloads_as_orphans()
                     crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
                 preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                     directory.path(),
                 ),
@@ -1693,6 +1694,7 @@ async fn paused_stopped_workload_projects_paused_without_runtime_mutation() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
     };
     calls.lock().expect("calls").clear();
 
@@ -2663,6 +2665,7 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
     };
     let controller = manager_test_controller(
         desired.clone(),
@@ -3548,6 +3551,7 @@ async fn retained_docker_workload_restarts_after_pause_and_resume() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             }),
         },
     );
@@ -3767,6 +3771,7 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             }),
         },
     );
@@ -3942,6 +3947,7 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
         serving_targets_publisher,
         serving_targets_source,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
     };
 
     inner.reconcile().await.expect("replacement reconciliation");
@@ -4066,6 +4072,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             }),
         },
     );
@@ -4154,6 +4161,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             }),
         },
     );
@@ -4531,6 +4539,7 @@ async fn repaired_docker_artifact_recreates_a_stopped_workload_before_ready() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
     };
     let mut changes = inner.workload_lifecycle.subscribe("deployment");
 
@@ -4677,6 +4686,7 @@ async fn preparation_failure_cancels_and_drains_other_deployments_before_returni
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             }),
         },
     );
@@ -4828,6 +4838,7 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             }),
         },
     );
@@ -4975,6 +4986,7 @@ async fn pause_intent_is_not_undone_by_stale_final_publication_and_other_deploym
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             }),
         },
     );
@@ -5247,39 +5259,6 @@ async fn replacement_session_rejects_suspended_status_without_retiring_replaceme
             .engine_integrations
             .retire_inactive_binding(&replacement_binding),
         "stale binding cleanup must leave the replacement binding retained",
-    );
-}
-
-#[test]
-fn reconciliation_cadence_backs_off_within_its_bound_and_resets_when_settled() {
-    let mut cadence = ReconcileCadence::new();
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(25)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(50)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(100)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(200)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        RECONCILE_PENDING_MAX_DELAY
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Settled),
-        RECONCILE_SAFETY_SCAN_CADENCE
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        RECONCILE_PENDING_INITIAL_DELAY
     );
 }
 

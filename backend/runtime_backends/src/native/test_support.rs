@@ -36,9 +36,6 @@ pub const TEST_SITE_NODE: &str = "node-a";
 /// Execution target every test workload runs on.
 pub const TEST_EXECUTION_TARGET: &str = "mac-gpu";
 
-/// How long a test create watches a new workload for an early exit on a taken port.
-const TEST_PORT_SETTLE_TIMEOUT: Duration = Duration::from_millis(50);
-
 /// Fake store and artifact roots for test workloads, plus the backend that created them.
 pub struct NativeTestHost {
     _roots: TempDir,
@@ -82,7 +79,9 @@ impl NativeTestHost {
         // whole production settle window.
         let backend = NativeRuntimeBackend::new(config.clone(), launcher_binary())
             .expect("native backend")
-            .with_port_settle_timeout(TEST_PORT_SETTLE_TIMEOUT);
+            .with_port_settle_window(
+                dotcore_domain::timing::Timing::test().native_port_settle_window,
+            );
         Self {
             _roots: roots,
             store_path: store_path.to_str().expect("UTF-8 store path").to_owned(),

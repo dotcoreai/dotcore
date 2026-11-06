@@ -200,6 +200,7 @@ where
             serving_targets_source,
             accelerator_attribution,
             shutdown: dependencies.shutdown,
+            reconcile: dependencies.reconcile,
         }),
     };
     Ok(realizer)
@@ -335,6 +336,7 @@ where
                 shutdown: node.shutdown,
                 preparation_logs: node.preparation_logs,
                 workload_lifecycle: node.workload_lifecycle,
+                reconcile: node.reconcile,
             },
         )
     }
@@ -406,6 +408,7 @@ where
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs,
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             },
         )
     }
@@ -439,6 +442,9 @@ pub(crate) struct NodeModelRealizerDependencies<D: super::ModelRealizationInput>
     /// Tells the node's deployment-log follows when a deployment's engine workload starts or is
     /// removed.
     pub(crate) workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
+
+    /// When the realizer's observer runs its next reconciliation pass.
+    pub(crate) reconcile: dotcore_domain::timing::ReconcileSchedule,
 }
 
 #[derive(Clone)]
@@ -460,6 +466,7 @@ struct ControllerDependencies {
     shutdown: tokio_util::sync::CancellationToken,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
+    reconcile: dotcore_domain::timing::ReconcileSchedule,
 }
 
 /// Upstream health dependencies on the process clock and stable per-deployment jitter.
@@ -986,6 +993,7 @@ mod tests {
                 crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
             shutdown: tokio_util::sync::CancellationToken::new(),
             workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+            reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(directory),
         }
     }

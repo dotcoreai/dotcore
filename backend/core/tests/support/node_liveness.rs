@@ -8,16 +8,7 @@
 
 use std::{collections::BTreeMap, time::Duration};
 
-use dotcore::testing::{LIVENESS_TTL, ManualClock, NodeLiveness, NodeLivenessAges};
-
-/// Longest age of a live node's contact at an advance; what is left of its lease after the
-/// advance is the real time it has to renew again. A live node sends a message at least every
-/// node heartbeat interval (3s), so most of each interval qualifies.
-const RENEWAL_AGE: Duration = Duration::from_secs(2);
-
-/// Shortest silence of an expiring node at an advance; nodes still running renew well within it,
-/// since it exceeds the node heartbeat interval.
-const SILENCE_AGE: Duration = Duration::from_secs(4);
+use dotcore::testing::{ManualClock, NodeLiveness, NodeLivenessAges, Timing};
 
 /// How often an advance rechecks whether every live node has renewed.
 const RENEWAL_POLL_INTERVAL: Duration = Duration::from_millis(20);
@@ -26,11 +17,17 @@ const RENEWAL_POLL_INTERVAL: Duration = Duration::from_millis(20);
 pub struct ManagerClock {
     clock: ManualClock,
     liveness: NodeLiveness,
+    timing: Timing,
 }
 
 impl ManagerClock {
-    pub fn new(clock: ManualClock, liveness: NodeLiveness) -> Self {
-        Self { clock, liveness }
+    /// The clock of a manager whose nodes run on `timing`.
+    pub fn new(clock: ManualClock, liveness: NodeLiveness, timing: Timing) -> Self {
+        Self {
+            clock,
+            liveness,
+            timing,
+        }
     }
 
     /// Advances the manager's clock under [`advance`]'s conditions, reading its current ages.
@@ -40,24 +37,32 @@ impl ManagerClock {
         expiring: &[String],
         deadline: Duration,
     ) -> Result<(), String> {
-        advance(&self.clock, || self.liveness.ages(), by, expiring, deadline)
+        advance(
+            &self.clock,
+            &self.timing,
+            || self.liveness.ages(),
+            by,
+            expiring,
+            deadline,
+        )
     }
 }
 
-/// Moves `clock` `by` ahead, once every node except `expiring` has renewed its contact within the
-/// last two seconds of the `ages` it reads.
+/// Moves `clock` `by` ahead, once every node except `expiring` has renewed its contact within its
+/// [`renewal_age`] of the `ages` it reads, under the nodes' `timing`.
 ///
-/// Every `expiring` node must be known and silent for at least four seconds. `by` must leave a
-/// renewing node live, so expiring a silent node takes two advances. Blocks until the conditions
-/// hold, failing with the last observed ages after `deadline`.
+/// Every `expiring` node must be known and silent for at least its [`silence_age`]. `by` must
+/// leave a renewing node live, so expiring a silent node takes two advances. Blocks until the
+/// conditions hold, failing with the last observed ages after `deadline`.
 pub fn advance(
     clock: &ManualClock,
+    timing: &Timing,
     ages: impl Fn() -> BTreeMap<String, NodeLivenessAges>,
     by: Duration,
     expiring: &[String],
     deadline: Duration,
 ) -> Result<(), String> {
-    if by + RENEWAL_AGE >= LIVENESS_TTL {
+    if by + renewal_age(timing) >= timing.node_liveness_ttl {
         return Err(format!(
             "advancing the manager clock by {by:?} could expire a node that keeps renewing"
         ));
@@ -68,7 +73,7 @@ pub fn advance(
     loop {
         let observed = ages();
         let elapsed = real_started.elapsed() + (clock.offset() - started);
-        match renewal_problem(&observed, expiring, elapsed) {
+        match renewal_problem(timing, &observed, expiring, elapsed) {
             None => {
                 clock.advance(by);
                 return Ok(());
@@ -83,6 +88,7 @@ pub fn advance(
 
 /// Returns why the observed `ages` do not allow an advance yet, `elapsed` after it was requested.
 pub fn renewal_problem(
+    timing: &Timing,
     ages: &BTreeMap<String, NodeLivenessAges>,
     expiring: &[String],
     elapsed: Duration,
@@ -94,7 +100,7 @@ pub fn renewal_problem(
                     "expiring node {node_id} has no current incarnation"
                 ));
             }
-            Some(ages) if ages.contact < SILENCE_AGE => {
+            Some(ages) if ages.contact < silence_age(timing) => {
                 return Some(format!("expiring node {node_id} is not silent yet"));
             }
             Some(_) => {}
@@ -102,6 +108,19 @@ pub fn renewal_problem(
     }
     ages.iter()
         .filter(|(node_id, _)| !expiring.contains(node_id))
-        .find(|(_, ages)| ages.contact > RENEWAL_AGE || ages.contact > elapsed)
+        .find(|(_, ages)| ages.contact > renewal_age(timing) || ages.contact > elapsed)
         .map(|(node_id, _)| format!("live node {node_id} has not renewed its contact yet"))
+}
+
+/// Longest age of a live node's contact at an advance; what is left of its lease after the
+/// advance is the real time it has to renew again. A live node sends a message at least every
+/// node heartbeat interval, so most of each interval qualifies.
+fn renewal_age(timing: &Timing) -> Duration {
+    timing.node_heartbeat_interval * 2 / 3
+}
+
+/// Shortest silence of an expiring node at an advance; nodes still running renew well within it,
+/// since it exceeds the node heartbeat interval.
+fn silence_age(timing: &Timing) -> Duration {
+    timing.node_heartbeat_interval * 4 / 3
 }

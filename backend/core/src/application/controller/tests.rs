@@ -13,6 +13,7 @@ use std::{
 use dotcore_catalog::{CatalogBuilder, OciArtifactPolicy};
 use dotcore_domain::test_support::oci::{ServiceArtifactOci as _, digest_artifact};
 use dotcore_domain::test_support::tracing::{Record, capture_records_async};
+use dotcore_domain::timing::{ReconcileCadence, ReconciliationState, Timing};
 use dotcore_proto::dotcore::application::v1::ApplicationConfigurationAttachment;
 use dotcore_proto::dotcore::{
     application::private::v1::{ApplicationLifecycleObservation, ApplicationStatusStage},
@@ -67,7 +68,7 @@ use super::readiness::{
     ENDPOINT_NOT_ASSIGNED_STAGE, ENDPOINT_NOT_READY_STAGE, GROUP_NOT_RUNNING_STAGE,
     awaits_readiness, primary_endpoint_ready,
 };
-use super::realizer::{ReconcileCadence, ReconciliationState, wait_for_observer_wakeup};
+use super::realizer::wait_for_observer_wakeup;
 use super::test_support::*;
 use super::*;
 use crate::dispatch::application::{ApplicationRuntimeError, TargetWorkloadGroupObservation};
@@ -237,7 +238,7 @@ async fn observer_starts_once_and_each_desired_change_wakes_reconciliation() {
 #[tokio::test(start_paused = true)]
 async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new();
+    let mut cadence = ReconcileCadence::new(Timing::production().application_reconcile);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
         cadence.next_delay(ReconciliationState::Settled),
@@ -255,7 +256,7 @@ async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
 #[tokio::test(start_paused = true)]
 async fn observer_wakeup_retries_a_pending_endpoint_within_a_quarter_second() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new();
+    let mut cadence = ReconcileCadence::new(Timing::production().application_reconcile);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
         cadence.next_delay(ReconciliationState::Pending),
@@ -273,33 +274,6 @@ async fn observer_wakeup_reports_an_intent_change() {
     desired.notify_one();
 
     assert!(wait_for_observer_wakeup(&desired, Duration::from_secs(30)).await);
-}
-
-#[test]
-fn pending_cadence_backs_off_to_two_seconds_and_resets_when_settled_or_reset() {
-    let mut cadence = ReconcileCadence::new();
-    let pending = (0..5)
-        .map(|_| cadence.next_delay(ReconciliationState::Pending))
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        pending,
-        [250, 500, 1000, 2000, 2000].map(Duration::from_millis)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Settled),
-        Duration::from_secs(30)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(250)
-    );
-    cadence.next_delay(ReconciliationState::Pending);
-    cadence.reset();
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(250)
-    );
 }
 
 #[test]
