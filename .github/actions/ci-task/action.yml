@@ -1,0 +1,69 @@
+name: CI task
+description: Installs Nix with a build cache, prepares the toolchain caches, and runs one `just` recipe in the dev shell. Call it after checkout.
+
+inputs:
+  recipe:
+    description: The `just` recipe to run, for example `backend::ci-lint`
+    required: true
+  part:
+    description: Optional `N/M` slice passed to the recipe, for recipes that split their work
+    required: false
+    default: ""
+  cargo:
+    description: Name of the cargo cache entry, since builds differ per task. Empty skips the cargo cache
+    required: false
+    default: ""
+  npm:
+    description: Install the frontend dependencies first when `true`
+    required: false
+    default: "false"
+  nix-upload:
+    description: Upload new Nix store paths to the build cache when `true`; otherwise the cache is read-only
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+
+    # Nix binary cache on the Actions cache. Only the dev job uploads: it builds the most, and
+    # parallel jobs would upload the same dev shell. Paths cache.nixos.org serves are skipped.
+    - uses: Mic92/hestia@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
+      with:
+        version: v3.1.0
+        upstream-cache-filter: true
+        read-only: ${{ inputs.nix-upload != 'true' }}
+
+    # Clippy and test builds differ, so each keeps its own entry.
+    - if: inputs.cargo != ''
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git/db
+          backend/target
+        key: cargo-${{ inputs.cargo }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/Cargo.lock', 'flake.lock') }}
+        restore-keys: cargo-${{ inputs.cargo }}-${{ runner.os }}-${{ runner.arch }}-
+
+    - if: inputs.npm == 'true'
+      name: Install frontend dependencies
+      shell: bash
+      run: nix develop -c just frontend::bootstrap
+
+    # Tests bind 127.0.0.2 and up, which macOS doesn't route to loopback by default.
+    - if: runner.os == 'macOS'
+      name: Add loopback addresses
+      shell: bash
+      run: nix develop -c just dev::mac-loopback
+
+    - name: Check
+      shell: bash
+      env:
+        RECIPE: ${{ inputs.recipe }}
+        PART: ${{ inputs.part }}
+        # Smaller build output to cache.
+        CARGO_INCREMENTAL: "0"
+        CARGO_PROFILE_DEV_DEBUG: "0"
+      run: nix develop -c just "$RECIPE" ${PART:+"$PART"}

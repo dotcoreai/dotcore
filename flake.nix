@@ -232,6 +232,7 @@
               jq
               grpcurl
               shellcheck
+              actionlint
               process-compose
               protobuf
               protoc-gen-es

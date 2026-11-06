@@ -2,8 +2,13 @@
 help:
   @just --list
 
+# Lint the GitHub workflows with actionlint, without changing files.
+lint:
+  cd .. && actionlint
+
 # Run every area's CI validations, without changing files; needs `just frontend::bootstrap` first.
 check:
+  cd .. && just ci::lint
   cd .. && just proto::ci-check
   cd .. && just frontend::ci-check
   cd .. && just backend::ci-check

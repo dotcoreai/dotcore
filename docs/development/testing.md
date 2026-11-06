@@ -10,7 +10,7 @@
 ## CI
 
 - CI runs the same gates as `just check`, but it fails instead of reformatting or regenerating files. Each area's checks run in their own job, and the backend and frontend tests run in two parts. `just ci::check` runs them all locally, to reproduce a CI failure.
-- `main` runs the backend and development checks on x86_64 Linux, arm64 Linux and arm64 macOS. Pull requests skip macOS unless they carry the `ci:macos` label: add it when a change touches platform-specific code. The protobuf, frontend and installer checks don't depend on the platform, so they run on x86_64 Linux only.
+- `main` runs the backend and development checks on x86_64 Linux, arm64 Linux and arm64 macOS. Pull requests skip macOS unless they carry the `ci:macos` label. Add it when a change touches platform-specific code: the macOS backend and development checks start right away, show under the `CI macOS` workflow, and run again on each push while the label stays. The protobuf, frontend and installer checks don't depend on the platform, so they run on x86_64 Linux only.
 - CI skips the hardware tests below.
 
 ## Hardware tests

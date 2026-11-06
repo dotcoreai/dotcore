@@ -2,8 +2,7 @@ name: CI
 
 on:
   pull_request:
-    # Labeled: adding `ci:macos` to an open PR starts a run with macOS.
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
   workflow_dispatch:
@@ -12,14 +11,12 @@ permissions:
   contents: read
 
 concurrency:
-  # Other labels get their own group, so they don't cancel the PR's run.
-  group: ${{ github.event.action == 'labeled' && github.event.label.name != 'ci:macos' && github.run_id || format('ci-{0}', github.ref) }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
     name: ${{ matrix.task.name }} (${{ matrix.runner }})
-    if: github.event.action != 'labeled' || github.event.label.name == 'ci:macos'
     strategy:
       fail-fast: false
       matrix:
@@ -29,8 +26,8 @@ jobs:
           - { name: backend test 1/2, recipe: "backend::ci-test", part: "1/2", cargo: test }
           - { name: backend test 2/2, recipe: "backend::ci-test", part: "2/2", cargo: test }
           - { name: dev, recipe: "dev::ci-check", nix-upload: true }
-        # macOS runners are few and queue under load: PRs use them only with the `ci:macos` label.
-        runner: ${{ fromJSON((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:macos')) && '["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"]' || '["ubuntu-24.04", "ubuntu-24.04-arm"]') }}
+        # macOS runners are few and queue under load: PRs run them in `CI macOS`, on request.
+        runner: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-24.04", "ubuntu-24.04-arm"]' || '["ubuntu-24.04", "ubuntu-24.04-arm", "macos-15"]') }}
         # Platform-independent checks run on x86_64 Linux only.
         include:
           - runner: ubuntu-24.04
@@ -49,49 +46,16 @@ jobs:
       # Lets hestia see evicted cache entries upfront.
       actions: read
     timeout-minutes: 90
-    env:
-      # Smaller build output to cache.
-      CARGO_INCREMENTAL: "0"
-      CARGO_PROFILE_DEV_DEBUG: "0"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
-
-      # Nix binary cache on the Actions cache. Only the dev job uploads: it builds the most, and
-      # parallel jobs would upload the same dev shell. Paths cache.nixos.org serves are skipped.
-      - uses: Mic92/hestia@dfed9ced335d28978ba74e513939a10db1f71025 # v3.1.0
+      - uses: ./.github/actions/ci-task
         with:
-          version: v3.1.0
-          upstream-cache-filter: true
-          read-only: ${{ !matrix.task.nix-upload }}
-
-      # Clippy and test builds differ, so each keeps its own entry.
-      - if: matrix.task.cargo
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            backend/target
-          key: cargo-${{ matrix.task.cargo }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/Cargo.lock', 'flake.lock') }}
-          restore-keys: cargo-${{ matrix.task.cargo }}-${{ runner.os }}-${{ runner.arch }}-
-
-      - if: matrix.task.npm
-        name: Install frontend dependencies
-        run: nix develop -c just frontend::bootstrap
-
-      # Tests bind 127.0.0.2 and up, which macOS doesn't route to loopback by default.
-      - if: runner.os == 'macOS'
-        name: Add loopback addresses
-        run: nix develop -c just dev::mac-loopback
-
-      - name: Check
-        env:
-          RECIPE: ${{ matrix.task.recipe }}
-          PART: ${{ matrix.task.part }}
-        run: nix develop -c just "$RECIPE" ${PART:+"$PART"}
+          recipe: ${{ matrix.task.recipe }}
+          part: ${{ matrix.task.part }}
+          cargo: ${{ matrix.task.cargo }}
+          npm: ${{ matrix.task.npm || false }}
+          nix-upload: ${{ matrix.task.nix-upload || false }}
