@@ -96,7 +96,7 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
         ExecutionPlatform::linux_arm64(),
         ExecutionPlatform::darwin_arm64(),
     ] {
-        let (target, inventory) = target_capabilities(platform.clone());
+        let targets = platform_targets(&platform);
         for model in &models {
             let model_id = CatalogModelId(model.model_id.clone());
             let mut resolved_configuration_ids = BTreeSet::new();
@@ -117,15 +117,17 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                     .contains(&platform)
                 {
                     assert!(
-                        select_engine_artifact(
-                            &catalog,
-                            &model_id,
-                            &profile.profile_id,
-                            &deployment_configuration,
-                            &target,
-                            &inventory,
-                        )
-                        .is_err(),
+                        targets
+                            .iter()
+                            .all(|(target, inventory)| select_engine_artifact(
+                                &catalog,
+                                &model_id,
+                                &profile.profile_id,
+                                &deployment_configuration,
+                                target,
+                                inventory,
+                            )
+                            .is_err()),
                         "profile {:?} of {:?} resolves on {platform:?}, which its approved artifacts do not declare",
                         profile.profile_id,
                         model.model_id,
@@ -134,15 +136,30 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                 }
 
                 resolved_profile_count += 1;
-                let local = resolve_local_launch_with_placeholder_identity(
-                    &catalog,
-                    &model_id,
-                    &profile.profile_id,
-                    &deployment_configuration,
-                    &target,
-                    &inventory,
-                )
-                .expect("resolved default snapshot");
+                // A profile resolves on at least one target of each platform it declares; a
+                // configuration supporting only a narrower class resolves on its hardware alone.
+                let resolutions = targets
+                    .iter()
+                    .map(|(target, inventory)| {
+                        resolve_local_launch_with_placeholder_identity(
+                            &catalog,
+                            &model_id,
+                            &profile.profile_id,
+                            &deployment_configuration,
+                            target,
+                            inventory,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let Some(local) = resolutions
+                    .iter()
+                    .find_map(|resolution| resolution.as_ref().ok())
+                else {
+                    panic!(
+                        "profile {:?} of {:?} resolves on no {platform:?} target: {resolutions:?}",
+                        profile.profile_id, model.model_id
+                    );
+                };
 
                 resolved_configuration_ids.insert(local.configuration_id.clone());
                 assert_eq!(local.model_id, model.model_id);
@@ -2427,6 +2444,23 @@ fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (
         u32::try_from(lowest).expect("a total context in tokens"),
         context_per_request.map(|tokens| u32::try_from(tokens).expect("a context in tokens")),
     )
+}
+
+/// Returns the targets of `platform` a profile may resolve on: the fixture target, then each GPU
+/// target of each simulated hardware choice on that platform.
+fn platform_targets(
+    platform: &ExecutionPlatform,
+) -> Vec<(ExecutionTarget, TargetCapabilityInventory)> {
+    let mut targets = vec![target_capabilities(platform.clone())];
+    for choice in dotcore_node_hardware::MachineDescription::simulated_choices() {
+        let description = simulated_alone(choice.name);
+        if description.platform() != platform {
+            continue;
+        }
+        let gpus = description.gpu_ids().count();
+        targets.extend((0..gpus).map(|gpu| simulated_target(choice.name, gpu)));
+    }
+    targets
 }
 
 /// Returns the simulated hardware `choice` alone: one named GPU on the simulated host, or one named

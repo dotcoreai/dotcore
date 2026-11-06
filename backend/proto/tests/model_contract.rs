@@ -983,6 +983,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("accelerators", 2),
             ("minimum_nvidia_driver_major_version", 3),
             ("memory_architecture", 4),
+            ("device_models", 5),
         ]
     );
     assert!(
