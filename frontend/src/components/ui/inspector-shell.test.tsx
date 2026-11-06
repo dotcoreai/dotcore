@@ -455,11 +455,12 @@ describe("InspectorShell", () => {
     expect(content).toHaveStyle({
       bottom: "0px",
       left: "auto",
-      maxWidth: "calc(100vw - 28px)",
       right: "0px",
       top: "var(--header-height)",
       width: "460px",
     });
+    // Computed styles resolve vw units against jsdom's fixed viewport, so read the inline value.
+    expect(content.style.maxWidth).toBe("calc(100vw - 28px)");
     expect(content).toHaveClass("border-l", "p-2", "rounded-l-md", "rounded-r-none", "ring-0");
     expect(content).not.toHaveAttribute("aria-modal");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -1077,7 +1078,9 @@ describe("InspectorShell", () => {
     );
     expect(document.querySelector("[data-slot='dialog-overlay']")).not.toBeNull();
 
-    expect(document.body.style.overflow).toBe("hidden");
+    // The scroll lock sets the axis longhands; jsdom does not fold them into the `overflow` shorthand.
+    expect(document.body.style.overflowX).toBe("hidden");
+    expect(document.body.style.overflowY).toBe("hidden");
 
     await user.click(document.querySelector("[data-slot='dialog-overlay']")!);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
