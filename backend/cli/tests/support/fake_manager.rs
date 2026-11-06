@@ -33,7 +33,8 @@ use dotcore_proto::dotcore::{
         EstimateLocalModelResourcesRequest, EstimateLocalModelResourcesResponse,
         FollowDeploymentLogsRequest, FollowDeploymentLogsResponse, ListModelDeploymentsRequest,
         ListModelDeploymentsResponse, ListModelProfileCompatibilityRequest,
-        ListModelProfileCompatibilityResponse, ModelDeployment, ModelDeploymentDesiredState,
+        ListModelProfileCompatibilityResponse, ListModelRecommendationsRequest,
+        ListModelRecommendationsResponse, ModelDeployment, ModelDeploymentDesiredState,
         ModelDeploymentIntent, ModelDeploymentSnapshot, ModelDeploymentState,
         ModelDeploymentStatus, PauseModelRequest, PauseModelResponse,
         PreviewLocalModelDeploymentRequest, PreviewLocalModelDeploymentResponse,
@@ -488,6 +489,13 @@ impl ModelDeploymentService for FakeModels {
         &self,
         _request: Request<ListModelProfileCompatibilityRequest>,
     ) -> Result<Response<ListModelProfileCompatibilityResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn list_model_recommendations(
+        &self,
+        _request: Request<ListModelRecommendationsRequest>,
+    ) -> Result<Response<ListModelRecommendationsResponse>, Status> {
         Err(not_faked())
     }
 

@@ -27,7 +27,7 @@ use dotcore_site::{
 };
 
 use support::{
-    command::{detach_from_controlling_terminal, dotc},
+    command::{detach_from_controlling_terminal, dotc, isolated_dotc},
     pty::{Session, Stdin, Step, run_in_pty},
 };
 
@@ -6075,6 +6075,46 @@ fn request(label: &str, address: std::net::SocketAddr, request: &[u8]) -> Vec<u8
         thread::sleep(Duration::from_millis(25));
     }
     panic!("{label} listener {address} did not respond: {last_error:?}");
+}
+
+#[test]
+fn hardware_recommend_prints_exact_tables_for_a_described_machine() {
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/recommendation-catalog");
+    let fixture = TemporarySite::empty();
+    let roomy = fixture.root.join("roomy.yaml");
+    let tight = fixture.root.join("tight.yaml");
+    for (file, memory) in [(&roomy, 34359738368_u64), (&tight, 8589934592)] {
+        std::fs::write(
+            file,
+            format!(
+                "platform: linux/amd64\ncpuCount: 8\nhostMemory: {{ totalBytes: 34359738368, idleUsedBytes: 4294967296 }}\ngpus:\n  - id: GPU-fixture\n    vendor: nvidia\n    model: Fixture GPU X\n    driverVersion: \"580.173.02\"\n    memory: {{ architecture: dedicated, totalBytes: {memory}, reservedBytes: 536870912 }}\n"
+            ),
+        )
+        .expect("write machine description");
+    }
+    let recommend = |machine: &Path, extra: &[&str]| {
+        let output = isolated_dotc()
+            .args(["hardware", "recommend", "--machine"])
+            .arg(machine)
+            .arg("--catalog-dir")
+            .arg(&catalog)
+            .args(extra)
+            .output()
+            .expect("run dotc hardware recommend");
+        assert!(output.status.success(), "{}", text(&output.stderr));
+        assert_eq!(text(&output.stderr), "");
+        text(&output.stdout)
+    };
+
+    // The model that needs 24 GB per device is listed first on the roomy GPU and dropped on the tight one.
+    assert_eq!(
+        recommend(&roomy, &[]),
+        "Coding and agents\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Big    Fixture Q4  Fixture GPU X  fits now  174080\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  314368\n\nGeneral assistant\nNo recommendation for this machine\n\nTranslation\nNo recommendation for this machine\n\nDecision making\nNo recommendation for this machine\n"
+    );
+    assert_eq!(
+        recommend(&tight, &["--use-case", "coding"]),
+        "Coding and agents\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  59392\n"
+    );
 }
 
 fn list_machines_request() -> &'static [u8] {

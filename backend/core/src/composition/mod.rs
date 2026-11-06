@@ -69,8 +69,8 @@ pub use backend::{MetricRecorderSlot, NodeLiveness};
 pub use configuration::{
     BackendConfiguration, BackendConfigurationError, BackendRole, DEFAULT_INFERENCE_PORT,
     DEFAULT_MANAGEMENT_ADDR, DEFAULT_PRIVATE_PORT, DEV_SOURCE_FLAKE_ENV, FRONTEND_ORIGIN_ENV,
-    INFERENCE_ADDR_ENV, MANAGEMENT_ADDR_ENV, ManagerPrivateListener, NodeRole, PRIVATE_ADDR_ENV,
-    PathOverrides, ServerConfiguration, node_role,
+    INFERENCE_ADDR_ENV, MANAGEMENT_ADDR_ENV, ManagerPrivateListener, NodeRole,
+    PACKAGED_SOURCE_FLAKE_ENV, PRIVATE_ADDR_ENV, PathOverrides, ServerConfiguration, node_role,
 };
 #[cfg(test)]
 use controllers::default_collector;

@@ -239,6 +239,11 @@ fn source_specific_deployment_contract_keeps_resolved_local_snapshot_and_upstrea
                 "ListModelProfileCompatibilityResponse",
             ),
             (
+                "ListModelRecommendations",
+                "ListModelRecommendationsRequest",
+                "ListModelRecommendationsResponse",
+            ),
+            (
                 "UpdateModelDeployment",
                 "UpdateModelDeploymentRequest",
                 "UpdateModelDeploymentResponse",

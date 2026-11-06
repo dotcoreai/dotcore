@@ -1384,6 +1384,19 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         "scenario context per request must preserve scalar presence"
     );
     assert_eq!(
+        field_layout(service, "ListModelRecommendationsRequest"),
+        [("use_cases", 1, ".dotcore.catalog.v1.UseCase")]
+    );
+    assert_eq!(
+        field_layout(service, "RecommendedProfileTarget"),
+        [
+            ("target", 1, ".dotcore.deployment.v1.ExactPlacement"),
+            ("fit", 2, ".dotcore.model.v1.ModelRecommendationFit"),
+            ("deployed", 3, "TYPE_BOOL"),
+            ("starting_total_context_tokens", 4, "TYPE_UINT64"),
+        ]
+    );
+    assert_eq!(
         field_layout(service, "ListModelProfileCompatibilityResponse"),
         [
             ("targets", 1, ".dotcore.model.v1.TargetCompatibility"),
@@ -1703,6 +1716,11 @@ fn model_descriptors_preserve_existing_status_values_and_define_pause_api() {
                 "ListModelProfileCompatibility",
                 "ListModelProfileCompatibilityRequest",
                 "ListModelProfileCompatibilityResponse",
+            ),
+            (
+                "ListModelRecommendations",
+                "ListModelRecommendationsRequest",
+                "ListModelRecommendationsResponse",
             ),
             (
                 "UpdateModelDeployment",

@@ -2,12 +2,15 @@
 //!
 //! An injected Docker capability probe and a local NVIDIA accelerator adapter are asked what
 //! is available, and their facts are returned as a single probe report. Probing never changes
-//! host state; the report feeds initial site creation.
+//! host state; the report feeds initial site creation. A machine description gives the report a
+//! host of that hardware would, so a machine can be planned without probing it.
 
 use std::collections::BTreeSet;
 
-use dotcore_node_hardware::hardware::{
-    AcceleratorUnavailable, AcceleratorVendorAdapter, UnavailableReason,
+use dotcore_domain::{ExecutionPlatform, ExecutionPlatformError, nvidia_cdi_gpu_selector};
+use dotcore_node_hardware::{
+    MachineDescription,
+    hardware::{AcceleratorUnavailable, AcceleratorVendorAdapter, UnavailableReason},
 };
 use dotcore_proto::dotcore::observation::v1::{AcceleratorFacts, AcceleratorVendor};
 use dotcore_runtime::{DockerCapabilityProbe, DockerCapabilityReport};
@@ -15,6 +18,9 @@ use dotcore_runtime::{DockerCapabilityProbe, DockerCapabilityReport};
 use crate::initial::request::{
     InitialApplicationRuntime, InitialInferenceRuntime, InitialSiteRequest,
 };
+
+/// CDI specification directory a described machine's Docker reports for its NVIDIA GPUs.
+const DESCRIBED_CDI_SPEC_DIR: &str = "/etc/cdi";
 
 /// NVIDIA facts and CDI selectors retained by an initialization capability report.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -76,6 +82,38 @@ impl InitialSiteProbeReport {
     /// Returns the observed Apple GPU when Apple inference was selected.
     pub fn apple(&self) -> Option<&InitialAppleProbeReport> {
         self.apple.as_ref()
+    }
+
+    /// Returns what probing a host of `machine` would report with Docker running Linux on the
+    /// machine's architecture: its NVIDIA GPUs, each named by its full-GPU CDI selector, and its
+    /// Apple GPU. Docker reports CDI only when the machine has NVIDIA GPUs for it to inject.
+    pub fn described(machine: &MachineDescription) -> Result<Self, ExecutionPlatformError> {
+        let (nvidia, others): (Vec<_>, Vec<_>) = machine
+            .accelerator_facts()
+            .into_iter()
+            .partition(|facts| facts.vendor == AcceleratorVendor::Nvidia as i32);
+        let nvidia = (!nvidia.is_empty()).then(|| InitialNvidiaProbeReport {
+            cdi_selectors: nvidia
+                .iter()
+                .filter_map(|facts| facts.vendor_index.map(nvidia_cdi_gpu_selector))
+                .collect(),
+            facts: nvidia,
+        });
+        let apple = others
+            .into_iter()
+            .find(|facts| facts.vendor == AcceleratorVendor::Apple as i32)
+            .map(|facts| InitialAppleProbeReport {
+                device_id: facts.device_id.clone(),
+                facts,
+            });
+        let docker_platform =
+            ExecutionPlatform::normalize("linux", machine.platform().architecture())?;
+        let cdi_spec_dirs = nvidia.as_ref().map(|_| DESCRIBED_CDI_SPEC_DIR);
+        Ok(Self {
+            docker: Some(DockerCapabilityReport::new(docker_platform, cdi_spec_dirs)),
+            nvidia,
+            apple,
+        })
     }
 }
 
