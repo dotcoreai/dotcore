@@ -1,9 +1,4 @@
 import { machineName, placementMachine } from "@/features/deployments/placement";
-import {
-  type DeploymentGpu,
-  type GpuDeviceRef,
-  withSharerNames,
-} from "@/features/models/model-deployment-gpu";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
@@ -25,8 +20,6 @@ export interface ApplicationDeploymentRow {
   deploymentId: string;
   displayName: string;
   endpointUrl?: string;
-  /** Use of the GPUs the deployment holds memory on. */
-  gpu?: DeploymentGpu;
   /** The machine's SiteNode ID, absent without a placement. */
   machineId?: string;
   machineName?: string;
@@ -41,8 +34,6 @@ export interface ApplicationDeploymentRow {
 
 /** What the Apps table combines with each deployment. */
 export interface ApplicationDeploymentRowSources {
-  /** GPU use by deployment id; a deployment without measured devices is absent. */
-  gpus: ReadonlyMap<string, DeploymentGpu>;
   machines: readonly Machine[] | undefined;
   /** CPU and memory use by deployment id. */
   resources: ReadonlyMap<string, ApplicationResources>;
@@ -50,38 +41,20 @@ export interface ApplicationDeploymentRowSources {
 
 export function projectApplicationDeploymentRows(
   deployments: readonly ApplicationDeployment[],
-  { gpus, machines, resources }: ApplicationDeploymentRowSources,
+  { machines, resources }: ApplicationDeploymentRowSources,
 ): ApplicationDeploymentRow[] {
-  const nameById = new Map(
-    deployments.map((deployment) => [
-      deployment.applicationDeploymentId,
-      applicationDeploymentPresentationName(deployment),
-    ]),
-  );
-
-  return deployments.map((deployment) => {
-    const id = deployment.applicationDeploymentId;
-    const gpu = withSharerNames(gpus.get(id), (other) => nameById.get(other) ?? other);
-    return projectApplicationDeploymentRow(deployment, machines, gpu, resources.get(id));
-  });
-}
-
-/** The GPU devices each deployment holds memory on, by deployment id. */
-export function applicationDeploymentDevices(
-  deployments: readonly ApplicationDeployment[],
-): Map<string, GpuDeviceRef[]> {
-  return new Map(
-    deployments.map((deployment) => [
-      deployment.applicationDeploymentId,
-      measuredDevices(deployment),
-    ]),
+  return deployments.map((deployment) =>
+    projectApplicationDeploymentRow(
+      deployment,
+      machines,
+      resources.get(deployment.applicationDeploymentId),
+    ),
   );
 }
 
 function projectApplicationDeploymentRow(
   deployment: ApplicationDeployment,
   machines: readonly Machine[] | undefined,
-  gpu: DeploymentGpu | undefined,
   resources: ApplicationResources | undefined,
 ): ApplicationDeploymentRow {
   const siteNodeId = deployment.placement?.siteNodeId;
@@ -93,7 +66,6 @@ function projectApplicationDeploymentRow(
     deploymentId: deployment.applicationDeploymentId,
     displayName: applicationDeploymentPresentationName(deployment),
     endpointUrl: applicationDeploymentEndpoint(deployment),
-    gpu,
     machineId: siteNodeId,
     machineName: siteNodeId ? machineName(siteNodeId, machine) : undefined,
     memoryBytes: resources?.memoryBytes,
@@ -102,12 +74,6 @@ function projectApplicationDeploymentRow(
     version: deployment.snapshot?.version || undefined,
     vramBytes: deploymentVramBytes(deployment),
   };
-}
-
-function measuredDevices(deployment: ApplicationDeployment): GpuDeviceRef[] {
-  return applicationAcceleratorMemory(deployment).flatMap((unit) =>
-    unit.kind === "available" ? (unit.devices ?? []) : [],
-  );
 }
 
 // The sum over every measured device of every service; absent when no service reports a measure.

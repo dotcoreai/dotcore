@@ -79,7 +79,6 @@ function renderRow(deployment: ReturnType<typeof deploymentIn>) {
       table={buildDataTable(
         applicationDeploymentTableDefinition,
         projectApplicationDeploymentRows([deployment], {
-          gpus: new Map(),
           machines: [],
           resources: new Map(),
         }),

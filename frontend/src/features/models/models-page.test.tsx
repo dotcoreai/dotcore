@@ -148,7 +148,7 @@ describe("ModelsPage table", () => {
     expect(screen.queryByText("Loading models…")).not.toBeInTheDocument();
     expect(screen.getByText("No models running")).toBeVisible();
   });
-  it("shows each deployment's name, status, machine, requests, VRAM and GPU", async () => {
+  it("shows each deployment's name, status, machine, requests and VRAM", async () => {
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const qwen = catalogModel("qwen", "Qwen", ["default"]);
     const template = upstreamTemplate();
@@ -184,32 +184,13 @@ describe("ModelsPage table", () => {
     const table = await screen.findByRole("table", { name: "Running models" });
     await waitFor(() =>
       expect(rowTexts(table)).toEqual([
-        "Gemma / Gemma · Q8_0 | Ready | Workstation | 3 | 4 GiB | 60%",
-        "Gemma / Gemma · Q8_0 | Failed | — | 0 | — | —",
-        "Private model / External | Ready | Upstream | 1 | — | —",
-        "Qwen / Qwen · Q8_0 | Ready | Workstation | 0 | 3 GiB | 40%",
+        "Gemma / Gemma · Q8_0 | Ready | Workstation | 3 | 4 GiB",
+        "Gemma / Gemma · Q8_0 | Failed | — | 0 | —",
+        "Private model / External | Ready | Upstream | 1 | —",
+        "Qwen / Qwen · Q8_0 | Ready | Workstation | 0 | 3 GiB",
       ]),
     );
-    expect(headerTexts(table)).toEqual([
-      "Deployment",
-      "Status",
-      "Machine",
-      "Requests",
-      "VRAM",
-      "GPU",
-    ]);
-    // The GPU figure is the whole device's, so the deployments sharing it are named by an info icon.
-    expect(
-      within(screen.getByRole("row", { name: "Gemma (deployment-a)" })).getByRole("button", {
-        name: "GPU use of the whole device, shared with Qwen",
-      }),
-    ).toBeVisible();
-    expect(
-      within(screen.getByRole("row", { name: "Qwen" })).getByRole("button", {
-        name: "GPU use of the whole device, shared with Gemma",
-      }),
-    ).toBeVisible();
-    expect(within(table).queryByText("shared")).not.toBeInTheDocument();
+    expect(headerTexts(table)).toEqual(["Deployment", "Status", "Machine", "Requests", "VRAM"]);
     // Same-named deployments and upstream ones name their id, so each row reads apart.
     expect(screen.getByRole("row", { name: "Gemma (deployment-a)" })).toBeVisible();
     expect(screen.getByRole("row", { name: "Private model (upstream-new)" })).toBeVisible();
@@ -250,7 +231,7 @@ describe("ModelsPage table", () => {
     expect(headerTexts(table).slice(-3)).toEqual(hidden);
     await waitFor(() =>
       expect(rowTexts(table)).toEqual([
-        "Gemma / Gemma · Q8_0 | Ready | — | 3 | — | — | 30 | 50 tokens/s | 250 ms",
+        "Gemma / Gemma · Q8_0 | Ready | — | 3 | — | 30 | 50 tokens/s | 250 ms",
       ]),
     );
   });
@@ -591,7 +572,7 @@ describe("ModelsPage deployment panel", () => {
     expect(await within(panel).findByRole("radio", { name: "6h" })).toBeChecked();
   });
 
-  it("holds two metric streams for the page and one for the deployment inspector", async () => {
+  it("holds one metric stream for the page and one for the deployment inspector", async () => {
     const user = userEvent.setup();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const streams = countedWatch();
@@ -612,18 +593,18 @@ describe("ModelsPage deployment panel", () => {
       snapshots: { gpu1: workstationSnapshot() },
     });
 
-    // The inference cards, and the live utilization of the GPUs the rows run on.
-    await waitFor(() => expect(streams.open()).toBe(2));
-    expect(streams.queries(1)).toEqual([["node.accelerator.utilization", ["node", "device"]]]);
+    // The inference cards only; the rows read no GPU use.
+    await waitFor(() => expect(streams.open()).toBe(1));
+    expect(streams.watch).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("row", { name: "Gemma" }));
     await screen.findByRole("region", { name: "Deployment" });
 
-    await waitFor(() => expect(streams.open()).toBe(3));
+    await waitFor(() => expect(streams.open()).toBe(2));
   });
 });
 
 /**
- * A metrics client answering gpu1's memory and GPU use, one deployment's VRAM and three attempts,
+ * A metrics client answering gpu1's memory, one deployment's VRAM and three attempts,
  * counting the watch streams it holds open.
  */
 function countedWatch() {
@@ -639,9 +620,6 @@ function countedWatch() {
     ],
     "node.accelerator.memory.used": [
       metricSeries({ device: "gpu-0", node: "gpu1" }, [gaugePoint(9, 24 * gib)]),
-    ],
-    "node.accelerator.utilization": [
-      metricSeries({ device: "gpu-0", node: "gpu1" }, [gaugePoint(9, 0.5)]),
     ],
     "node.host.memory.available": [metricSeries({ node: "gpu1" }, [gaugePoint(9, 47 * gib)])],
     "node.host.memory.total": [metricSeries({ node: "gpu1" }, [gaugePoint(9, 62 * gib)])],
@@ -668,7 +646,7 @@ function countedWatch() {
 
 /**
  * A metrics client answering per-deployment traffic over the range, three attempts reaching
- * deployment-a and one the upstream deployment, and gpu1's per-device GPU use.
+ * deployment-a and one the upstream deployment.
  */
 function trafficWatch() {
   const watch = vi.fn<MetricsClient["metrics"]["watchMetrics"]>(
@@ -693,11 +671,6 @@ function trafficWatch() {
             return byDeployment ? [mean(200, 4, { deployment: "deployment-a" })] : [mean(200, 4)];
           case "router.attempt.ttft":
             return byDeployment ? [mean(0.5, 2, { deployment: "deployment-a" })] : [mean(0.5, 2)];
-          case "node.accelerator.utilization":
-            return [
-              metricSeries({ device: "GPU-0", node: "gpu1" }, [gaugePoint(9, 0.6)]),
-              metricSeries({ device: "GPU-1", node: "gpu1" }, [gaugePoint(9, 0.2)]),
-            ];
           default:
             return [];
         }

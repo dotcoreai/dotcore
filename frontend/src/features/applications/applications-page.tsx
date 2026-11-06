@@ -28,7 +28,6 @@ import { describeMutationError } from "@/features/applications/application-mutat
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentEditor } from "@/features/deployments/deployment-editor";
 import { placementMachine } from "@/features/deployments/placement";
-import { useDeploymentGpus } from "@/features/models/model-deployment-gpu";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
@@ -52,10 +51,7 @@ import {
 } from "@/lib/panel-stack";
 import { panelTitle } from "@/lib/panel-titles";
 
-import {
-  applicationDeploymentDevices,
-  projectApplicationDeploymentRows,
-} from "./application-deployment-row";
+import { projectApplicationDeploymentRows } from "./application-deployment-row";
 import {
   applicationDeploymentTableDefinition,
   applicationDeploymentTableUi,
@@ -186,18 +182,15 @@ export function ApplicationsPage({
     useSharedApplicationsPolling();
   const deployments = snapshot?.deployments ?? noDeployments;
   const resources = useApplicationResources(metricsClient, deployments.length > 0);
-  const devices = useMemo(() => applicationDeploymentDevices(deployments), [deployments]);
-  const gpus = useDeploymentGpus(metricsClient, devices);
   const deploymentRows = useMemo(
     () =>
       snapshot
         ? projectApplicationDeploymentRows(snapshot.deployments, {
-            gpus,
             machines: snapshot.machines,
             resources,
           })
         : [],
-    [gpus, resources, snapshot],
+    [resources, snapshot],
   );
   const deploymentTable = useMemo(
     () => buildDataTable(applicationDeploymentTableDefinition, deploymentRows, view.state),
