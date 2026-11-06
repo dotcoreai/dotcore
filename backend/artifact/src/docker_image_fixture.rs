@@ -188,7 +188,8 @@ impl DockerImageFixture {
             .unwrap_or(0)
     }
 
-    fn package(&self, store_path: &str) -> PathBuf {
+    /// Returns where the package at `store_path` lives in the fixture's fake store.
+    pub fn package(&self, store_path: &str) -> PathBuf {
         self.root
             .join("store")
             .join(store_path.trim_start_matches('/'))

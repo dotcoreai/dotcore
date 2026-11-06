@@ -1444,6 +1444,9 @@ async fn cache_probe_waits_for_an_in_flight_pointer_rewrite() {
         let cache = cache.clone();
         let cancellation = cancellation.clone();
         async move {
+            let _file_lock = cache
+                .lock_hugging_face_file(repository, revision, "config.json", &cancellation)
+                .await?;
             cache
                 .fetch_hugging_face_file(
                     repository,

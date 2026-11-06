@@ -31,9 +31,9 @@ use dotcore_proto::dotcore::catalog::v1::{
     ListApplicationsRequest, OciPlatform,
     catalog_service_server::CatalogService as CatalogServiceContract,
 };
-use dotcore_proto::dotcore::deployment::v1::{
-    ArtifactPreparationPolicy, accelerator_memory_observation,
-};
+use dotcore_proto::dotcore::deployment::v1::ArtifactPreparationPolicy;
+#[cfg(not(target_os = "macos"))]
+use dotcore_proto::dotcore::deployment::v1::accelerator_memory_observation;
 use dotcore_proto::dotcore::inference::v1::{ListRoutesRequest, ReplaceRouteRequest};
 use dotcore_proto::dotcore::model::v1::{
     CreateModelDeploymentRequest, DirectRouteExposure, ModelDeploymentExposure,
@@ -68,8 +68,10 @@ const BUSYBOX_IMAGE: &str =
     "busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662";
 const BUSYBOX_DIGEST: &str = "73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662";
 /// Debian-based so the driver's glibc `libcuda` that CDI injects loads into its Python.
+#[cfg(not(target_os = "macos"))]
 const PYTHON_IMAGE: &str =
     "python@sha256:b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2";
+#[cfg(not(target_os = "macos"))]
 const PYTHON_DIGEST: &str = "b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2";
 const ARM64_DEFAULT_VARIANT: &str = "v8";
 const LIFECYCLE_APPLICATION_ID: &str = "synthetic-lifecycle";
@@ -81,8 +83,10 @@ const STORAGE_MARKER_FILE: &str = ".dotcore-application-integration-marker";
 const STORAGE_MARKER_CONTENT: &str = "dotcore-application-storage-retained\n";
 
 /// The CDI device selector the NVIDIA qualification host injects into group units.
+#[cfg(not(target_os = "macos"))]
 const NVIDIA_CDI_SELECTOR: &str = "nvidia.com/gpu=0";
 /// GPU memory the accelerator-memory fixture's unit allocates on top of its CUDA context.
+#[cfg(not(target_os = "macos"))]
 const GPU_FIXTURE_ALLOCATION_BYTES: u64 = 256 * 1024 * 1024;
 
 #[test]
@@ -2557,6 +2561,7 @@ impl TestResources {
     }
 
     /// Declares one accelerator device on the temporary site's application target.
+    #[cfg(not(target_os = "macos"))]
     fn declare_gpu_device_on_application_target(&self, device: &str) -> Result<(), String> {
         let site_path = self.root.join("site.yaml");
         let mut site: dotcore_proto::dotcore::site::v1::Site =
@@ -3037,6 +3042,7 @@ graph:
 
     /// Writes a one-unit application whose unit holds a CUDA context and a fixed device
     /// allocation through the driver library CDI injects, and serves HTTP for readiness.
+    #[cfg(not(target_os = "macos"))]
     fn write_gpu_memory_application(&self) -> Result<(), String> {
         self.write_site_catalog_application(
             "synthetic-gpu-memory.yaml",
@@ -3739,6 +3745,7 @@ fn remote_image_artifact() -> String {
 }
 
 /// Renders a synthetic service artifact for the pinned remote Python image as catalog YAML.
+#[cfg(not(target_os = "macos"))]
 fn python_image_artifact() -> String {
     format!(
         "        oci:\n          repository:\n            name: \"python\"\n          digest:\n            algorithm: \"sha256\"\n            encoded: \"{PYTHON_DIGEST}\"\n{SUPPORTED_PLATFORMS}"

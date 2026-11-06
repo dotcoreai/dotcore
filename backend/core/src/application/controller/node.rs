@@ -1298,9 +1298,13 @@ mod tests {
         for store_path in [WEB, WORKER] {
             fixture_images.add_image(store_path, "amd64");
         }
-        // The web service is not built yet: its first build fails, the next one roots it.
+        // The web service is not built yet: its first build fails, the next one adds it to the
+        // store and roots it.
         let web_entry = WEB.trim_start_matches("/nix/store/");
         std::fs::remove_file(fixture_images.roots().join(web_entry)).expect("unbuilt web service");
+        let web_package = fixture_images.package(WEB);
+        let unbuilt = images.path().join("unbuilt-web");
+        std::fs::rename(&web_package, &unbuilt).expect("web service out of the store");
         let fail_once = images.path().join("fail-once");
         std::fs::write(&fail_once, "").expect("first build failure");
         let nix = fixture_images.nix_directory().join("nix");
@@ -1316,9 +1320,12 @@ mod tests {
                  done\n\
                  echo 'building web' >&2\n\
                  if [ -e '{fail_once}' ]; then rm '{fail_once}'; echo 'error: builder failed' >&2; exit 1; fi\n\
+                 mv '{unbuilt}' '{web_package}'\n\
                  ln -s '{WEB}' \"$out\"\n\
                  echo '{WEB}'\n",
                 fail_once = fail_once.display(),
+                unbuilt = unbuilt.display(),
+                web_package = web_package.display(),
             ),
         )
         .expect("scripted nix");
