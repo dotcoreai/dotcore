@@ -475,6 +475,8 @@ describe("MachinesPage", () => {
     ]);
     expect(screen.getByText("2 of 2 machines")).toBeVisible();
     expect(screen.queryByTestId("inspector-content")).not.toBeInTheDocument();
+    expect(within(table).getByRole("columnheader", { name: "Status" })).toBeVisible();
+    expect(within(table).queryByRole("columnheader", { name: "Connection" })).toBeNull();
   });
 
   it("shows an opened inspector the machine's snapshot from the shared watch", async () => {

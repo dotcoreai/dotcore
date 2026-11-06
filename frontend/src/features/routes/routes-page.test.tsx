@@ -555,12 +555,11 @@ describe("RoutesPage", () => {
 
     const disabled = await screen.findByRole("row", { name: "disabled" });
     expect(within(disabled).getByText("Disabled")).toHaveAttribute("data-variant", "neutral");
-    expect(within(disabled).getByTestId("route-flow")).toHaveTextContent("Local model");
+    expect(disabled).not.toHaveTextContent("Local model");
     expect(disabled).not.toHaveTextContent("route-disabled");
     expect(disabled).not.toHaveTextContent("deployment-a");
     const available = await screen.findByRole("row", { name: "available" });
     expect(within(available).getByText("Available")).toHaveAttribute("data-variant", "success");
-    expect(within(available).getByTestId("route-flow")).toHaveTextContent("Local model");
     expect(routeRowNames()).toEqual(["available", "disabled", "unavailable"]);
 
     await user.click(disabled);
@@ -646,21 +645,28 @@ describe("RoutesPage", () => {
       within(screen.getByRole("row", { name }))
         .getAllByRole("cell")
         .map((cell) => cell.textContent);
-    await waitFor(() => expect(cells("busy")[3]).toBe("1,200"));
-    expect(cells("busy")).toEqual([
-      "busy",
-      "Available",
-      "Local model",
-      "1,200",
-      "4,000",
-      "50 tokens/s",
-    ]);
+    await waitFor(() => expect(cells("busy")[2]).toBe("1,200"));
+    expect(cells("busy")).toEqual(["busy", "Available", "1,200", "4,000", "50 tokens/s"]);
     // No traffic in the range: zero counts, no speed.
-    expect(cells("idle")).toEqual(["idle", "Available", "Local model", "0", "0", "—"]);
+    expect(cells("idle")).toEqual(["idle", "Available", "0", "0", "—"]);
+    // Members are not a column; the View menu does not offer them either.
+    expect(screen.queryByRole("columnheader", { name: "Members" })).not.toBeInTheDocument();
     // Time to first token is hidden until the View menu shows it.
     expect(
       screen.queryByRole("columnheader", { name: /Time to first token/ }),
     ).not.toBeInTheDocument();
+  });
+
+  it("loads an old URL that names the removed members column", async () => {
+    const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
+    renderAt(["/routes?cols=route%2Cstatus%2Cmembers%2Crequests"], route, model);
+
+    const table = await screen.findByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((header) => header.textContent),
+    ).toEqual(["Route", "Status", "Requests"]);
   });
 
   it("returns from Connect to the selected route without changing the URL", async () => {
@@ -1222,7 +1228,7 @@ describe("RoutesPage", () => {
       ],
     });
     expect(vi.mocked(route.route.replaceRoute).mock.calls[0][0]).not.toHaveProperty("kind");
-    expect(await screen.findByTestId("route-flow")).toHaveTextContent("Gemma → Qwen");
+    await waitFor(() => expect(route.route.replaceRoute).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

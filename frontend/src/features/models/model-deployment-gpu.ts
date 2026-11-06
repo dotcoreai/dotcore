@@ -21,8 +21,8 @@ export interface GpuDeviceRef {
 
 /** The GPU use of the devices a deployment runs on. */
 export interface DeploymentGpu {
-  /** Whether another listed deployment measures memory on one of the same devices. */
-  shared: boolean;
+  /** The other listed deployments (by id) that measure memory on one of the same devices. */
+  sharedWith: string[];
   /** Current utilization ratio, averaged over the devices with a reading; absent without one. */
   utilization?: number;
 }
@@ -52,7 +52,7 @@ export function useDeploymentGpus(
 /**
  * Each deployment's GPU use from a utilization grid grouped by node and device. A deployment maps
  * to the devices its accelerator memory is measured on, so deployments on the same device read the
- * same value and are marked as shared. A deployment with no measured device is absent.
+ * same value and list each other as sharing. A deployment with no measured device is absent.
  */
 export function deploymentGpus(
   devicesById: ReadonlyMap<string, readonly GpuDeviceRef[]>,
@@ -61,9 +61,9 @@ export function deploymentGpus(
   const devices = new Map(
     [...devicesById].map(([deploymentId, refs]) => [deploymentId, uniqueDevices(refs)]),
   );
-  const users = new Map<string, number>();
-  for (const keys of devices.values()) {
-    for (const key of keys.keys()) users.set(key, (users.get(key) ?? 0) + 1);
+  const users = new Map<string, string[]>();
+  for (const [deploymentId, keys] of devices) {
+    for (const key of keys.keys()) users.set(key, [...(users.get(key) ?? []), deploymentId]);
   }
 
   const gpus = new Map<string, DeploymentGpu>();
@@ -75,7 +75,13 @@ export function deploymentGpus(
       return value === undefined ? [] : [value];
     });
     gpus.set(deploymentId, {
-      shared: [...keys.keys()].some((key) => (users.get(key) ?? 0) > 1),
+      sharedWith: [
+        ...new Set(
+          [...keys.keys()].flatMap((key) =>
+            (users.get(key) ?? []).filter((other) => other !== deploymentId),
+          ),
+        ),
+      ],
       utilization: readings.length
         ? readings.reduce((total, value) => total + value, 0) / readings.length
         : undefined,
@@ -83,6 +89,14 @@ export function deploymentGpus(
   }
 
   return gpus;
+}
+
+/** The GPU use with the sharing deployments' ids replaced by their display names. */
+export function withSharerNames(
+  gpu: DeploymentGpu | undefined,
+  nameOf: (deploymentId: string) => string,
+): DeploymentGpu | undefined {
+  return gpu && { ...gpu, sharedWith: gpu.sharedWith.map(nameOf) };
 }
 
 /** The measured devices of each model deployment by id. */

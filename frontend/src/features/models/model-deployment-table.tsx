@@ -14,7 +14,8 @@ import { formatBytes } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";
 import { upstreamLocalityLabel } from "@/lib/upstream-presentation";
 
-import { type DeploymentGpu, measuredDevices } from "./model-deployment-gpu";
+import { DeploymentGpuCell } from "./deployment-gpu-cell";
+import { type DeploymentGpu, measuredDevices, withSharerNames } from "./model-deployment-gpu";
 import { modelInspectorPanelId } from "./model-inspector-panel";
 import {
   localModelSnapshot,
@@ -181,7 +182,7 @@ export const modelDeploymentTableUi: DataTableUiDefinition<
       cell: ({ row }) =>
         figure(row.traffic && formatChartValue("requests", row.traffic.generatedTokens)),
     },
-    gpu: { cell: ({ row }) => gpuCell(row.gpu), showFrom: "46rem" },
+    gpu: { cell: ({ row }) => <DeploymentGpuCell gpu={row.gpu} />, showFrom: "46rem" },
     machine: { cell: ({ row }) => machineCell(row), showFrom: "32rem" },
     requests: {
       cell: ({ row }) => figure(row.traffic && formatChartValue("requests", row.traffic.requests)),
@@ -219,6 +220,13 @@ export function modelDeploymentRows(
     names.set(name, (names.get(name) ?? 0) + 1);
   }
 
+  const nameById = new Map(
+    deployments.map((deployment) => [
+      deployment.modelDeploymentId,
+      modelDeploymentPresentationName(deployment),
+    ]),
+  );
+
   return deployments.map((deployment) => {
     const displayName = modelDeploymentPresentationName(deployment);
     const upstream = deployment.snapshot?.source.case === "upstream";
@@ -233,7 +241,7 @@ export function modelDeploymentRows(
       deploymentId: deployment.modelDeploymentId,
       detail: upstream ? upstreamDetail(deployment) : localDetail(deployment),
       displayName,
-      gpu: gpus.get(deployment.modelDeploymentId),
+      gpu: withSharerNames(gpus.get(deployment.modelDeploymentId), (id) => nameById.get(id) ?? id),
       machineId: siteNodeId,
       machineName: upstream
         ? "Upstream"
@@ -297,21 +305,6 @@ function machineCell(row: ModelDeploymentRow) {
       <ResourceMarker colorKey={row.machineId} />
       {row.machineName}
     </span>
-  );
-}
-
-function gpuCell(gpu: DeploymentGpu | undefined) {
-  if (!gpu) return dash;
-
-  return (
-    <>
-      <div>
-        {figure(
-          gpu.utilization === undefined ? undefined : formatChartValue("ratio", gpu.utilization),
-        )}
-      </div>
-      {gpu.shared ? <div className="mt-0.5 text-xs text-muted-foreground">shared</div> : null}
-    </>
   );
 }
 

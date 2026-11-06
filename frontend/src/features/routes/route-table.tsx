@@ -1,5 +1,4 @@
 import { ActivityIcon } from "lucide-react";
-import { Fragment } from "react";
 
 import type { DataTableUiDefinition } from "@/components/data-table/data-table";
 import { formatChartValue } from "@/components/metrics/time-series-chart/chart-data";
@@ -17,22 +16,15 @@ import { inspectorPanelId } from "./use-route-sidebar-host";
 
 /** A column of the routes table, in display order. */
 export type RouteColumnId =
-  "route" | "status" | "members" | "requests" | "generatedTokens" | "tokenGeneration" | "ttft";
+  "route" | "status" | "requests" | "generatedTokens" | "tokenGeneration" | "ttft";
 
 /** A filter field of the routes table. */
 export type RouteField = "status";
 
-/** One member of a route's fallback group. `ready` is absent until the controller reports. */
-export interface RouteRowMember {
-  id: string;
-  name: string;
-  ready?: boolean;
-}
-
 /** One route as the table shows it. */
 export interface RouteRow {
-  /** The members of each fallback group, in priority order. */
-  groups: RouteRowMember[][];
+  /** The names of the models in the route's fallback groups, searchable though not shown. */
+  memberNames: string[];
   name: string;
   routeId: string;
   status: StatusProjection;
@@ -59,7 +51,6 @@ export const routeTableDefinition: DataTableDefinition<
       label: "Status",
       sort: { kind: "text", value: (row) => row.status.label },
     },
-    { defaultVisible: true, id: "members", key: "members", label: "Members" },
     {
       defaultVisible: true,
       id: "requests",
@@ -101,11 +92,7 @@ export const routeTableDefinition: DataTableDefinition<
   ],
   rowId: (row) => row.routeId,
   rowName: (row) => row.name,
-  searchText: (row) => [
-    row.name,
-    row.routeId,
-    ...row.groups.flatMap((group) => group.map((member) => member.name)),
-  ],
+  searchText: (row) => [row.name, row.routeId, ...row.memberNames],
 };
 
 /** The routes table view in the URL: `q`, `f`, `status`, `sort`, and `cols`. */
@@ -120,7 +107,6 @@ export const routeTableUi: DataTableUiDefinition<RouteRow, RouteRow, RouteColumn
         figure(row.traffic && formatChartValue("requests", row.traffic.generatedTokens)),
       showFrom: "56rem",
     },
-    members: { cell: ({ row }) => membersCell(row) },
     requests: {
       cell: ({ row }) => figure(row.traffic && formatChartValue("requests", row.traffic.requests)),
       showFrom: "46rem",
@@ -142,7 +128,7 @@ export const routeTableUi: DataTableUiDefinition<RouteRow, RouteRow, RouteColumn
 
 /**
  * The table rows of the listed routes. `deploymentMentions` maps the model deployment IDs the
- * console knows to their name; a member it cannot name shows its ID. `trafficOf` reads a route's
+ * console knows to their name; a member it cannot name is searchable by its ID. `trafficOf` reads a route's
  * traffic by its ID.
  */
 export function routeRows(
@@ -156,17 +142,9 @@ export function routeRows(
 
     return [
       {
-        groups: route.fallbackGroups.map((group, groupIndex) => {
-          const observed = view.availability?.fallbackGroups.find(
-            (candidate) => candidate.fallbackGroupIndex === groupIndex,
-          );
-
-          return group.modelDeploymentIds.map((id) => ({
-            id,
-            name: deploymentMentions.get(id)?.name ?? id,
-            ready: observed?.members.find((member) => member.modelDeploymentId === id)?.eligible,
-          }));
-        }),
+        memberNames: route.fallbackGroups.flatMap((group) =>
+          group.modelDeploymentIds.map((id) => deploymentMentions.get(id)?.name ?? id),
+        ),
         name: route.name,
         routeId: route.inferenceRouteId,
         status: projectRouteHealth(view).status,
@@ -182,38 +160,6 @@ function routeCell(row: RouteRow) {
       <ResourceMarker colorKey={row.routeId} />
       {row.name}
     </div>
-  );
-}
-
-/**
- * The route's groups in priority order, members joined by commas and groups by arrows. A member the
- * controller reported as not eligible is struck through, with its state kept for assistive
- * technology since a strike-through is visual only.
- */
-function membersCell(row: RouteRow) {
-  const text = row.groups.map((group) => group.map((member) => member.name).join(", ")).join(" → ");
-
-  return (
-    <span className="block min-w-24 whitespace-normal" data-testid="route-flow" title={text}>
-      {row.groups.map((group, groupIndex) => (
-        <Fragment key={groupIndex}>
-          {groupIndex > 0 ? " → " : null}
-          {group.map((member, memberIndex) => (
-            <Fragment key={member.id}>
-              {memberIndex > 0 ? ", " : null}
-              {member.ready === false ? (
-                <span className="text-muted-foreground line-through" data-ready="false">
-                  {member.name}
-                  <span className="sr-only"> (not ready)</span>
-                </span>
-              ) : (
-                <span>{member.name}</span>
-              )}
-            </Fragment>
-          ))}
-        </Fragment>
-      ))}
-    </span>
   );
 }
 

@@ -1,11 +1,12 @@
-import { ActivityIcon, ServerIcon } from "lucide-react";
+import { ActivityIcon, ExternalLink, ServerIcon } from "lucide-react";
 import type { MouseEvent } from "react";
 
 import type { DataTableUiDefinition } from "@/components/data-table/data-table";
 import { formatChartValue } from "@/components/metrics/time-series-chart/chart-data";
+import { buttonVariants } from "@/components/ui/button";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
-import type { DeploymentGpu } from "@/features/models/model-deployment-gpu";
+import { DeploymentGpuCell } from "@/features/models/deployment-gpu-cell";
 import type { DataTableDefinition } from "@/lib/data-table-model";
 import { createDataTableViewCodec } from "@/lib/data-table-view";
 import { formatBytes } from "@/lib/format";
@@ -15,7 +16,7 @@ import { applicationInspectorPanelId } from "./application-inspector-panel";
 
 /** A column of the Apps table, in display order. */
 export type ApplicationDeploymentColumnId =
-  "app" | "status" | "machine" | "endpoint" | "cpu" | "ram" | "vram" | "gpu" | "route";
+  "app" | "status" | "machine" | "cpu" | "ram" | "vram" | "gpu" | "route" | "endpoint";
 
 /** A filter field of the Apps table. */
 export type ApplicationDeploymentField = "status" | "machine";
@@ -46,7 +47,6 @@ export const applicationDeploymentTableDefinition: DataTableDefinition<
       label: "Machine",
       sort: { kind: "text", value: (row) => row.machineName },
     },
-    { defaultVisible: true, id: "endpoint", key: "endpoint", label: "Endpoint" },
     {
       defaultVisible: true,
       id: "cpu",
@@ -79,6 +79,7 @@ export const applicationDeploymentTableDefinition: DataTableDefinition<
       sort: { kind: "value", value: (row) => row.gpu?.utilization },
     },
     { id: "route", key: "route", label: "Route" },
+    { defaultVisible: true, id: "endpoint", key: "endpoint", label: "Endpoint" },
   ],
   defaultSort: { column: "app", direction: "asc" },
   fields: [
@@ -131,7 +132,7 @@ export const applicationDeploymentTableUi: DataTableUiDefinition<
       showFrom: "40rem",
     },
     endpoint: { cell: ({ row }) => endpointCell(row), showFrom: "34rem" },
-    gpu: { cell: ({ row }) => gpuCell(row.gpu), showFrom: "46rem" },
+    gpu: { cell: ({ row }) => <DeploymentGpuCell gpu={row.gpu} />, showFrom: "46rem" },
     machine: { cell: ({ row }) => machineCell(row), showFrom: "32rem" },
     ram: {
       cell: ({ row }) =>
@@ -170,21 +171,6 @@ function figure(text: string | undefined) {
   return text === undefined ? dash : <span className="tabular-nums">{text}</span>;
 }
 
-function gpuCell(gpu: DeploymentGpu | undefined) {
-  if (!gpu) return dash;
-
-  return (
-    <>
-      <div>
-        {figure(
-          gpu.utilization === undefined ? undefined : formatChartValue("ratio", gpu.utilization),
-        )}
-      </div>
-      {gpu.shared ? <div className="mt-0.5 text-xs text-muted-foreground">shared</div> : null}
-    </>
-  );
-}
-
 function appCell(row: ApplicationDeploymentRow) {
   const detail = [row.applicationName, row.version].filter(Boolean).join(" · ");
 
@@ -216,13 +202,14 @@ function endpointCell(row: ApplicationDeploymentRow) {
   return (
     <a
       aria-label={`Open ${row.displayName}`}
-      className="text-primary underline-offset-2 hover:underline"
+      className={buttonVariants({ size: "xs", variant: "outline" })}
       href={row.endpointUrl}
       // The row opens the panel on click; following the link must not.
       onClick={(event: MouseEvent) => event.stopPropagation()}
       rel="noopener noreferrer"
       target="_blank"
     >
+      <ExternalLink aria-hidden="true" />
       Open
     </a>
   );

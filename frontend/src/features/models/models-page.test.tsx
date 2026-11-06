@@ -184,10 +184,10 @@ describe("ModelsPage table", () => {
     const table = await screen.findByRole("table", { name: "Running models" });
     await waitFor(() =>
       expect(rowTexts(table)).toEqual([
-        "Gemma / Gemma · Q8_0 | Ready | Workstation | 3 | 4 GiB | 60% / shared",
+        "Gemma / Gemma · Q8_0 | Ready | Workstation | 3 | 4 GiB | 60%",
         "Gemma / Gemma · Q8_0 | Failed | — | 0 | — | —",
         "Private model / External | Ready | Upstream | 1 | — | —",
-        "Qwen / Qwen · Q8_0 | Ready | Workstation | 0 | 3 GiB | 40% / shared",
+        "Qwen / Qwen · Q8_0 | Ready | Workstation | 0 | 3 GiB | 40%",
       ]),
     );
     expect(headerTexts(table)).toEqual([
@@ -198,6 +198,18 @@ describe("ModelsPage table", () => {
       "VRAM",
       "GPU",
     ]);
+    // The GPU figure is the whole device's, so the deployments sharing it are named by an info icon.
+    expect(
+      within(screen.getByRole("row", { name: "Gemma (deployment-a)" })).getByRole("button", {
+        name: "GPU use of the whole device, shared with Qwen",
+      }),
+    ).toBeVisible();
+    expect(
+      within(screen.getByRole("row", { name: "Qwen" })).getByRole("button", {
+        name: "GPU use of the whole device, shared with Gemma",
+      }),
+    ).toBeVisible();
+    expect(within(table).queryByText("shared")).not.toBeInTheDocument();
     // Same-named deployments and upstream ones name their id, so each row reads apart.
     expect(screen.getByRole("row", { name: "Gemma (deployment-a)" })).toBeVisible();
     expect(screen.getByRole("row", { name: "Private model (upstream-new)" })).toBeVisible();
