@@ -57,7 +57,7 @@ async fn the_metric_catalog_follows_the_naming_and_export_rules() {
 async fn a_backend_reads_its_test_manual_clock_or_else_system_time() {
     let manual = dotcore_domain::clock::ManualClock::new();
     let manual_choice = backend_clock(&BackendTestSupport {
-        clock: Some(manual.clone()),
+        clock: Some(Arc::new(manual.clone())),
         ..BackendTestSupport::default()
     });
     let system_choice = backend_clock(&BackendTestSupport::default());

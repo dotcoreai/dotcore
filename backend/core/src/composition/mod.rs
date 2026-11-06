@@ -556,7 +556,7 @@ fn node_control_stream_configuration(
 fn backend_clock(test_support: &BackendTestSupport) -> Arc<dyn dotcore_domain::clock::Clock> {
     #[cfg(feature = "test-support")]
     if let Some(clock) = &test_support.clock {
-        return Arc::new(clock.clone());
+        return Arc::clone(clock);
     }
     #[cfg(not(feature = "test-support"))]
     let _ = test_support;

@@ -2,14 +2,13 @@
 //! production build carries none of them.
 //!
 //! Integration and command-line tests reach every test-only control through this one module: the
-//! manual clock a composed backend reads, the view of a site manager's node liveness, the node
-//! liveness timing constants, the relaxed file flush, a fake host-name resolver, simulated
-//! inference holds, the profile compatibility read, and the preparation output a node retains.
-//! Each item stays defined beside the
-//! code it controls.
+//! manual and virtual clocks a composed backend reads, the view of a site manager's node
+//! liveness, the node liveness timing constants, the relaxed file flush, a fake host-name
+//! resolver, simulated inference holds, the profile compatibility read, and the preparation output
+//! a node retains. Each item stays defined beside the code it controls.
 
 pub use dotcore_domain::{
-    clock::ManualClock,
+    clock::{ManualClock, VirtualClock},
     fs_sync::relax_sync_for_tests,
     test_support::{
         host_resolver::FakeHostResolver,

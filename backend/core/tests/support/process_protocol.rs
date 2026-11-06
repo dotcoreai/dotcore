@@ -10,7 +10,7 @@ use std::{
     io::{BufRead, Write},
     path::PathBuf,
     process::ChildStdin,
-    sync::mpsc,
+    sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant},
 };
@@ -19,6 +19,7 @@ use dotcore::{
     composition::BackendTestSupport,
     testing::{ManualClock, SimulatedInferenceTestSupport},
 };
+use dotcore_domain::clock::Clock;
 use dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport;
 use serde::{Deserialize, Serialize};
 
@@ -110,12 +111,19 @@ impl ProcessSettings {
         self.manager_private_port
     }
 
-    /// Backend controls of a development backend adjusted by these settings.
+    /// Manual clock a manager subprocess composes its backend with, when these settings ask for
+    /// one; the subprocess keeps a clone to advance it on the harness's commands.
+    pub(super) fn manual_clock(&self) -> Option<ManualClock> {
+        self.manual_clock.then(ManualClock::new)
+    }
+
+    /// Backend controls of a development backend adjusted by these settings, reading
+    /// `manual_clock` when given and system time otherwise.
     ///
     /// Simulated models keep their representative acquisition activity with zero-duration steps
     /// and zero ready and stop delays, overriding the site scenario, so lifecycle tests wait on no
     /// simulated time; tests observe intermediate transitions through the transition gates.
-    pub(super) fn test_support(&self) -> BackendTestSupport {
+    pub(super) fn test_support(&self, manual_clock: Option<ManualClock>) -> BackendTestSupport {
         let mut runtime = BackendTestSupport::development()
             .simulated_runtime
             .expect("development simulated runtime")
@@ -139,7 +147,7 @@ impl ProcessSettings {
                 .into_iter()
                 .collect(),
             native_launcher: self.native_launcher.clone(),
-            clock: self.manual_clock.then(ManualClock::new),
+            clock: manual_clock.map(|clock| Arc::new(clock) as Arc<dyn Clock>),
             metric_recorder: None,
             liveness_silence_bound: self
                 .liveness_silence_bound_millis
