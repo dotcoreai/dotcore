@@ -793,9 +793,9 @@ mod tests {
 
         // Publications keep the manager node live while its observation ages past the capability age.
         let mut elapsed = Duration::ZERO;
-        while elapsed <= crate::node::target_inventory::TARGET_CAPABILITY_MAX_AGE {
-            advance(crate::node::control::LIVENESS_TTL / 2).await;
-            elapsed += crate::node::control::LIVENESS_TTL / 2;
+        while elapsed <= dotcore_domain::timing::Timing::production().target_capability_max_age {
+            advance(dotcore_domain::timing::Timing::production().node_liveness_ttl / 2).await;
+            elapsed += dotcore_domain::timing::Timing::production().node_liveness_ttl / 2;
             publish_as(&coordinator, &site, "node-a");
         }
         let stale_targets = configured_target_response(&service).await;
@@ -819,7 +819,11 @@ mod tests {
             Some(NodeObservationState::Stale as i32)
         );
 
-        advance(crate::node::control::LIVENESS_TTL + Duration::from_millis(1)).await;
+        advance(
+            dotcore_domain::timing::Timing::production().node_liveness_ttl
+                + Duration::from_millis(1),
+        )
+        .await;
         assert_eq!(
             target_connection_states(&configured_target_response(&service).await),
             [NodeObservationState::Disconnected as i32; 2]
@@ -1001,9 +1005,9 @@ mod tests {
 
         // Publications keep the node live while its observation ages past the capability age.
         let mut elapsed = Duration::ZERO;
-        while elapsed <= crate::node::target_inventory::TARGET_CAPABILITY_MAX_AGE {
-            advance(crate::node::control::LIVENESS_TTL / 2).await;
-            elapsed += crate::node::control::LIVENESS_TTL / 2;
+        while elapsed <= dotcore_domain::timing::Timing::production().target_capability_max_age {
+            advance(dotcore_domain::timing::Timing::production().node_liveness_ttl / 2).await;
+            elapsed += dotcore_domain::timing::Timing::production().node_liveness_ttl / 2;
             publish_as(&coordinator, &site, "worker-node");
         }
         let stale_targets = configured_target_response(&service).await;
@@ -1042,7 +1046,11 @@ mod tests {
             }
         );
 
-        advance(crate::node::control::LIVENESS_TTL + Duration::from_millis(1)).await;
+        advance(
+            dotcore_domain::timing::Timing::production().node_liveness_ttl
+                + Duration::from_millis(1),
+        )
+        .await;
         let disconnected_targets = configured_target_response(&service).await;
         assert!(
             disconnected_targets

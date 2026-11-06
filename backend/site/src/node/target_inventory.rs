@@ -19,9 +19,6 @@ use dotcore_proto::{
     google::protobuf::Timestamp,
 };
 
-/// Maximum age of a capability observation accepted for deployment admission or launch.
-pub const TARGET_CAPABILITY_MAX_AGE: Duration = Duration::from_secs(60);
-
 use dotcore_domain::{
     Accelerator, ExecutionPlatform, MemoryArchitecture, NvidiaDriverVersion,
     SelectableAcceleratorDevice, selected_accelerator_facts,
@@ -774,10 +771,14 @@ pub fn timestamp_to_system_time(timestamp: &Timestamp) -> Option<SystemTime> {
         .checked_add(Duration::from_nanos(u64::from(nanos)))
 }
 
+/// Whether a capability observation taken at `observed_at` is still young enough at `now` for
+/// deployment admission or launch, under the production capability age.
 pub fn observation_is_fresh(observed_at: Option<SystemTime>, now: SystemTime) -> bool {
     observed_at
         .and_then(|observed_at| now.duration_since(observed_at).ok())
-        .is_some_and(|age| age <= TARGET_CAPABILITY_MAX_AGE)
+        .is_some_and(|age| {
+            age <= dotcore_domain::timing::Timing::production().target_capability_max_age
+        })
 }
 
 fn insert_unambiguous_observation<T>(

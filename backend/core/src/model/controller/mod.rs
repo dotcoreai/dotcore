@@ -626,6 +626,9 @@ pub(super) struct InferenceControllerInner<D, S, R> {
     /// Cancelled when the realizer's owner shuts it down, cancelling node-local work in flight
     /// such as a development engine evaluation.
     shutdown: tokio_util::sync::CancellationToken,
+
+    /// When the observer runs its next reconciliation pass.
+    reconcile: dotcore_domain::timing::ReconcileSchedule,
 }
 
 impl<D, S> InferenceController<D, S> {

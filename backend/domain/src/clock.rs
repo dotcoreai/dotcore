@@ -89,12 +89,17 @@ mod manual {
     use super::{Clock, ClockSleep};
 
     /// Test clock: real time plus an offset that only grows, for both monotonic and wall time.
+    /// Its wall time starts at the host's, or at a fixed origin, so wall-aligned schedules start
+    /// at a known phase.
     ///
     /// Clones share one offset, so a test keeps a handle to the clock it composes a backend with
     /// and advances that backend's time through it.
     #[derive(Clone)]
     pub struct ManualClock {
         offset: Arc<watch::Sender<Duration>>,
+
+        /// Wall time at `origin.1`, when the clock has a fixed origin.
+        origin: Option<(SystemTime, Instant)>,
     }
 
     impl ManualClock {
@@ -102,6 +107,15 @@ mod manual {
         pub fn new() -> Self {
             Self {
                 offset: Arc::new(watch::Sender::new(Duration::ZERO)),
+                origin: None,
+            }
+        }
+
+        /// Creates a clock whose wall time starts at `wall` and then follows real time.
+        pub fn starting_at(wall: SystemTime) -> Self {
+            Self {
+                origin: Some((wall, Instant::now())),
+                ..Self::new()
             }
         }
 
@@ -128,7 +142,11 @@ mod manual {
         }
 
         fn wall_now(&self) -> SystemTime {
-            SystemTime::now() + self.offset()
+            let real = match self.origin {
+                Some((wall, started)) => wall + started.elapsed(),
+                None => SystemTime::now(),
+            };
+            real + self.offset()
         }
 
         fn sleep_until(&self, deadline: Instant) -> ClockSleep {
@@ -401,6 +419,18 @@ mod tests {
         let wall = clock.wall_now();
         assert!(wall >= before + Duration::from_secs(60));
         assert!(wall <= SystemTime::now() + Duration::from_secs(60));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_fixed_origin_starts_wall_time_there_and_follows_real_time_and_advances() {
+        let origin = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let clock = ManualClock::starting_at(origin);
+        assert_eq!(clock.wall_now(), origin);
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        clock.advance(Duration::from_secs(3));
+
+        assert_eq!(clock.wall_now(), origin + Duration::from_secs(5));
     }
 
     #[test]

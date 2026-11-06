@@ -24,7 +24,7 @@ use base64::Engine as _;
 use dotcore::{
     composition::{IsolatedApplicationService, IsolatedModelService, SelectedModelService},
     model::engine::declaration_validator,
-    testing::{LIVENESS_TTL, SimulatedInferenceTestSupport, relax_sync_for_tests},
+    testing::{SimulatedInferenceTestSupport, Timing, relax_sync_for_tests},
 };
 use dotcore_domain::hardware_observation::HardwareSnapshotSource;
 use dotcore_domain::{
@@ -74,9 +74,9 @@ use dotcore_site::{
     membership::{
         OfflineSite,
         join::{
-            DEFAULT_JOIN_CONNECT_TIMEOUT, JoinApproval, JoinConnection, JoinDecision, JoinHost,
-            JoinHostLimits, JoinHostSettings, JoinProposal, JoinReview, JoinToken,
-            JoinedNodeFolder, NodeKey, RejoinProposal, RejoiningNodeFolder,
+            JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostLimits, JoinHostSettings,
+            JoinProposal, JoinReview, JoinToken, JoinedNodeFolder, NodeKey, RejoinProposal,
+            RejoiningNodeFolder,
         },
     },
     node::{
@@ -308,7 +308,7 @@ where
     F: std::future::Future<Output = ()> + Send + 'static,
 {
     wait_for_site_store_release(&site_paths).await;
-    dotcore::composition::Backend::prepare(
+    dotcore::composition::Backend::prepare_with_test_support(
         dotcore::composition::BackendConfiguration {
             site_paths,
             telemetry_directory: None,
@@ -323,6 +323,7 @@ where
             ),
         },
         shutdown,
+        dotcore::composition::BackendTestSupport::test_development(),
     )
     .await
 }
@@ -341,7 +342,7 @@ where
 {
     wait_for_site_store_release(&site_paths).await;
     let loopback: std::net::IpAddr = std::net::Ipv4Addr::LOCALHOST.into();
-    dotcore::composition::Backend::prepare(
+    dotcore::composition::Backend::prepare_with_test_support(
         dotcore::composition::BackendConfiguration {
             site_paths,
             telemetry_directory: None,
@@ -356,6 +357,7 @@ where
             ),
         },
         shutdown,
+        dotcore::composition::BackendTestSupport::test_development(),
     )
     .await
 }
@@ -398,9 +400,31 @@ where
     .await
 }
 
+/// Prepares a development manager backend on loopback that collects hardware from `collector`.
 pub async fn prepare_backend_with_snapshot_collector<F, C>(
     site_paths: dotcore_domain::SitePaths,
     shutdown: F,
+    collector: C,
+) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+    C: HardwareSnapshotSource + Send + Sync + 'static,
+{
+    prepare_backend_with_test_support_and_snapshot_collector(
+        site_paths,
+        shutdown,
+        dotcore::composition::BackendTestSupport::test_development(),
+        collector,
+    )
+    .await
+}
+
+/// Prepares a manager backend on loopback with explicit test controls that collects hardware
+/// from `collector`.
+pub async fn prepare_backend_with_test_support_and_snapshot_collector<F, C>(
+    site_paths: dotcore_domain::SitePaths,
+    shutdown: F,
+    test_support: dotcore::composition::BackendTestSupport,
     collector: C,
 ) -> dotcore::composition::CompositionResult<dotcore::composition::Backend>
 where
@@ -425,7 +449,7 @@ where
             ),
         },
         shutdown,
-        dotcore::composition::BackendTestSupport::development(),
+        test_support,
         collector,
     )
     .await
@@ -668,7 +692,7 @@ impl TwoProcessObservationHarness {
     /// Two half-lease advances each wait until every other node has just renewed, so only the
     /// silent worker expires. The manager must run with `manual_clock`.
     pub async fn expire_silent_worker(&mut self) {
-        let half_lease = LIVENESS_TTL / 2;
+        let half_lease = self.manager.controls.timing.node_liveness_ttl / 2;
         self.advance_past_silent_worker(half_lease).await;
         self.advance_past_silent_worker(half_lease + Duration::from_millis(1))
             .await;
@@ -1267,12 +1291,8 @@ fn complete_json_records(bytes: &[u8]) -> Vec<serde_json::Value> {
 }
 
 /// Test-only controls the harness passes to one backend subprocess when it starts.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct ProcessTestControls {
-    /// Age after which a worker treats its latest infrastructure collection as stale, instead of
-    /// the production maximum age.
-    pub capability_max_age: Option<Duration>,
-
     /// Holds every simulated inference attempt after admission until it is cancelled; a streaming
     /// attempt first sends this many events.
     pub held_inference_stream_events: Option<usize>,
@@ -1305,17 +1325,8 @@ pub struct ProcessTestControls {
     /// [`ProcessCommand::AdvanceClock`], instead of system time.
     pub manual_clock: bool,
 
-    /// Silence after which a manager treats a node as no longer live, instead of the production
-    /// silence bound.
-    pub liveness_silence_bound: Option<Duration>,
-
-    /// Pause between a manager's publications of a node's unchanged view, instead of the
-    /// production interval.
-    pub view_republish_interval: Option<Duration>,
-
-    /// Time a node's accepted view keeps permitting runtime actions after its latest
-    /// publication, instead of the production action lease.
-    pub node_action_lease: Option<Duration>,
+    /// Every behavior duration of the process; the test timing unless the test adjusts it.
+    pub timing: Timing,
 }
 
 impl ProcessTestControls {
@@ -1324,6 +1335,22 @@ impl ProcessTestControls {
         Self {
             manual_clock: true,
             ..Self::default()
+        }
+    }
+}
+
+impl Default for ProcessTestControls {
+    fn default() -> Self {
+        Self {
+            held_inference_stream_events: None,
+            local_development_store_path: None,
+            site_catalog: &[],
+            application_endpoint_port: None,
+            native_host: false,
+            shared_artifact_cache: false,
+            model_transition_gates: false,
+            manual_clock: false,
+            timing: Timing::test(),
         }
     }
 }
@@ -1658,9 +1685,9 @@ pub async fn run_external_backend_process() {
         server.private_listener =
             dotcore::composition::ManagerPrivateListener::SiteDefault { port };
     }
-    let test_support = settings.test_support();
+    let manual_clock = settings.manual_clock();
+    let test_support = settings.test_support(manual_clock.clone());
     let simulated_runtime = test_support.simulated_runtime.clone();
-    let manual_clock = test_support.clock.clone();
     let backend = dotcore::composition::Backend::prepare_with_test_support(
         configuration,
         std::future::pending(),
@@ -1691,7 +1718,7 @@ pub async fn run_external_backend_process() {
         let liveness = backend
             .node_liveness()
             .expect("only a site manager runs on a manual clock");
-        node_liveness::ManagerClock::new(clock, liveness)
+        node_liveness::ManagerClock::new(clock, liveness, settings.timing())
     });
     settings.serve_commands(simulated_runtime, manager_clock);
     backend.serve().await.expect("serve external backend");
@@ -2221,7 +2248,7 @@ where
                 let connection = JoinConnection::connect(
                     token.clone(),
                     manager_host,
-                    DEFAULT_JOIN_CONNECT_TIMEOUT,
+                    dotcore::testing::Timing::test().join_connect_timeout,
                 )
                 .await
                 .expect("connect to join host");
@@ -2640,7 +2667,7 @@ impl RunningBackend {
             dotcore::composition::BackendTestSupport {
                 simulated_runtime: simulated_runtime_test_support,
                 simulated_inference: simulated_inference_test_support,
-                ..Default::default()
+                ..dotcore::composition::BackendTestSupport::test()
             },
         )
         .await

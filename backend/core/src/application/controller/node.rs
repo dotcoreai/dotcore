@@ -91,6 +91,9 @@ pub(crate) struct NodeApplicationComposition {
 
     /// Preparation logs the node keeps for its deployments, removed with their cleanup.
     pub(crate) preparation_logs: PreparationLogs,
+
+    /// When the realizer's observer runs its next reconciliation pass.
+    pub(crate) reconcile: dotcore_domain::timing::ReconcileSchedule,
 }
 
 /// Composed node apps-controller realizer, the status owner reporting what it realized, and
@@ -116,6 +119,7 @@ impl NodeApplicationRealizer {
             artifact_manager,
             publication_host,
             preparation_logs,
+            reconcile,
         } = composition;
         if publication_host.is_unspecified() {
             return Err(configuration(
@@ -158,6 +162,7 @@ impl NodeApplicationRealizer {
                     reconciled: reconciled.clone(),
                 },
                 accelerator_attribution: Some(accelerator_attribution.clone()),
+                reconcile,
             },
         );
         Ok(Self {
@@ -2664,6 +2669,7 @@ mod tests {
                 artifact_manager: artifacts,
                 publication_host: Ipv4Addr::LOCALHOST,
                 preparation_logs: self.preparation_logs(),
+                reconcile: dotcore_domain::timing::Timing::production().application_reconcile,
             })
             .expect("node realizer")
         }

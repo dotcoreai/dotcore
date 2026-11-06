@@ -45,7 +45,7 @@ use dotcore_site::{
             NodeControlObservations, NodeControlSession, NodeControlSessionConfiguration,
             NodeControlSessionTask, NodeControlTransport,
         },
-        target_inventory::{TARGET_CAPABILITY_MAX_AGE, TargetCapabilitySource},
+        target_inventory::TargetCapabilitySource,
     },
     store::FileNodeState,
     view::{
@@ -249,9 +249,7 @@ pub(super) async fn compose_node(
         node_id.clone(),
         incarnation.clone(),
         manager_session,
-        test_support
-            .node_action_lease
-            .unwrap_or(Duration::from_secs(90)),
+        test_support.timing.node_action_lease,
     )
     .map_err(|error| {
         CompositionError::composition_with_source("prepare accepted node view", error)
@@ -281,6 +279,7 @@ pub(super) async fn compose_node(
         &site_id,
         &site_node_id,
         test_support.native_launcher.as_deref(),
+        test_support.timing.native_port_settle_window,
         test_support.simulated_runtime.clone(),
         declared_machine,
     )?;
@@ -303,9 +302,7 @@ pub(super) async fn compose_node(
         &installed_targets,
         &runtimes,
         observation.reporter.observations(),
-        test_support
-            .target_capability_max_age
-            .unwrap_or(TARGET_CAPABILITY_MAX_AGE),
+        test_support.timing.target_capability_max_age,
     )
     .await?;
     // One set of sources serves both pinning and building, so a node always builds the store
@@ -401,6 +398,7 @@ pub(super) async fn compose_node(
     let model_construction = Arc::clone(&model_lifecycle.construction);
     let model_memory_writer = Arc::clone(&model_lifecycle.memory_writer);
     let model_shutdown = model_lifecycle.shutdown.clone();
+    let model_reconcile = test_support.timing.model_reconcile;
     let model_root_keeper = Arc::clone(&model_lifecycle.root_keeper);
     let model_preparation_logs = preparation_logs.clone();
     let model_start = Box::new(move || {
@@ -429,6 +427,7 @@ pub(super) async fn compose_node(
                         shutdown: model_shutdown.clone(),
                         preparation_logs: model_preparation_logs.clone(),
                         workload_lifecycle: model_workload_lifecycle.clone(),
+                        reconcile: model_reconcile,
                     },
                     model_state.clone(),
                     model_runtimes.clone(),
@@ -463,6 +462,7 @@ pub(super) async fn compose_node(
                 store_paths: test_support.local_development_store_paths.clone(),
             },
             preparation_logs,
+            reconcile: test_support.timing.application_reconcile,
         },
         publication_host,
     )
@@ -861,6 +861,7 @@ struct ApplicationRealizerSources {
     nix: dotcore_artifact::NixSources,
     fixed_pins: FixedLaunchPins,
     preparation_logs: crate::deployment_logs::PreparationLogs,
+    reconcile: dotcore_domain::timing::ReconcileSchedule,
 }
 
 async fn application_realizer_for(
@@ -876,6 +877,7 @@ async fn application_realizer_for(
         nix,
         fixed_pins,
         preparation_logs,
+        reconcile,
     } = sources;
     let application_targets = targets
         .iter()
@@ -939,6 +941,7 @@ async fn application_realizer_for(
             artifact_manager,
             publication_host,
             preparation_logs,
+            reconcile,
         },
     )
     .map(Some)
@@ -1094,21 +1097,7 @@ impl dotcore_artifact::PinnedStorePaths for NodeStorePins {
 fn node_control_configuration(
     test_support: &BackendTestSupport,
 ) -> Result<NodeControlSessionConfiguration, CompositionError> {
-    let defaults = NodeControlSessionConfiguration::default();
-    if test_support.node_heartbeat_interval.is_none()
-        && test_support.manager_silence_bound.is_none()
-    {
-        return Ok(defaults);
-    }
-    NodeControlSessionConfiguration::new(
-        test_support
-            .node_heartbeat_interval
-            .unwrap_or(defaults.heartbeat_interval()),
-        test_support
-            .manager_silence_bound
-            .unwrap_or(defaults.manager_silence_bound()),
-    )
-    .map_err(|error| {
+    NodeControlSessionConfiguration::new(&test_support.timing).map_err(|error| {
         CompositionError::composition_with_source("configure the node control stream", error)
     })
 }
@@ -1140,10 +1129,7 @@ mod tests {
         },
     };
     use dotcore_runtime_backends::simulated::InMemoryRuntimeBackend;
-    use dotcore_site::node::{
-        agent::{NodeCollection, NodeObservationFeed},
-        target_inventory::TARGET_CAPABILITY_MAX_AGE,
-    };
+    use dotcore_site::node::agent::{NodeCollection, NodeObservationFeed};
     use tokio::sync::Notify;
 
     use super::{NodeStorePins, construct_with_retry, target_capability_source};
@@ -1264,7 +1250,7 @@ mod tests {
             std::slice::from_ref(&node_target),
             &builder.build().expect("node targets"),
             observations.clone(),
-            TARGET_CAPABILITY_MAX_AGE,
+            dotcore_domain::timing::Timing::production().target_capability_max_age,
         )
         .await
         .expect("node capability source");
@@ -1297,7 +1283,9 @@ mod tests {
         observations.publish(
             NodeCollection::without_processes(snapshot.clone()),
             1,
-            std::time::SystemTime::now() - TARGET_CAPABILITY_MAX_AGE - Duration::from_secs(1),
+            std::time::SystemTime::now()
+                - dotcore_domain::timing::Timing::production().target_capability_max_age
+                - Duration::from_secs(1),
         );
 
         assert_eq!(

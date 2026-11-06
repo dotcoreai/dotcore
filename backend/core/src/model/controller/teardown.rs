@@ -111,7 +111,7 @@ where
         site: &Site,
         desired: &ModelDeploymentDeclaration,
         observation: Option<TargetObservation>,
-    ) -> Result<super::reconciliation::ReconciliationState, ModelLifecycleError> {
+    ) -> Result<dotcore_domain::timing::ReconciliationState, ModelLifecycleError> {
         let span = info_span!(
             "model_teardown",
             operation = "model_teardown",
@@ -181,11 +181,11 @@ enum TeardownOutcome {
 impl TeardownOutcome {
     fn into_result(
         self,
-    ) -> Result<super::reconciliation::ReconciliationState, ModelLifecycleError> {
+    ) -> Result<dotcore_domain::timing::ReconciliationState, ModelLifecycleError> {
         match self {
-            Self::Settled => Ok(super::reconciliation::ReconciliationState::Settled),
+            Self::Settled => Ok(dotcore_domain::timing::ReconciliationState::Settled),
             Self::Pending | Self::RuntimeFailure(_) => {
-                Ok(super::reconciliation::ReconciliationState::Pending)
+                Ok(dotcore_domain::timing::ReconciliationState::Pending)
             }
             Self::StateError(error) => Err(error),
         }
@@ -950,7 +950,7 @@ mod tests {
                     }),
                 )
                 .await,
-            Ok(super::super::reconciliation::ReconciliationState::Settled)
+            Ok(dotcore_domain::timing::ReconciliationState::Settled)
         ));
         let evidence = current
             .node_model_cleanup_evidence()
@@ -1118,6 +1118,7 @@ mod tests {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs: PreparationLogs::on_system_clock(directory),
                 workload_lifecycle: workload_lifecycle.clone(),
+                reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
             },
             current.clone(),
             builder.build().expect("Runtime map"),
@@ -1385,6 +1386,7 @@ mod tests {
             serving_targets_source,
             accelerator_attribution: None,
             shutdown: tokio_util::sync::CancellationToken::new(),
+            reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
         }
     }
 }

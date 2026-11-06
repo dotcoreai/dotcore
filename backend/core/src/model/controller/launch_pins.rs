@@ -762,7 +762,6 @@ mod tests {
         model::controller::{
             ArtifactDependencies, ModelControllerDependencies, ModelRealizer,
             NodeModelRealizerDependencies,
-            reconciliation::RECONCILE_SAFETY_SCAN_CADENCE,
             serving_targets::ServingTargetsPublisher,
             test_support::{
                 ProjectedTestInput, test_desired_deployment, test_engine_integrations, test_site,
@@ -1214,7 +1213,10 @@ mod tests {
 
             while node.retained().len() < 2 {
                 assert!(
-                    declared.elapsed() < RECONCILE_SAFETY_SCAN_CADENCE,
+                    declared.elapsed()
+                        < dotcore_domain::timing::Timing::production()
+                            .model_reconcile
+                            .settled,
                     "round {round}: both deployments were not pinned before the safety scan: {:?}",
                     node.retained()
                 );
@@ -1693,6 +1695,7 @@ mod tests {
                     serving_targets: ServingTargetsPublisher::new().0,
                     shutdown: self.shutdown.clone(),
                     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+                    reconcile: dotcore_domain::timing::Timing::production().model_reconcile,
                     preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                         self._directory.path(),
                     ),

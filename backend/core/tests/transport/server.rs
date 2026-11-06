@@ -647,10 +647,17 @@ async fn manager_backend_server_exposes_site_inventory_and_current_snapshot_with
     let snapshot = local_snapshot();
     let (collector, probe) = CountingCollector::new(snapshot.clone());
     let (shutdown, shutdown_signal) = oneshot::channel();
-    let backend = support::prepare_backend_with_snapshot_collector(
+    // A frozen clock never reaches the next wall-aligned hardware refresh, so the collection
+    // count only moves when a request collects.
+    let clock = dotcore::testing::VirtualClock::starting_at(SystemTime::now());
+    let backend = support::prepare_backend_with_test_support_and_snapshot_collector(
         configuration,
         async move {
             let _ = shutdown_signal.await;
+        },
+        dotcore::composition::BackendTestSupport {
+            clock: Some(Arc::new(clock)),
+            ..dotcore::composition::BackendTestSupport::test_development()
         },
         collector,
     )
@@ -1040,7 +1047,7 @@ async fn manager_backend_server_serves_distribution_percentiles() {
         },
         dotcore::composition::BackendTestSupport {
             metric_recorder: Some(recorder.clone()),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1188,7 +1195,7 @@ async fn manager_backend_server_serves_distribution_percentiles() {
 #[tokio::test]
 async fn manager_backend_server_streams_metric_watches() {
     let root = support::temporary_fast_fixture();
-    let clock = dotcore_domain::clock::ManualClock::new();
+    let clock = dotcore::testing::ManualClock::new();
     let recorder = dotcore::composition::MetricRecorderSlot::default();
     let (shutdown, shutdown_signal) = oneshot::channel();
     let backend = support::prepare_backend_with_test_support(
@@ -1197,9 +1204,9 @@ async fn manager_backend_server_streams_metric_watches() {
             let _ = shutdown_signal.await;
         },
         dotcore::composition::BackendTestSupport {
-            clock: Some(clock.clone()),
+            clock: Some(Arc::new(clock.clone())),
             metric_recorder: Some(recorder.clone()),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1361,7 +1368,7 @@ async fn manager_backend_server_streams_metric_watches() {
 #[tokio::test]
 async fn manager_backend_server_streams_resource_watches() {
     let root = support::temporary_fast_fixture();
-    let clock = dotcore_domain::clock::ManualClock::new();
+    let clock = dotcore::testing::ManualClock::new();
     let (shutdown, shutdown_signal) = oneshot::channel();
     let backend = support::prepare_backend_with_test_support(
         support::configuration(&root),
@@ -1369,9 +1376,9 @@ async fn manager_backend_server_streams_resource_watches() {
             let _ = shutdown_signal.await;
         },
         dotcore::composition::BackendTestSupport {
-            clock: Some(clock.clone()),
+            clock: Some(Arc::new(clock.clone())),
             simulated_runtime: Some(SimulatedRuntimeTestSupport::with_stop_failures(0)),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1517,7 +1524,7 @@ async fn manager_backend_server_streams_resource_watches() {
 /// Next watch response, advancing the manual clock one second at a time until a tick publishes.
 async fn next_resource_event(
     watch: &mut GrpcWebStream,
-    clock: &dotcore_domain::clock::ManualClock,
+    clock: &dotcore::testing::ManualClock,
 ) -> WatchResourcesResponse {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {

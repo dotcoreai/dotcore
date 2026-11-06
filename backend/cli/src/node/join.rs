@@ -27,8 +27,8 @@ use dotcore_site::{
         },
     },
     membership::join::{
-        DEFAULT_JOIN_CONNECT_TIMEOUT, JoinConnection, JoinProposal, JoinToken, JoinedNodeFolder,
-        NodeJoinError, NodeKey, RejoinProposal, RejoiningNodeFolder,
+        JoinConnection, JoinProposal, JoinToken, JoinedNodeFolder, NodeJoinError, NodeKey,
+        RejoinProposal, RejoiningNodeFolder,
     },
     node::{folder::WORKER_MANIFEST_FILE, hostname::local_node_name},
 };
@@ -574,11 +574,13 @@ async fn connect_to_manager(
     if let Some(host) = &manager_host {
         let _ = tried.set_host(Some(&host.to_string()));
     }
-    JoinConnection::connect(token.clone(), manager_host, DEFAULT_JOIN_CONNECT_TIMEOUT)
-        .await
-        .map_err(|error| {
-            join_failure(error).context(format!("cannot reach the manager at {tried}"))
-        })
+    JoinConnection::connect(
+        token.clone(),
+        manager_host,
+        dotcore_domain::timing::Timing::production().join_connect_timeout,
+    )
+    .await
+    .map_err(|error| join_failure(error).context(format!("cannot reach the manager at {tried}")))
 }
 
 /// Reports whether a connect failure means the manager could not be reached (timeout or

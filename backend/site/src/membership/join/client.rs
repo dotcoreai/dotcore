@@ -20,7 +20,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::{BindAddress, HostResolver, SiteNodeHost, SystemHostResolver};
+use dotcore_domain::{BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, timing::Timing};
 use dotcore_proto::dotcore::node::v1::{
     CommitRequest, DeclaredMachine, JoinResponse, node_join_service_client::NodeJoinServiceClient,
 };
@@ -52,12 +52,6 @@ use crate::{
     },
     private_transport::exact_node_identity,
 };
-
-/// Default bound on reaching the join listener and completing its TLS handshake.
-pub const DEFAULT_JOIN_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Default bound on the commit round trip; past it the outcome is unknown.
-pub const DEFAULT_JOIN_COMMIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// An authenticated connection to a manager's join listener.
 ///
@@ -129,7 +123,7 @@ impl JoinConnection {
             manager_host,
             client: NodeJoinServiceClient::new(channel),
             host,
-            commit_timeout: DEFAULT_JOIN_COMMIT_TIMEOUT,
+            commit_timeout: Timing::production().join_commit_timeout,
             resolver: Arc::new(SystemHostResolver),
             filesystem: Arc::new(StdFileSystem),
         })

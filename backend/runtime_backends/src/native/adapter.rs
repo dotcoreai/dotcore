@@ -17,7 +17,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use dotcore_domain::{ExecutionPlatform, host_process::HostProcessIdentity};
+use dotcore_domain::{ExecutionPlatform, host_process::HostProcessIdentity, timing::Timing};
 use dotcore_launcher::{
     supervisor::{ScannedWorkload, Supervisor, SupervisorError, WorkloadState},
     workload::{ExitStatus, LaunchSpec, Lifetime, PROCESS_FILE, ProcessRecord, StoredRecord},
@@ -44,11 +44,6 @@ use super::{
 /// Canonical runtime backend identifier for native workloads.
 pub const BACKEND_ID: &str = "runtime/native";
 
-/// How long a create watches a new workload for an early exit caused by a taken port by
-/// default; engines bind their service ports early in startup, and a later exit is reported as
-/// an ordinary stop.
-const PORT_SETTLE_TIMEOUT: Duration = Duration::from_secs(1);
-
 /// Interval between the checks of a new workload while its ports settle.
 const PORT_SETTLE_POLL: Duration = Duration::from_millis(50);
 
@@ -62,13 +57,15 @@ pub struct NativeRuntimeBackend {
     pub(super) supervisor: Supervisor,
     /// Owned workloads found by discovery or created here, by workload id.
     known: Mutex<BTreeMap<String, KnownWorkload>>,
-    /// How long a create watches a new workload for an early exit caused by a taken port.
-    port_settle_timeout: Duration,
+    /// How long a create watches a new workload for an early exit caused by a taken port;
+    /// engines bind their service ports early in startup, and a later exit is reported as an
+    /// ordinary stop.
+    port_settle_window: Duration,
 }
 
 impl NativeRuntimeBackend {
     /// Opens the execution target's state directory and binds workloads to the launcher binary
-    /// at `launcher`.
+    /// at `launcher`, watching new workloads' ports for the production settle window.
     pub fn new(
         config: NativeRuntimeConfig,
         launcher: PathBuf,
@@ -88,8 +85,14 @@ impl NativeRuntimeBackend {
             state_root,
             supervisor,
             known: Mutex::new(BTreeMap::new()),
-            port_settle_timeout: PORT_SETTLE_TIMEOUT,
+            port_settle_window: Timing::production().native_port_settle_window,
         })
+    }
+
+    /// Watches each new workload's ports for `window` instead, as the backend's timing sets it.
+    pub fn with_port_settle_window(mut self, window: Duration) -> Self {
+        self.port_settle_window = window;
+        self
     }
 
     /// Counts every workload directory of this execution target, including creates in flight and
@@ -137,14 +140,6 @@ impl NativeRuntimeBackend {
                 .collect(),
             loopback_endpoints: known.serving_identity().loopback_endpoints,
         })
-    }
-
-    /// Replaces how long a create watches a new workload for an early exit caused by a taken
-    /// port, so tests whose workloads keep running do not wait the whole production window.
-    #[cfg(any(test, feature = "test-support"))]
-    pub(super) fn with_port_settle_timeout(mut self, timeout: Duration) -> Self {
-        self.port_settle_timeout = timeout;
-        self
     }
 
     async fn discover(&self) -> Result<Vec<WorkloadObservation>, RuntimeBackendError> {
@@ -405,7 +400,7 @@ impl NativeRuntimeBackend {
         if ports.is_empty() {
             return Ok(());
         }
-        let deadline = tokio::time::Instant::now() + self.port_settle_timeout;
+        let deadline = tokio::time::Instant::now() + self.port_settle_window;
         loop {
             if matches!(
                 self.workload_state(id).await?,
@@ -1371,7 +1366,8 @@ mod tests {
             },
             launcher_binary(),
         )
-        .expect("copied backend");
+        .expect("copied backend")
+        .with_port_settle_window(Timing::test().native_port_settle_window);
 
         let discovered = copied.discover_workloads().await.expect("discover copy");
 
@@ -1480,7 +1476,7 @@ mod tests {
     async fn an_exit_on_a_taken_port_is_a_retryable_create_failure() {
         let mut native = Native::new("exit 1");
         // A loaded test host can start the fake engine slower than the production window.
-        native.backend.port_settle_timeout = Duration::from_secs(20);
+        native.backend.port_settle_window = Duration::from_secs(20);
         let launch = native.fixture.launch();
         let id = workload_id(&launch.correlation);
         let taken = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("taken port");
@@ -2259,6 +2255,7 @@ mod tests {
             launcher_binary(),
         )
         .expect("native backend")
+        .with_port_settle_window(Timing::test().native_port_settle_window)
     }
 
     /// Identity of a running workload with the loopback bindings of its assigned ports.

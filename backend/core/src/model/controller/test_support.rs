@@ -1276,7 +1276,7 @@ impl AcquisitionControllerHarness {
     pub(super) fn start_reconciliation(
         &self,
     ) -> tokio::task::JoinHandle<
-        Result<super::reconciliation::ReconciliationState, ModelLifecycleError>,
+        Result<dotcore_domain::timing::ReconciliationState, ModelLifecycleError>,
     > {
         for (deployment_id, blocked) in self
             .model_file_blocks
@@ -1304,7 +1304,7 @@ impl AcquisitionControllerHarness {
         for _ in 0..10 {
             if matches!(
                 self.controller.inner.reconcile().await?,
-                super::reconciliation::ReconciliationState::Settled
+                dotcore_domain::timing::ReconciliationState::Settled
             ) {
                 return Ok(());
             }
