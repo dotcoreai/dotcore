@@ -9,10 +9,14 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    sync::Arc,
     time::SystemTime,
 };
 
-use dotcore_domain::{Accelerator, ExecutionPlatform, ExecutionPlatformError};
+use dotcore_domain::{
+    Accelerator, ExecutionPlatform, ExecutionPlatformError, clock::SystemClock,
+    hardware_observation::HardwareSnapshotSource,
+};
 use dotcore_proto::{
     dotcore::{
         node::v1::{
@@ -27,9 +31,9 @@ use dotcore_proto::{
     },
     google::protobuf::Empty,
 };
-use serde::{Deserialize, Deserializer, de::Error as _};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-use crate::hardware::timestamp_from;
+use crate::hardware::{SystemHardwareSnapshotCollector, timestamp_from};
 
 /// The named machines compiled into the binary: each name with its YAML description.
 const NAMED_MACHINES: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/named_machines.rs"));
@@ -40,15 +44,22 @@ const NAMED_GPUS: &[(&str, &str)] = include!(concat!(env!("OUT_DIR"), "/named_gp
 /// The host simulated GPUs are put on, as YAML.
 const SIMULATED_HOST: &str = include_str!("../simulated/host.yaml");
 
+/// The name a description of the local host is given. It never derives from the host's own name,
+/// so the description can be shared.
+const LOCAL_MACHINE_NAME: &str = "local-machine";
+
 /// One machine's hardware: its platform, host memory and GPUs. It renders the hardware snapshot
 /// the machine reports while some workloads run on it.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MachineDescription {
     #[serde(skip)]
     name: String,
 
-    #[serde(deserialize_with = "deserialize_platform")]
+    #[serde(
+        deserialize_with = "deserialize_platform",
+        serialize_with = "serialize_platform"
+    )]
     platform: ExecutionPlatform,
 
     cpu_count: u32,
@@ -141,6 +152,21 @@ pub enum MachineError {
         source: ExecutionPlatformError,
     },
 
+    #[error("this host's platform is not supported")]
+    LocalPlatform(#[source] ExecutionPlatformError),
+
+    #[error("this host's hardware facts are unavailable, so it can't be described")]
+    LocalHostUnavailable,
+
+    #[error("the host's GPU {gpu_id:?} can't be described: {reason}")]
+    LocalGpu {
+        gpu_id: String,
+        reason: &'static str,
+    },
+
+    #[error("machine description can't be written as YAML")]
+    Serialize(#[source] serde_yaml_ng::Error),
+
     #[error("stored machine description {machine:?} has an invalid platform")]
     StoredPlatform {
         machine: String,
@@ -156,6 +182,71 @@ pub enum MachineError {
 }
 
 impl MachineDescription {
+    /// Describes this host from a fresh reading of its hardware, under a fixed name that is not
+    /// the host's name.
+    pub fn from_local_host() -> Result<Self, MachineError> {
+        // Rust reports macOS as "macos"; platforms call it darwin.
+        let operating_system = match std::env::consts::OS {
+            "macos" => "darwin",
+            other => other,
+        };
+        let platform = ExecutionPlatform::normalize(operating_system, std::env::consts::ARCH)
+            .map_err(MachineError::LocalPlatform)?;
+        let snapshot =
+            SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(SystemClock))
+                .collect_snapshot();
+        Self::from_snapshot(platform, &snapshot)
+    }
+
+    /// Describes a host from a collected hardware snapshot and the platform it runs. The host's
+    /// used memory at collection is the idle figure, as is each dedicated GPU's used memory; the
+    /// snapshot's host name and filesystems are dropped. A vendor whose facts are unavailable
+    /// contributes no GPUs.
+    pub fn from_snapshot(
+        platform: ExecutionPlatform,
+        snapshot: &HardwareSnapshot,
+    ) -> Result<Self, MachineError> {
+        let Some(host_observation::Result::Facts(host)) = snapshot
+            .host
+            .as_ref()
+            .and_then(|observation| observation.result.as_ref())
+        else {
+            return Err(MachineError::LocalHostUnavailable);
+        };
+
+        let gpus = snapshot
+            .accelerators
+            .iter()
+            .filter_map(|observation| match observation.result.as_ref() {
+                Some(accelerator_observation::Result::Facts(set)) => Some(set.facts.iter()),
+                _ => None,
+            })
+            .flatten()
+            .map(GpuDescription::from_facts)
+            .collect::<Result<_, MachineError>>()?;
+
+        let machine = Self {
+            name: LOCAL_MACHINE_NAME.to_owned(),
+            platform,
+            cpu_count: host.cpu_count,
+            host_memory: HostMemoryDescription {
+                total_bytes: host.total_memory_bytes,
+                idle_used_bytes: host
+                    .total_memory_bytes
+                    .saturating_sub(host.available_memory_bytes),
+            },
+            gpus,
+        };
+        machine.validate()?;
+        Ok(machine)
+    }
+
+    /// Writes the description as the YAML form named machines are written in, which
+    /// `from_yaml` reads back. The name is not part of it.
+    pub fn to_yaml(&self) -> Result<String, MachineError> {
+        serde_yaml_ng::to_string(self).map_err(MachineError::Serialize)
+    }
+
     /// Returns the name of every machine compiled into the binary, in a stable order.
     pub fn named_machines() -> impl Iterator<Item = &'static str> {
         NAMED_MACHINES.iter().map(|(name, _)| *name)
@@ -543,7 +634,7 @@ impl MachineDescription {
 }
 
 /// A machine's host memory: its total and what the system uses with no workload running.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct HostMemoryDescription {
     total_bytes: u64,
@@ -551,26 +642,63 @@ struct HostMemoryDescription {
 }
 
 /// One GPU of a machine, under the ID its vendor reports.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct GpuDescription {
     id: String,
 
-    #[serde(deserialize_with = "deserialize_vendor")]
+    #[serde(
+        deserialize_with = "deserialize_vendor",
+        serialize_with = "serialize_vendor"
+    )]
     vendor: Accelerator,
 
     model: String,
 
     /// Empty for Apple GPUs, whose Metal runtime ships with the operating system.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     driver_version: String,
 
     memory: GpuMemory,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     working_set_limit_bytes: Option<u64>,
 }
 
 impl GpuDescription {
+    /// Reads one GPU from the facts a collector reported for it. A dedicated GPU's used memory
+    /// is the memory its driver holds with no workload running.
+    fn from_facts(facts: &AcceleratorFacts) -> Result<Self, MachineError> {
+        let error = |reason| MachineError::LocalGpu {
+            gpu_id: facts.device_id.clone(),
+            reason,
+        };
+        let vendor = Accelerator::from_proto(facts.vendor)
+            .ok_or_else(|| error("has a vendor Dotcore can't describe"))?;
+        let memory = match facts.memory_architecture() {
+            AcceleratorMemoryArchitecture::Dedicated => GpuMemory::Dedicated {
+                total_bytes: facts
+                    .total_memory_bytes
+                    .ok_or_else(|| error("reports no total memory"))?,
+                reserved_bytes: facts
+                    .used_memory_bytes
+                    .ok_or_else(|| error("reports no used memory"))?,
+            },
+            AcceleratorMemoryArchitecture::Unified => GpuMemory::Unified,
+            AcceleratorMemoryArchitecture::Unspecified => {
+                return Err(error("has an unknown memory architecture"));
+            }
+        };
+        Ok(Self {
+            id: facts.device_id.clone(),
+            vendor,
+            model: facts.model.clone(),
+            driver_version: facts.driver_or_runtime_version.clone(),
+            memory,
+            working_set_limit_bytes: facts.working_set_limit_bytes,
+        })
+    }
+
     /// The facts this GPU reports with `workload_bytes` used by workloads on its dedicated memory.
     fn facts(&self, vendor_index: u32, workload_bytes: Option<u64>) -> AcceleratorFacts {
         let (architecture, total, used) = match self.memory {
@@ -602,7 +730,7 @@ impl GpuDescription {
 }
 
 /// How a GPU's memory relates to the host's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(tag = "architecture", rename_all = "camelCase")]
 enum GpuMemory {
     /// The GPU owns its memory; the driver holds part of it even with no workload running.
@@ -701,6 +829,17 @@ fn deserialize_platform<'de, D: Deserializer<'de>>(
     ExecutionPlatform::normalize(operating_system, architecture).map_err(D::Error::custom)
 }
 
+fn serialize_platform<S: Serializer>(
+    platform: &ExecutionPlatform,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    serializer.collect_str(platform)
+}
+
+fn serialize_vendor<S: Serializer>(vendor: &Accelerator, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(vendor_name(*vendor))
+}
+
 fn deserialize_vendor<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Accelerator, D::Error> {
     let value = String::deserialize(deserializer)?;
     Accelerator::from_catalog_name(&value).ok_or_else(|| {
@@ -713,6 +852,8 @@ fn deserialize_vendor<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Acce
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
+
+    use dotcore_proto::dotcore::observation::v1::FilesystemFacts;
 
     use super::*;
 
@@ -1254,6 +1395,138 @@ gpus:
             .expect("simulated machine")
             .render(workloads, observed_at())
             .expect("snapshot")
+    }
+
+    #[test]
+    fn local_host_snapshot_becomes_a_shareable_description_that_round_trips() {
+        let snapshot = HardwareSnapshot {
+            observed_at: None,
+            host: Some(HostObservation {
+                result: Some(host_observation::Result::Facts(HostFacts {
+                    host_name: "alice-workstation.example.ts.net".to_owned(),
+                    operating_system_or_kernel: "NixOS 26.05 /home/alice".to_owned(),
+                    cpu_count: 24,
+                    total_memory_bytes: 64 * GIB,
+                    available_memory_bytes: 60 * GIB,
+                    cached_memory_bytes: Some(2 * GIB),
+                    filesystems: vec![FilesystemFacts {
+                        mountpoint: "/home/alice".to_owned(),
+                        ..Default::default()
+                    }],
+                })),
+            }),
+            accelerators: vec![
+                vendor_observation(
+                    AcceleratorVendor::Nvidia,
+                    vec![AcceleratorFacts {
+                        vendor: AcceleratorVendor::Nvidia as i32,
+                        model: "NVIDIA GeForce RTX 5090".to_owned(),
+                        memory_architecture: AcceleratorMemoryArchitecture::Dedicated as i32,
+                        total_memory_bytes: Some(32_607 * MIB),
+                        driver_or_runtime_version: "595.71.05".to_owned(),
+                        device_id: "GPU-11111111-2222-3333-4444-555555555555".to_owned(),
+                        vendor_index: Some(0),
+                        used_memory_bytes: Some(497 * MIB),
+                        working_set_limit_bytes: None,
+                        supported_signals: Vec::new(),
+                    }],
+                ),
+                AcceleratorObservation {
+                    vendor: AcceleratorVendor::Apple as i32,
+                    result: Some(accelerator_observation::Result::Unavailable(
+                        Default::default(),
+                    )),
+                },
+            ],
+        };
+
+        let machine =
+            MachineDescription::from_snapshot(ExecutionPlatform::linux_amd64(), &snapshot)
+                .expect("description");
+        let yaml = machine.to_yaml().expect("yaml");
+
+        assert_eq!(
+            yaml,
+            format!(
+                "platform: linux/amd64
+cpuCount: 24
+hostMemory:
+  totalBytes: {}
+  idleUsedBytes: {}
+gpus:
+- id: GPU-11111111-2222-3333-4444-555555555555
+  vendor: nvidia
+  model: NVIDIA GeForce RTX 5090
+  driverVersion: 595.71.05
+  memory:
+    architecture: dedicated
+    totalBytes: {}
+    reservedBytes: {}
+",
+                64 * GIB,
+                4 * GIB,
+                32_607 * MIB,
+                497 * MIB
+            )
+        );
+        assert_eq!(machine.name(), LOCAL_MACHINE_NAME);
+        for private in ["alice", "example.ts.net", "/home", "NixOS"] {
+            assert!(!yaml.contains(private), "{private:?} leaked into {yaml}");
+        }
+        assert_eq!(
+            MachineDescription::from_yaml(machine.name(), &yaml).expect("reads back"),
+            machine
+        );
+    }
+
+    #[test]
+    fn described_named_machines_write_the_yaml_they_load_from() {
+        let mac = MachineDescription::named("mac-64g").expect("named machine");
+        let gb10 = MachineDescription::named("gb10").expect("named machine");
+        let rtx = MachineDescription::simulated(&choices(&["rtx-5090", "rtx-4090"]), "amd64")
+            .expect("simulated machine");
+
+        for machine in [mac, gb10, rtx] {
+            let snapshot = machine.render(&[], observed_at()).expect("snapshot");
+            let described =
+                MachineDescription::from_snapshot(machine.platform().clone(), &snapshot)
+                    .expect("description");
+
+            assert_eq!(
+                described.to_yaml().expect("yaml"),
+                machine.to_yaml().expect("yaml"),
+                "{}",
+                machine.name()
+            );
+        }
+    }
+
+    #[test]
+    fn describing_a_host_fails_without_host_facts_or_for_an_undescribable_gpu() {
+        let mut snapshot = MachineDescription::named("gb10")
+            .expect("named machine")
+            .render(&[], observed_at())
+            .expect("snapshot");
+        snapshot.accelerators = vec![vendor_observation(
+            AcceleratorVendor::Amd,
+            vec![AcceleratorFacts {
+                vendor: AcceleratorVendor::Amd as i32,
+                device_id: "amd-0".to_owned(),
+                ..Default::default()
+            }],
+        )];
+
+        let error = MachineDescription::from_snapshot(ExecutionPlatform::linux_arm64(), &snapshot)
+            .expect_err("AMD GPU");
+        assert_eq!(
+            error.to_string(),
+            "the host's GPU \"amd-0\" can't be described: has a vendor Dotcore can't describe"
+        );
+
+        snapshot.host = None;
+        let error = MachineDescription::from_snapshot(ExecutionPlatform::linux_arm64(), &snapshot)
+            .expect_err("no host");
+        assert!(matches!(error, MachineError::LocalHostUnavailable));
     }
 
     fn observed_at() -> SystemTime {
