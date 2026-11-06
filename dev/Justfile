@@ -16,7 +16,6 @@ test:
 check:
   just test
   just docker-images-check
-  just catalog-check
 
 # Run the development validations CI runs, without changing files.
 ci-check: check

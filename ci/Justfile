@@ -13,4 +13,5 @@ check:
   cd .. && just frontend::ci-check
   cd .. && just backend::ci-check
   cd .. && just dev::ci-check
+  cd .. && just dev::catalog-check
   cd .. && just installer::ci-check

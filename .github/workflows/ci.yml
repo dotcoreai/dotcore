@@ -40,6 +40,8 @@ jobs:
             task: { name: frontend test 2/2, recipe: "frontend::ci-test", part: "2/2", npm: true }
           - runner: ubuntu-24.04
             task: { name: installer, recipe: "installer::ci-check" }
+          - runner: ubuntu-24.04
+            task: { name: catalog, recipe: "dev::catalog-check", nix-upload: true }
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
