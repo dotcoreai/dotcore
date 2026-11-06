@@ -264,9 +264,6 @@ async fn a_mac_worker_serves_a_native_engine_through_the_manager_and_keeps_it_ac
         .worker()
         .site_root()
         .join("cache/model-artifacts/v1");
-    // Rooted before the deployment pins it; the worker's root keeper releases unpinned roots only
-    // after a node store change, and none happens before the pin.
-    engine.root_in(&harness.worker().site_root().join("nix-roots"));
     seed_fake_weights(&cache_root);
     support::wait_for_worker_connection(manager_address).await;
     support::wait_for_node_realizer_bootstrap(harness.worker().node_state_path()).await;
@@ -359,7 +356,7 @@ async fn a_mac_worker_serves_a_native_engine_through_the_manager_and_keeps_it_ac
     );
     assert!(
         nix_event_kinds(&worker_records).is_empty(),
-        "the worker reuses the rooted store path without running Nix"
+        "the worker roots the store path already in its store without evaluating or building it"
     );
     assert!(
         nix_event_kinds(&support::retained_json_records(
@@ -488,26 +485,6 @@ impl FakeNixEngine {
             store_path,
             _source: source,
         })
-    }
-
-    /// Roots the store path in the root folder `roots` exactly as a build there would, so the
-    /// worker prepares it without running Nix.
-    fn root_in(&self, roots: &Path) {
-        fs::create_dir_all(roots).expect("Nix root folder");
-        let entry = self
-            .store_path
-            .rsplit('/')
-            .next()
-            .expect("store path entry");
-        let status = Command::new("nix-store")
-            .arg("--add-root")
-            .arg(roots.join(entry))
-            .arg("--realise")
-            .arg(&self.store_path)
-            .stdout(std::process::Stdio::null())
-            .status()
-            .expect("run nix-store --add-root");
-        assert!(status.success(), "root the fake engine: {status}");
     }
 }
 

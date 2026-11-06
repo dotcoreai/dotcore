@@ -4,10 +4,10 @@
 //!
 //! The build must produce exactly the retained store path, so a node whose sources differ fails
 //! instead of running another binary. A root that already names the path is reused without running
-//! Nix or reaching the network, and a lock shared across processes lets one process publish each
-//! root. Without a root folder, as for transient development workloads, a path already in the
-//! store is reused and a build roots nothing. The build's log reaches the caller as readable lines
-//! while it runs.
+//! Nix, a path already in the store is rooted without its flake source or the network, and a lock
+//! shared across processes lets one process publish each root. Without a root folder, as for
+//! transient development workloads, a path already in the store is reused and a build roots
+//! nothing. The build's log reaches the caller as readable lines while it runs.
 
 use std::{
     collections::VecDeque,
@@ -19,7 +19,7 @@ use dotcore_domain::nix::{DotcoreSources, NixFlakeReference};
 use dotcore_proto::dotcore::deployment::v1::ArtifactPreparationPolicy;
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::{
     ArtifactCacheError,
@@ -97,12 +97,13 @@ impl NixPreparer {
         self.command.executable()
     }
 
-    /// Builds the retained store path unless a valid root already names it; `self` references
-    /// build from the development checkout in `sources`, and locked references from a local source
-    /// holding their revision when there is one. One process at a time publishes each root, and
-    /// the reuse check runs under the same lock, so removing an unpinned root never races it. A
-    /// build reports its log to `step`, which hears nothing when the path is reused, so it ends as
-    /// already prepared.
+    /// Roots the retained store path, building it only when it is not in the store yet. A valid
+    /// root is reused as is, and a path already in the store is rooted directly, since the store
+    /// path is the pinned launch identity. A build of `self` references uses the development
+    /// checkout in `sources`, and of locked references a local source holding their revision when
+    /// there is one. One process at a time publishes each root, and the reuse check runs under the
+    /// same lock, so removing an unpinned root never races it. A build reports its log to `step`,
+    /// which hears nothing when the path is reused or rooted, so it ends as already prepared.
     pub(crate) async fn prepare(
         &self,
         request: &NixPreparationRequest,
@@ -121,6 +122,11 @@ impl NixPreparer {
         let _lock = lock_root(roots, entry, &cancellation, Some(step)).await?;
         if self.roots(&out_link, &request.store_path).await {
             debug!(event_kind = "nix_engine_artifact_reused", store_path = %request.store_path, "Nix engine artifact already rooted");
+            return Ok(());
+        }
+        if self.present(&request.store_path).await
+            && self.root_present(request, &out_link, &cancellation).await?
+        {
             return Ok(());
         }
         step.start();
@@ -160,6 +166,58 @@ impl NixPreparer {
             "Nix engine artifact built and rooted",
         );
         Ok(())
+    }
+
+    /// Roots the retained store path, already in the store, at `out_link` by building the store
+    /// path itself, which needs no flake source. Returns whether the root now names it; on a
+    /// failure the caller builds the path from its flake instead.
+    async fn root_present(
+        &self,
+        request: &NixPreparationRequest,
+        out_link: &Path,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, NixPreparationError> {
+        // Rooting a present path builds nothing, so its log stays out of the step, which then
+        // ends as already prepared.
+        let rooted = self
+            .build(
+                &request.store_path,
+                Some(out_link),
+                request.policy,
+                cancellation,
+                &StepOutput::discard(),
+            )
+            .await;
+        match rooted {
+            Err(NixPreparationError::Cancelled) => Err(NixPreparationError::Cancelled),
+            Ok(_) if self.roots(out_link, &request.store_path).await => {
+                info!(
+                    event_kind = "nix_engine_artifact_rooted",
+                    store_path = %request.store_path,
+                    out_link = %out_link.display(),
+                    "Nix engine artifact already in the store rooted",
+                );
+                Ok(true)
+            }
+            Ok(_) => {
+                warn!(
+                    event_kind = "nix_engine_artifact_rooting_failed",
+                    store_path = %request.store_path,
+                    out_link = %out_link.display(),
+                    "Nix rooted another path than the retained one; building it from its flake",
+                );
+                Ok(false)
+            }
+            Err(error) => {
+                warn!(
+                    event_kind = "nix_engine_artifact_rooting_failed",
+                    store_path = %request.store_path,
+                    error = %error,
+                    "could not root the Nix engine artifact already in the store; building it from its flake",
+                );
+                Ok(false)
+            }
+        }
     }
 
     /// Reuses the retained store path when it is already in the store, else builds it without
@@ -698,8 +756,9 @@ mod tests {
         for (case, sources, checkout_holds, expected) in cases {
             let fixture = Fixture::new();
             let nix = fixture.nix(&format!(
-                "if [ \"$4\" = metadata ]; then exit {}; fi\nln -sfn '{STORE_PATH}' \"$link\"\necho '{STORE_PATH}'",
-                if checkout_holds { 0 } else { 1 }
+                "if [ \"$4\" = metadata ]; then exit {}; fi\n{}",
+                if checkout_holds { 0 } else { 1 },
+                fixture.build_store_path()
             ));
 
             fixture
@@ -727,8 +786,9 @@ mod tests {
      {
         let fixture = Fixture::new();
         let nix = fixture.nix(&format!(
-            "{}\nln -sfn '{STORE_PATH}' \"$link\"\necho '{STORE_PATH}'",
-            fixture.log(BUILD_LOG)
+            "{}\n{}",
+            fixture.log(BUILD_LOG),
+            fixture.build_store_path()
         ));
         let preparer = fixture.preparer(nix);
         let recorded = RecordedOutput::new();
@@ -1007,9 +1067,7 @@ mod tests {
             "github:example/engines/{}",
             "0123456789abcdef".repeat(2) + "01234567"
         );
-        let nix = fixture.nix(&format!(
-            "ln -sfn '{STORE_PATH}' \"$link\"\necho '{STORE_PATH}'"
-        ));
+        let nix = fixture.nix(&fixture.build_store_path());
 
         fixture
             .preparer(nix)
@@ -1106,6 +1164,7 @@ mod tests {
     #[tokio::test]
     async fn existing_valid_out_link_is_reused_without_running_nix() {
         let fixture = Fixture::new();
+        fixture.add_store_path();
         std::fs::create_dir_all(fixture.out_link().parent().expect("out-link directory"))
             .expect("out-link directory");
         std::os::unix::fs::symlink(STORE_PATH, fixture.out_link()).expect("existing out-link");
@@ -1140,8 +1199,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn present_unrooted_path_is_rooted_without_its_flake_source() {
+        let fixture = Fixture::new();
+        fixture.add_store_path();
+        let preparer = fixture.preparer(fixture.nix(&fixture.build_store_path()));
+        let recorded = RecordedOutput::new();
+        let step = recorded
+            .output()
+            .step(PreparationStep::EngineBuild, STORE_PATH);
+
+        // A development-source request on a node with no development source.
+        let result = preparer
+            .prepare(
+                &request(DEVELOPMENT_FLAKE),
+                &DotcoreSources::default(),
+                CancellationToken::new(),
+                &step,
+            )
+            .await;
+        step.complete(&result, |_| false);
+        result.expect("rooted present path");
+
+        let out_link = fixture.out_link();
+        assert_eq!(
+            fixture.calls(),
+            [format!(
+                "--extra-experimental-features nix-command flakes build --no-write-lock-file --log-format internal-json --print-out-paths --out-link {} {STORE_PATH}",
+                out_link.display()
+            )],
+            "nix only roots the store path, never evaluating or building the flake"
+        );
+        assert_eq!(
+            std::fs::read_link(&out_link).expect("out-link"),
+            Path::new(STORE_PATH)
+        );
+        assert_eq!(
+            recorded.kinds(),
+            [(
+                PreparationStep::EngineBuild,
+                PreparationEventKind::AlreadyPrepared {
+                    artifact: STORE_PATH.to_owned()
+                }
+            )]
+        );
+    }
+
+    #[tokio::test]
     async fn without_a_root_folder_a_present_path_is_reused_and_a_build_roots_nothing() {
         let fixture = Fixture::new();
+        fixture.add_store_path();
         let recorded = RecordedOutput::new();
         // Each call completes its step as the artifact manager does.
         let prepare = |nix: PathBuf, request: NixPreparationRequest| {
@@ -1246,9 +1352,7 @@ mod tests {
         }
 
         let fixture = Fixture::new();
-        let nix = fixture.nix(&format!(
-            "sleep 1\nln -sfn '{STORE_PATH}' \"$link\"\necho '{STORE_PATH}'"
-        ));
+        let nix = fixture.nix(&format!("sleep 1\n{}", fixture.build_store_path()));
         std::fs::rename(nix, fixture.root_path().join("nix-bin")).expect("shared fake nix");
         let children = ["first", "second"].map(|role| {
             std::process::Command::new(std::env::current_exe().expect("test executable"))
@@ -1281,9 +1385,9 @@ mod tests {
         );
     }
 
-    /// Builds the repository flake's llama.cpp engine package from this checkout as a development
-    /// source, then re-prepares it from the existing out-link with a `nix` that cannot run. Skipped
-    /// without Nix or a Git checkout.
+    /// Prepares the repository flake's llama.cpp engine package from this checkout as a development
+    /// source, building it unless the store already holds it, then re-prepares it from the existing
+    /// out-link with a `nix` that cannot run. Skipped without Nix or a Git checkout.
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     #[test]
     fn host_nix_builds_and_roots_the_llama_cpp_engine_package_from_the_development_source() {
@@ -1430,7 +1534,8 @@ plain stderr line
         }
     }
 
-    /// Temporary cache, fake store holding the fixture store path, and fake `nix` call log.
+    /// Temporary cache, fake store, and fake `nix` call log. The store starts without the fixture
+    /// store path, which a fake build or `add_store_path` adds.
     struct Fixture {
         root: FixtureRoot,
     }
@@ -1451,20 +1556,12 @@ plain stderr line
 
     impl Fixture {
         fn new() -> Self {
-            let fixture = Self {
+            Self {
                 root: FixtureRoot::Owned(
                     tempfile::tempdir_in(dotcore_domain::test_support::canonical_temp_dir())
                         .expect("fixture root"),
                 ),
-            };
-            std::fs::create_dir_all(
-                fixture
-                    .root_path()
-                    .join("store")
-                    .join(STORE_PATH.trim_start_matches('/')),
-            )
-            .expect("fake store path");
-            fixture
+            }
         }
 
         fn at(root: PathBuf) -> Self {
@@ -1496,6 +1593,27 @@ plain stderr line
                 .with_nix_sources(NixSources::default().with_roots(self.root_path().join("roots")))
                 .with_nix_store(self.root_path().join("store"), nix)
                 .with_nix_system(Some("aarch64-darwin"))
+        }
+
+        /// Adds the fixture store path to the fake store, as a node that built it earlier has it.
+        fn add_store_path(&self) {
+            std::fs::create_dir_all(self.store_location()).expect("fake store path");
+        }
+
+        /// Returns where the fixture store path lives in the fake store.
+        fn store_location(&self) -> PathBuf {
+            self.root_path()
+                .join("store")
+                .join(STORE_PATH.trim_start_matches('/'))
+        }
+
+        /// Returns the fake `nix` body of a build producing the fixture store path: it adds the
+        /// path to the fake store, links the out-link to it and prints it.
+        fn build_store_path(&self) -> String {
+            format!(
+                "mkdir -p '{}'\nln -sfn '{STORE_PATH}' \"$link\"\necho '{STORE_PATH}'",
+                self.store_location().display()
+            )
         }
 
         fn out_link(&self) -> PathBuf {
