@@ -14,8 +14,6 @@ import { formatBytes } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";
 import { upstreamLocalityLabel } from "@/lib/upstream-presentation";
 
-import { DeploymentGpuCell } from "./deployment-gpu-cell";
-import { type DeploymentGpu, measuredDevices, withSharerNames } from "./model-deployment-gpu";
 import { modelInspectorPanelId } from "./model-inspector-panel";
 import {
   localModelSnapshot,
@@ -30,7 +28,6 @@ export type ModelDeploymentColumnId =
   | "machine"
   | "requests"
   | "vram"
-  | "gpu"
   | "generatedTokens"
   | "tokenGeneration"
   | "ttft";
@@ -46,7 +43,6 @@ export interface ModelDeploymentRow {
   /** The model and its weight quantization, or the upstream origin. */
   detail?: string;
   displayName: string;
-  gpu?: DeploymentGpu;
   /** The machine's SiteNode ID, absent without a placement or for an upstream deployment. */
   machineId?: string;
   /** The machine's name, or "Upstream" for an upstream deployment. */
@@ -60,8 +56,6 @@ export interface ModelDeploymentRow {
 
 /** What the models table combines with each deployment. */
 export interface ModelDeploymentRowSources {
-  /** GPU use by deployment id; a deployment without measured devices is absent. */
-  gpus: ReadonlyMap<string, DeploymentGpu>;
   machines: readonly Machine[] | undefined;
   trafficOf: (deploymentId: string) => InferenceRowValues | undefined;
 }
@@ -114,13 +108,6 @@ export const modelDeploymentTableDefinition: DataTableDefinition<
         kind: "value",
         value: (row) => (row.vramBytes === undefined ? undefined : Number(row.vramBytes)),
       },
-    },
-    {
-      defaultVisible: true,
-      id: "gpu",
-      key: "gpu",
-      label: "GPU",
-      sort: { kind: "value", value: (row) => row.gpu?.utilization },
     },
     {
       id: "generatedTokens",
@@ -182,7 +169,6 @@ export const modelDeploymentTableUi: DataTableUiDefinition<
       cell: ({ row }) =>
         figure(row.traffic && formatChartValue("requests", row.traffic.generatedTokens)),
     },
-    gpu: { cell: ({ row }) => <DeploymentGpuCell gpu={row.gpu} />, showFrom: "46rem" },
     machine: { cell: ({ row }) => machineCell(row), showFrom: "32rem" },
     requests: {
       cell: ({ row }) => figure(row.traffic && formatChartValue("requests", row.traffic.requests)),
@@ -212,7 +198,7 @@ export const modelDeploymentTableUi: DataTableUiDefinition<
 /** The table rows of the listed model deployments. */
 export function modelDeploymentRows(
   deployments: readonly ModelDeployment[],
-  { gpus, machines, trafficOf }: ModelDeploymentRowSources,
+  { machines, trafficOf }: ModelDeploymentRowSources,
 ): ModelDeploymentRow[] {
   const names = new Map<string, number>();
   for (const deployment of deployments) {
@@ -220,18 +206,10 @@ export function modelDeploymentRows(
     names.set(name, (names.get(name) ?? 0) + 1);
   }
 
-  const nameById = new Map(
-    deployments.map((deployment) => [
-      deployment.modelDeploymentId,
-      modelDeploymentPresentationName(deployment),
-    ]),
-  );
-
   return deployments.map((deployment) => {
     const displayName = modelDeploymentPresentationName(deployment);
     const upstream = deployment.snapshot?.source.case === "upstream";
     const siteNodeId = upstream ? undefined : deploymentSiteNodeId(deployment);
-    const devices = measuredDevices(deployment);
 
     return {
       accessibleName:
@@ -241,7 +219,6 @@ export function modelDeploymentRows(
       deploymentId: deployment.modelDeploymentId,
       detail: upstream ? upstreamDetail(deployment) : localDetail(deployment),
       displayName,
-      gpu: withSharerNames(gpus.get(deployment.modelDeploymentId), (id) => nameById.get(id) ?? id),
       machineId: siteNodeId,
       machineName: upstream
         ? "Upstream"
@@ -250,11 +227,18 @@ export function modelDeploymentRows(
           : undefined,
       status: projectModelDeploymentStatus(deployment),
       traffic: trafficOf(deployment.modelDeploymentId),
-      vramBytes: devices.length
-        ? devices.reduce((total, device) => total + device.usedMemoryBytes, 0n)
-        : undefined,
+      vramBytes: deploymentVramBytes(deployment),
     };
   });
+}
+
+/** The accelerator memory measured on the deployment's devices; absent without a measure. */
+function deploymentVramBytes(deployment: ModelDeployment): bigint | undefined {
+  const result = deployment.acceleratorMemory?.result;
+  const devices = result?.case === "available" ? result.value.devices : [];
+  return devices.length
+    ? devices.reduce((total, device) => total + device.usedMemoryBytes, 0n)
+    : undefined;
 }
 
 /** The machine a local deployment is placed on, else the one it was observed on. */

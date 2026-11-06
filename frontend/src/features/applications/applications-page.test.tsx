@@ -1308,7 +1308,7 @@ describe("Apps table", () => {
   const GIB = 1024n ** 3n;
 
   /** A running deployment on a named machine, route and endpoint, measured on two services. */
-  function servingDeployment(deviceId = "gpu-0") {
+  function servingDeployment() {
     const application = routeInputApp();
     const serving = deployment(
       application,
@@ -1340,7 +1340,7 @@ describe("Apps table", () => {
             value: {
               devices: [
                 {
-                  deviceId,
+                  deviceId: "gpu-0",
                   managedNodeId: "worker",
                   usedMemoryBytes: usedMemoryBytes as bigint,
                 },
@@ -1378,10 +1378,7 @@ describe("Apps table", () => {
     };
   }
 
-  /**
-   * A metrics client answering the serving deployment's CPU and memory, and the GPU use of the
-   * device it holds memory on, counting the watch streams it holds open.
-   */
+  /** A metrics client answering the serving deployment's CPU and memory, counting its streams. */
   function resourceWatch(overrides: Record<string, ReturnType<typeof metricSeries>[]> = {}) {
     const byMetric: Record<string, ReturnType<typeof metricSeries>[]> = {
       "application.host.cpu.utilization": [
@@ -1389,9 +1386,6 @@ describe("Apps table", () => {
       ],
       "application.host.memory.used": [
         metricSeries({ deployment: "open-webui-deployment" }, [gaugePoint(9, 1.5 * 1024 ** 3)]),
-      ],
-      "node.accelerator.utilization": [
-        metricSeries({ device: "gpu-0", node: "worker" }, [gaugePoint(9, 0.6)]),
       ],
       ...overrides,
     };
@@ -1422,7 +1416,7 @@ describe("Apps table", () => {
       .getAllByRole("columnheader")
       .map((header) => header.textContent);
 
-  it("shows each deployment's app, status, machine, endpoint, CPU, RAM, summed VRAM and GPU", async () => {
+  it("shows each deployment's app, status, machine, endpoint, CPU, RAM and summed VRAM", async () => {
     renderTable();
 
     const table = await screen.findByRole("table", { name: "Installed applications" });
@@ -1433,7 +1427,6 @@ describe("Apps table", () => {
       "CPU",
       "RAM",
       "VRAM",
-      "GPU",
       "Endpoint",
     ]);
     const cellTexts = (name: string) =>
@@ -1448,7 +1441,6 @@ describe("Apps table", () => {
         "25%",
         "1.5 GiB",
         "4.5 GiB",
-        "60%",
         "Open",
       ]),
     );
@@ -1463,76 +1455,26 @@ describe("Apps table", () => {
       open,
     );
     // A deployment with no endpoint, reading or measure reads "—".
-    expect(cellTexts("Notes")).toEqual([
-      "NotesNotes · 1.0",
-      "Paused",
-      "local",
-      "—",
-      "—",
-      "—",
-      "—",
-      "—",
-    ]);
+    expect(cellTexts("Notes")).toEqual(["NotesNotes · 1.0", "Paused", "local", "—", "—", "—", "—"]);
   });
 
-  it("names the other apps on the GPU in an info icon next to the figure", async () => {
-    const other = servingDeployment();
-    other.applicationDeploymentId = "other-deployment";
-    other.applicationDeploymentName = "Wiki";
-    renderAppsSection({
-      client: clientFor([routeInputApp()], [servingDeployment(), other]),
-      machines: [{ displayName: "gb10-host-2", machineId: "worker" }],
-      metricsClient: resourceWatch().client,
-    });
-
-    for (const [name, sharer] of [
-      ["Team chat", "Wiki"],
-      ["Wiki", "Team chat"],
-    ]) {
-      const row = await screen.findByRole("row", { name });
-      await waitFor(() => expect(within(row).getAllByRole("cell").at(-2)).toHaveTextContent("60%"));
-      const note = `GPU use of the whole device, shared with ${sharer}`;
-      const icon = within(row).getByRole("button", { name: note });
-      expect(icon.querySelector("svg")).toHaveClass("lucide-info");
-      expect(within(row).queryByText("shared")).not.toBeInTheDocument();
-    }
-
-    // The tooltip shows the same text on hover.
-    const user = userEvent.setup();
-    await user.hover(
-      within(screen.getByRole("row", { name: "Team chat" })).getByRole("button", {
-        name: /shared with Wiki/,
-      }),
-    );
-    expect(
-      await screen.findByText("GPU use of the whole device, shared with Wiki"),
-    ).toHaveAttribute("data-slot", "tooltip-content");
-  });
-
-  it("shows no info icon for an unshared device or an app with no measured device", async () => {
-    renderTable();
-
-    const row = await screen.findByRole("row", { name: "Team chat" });
-    await waitFor(() => expect(within(row).getAllByRole("cell").at(-2)).toHaveTextContent("60%"));
-    expect(within(row).queryByRole("button")).not.toBeInTheDocument();
-
-    const notes = screen.getByRole("row", { name: "Notes" });
-    expect(within(notes).getAllByRole("cell").at(-2)).toHaveTextContent("—");
-    expect(within(notes).queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.queryByText("shared")).not.toBeInTheDocument();
-  });
-
-  it("watches CPU and memory by deployment and GPU use in two streams", async () => {
+  it("watches CPU and memory by deployment in one stream", async () => {
     const { metrics } = renderTable();
 
     await screen.findByRole("table", { name: "Installed applications" });
-    await waitFor(() => expect(metrics.open()).toBe(2));
+    await waitFor(() => expect(metrics.open()).toBe(1));
     expect(metrics.queries(0)).toEqual([
       ["application.host.cpu.utilization", ["deployment"]],
       ["application.host.memory.used", ["deployment"]],
     ]);
-    expect(metrics.queries(1)).toEqual([["node.accelerator.utilization", ["node", "device"]]]);
-    expect(metrics.watch).toHaveBeenCalledTimes(2);
+    expect(metrics.watch).toHaveBeenCalledTimes(1);
+  });
+
+  it("loads an old URL that names the removed GPU column", async () => {
+    renderTable("/apps?cols=app%2Cgpu%2Cendpoint");
+
+    const table = await screen.findByRole("table", { name: "Installed applications" });
+    expect(columnTexts(table)).toEqual(["App", "Endpoint"]);
   });
 
   it("offers Route in the View menu, hidden by default, and keeps it in the URL", async () => {
@@ -1556,12 +1498,11 @@ describe("Apps table", () => {
       "CPU",
       "RAM",
       "VRAM",
-      "GPU",
       "Route",
       "Endpoint",
     ]);
     expect(currentLocation(router)).toBe(
-      "/apps?cols=app%2Cstatus%2Cmachine%2Ccpu%2Cram%2Cvram%2Cgpu%2Croute%2Cendpoint",
+      "/apps?cols=app%2Cstatus%2Cmachine%2Ccpu%2Cram%2Cvram%2Croute%2Cendpoint",
     );
     expect(
       within(within(table).getByRole("row", { name: "Team chat" }))
@@ -1578,9 +1519,8 @@ describe("Apps table", () => {
   it.each([
     ["cpu", ["Team chat", "Wiki", "Notes"], ["Wiki", "Team chat", "Notes"]],
     ["ram", ["Wiki", "Team chat", "Notes"], ["Team chat", "Wiki", "Notes"]],
-    ["gpu", ["Wiki", "Team chat", "Notes"], ["Team chat", "Wiki", "Notes"]],
   ])("sorts by %s value, apps without a value last", async (key, ascending, descending) => {
-    const wiki = servingDeployment("gpu-1");
+    const wiki = servingDeployment();
     wiki.applicationDeploymentId = "wiki-deployment";
     wiki.applicationDeploymentName = "Wiki";
     const notes = idleDeployment();
@@ -1592,10 +1532,6 @@ describe("Apps table", () => {
       "application.host.memory.used": [
         metricSeries({ deployment: "open-webui-deployment" }, [gaugePoint(9, 3 * 1024 ** 3)]),
         metricSeries({ deployment: "wiki-deployment" }, [gaugePoint(9, 1024 ** 3)]),
-      ],
-      "node.accelerator.utilization": [
-        metricSeries({ device: "gpu-0", node: "worker" }, [gaugePoint(9, 0.6)]),
-        metricSeries({ device: "gpu-1", node: "worker" }, [gaugePoint(9, 0.2)]),
       ],
     });
     const names = () =>

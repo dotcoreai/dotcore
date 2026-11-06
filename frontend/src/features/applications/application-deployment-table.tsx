@@ -6,7 +6,6 @@ import { formatChartValue } from "@/components/metrics/time-series-chart/chart-d
 import { buttonVariants } from "@/components/ui/button";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { DeploymentGpuCell } from "@/features/models/deployment-gpu-cell";
 import type { DataTableDefinition } from "@/lib/data-table-model";
 import { createDataTableViewCodec } from "@/lib/data-table-view";
 import { formatBytes } from "@/lib/format";
@@ -16,7 +15,7 @@ import { applicationInspectorPanelId } from "./application-inspector-panel";
 
 /** A column of the Apps table, in display order. */
 export type ApplicationDeploymentColumnId =
-  "app" | "status" | "machine" | "cpu" | "ram" | "vram" | "gpu" | "route" | "endpoint";
+  "app" | "status" | "machine" | "cpu" | "ram" | "vram" | "route" | "endpoint";
 
 /** A filter field of the Apps table. */
 export type ApplicationDeploymentField = "status" | "machine";
@@ -70,13 +69,6 @@ export const applicationDeploymentTableDefinition: DataTableDefinition<
         kind: "value",
         value: (row) => (row.vramBytes === undefined ? undefined : Number(row.vramBytes)),
       },
-    },
-    {
-      defaultVisible: true,
-      id: "gpu",
-      key: "gpu",
-      label: "GPU",
-      sort: { kind: "value", value: (row) => row.gpu?.utilization },
     },
     { id: "route", key: "route", label: "Route" },
     { defaultVisible: true, id: "endpoint", key: "endpoint", label: "Endpoint" },
@@ -132,7 +124,6 @@ export const applicationDeploymentTableUi: DataTableUiDefinition<
       showFrom: "40rem",
     },
     endpoint: { cell: ({ row }) => endpointCell(row), showFrom: "34rem" },
-    gpu: { cell: ({ row }) => <DeploymentGpuCell gpu={row.gpu} />, showFrom: "46rem" },
     machine: { cell: ({ row }) => machineCell(row), showFrom: "32rem" },
     ram: {
       cell: ({ row }) =>
