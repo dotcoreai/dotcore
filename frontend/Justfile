@@ -130,41 +130,23 @@ format:
 format-check:
   npm run format:check
 
-# Run all frontend validation operations (format-check, lint, test, build, npm-hash-check).
+# Run all frontend validation operations (format-check, lint, test, build, nix-eval-check).
 check: ci-check
 
 # Run the frontend validations CI runs, without changing files.
 ci-check: ci-lint ci-test
 
-# Run the frontend's static checks CI runs, without changing files: formatting, lint, build and the Nix npm hash.
+# Run the frontend's static checks CI runs, without changing files: formatting, lint, build and the Nix evaluation.
 ci-lint:
   just format-check
   just lint
   just build
-  just npm-hash-check
+  just nix-eval-check
 
 # Run the frontend tests CI runs; a part such as `1/2` runs only that share of the Vitest tests.
 ci-test part="":
   just test {{ if part == "" { "" } else { "--shard=" + part } }}
 
-# Fail when the Nix build's npm dependency hash doesn't match package-lock.json.
-npm-hash-check:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  source ./npm-hash.sh
-  committed=$(npm_hash_committed)
-  locked=$(npm_hash_locked)
-  if [ "$committed" != "$locked" ]; then
-    echo 'the Nix npm dependency hash is out of date with package-lock.json; run `just frontend::npm-hash-update`' >&2
-    exit 1
-  fi
-
-# Update the Nix build's npm dependency hash to match package-lock.json.
-npm-hash-update:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  source ./npm-hash.sh
-  committed=$(npm_hash_committed)
-  locked=$(npm_hash_locked)
-  sed -i.bak "s|$committed|$locked|" "$NPM_HASH_FILE" && rm "$NPM_HASH_FILE.bak"
-  echo "npm dependency hash: $locked"
+# Fail when the Nix frontend package or its tests can't be evaluated from package-lock.json, without building them.
+nix-eval-check:
+  cd .. && nix path-info --derivation .#frontend .#frontend.tests.default > /dev/null
