@@ -1,3 +1,4 @@
+# Runs every area's checks on Linux for each PR, and on Linux and macOS for each push to main.
 name: CI
 
 on:

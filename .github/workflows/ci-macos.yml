@@ -1,3 +1,4 @@
+# Runs the cross-platform checks on macOS for PRs labelled `ci:macos`.
 name: CI macOS
 
 # macOS runners are few and queue under load, so a PR runs them only while it carries the
