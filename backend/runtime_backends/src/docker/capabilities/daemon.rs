@@ -2,7 +2,7 @@
 
 use anyhow::Context;
 use bollard::models::SystemInfo;
-use dotcore_domain::{ExecutionPlatform, ExecutionPlatformError, docker::DOCKER_OPERATION_TIMEOUT};
+use dotcore_domain::{ExecutionPlatform, ExecutionPlatformError};
 
 use crate::docker::client::{LocalDockerClient, WORKLOAD_LOG_DRIVER, bounded_operation};
 
@@ -37,14 +37,10 @@ pub(super) async fn probe_local_daemon() -> anyhow::Result<DockerDaemonCapabilit
 pub(in crate::docker) async fn probe_connected_daemon(
     docker: &LocalDockerClient,
 ) -> anyhow::Result<DockerDaemonCapability> {
-    let information = bounded_operation(
-        DAEMON_CAPABILITY_PROBE,
-        DOCKER_OPERATION_TIMEOUT,
-        docker.raw().info(),
-    )
-    .await
-    .map_err(anyhow::Error::new)
-    .context("query Docker daemon capability")?;
+    let information = bounded_operation(DAEMON_CAPABILITY_PROBE, docker.raw().info())
+        .await
+        .map_err(anyhow::Error::new)
+        .context("query Docker daemon capability")?;
     let execution_platform = execution_platform_from_information(&information)
         .map_err(anyhow::Error::new)
         .context("normalize Docker daemon execution platform")?;

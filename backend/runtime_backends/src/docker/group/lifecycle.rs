@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use dotcore_domain::real_time;
 use dotcore_runtime::{
     ReadyLaunchGateOutcome, RuntimeBackend, RuntimeBackendError, RuntimeBackendId, RuntimeFuture,
     RuntimeGroupLogFollowQuery, RuntimeLogFuture, RuntimeLogSourceHistory,
@@ -104,17 +105,13 @@ impl<C: DockerClient> WorkloadGroupBackend for DockerAdapter<C> {
 }
 
 impl<C: DockerClient> DockerAdapter<C> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds a real Docker Engine operation"
-    )]
     async fn read_group_logs(
         &self,
         group: &WorkloadGroupLaunch,
         sources: &RuntimeLogSourceSelection,
         query: &dotcore_runtime::RuntimeLogQuery,
     ) -> Result<Vec<RuntimeLogSourceHistory>, RuntimeBackendError> {
-        tokio::time::timeout(dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT, async {
+        real_time::bound(dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT, async {
             let Some(known) = self.exact_log_group(group, sources)? else {
                 return Ok(sources
                     .sources()

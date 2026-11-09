@@ -10,6 +10,10 @@
 //!
 //! The binary is synchronous and single-threaded, which keeps its fork sequence safe; only the
 //! supervisor, used by the creating process, is async.
+#![expect(
+    clippy::disallowed_methods,
+    reason = "the launcher sits below the backend clock: it waits only on real processes and files"
+)]
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("Dotcore supports only Linux and macOS targets");

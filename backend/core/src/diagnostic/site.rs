@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::diagnostic::{
     private::v1::{
         FollowNodeDiagnosticsRequest, NodeDiagnosticHistory, NodeDiagnosticTarget,
@@ -324,12 +325,7 @@ impl MachineDiagnostics for NodeDiagnostics {
                 page_size,
                 before_position: before,
             };
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "bounds a real call to a node's diagnostics service"
-            )]
-            let response = match tokio::time::timeout(self.deadline, connection.read(request)).await
-            {
+            let response = match real_time::bound(self.deadline, connection.read(request)).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(status)) => {
                     record_unavailable(machine_id, "read_history", status_reason(&status));
@@ -370,11 +366,7 @@ impl MachineDiagnostics for NodeDiagnostics {
                 let first = frames.next().await.transpose()?;
                 Ok::<_, Status>((frames, first))
             };
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "bounds a real call to a node's diagnostics service"
-            )]
-            let (frames, first) = match tokio::time::timeout(self.deadline, opening).await {
+            let (frames, first) = match real_time::bound(self.deadline, opening).await {
                 Ok(Ok(opened)) => opened,
                 Ok(Err(status)) => {
                     record_unavailable(machine_id, "follow", status_reason(&status));

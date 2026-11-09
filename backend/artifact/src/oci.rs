@@ -6,13 +6,14 @@
 //! each layer's status changes as lines, and an image already present reports nothing. Callers own
 //! cancellation, and a development tag is resolved to its current image ID on request.
 
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use bollard::{Docker, errors::Error as BollardError, query_parameters::CreateImageOptionsBuilder};
 use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
 use dotcore_domain::oci::{
     OciReferenceKind, canonical_digest_reference, valid_local_image_id, validate_rendered_reference,
 };
+use dotcore_domain::real_time;
 use tokio_stream::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
@@ -371,17 +372,13 @@ impl DockerOciClient {
             bollard::API_DEFAULT_VERSION,
         )
         .map_err(|source| OciClientError(anyhow::Error::new(source)))?;
-        let docker = bounded(
-            "Docker API version negotiation",
-            DOCKER_OPERATION_TIMEOUT,
-            docker.negotiate_version(),
-        )
-        .await?
-        .map_err(|source| {
-            OciClientError(
-                anyhow::Error::new(source).context("Docker API version negotiation failed"),
-            )
-        })?;
+        let docker = bounded("Docker API version negotiation", docker.negotiate_version())
+            .await?
+            .map_err(|source| {
+                OciClientError(
+                    anyhow::Error::new(source).context("Docker API version negotiation failed"),
+                )
+            })?;
         Ok(Self { docker })
     }
 }
@@ -393,7 +390,6 @@ impl OciClient for DockerOciClient {
         Box::pin(async move {
             match bounded(
                 "Docker image inspection",
-                DOCKER_OPERATION_TIMEOUT,
                 docker.inspect_image(&request.reference),
             )
             .await?
@@ -428,13 +424,7 @@ impl OciClient for DockerOciClient {
     fn resolve_local_image_id(&self, reference: String) -> OciFuture<Option<String>> {
         let docker = self.docker.clone();
         Box::pin(async move {
-            match bounded(
-                "Docker image inspection",
-                DOCKER_OPERATION_TIMEOUT,
-                docker.inspect_image(&reference),
-            )
-            .await?
-            {
+            match bounded("Docker image inspection", docker.inspect_image(&reference)).await? {
                 Ok(image) => Ok(image.id),
                 Err(BollardError::DockerResponseServerError {
                     status_code: 404, ..
@@ -447,13 +437,7 @@ impl OciClient for DockerOciClient {
     fn inspect_docker_image(&self, reference: String) -> OciFuture<Option<DockerImageFacts>> {
         let docker = self.docker.clone();
         Box::pin(async move {
-            match bounded(
-                "Docker image inspection",
-                DOCKER_OPERATION_TIMEOUT,
-                docker.inspect_image(&reference),
-            )
-            .await?
-            {
+            match bounded("Docker image inspection", docker.inspect_image(&reference)).await? {
                 Ok(image) => Ok(Some(DockerImageFacts {
                     image_id: image.id,
                     platform: OciPlatform {
@@ -519,7 +503,6 @@ impl crate::ImageCleanupDocker for DockerOciClient {
                 .build();
             let images = bounded(
                 "Docker image listing",
-                DOCKER_OPERATION_TIMEOUT,
                 self.docker.list_images(Some(options)),
             )
             .await?
@@ -552,7 +535,6 @@ impl crate::ImageCleanupDocker for DockerOciClient {
                 .build();
             let containers = bounded(
                 "Docker container listing",
-                DOCKER_OPERATION_TIMEOUT,
                 self.docker.list_containers(Some(options)),
             )
             .await?
@@ -571,7 +553,6 @@ impl crate::ImageCleanupDocker for DockerOciClient {
                 .build();
             match bounded(
                 "Docker image removal",
-                DOCKER_OPERATION_TIMEOUT,
                 self.docker.remove_image(&reference, Some(options), None),
             )
             .await?
@@ -698,16 +679,11 @@ fn image_matches_fields(
 
 /// Bounds one Docker Engine request, so a daemon that stops answering fails the operation instead
 /// of hanging it. The image pull stream is not bounded; cancellation stops it.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds one real Docker Engine request"
-)]
 async fn bounded<F: Future>(
     operation: &'static str,
-    timeout: Duration,
     request: F,
 ) -> Result<F::Output, OciClientError> {
-    tokio::time::timeout(timeout, request)
+    real_time::bound(DOCKER_OPERATION_TIMEOUT, request)
         .await
         .map_err(|source| {
             OciClientError(anyhow::Error::new(source).context(format!("{operation} timed out")))
@@ -737,20 +713,17 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
         },
         task::{Context, Poll},
+        time::Duration,
     };
 
     use super::*;
     use crate::output::{PreparationEventKind, PreparationStep, test_support::RecordedOutput};
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn docker_requests_fail_once_their_timeout_elapses() {
-        let error = bounded(
-            "Docker image inspection",
-            Duration::ZERO,
-            std::future::pending::<()>(),
-        )
-        .await
-        .expect_err("pending Docker request times out");
+        let error = bounded("Docker image inspection", std::future::pending::<()>())
+            .await
+            .expect_err("pending Docker request times out");
 
         assert_eq!(
             format!("{:#}", error.0),

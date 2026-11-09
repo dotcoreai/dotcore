@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use anyhow::anyhow;
+use dotcore_domain::real_time;
 use dotcore_runtime::LoopbackEndpoint;
 use serde_json::Value;
 use tokio::{
@@ -174,23 +175,19 @@ async fn get_loopback(port: u16, path: &str) -> Result<HttpResponse, EngineProbe
     get_loopback_until(port, path, Instant::now() + READINESS_IO_TIMEOUT).await
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds real loopback I/O of a readiness probe"
-)]
 async fn get_loopback_until(
     port: u16,
     path: &str,
     deadline: Instant,
 ) -> Result<HttpResponse, EngineProbeError> {
-    let mut stream = tokio::time::timeout_at(deadline, TcpStream::connect(("127.0.0.1", port)))
+    let mut stream = real_time::bound_until(deadline, TcpStream::connect(("127.0.0.1", port)))
         .await
         .map_err(|_| EngineProbeError::Transient)?
         .map_err(|error| probe::io_error("llama.cpp loopback connection failed", error))?;
     let request = format!(
         "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
-    tokio::time::timeout_at(deadline, stream.write_all(request.as_bytes()))
+    real_time::bound_until(deadline, stream.write_all(request.as_bytes()))
         .await
         .map_err(|_| EngineProbeError::Transient)?
         .map_err(|error| probe::io_error("llama.cpp readiness request write failed", error))?;
@@ -198,10 +195,6 @@ async fn get_loopback_until(
     collect_response(&mut stream, deadline).await
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds real loopback I/O of a readiness probe"
-)]
 async fn collect_response(
     stream: &mut TcpStream,
     deadline: Instant,
@@ -209,7 +202,7 @@ async fn collect_response(
     let mut response = Vec::new();
     let mut buffer = [0_u8; 8192];
     loop {
-        let read = tokio::time::timeout_at(deadline, stream.read(&mut buffer))
+        let read = real_time::bound_until(deadline, stream.read(&mut buffer))
             .await
             .map_err(|_| EngineProbeError::Transient)?;
         let read =

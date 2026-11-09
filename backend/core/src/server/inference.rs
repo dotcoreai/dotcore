@@ -2,6 +2,7 @@
 
 use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
+use dotcore_domain::real_time;
 use tracing::{Instrument, field, info_span, warn};
 
 use super::{ServerError, ServerResult};
@@ -49,8 +50,7 @@ where
                     let router = router.clone();
                     let deadline = tokio::time::Instant::now() + CONNECTION_TIMEOUT;
                     connections.spawn(async move {
-                        #[expect(clippy::disallowed_methods, reason = "bounds one real inference connection")]
-                        let result = tokio::time::timeout_at(
+                        let result = real_time::bound_until(
                             deadline,
                             crate::router::http::handle_inference_connection(
                                 stream, router, permit, deadline,

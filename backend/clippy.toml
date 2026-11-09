@@ -1,10 +1,12 @@
-# Production waits go through the backend clock, so a test clock's advance reaches them; real time
-# appears only at I/O boundaries, each with a reasoned allow. Test builds allow these (Justfile).
+# Library and binary code waits through the backend clock, so a test clock's advance reaches it.
+# Waits on real I/O and real processes go through `dotcore_domain::real_time`, which, the clocks
+# and the launcher (below the clock) are the only code allowed these timers. Test targets allow
+# them (Justfile).
 disallowed-methods = [
-  { path = "tokio::time::sleep", reason = "wait through the backend clock" },
-  { path = "tokio::time::sleep_until", reason = "wait through the backend clock" },
-  { path = "tokio::time::timeout", reason = "bound waits through the backend clock" },
-  { path = "tokio::time::timeout_at", reason = "bound waits through the backend clock" },
+  { path = "tokio::time::sleep", reason = "wait through the backend clock, or `real_time` for real I/O" },
+  { path = "tokio::time::sleep_until", reason = "wait through the backend clock, or `real_time` for real I/O" },
+  { path = "tokio::time::timeout", reason = "bound through the backend clock, or `real_time` for real I/O" },
+  { path = "tokio::time::timeout_at", reason = "bound through the backend clock, or `real_time` for real I/O" },
   { path = "tokio::time::interval", reason = "tick through the backend clock" },
   { path = "tokio::time::interval_at", reason = "tick through the backend clock" },
 ]

@@ -24,6 +24,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{Interest, unix::AsyncFd};
 
 pub use self::logs::LogFollower;
+
 use crate::workload::{
     ExitReason, ExitRecord, LAUNCH_CHECKSUM_FILE, LAUNCH_FILE, LaunchSpec, LauncherRecord,
     Lifetime, LogRecord, ProcessRecord, RecordError, SCHEMA_VERSION, StoredRecord, WORK_DIRECTORY,
@@ -248,10 +249,6 @@ impl Supervisor {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .output();
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "bounds a real launcher process start"
-        )]
         let output = tokio::time::timeout(START_TIMEOUT, output)
             .await
             .map_err(|_| SupervisorError::LaunchTimedOut)?

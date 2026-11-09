@@ -69,7 +69,7 @@ impl Clock for SystemClock {
 
     #[expect(
         clippy::disallowed_methods,
-        reason = "the system clock's wait is the backend's one real-time timer"
+        reason = "a clock's wait is where its timeline meets real time"
     )]
     fn sleep_until(&self, deadline: Instant) -> ClockSleep {
         Box::pin(tokio::time::sleep_until(deadline))
@@ -153,6 +153,10 @@ mod manual {
             real + self.offset()
         }
 
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a clock's wait is where its timeline meets real time"
+        )]
         fn sleep_until(&self, deadline: Instant) -> ClockSleep {
             // Subscribing before the first read means an advance made at any later point marks
             // the receiver changed, so it cannot be missed between the check and the wait.

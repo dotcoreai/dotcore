@@ -17,6 +17,7 @@ use bollard::{
     },
 };
 use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
+use dotcore_domain::real_time;
 use tokio_stream::StreamExt;
 
 pub const SITE_DATA_CLEANUP_IMAGE: &str =
@@ -63,11 +64,7 @@ pub async fn cleanup_root_owned_site_data(site_root: &Path) -> anyhow::Result<()
         .condition("not-running")
         .build();
     let mut waiting = docker.wait_container(&created.id, Some(options));
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds a real Docker Engine operation"
-    )]
-    let outcome = tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, waiting.next())
+    let outcome = real_time::bound(DOCKER_OPERATION_TIMEOUT, waiting.next())
         .await
         .map_err(|source| anyhow::Error::new(source).context("root-owned site cleanup timed out"))
         .and_then(|outcome| {
@@ -123,10 +120,6 @@ async fn remove_on_host(folder: PathBuf) -> io::Result<()> {
     .map_err(io::Error::other)?
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds a real Docker Engine operation"
-)]
 async fn provision_cleanup_image(docker: &Docker) -> anyhow::Result<()> {
     match bounded(
         "pinned site cleanup image inspection",
@@ -157,7 +150,7 @@ async fn provision_cleanup_image(docker: &Docker) -> anyhow::Result<()> {
         }
         Ok(())
     };
-    tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, pulling)
+    real_time::bound(DOCKER_OPERATION_TIMEOUT, pulling)
         .await
         .map_err(|source| {
             anyhow::Error::new(source).context("pinned site cleanup image pull timed out")
@@ -214,15 +207,11 @@ async fn remove_failed_cleanup_container(docker: &Docker, container_id: &str) {
     .await;
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds a real Docker Engine operation"
-)]
 async fn bounded<T>(
     operation: &'static str,
     future: impl Future<Output = Result<T, bollard::errors::Error>>,
 ) -> anyhow::Result<T> {
-    tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, future)
+    real_time::bound(DOCKER_OPERATION_TIMEOUT, future)
         .await
         .map_err(|source| anyhow::Error::new(source).context(format!("{operation} timed out")))?
         .map_err(anyhow::Error::new)

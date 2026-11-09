@@ -20,6 +20,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::deployment::private::v1::{
     DeploymentLogFollowOpened, DeploymentLogHistories, DeploymentLogHistory,
     DeploymentLogRejection, DeploymentLogRejectionReason, DeploymentLogResumePosition,
@@ -553,10 +554,6 @@ impl SourceForwarders {
 
     /// Lets every forwarder finish its current stream without opening another, waiting at
     /// most `grace` for them all to stop.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds the drain of real log streams"
-    )]
     async fn drain(self, grace: Duration) {
         let Self {
             shared,
@@ -568,7 +565,7 @@ impl SourceForwarders {
         drop((reopens, running));
         tokio::select! {
             () = shared.cancellation.cancelled() => {}
-            _ = tokio::time::timeout(grace, stopped.recv()) => {}
+            _ = real_time::bound(grace, stopped.recv()) => {}
         }
     }
 

@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
@@ -83,11 +84,7 @@ impl ImageCleanup {
     /// Removes what [`Self::plan`] finds, while no image load runs, and returns each removal with
     /// its outcome. Images a container started using since planning keep their names.
     pub async fn apply(&self) -> Result<Vec<(ImageRemoval, RemovalOutcome)>, ImageCleanupError> {
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "bounds a wait on a file lock another process may hold"
-        )]
-        let _lock = tokio::time::timeout(
+        let _lock = real_time::bound(
             self.lock_wait,
             acquire_lock(self.lock.clone(), &CancellationToken::new(), None),
         )

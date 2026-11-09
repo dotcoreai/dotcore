@@ -18,11 +18,12 @@ format-check:
 
 # Run rust lint checks.
 clippy:
-  # Tests may bound their waits on real time, so only production code is held to the clock.
+  # Tests may bound their waits on real time, so only library and binary code is held to the clock.
   cargo clippy --locked --workspace --all-targets --all-features -- -D warnings -A clippy::disallowed_methods
 
-  # Production build without `test-support`, which every test build enables; it rejects direct
-  # Tokio timers outside a reasoned allow (`clippy.toml`).
+  # Library and binary code, with the `test-support` items every test build enables and without
+  # them, as production builds it; it waits only through the clock or `real_time` (`clippy.toml`).
+  cargo clippy --locked --workspace --lib --bins --all-features -- -D warnings
   cargo clippy --locked --workspace --lib --bins -- -D warnings
 
 # Run rust tests.

@@ -55,7 +55,7 @@ impl CapturingRecorder {
 
     async fn wait_until<T>(&self, mut check: impl FnMut() -> Option<T>) -> Option<T> {
         let mut batches = self.batches.subscribe();
-        tokio::time::timeout(RECORD_DEADLINE, async {
+        dotcore_domain::real_time::bound(RECORD_DEADLINE, async {
             loop {
                 if let Some(answer) = check() {
                     return answer;

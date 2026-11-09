@@ -24,6 +24,7 @@ use std::{
 
 use anyhow::anyhow;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use dotcore_domain::real_time;
 use fs4::fs_std::FileExt;
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use hf_hub::{
@@ -1383,11 +1384,7 @@ impl PointerRewriteGate {
             ArtifactCacheError::context("test pointer rewrite removal failed", error)
         })?;
         self.opened.notify_one();
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "bounds a test seam's wait for a real cache probe"
-        )]
-        let _ = tokio::time::timeout(
+        let _ = real_time::bound(
             std::time::Duration::from_secs(2),
             self.probe_contended.notified(),
         )
@@ -2526,10 +2523,6 @@ enum LockMode {
     Shared,
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "polls a file lock another process may hold"
-)]
 async fn acquire_lock_as(
     path: PathBuf,
     cancellation: &CancellationToken,
@@ -2578,7 +2571,7 @@ async fn acquire_lock_as(
                 tokio::select! {
                     biased;
                     () = cancellation.cancelled() => return Err(ArtifactCacheError::Cancelled),
-                    () = tokio::time::sleep(std::time::Duration::from_millis(10)) => {},
+                    () = real_time::poll_pause(std::time::Duration::from_millis(10)) => {},
                 }
             }
             Err(error) => {

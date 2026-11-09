@@ -16,6 +16,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use dotcore_domain::{HostResolver, SiteNodeHost, SystemHostResolver};
 use dotcore_proto::dotcore::{
     node::v1::{
@@ -92,10 +93,6 @@ impl JoinHost {
 
     /// Serves the join on `listener` until one node is committed, the token expires, or too many
     /// wrong secrets arrive. Returns the recorded node.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds a live join session and its shutdown in real time"
-    )]
     pub async fn serve(self, listener: TcpListener) -> Result<JoinedNode, JoinHostError> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let shared = Arc::new(self.shared);
@@ -132,12 +129,13 @@ impl JoinHost {
         });
         let shutdown_shared = Arc::clone(&shared);
         let shutdown = async move {
-            tokio::select! {
-                () = shutdown_shared.wait_finished() => {}
-                () = tokio::time::sleep(limits.overall_timeout) => {
-                    shutdown_shared.stop(JoinHostError::Expired);
-                    shutdown_shared.wait_finished().await;
-                }
+            let finished = shutdown_shared.wait_finished();
+            if real_time::bound(limits.overall_timeout, finished)
+                .await
+                .is_err()
+            {
+                shutdown_shared.stop(JoinHostError::Expired);
+                shutdown_shared.wait_finished().await;
             }
         };
         let server = tonic::transport::Server::builder()
@@ -152,7 +150,7 @@ impl JoinHost {
         // unrelated idle client can delay the result once the join has finished.
         let grace = async {
             shared.wait_finished().await;
-            tokio::time::sleep(limits.shutdown_grace).await;
+            real_time::deadline(tokio::time::Instant::now() + limits.shutdown_grace).await;
         };
         tokio::select! {
             served = server => served.map_err(JoinHostError::Transport)?,

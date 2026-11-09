@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dotcore_domain::SiteNodeId;
+use dotcore_domain::{SiteNodeId, real_time};
 use dotcore_launcher::{
     supervisor::Supervisor,
     workload::{Lifetime, PROCESS_FILE, ProcessRecord, StoredRecord},
@@ -189,7 +189,7 @@ pub async fn wait_until(condition: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
         assert!(Instant::now() < deadline, "condition not met in time");
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        real_time::poll_pause(Duration::from_millis(20)).await;
     }
 }
 

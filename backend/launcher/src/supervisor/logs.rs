@@ -57,10 +57,6 @@ impl LogFollower {
 
     /// Returns the next record, waiting for one while the launcher runs, or `None` once the
     /// launcher has exited and every record was returned.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "polls a real log file the launcher writes"
-    )]
     pub async fn next(&mut self) -> Result<Option<LogRecord>> {
         loop {
             if let Some(record) = self.pending.pop_front() {

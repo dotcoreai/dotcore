@@ -20,6 +20,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use dotcore_domain::{BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, timing::Timing};
 use dotcore_proto::dotcore::node::v1::{
     CommitRequest, DeclaredMachine, JoinResponse, node_join_service_client::NodeJoinServiceClient,
@@ -343,16 +344,12 @@ impl JoinConnection {
     }
 
     /// Commits the offer `offer_id`; past the commit timeout the outcome is unknown.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds a real join commit round trip"
-    )]
     async fn commit(&mut self, offer_id: String) -> Result<(), Status> {
         let commit = CommitRequest {
             join_secret: self.token.secret.as_bytes().to_vec(),
             offer_id,
         };
-        tokio::time::timeout(self.commit_timeout, self.client.commit(commit))
+        real_time::bound(self.commit_timeout, self.client.commit(commit))
             .await
             .unwrap_or_else(|_| {
                 Err(Status::deadline_exceeded(

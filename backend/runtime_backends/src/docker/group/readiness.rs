@@ -2,13 +2,14 @@
 
 use std::net::{IpAddr, SocketAddr};
 
+use dotcore_domain::real_time;
 use dotcore_runtime::{
     ReadyLaunchGate, ReadyLaunchGateFailure, ReadyLaunchGateOutcome, RuntimeBackendError,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
-    time,
+    time::Instant,
 };
 
 use super::super::{
@@ -19,10 +20,6 @@ use super::super::{
 const MAX_HTTP_RESPONSE_HEADER_BYTES: usize = 16 * 1024;
 
 impl<C: DockerClient> DockerAdapter<C> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "probes a real container at its declared gate interval and timeout"
-    )]
     pub(super) async fn wait_ready(
         &self,
         container_id: &str,
@@ -35,30 +32,32 @@ impl<C: DockerClient> DockerAdapter<C> {
             .find(|port| port.name == gate.port_name())
             .ok_or_else(|| runtime_error("Docker READY launch gate has no declared unit port"))?
             .container_port;
-        let deadline = time::Instant::now() + gate.timeout();
+        let deadline = Instant::now() + gate.timeout();
         loop {
-            let Some(remaining) = deadline.checked_duration_since(time::Instant::now()) else {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Ok(ReadyLaunchGateOutcome::TimedOut);
             };
-            let inspection =
-                match time::timeout(remaining, self.client.inspect_group_container(container_id))
-                    .await
-                {
-                    Ok(Ok(inspection)) => inspection,
-                    Ok(Err(error)) => {
-                        return Err(runtime_error_with_source(
-                            "Docker READY launch-gate inspection failed",
-                            error,
-                        ));
-                    }
-                    Err(_) => return Ok(ReadyLaunchGateOutcome::TimedOut),
-                };
+            let inspection = match real_time::bound(
+                remaining,
+                self.client.inspect_group_container(container_id),
+            )
+            .await
+            {
+                Ok(Ok(inspection)) => inspection,
+                Ok(Err(error)) => {
+                    return Err(runtime_error_with_source(
+                        "Docker READY launch-gate inspection failed",
+                        error,
+                    ));
+                }
+                Err(_) => return Ok(ReadyLaunchGateOutcome::TimedOut),
+            };
             let Some(address) = inspection.private_address else {
                 return Ok(ReadyLaunchGateOutcome::Failed(
                     ReadyLaunchGateFailure::ConnectionFailed,
                 ));
             };
-            let Some(remaining) = deadline.checked_duration_since(time::Instant::now()) else {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return Ok(ReadyLaunchGateOutcome::TimedOut);
             };
             match probe_http(address, port, gate.path(), remaining).await {
@@ -68,26 +67,22 @@ impl<C: DockerClient> DockerAdapter<C> {
                         ReadyLaunchGateFailure::InvalidResponse,
                     ));
                 }
-                Err(_) if time::Instant::now() >= deadline => {
+                Err(_) if Instant::now() >= deadline => {
                     return Ok(ReadyLaunchGateOutcome::TimedOut);
                 }
-                Err(_) => time::sleep(gate.interval().min(remaining)).await,
+                Err(_) => real_time::poll_pause(gate.interval().min(remaining)).await,
             }
         }
     }
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds one real HTTP probe of a container"
-)]
 async fn probe_http(
     address: std::net::Ipv4Addr,
     port: u16,
     path: &str,
     timeout: std::time::Duration,
 ) -> std::io::Result<bool> {
-    time::timeout(timeout, async {
+    real_time::bound(timeout, async {
         let mut stream = TcpStream::connect(SocketAddr::new(IpAddr::V4(address), port)).await?;
         stream
             .write_all(

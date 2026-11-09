@@ -7,6 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use dotcore_domain::real_time;
 use dotcore_domain::{clock::Clock, timing::Timing};
 use tokio_util::sync::CancellationToken;
 
@@ -103,10 +104,6 @@ impl ReqwestVerificationHttp {
 }
 
 impl VerificationHttp for ReqwestVerificationHttp {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds one real HTTP verification"
-    )]
     fn verify(
         &self,
         request: VerificationRequest,
@@ -127,7 +124,7 @@ impl VerificationHttp for ReqwestVerificationHttp {
             tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => Err(VerificationTransportError::Cancelled),
-                result = tokio::time::timeout(PROBE_TIMEOUT, async {
+                result = real_time::bound(PROBE_TIMEOUT, async {
                     let response = request.send().await.map_err(classify_reqwest_error)?;
                     let status = response.status().as_u16();
                     let minimum_retry = minimum_retry_delay(response.headers(), SystemTime::now());

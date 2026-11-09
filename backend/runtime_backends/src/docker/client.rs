@@ -10,7 +10,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     future::Future,
     pin::Pin,
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
 use anyhow::anyhow;
@@ -28,6 +28,7 @@ use bollard::{
     },
 };
 use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
+use dotcore_domain::real_time;
 use futures_util::{Stream, StreamExt as _, stream};
 
 use super::{
@@ -219,7 +220,6 @@ impl LocalDockerClient {
     pub(super) async fn negotiate_version(self) -> Result<Self, ClientError> {
         let docker = bounded_operation(
             "Docker API version negotiation",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.negotiate_version(),
         )
         .await?;
@@ -240,7 +240,6 @@ impl LocalDockerClient {
             .build();
         bounded_operation(
             "Docker container list",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.list_containers(Some(options)),
         )
         .await
@@ -269,7 +268,6 @@ impl DockerClient for LocalDockerClient {
             .build();
         let created = bounded_operation(
             "Docker container create",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.create_container(Some(options), body),
         )
         .await?;
@@ -287,7 +285,6 @@ impl DockerClient for LocalDockerClient {
     ) -> Result<DockerContainer, ClientError> {
         let response = bounded_operation(
             "Docker ownership inspect",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_container(container_id, None),
         )
         .await?;
@@ -310,7 +307,6 @@ impl DockerClient for LocalDockerClient {
     async fn container_exists(&self, workload_id: &str) -> Result<bool, ClientError> {
         match bounded_operation(
             CONTAINER_EXISTENCE_INSPECTION,
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_container(workload_id, None),
         )
         .await
@@ -329,7 +325,6 @@ impl DockerClient for LocalDockerClient {
     async fn image_exists(&self, image: &str) -> Result<bool, ClientError> {
         match bounded_operation(
             LOCAL_IMAGE_AVAILABILITY_INSPECTION,
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_image(image),
         )
         .await
@@ -341,12 +336,8 @@ impl DockerClient for LocalDockerClient {
     }
 
     async fn execution_platform(&self) -> Result<dotcore_domain::ExecutionPlatform, ClientError> {
-        let information = bounded_operation(
-            "Docker destination platform inspection",
-            DOCKER_OPERATION_TIMEOUT,
-            self.docker.info(),
-        )
-        .await?;
+        let information =
+            bounded_operation("Docker destination platform inspection", self.docker.info()).await?;
         super::capabilities::execution_platform_from_information(&information)
             .map_err(|error| ClientError::new(error.to_string()))
     }
@@ -357,7 +348,6 @@ impl DockerClient for LocalDockerClient {
     ) -> Result<dotcore_domain::ExecutionPlatform, ClientError> {
         let inspection = bounded_operation(
             "Docker group image platform inspection",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_image(image),
         )
         .await?;
@@ -371,7 +361,6 @@ impl DockerClient for LocalDockerClient {
     async fn start_container(&self, workload_id: &str) -> Result<(), ClientError> {
         bounded_operation(
             "Docker container start",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.start_container(workload_id, None),
         )
         .await
@@ -383,7 +372,6 @@ impl DockerClient for LocalDockerClient {
     ) -> Result<ContainerInspection, ClientError> {
         let response = bounded_operation(
             "Docker container inspect",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_container(workload_id, None),
         )
         .await?;
@@ -427,7 +415,6 @@ impl DockerClient for LocalDockerClient {
         let options = StopContainerOptionsBuilder::default().t(10).build();
         bounded_operation(
             "Docker container stop",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.stop_container(workload_id, Some(options)),
         )
         .await
@@ -442,7 +429,6 @@ impl DockerClient for LocalDockerClient {
             .build();
         bounded_operation(
             "Docker container remove",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.remove_container(workload_id, Some(options)),
         )
         .await
@@ -498,7 +484,6 @@ impl DockerClient for LocalDockerClient {
     async fn inspect_owned_network(&self, network_id: &str) -> Result<DockerNetwork, ClientError> {
         let network = bounded_operation(
             "Docker group network inspect",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker
                 .inspect_network(network_id, Some(owned_network_inspection_options())),
         )
@@ -523,7 +508,6 @@ impl DockerClient for LocalDockerClient {
             .build();
         let networks = bounded_operation(
             "Docker group network list",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.list_networks(Some(options)),
         )
         .await?;
@@ -574,7 +558,6 @@ impl DockerClient for LocalDockerClient {
     ) -> Result<String, ClientError> {
         let created = bounded_operation(
             "Docker group network create",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.create_network(NetworkCreateRequest {
                 name: request.name.clone(),
                 driver: Some("bridge".to_owned()),
@@ -596,7 +579,6 @@ impl DockerClient for LocalDockerClient {
     async fn remove_network(&self, network_id: &str) -> Result<(), ClientError> {
         bounded_operation(
             "Docker group network remove",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.remove_network(network_id),
         )
         .await
@@ -612,7 +594,6 @@ impl DockerClient for LocalDockerClient {
             .build();
         let created = bounded_operation(
             "Docker group container create",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.create_container(Some(options), body),
         )
         .await?;
@@ -630,7 +611,6 @@ impl DockerClient for LocalDockerClient {
     ) -> Result<GroupContainerInspection, ClientError> {
         let response = bounded_operation(
             "Docker group container inspect",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_container(container_id, None),
         )
         .await?;
@@ -698,7 +678,6 @@ impl DockerClient for LocalDockerClient {
     ) -> Result<GroupContainerOwnership, ClientError> {
         let response = bounded_operation(
             "Docker group ownership inspect",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_container(container_id, None),
         )
         .await?;
@@ -711,7 +690,6 @@ impl DockerClient for LocalDockerClient {
             .ok_or_else(|| ClientError::new("Docker group container has no image identity"))?;
         let image = bounded_operation(
             "Docker group image inspect",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_image(&image),
         )
         .await?;
@@ -734,7 +712,6 @@ impl DockerClient for LocalDockerClient {
     ) -> Result<DockerGroupExecution, ClientError> {
         let response = bounded_operation(
             "Docker group execution inspect",
-            DOCKER_OPERATION_TIMEOUT,
             self.docker.inspect_container(container_id, None),
         )
         .await?;
@@ -779,16 +756,15 @@ impl DockerClient for LocalDockerClient {
             .stream(false)
             .one_shot(true)
             .build();
-        let response =
-            bounded_operation("Docker container stats", DOCKER_OPERATION_TIMEOUT, async {
-                self.docker
-                    .stats(container_id, Some(options))
-                    .next()
-                    .await
-                    .transpose()
-            })
-            .await?
-            .ok_or_else(|| ClientError::new("Docker container stats response is empty"))?;
+        let response = bounded_operation("Docker container stats", async {
+            self.docker
+                .stats(container_id, Some(options))
+                .next()
+                .await
+                .transpose()
+        })
+        .await?
+        .ok_or_else(|| ClientError::new("Docker container stats response is empty"))?;
         let memory = response.memory_stats.unwrap_or_default();
         Ok(DockerContainerStats {
             cpu_time_ns: response
@@ -1238,7 +1214,6 @@ async fn list_network_summaries_by_label(
         .build();
     bounded_operation(
         "Docker group network list",
-        DOCKER_OPERATION_TIMEOUT,
         docker.list_networks(Some(options)),
     )
     .await
@@ -1254,19 +1229,16 @@ async fn list_network_summaries_by_label(
     })
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds a real Docker Engine operation"
-)]
+/// Bounds one Docker Engine request, so a daemon that stops answering fails the operation instead
+/// of hanging it.
 pub(super) async fn bounded_operation<T, F>(
     operation: &'static str,
-    timeout: Duration,
     future: F,
 ) -> Result<T, ClientError>
 where
     F: Future<Output = Result<T, bollard::errors::Error>>,
 {
-    tokio::time::timeout(timeout, future)
+    real_time::bound(DOCKER_OPERATION_TIMEOUT, future)
         .await
         .map_err(|source| ClientError::Timeout { operation, source })?
         .map_err(ClientError::Docker)
@@ -1429,7 +1401,7 @@ fn workload_log_config() -> HostConfigLogConfig {
 
 #[cfg(test)]
 mod tests {
-    use std::{error::Error, future::pending, time::Duration};
+    use std::{error::Error, future::pending};
 
     use anyhow::anyhow;
     use bollard::{
@@ -1838,11 +1810,10 @@ mod tests {
         assert!(owned_network_inspection_options().verbose);
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn bounded_operation_timeout_keeps_container_existence_label() {
         let error = bounded_operation(
             "Docker container existence inspection",
-            Duration::ZERO,
             pending::<Result<(), bollard::errors::Error>>(),
         )
         .await

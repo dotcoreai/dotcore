@@ -3,6 +3,7 @@
 use std::{collections::VecDeque, time::SystemTime};
 
 use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
+use dotcore_domain::real_time;
 use dotcore_runtime::{
     MAX_RUNTIME_LOG_ENTRIES, RuntimeBackendError, RuntimeLogEntry, RuntimeLogEvent,
     RuntimeLogHistory, RuntimeLogSource, RuntimeLogStream, RuntimeLogStreamKind,
@@ -20,16 +21,12 @@ pub(super) const HISTORY_CANDIDATE_BYTES: usize = 4 * 1024 * 1024;
 const LOG_ENTRY_OVERHEAD_BYTES: usize = 256;
 
 impl<C: DockerClient> DockerAdapter<C> {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds a real Docker Engine operation"
-    )]
     pub(super) async fn read_logs(
         &self,
         workload_id: &WorkloadId,
         query: &RuntimeWorkloadLogQuery,
     ) -> Result<RuntimeLogHistory, RuntimeBackendError> {
-        tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, async {
+        real_time::bound(DOCKER_OPERATION_TIMEOUT, async {
             let known = self.live_known_workload(workload_id).await?;
             self.read_exact_logs(
                 known.container_id,

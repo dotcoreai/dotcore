@@ -19,6 +19,7 @@ use dotcore_artifact::{
     ModelArtifactProgress, ModelArtifactProgressObserver, ModelArtifactStage,
     ModelArtifactStageObserver, PreparedModelArtifacts,
 };
+use dotcore_domain::real_time;
 use dotcore_domain::{
     clock::Clock,
     diagnostic::diagnostic_chain,
@@ -2740,7 +2741,6 @@ where
         );
     }
 
-    #[expect(clippy::disallowed_methods, reason = "bounds a real runtime log read")]
     async fn capture_startup_output_tail(
         &self,
         target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
@@ -2758,7 +2758,7 @@ where
         .expect("startup log limit is within runtime bounds");
         let query = dotcore_runtime::RuntimeWorkloadLogQuery::new(source, history);
         let protected = protected_startup_values(&launch.spec.environment);
-        match tokio::time::timeout(
+        match real_time::bound(
             Duration::from_secs(2),
             self.runtimes.read_workload_logs(
                 &target.execution_target_id,

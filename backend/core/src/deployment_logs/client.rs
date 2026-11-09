@@ -11,6 +11,7 @@
 
 use std::{collections::BTreeMap, pin::Pin, sync::Arc, time::Duration};
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::{
     application::v1::ApplicationDeploymentDesiredState,
     deployment::private::v1::{
@@ -373,11 +374,7 @@ pub(super) async fn read_from(
         maximum_entries: u32::from(query.history().maximum_entries().get()),
         before_timestamp: query.history().before_timestamp().map(timestamp),
     };
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "bounds a real call to a node's log service"
-    )]
-    let call = tokio::time::timeout(deadline, connection.read(message)).await;
+    let call = real_time::bound(deadline, connection.read(message)).await;
     let outcome = match call {
         Ok(Ok(response)) => response.outcome,
         Ok(Err(status)) => {
@@ -422,10 +419,6 @@ pub(super) async fn read_from(
 /// frame after `deadline`. A node that cannot open the follow, for any reason but an unknown
 /// source, makes it fail as unavailable. When the node ends a follow of every source, the
 /// follow ends cleanly only if `present` says the manager no longer wants the deployment running.
-#[expect(
-    clippy::disallowed_methods,
-    reason = "bounds a real call to a node's log service"
-)]
 pub(super) async fn follow_from(
     connection: impl Into<NodeLogConnection>,
     request: NodeLogRequest<'_>,
@@ -457,7 +450,7 @@ pub(super) async fn follow_from(
             request.record_unavailable("follow", "cancelled");
             return Err(DeploymentLogError::NodeUnavailable);
         }
-        opened = tokio::time::timeout(deadline, opening) => opened,
+        opened = real_time::bound(deadline, opening) => opened,
     };
     let (frames, first) = match opened {
         Ok(Ok(opened)) => opened,

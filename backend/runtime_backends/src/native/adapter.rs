@@ -17,6 +17,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use dotcore_domain::real_time;
 use dotcore_domain::{ExecutionPlatform, host_process::HostProcessIdentity, timing::Timing};
 use dotcore_launcher::{
     supervisor::{ScannedWorkload, Supervisor, SupervisorError, WorkloadState},
@@ -392,10 +393,6 @@ impl NativeRuntimeBackend {
     /// accepts connections on one of its assigned ports, the port was taken between assignment
     /// and the engine's bind: the workload is removed and the create fails, so a retried create
     /// assigns new ports.
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "polls a real workload process during its port-settle window"
-    )]
     async fn settle_ports(
         &self,
         id: &str,
@@ -426,7 +423,7 @@ impl NativeRuntimeBackend {
             if tokio::time::Instant::now() >= deadline {
                 return Ok(());
             }
-            tokio::time::sleep(PORT_SETTLE_POLL).await;
+            real_time::poll_pause(PORT_SETTLE_POLL).await;
         }
     }
 
@@ -830,9 +827,8 @@ impl KnownWorkload {
 
 /// Whether some process accepts connections on a loopback port. Connecting, unlike binding,
 /// never takes the port away from the process that is about to listen on it.
-#[expect(clippy::disallowed_methods, reason = "bounds a real loopback connect")]
 async fn accepts_connections(port: u16) -> bool {
-    tokio::time::timeout(
+    real_time::bound(
         PORT_CONNECT_TIMEOUT,
         tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port)),
     )

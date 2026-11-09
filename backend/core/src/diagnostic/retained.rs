@@ -11,6 +11,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::{
     dotcore::diagnostic::{
         private::v1::{
@@ -508,12 +509,8 @@ impl FileIdentity {
         Self(metadata.dev(), metadata.ino())
     }
 }
-#[expect(
-    clippy::disallowed_methods,
-    reason = "polls a real log file for new lines"
-)]
 async fn wait(cancellation: &CancellationToken) {
-    tokio::select! { () = cancellation.cancelled() => {}, () = tokio::time::sleep(POLL_INTERVAL) => {} }
+    tokio::select! { () = cancellation.cancelled() => {}, () = real_time::poll_pause(POLL_INTERVAL) => {} }
 }
 
 async fn send_event(

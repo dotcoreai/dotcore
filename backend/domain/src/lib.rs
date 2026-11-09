@@ -27,6 +27,7 @@ mod node_host;
 pub mod oci;
 mod paths;
 mod platform;
+pub mod real_time;
 mod site_node_id;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
