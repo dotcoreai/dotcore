@@ -7,6 +7,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { Notice } from "@/components/ui/notice";
 import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/segmented-control";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { requestKindsLabel } from "@/domain/request-kinds";
 import { ChatComposer } from "@/features/chat/chat-composer";
 import { ChatConversation } from "@/features/chat/chat-conversation";
 import type { ChatMode } from "@/features/chat/chat-opener";
@@ -19,7 +20,6 @@ import { DecisionEditor, DecisionFooter } from "@/features/chat/decisions/decisi
 import { DecisionWorkspace } from "@/features/chat/decisions/decision-workspace";
 import type { Chat } from "@/features/chat/use-chat";
 import { InferenceRequestKind } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
-import { requestKindsLabel } from "@/lib/request-kinds";
 
 /** The chat session's route picker, labelled "Route" beside it. */
 export function ChatRoutePicker({

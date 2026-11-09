@@ -14,7 +14,8 @@ const typeScriptFiles = ["src/**/*.{ts,tsx}", "vite.config.ts"];
 // marked `pending` still imports later layers; its rule is off until the named phase cleans it.
 const layers = [
   { name: "gen" },
-  { name: "lib", pending: "phase 05 shared domain" },
+  { name: "lib" },
+  { name: "domain" },
   { name: "api" },
   { name: "hooks" },
   { name: "panels" },

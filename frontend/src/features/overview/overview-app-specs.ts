@@ -1,4 +1,6 @@
 import type { ChartSeries } from "@/components/metrics/time-series-chart/chart-data";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
+import type { MachineFacts } from "@/features/machines/machine-site-values";
 import type { MetricStatsGrid } from "@/features/metrics/metric-grid";
 import { dimensionNames, metricNames } from "@/features/metrics/metric-names";
 import { gaugeRange, perStepValues } from "@/features/metrics/metric-range-values";
@@ -6,9 +8,6 @@ import type { MetricCardSpec, MetricCardSplit } from "@/features/metrics/use-met
 import type { MetricHistoryQuery } from "@/features/metrics/use-metric-watch";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import { MetricAggregate, MetricReduce } from "@/gen/dotcore/metrics/v1/metric_pb";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
-
-import type { MachineFacts } from "./machine-site-values";
 
 /** The split id and card ids of the apps section. */
 export const appSplitId = "app";

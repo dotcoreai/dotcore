@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from "react";
 
-import { modelDeploymentPresentationName } from "@/features/models/model-projection";
+import { machineName } from "@/domain/machine-name";
+import { modelDeploymentPresentationName } from "@/domain/model-projection";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 
-import { type DescribedMachine, machineName, useDescribedMachines } from "./described-machines";
+import { type DescribedMachine, useDescribedMachines } from "./described-machines";
 import type { ModelLineRef } from "./memory-history";
 import type { MachineSnapshotDetail } from "./use-hardware-snapshots";
 

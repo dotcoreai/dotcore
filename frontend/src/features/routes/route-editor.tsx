@@ -6,6 +6,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
+import { selectionForMemberCount, selectionLabel, tierLabel } from "@/domain/route-projection";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { type FieldErrors, focusFirstInvalidField } from "@/lib/form-validation";
 
@@ -16,7 +17,6 @@ import {
   type RouteEditorState,
   validateRouteEditor,
 } from "./route-draft";
-import { selectionForMemberCount, selectionLabel, tierLabel } from "./route-projection";
 
 /**
  * The one form that creates and edits a route: its name, the Primary tier, and any Fallback tiers.

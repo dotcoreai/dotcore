@@ -8,6 +8,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { FieldError } from "@/components/ui/field-error";
 import { Notice } from "@/components/ui/notice";
+import { weightQuantizationLabel } from "@/domain/model-projection";
 import {
   DeploymentForm,
   DeploymentFormSection,
@@ -27,7 +28,6 @@ import { runtimeParameterGroups } from "./engine-parameter-values";
 import { EngineParametersForm } from "./engine-parameters";
 import type { KvCachePrecisionOption } from "./kv-cache-precision";
 import { KvCachePrecisionField } from "./kv-cache-precision-field";
-import { weightQuantizationLabel } from "./model-projection";
 import type { SpeculativeChoice } from "./speculative-choice";
 import { SpeculativeDecodingField } from "./speculative-decoding-field";
 

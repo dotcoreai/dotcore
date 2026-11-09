@@ -18,11 +18,13 @@ import { InspectorShell } from "@/components/ui/inspector-shell";
 import { Notice } from "@/components/ui/notice";
 import { ResourceMarker, ResourceTitle } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { routeChatTarget } from "@/features/chat/chattable-route";
+import { deploymentStatus, modelDeploymentPresentationName } from "@/domain/model-projection";
 import {
-  deploymentStatus,
-  modelDeploymentPresentationName,
-} from "@/features/models/model-projection";
+  deploymentLabel,
+  projectRouteHealth,
+  selectionForMemberCount,
+} from "@/domain/route-projection";
+import { routeChatTarget } from "@/features/chat/chattable-route";
 import { type FallbackGroup, type InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { FieldErrors } from "@/lib/form-validation";
@@ -39,6 +41,7 @@ import {
 import { panelTitle } from "@/panels/panel-titles";
 import { usePublishPanelTitles } from "@/panels/panel-titles-context";
 
+import { deploymentOptions } from "./deployment-options";
 import { newEditorGroup, type RouteEditorState } from "./route-draft";
 import { RouteEditor } from "./route-editor";
 import {
@@ -47,12 +50,6 @@ import {
   RouteInspectorActions,
   type RouteMemberMention,
 } from "./route-inspector";
-import {
-  deploymentLabel,
-  deploymentOptions,
-  projectRouteHealth,
-  selectionForMemberCount,
-} from "./route-projection";
 import { useRouteViews } from "./use-route-views";
 
 /** The route sidebar of a page, and what it offers the page around it, such as its card list. */

@@ -23,6 +23,23 @@ import { Notice } from "@/components/ui/notice";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { ResourceMarker, ResourceTitle } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  deploymentStatus,
+  isModelDesiredStateVisible,
+  isPausableModel,
+  isResumableModel,
+  isTransitioningModelStatus,
+  isUnloadableModel,
+  localModelSnapshot,
+  modelDeploymentDesiredStateLabel,
+  modelDeploymentDesiredStateTone,
+  modelDeploymentPresentationName,
+  modelStatusMessage,
+  projectModelDeploymentStatus,
+  weightQuantizationLabel,
+} from "@/domain/model-projection";
+import { placementLabel } from "@/domain/placement";
+import { requestKindsLabel } from "@/domain/request-kinds";
 import type { ChatTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
 import {
@@ -30,7 +47,6 @@ import {
   type RouteMention,
   RouteMentions,
 } from "@/features/deployments/panel-mention";
-import { placementLabel } from "@/features/deployments/placement";
 import { type EngineParameterValues } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type Model } from "@/gen/dotcore/catalog/v1/model_pb";
 import {
@@ -44,7 +60,6 @@ import {
 } from "@/gen/dotcore/model/v1/state_pb";
 import { type ConfiguredExecutionTarget, type Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { formatBytes, formatCompactCount, formatRelativeTime } from "@/lib/format";
-import { requestKindsLabel } from "@/lib/request-kinds";
 
 import type { ModelRow } from "./catalog-model-row";
 import {
@@ -65,21 +80,6 @@ import { resolvedModelEngineDiagnostics } from "./model-engine-diagnostics";
 import { modelInspectorPanelId } from "./model-inspector-panel";
 import { ModelIntelligenceSection } from "./model-intelligence-section";
 import { ModelLicenseDetail } from "./model-license-detail";
-import {
-  deploymentStatus,
-  isModelDesiredStateVisible,
-  isPausableModel,
-  isResumableModel,
-  isTransitioningModelStatus,
-  isUnloadableModel,
-  localModelSnapshot,
-  modelDeploymentDesiredStateLabel,
-  modelDeploymentDesiredStateTone,
-  modelDeploymentPresentationName,
-  modelStatusMessage,
-  projectModelDeploymentStatus,
-  weightQuantizationLabel,
-} from "./model-projection";
 import type { CatalogChips } from "./profile-table-seed";
 
 interface InspectorProps {

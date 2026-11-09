@@ -1,4 +1,4 @@
-import { executionTargetKey } from "@/features/deployments/execution-target";
+import { executionTargetKey } from "@/domain/execution-target";
 import type { EngineParameterValues } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { MemoryFit as ProtoMemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import {

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
 import { ConfiguredExecutionTargetSchema, MachineSchema } from "@/gen/dotcore/site/v1/service_pb";
 
-import { machineName, placementLabel, placementMachine } from "./placement";
+import { placementLabel, placementMachine, placementMachineName } from "./placement";
 
 const placement = create(ExactPlacementSchema, {
   executionTargetId: "spark-gpu",
@@ -45,7 +45,7 @@ describe("placement label", () => {
   it("falls back to the node ID when the machine or its display name is unknown", () => {
     expect(placementLabel(placement, undefined, [])).toBe("node-51c47a4eca70f113 / spark-gpu");
     expect(placementLabel(placement, machine(""), [])).toBe("node-51c47a4eca70f113 / spark-gpu");
-    expect(machineName("node-51c47a4eca70f113", undefined)).toBe("node-51c47a4eca70f113");
+    expect(placementMachineName("node-51c47a4eca70f113", undefined)).toBe("node-51c47a4eca70f113");
   });
 
   it("names only the machine until the targets are read", () => {

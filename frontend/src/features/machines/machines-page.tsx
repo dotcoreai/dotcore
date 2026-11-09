@@ -18,7 +18,6 @@ import { MachinesSectionIcon } from "@/components/ui/section-icons";
 import { AddMachineDialog } from "@/features/machines/add-machine-dialog";
 import { useHardwareSnapshots } from "@/features/memory/use-hardware-snapshots";
 import { useMemoryView } from "@/features/memory/use-memory-view";
-import { useMachinesNow } from "@/features/overview/use-machines-now";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { mapRead } from "@/lib/read-state";
@@ -42,6 +41,7 @@ import {
 import { MachinesResources } from "./machines-resources";
 import { useMachineFleet } from "./use-machine-fleet";
 import { useMachineResources } from "./use-machine-resources";
+import { useMachinesNow } from "./use-machines-now";
 
 export interface MachinesPageProps {
   metricsClient?: MetricsClient;

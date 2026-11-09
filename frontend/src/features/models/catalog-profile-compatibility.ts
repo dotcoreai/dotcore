@@ -3,7 +3,7 @@ import {
   executionTargetKey,
   executionTargetPresentation,
   placedExecutionTargetName,
-} from "@/features/deployments/execution-target";
+} from "@/domain/execution-target";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 import { formatCount } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";

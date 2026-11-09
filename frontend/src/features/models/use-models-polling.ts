@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type ModelClient } from "@/api/model-client";
+import type { DeploymentMetadata } from "@/domain/deployment-metadata";
+import { type ModelSnapshot, projectModelSnapshot } from "@/domain/model-projection";
 import {
   acceptsOverlay,
   type DeploymentFields,
@@ -9,13 +11,11 @@ import {
   withoutSettled,
   withOverlay,
 } from "@/features/deployments/deployment-overlays";
-import { type ModelSnapshot, projectModelSnapshot } from "@/features/models/model-projection";
 import {
   type ModelDeployment,
   ModelDeploymentDesiredState,
   type UpstreamModelDesiredConfiguration,
 } from "@/gen/dotcore/model/v1/deployment_pb";
-import type { DeploymentMetadata } from "@/lib/deployment-metadata";
 import { useWatchedModelDeployments } from "@/resource-watch/resource-watch";
 import { useSessionRead } from "@/resource-watch/use-session-read";
 

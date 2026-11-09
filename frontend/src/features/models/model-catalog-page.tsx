@@ -19,10 +19,10 @@ import {
 import { Notice } from "@/components/ui/notice";
 import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
 import { CatalogSectionIcon } from "@/components/ui/section-icons";
+import { modelDeploymentPresentationName } from "@/domain/model-projection";
 import { useConfiguredExecutionTargets } from "@/features/deployments/use-configured-execution-targets";
 import { ModelDeployDialog } from "@/features/models/model-deploy-dialog";
 import { CatalogModelInspector } from "@/features/models/model-inspector";
-import { modelDeploymentPresentationName } from "@/features/models/model-projection";
 import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
 import { type Model } from "@/gen/dotcore/catalog/v1/model_pb";

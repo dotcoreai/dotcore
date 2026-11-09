@@ -1,4 +1,3 @@
-import { hostFacts } from "@/features/machines/machine-resources";
 import type { DescribedMachine } from "@/features/memory/described-machines";
 import { acceleratorFacts, isDedicated } from "@/features/memory/snapshot-facts";
 import { currentValue } from "@/features/metrics/metric-current";
@@ -6,6 +5,8 @@ import type { MetricStatsGrid, MetricStatsSeries } from "@/features/metrics/metr
 import { dimensionNames } from "@/features/metrics/metric-names";
 import { perStepValues } from "@/features/metrics/metric-range-values";
 import { AcceleratorSignal } from "@/gen/dotcore/observation/v1/observation_pb";
+
+import { hostFacts } from "./machine-resources";
 
 /** What the machines' latest snapshots say about how to combine their readings. */
 export interface MachineFacts {

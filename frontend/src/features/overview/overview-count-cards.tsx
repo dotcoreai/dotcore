@@ -4,10 +4,10 @@ import { Link } from "react-router-dom";
 import { MetricCard, MetricCardGrid } from "@/components/metrics/metric-card/metric-card";
 import { Notice } from "@/components/ui/notice";
 import { PageSectionHeading } from "@/components/ui/page-header";
-import { projectApplicationDeploymentStatus } from "@/features/applications/application-projection";
+import { projectApplicationDeploymentStatus } from "@/domain/application-projection";
+import { deploymentStatus } from "@/domain/model-projection";
 import { CardChartDetail, ReadingCard, ReadingsStoppedNote } from "@/features/metrics/card-panel";
 import type { MetricCards } from "@/features/metrics/use-metric-cards";
-import { deploymentStatus } from "@/features/models/model-projection";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import {
   useWatchedApplicationDeployments,

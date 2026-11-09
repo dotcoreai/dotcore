@@ -6,20 +6,20 @@ import { createDataTableViewCodec } from "@/components/data-table/data-table-vie
 import { formatChartValue } from "@/components/metrics/time-series-chart/chart-data";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { machineName, placementMachine } from "@/features/deployments/placement";
+import {
+  localModelSnapshot,
+  modelDeploymentPresentationName,
+  projectModelDeploymentStatus,
+} from "@/domain/model-projection";
+import { placementMachine, placementMachineName } from "@/domain/placement";
+import { upstreamLocalityLabel } from "@/domain/upstream-presentation";
 import type { InferenceRowValues } from "@/features/inference/use-inference-metrics";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { formatBytes } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";
-import { upstreamLocalityLabel } from "@/lib/upstream-presentation";
 
 import { modelInspectorPanelId } from "./model-inspector-panel";
-import {
-  localModelSnapshot,
-  modelDeploymentPresentationName,
-  projectModelDeploymentStatus,
-} from "./model-projection";
 
 /** A column of the models table, in display order. */
 export type ModelDeploymentColumnId =
@@ -223,7 +223,7 @@ export function modelDeploymentRows(
       machineName: upstream
         ? "Upstream"
         : siteNodeId
-          ? machineName(siteNodeId, placementMachine(machines, siteNodeId))
+          ? placementMachineName(siteNodeId, placementMachine(machines, siteNodeId))
           : undefined,
       status: projectModelDeploymentStatus(deployment),
       traffic: trafficOf(deployment.modelDeploymentId),

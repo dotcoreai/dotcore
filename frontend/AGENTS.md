@@ -22,19 +22,21 @@ frontend/src/
 ├── panels/           inspector panel state and navigation
 ├── resource-watch/   live resource data streamed from the server
 ├── theme/            color scheme and resource colors
+├── domain/           pure logic over protobuf types shared by several features
 ├── lib/              shared utilities with no UI
 └── test/             shared Vitest and Testing Library setup, and repository-wide checks
 ```
 
 - Routes compose features and don't reach into feature internals.
 - A one-off treatment stays at its call site, not in `components/ui/`.
-- A folder imports only from folders before it in this order: `gen`, `lib`, `api`, `hooks`,
-  `panels`, `resource-watch`, `theme`, `components`, `features`, `routes`, `app`. `components/`
-  also never imports `gen/`. Lint enforces this from the layer list in
+- A folder imports only from folders before it in this order: `gen`, `lib`, `domain`, `api`,
+  `hooks`, `panels`, `resource-watch`, `theme`, `components`, `features`, `routes`, `app`.
+  `components/` also never imports `gen/`. Lint enforces this from the layer list in
   [`eslint.config.mjs`](eslint.config.mjs); folders marked `pending` there are not enforced yet.
+- Logic over protobuf types that several features use goes in `domain/`, not in one of them.
 - Files and feature folders never import each other in a loop, tests included.
   [`src/test/import-cycles.test.ts`](src/test/import-cycles.test.ts) enforces it, and its
-  allowlists only shrink: fix a loop by moving the shared code down, never by adding an entry.
+  allowlist only shrinks: fix a loop by moving the shared code down, never by adding an entry.
 - Routes, features and components call `api/` and own no transport or protocol details.
 - [`proto/AGENTS.md`](../proto/AGENTS.md) owns regenerating `gen/`.
 

@@ -9,11 +9,18 @@ import { Detail, DetailList } from "@/components/ui/detail-list";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
 import { Notice } from "@/components/ui/notice";
 import { StatusDot, StatusText } from "@/components/ui/status-badge";
+import { modelInputModalityLabel } from "@/domain/model-projection";
+import { requestKindsLabel } from "@/domain/request-kinds";
+import {
+  projectMemberStatus,
+  projectRouteHealth,
+  projectTierStatus,
+  tierLabel,
+  unavailabilityReasonLabel,
+} from "@/domain/route-projection";
 import type { ChatTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
 import { PanelMention } from "@/features/deployments/panel-mention";
-import { buildModelConnectionExamples } from "@/features/models/model-connection";
-import { modelInputModalityLabel } from "@/features/models/model-projection";
 import type {
   FallbackGroup,
   FallbackGroupAvailability,
@@ -21,17 +28,10 @@ import type {
   InferenceRouteView,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
-import { requestKindsLabel } from "@/lib/request-kinds";
 import type { StatusProjection } from "@/lib/status-projection";
 import { cn } from "@/lib/utils";
 
-import {
-  projectMemberStatus,
-  projectRouteHealth,
-  projectTierStatus,
-  tierLabel,
-  unavailabilityReasonLabel,
-} from "./route-projection";
+import { buildModelConnectionExamples } from "./model-connection";
 import { RouteRequests } from "./route-requests";
 
 /**

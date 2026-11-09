@@ -1,6 +1,6 @@
 import type { ApplicationClient } from "@/api/application-client";
 import type { RouteClient } from "@/api/route-client";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
 import type { PanelTitleLookup } from "@/panels/panel-titles-context";
 
 /** Reads a route or application deployment by ID, the only resources the backend returns singly. */

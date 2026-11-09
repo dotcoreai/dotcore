@@ -9,10 +9,10 @@ import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { Notice } from "@/components/ui/notice";
 import { PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
 import { CatalogSectionIcon } from "@/components/ui/section-icons";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {

@@ -4,8 +4,8 @@ import type { DataTableUiDefinition } from "@/components/data-table/data-table";
 import { Tags } from "@/components/data-table/data-table-cells";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { requestKindsLabel } from "@/domain/request-kinds";
 import { formatCount } from "@/lib/format";
-import { requestKindsLabel } from "@/lib/request-kinds";
 
 import {
   engineKindLabel,

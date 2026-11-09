@@ -1,8 +1,7 @@
 import { Detail, DetailList } from "@/components/ui/detail-list";
+import { executionTargetPresentation } from "@/domain/execution-target";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 import { cn } from "@/lib/utils";
-
-import { executionTargetPresentation } from "./execution-target";
 
 export function ExecutionTargetSummary({
   className,

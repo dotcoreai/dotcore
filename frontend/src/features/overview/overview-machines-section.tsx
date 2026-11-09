@@ -3,6 +3,7 @@ import { MetricCard, MetricCardGrid } from "@/components/metrics/metric-card/met
 import { Sparkline } from "@/components/metrics/sparkline/sparkline";
 import { Notice } from "@/components/ui/notice";
 import { PageSectionHeading } from "@/components/ui/page-header";
+import { type MachinesNow, useMachinesNow } from "@/features/machines/use-machines-now";
 import { CardChartDetail, ReadingsStoppedNote } from "@/features/metrics/card-panel";
 import type { MetricCard as MetricCardModel } from "@/features/metrics/use-metric-cards";
 import { NodeObservationState } from "@/gen/dotcore/site/v1/service_pb";
@@ -14,7 +15,6 @@ import {
   type MachineHeadlineContext,
   machineSplitId,
 } from "./overview-machine-specs";
-import { type MachinesNow, useMachinesNow } from "./use-machines-now";
 import type { OverviewMetrics } from "./use-overview-metrics";
 
 const splitOptions = [{ label: "By machine", value: machineSplitId }];

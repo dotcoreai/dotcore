@@ -1,6 +1,7 @@
 import type { ChartSeries } from "@/components/metrics/time-series-chart/chart-data";
-import { nodeConnectionLabel } from "@/features/deployments/execution-target";
-import { type DescribedMachine, machineName } from "@/features/memory/described-machines";
+import { nodeConnectionLabel } from "@/domain/execution-target";
+import { machineName } from "@/domain/machine-name";
+import type { DescribedMachine } from "@/features/memory/described-machines";
 import { memoryQueryGroups } from "@/features/memory/memory-history";
 import { acceleratorFacts } from "@/features/memory/snapshot-facts";
 import type { MachineSnapshotDetail } from "@/features/memory/use-hardware-snapshots";

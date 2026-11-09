@@ -23,6 +23,9 @@ import { InspectorSectionHeader } from "@/components/ui/inspector-section-header
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { Notice } from "@/components/ui/notice";
 import { ResourceMarker, ResourceTitle } from "@/components/ui/resource-marker";
+import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
+import { validateDeploymentName } from "@/domain/deployment-name";
+import { UPSTREAM_MODEL_NAME } from "@/domain/upstream-presentation";
 import type { ChatTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
 import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
@@ -44,10 +47,7 @@ import {
   UpstreamModelInputCapabilitiesSchema,
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
-import { validateDeploymentName } from "@/lib/deployment-name";
 import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
-import { UPSTREAM_MODEL_NAME } from "@/lib/upstream-presentation";
 import { usePanelDirtyGuard, usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import { popPanelLocation } from "@/panels/panel-stack";
