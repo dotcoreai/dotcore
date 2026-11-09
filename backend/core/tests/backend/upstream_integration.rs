@@ -12,6 +12,11 @@ use std::{
     time::Duration,
 };
 
+use dotcore::{
+    composition::BackendTestSupport,
+    testing::{ManualClock, Timing},
+};
+use dotcore_domain::timing::ModelTiming;
 use dotcore_proto::dotcore::{
     catalog::v1::{UpstreamModelBoundary, UpstreamModelDataEgressClass, UpstreamModelLocality},
     inference::v1::{
@@ -1525,7 +1530,27 @@ async fn generic_endpoint_restart_direct_yaml_and_permissions_use_fresh_prefligh
     wait_for_state_release(&fixture).await;
 
     upstream.set_outage(true);
-    let restarted = support::RunningBackend::start(configuration.clone()).await;
+    // The restarted backend retries a failed verification only when the test advances its clock
+    // past the production retry delay, so no retry probe lands between the exact counts.
+    let retry = Timing::production().model.upstream_retry;
+    let timing = Timing {
+        model: ModelTiming {
+            upstream_retry: retry,
+            ..Timing::test().model
+        },
+        ..Timing::test()
+    };
+    timing.check().expect("restart timing");
+    let clock = ManualClock::new();
+    let restarted = support::RunningBackend::start_with_test_support(
+        configuration.clone(),
+        BackendTestSupport {
+            timing,
+            clock: Some(Arc::new(clock.clone())),
+            ..BackendTestSupport::test()
+        },
+    )
+    .await;
     let mut restarted_model = restarted.model_client();
     // The retained record reads Ready until the fresh preflight fails, so Unavailable proves
     // the probe ran and was classified before the served model list is checked.
@@ -1548,6 +1573,7 @@ async fn generic_endpoint_restart_direct_yaml_and_permissions_use_fresh_prefligh
         probe_count_before_restart + 1
     );
     upstream.set_outage(false);
+    clock.advance(retry.initial);
     let recovered = wait_for_lifecycle_with_timeout(
         &mut restarted_model,
         &loaded,

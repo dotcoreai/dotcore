@@ -2637,6 +2637,23 @@ impl RunningBackend {
         Self::serve(backend, shutdown).await
     }
 
+    /// Starts a simulated-runtime backend under `test_support`, such as a test's own timing and
+    /// manual clock.
+    pub async fn start_with_test_support(
+        site_paths: dotcore_domain::SitePaths,
+        test_support: dotcore::composition::BackendTestSupport,
+    ) -> Self {
+        Self::start_at_under(
+            site_paths,
+            "127.0.0.1".parse().expect("loopback bind address"),
+            None,
+            0,
+            Default::default(),
+            test_support,
+        )
+        .await
+    }
+
     async fn start_at_with_test_supports(
         site_paths: dotcore_domain::SitePaths,
         bind_address: std::net::IpAddr,
@@ -2645,6 +2662,29 @@ impl RunningBackend {
         telemetry_directory: Option<std::path::PathBuf>,
         dotcore_sources: dotcore_domain::nix::DotcoreSources,
         inference_port: u16,
+    ) -> Self {
+        Self::start_at_under(
+            site_paths,
+            bind_address,
+            telemetry_directory,
+            inference_port,
+            dotcore_sources,
+            dotcore::composition::BackendTestSupport {
+                simulated_runtime: simulated_runtime_test_support,
+                simulated_inference: simulated_inference_test_support,
+                ..dotcore::composition::BackendTestSupport::test()
+            },
+        )
+        .await
+    }
+
+    async fn start_at_under(
+        site_paths: dotcore_domain::SitePaths,
+        bind_address: std::net::IpAddr,
+        telemetry_directory: Option<std::path::PathBuf>,
+        inference_port: u16,
+        dotcore_sources: dotcore_domain::nix::DotcoreSources,
+        test_support: dotcore::composition::BackendTestSupport,
     ) -> Self {
         let (shutdown, signal) = oneshot::channel();
         wait_for_site_store_release(&site_paths).await;
@@ -2665,11 +2705,7 @@ impl RunningBackend {
             async move {
                 let _ = signal.await;
             },
-            dotcore::composition::BackendTestSupport {
-                simulated_runtime: simulated_runtime_test_support,
-                simulated_inference: simulated_inference_test_support,
-                ..dotcore::composition::BackendTestSupport::test()
-            },
+            test_support,
         )
         .await
         .expect("prepared backend");
