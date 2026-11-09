@@ -36,8 +36,13 @@ body:
     id: machines
     attributes:
       label: Machines
-      description: For each machine, the OS, CPU architecture, and GPU with its memory.
-      placeholder: Ubuntu 24.04, x86_64, NVIDIA RTX 4090 24 GB
+      description: For each machine, its OS name and version, then the output of `dotc hardware show` run on it.
+      placeholder: |
+        Ubuntu 24.04
+        # Dotcore 0.1.0
+        platform: linux/amd64
+        ...
+      render: text
     validations:
       required: true
 
