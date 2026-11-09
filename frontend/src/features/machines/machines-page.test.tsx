@@ -23,8 +23,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApplicationClient } from "@/api/application-client";
 import type { ModelClient } from "@/api/model-client";
 import type { SiteClient } from "@/api/site-client";
-import { PanelNavigationProvider, usePanelNavigation } from "@/app/console-layout";
 import type { ResourcePayload } from "@/app/resource-watch";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { hardwareSnapshot, listedMachine } from "@/features/memory/machine-test-support";
 import {
   devicePool,
@@ -81,6 +81,7 @@ import {
   type RuntimeTargetAvailabilitySchema,
 } from "@/gen/dotcore/site/v1/service_pb";
 import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import { failedSnapshot, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";

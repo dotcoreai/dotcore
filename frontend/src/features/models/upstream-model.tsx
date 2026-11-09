@@ -5,7 +5,6 @@ import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState }
 import { useLocation } from "react-router-dom";
 
 import type { MetricsClient } from "@/api/metrics-client";
-import { usePanelDirtyGuard, usePanelNavigation } from "@/app/console-layout";
 import { InspectorActions } from "@/components/inspector-actions/inspector-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +48,7 @@ import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deploym
 import { validateDeploymentName } from "@/lib/deployment-name";
 import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
 import { UPSTREAM_MODEL_NAME } from "@/lib/upstream-presentation";
+import { usePanelDirtyGuard, usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import { popPanelLocation } from "@/panels/panel-stack";
 

@@ -4,7 +4,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ApplicationClient, applicationClient } from "@/api/application-client";
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import { AppsSectionIcon } from "@/app/console-section-icons";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -37,6 +36,7 @@ import { applicationDeploymentPresentationName } from "@/lib/application-deploym
 import { buildDataTable } from "@/lib/data-table-model";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   activePanel,

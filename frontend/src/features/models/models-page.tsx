@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type ModelClient, modelClient } from "@/api/model-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import { ModelsSectionIcon } from "@/app/console-section-icons";
 import { useWatchedMachines } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
@@ -24,6 +23,7 @@ import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { buildDataTable } from "@/lib/data-table-model";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import {
   activePanel,
   canonicalizePanelLocation,

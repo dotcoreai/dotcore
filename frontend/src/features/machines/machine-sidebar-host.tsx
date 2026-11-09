@@ -2,7 +2,6 @@ import { type RefObject, useCallback, useEffect, useMemo, useState } from "react
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import {
   useWatchedApplicationDeployments,
   useWatchedExecutionTargets,
@@ -21,6 +20,7 @@ import type { ConfiguredExecutionTarget, Machine } from "@/gen/dotcore/site/v1/s
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 import { mapRead, type ReadState } from "@/lib/read-state";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import {
   activePanel,
   appendPanelLocation,

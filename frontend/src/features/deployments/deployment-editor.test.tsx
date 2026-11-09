@@ -4,7 +4,7 @@ import { createRef, StrictMode, useState } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { PanelNavigationProvider } from "@/app/console-layout";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 

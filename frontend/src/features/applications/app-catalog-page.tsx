@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ApplicationClient, applicationClient } from "@/api/application-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import { CatalogSectionIcon } from "@/app/console-section-icons";
 import { useWatchedRoutes } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
@@ -15,6 +14,7 @@ import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 import { buildDataTable } from "@/lib/data-table-model";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   activePanel,

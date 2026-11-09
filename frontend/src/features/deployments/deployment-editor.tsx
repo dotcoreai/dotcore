@@ -2,7 +2,6 @@ import type { RefObject } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { usePanelDirtyGuard, usePanelNavigation } from "@/app/console-layout";
 import { Button } from "@/components/ui/button";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { FieldError } from "@/components/ui/field-error";
@@ -12,6 +11,7 @@ import { Notice } from "@/components/ui/notice";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { validateDeploymentName } from "@/lib/deployment-name";
+import { usePanelDirtyGuard, usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import { popPanelLocation } from "@/panels/panel-stack";
 

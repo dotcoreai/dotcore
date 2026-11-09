@@ -6,7 +6,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ModelClient, modelClient } from "@/api/model-client";
 import { type SiteClient, siteClient as defaultSiteClient } from "@/api/site-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import { CatalogSectionIcon } from "@/app/console-section-icons";
 import { useWatchedApplicationDeployments, useWatchedRoutes } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
@@ -44,6 +43,7 @@ import {
 } from "@/gen/dotcore/model/v1/service_pb";
 import { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   activePanel,

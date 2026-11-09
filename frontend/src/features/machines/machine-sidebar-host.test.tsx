@@ -5,8 +5,8 @@ import { useRef } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
-import { PanelNavigationProvider } from "@/app/console-layout";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { hardwareSnapshot, listedMachine } from "@/features/memory/machine-test-support";
 import {
   gib,

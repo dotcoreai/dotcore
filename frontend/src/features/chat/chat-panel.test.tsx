@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ChatClient, ChatRequest } from "@/api/chat-client";
 import type { RouteClient } from "@/api/route-client";
-import { ConsoleLayout, usePanelNavigation } from "@/app/console-layout";
+import { ConsoleLayout } from "@/app/console-layout";
 import { ThemeProvider } from "@/app/theme-provider";
 import { InspectorActions } from "@/components/inspector-actions/inspector-actions";
 import { InspectorShell } from "@/components/ui/inspector-shell";
@@ -20,6 +20,7 @@ import {
   InferenceRouteViewSchema,
   ListRoutesResponseSchema,
 } from "@/gen/dotcore/inference/v1/routes_pb";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import { ChatRoute } from "@/routes/chat";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 

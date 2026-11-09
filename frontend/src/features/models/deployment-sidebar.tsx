@@ -4,7 +4,6 @@ import { useLocation } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type ModelClient, modelClient } from "@/api/model-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import {
   useWatchedExecutionTargets,
   useWatchedMachines,
@@ -26,6 +25,7 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   appendPanelHref,

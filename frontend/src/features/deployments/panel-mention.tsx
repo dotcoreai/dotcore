@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import { PanelLink } from "@/app/console-layout";
 import { ResourceMarker } from "@/components/ui/resource-marker";
+import { PanelLink } from "@/panels/panel-navigation";
 
 /** A route a deployment inspector mentions, with the link that pushes its route inspector. */
 export interface RouteMention {

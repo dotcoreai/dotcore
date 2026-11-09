@@ -18,9 +18,9 @@ import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
 import type { SiteClient } from "@/api/site-client";
-import { PanelLink, PanelNavigationProvider } from "@/app/console-layout";
 import { createPanelTitleLookup } from "@/app/panel-title-lookup";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import {
   counterPoint,
   distributionPoint,
@@ -76,6 +76,7 @@ import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/servi
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { ListConfiguredExecutionTargetsResponseSchema } from "@/gen/dotcore/site/v1/service_pb";
 import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { PanelLink } from "@/panels/panel-navigation";
 import { PanelTitlesProvider } from "@/panels/panel-titles-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { expectHeadingOutline } from "@/test/heading-outline";
