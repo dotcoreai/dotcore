@@ -29,6 +29,7 @@ const PROTO_FILES: &[&str] = &[
     "dotcore/catalog/v1/model_capabilities.proto",
     "dotcore/catalog/v1/execution.proto",
     "dotcore/catalog/v1/model.proto",
+    "dotcore/catalog/v1/recommendation.proto",
     "dotcore/catalog/v1/service.proto",
     "dotcore/engine/llama_cpp/v1/model.proto",
     "dotcore/engine/ninfer/v1/model.proto",

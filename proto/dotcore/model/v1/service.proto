@@ -6,6 +6,7 @@ import "dotcore/capacity/v1/placement_preview.proto";
 import "dotcore/catalog/v1/engine_release.proto";
 import "dotcore/catalog/v1/model.proto";
 import "dotcore/catalog/v1/oci.proto";
+import "dotcore/catalog/v1/recommendation.proto";
 import "dotcore/catalog/v1/selector.proto";
 import "dotcore/deployment/v1/memory_fit.proto";
 import "dotcore/deployment/v1/placement.proto";
@@ -24,6 +25,8 @@ service ModelDeploymentService {
   rpc EstimateLocalModelResources(EstimateLocalModelResourcesRequest) returns (EstimateLocalModelResourcesResponse);
 
   rpc ListModelProfileCompatibility(ListModelProfileCompatibilityRequest) returns (ListModelProfileCompatibilityResponse);
+
+  rpc ListModelRecommendations(ListModelRecommendationsRequest) returns (ListModelRecommendationsResponse);
 
   rpc UpdateModelDeployment(UpdateModelDeploymentRequest) returns (UpdateModelDeploymentResponse);
 
@@ -248,6 +251,73 @@ message ListModelProfileCompatibilityResponse {
 
   // One entry per evaluated catalog model profile in catalog model then profile declaration order, present without targets.
   repeated ModelProfileSizing profiles = 3;
+}
+
+// Asks which catalog models the site's hardware runs well for some use cases. A fast, advisory read of
+// current target observations and deployments; it never changes deployments, admission or placement.
+message ListModelRecommendationsRequest {
+  // Use cases to rank; empty ranks every use case. Unspecified is rejected.
+  repeated dotcore.catalog.v1.UseCase use_cases = 1;
+}
+
+// One ranked list of recommended model profiles per requested use case.
+message ListModelRecommendationsResponse {
+  // One entry per requested use case, in request order, or in use case declaration order when the request named none. A target whose hardware facts are missing or stale appears in no row.
+  repeated UseCaseModelRecommendations use_cases = 1;
+}
+
+// The recommended model profiles of one use case across the site's model execution targets.
+message UseCaseModelRecommendations {
+  // Use case the rows rank.
+  dotcore.catalog.v1.UseCase use_case = 1;
+
+  // Recommended profiles, best first; empty when nothing is recommended for the site's hardware.
+  repeated RecommendedModelProfile rows = 2;
+}
+
+// One recommended model profile and the targets that can run it.
+message RecommendedModelProfile {
+  // Catalog model identifier.
+  string model_id = 1;
+
+  // Model-local profile identifier.
+  string profile_id = 2;
+
+  // Targets that can run the profile, ordered by node then target identifier.
+  repeated RecommendedProfileTarget targets = 3;
+}
+
+// How a recommended model profile fits one configured model execution target.
+message RecommendedProfileTarget {
+  // Exact placement of the configured model execution target.
+  dotcore.deployment.v1.ExactPlacement target = 1;
+
+  // How the profile fits the target's memory now.
+  ModelRecommendationFit fit = 2;
+
+  // Whether a deployment of the same model and profile is placed on the target.
+  bool deployed = 3;
+
+  // Total context in tokens a deployment of the profile starts from on the target; absent without a largest fit or a profile default.
+  optional uint64 starting_total_context_tokens = 4;
+}
+
+// How a recommended profile fits a target whose total memory can hold it.
+enum ModelRecommendationFit {
+  // No fit was supplied.
+  MODEL_RECOMMENDATION_FIT_UNSPECIFIED = 0;
+
+  // It fits beside what runs on the target now.
+  MODEL_RECOMMENDATION_FIT_FITS_NOW = 1;
+
+  // It fits only once some of what runs on the target is stopped.
+  MODEL_RECOMMENDATION_FIT_NEEDS_MEMORY_FREED = 2;
+
+  // What is free on the target is unknown.
+  MODEL_RECOMMENDATION_FIT_UNKNOWN = 3;
+
+  // The target stopped reporting; it is judged on the hardware it last reported, and what is free there is unknown.
+  MODEL_RECOMMENDATION_FIT_UNREACHABLE = 4;
 }
 
 // Target-level compatibility shared by every profile on one configured model execution target.

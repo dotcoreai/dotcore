@@ -32,7 +32,7 @@ use tracing::debug;
 
 use crate::{
     hardware::{
-        capacity::{Estimate, Policy, demand, fit, largest_total_context},
+        capacity::{Estimate, Policy, combined_minimums, demand, fit, largest_total_context},
         selection::SelectedTargetCapabilities,
     },
     model::{
@@ -266,15 +266,23 @@ pub(crate) fn size_profile(
 /// target capabilities `selected_target` the compatibility read selected, and the largest total
 /// context that fits there. Both fits compare one estimate, of the profile's sizing scenario on the
 /// target's hardware class or the snapshot's own without a scenario: one with the target's total
-/// memory, the other with its free memory less a headroom.
+/// memory, the other with its free memory less a headroom. The minimums judged are the resolved
+/// hardware support's, raised by `extra_minimums` when a caller adds its own.
 pub(crate) fn target_memory_fit(
     catalog: &Catalog,
     profile_sizing: &ProfileSizing,
     snapshot: &ResolvedLocalModelDeploymentSnapshot,
     selected_target: &SelectedTargetCapabilities,
+    extra_minimums: Option<&HardwareRequirements>,
 ) -> TargetMemoryFit {
-    let (fits, unsupported_reason) =
-        scenario_memory_fit(catalog, profile_sizing, snapshot, selected_target);
+    let minimums = combined_minimums(hardware_requirements(snapshot), extra_minimums);
+    let (fits, unsupported_reason) = scenario_memory_fit(
+        catalog,
+        profile_sizing,
+        snapshot,
+        selected_target,
+        minimums.as_ref(),
+    );
     // An unsupported scenario is not evaluated, but the totals that fit still guide the operator.
     let evaluated_or_unsupported = matches!(fits.on_total, MemoryFit::Fits | MemoryFit::Exceeds)
         || unsupported_reason != SizingScenarioUnsupportedReason::Unspecified;
@@ -284,7 +292,7 @@ pub(crate) fn target_memory_fit(
                 catalog,
                 profile_sizing,
                 selected_target,
-                hardware_requirements(snapshot),
+                minimums.as_ref(),
             )
         })
         .flatten();
@@ -296,17 +304,18 @@ pub(crate) fn target_memory_fit(
     }
 }
 
-/// Returns the memory fits of the profile's scenario on the target, or unevaluated fits with the
-/// reason the scenario is unsupported there, and an unspecified reason otherwise.
+/// Returns the memory fits of the profile's scenario on the target under `minimums`, or
+/// unevaluated fits with the reason the scenario is unsupported there, and an unspecified reason
+/// otherwise.
 fn scenario_memory_fit(
     catalog: &Catalog,
     profile_sizing: &ProfileSizing,
     snapshot: &ResolvedLocalModelDeploymentSnapshot,
     selected_target: &SelectedTargetCapabilities,
+    minimums: Option<&HardwareRequirements>,
 ) -> (MemoryFits, SizingScenarioUnsupportedReason) {
     let supported = |fits| (fits, SizingScenarioUnsupportedReason::Unspecified);
     let capacity = &selected_target.capacity;
-    let minimums = hardware_requirements(snapshot);
     let judge = |accelerator_bytes, host_bytes| {
         let demand = demand(
             &Estimate {

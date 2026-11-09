@@ -90,10 +90,10 @@ Platform services: Artifact manager / Backups manager / Site store
   - A local model deployment that is starting claims its resolved estimate until it is ready and measured, less the use measured for it. A claim is advisory: it never blocks another deployment and is not a reservation.
   - Application deployments occupy pools by the accelerator memory attributed to them, in the host pool on unified devices; they carry no estimate and claim nothing.
   - Turns a resolved sizing estimate into a demand: bytes per pool on one target, so a launch across several devices needs no new shape.
-  - Judges fit per pool against free memory (total less occupancy) less a headroom, or against the total on request; unknown or stale facts give an unknown verdict and no largest fit, never a false one.
+  - Judges fit per pool against free memory (total less occupancy) less a headroom, or against the total on request; unknown facts give an unknown verdict, and stale facts keep only their totals, so free-memory verdicts and largest fits on them are unknown, never false.
   - Its placement preview is what a view draws for a target: each pool's occupancy with the new demand, the fit line, and the starting total context. Its node memory projection is what site memory views draw for each node: every pool with its occupancy, use past the total, and the deployments it can't size.
   - Evaluation is advisory: admission never blocks a deployment on fit. A future scheduler is its named consumer and uses the same inputs and rules.
-  - The inference controller's compatibility read and resource estimates, and the site's memory views, take their verdicts, previews, and pools from it; clients render them and hold no fit, headroom, or starting-value rule.
+  - The inference controller's compatibility read, model recommendations and resource estimates, and the site's memory views, take their verdicts, previews, and pools from it; clients render them and hold no fit, headroom, or starting-value rule.
 - **Identity and access manager**
   - Owns users, machine identities, roles, permissions, sessions, API keys, identity-provider configuration, and access policy.
   - Supplies authentication/authorization decisions to enforcing components; not a traffic proxy.
@@ -121,6 +121,7 @@ Platform services: Artifact manager / Backups manager / Site store
   - Selects only engine artifacts of a kind the target's runtime binding can realize, and only hardware classes the configuration supports.
   - Exposes an advisory compatibility read over catalog model profiles and configured model execution targets, evaluated from the reconciled inventory through the same resolution as admission; a target without fresh observations is unknown. The read may evaluate a sizing scenario (total context and optional context per request) and report resource estimates per hardware class and the capacity component's two advisory memory fits per target, on free memory and on total memory; declared memory minimums always compare with the total. Fits never block a deployment.
   - The compatibility read also reports, per running target, the capacity component's largest fitting total context and starting total context; narrowing by scenario uses the fit.
+  - Computes model recommendations for a site as an advisory read: each target takes its most specific class's list per use case, entries are kept or dropped by the capacity component's verdicts, entry minimums included, and the result is one ranking per use case across the site. A target that stopped reporting is judged on its last observations, marked unreachable with free memory unknown, until its node leaves the site; this is the only read that accepts stale observations. It never affects admission or placement.
   - Resource estimates for a launch configuration carry the capacity component's placement preview for the selected target.
   - Enforces, at admission, target constraints such as requiring a target's accelerator devices to number exactly the devices the resolved launch uses, so an incompatible target is rejected before acceptance rather than discovered at realization.
   - Uses typed engine adapters provided by the engine integration registry for engine-specific declaration validation, realization, and local engine transport; adapters own no product state.
@@ -188,6 +189,8 @@ Platform services: Artifact manager / Backups manager / Site store
   - Engine releases may declare defaults on unsigned parameters, within their bounds; a default on a parameter that sizing derives is rejected.
   - Profiles supply no default for total context or context per request.
   - Rejects selectors that overlap without strict nesting, among one configuration's approved engine artifacts, and among its supported hardware classes.
+  - Hardware class selectors may name exact accelerator device models, matching a target only when every device it uses reports one; engine artifact selectors don't.
+  - Owns model recommendations: per hardware class and use case, a priority-ordered list of model profiles with optional memory minimums. Only the master catalog declares them; site and development catalogs can't add or replace them. Validation keeps each entry runnable on its class and for its use case's request kind, and the classes that declare lists disjoint or nested.
   - Requires engine releases sharing a parameter schema identity to declare identical parameter definitions.
   - Rejects a configuration approving artifacts from releases of different engines or different parameter schemas.
   - Sizing equations must be linear in the total context, so the largest fitting total context follows from the estimates; repository catalog checks enforce it.

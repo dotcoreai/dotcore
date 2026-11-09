@@ -87,6 +87,7 @@ describe("separate catalog and model read contracts", () => {
       "PreviewLocalModelDeployment",
       "EstimateLocalModelResources",
       "ListModelProfileCompatibility",
+      "ListModelRecommendations",
       "UpdateModelDeployment",
       "RemoveModelDeployment",
       "PauseModel",
@@ -127,6 +128,11 @@ describe("separate catalog and model read contracts", () => {
       "ListModelProfileCompatibilityRequest",
       "SizingScenario",
       "ListModelProfileCompatibilityResponse",
+      "ListModelRecommendationsRequest",
+      "ListModelRecommendationsResponse",
+      "UseCaseModelRecommendations",
+      "RecommendedModelProfile",
+      "RecommendedProfileTarget",
       "TargetCompatibility",
       "ModelProfileCompatibility",
       "ModelProfileSizing",
@@ -153,6 +159,7 @@ describe("separate catalog and model read contracts", () => {
     ]);
     expect(file_dotcore_model_v1_service.enums.map(({ name }) => name)).toEqual([
       "LocalModelDeploymentAdvisory",
+      "ModelRecommendationFit",
       "ModelCompatibilityStatus",
       "ModelCompatibilityReasonCode",
       "SizingScenarioUnsupportedReason",

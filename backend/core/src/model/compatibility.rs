@@ -16,13 +16,14 @@ use dotcore_catalog::{Catalog, CatalogModelId, shared_parameters::TOTAL_CONTEXT_
 use dotcore_domain::MemoryArchitecture;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
-    catalog::v1::{Model, ModelProfile, OciPlatform, Selector},
+    catalog::v1::{HardwareRequirements, Model, ModelProfile, OciPlatform, Selector},
     deployment::v1::{ExactPlacement, accelerator_memory_observation},
     model::v1::{
-        ListModelProfileCompatibilityResponse, LocalModelDeploymentConfiguration,
-        ModelCompatibilityReason, ModelCompatibilityReasonCode, ModelCompatibilityStatus,
-        ModelDeployment, ModelDeploymentStatus, ModelProfileCompatibility,
-        StartingTotalContextSource, TargetCompatibility, model_deployment_snapshot,
+        ListModelProfileCompatibilityResponse, LocalModelDeploymentAdvisory,
+        LocalModelDeploymentConfiguration, ModelCompatibilityReason, ModelCompatibilityReasonCode,
+        ModelCompatibilityStatus, ModelDeployment, ModelDeploymentStatus,
+        ModelProfileCompatibility, StartingTotalContextSource, TargetCompatibility,
+        model_deployment_snapshot,
     },
     site::v1::ExecutionTarget,
 };
@@ -37,7 +38,7 @@ use crate::{
     },
     hardware::selection::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetCapabilitySelectionError,
-        select_target_capabilities_at,
+        select_last_observed_target_capabilities, select_target_capabilities_at,
     },
     model::{
         advisory::local_deployment_advisories,
@@ -47,7 +48,9 @@ use crate::{
             resolve_local_launch_on_selected_target,
         },
         selection::{EngineArtifactSelectionError, engine_artifact_kind},
-        sizing_scenario::{ProfileSizing, SizingScenario, size_profile, target_memory_fit},
+        sizing_scenario::{
+            ProfileSizing, SizingScenario, TargetMemoryFit, size_profile, target_memory_fit,
+        },
     },
 };
 
@@ -66,59 +69,236 @@ pub(crate) fn evaluate_profile_compatibility(
     workloads: &NodeWorkloads,
     now: SystemTime,
 ) -> ListModelProfileCompatibilityResponse {
-    let mut targets = targets.iter().collect::<Vec<_>>();
-    targets.sort_by(|left, right| {
-        (&left.site_node_id, &left.execution_target_id)
-            .cmp(&(&right.site_node_id, &right.execution_target_id))
-    });
-
-    let mut response = ListModelProfileCompatibilityResponse::default();
-    let mut evaluated = Vec::new();
-    for target in targets {
-        let target_check = match inventory {
-            Some(inventory) => select_target_capabilities_at(target, inventory, now)
-                .map_err(|error| target_failure(&error)),
-            None => Err((
-                ModelCompatibilityStatus::Unknown,
-                reason(ModelCompatibilityReasonCode::TargetNotReporting),
-            )),
-        };
-        let (status, reason) = match target_check {
-            Ok(mut selected) => {
-                if let Some(workloads) = workloads.get(&target.site_node_id) {
-                    selected.capacity =
-                        std::mem::take(&mut selected.capacity).with_workloads(workloads);
-                }
-                evaluated.push((target, selected));
-                (ModelCompatibilityStatus::Runs, None)
-            }
-            Err((status, reason)) => (status, Some(reason)),
-        };
-        response.targets.push(TargetCompatibility {
-            target: Some(placement(target)),
-            status: status as i32,
-            reason,
-            observed_at: inventory
-                .and_then(|inventory| inventory.for_target(&target.execution_target_id))
-                .and_then(|capabilities| capabilities.platform_observed_at)
-                .map(crate::model::service::timestamp_from),
-        });
-    }
+    let checked = check_targets(targets, inventory, workloads, now, StaleTargets::Fail);
+    let mut response = ListModelProfileCompatibilityResponse {
+        targets: checked.iter().map(target_compatibility).collect(),
+        ..Default::default()
+    };
 
     let registry = EngineIntegrationRegistry::production();
     for model in models {
         let model_id = CatalogModelId(model.model_id.clone());
         for profile in &model.profiles {
             let sizing = size_profile(catalog, model, profile, scenario);
-            for (target, selected) in &evaluated {
-                response.entries.push(evaluate_profile(
-                    catalog, &registry, &model_id, profile, &sizing, target, selected,
+            for checked in &checked {
+                let Ok(selected) = &checked.check else {
+                    continue;
+                };
+                let request = ProfileRequest {
+                    model_id: &model_id,
+                    profile,
+                    sizing: &sizing,
+                    extra_minimums: None,
+                };
+                let evaluation =
+                    evaluate_profile(catalog, &registry, &request, checked.target, selected);
+                response.entries.push(profile_compatibility(
+                    &model_id,
+                    profile,
+                    checked.target,
+                    evaluation,
                 ));
             }
             response.profiles.push(sizing.sizing);
         }
     }
     response
+}
+
+/// One configured model execution target after the checks every profile on it shares.
+pub(crate) struct CheckedTarget<'a> {
+    pub(crate) target: &'a ExecutionTarget,
+
+    /// The target's fresh capabilities, with what its node's workloads hold of its memory, or the
+    /// status and reason that keep every profile from being judged there.
+    pub(crate) check: Result<SelectedTargetCapabilities, Failure>,
+
+    /// Whether the target stopped reporting and its check used its last observations instead.
+    pub(crate) unreachable: bool,
+
+    /// When the target's runtime last reported its platform.
+    observed_at: Option<SystemTime>,
+}
+
+/// A status other than runs, with the typed reason for it.
+pub(crate) type Failure = (ModelCompatibilityStatus, ModelCompatibilityReason);
+
+/// What target checks do with a target whose platform or accelerator observations are stale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StaleTargets {
+    /// The target fails its check, as admission would.
+    Fail,
+
+    /// The target is checked on its last observations and marked unreachable.
+    UseLastObserved,
+}
+
+/// Confirms each target's capabilities from `inventory` at `now` and counts in its pools what
+/// `workloads` hold of its node's memory, ordered by node then target identifier. A missing
+/// inventory leaves every target unknown; `stale` says what happens to a target that stopped
+/// reporting.
+pub(crate) fn check_targets<'a>(
+    targets: &'a [ExecutionTarget],
+    inventory: Option<&TargetCapabilityInventory>,
+    workloads: &NodeWorkloads,
+    now: SystemTime,
+    stale: StaleTargets,
+) -> Vec<CheckedTarget<'a>> {
+    let mut targets = targets.iter().collect::<Vec<_>>();
+    targets.sort_by(|left, right| {
+        (&left.site_node_id, &left.execution_target_id)
+            .cmp(&(&right.site_node_id, &right.execution_target_id))
+    });
+    targets
+        .into_iter()
+        .map(|target| {
+            let mut unreachable = false;
+            let check = match inventory {
+                Some(inventory) => match select_target_capabilities_at(target, inventory, now) {
+                    Err(
+                        TargetCapabilitySelectionError::StalePlatform { .. }
+                        | TargetCapabilitySelectionError::StaleAccelerator { .. },
+                    ) if stale == StaleTargets::UseLastObserved => {
+                        unreachable = true;
+                        select_last_observed_target_capabilities(target, inventory)
+                    }
+                    selected => selected,
+                }
+                .map_err(|error| target_failure(&error)),
+                None => Err((
+                    ModelCompatibilityStatus::Unknown,
+                    reason(ModelCompatibilityReasonCode::TargetNotReporting),
+                )),
+            };
+            let check = check.map(|mut selected| {
+                if let Some(workloads) = workloads.get(&target.site_node_id) {
+                    selected.capacity =
+                        std::mem::take(&mut selected.capacity).with_workloads(workloads);
+                }
+                selected
+            });
+            CheckedTarget {
+                target,
+                check,
+                unreachable,
+                observed_at: inventory
+                    .and_then(|inventory| inventory.for_target(&target.execution_target_id))
+                    .and_then(|capabilities| capabilities.platform_observed_at),
+            }
+        })
+        .collect()
+}
+
+/// What one profile gives on one target that passed the target-level checks.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum ProfileEvaluation {
+    /// The profile resolves there, with its memory fit.
+    Runs(RunningProfile),
+
+    /// The profile can't run there, or whether it can is unknown.
+    Fails(Failure),
+}
+
+/// A profile that resolves on a target, with its advisories and advisory memory fit.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RunningProfile {
+    pub(crate) advisories: Vec<LocalModelDeploymentAdvisory>,
+
+    /// Hardware class the launch resolved to.
+    pub(crate) hardware_class_id: String,
+
+    pub(crate) fit: TargetMemoryFit,
+
+    /// Total context a deployment of the profile starts from there; absent without a largest fit
+    /// or a profile default.
+    pub(crate) starting_total_context: Option<StartingTotalContext>,
+}
+
+/// One model profile to evaluate on targets, with its target-independent sizing.
+pub(crate) struct ProfileRequest<'a> {
+    pub(crate) model_id: &'a CatalogModelId,
+
+    pub(crate) profile: &'a ModelProfile,
+
+    pub(crate) sizing: &'a ProfileSizing,
+
+    /// Memory minimums the caller adds on top of the configuration's own, such as a model
+    /// recommendation's; none adds nothing.
+    pub(crate) extra_minimums: Option<&'a HardwareRequirements>,
+}
+
+/// Resolves one profile with its defaults and default artifact binding on one target that passed
+/// the target-level checks with the capabilities `selected`, then judges the memory fit of its
+/// sizing there when it runs, under the configuration's minimums and the request's extra ones.
+pub(crate) fn evaluate_profile(
+    catalog: &Catalog,
+    registry: &EngineIntegrationRegistry,
+    request: &ProfileRequest<'_>,
+    target: &ExecutionTarget,
+    selected: &SelectedTargetCapabilities,
+) -> ProfileEvaluation {
+    let ProfileRequest {
+        model_id,
+        profile,
+        sizing,
+        extra_minimums,
+    } = *request;
+    let defaults = apply_profile_defaults(
+        catalog,
+        model_id,
+        &profile.profile_id,
+        &LocalModelDeploymentConfiguration::default(),
+    );
+    let default_total_context = defaults
+        .as_ref()
+        .ok()
+        .and_then(|configuration| configuration.engine_parameter_values.as_ref())
+        .and_then(|values| unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID));
+    let resolved = defaults.and_then(|configuration| {
+        resolve_local_launch_on_selected_target(
+            catalog,
+            model_id,
+            &profile.profile_id,
+            &configuration,
+            target,
+            selected,
+            None,
+        )
+    });
+    let snapshot = match resolved {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return ProfileEvaluation::Fails(profile_failure(
+                catalog, model_id, profile, target, &error,
+            ));
+        }
+    };
+
+    // An advisory failure never hides that the profile runs.
+    let advisories = local_deployment_advisories(registry, &snapshot)
+        .inspect_err(|error| {
+            warn!(
+                model_id = %model_id.0,
+                profile_id = %profile.profile_id,
+                execution_target_id = %target.execution_target_id,
+                error = %format!("{error:#}"),
+                "profile compatibility advisories failed"
+            );
+        })
+        .unwrap_or_default();
+    let fit = target_memory_fit(catalog, sizing, &snapshot, selected, extra_minimums);
+    ProfileEvaluation::Runs(RunningProfile {
+        advisories,
+        hardware_class_id: snapshot
+            .hardware_support
+            .map(|support| support.hardware_class_id)
+            .unwrap_or_default(),
+        starting_total_context: starting_total_context(
+            fit.largest_total_context_tokens,
+            default_total_context,
+        ),
+        fit,
+    })
 }
 
 /// Returns the local deployments of each node as workloads holding its memory, in deployment
@@ -223,70 +403,45 @@ fn memory_pending(memory: Option<&accelerator_memory_observation::Result>) -> bo
     )
 }
 
-/// Resolves one profile with its defaults and default artifact binding on one target that passed
-/// the target-level checks with the capabilities `selected`, then judges the memory fit of its
-/// sizing there when it runs.
-fn evaluate_profile(
-    catalog: &Catalog,
-    registry: &EngineIntegrationRegistry,
+/// The compatibility read's status of one checked target.
+fn target_compatibility(checked: &CheckedTarget<'_>) -> TargetCompatibility {
+    let (status, reason) = match &checked.check {
+        Ok(_) => (ModelCompatibilityStatus::Runs, None),
+        Err((status, reason)) => (*status, Some(reason.clone())),
+    };
+    TargetCompatibility {
+        target: Some(placement(checked.target)),
+        status: status as i32,
+        reason,
+        observed_at: checked
+            .observed_at
+            .map(crate::model::service::timestamp_from),
+    }
+}
+
+/// The compatibility read's entry for one profile's evaluation on one target.
+fn profile_compatibility(
     model_id: &CatalogModelId,
     profile: &ModelProfile,
-    sizing: &ProfileSizing,
     target: &ExecutionTarget,
-    selected: &SelectedTargetCapabilities,
+    evaluation: ProfileEvaluation,
 ) -> ModelProfileCompatibility {
-    let defaults = apply_profile_defaults(
-        catalog,
-        model_id,
-        &profile.profile_id,
-        &LocalModelDeploymentConfiguration::default(),
-    );
-    let default_total_context = defaults
-        .as_ref()
-        .ok()
-        .and_then(|configuration| configuration.engine_parameter_values.as_ref())
-        .and_then(|values| unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID));
-    let resolved = defaults.and_then(|configuration| {
-        resolve_local_launch_on_selected_target(
-            catalog,
-            model_id,
-            &profile.profile_id,
-            &configuration,
-            target,
-            selected,
-            None,
-        )
-    });
     let mut entry = ModelProfileCompatibility {
         model_id: model_id.0.clone(),
         profile_id: profile.profile_id.clone(),
         target: Some(placement(target)),
         ..Default::default()
     };
-    match resolved {
-        Ok(snapshot) => {
-            // An advisory failure never hides that the profile runs.
-            let advisories = local_deployment_advisories(registry, &snapshot)
-                .inspect_err(|error| {
-                    warn!(
-                        model_id = %model_id.0,
-                        profile_id = %profile.profile_id,
-                        execution_target_id = %target.execution_target_id,
-                        error = %format!("{error:#}"),
-                        "profile compatibility advisories failed"
-                    );
-                })
-                .unwrap_or_default();
-            let fit = target_memory_fit(catalog, sizing, &snapshot, selected);
+    match evaluation {
+        ProfileEvaluation::Runs(running) => {
+            let fit = running.fit;
             entry.set_status(ModelCompatibilityStatus::Runs);
-            entry.advisories = advisories
+            entry.advisories = running
+                .advisories
                 .into_iter()
                 .map(|advisory| advisory as i32)
                 .collect();
-            entry.hardware_class_id = snapshot
-                .hardware_support
-                .map(|support| support.hardware_class_id)
-                .unwrap_or_default();
+            entry.hardware_class_id = running.hardware_class_id;
             entry.set_memory_fit(fit.memory_fit);
             entry.set_free_memory_fit(fit.free_memory_fit);
             entry.set_unsupported_reason(fit.unsupported_reason);
@@ -294,9 +449,9 @@ fn evaluate_profile(
             entry.largest_total_context_tokens = fit
                 .largest_total_context_tokens
                 .and_then(|tokens| u32::try_from(tokens).ok());
-            let starting =
-                starting_total_context(fit.largest_total_context_tokens, default_total_context)
-                    .and_then(|starting| Some((starting, u32::try_from(starting.tokens()).ok()?)));
+            let starting = running
+                .starting_total_context
+                .and_then(|starting| Some((starting, u32::try_from(starting.tokens()).ok()?)));
             if let Some((starting, tokens)) = starting {
                 entry.starting_total_context_tokens = Some(tokens);
                 entry.set_starting_total_context_source(match starting {
@@ -307,8 +462,7 @@ fn evaluate_profile(
                 });
             }
         }
-        Err(error) => {
-            let (status, reason) = profile_failure(catalog, model_id, profile, target, &error);
+        ProfileEvaluation::Fails((status, reason)) => {
             entry.set_status(status);
             entry.reason = Some(reason);
         }

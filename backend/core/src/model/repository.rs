@@ -15,13 +15,15 @@ use std::{
 
 use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_proto::dotcore::{
-    catalog::v1::ModelParallelShape,
+    catalog::v1::{ModelParallelShape, UseCase},
     deployment::v1::ExactPlacement,
     model::v1::{
         CreateUpstreamModelDeploymentRequest, EstimateLocalModelResourcesResponse,
-        ListModelProfileCompatibilityResponse, LocalModelDeploymentConfiguration,
-        ModelDeploymentDeclaration, ModelDeploymentDesiredState,
-        ModelDeploymentLifecycleTransition, UpstreamModelDesiredConfiguration,
+        ListModelProfileCompatibilityResponse, ListModelRecommendationsResponse,
+        LocalModelDeploymentConfiguration, ModelDeployment, ModelDeploymentDeclaration,
+        ModelDeploymentDesiredState, ModelDeploymentLifecycleTransition, ModelRecommendationFit,
+        RecommendedModelProfile, RecommendedProfileTarget, UpstreamModelDesiredConfiguration,
+        UseCaseModelRecommendations,
         model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
     },
 };
@@ -35,7 +37,9 @@ use dotcore_site::{
 };
 
 use super::{
-    ModelTeardownApplicationRouteBlocker, controller::ModelDeploymentExposureIntent,
+    ModelTeardownApplicationRouteBlocker,
+    controller::ModelDeploymentExposureIntent,
+    recommendation::{RecommendationFit, UseCaseRecommendations, recommend_models},
     sizing_scenario::SizingScenario,
 };
 use crate::route_manager::{RouteDeclarationRepository, RouteRepositoryError};
@@ -285,6 +289,36 @@ impl ModelDeclarationRepository {
             workloads,
             now,
         ))
+    }
+
+    /// Ranks the catalog's recommended model profiles for each of `use_cases` on the site's
+    /// configured model execution targets against `inventory` and the site's `deployments`,
+    /// without reading or mutating the retained target capabilities. A missing inventory
+    /// recommends nothing.
+    pub(crate) fn model_recommendations(
+        &self,
+        use_cases: &[UseCase],
+        inventory: Option<&TargetCapabilityInventory>,
+        deployments: &[ModelDeployment],
+        now: SystemTime,
+    ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
+        let targets = self
+            .site
+            .model_snapshot()?
+            .execution_targets
+            .into_iter()
+            .filter(is_model_target)
+            .collect::<Vec<_>>();
+        let recommendations = recommend_models(
+            &self.catalog,
+            &targets,
+            inventory,
+            deployments,
+            use_cases,
+            now,
+        );
+
+        Ok(recommendations_response(recommendations))
     }
 
     pub(crate) fn load_upstream_model(
@@ -656,6 +690,48 @@ fn placement_target<'a>(
                 placement.execution_target_id.clone(),
             )
         })
+}
+
+/// The wire form of ranked recommendations, in the order the recommender ranked them.
+fn recommendations_response(
+    recommendations: Vec<UseCaseRecommendations>,
+) -> ListModelRecommendationsResponse {
+    ListModelRecommendationsResponse {
+        use_cases: recommendations
+            .into_iter()
+            .map(|recommendations| UseCaseModelRecommendations {
+                use_case: recommendations.use_case.into(),
+                rows: recommendations
+                    .rows
+                    .into_iter()
+                    .map(|row| RecommendedModelProfile {
+                        model_id: row.model_id,
+                        profile_id: row.profile_id,
+                        targets: row
+                            .targets
+                            .into_iter()
+                            .map(|target| RecommendedProfileTarget {
+                                target: Some(target.placement),
+                                fit: match target.fit {
+                                    RecommendationFit::FitsNow => ModelRecommendationFit::FitsNow,
+                                    RecommendationFit::NeedsMemoryFreed => {
+                                        ModelRecommendationFit::NeedsMemoryFreed
+                                    }
+                                    RecommendationFit::Unknown => ModelRecommendationFit::Unknown,
+                                    RecommendationFit::Unreachable => {
+                                        ModelRecommendationFit::Unreachable
+                                    }
+                                }
+                                .into(),
+                                deployed: target.deployed,
+                                starting_total_context_tokens: target.starting_total_context_tokens,
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
 }
 
 fn is_model_target(target: &dotcore_proto::dotcore::site::v1::ExecutionTarget) -> bool {

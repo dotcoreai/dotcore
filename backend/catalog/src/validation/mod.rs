@@ -1,17 +1,17 @@
 //! Validates the raw catalog records loaded from YAML and turns them into the
 //! deterministic, indexed view the catalog is built from.
 //!
-//! The models, engine releases, hardware classes, applications, and upstream model templates are
-//! checked against each other, and each configuration's sizing is compiled for every hardware
-//! class and binding. Every failure is surfaced as a
-//! located diagnostic rather than stopping the pass, so all problems are reported and the
-//! load fails only as a whole, never publishing a partial catalog.
+//! The models, engine releases, hardware classes, model recommendations, applications, and upstream
+//! model templates are checked against each other, and each configuration's sizing is compiled for
+//! every hardware class and binding. Every failure is surfaced as a located diagnostic rather than
+//! stopping the pass, so all problems are reported and the load fails only as a whole, never
+//! publishing a partial catalog.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_proto::dotcore::catalog::v1::{
     Application, EngineParameterDefinition, EngineParameterValues, EngineRelease, HardwareClass,
-    Model, ModelEngineConfiguration, UpstreamModelTemplate,
+    HardwareClassRecommendations, Model, ModelEngineConfiguration, UpstreamModelTemplate,
 };
 
 use super::{
@@ -35,6 +35,7 @@ mod graph;
 mod hardware_class;
 mod model;
 mod nix;
+mod recommendation;
 mod service;
 mod storage;
 mod upstream_model_template;
@@ -87,6 +88,7 @@ pub(super) fn validate_catalog(
         sizing_sources,
         engines,
         hardware_classes,
+        recommendations,
         applications,
         upstream_model_templates,
     } = records;
@@ -161,6 +163,26 @@ pub(super) fn validate_catalog(
         engine_validator,
         diagnostics,
     );
+    let duplicate_recommendations = report_duplicates(
+        &recommendations,
+        "model recommendations for hardware class",
+        |value| &value.hardware_class_id,
+        diagnostics,
+    );
+    recommendation::report_overlapping_recommendation_classes(
+        &recommendations,
+        &hardware_class_index,
+        diagnostics,
+    );
+    let recommendation_index = validate_declarations(
+        recommendations,
+        |value| value.hardware_class_id.clone(),
+        |value| {
+            recommendation::validate_recommendations(value, &model_index, &hardware_class_index)
+        },
+        &duplicate_recommendations,
+        diagnostics,
+    );
     let application_index = validate_declarations(
         applications,
         |application| application.application_id.clone(),
@@ -187,6 +209,7 @@ pub(super) fn validate_catalog(
         models: model_index,
         engines: engine_index,
         hardware_classes: hardware_class_index,
+        recommendations: recommendation_index,
         applications: application_index,
         upstream_model_templates: upstream_model_template_index,
         sizing,
@@ -201,6 +224,7 @@ pub(super) struct ValidatedCatalog {
     pub(super) models: BTreeMap<String, Model>,
     pub(super) engines: BTreeMap<String, EngineRelease>,
     pub(super) hardware_classes: BTreeMap<String, HardwareClass>,
+    pub(super) recommendations: BTreeMap<String, HardwareClassRecommendations>,
     pub(super) applications: BTreeMap<String, Application>,
     pub(super) upstream_model_templates: BTreeMap<String, UpstreamModelTemplate>,
     pub(super) sizing: BTreeMap<SizingKey, CompiledSizing>,

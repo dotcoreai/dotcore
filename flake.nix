@@ -154,11 +154,12 @@
           frontend = frontend.package;
           frontend-server = frontend.server;
           dotcore = allInOne.package;
-          # Links only dotcore and dotc so profile installs expose both without dotcore-launcher.
+          # Links only dotcore and the catalog-aware dotc so profile installs expose both without
+          # dotcore-launcher.
           default = pkgs.runCommand "dotcore-bundle" { meta.mainProgram = "dotcore"; } ''
             mkdir -p $out/bin
             ln -s ${allInOne.package}/bin/dotcore $out/bin/dotcore
-            ln -s ${backend.package}/bin/dotc $out/bin/dotc
+            ln -s ${allInOne.package}/bin/dotc $out/bin/dotc
           '';
         };
 

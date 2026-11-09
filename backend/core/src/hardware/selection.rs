@@ -2,9 +2,10 @@
 //! and selects the most specific supported hardware class that describes them.
 //!
 //! Every reader of a target's capabilities goes through this one rule, so a platform, accelerator
-//! vendor, and memory architecture mean the same thing wherever they are read. A missing, stale,
-//! or mismatched observation is a typed failure, never a guess, and the selected class is unique
-//! because catalog validation keeps supported classes disjoint or nested.
+//! vendor, memory architecture and device model mean the same thing wherever they are read. A
+//! missing, stale, or mismatched observation is a typed failure, never a guess; only advisory
+//! reads about machines that stopped reporting may accept the last observations instead. The
+//! selected class is unique because catalog validation keeps supported classes disjoint or nested.
 
 use std::time::SystemTime;
 
@@ -14,7 +15,7 @@ use dotcore_domain::{
 };
 use dotcore_proto::dotcore::{catalog::v1::Selector, site::v1::ExecutionTarget};
 use dotcore_site::node::target_inventory::{
-    CapabilityObservation, TargetCapabilityInventory, observation_is_fresh,
+    CapabilityObservation, NodeMemoryFacts, TargetCapabilityInventory, observation_is_fresh,
 };
 
 use crate::hardware::capacity::{NodeHardware, TargetCapacity};
@@ -27,6 +28,9 @@ pub(crate) struct SelectedTargetCapabilities {
     /// Artifact kinds the target's configured runtime binding can realize.
     pub(crate) artifact_kinds: &'static [WorkloadArtifactKind],
     pub(crate) memory_architecture: MemoryArchitecture,
+    /// Product names of the devices the target uses, as reported; empty for a device that reported
+    /// none. Empty when the node reported no devices.
+    pub(crate) device_models: Vec<String>,
     /// Memory pools the target draws from, built by the capacity component from the same
     /// observation. Their measured use is transient and never reaches a deployment snapshot.
     pub(crate) capacity: TargetCapacity,
@@ -76,6 +80,27 @@ pub(crate) fn select_target_capabilities_at(
     inventory: &TargetCapabilityInventory,
     now: SystemTime,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
+    select_observed_capabilities(target, inventory, Some(now))
+}
+
+/// Validates an execution target against its last capability observation, however old. Only
+/// advisory reads about machines that stopped reporting use it; measured memory use is dropped
+/// from stale memory facts, so only totals count.
+pub(crate) fn select_last_observed_target_capabilities(
+    target: &ExecutionTarget,
+    inventory: &TargetCapabilityInventory,
+) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
+    select_observed_capabilities(target, inventory, None)
+}
+
+/// Validates an execution target against its capability observation, requiring the platform and
+/// accelerator observations to be fresh at `fresh_at` when given.
+fn select_observed_capabilities(
+    target: &ExecutionTarget,
+    inventory: &TargetCapabilityInventory,
+    fresh_at: Option<SystemTime>,
+) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
+    let accepted = |observed_at| fresh_at.is_none_or(|now| observation_is_fresh(observed_at, now));
     let pinned = target
         .platform
         .as_ref()
@@ -91,10 +116,11 @@ pub(crate) fn select_target_capabilities_at(
         })?;
     let observed_platform = match &capabilities.platform {
         CapabilityObservation::Available(platform)
-            if observation_is_fresh(capabilities.platform_observed_at, now) =>
+            if accepted(capabilities.platform_observed_at) =>
         {
             platform
         }
+        CapabilityObservation::Stale(platform) if fresh_at.is_none() => platform,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: target.execution_target_id.clone(),
@@ -117,10 +143,11 @@ pub(crate) fn select_target_capabilities_at(
     }
     let vendor = match capabilities.accelerator {
         CapabilityObservation::Available(vendor)
-            if observation_is_fresh(capabilities.accelerator_observed_at, now) =>
+            if accepted(capabilities.accelerator_observed_at) =>
         {
             vendor
         }
+        CapabilityObservation::Stale(vendor) if fresh_at.is_none() => vendor,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StaleAccelerator {
                 execution_target_id: target.execution_target_id.clone(),
@@ -158,6 +185,10 @@ pub(crate) fn select_target_capabilities_at(
             );
         }
     };
+    let device_models = target_device_models(
+        &capabilities.memory,
+        capabilities.accelerator_device_ids.as_deref(),
+    );
     // Unknown memory never fails selection; only engines that divide by the total require it.
     let capacity = TargetCapacity::for_target(
         memory_architecture,
@@ -170,8 +201,27 @@ pub(crate) fn select_target_capabilities_at(
         accelerator,
         artifact_kinds: WorkloadArtifactKind::realizable_by(target),
         memory_architecture,
+        device_models,
         capacity,
     })
+}
+
+/// Product names of the devices a target uses: the devices its accelerator selectors name, or
+/// every device of its node when they name none, which covers whichever devices it uses.
+fn target_device_models(
+    memory: &CapabilityObservation<NodeMemoryFacts>,
+    device_ids: Option<&[String]>,
+) -> Vec<String> {
+    let (CapabilityObservation::Available(facts) | CapabilityObservation::Stale(facts)) = memory
+    else {
+        return Vec::new();
+    };
+    facts
+        .devices
+        .iter()
+        .filter(|device| device_ids.is_none_or(|ids| ids.contains(&device.device_id)))
+        .map(|device| device.model.clone())
+        .collect()
 }
 
 /// Failures while confirming one execution target's current capabilities.
@@ -223,7 +273,7 @@ pub enum TargetCapabilitySelectionError {
 }
 
 /// Selects the most specific supported hardware class whose selector matches the target's
-/// platform, accelerator vendor and memory architecture. Catalog validation keeps one owner's
+/// platform, accelerator vendor, memory architecture and device models. Catalog validation keeps one owner's
 /// supported classes disjoint or strictly nested, so the most specific match is unique.
 pub(crate) fn select_hardware_class(
     supported: Vec<SupportedHardwareClass>,
@@ -288,9 +338,10 @@ pub(crate) fn memory_architecture_name(architecture: MemoryArchitecture) -> &'st
     }
 }
 
-/// Whether a selector matches the target's platform, accelerator vendor and memory architecture. A
-/// dimension the selector leaves unset matches any value; selected targets never carry a platform
-/// variant.
+/// Whether a selector matches the target's platform, accelerator vendor, memory architecture and
+/// device models. A dimension the selector leaves unset matches any value; device models match only
+/// when the target reports devices and every one reports a listed model. Selected targets never
+/// carry a platform variant.
 pub(crate) fn selector_matches(selector: &Selector, target: &SelectedTargetCapabilities) -> bool {
     let platform = &target.platform;
     let vendor = target.accelerator.vendor();
@@ -307,7 +358,13 @@ pub(crate) fn selector_matches(selector: &Selector, target: &SelectedTargetCapab
     let memory_architecture_matches =
         MemoryArchitecture::from_proto(selector.memory_architecture())
             .is_none_or(|architecture| architecture == target.memory_architecture);
-    platform_matches && accelerator_matches && memory_architecture_matches
+    let device_models_match = selector.device_models.is_empty()
+        || (!target.device_models.is_empty()
+            && target
+                .device_models
+                .iter()
+                .all(|model| selector.device_models.contains(model)));
+    platform_matches && accelerator_matches && memory_architecture_matches && device_models_match
 }
 
 #[cfg(test)]
@@ -336,7 +393,8 @@ pub(crate) mod tests {
 
     use super::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetAccelerator,
-        TargetCapabilitySelectionError, select_hardware_class, select_target_capabilities,
+        TargetCapabilitySelectionError, select_hardware_class,
+        select_last_observed_target_capabilities, select_target_capabilities,
         select_target_capabilities_at,
     };
     use crate::hardware::capacity::TargetCapacity;
@@ -474,6 +532,109 @@ pub(crate) mod tests {
             ("nvidia-dedicated".to_owned(), Some(32_607 * 1024 * 1024))
         );
         assert_eq!(declared("mac-64g"), ("apple".to_owned(), Some(64 * GIB)));
+    }
+
+    #[test]
+    fn device_model_classes_match_only_targets_whose_every_device_reports_a_listed_model() {
+        let rtx_5090 = || {
+            let mut support = memory_class("gpu-a", AcceleratorMemoryArchitecture::Dedicated);
+            support
+                .hardware_class
+                .selector
+                .as_mut()
+                .expect("selector")
+                .device_models = vec!["NVIDIA GeForce RTX 5090".to_owned()];
+            support
+        };
+        let nested = [
+            memory_class("nvidia-dedicated", AcceleratorMemoryArchitecture::Dedicated),
+            rtx_5090(),
+        ];
+        let only_device_model = [rtx_5090()];
+        let class_for = |supported: &[SupportedHardwareClass], gpus: &[&str], devices: &[&str]| {
+            let description = MachineDescription::simulated(
+                &gpus.iter().map(|&gpu| gpu.to_owned()).collect::<Vec<_>>(),
+                "amd64",
+            )
+            .expect("simulated machine");
+            let platform = description.platform().clone();
+            let snapshot = description
+                .render(&[], SystemTime::now())
+                .expect("rendered snapshot");
+            let target = ExecutionTarget {
+                accelerator_device_ids: devices.iter().map(|&device| device.to_owned()).collect(),
+                ..simulated_target(&platform)
+            };
+            let inventory = TargetCapabilityReconciler::reconcile(
+                [&target],
+                [RuntimePlatformObservation::available("target-a", platform)],
+                [NodeAcceleratorObservation::from_hardware_snapshot(
+                    "node-a", &snapshot, false,
+                )],
+            );
+            let capabilities =
+                select_target_capabilities(&target, &inventory).expect("target capabilities");
+            selected_class_id(supported, &capabilities)
+        };
+        let no_match = Err(HardwareClassSelectionError::NoMatch {
+            operating_system: "linux".to_owned(),
+            architecture: "amd64".to_owned(),
+            accelerator: "nvidia",
+            memory_architecture: MemoryArchitecture::Dedicated,
+        });
+
+        // The device model class is the most specific match on its GPU only.
+        assert_eq!(
+            class_for(&nested, &["rtx-5090"], &["0"]),
+            Ok("gpu-a".to_owned())
+        );
+        assert_eq!(
+            class_for(&nested, &["rtx-4080"], &["0"]),
+            Ok("nvidia-dedicated".to_owned())
+        );
+        // On a machine with both GPUs, each single-GPU target gets its own GPU's class, and a
+        // target holding both falls back to the vendor class.
+        let mixed = ["rtx-5090", "rtx-4080"];
+        assert_eq!(class_for(&nested, &mixed, &["0"]), Ok("gpu-a".to_owned()));
+        assert_eq!(
+            class_for(&nested, &mixed, &["1"]),
+            Ok("nvidia-dedicated".to_owned())
+        );
+        assert_eq!(
+            class_for(&nested, &mixed, &["0", "1"]),
+            Ok("nvidia-dedicated".to_owned())
+        );
+
+        // Support on the device model class alone leaves other GPUs without a class.
+        assert_eq!(
+            class_for(&only_device_model, &["rtx-5090"], &["0"]),
+            Ok("gpu-a".to_owned())
+        );
+        assert_eq!(
+            class_for(&only_device_model, &["rtx-4080"], &["0"]),
+            no_match
+        );
+        assert_eq!(
+            class_for(&only_device_model, &["rtx-pro-6000"], &["0"]),
+            no_match
+        );
+
+        // A target whose devices are unknown never matches a device model condition.
+        let unreported = SelectedTargetCapabilities {
+            device_models: vec![String::new()],
+            ..nvidia_target(&ExecutionPlatform::linux_amd64(), "580.95.05")
+        };
+        assert_eq!(
+            selected_class_id(&nested, &unreported),
+            Ok("nvidia-dedicated".to_owned())
+        );
+        assert_eq!(
+            selected_class_id(
+                &nested,
+                &nvidia_target(&ExecutionPlatform::linux_amd64(), "580.95.05")
+            ),
+            Ok("nvidia-dedicated".to_owned())
+        );
     }
 
     #[test]
@@ -698,6 +859,84 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn last_observed_capabilities_accept_stale_and_overdue_observations_but_nothing_else() {
+        let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
+        let nvidia = TargetAccelerator::Nvidia {
+            driver: driver("580"),
+        };
+
+        let stale = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            [RuntimePlatformObservation::stale(
+                "target-a",
+                ExecutionPlatform::linux_amd64(),
+            )],
+            [NodeAcceleratorObservation::stale(
+                "node-a",
+                NodeAcceleratorFacts::nvidia("580"),
+            )],
+        );
+        let selected =
+            select_last_observed_target_capabilities(&target, &stale).expect("stale capabilities");
+        assert_eq!(selected.platform, ExecutionPlatform::linux_amd64());
+        assert_eq!(selected.accelerator, nvidia);
+
+        let observed_at = SystemTime::UNIX_EPOCH;
+        let overdue = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            [RuntimePlatformObservation::available_at(
+                "target-a",
+                ExecutionPlatform::linux_amd64(),
+                observed_at,
+            )],
+            [NodeAcceleratorObservation::available_at(
+                "node-a",
+                NodeAcceleratorFacts::nvidia("580"),
+                observed_at,
+            )],
+        );
+        assert_eq!(
+            select_last_observed_target_capabilities(&target, &overdue)
+                .map(|selected| selected.accelerator),
+            Ok(nvidia)
+        );
+
+        let missing = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            std::iter::empty(),
+            std::iter::empty(),
+        );
+        assert_eq!(
+            select_last_observed_target_capabilities(&target, &missing),
+            Err(TargetCapabilitySelectionError::PlatformUnavailable {
+                execution_target_id: "target-a".to_owned(),
+            })
+        );
+
+        let mismatched = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            [RuntimePlatformObservation::stale(
+                "target-a",
+                ExecutionPlatform::linux_arm64(),
+            )],
+            [NodeAcceleratorObservation::stale(
+                "node-a",
+                NodeAcceleratorFacts::nvidia("580"),
+            )],
+        );
+        assert_eq!(
+            select_last_observed_target_capabilities(&target, &mismatched),
+            Err(TargetCapabilitySelectionError::PlatformMismatch {
+                execution_target_id: "target-a".to_owned(),
+                observed_operating_system: "linux".to_owned(),
+                observed_architecture: "arm64".to_owned(),
+                required_operating_system: "linux".to_owned(),
+                required_architecture: "amd64".to_owned(),
+            })
+        );
+    }
+
+    #[test]
     fn nvidia_targets_require_a_valid_driver_while_apple_targets_need_none() {
         let platform = ExecutionPlatform::linux_amd64();
         let target = execution_target(&platform, &["target-a"]);
@@ -903,6 +1142,7 @@ pub(crate) mod tests {
             },
             artifact_kinds: OCI,
             memory_architecture: MemoryArchitecture::Dedicated,
+            device_models: Vec::new(),
             capacity: TargetCapacity::default(),
         }
     }
@@ -913,6 +1153,7 @@ pub(crate) mod tests {
             accelerator: TargetAccelerator::Apple,
             artifact_kinds: ALL,
             memory_architecture: MemoryArchitecture::Unified,
+            device_models: Vec::new(),
             capacity: TargetCapacity::default(),
         }
     }

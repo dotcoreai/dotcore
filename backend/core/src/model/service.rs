@@ -17,12 +17,14 @@ use dotcore_domain::deployment::metadata::{DeploymentMetadataPatch, DeploymentMe
 use dotcore_domain::diagnostic::truncate_utf8_with_ellipsis;
 use dotcore_domain::inference_route::is_valid_route_name;
 use dotcore_domain::valid_id;
+use dotcore_proto::dotcore::catalog::v1::UseCase;
 use dotcore_proto::dotcore::model::v1::{
     CreateModelDeploymentRequest, CreateModelDeploymentResponse,
     EstimateLocalModelResourcesRequest, EstimateLocalModelResourcesResponse,
     FollowDeploymentLogsRequest, FollowDeploymentLogsResponse, ListModelDeploymentsRequest,
     ListModelDeploymentsResponse, ListModelProfileCompatibilityRequest,
-    ListModelProfileCompatibilityResponse, PauseModelRequest, PauseModelResponse,
+    ListModelProfileCompatibilityResponse, ListModelRecommendationsRequest,
+    ListModelRecommendationsResponse, PauseModelRequest, PauseModelResponse,
     PreviewLocalModelDeploymentRequest, PreviewLocalModelDeploymentResponse,
     ReadDeploymentLogsRequest, ReadDeploymentLogsResponse, RemoveModelDeploymentRequest,
     RemoveModelDeploymentResponse, ResumeModelRequest, ResumeModelResponse,
@@ -341,6 +343,18 @@ where
             parse_profile_compatibility_request(request.into_inner())?;
         self.controller
             .list_profile_compatibility(model_id, target, scenario)
+            .await
+            .map(Response::new)
+            .map_err(Self::translate_controller_error)
+    }
+
+    async fn list_model_recommendations(
+        &self,
+        request: Request<ListModelRecommendationsRequest>,
+    ) -> Result<Response<ListModelRecommendationsResponse>, Status> {
+        let use_cases = parse_model_recommendations_request(request.into_inner())?;
+        self.controller
+            .list_model_recommendations(use_cases)
             .await
             .map(Response::new)
             .map_err(Self::translate_controller_error)
@@ -826,6 +840,37 @@ fn parse_metadata_patch(
     })
 }
 
+/// Validates the use cases of a recommendations read: each must be a known, specified use case.
+/// Duplicates collapse to their first occurrence, and none asks for every use case.
+fn parse_model_recommendations_request(
+    request: ListModelRecommendationsRequest,
+) -> Result<Vec<UseCase>, Status> {
+    if request.use_cases.is_empty() {
+        return Ok(ALL_USE_CASES.to_vec());
+    }
+    let mut use_cases = Vec::new();
+    for value in request.use_cases {
+        let use_case = UseCase::try_from(value)
+            .ok()
+            .filter(|use_case| *use_case != UseCase::Unspecified)
+            .ok_or_else(|| {
+                Status::invalid_argument("Model recommendations require specified use cases")
+            })?;
+        if !use_cases.contains(&use_case) {
+            use_cases.push(use_case);
+        }
+    }
+    Ok(use_cases)
+}
+
+/// Every use case a recommendations read ranks when the request names none.
+const ALL_USE_CASES: [UseCase; 4] = [
+    UseCase::CodingAndAgents,
+    UseCase::GeneralAssistant,
+    UseCase::Translation,
+    UseCase::DecisionMaking,
+];
+
 /// Validated compatibility read selection: the model, the target and the sizing scenario.
 type ProfileCompatibilitySelection = (
     Option<String>,
@@ -1296,6 +1341,42 @@ mod tests {
             status.message(),
             "Site execution target \"apps\" is not a model execution target"
         );
+    }
+
+    #[test]
+    fn recommendation_requests_default_to_all_use_cases_and_reject_unspecified_ones() {
+        let parse = |use_cases: &[i32]| {
+            super::parse_model_recommendations_request(ListModelRecommendationsRequest {
+                use_cases: use_cases.to_vec(),
+            })
+        };
+
+        assert_eq!(
+            parse(&[]).expect("all use cases"),
+            [
+                UseCase::CodingAndAgents,
+                UseCase::GeneralAssistant,
+                UseCase::Translation,
+                UseCase::DecisionMaking,
+            ]
+        );
+        assert_eq!(
+            parse(&[
+                UseCase::Translation as i32,
+                UseCase::CodingAndAgents as i32,
+                UseCase::Translation as i32,
+            ])
+            .expect("named use cases"),
+            [UseCase::Translation, UseCase::CodingAndAgents]
+        );
+        for invalid in [UseCase::Unspecified as i32, 99] {
+            let status = parse(&[UseCase::Translation as i32, invalid]).expect_err("invalid");
+            assert_eq!(status.code(), tonic::Code::InvalidArgument);
+            assert_eq!(
+                status.message(),
+                "Model recommendations require specified use cases"
+            );
+        }
     }
 
     #[test]

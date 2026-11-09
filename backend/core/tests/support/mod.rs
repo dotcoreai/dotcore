@@ -3115,7 +3115,7 @@ pub fn with_oci_service_images(source: &str) -> String {
     output
 }
 
-fn copy_directory(source: &Path, destination: &Path) {
+pub fn copy_directory(source: &Path, destination: &Path) {
     fs::create_dir_all(destination).expect("catalog copy directory");
     for entry in fs::read_dir(source).expect("catalog source directory") {
         let entry = entry.expect("catalog source entry");
