@@ -1,9 +1,9 @@
+import { type MachineFacts, noMachineFacts } from "@/features/machines/machine-site-values";
 import {
   inferenceCardSpecs,
   inferenceSplitIds,
   inferenceSplits,
-} from "@/features/inference/inference-card-specs";
-import { type MachineFacts, noMachineFacts } from "@/features/machines/machine-site-values";
+} from "@/features/metrics/inference/inference-card-specs";
 import type { MetricCardSpec, MetricCardSplit } from "@/features/metrics/use-metric-cards";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";

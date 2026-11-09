@@ -7,7 +7,7 @@ import { formatChartValue } from "@/components/metrics/time-series-chart/chart-d
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { projectRouteHealth } from "@/domain/route-projection";
-import type { InferenceRowValues } from "@/features/inference/use-inference-metrics";
+import type { InferenceRowValues } from "@/features/metrics/inference/use-inference-metrics";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { StatusProjection } from "@/lib/status-projection";
 

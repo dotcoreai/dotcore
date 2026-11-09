@@ -4,9 +4,9 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
+import { RouteSidebarHost } from "@/features/inference-routes/route-sidebar-host";
 import { MachineSidebarHost } from "@/features/machines/machine-sidebar-host";
 import { DeploymentSidebar } from "@/features/models/deployment-sidebar";
-import { RouteSidebarHost } from "@/features/routes/route-sidebar-host";
 import { activePanel, canonicalizePanelLocation } from "@/panels/panel-stack";
 
 export interface OverviewSidebarProps {

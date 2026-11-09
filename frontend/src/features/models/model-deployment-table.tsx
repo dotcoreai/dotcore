@@ -13,7 +13,7 @@ import {
 } from "@/domain/model-projection";
 import { placementMachine, placementMachineName } from "@/domain/placement";
 import { upstreamLocalityLabel } from "@/domain/upstream-presentation";
-import type { InferenceRowValues } from "@/features/inference/use-inference-metrics";
+import type { InferenceRowValues } from "@/features/metrics/inference/use-inference-metrics";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { formatBytes } from "@/lib/format";

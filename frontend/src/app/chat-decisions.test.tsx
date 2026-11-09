@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DecisionClient, DecisionRequest, DecisionResult } from "@/api/decision-client";
 import { ConsoleLayout } from "@/app/console-layout";
+import { ChatPage } from "@/features/chat/chat-page";
 import { type DecisionForm, formToBody } from "@/features/chat/decisions/decision-draft";
 import { decisionExamples } from "@/features/chat/decisions/decision-examples";
 import { createDecisionStore } from "@/features/chat/decisions/decision-store";
@@ -17,7 +18,6 @@ import {
   ListRoutesResponseSchema,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { StorageLike } from "@/lib/browser-storage";
-import { ChatRoute } from "@/routes/chat";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { FailingStorage, MemoryStorage } from "@/test/memory-storage";
 import { ThemeProvider } from "@/theme/theme-provider";
@@ -83,7 +83,7 @@ function renderConsole(decisionClient: DecisionClient, storage: StorageLike, ent
         children: [
           { path: "/models", element: <p>Models page</p> },
           { path: "/routes", element: <p>Routes page</p> },
-          { path: "/chat", element: <ChatRoute /> },
+          { path: "/chat", element: <ChatPage /> },
         ],
       },
     ],

@@ -17,8 +17,8 @@ import {
   PageSectionHeading,
 } from "@/components/ui/page-header";
 import { RoutesSectionIcon } from "@/components/ui/section-icons";
-import { InferenceSection } from "@/features/inference/inference-section";
-import { useInferenceMetrics } from "@/features/inference/use-inference-metrics";
+import { InferenceSection } from "@/features/metrics/inference/inference-section";
+import { useInferenceMetrics } from "@/features/metrics/inference/use-inference-metrics";
 import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 import { canonicalizePanelLocation } from "@/panels/panel-stack";
 

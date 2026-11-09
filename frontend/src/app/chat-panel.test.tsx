@@ -10,6 +10,7 @@ import type { RouteClient } from "@/api/route-client";
 import { ConsoleLayout } from "@/app/console-layout";
 import { InspectorActions } from "@/components/inspector-actions/inspector-actions";
 import { InspectorShell } from "@/components/ui/inspector-shell";
+import { ChatPage } from "@/features/chat/chat-page";
 import type { ChatTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
 import { InferenceRequestKind } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
@@ -20,7 +21,6 @@ import {
   ListRoutesResponseSchema,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import { usePanelNavigation } from "@/panels/panel-navigation";
-import { ChatRoute } from "@/routes/chat";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { ThemeProvider } from "@/theme/theme-provider";
 
@@ -79,7 +79,7 @@ function renderConsole(
         children: [
           { path: "/models", element: <p>Models page</p> },
           { path: "/routes", element: options.routesPage ?? <p>Routes page</p> },
-          { path: "/chat", element: <ChatRoute /> },
+          { path: "/chat", element: <ChatPage /> },
         ],
       },
     ],
