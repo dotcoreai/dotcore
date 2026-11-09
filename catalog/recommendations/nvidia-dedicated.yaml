@@ -1,5 +1,5 @@
 # Model recommendations for NVIDIA GPUs with their own memory, best first. Minimums per GPU separate
-# card sizes: 8, 16, 24 and 32 GB. Entries a GPU can't run, such as ninfer off an RTX 5090, are
+# card sizes: 8, 16, 24 and 32 GB. Entries a GPU can't run, such as ninfer off an RTX 5090 or RTX PRO 6000, are
 # skipped for it.
 hardwareClassId: "nvidia-dedicated"
 useCases:

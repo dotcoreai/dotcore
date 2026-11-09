@@ -1,5 +1,6 @@
 # ninfer image built from the pinned source of `engines/ninfer/docker-image.nix`, loaded from its
-# stored image or built locally on the hosting node. ninfer compiles only for the RTX 5090 (sm_120a).
+# stored image or built locally on the hosting node. ninfer compiles only for
+# the GB202 chip (sm_120a) of the RTX 5090 and RTX PRO 6000.
 engineReleaseId: "ninfer-1936758"
 engineKind: "ENGINE_KIND_NINFER"
 version: "1936758"
