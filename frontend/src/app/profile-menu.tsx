@@ -4,8 +4,6 @@ import { useNavigate } from "react-router-dom";
 
 import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
 import { diagnosticLogOperations } from "@/api/diagnostic-log-client";
-import { PreferencesSectionIcon } from "@/app/console-section-icons";
-import { useTheme } from "@/app/theme-context";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -13,8 +11,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { PreferencesSectionIcon } from "@/components/ui/section-icons";
 import { DiagnosticLogViewer } from "@/features/diagnostic-logs/diagnostic-log-viewer";
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
+import { useTheme } from "@/theme/theme-context";
 
 export function ProfileMenu({
   diagnostics = diagnosticLogOperations,

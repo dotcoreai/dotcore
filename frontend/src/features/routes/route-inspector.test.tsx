@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveInferenceOrigin } from "@/api/inference-origin";
-import { ChatOpenerContext } from "@/app/chat-opener";
+import { ChatOpenerContext } from "@/features/chat/chat-opener";
 import {
   counterPoint,
   distributionPoint,

@@ -16,9 +16,11 @@ const layers = [
   { name: "gen" },
   { name: "lib", pending: "phase 05 shared domain" },
   { name: "api" },
-  { name: "hooks", pending: "phase 04 resource watch and theme" },
+  { name: "hooks" },
   { name: "panels" },
-  { name: "components", pending: "phase 04 resource watch and theme" },
+  { name: "resource-watch" },
+  { name: "theme" },
+  { name: "components" },
   { name: "features", pending: "phase 06 routes cleanup" },
   { name: "routes" },
   { name: "app" },
@@ -87,24 +89,6 @@ export default defineConfig(
         "error",
         {
           paths: [transportPath],
-        },
-      ],
-    },
-  },
-  {
-    // Shared metric composites take their data as props, so they never depend on a feature.
-    files: ["src/components/metrics/**/*.{ts,tsx}"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [transportPath],
-          patterns: [
-            {
-              group: ["@/features/**", "**/features/**"],
-              message: "Shared metric components must not import from src/features.",
-            },
-          ],
         },
       ],
     },

@@ -1,6 +1,6 @@
-import { useChatOpener } from "@/app/chat-opener";
-import { ChatSectionIcon } from "@/app/console-section-icons";
 import type { InspectorAction } from "@/components/inspector-actions/inspector-actions";
+import { ChatSectionIcon } from "@/components/ui/section-icons";
+import { useChatOpener } from "@/features/chat/chat-opener";
 
 import type { ChatTarget } from "./chattable-route";
 

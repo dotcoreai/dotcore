@@ -4,8 +4,11 @@ import { ListMusicIcon } from "lucide-react";
 import { createRef, type RefObject, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { buildDataTable, type DataTableDefinition } from "@/lib/data-table-model";
-import { createDataTableViewCodec, type DataTableView } from "@/lib/data-table-view";
+import { buildDataTable, type DataTableDefinition } from "@/components/data-table/data-table-model";
+import {
+  createDataTableViewCodec,
+  type DataTableView,
+} from "@/components/data-table/data-table-view";
 import { type Album, syntheticAlbums } from "@/test/data-table-test-support";
 
 import { DataTable, type DataTableUiDefinition } from "./data-table";

@@ -6,7 +6,6 @@ import { vi } from "vitest";
 import type { ApplicationClient } from "@/api/application-client";
 import type { MetricsClient } from "@/api/metrics-client";
 import type { RouteClient } from "@/api/route-client";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { idleMetricsClient } from "@/features/metrics/metric-test-support";
 import {
@@ -45,6 +44,7 @@ import {
   type MachineSchema,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { AppCatalogPage } from "./app-catalog-page";

@@ -3,8 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type RouteClient } from "@/api/route-client";
-import { RoutesSectionIcon } from "@/app/console-section-icons";
 import { DataTable } from "@/components/data-table/data-table";
+import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
 import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { AddAction } from "@/components/ui/add-action";
@@ -16,10 +16,10 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
+import { RoutesSectionIcon } from "@/components/ui/section-icons";
 import { InferenceSection } from "@/features/inference/inference-section";
 import { useInferenceMetrics } from "@/features/inference/use-inference-metrics";
 import { MetricRangeControl } from "@/features/metrics/metric-range-control";
-import { buildDataTable } from "@/lib/data-table-model";
 import { canonicalizePanelLocation } from "@/panels/panel-stack";
 
 import { routeRows, routeTableDefinition, routeTableUi, routeViewCodec } from "./route-table";

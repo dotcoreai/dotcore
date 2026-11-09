@@ -1,4 +1,4 @@
-import type { ChatMode } from "@/app/chat-opener";
+import type { ChatMode } from "@/features/chat/chat-opener";
 import { InferenceRequestKind } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { servesChat } from "@/lib/request-kinds";

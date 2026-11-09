@@ -5,7 +5,6 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelClient } from "@/api/model-client";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
 import {
   ListEngineReleasesResponseSchema,
@@ -20,6 +19,7 @@ import {
   UpstreamModelDesiredConfigurationSchema,
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { useSharedModelsPolling } from "./models-polling-context";

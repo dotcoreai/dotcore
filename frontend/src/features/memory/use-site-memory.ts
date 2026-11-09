@@ -1,16 +1,16 @@
 import { useMemo } from "react";
 
-import {
-  useWatchedApplicationDeployments,
-  useWatchedMachines,
-  useWatchedNodeMemory,
-  type WatchOptions,
-} from "@/app/resource-watch";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { NodeMemory } from "@/gen/dotcore/capacity/v1/memory_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import type { ReadState } from "@/lib/read-state";
+import {
+  useWatchedApplicationDeployments,
+  useWatchedMachines,
+  useWatchedNodeMemory,
+  type WatchOptions,
+} from "@/resource-watch/resource-watch";
 
 import { projectSiteMemory } from "./node-memory";
 import type { SiteMemory } from "./site-memory";

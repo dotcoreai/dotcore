@@ -2,13 +2,6 @@ import { type RefObject, useCallback, useEffect, useMemo, useState } from "react
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import {
-  useWatchedApplicationDeployments,
-  useWatchedExecutionTargets,
-  useWatchedMachines,
-  useWatchedModelDeployments,
-  useWatchedNodeMemory,
-} from "@/app/resource-watch";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 import {
@@ -29,6 +22,13 @@ import {
 } from "@/panels/panel-stack";
 import { panelTitle } from "@/panels/panel-titles";
 import { usePanelTitle, usePublishPanelTitles } from "@/panels/panel-titles-context";
+import {
+  useWatchedApplicationDeployments,
+  useWatchedExecutionTargets,
+  useWatchedMachines,
+  useWatchedModelDeployments,
+  useWatchedNodeMemory,
+} from "@/resource-watch/resource-watch";
 
 import {
   ExecutionTargetContent,

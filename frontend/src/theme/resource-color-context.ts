@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import { assignResourceColors, getResourceColor } from "@/lib/resource-color";
+import { assignResourceColors, getResourceColor } from "@/theme/resource-color";
 
 /** Resolves resource identity marker colors from the site's color assignment. */
 export interface ResourceColors {

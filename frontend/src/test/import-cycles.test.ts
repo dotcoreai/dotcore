@@ -24,7 +24,7 @@ const IMPORT_PATTERN =
 const RESOLVE_SUFFIXES = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
 
 // Folders where files may import each other in a loop: the loop is kept inside one folder.
-const KEPT_FILE_LOOP_FOLDERS = ["app", "features/models", "features/preferences"];
+const KEPT_FILE_LOOP_FOLDERS = ["features/models", "features/preferences", "resource-watch"];
 
 // Features that may loop among themselves until the named phase removes the loops.
 const ALLOWED_FEATURE_LOOPS = [

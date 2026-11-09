@@ -1,8 +1,8 @@
 import { CpuIcon, FastForwardIcon, GpuIcon } from "lucide-react";
 
 import { Metric, PendingValue } from "@/components/data-table/data-table-cells";
+import type { ValueRange } from "@/components/data-table/data-table-model";
 import { Badge } from "@/components/ui/badge";
-import type { ValueRange } from "@/lib/data-table-model";
 import { cn } from "@/lib/utils";
 
 import {

@@ -6,10 +6,10 @@ import { type ComponentProps, useState } from "react";
 import type { ApplicationClient } from "@/api/application-client";
 import type { ModelClient } from "@/api/model-client";
 import type { SiteClient } from "@/api/site-client";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { nodeMemoryPayload } from "@/features/memory/node-memory-test-support";
 import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/application/v1/service_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, type ResourceSources } from "@/test/fake-resource-watch";
 
 import { MachinesPage as RealMachinesPage } from "./machines-page";

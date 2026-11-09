@@ -2,7 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import type uPlot from "uplot";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getResourceColor } from "@/lib/resource-color";
+import { getResourceColor } from "@/theme/resource-color";
 
 import type { ChartSeries } from "./chart-data";
 import { TimeSeriesChart } from "./time-series-chart";

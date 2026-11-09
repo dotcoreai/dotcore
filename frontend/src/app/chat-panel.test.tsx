@@ -8,7 +8,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatClient, ChatRequest } from "@/api/chat-client";
 import type { RouteClient } from "@/api/route-client";
 import { ConsoleLayout } from "@/app/console-layout";
-import { ThemeProvider } from "@/app/theme-provider";
 import { InspectorActions } from "@/components/inspector-actions/inspector-actions";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import type { ChatTarget } from "@/features/chat/chattable-route";
@@ -23,6 +22,7 @@ import {
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { ChatRoute } from "@/routes/chat";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { ThemeProvider } from "@/theme/theme-provider";
 
 function routeView(
   name: string,

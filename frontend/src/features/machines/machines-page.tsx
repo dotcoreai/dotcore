@@ -2,14 +2,8 @@ import { useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { MachinesSectionIcon } from "@/app/console-section-icons";
-import {
-  useWatchedApplicationDeployments,
-  useWatchedMachines,
-  useWatchedModelDeployments,
-  useWatchedNodeMemory,
-} from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
+import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
 import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { AddAction } from "@/components/ui/add-action";
@@ -20,15 +14,21 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
+import { MachinesSectionIcon } from "@/components/ui/section-icons";
 import { AddMachineDialog } from "@/features/machines/add-machine-dialog";
 import { useHardwareSnapshots } from "@/features/memory/use-hardware-snapshots";
 import { useMemoryView } from "@/features/memory/use-memory-view";
 import { useMachinesNow } from "@/features/overview/use-machines-now";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { buildDataTable } from "@/lib/data-table-model";
 import { mapRead } from "@/lib/read-state";
 import { usePanelNavigation } from "@/panels/panel-navigation";
+import {
+  useWatchedApplicationDeployments,
+  useWatchedMachines,
+  useWatchedModelDeployments,
+  useWatchedNodeMemory,
+} from "@/resource-watch/resource-watch";
 
 import { inspectedMachineId, machineSelectionLocation } from "./machine-panels";
 import { machineSummary } from "./machine-resources";

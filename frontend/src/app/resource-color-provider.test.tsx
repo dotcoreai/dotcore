@@ -8,12 +8,11 @@ import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/applicat
 import { ListRoutesResponseSchema } from "@/gen/dotcore/inference/v1/routes_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
 import { ListMachinesResponseSchema } from "@/gen/dotcore/site/v1/service_pb";
-import { getResourceColor } from "@/lib/resource-color";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
-
-import { useResourceColors } from "./resource-color-context";
-import { ResourceColorProvider } from "./resource-color-provider";
-import { ResourceWatchProvider } from "./resource-watch-provider";
+import { getResourceColor } from "@/theme/resource-color";
+import { useResourceColors } from "@/theme/resource-color-context";
+import { ResourceColorProvider } from "@/theme/resource-color-provider";
 
 describe("ResourceColorProvider", () => {
   it("gives machines and deployments whose IDs hash to the same color distinct colors", async () => {

@@ -2,9 +2,9 @@ import { MessageSquarePlus, Minimize2 } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 
-import { ChatSectionIcon } from "@/app/console-section-icons";
 import { Button } from "@/components/ui/button";
 import { PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
+import { ChatSectionIcon } from "@/components/ui/section-icons";
 import { useChatConversation, useChatRouteSession } from "@/features/chat/chat-session-context";
 import {
   ChatHeaderButton,

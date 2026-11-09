@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 
-import { getResourceColor } from "@/lib/resource-color";
+import { getResourceColor } from "@/theme/resource-color";
 
 /**
  * Asserts that `element` directly contains exactly one decorative identity marker filled with the

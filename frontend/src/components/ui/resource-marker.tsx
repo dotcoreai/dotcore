@@ -1,5 +1,5 @@
-import { useResourceColors } from "@/app/resource-color-context";
 import { cn } from "@/lib/utils";
+import { useResourceColors } from "@/theme/resource-color-context";
 
 interface ResourceMarkerProps {
   colorKey: string;

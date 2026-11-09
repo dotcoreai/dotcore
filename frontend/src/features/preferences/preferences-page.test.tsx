@@ -3,20 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ConsoleHeader } from "@/app/console-header";
-import { ThemeProvider } from "@/app/theme-provider";
-import { SidebarProvider } from "@/components/ui/sidebar";
 import { PreferencesPage } from "@/features/preferences/preferences-page";
 import { readDeveloperSettings, writeDeveloperSettings } from "@/lib/console-preferences";
+import { ThemeProvider } from "@/theme/theme-provider";
 
 function renderPage() {
   return render(
     <MemoryRouter>
       <ThemeProvider>
-        <SidebarProvider>
-          <ConsoleHeader />
-          <PreferencesPage />
-        </SidebarProvider>
+        <PreferencesPage />
       </ThemeProvider>
     </MemoryRouter>,
   );
@@ -27,7 +22,7 @@ describe("Preferences developer section", () => {
     window.localStorage.clear();
   });
 
-  it("starts disabled with no indicator and a zero range", () => {
+  it("starts disabled with a zero range", () => {
     renderPage();
 
     expect(screen.getByRole("switch", { name: "Simulate API latency" })).toHaveAttribute(
@@ -36,10 +31,9 @@ describe("Preferences developer section", () => {
     );
     expect(screen.getByRole("spinbutton", { name: "Minimum delay (ms)" })).toHaveValue(0);
     expect(screen.getByRole("spinbutton", { name: "Maximum delay (ms)" })).toHaveValue(0);
-    expect(screen.queryByRole("link", { name: /Simulated latency/ })).not.toBeInTheDocument();
   });
 
-  it("enables with a suggested range, persists it and shows the header indicator", async () => {
+  it("enables with a suggested range and persists it", async () => {
     const user = userEvent.setup();
     renderPage();
 
@@ -52,9 +46,6 @@ describe("Preferences developer section", () => {
     });
     expect(screen.getByRole("spinbutton", { name: "Minimum delay (ms)" })).toHaveValue(500);
     expect(screen.getByRole("spinbutton", { name: "Maximum delay (ms)" })).toHaveValue(2_000);
-    expect(
-      screen.getByRole("link", { name: "Simulated latency 500–2000 ms. Open preferences" }),
-    ).toHaveAttribute("href", "/preferences");
 
     await user.click(screen.getByRole("switch", { name: "Simulate API latency" }));
 
@@ -63,7 +54,6 @@ describe("Preferences developer section", () => {
       latencyMinMs: 500,
       latencyMaxMs: 2_000,
     });
-    expect(screen.queryByRole("link", { name: /Simulated latency/ })).not.toBeInTheDocument();
   });
 
   it("saves a valid edit and restores it after a fresh mount", async () => {
@@ -86,9 +76,6 @@ describe("Preferences developer section", () => {
       latencyMinMs: 100,
       latencyMaxMs: 3_000,
     });
-    expect(
-      screen.getByRole("link", { name: "Simulated latency 100–3000 ms. Open preferences" }),
-    ).toBeVisible();
 
     unmount();
     renderPage();

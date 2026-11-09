@@ -4,13 +4,13 @@ import {
   type DataTableField,
   type DataTableResult,
   type DataTableRow,
-} from "@/lib/data-table-model";
+} from "@/components/data-table/data-table-model";
 import {
   createDataTableViewCodec,
   type DataTablePredicate,
   type DataTableView,
   type DataTableViewCodec,
-} from "@/lib/data-table-view";
+} from "@/components/data-table/data-table-view";
 
 import type { ProfileRow } from "./catalog-model-row";
 import type { CatalogHiddenReason } from "./catalog-profile-compatibility";

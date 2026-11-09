@@ -3,9 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type ModelClient, modelClient } from "@/api/model-client";
-import { ModelsSectionIcon } from "@/app/console-section-icons";
-import { useWatchedMachines } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
+import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
 import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { DeployActionIcon } from "@/components/ui/action-icons";
@@ -17,12 +16,12 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
+import { ModelsSectionIcon } from "@/components/ui/section-icons";
 import { InferenceSection } from "@/features/inference/inference-section";
 import { useInferenceMetrics } from "@/features/inference/use-inference-metrics";
 import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { buildDataTable } from "@/lib/data-table-model";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import {
   activePanel,
@@ -30,6 +29,7 @@ import {
   panelPagePath,
   selectPanelLocation,
 } from "@/panels/panel-stack";
+import { useWatchedMachines } from "@/resource-watch/resource-watch";
 
 import { DeploymentSidebar } from "./deployment-sidebar";
 import {

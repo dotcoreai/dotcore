@@ -4,8 +4,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ApplicationClient, applicationClient } from "@/api/application-client";
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { AppsSectionIcon } from "@/app/console-section-icons";
 import { DataTable } from "@/components/data-table/data-table";
+import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
 import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { DeployActionIcon } from "@/components/ui/action-icons";
@@ -19,6 +19,7 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
+import { AppsSectionIcon } from "@/components/ui/section-icons";
 import { DeploymentApplicationInspector } from "@/features/applications/application-inspector";
 import { applicationInspectorPanelId } from "@/features/applications/application-inspector-panel";
 import { describeMutationError } from "@/features/applications/application-mutation-errors";
@@ -33,7 +34,6 @@ import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
-import { buildDataTable } from "@/lib/data-table-model";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
 import { usePanelNavigation } from "@/panels/panel-navigation";

@@ -5,7 +5,8 @@ import {
   type AlbumColumn,
   type AlbumField,
   albumTable,
-} from "../test/data-table-test-support";
+} from "@/test/data-table-test-support";
+
 import {
   createDataTableViewCodec,
   type DataTableView,

@@ -1,11 +1,11 @@
 import { useMemo } from "react";
 
-import { useWatchedHardwareSnapshots, type WatchOptions } from "@/app/resource-watch";
 import type {
   HardwareSnapshot,
   ObservationUnavailable,
 } from "@/gen/dotcore/observation/v1/observation_pb";
 import type { Machine, MachineHardwareSnapshot } from "@/gen/dotcore/site/v1/service_pb";
+import { useWatchedHardwareSnapshots, type WatchOptions } from "@/resource-watch/resource-watch";
 
 export interface MachineSnapshotUpdateFailure {
   code?: string;

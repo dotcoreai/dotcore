@@ -1,5 +1,5 @@
-import type { DataTableDefinition } from "@/lib/data-table-model";
-import { createDataTableViewCodec } from "@/lib/data-table-view";
+import type { DataTableDefinition } from "@/components/data-table/data-table-model";
+import { createDataTableViewCodec } from "@/components/data-table/data-table-view";
 
 export interface Album {
   id: string;

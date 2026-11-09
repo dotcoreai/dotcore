@@ -4,14 +4,14 @@ import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
-import { useWatchedMachines } from "@/app/resource-watch";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import {
   ListMetricDescriptorsResponseSchema,
   MetricResolutionSchema,
   WatchMetricsResponseSchema,
 } from "@/gen/dotcore/metrics/v1/service_pb";
 import { ListMachinesResponseSchema } from "@/gen/dotcore/site/v1/service_pb";
+import { useWatchedMachines } from "@/resource-watch/resource-watch";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { metricDescriptorsFor } from "./metric-descriptors";

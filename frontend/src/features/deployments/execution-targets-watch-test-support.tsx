@@ -2,11 +2,11 @@
 import { create } from "@bufbuild/protobuf";
 import type { ReactNode } from "react";
 
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import {
   type ConfiguredExecutionTarget,
   ListConfiguredExecutionTargetsResponseSchema,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 /** An execution targets read, as a deploy dialog's loader answers it. */

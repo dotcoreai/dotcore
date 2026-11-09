@@ -6,8 +6,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ModelClient, modelClient } from "@/api/model-client";
 import { type SiteClient, siteClient as defaultSiteClient } from "@/api/site-client";
-import { CatalogSectionIcon } from "@/app/console-section-icons";
-import { useWatchedApplicationDeployments, useWatchedRoutes } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
 import { useDataTableView } from "@/components/data-table/use-data-table-view";
@@ -20,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Notice } from "@/components/ui/notice";
 import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
+import { CatalogSectionIcon } from "@/components/ui/section-icons";
 import { useConfiguredExecutionTargets } from "@/features/deployments/use-configured-execution-targets";
 import { ModelDeployDialog } from "@/features/models/model-deploy-dialog";
 import { CatalogModelInspector } from "@/features/models/model-inspector";
@@ -60,6 +59,10 @@ import {
 } from "@/panels/panel-stack";
 import { panelTitle } from "@/panels/panel-titles";
 import { usePublishPanelTitles } from "@/panels/panel-titles-context";
+import {
+  useWatchedApplicationDeployments,
+  useWatchedRoutes,
+} from "@/resource-watch/resource-watch";
 
 import { catalogModelDeployments, projectModelRows } from "./catalog-model-row";
 import {

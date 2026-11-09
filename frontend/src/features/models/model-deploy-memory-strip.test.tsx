@@ -3,11 +3,11 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import { ResourceColorContext } from "@/app/resource-color-context";
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
-import { getResourceColor } from "@/lib/resource-color";
+import { getResourceColor } from "@/theme/resource-color";
+import { ResourceColorContext } from "@/theme/resource-color-context";
 
 import { previewMemory, type PreviewMemoryInput, type PreviewTarget } from "./model-deploy-memory";
 import { MemoryCapacityWarning, ModelDeployMemoryStrip } from "./model-deploy-memory-strip";

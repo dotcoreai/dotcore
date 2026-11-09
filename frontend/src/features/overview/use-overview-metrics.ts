@@ -1,16 +1,16 @@
 import { useMemo } from "react";
 
 import type { MetricsClient } from "@/api/metrics-client";
+import { type MachineFleet, useMachineFleet } from "@/features/machines/use-machine-fleet";
+import { useHardwareSnapshots } from "@/features/memory/use-hardware-snapshots";
+import { type MetricCards, useMetricCards } from "@/features/metrics/use-metric-cards";
+import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import {
   useWatchedApplicationDeployments,
   useWatchedMachines,
   useWatchedModelDeployments,
   useWatchedRoutes,
-} from "@/app/resource-watch";
-import { type MachineFleet, useMachineFleet } from "@/features/machines/use-machine-fleet";
-import { useHardwareSnapshots } from "@/features/memory/use-hardware-snapshots";
-import { type MetricCards, useMetricCards } from "@/features/metrics/use-metric-cards";
-import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
+} from "@/resource-watch/resource-watch";
 
 import {
   cardSplitIds,

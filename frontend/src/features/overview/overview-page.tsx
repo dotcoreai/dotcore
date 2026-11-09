@@ -4,8 +4,8 @@ import type { MetricsClient } from "@/api/metrics-client";
 import { metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
-import { OverviewSectionIcon } from "@/app/console-section-icons";
 import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
+import { OverviewSectionIcon } from "@/components/ui/section-icons";
 import { InferenceSection } from "@/features/inference/inference-section";
 import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 

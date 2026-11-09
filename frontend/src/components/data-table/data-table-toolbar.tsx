@@ -1,6 +1,12 @@
 import { Columns3Icon, ListFilterIcon, SearchIcon, XIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
+import type {
+  DataTableResult,
+  DataTableRow,
+  FacetValue,
+} from "@/components/data-table/data-table-model";
+import type { DataTablePredicate, DataTableView } from "@/components/data-table/data-table-view";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,8 +19,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import type { DataTableResult, DataTableRow, FacetValue } from "@/lib/data-table-model";
-import type { DataTablePredicate, DataTableView } from "@/lib/data-table-view";
 import { cn } from "@/lib/utils";
 
 import type { DataTableFieldUi, DataTableNoun, DataTableUiDefinition } from "./data-table";

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 
+import type { DataTablePredicate } from "@/components/data-table/data-table-view";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
 import { Notice } from "@/components/ui/notice";
@@ -15,7 +16,6 @@ import {
 import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import type { DataTablePredicate } from "@/lib/data-table-view";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 

@@ -4,7 +4,6 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import type { MetricCards } from "@/features/metrics/use-metric-cards";
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/application/v1/service_pb";
@@ -19,6 +18,7 @@ import {
 import { ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { InferenceCountCards, OverviewAppsSection } from "./overview-count-cards";

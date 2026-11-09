@@ -19,7 +19,7 @@ const fullView: CatalogViewState = {
   sort: { column: "memory", direction: "desc" },
 };
 
-// The generic codec behavior lives in `lib/data-table-view.test.ts`; these tests pin the Catalog's
+// The generic codec behavior lives in `components/data-table/data-table-view.test.ts`; these tests pin the Catalog's
 // URL keys and values.
 describe("catalog view state", () => {
   it("shows Model, Intelligence, Memory, Maximum context, and Total context by intelligence with Runs on · This site, writing nothing", () => {

@@ -1,13 +1,13 @@
 import { ChevronRightIcon } from "lucide-react";
 import { type ReactNode, useId } from "react";
 
-import { useResourceColors } from "@/app/resource-color-context";
 import {
   type SeriesColor,
   seriesColorValue,
 } from "@/components/metrics/time-series-chart/chart-data";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { cn } from "@/lib/utils";
+import { useResourceColors } from "@/theme/resource-color-context";
 
 /**
  * A list of metric rows whose labels, bars and values line up in three shared columns. The label

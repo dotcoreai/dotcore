@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import type { DataTableView, DataTableViewCodec } from "@/lib/data-table-view";
+import type { DataTableView, DataTableViewCodec } from "@/components/data-table/data-table-view";
 
 /**
  * A data table view, read from and written to the URL through its codec. View changes replace the

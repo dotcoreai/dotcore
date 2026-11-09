@@ -1,10 +1,10 @@
 import { type ReactNode, useMemo } from "react";
 
-import { ResourceColorContext, useResourceColors } from "@/app/resource-color-context";
 import { Notice } from "@/components/ui/notice";
 import { MemoryRows } from "@/features/memory/memory-rows";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { ResourceColorContext, useResourceColors } from "@/theme/resource-color-context";
 
 import { type MemoryOverCapacity, type PredictedMemory } from "./model-deploy-memory";
 

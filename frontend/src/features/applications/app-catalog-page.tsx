@@ -2,18 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ApplicationClient, applicationClient } from "@/api/application-client";
-import { CatalogSectionIcon } from "@/app/console-section-icons";
-import { useWatchedRoutes } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
+import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
 import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { Notice } from "@/components/ui/notice";
 import { PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
+import { CatalogSectionIcon } from "@/components/ui/section-icons";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
-import { buildDataTable } from "@/lib/data-table-model";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
@@ -29,6 +28,7 @@ import {
 } from "@/panels/panel-stack";
 import { panelTitle } from "@/panels/panel-titles";
 import { usePublishPanelTitles } from "@/panels/panel-titles-context";
+import { useWatchedRoutes } from "@/resource-watch/resource-watch";
 
 import {
   ApplicationDeployDialog,

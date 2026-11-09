@@ -5,8 +5,8 @@ import { type ComponentProps, createRef, StrictMode, useState } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { ChatOpenerContext } from "@/app/chat-opener";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
+import { ChatOpenerContext } from "@/features/chat/chat-opener";
 import {
   counterPoint,
   distributionPoint,

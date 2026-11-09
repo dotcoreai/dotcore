@@ -1,10 +1,10 @@
-import type { DataTableDefinition, DataTableField } from "@/lib/data-table-model";
+import type { DataTableDefinition, DataTableField } from "@/components/data-table/data-table-model";
 import {
   createDataTableViewCodec,
   type DataTablePredicate,
   type DataTableSort,
   type DataTableView,
-} from "@/lib/data-table-view";
+} from "@/components/data-table/data-table-view";
 
 import type { ModelRow, ProfileRow } from "./catalog-model-row";
 import {

@@ -4,8 +4,8 @@ import {
   type ResourceWatchClient,
   resourceWatchClient as defaultResourceWatchClient,
 } from "@/api/resource-watch-client";
-import { ResourceWatchContext } from "@/app/resource-watch";
-import { ResourceWatchStore } from "@/app/resource-watch-store";
+import { ResourceWatchContext } from "@/resource-watch/resource-watch";
+import { ResourceWatchStore } from "@/resource-watch/resource-watch-store";
 
 export interface ResourceWatchProviderProps {
   children: ReactNode;

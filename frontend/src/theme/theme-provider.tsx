@@ -1,6 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 
-import { ThemeContext } from "@/app/theme-context";
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
 import { getBrowserStorage, type StorageLike } from "@/lib/browser-storage";
 import {
@@ -9,6 +8,7 @@ import {
   subscribeToColorScheme,
   writeColorScheme,
 } from "@/lib/console-preferences";
+import { ThemeContext } from "@/theme/theme-context";
 
 export interface ThemeProviderProps {
   children: ReactNode;

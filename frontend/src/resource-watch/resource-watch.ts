@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 
-import type { ResourceWatchStore } from "@/app/resource-watch-store";
 import type { KeyedResource } from "@/gen/dotcore/watch/v1/service_pb";
+import type { ResourceWatchStore } from "@/resource-watch/resource-watch-store";
 
 /** A resource kind the console watches, named as its payload on the watch stream. */
 export type ResourceKind = NonNullable<KeyedResource["payload"]["case"]>;

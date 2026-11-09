@@ -6,7 +6,6 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RouteClient } from "@/api/route-client";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import {
   metricsClientWith,
@@ -25,6 +24,7 @@ import {
 import { ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
 

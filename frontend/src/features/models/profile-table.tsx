@@ -5,8 +5,8 @@ import {
   type DataTableChipSetting,
   DataTableToolbar,
 } from "@/components/data-table/data-table-toolbar";
+import type { DataTablePredicate } from "@/components/data-table/data-table-view";
 import { Button } from "@/components/ui/button";
-import type { DataTablePredicate } from "@/lib/data-table-view";
 
 import type { ProfileRow } from "./catalog-model-row";
 import {

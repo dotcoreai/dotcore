@@ -2,9 +2,8 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 
 import type { ChatClient } from "@/api/chat-client";
 import type { DecisionClient } from "@/api/decision-client";
-import type { ChatMode } from "@/app/chat-opener";
-import { useWatchedRoutes } from "@/app/resource-watch";
 import type { ComboboxOption } from "@/components/ui/combobox";
+import type { ChatMode } from "@/features/chat/chat-opener";
 import {
   ChatConversationContext,
   ChatDecisionsContext,
@@ -20,6 +19,7 @@ import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { getBrowserStorage, type StorageLike } from "@/lib/browser-storage";
 import { requestKindsLabel, servesChat } from "@/lib/request-kinds";
+import { useWatchedRoutes } from "@/resource-watch/resource-watch";
 
 /**
  * Owns the console chat session for the chat panel and the Chat page, so the route, the

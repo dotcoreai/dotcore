@@ -8,9 +8,8 @@ import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
 import type { SiteClient } from "@/api/site-client";
-import { ChatOpenerContext } from "@/app/chat-opener";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
+import { ChatOpenerContext } from "@/features/chat/chat-opener";
 import { idleNodeMemory } from "@/features/memory/machine-test-support";
 import {
   nodeMemory as nodeMemoryOf,
@@ -66,6 +65,7 @@ import {
   MachineSchema,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
 
 import { ModelCatalogPage } from "./model-catalog-page";

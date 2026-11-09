@@ -1,5 +1,3 @@
-import { PreferencesSectionIcon } from "@/app/console-section-icons";
-import { useTheme } from "@/app/theme-context";
 import { Card } from "@/components/ui/card";
 import {
   PageHeader,
@@ -7,9 +5,11 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
+import { PreferencesSectionIcon } from "@/components/ui/section-icons";
 import { Switch } from "@/components/ui/switch";
 import { DeveloperSection } from "@/features/preferences/developer-section";
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
+import { useTheme } from "@/theme/theme-context";
 
 /** Console preferences stored in this browser, grouped into sections. */
 export function PreferencesPage() {

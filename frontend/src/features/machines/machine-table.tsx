@@ -1,6 +1,8 @@
 import { PlugIcon } from "lucide-react";
 
 import type { DataTableUiDefinition } from "@/components/data-table/data-table";
+import type { DataTableDefinition } from "@/components/data-table/data-table-model";
+import { createDataTableViewCodec } from "@/components/data-table/data-table-view";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { nodeConnectionStatus } from "@/features/deployments/execution-target";
@@ -10,8 +12,6 @@ import { formatReading, formatUsed } from "@/features/overview/overview-machine-
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { type Machine, NodeObservationState } from "@/gen/dotcore/site/v1/service_pb";
-import type { DataTableDefinition } from "@/lib/data-table-model";
-import { createDataTableViewCodec } from "@/lib/data-table-view";
 import { formatCount } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";
 

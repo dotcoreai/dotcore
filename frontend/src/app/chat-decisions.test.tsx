@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 
 import type { DecisionClient, DecisionRequest, DecisionResult } from "@/api/decision-client";
 import { ConsoleLayout } from "@/app/console-layout";
-import { ThemeProvider } from "@/app/theme-provider";
 import { type DecisionForm, formToBody } from "@/features/chat/decisions/decision-draft";
 import { decisionExamples } from "@/features/chat/decisions/decision-examples";
 import { createDecisionStore } from "@/features/chat/decisions/decision-store";
@@ -21,6 +20,7 @@ import type { StorageLike } from "@/lib/browser-storage";
 import { ChatRoute } from "@/routes/chat";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { FailingStorage, MemoryStorage } from "@/test/memory-storage";
+import { ThemeProvider } from "@/theme/theme-provider";
 
 /** A decision client whose answers the test releases one by one, in order. */
 function fakeDecisionClient() {

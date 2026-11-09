@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
 import { ProfileMenu } from "@/app/profile-menu";
-import { ThemeProvider } from "@/app/theme-provider";
+import { ThemeProvider } from "@/theme/theme-provider";
 
 class FakeStorage {
   getItem() {

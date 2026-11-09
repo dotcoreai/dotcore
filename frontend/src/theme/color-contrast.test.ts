@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { contrastRatio, parseOklch } from "@/lib/color-contrast";
+import { contrastRatio, parseOklch } from "@/theme/color-contrast";
 
 describe("color contrast", () => {
   it("parses an oklch(L C H) declaration", () => {
