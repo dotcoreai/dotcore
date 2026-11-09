@@ -25,7 +25,13 @@ frontend/src/
 
 - Routes compose features and don't reach into feature internals.
 - A one-off treatment stays at its call site, not in `components/ui/`.
-- `components/<name>/` imports nothing from `features/`.
+- A folder imports only from folders before it in this order: `gen`, `lib`, `api`, `hooks`,
+  `components`, `features`, `routes`, `app`. `components/` also never imports `gen/`. Lint
+  enforces this from the layer list in [`eslint.config.mjs`](eslint.config.mjs); folders marked
+  `pending` there are not enforced yet.
+- Files and feature folders never import each other in a loop, tests included.
+  [`src/test/import-cycles.test.ts`](src/test/import-cycles.test.ts) enforces it, and its
+  allowlists only shrink: fix a loop by moving the shared code down, never by adding an entry.
 - Routes, features and components call `api/` and own no transport or protocol details.
 - [`proto/AGENTS.md`](../proto/AGENTS.md) owns regenerating `gen/`.
 
