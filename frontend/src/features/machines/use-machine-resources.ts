@@ -23,7 +23,7 @@ import {
 export interface MachineResources {
   counted: DescribedMachine[];
   /**
-   * Described machines, their names and the deployments seen, for history. A described machine's
+   * Described machines and their names, for history. A described machine's
    * hardware shapes history and the queries, so a machine that drops out keeps its past.
    */
   history: MemoryHistory;
@@ -51,7 +51,7 @@ export function useMachineResources(
     () => countMachines(machines ?? [], details),
     [details, machines],
   );
-  const history = useMemoryHistory(machines, details, deployments?.value);
+  const history = useMemoryHistory(machines, details);
   const countedMachines = useMemo(
     () =>
       machines?.filter((machine) => counted.some((entry) => entry.machineId === machine.machineId)),

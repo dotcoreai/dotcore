@@ -7,7 +7,12 @@ import { MetricRows } from "@/components/metrics/metric-row/metric-row";
 import { expectResourceMarker } from "@/test/resource-marker";
 import { getResourceColor } from "@/theme/resource-color";
 
-import { MemoryMetricRows, type MemoryRowCapacity, MemoryRows } from "./memory-rows";
+import {
+  MemoryMetricRows,
+  type MemoryRowCapacity,
+  MemoryRows,
+  type MemorySegmentBy,
+} from "./memory-rows";
 import type { MemoryRow, MemorySegment, MemorySpan } from "./site-memory";
 
 const gib = 1024n ** 3n;
@@ -523,15 +528,78 @@ describe("MemoryMetricRows", () => {
     await user.click(screen.getByRole("button", { name: "RAM" }));
     expect(screen.getByText("ram history")).toBeVisible();
   });
+
+  it("draws one segment per machine in its marker color, by machine", () => {
+    const { container } = render(
+      <ExpandableRows rows={[row("ram", [sparkOne, sparkTwo])]} segmentBy="machine" />,
+    );
+
+    const bar = screen.getByRole("img");
+    expect(
+      [...bar.children].map((part) => [
+        (part as HTMLElement).style.width,
+        (part as HTMLElement).style.backgroundColor,
+      ]),
+    ).toEqual([
+      [`${(50 / 240) * 100}%`, cssColor(getResourceColor("spark-01"))],
+      [`${(30 / 240) * 100}%`, cssColor(getResourceColor("spark-02"))],
+    ]);
+    expect(container.querySelector("[data-deployment-id]")).toBeNull();
+    expect(screen.getByRole("button", { name: "RAM 80 / 240 GiB" })).toBeVisible();
+  });
+
+  it("fills each machine's span with its use in its marker color, by machine", () => {
+    const { container } = render(
+      <ExpandableRows mode="spans" rows={[row("ram", [sparkOne, sparkTwo])]} segmentBy="machine" />,
+    );
+
+    expect(
+      screen
+        .getAllByRole("img")
+        .map((bar) =>
+          [...bar.children].map((part) => [
+            (part as HTMLElement).style.width,
+            (part as HTMLElement).style.backgroundColor,
+          ]),
+        ),
+    ).toEqual([
+      [[`${(50 / 120) * 100}%`, cssColor(getResourceColor("spark-01"))]],
+      [[`${(30 / 120) * 100}%`, cssColor(getResourceColor("spark-02"))]],
+    ]);
+    expect(container.querySelector("[data-deployment-id]")).toBeNull();
+    expectResourceMarker(screen.getByText("spark-01"), "spark-01");
+  });
+
+  it("names a machine's use and its deployments on hover, by machine", async () => {
+    const user = userEvent.setup();
+    render(<ExpandableRows rows={[row("vram", [gpu1, sparkTwo])]} segmentBy="machine" />);
+
+    await user.hover(screen.getByRole("img").children[0]);
+
+    const title = await screen.findByText("gpu1", { selector: ".font-semibold" });
+    expect(
+      within(title.parentElement!)
+        .getAllByText(/./)
+        .map((line) => line.textContent),
+    ).toEqual([
+      "gpu1",
+      "28 GiB / 32 GiB",
+      "Gemma 4 12B QAT · 10 GiB",
+      "Qwen3.8 27B · 17 GiB (estimated)",
+      "Other · 1 GiB",
+    ]);
+  });
 });
 
 /** Memory metric rows holding their own expansion, with a named body per row. */
 function ExpandableRows({
   mode,
   rows = [row("vram", [gpu1]), row("ram", [gpu1Host])],
+  segmentBy,
 }: {
   mode?: "merged" | "spans";
   rows?: MemoryRow[];
+  segmentBy?: MemorySegmentBy;
 }) {
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
 
@@ -549,6 +617,7 @@ function ExpandableRows({
         }
         mode={mode}
         rows={rows}
+        segmentBy={segmentBy}
       >
         {(memoryRow) => <p>{memoryRow.kind} history</p>}
       </MemoryMetricRows>
