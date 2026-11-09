@@ -1,0 +1,13 @@
+# NVIDIA cards on the GB202 chip (compute capability 12.0), for engines built only for that chip.
+# Nested in nvidia-dedicated.
+hardwareClassId: "nvidia-gb202"
+displayName: "NVIDIA RTX 5090 or RTX PRO 6000"
+description: "An NVIDIA GeForce RTX 5090 or RTX PRO 6000 Blackwell, which share the GB202 chip, with its own memory."
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_DEDICATED"
+  deviceModels:
+    - "NVIDIA GeForce RTX 5090"
+    - "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
+    - "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition"
+    - "NVIDIA RTX PRO 6000 Blackwell Server Edition"

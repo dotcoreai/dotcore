@@ -399,6 +399,52 @@ fn repository_recommendation_entries_fit_idle_machines_of_their_class() {
     assert_eq!(failures, Vec::<String>::new());
 }
 
+/// ninfer leads coding and agents on each card of the GB202 chip it is built for, and is never
+/// offered on another dedicated GPU, even one with more memory.
+#[test]
+fn repository_ninfer_leads_coding_on_gb202_cards_only() {
+    use dotcore_proto::dotcore::catalog::v1::UseCase;
+
+    let catalog = repository_catalog();
+    let coding = |machine: &dotcore_node_hardware::MachineDescription| {
+        IdleMachine::new(machine, Timing::test().node_control)
+            .expect("idle simulated machine")
+            .recommend(&catalog, &[UseCase::CodingAndAgents])
+            .into_iter()
+            .flat_map(|recommendations| recommendations.rows)
+            .map(|row| (row.model_id, row.profile_id))
+            .collect::<Vec<_>>()
+    };
+    let ninfer = ("qwen3-8-27b".to_owned(), "ninfer-nvfp4".to_owned());
+
+    for card in ["rtx-5090", "rtx-pro-6000"] {
+        assert_eq!(
+            coding(&simulated_alone(card)).first(),
+            Some(&ninfer),
+            "{card}"
+        );
+    }
+
+    // An RTX 4090 given the RTX PRO 6000's memory reads the same list without ninfer.
+    let machines = simulated_class_machines(&catalog);
+    let rtx_4090 = machines
+        .iter()
+        .find(|machine| machine.choice == "rtx-4090")
+        .expect("rtx-4090 machine");
+    let large_4090 = rtx_4090.resized(Memory {
+        system: None,
+        device: Some(97_887 * 1024 * 1024),
+    });
+    assert_eq!(
+        coding(&large_4090),
+        [
+            ("qwen3-8-27b".to_owned(), "q4-xl".to_owned()),
+            ("qwen3-5-9b".to_owned(), "q4-xl".to_owned()),
+            ("qwen3-5-4b".to_owned(), "q4-xl".to_owned()),
+        ]
+    );
+}
+
 /// A minimum set below what the entry needs fails with a message naming the list, use case and
 /// entry, while the same lists with a sufficient minimum pass.
 #[test]

@@ -5,6 +5,8 @@
 * [`docker-image.nix`](docker-image.nix) builds upstream's own Dockerfile at a pinned commit; no
   Dockerfile is vendored here. It targets `sm_120a`, and the package exists only for
   `x86_64-linux`.
+* The `nvidia-gb202` hardware class lists, by reported GPU name, the cards that build runs on. A
+  card joins ninfer only through that list; GPU memory alone never qualifies it.
 * The node loads the stored image when it has one, otherwise builds it locally. The build pulls the
   public `nvidia/cuda:13.1.2-devel-ubuntu24.04` and `-runtime-ubuntu24.04` images and the source
   from GitHub.
