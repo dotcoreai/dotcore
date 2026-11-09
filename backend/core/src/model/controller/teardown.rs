@@ -8,6 +8,7 @@
 //! later unload can retry.
 
 use dotcore_domain::diagnostic::diagnostic_chain;
+use dotcore_domain::timing::ReconcileOutcome;
 use dotcore_proto::dotcore::{
     model::v1::{
         CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentFailure,
@@ -111,7 +112,7 @@ where
         site: &Site,
         desired: &ModelDeploymentDeclaration,
         observation: Option<TargetObservation>,
-    ) -> Result<dotcore_domain::timing::ReconcileOutcome, ModelLifecycleError> {
+    ) -> Result<ReconcileOutcome, ModelLifecycleError> {
         let span = info_span!(
             "model_teardown",
             operation = "model_teardown",
@@ -179,12 +180,10 @@ enum TeardownOutcome {
 }
 
 impl TeardownOutcome {
-    fn into_result(self) -> Result<dotcore_domain::timing::ReconcileOutcome, ModelLifecycleError> {
+    fn into_result(self) -> Result<ReconcileOutcome, ModelLifecycleError> {
         match self {
-            Self::Settled => Ok(dotcore_domain::timing::ReconcileOutcome::Settled),
-            Self::Pending | Self::RuntimeFailure(_) => {
-                Ok(dotcore_domain::timing::ReconcileOutcome::Pending)
-            }
+            Self::Settled => Ok(ReconcileOutcome::Settled),
+            Self::Pending | Self::RuntimeFailure(_) => Ok(ReconcileOutcome::Pending),
             Self::StateError(error) => Err(error),
         }
     }

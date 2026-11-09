@@ -16,6 +16,7 @@ use std::{
 use anyhow::Context;
 use clap::Args;
 use dotcore::composition::DEFAULT_PRIVATE_PORT;
+use dotcore_domain::timing::Timing;
 use dotcore_domain::{SiteNodeHost, SystemHostResolver};
 use dotcore_site::{
     initial::{
@@ -574,13 +575,11 @@ async fn connect_to_manager(
     if let Some(host) = &manager_host {
         let _ = tried.set_host(Some(&host.to_string()));
     }
-    JoinConnection::connect(
-        token.clone(),
-        manager_host,
-        &dotcore_domain::timing::Timing::for_process().join,
-    )
-    .await
-    .map_err(|error| join_failure(error).context(format!("cannot reach the manager at {tried}")))
+    JoinConnection::connect(token.clone(), manager_host, &Timing::for_process().join)
+        .await
+        .map_err(|error| {
+            join_failure(error).context(format!("cannot reach the manager at {tried}"))
+        })
 }
 
 /// Reports whether a connect failure means the manager could not be reached (timeout or

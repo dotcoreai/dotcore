@@ -16,6 +16,8 @@ use std::{
 };
 
 use dotcore_domain::SitePaths;
+use dotcore_domain::clock::Clock;
+use dotcore_domain::timing::ApplicationTiming;
 use dotcore_domain::{
     background_loop::log_unexpected_loop_end, hardware_observation::HardwareSnapshotSource,
 };
@@ -778,7 +780,7 @@ pub(super) struct NodeObservationInputs {
     pub(super) probes: RuntimeCapabilityProbes,
 
     /// Backend clock the reporter and sampler schedule, time out, and stamp on.
-    pub(super) clock: Arc<dyn dotcore_domain::clock::Clock>,
+    pub(super) clock: Arc<dyn Clock>,
 }
 
 /// Builds the node's runtime capability probes: the local Docker daemon, and the native host
@@ -828,7 +830,7 @@ type SiteNodeReporter = NodeReporter<
 /// an unchanged view recovers from transient failures.
 async fn construct_with_retry<T, F, A>(
     listener: Arc<tokio::sync::Notify>,
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    clock: Arc<dyn Clock>,
     retry: Duration,
     mut attempt: A,
 ) -> T
@@ -886,7 +888,7 @@ async fn target_capability_source(
     runtimes: &crate::dispatch::model::RuntimeTargetMap,
     observations: NodeObservationFeed,
     max_age: Duration,
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    clock: Arc<dyn Clock>,
 ) -> Result<Arc<dyn TargetCapabilitySource>, CompositionError> {
     for target in targets.iter().filter(|target| {
         matches!(
@@ -938,8 +940,8 @@ struct ApplicationRealizerSources {
     fixed_pins: FixedLaunchPins,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     inventory: Arc<dyn HardwareInventorySource>,
-    timing: dotcore_domain::timing::ApplicationTiming,
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    timing: ApplicationTiming,
+    clock: Arc<dyn Clock>,
 }
 
 async fn application_realizer_for(

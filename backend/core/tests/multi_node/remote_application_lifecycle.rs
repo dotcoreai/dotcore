@@ -624,8 +624,8 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     // instant plus the republish interval: the first publication answers the worker's stream
     // open, and each republication follows the previous publication by a whole interval.
     let started = Instant::now();
-    // Both processes run one policy with a long republish interval and relations that pass the timing check: the
-    // worker neither reopens its stream nor loses its action lease between republications.
+    // Both processes run one policy with a long republish interval and relations that pass the
+    // timing check: the worker neither reopens its stream nor loses its action lease between republications.
     let timing = {
         let mut timing = Timing::test();
         timing.node_control.node_silence = LONG_SILENCE_BOUND;

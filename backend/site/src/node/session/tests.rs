@@ -1,5 +1,6 @@
 use std::time::SystemTime;
 
+use dotcore_domain::clock::next_boundary;
 use dotcore_domain::{
     clock::VirtualClock,
     timing::{NodeControlTiming, Timing},
@@ -301,7 +302,7 @@ async fn under_the_test_policy_triggers_share_one_message_at_the_next_wall_align
     node.clock.advance(window / 4);
     node.model.changed();
 
-    let boundary = dotcore_domain::clock::next_boundary(wall, window);
+    let boundary = next_boundary(wall, window);
     assert_eq!(
         node.wake_at_status_boundary().await,
         opened_at + boundary.duration_since(wall).expect("a later boundary"),

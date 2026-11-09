@@ -4,7 +4,8 @@
 //! Integration and command-line tests reach every test-only control through this one module: the
 //! manual and virtual clocks a composed backend reads, its timing policy, the view of a site
 //! manager's node liveness, the relaxed file flush, a fake host-name resolver, simulated inference
-//! holds, the profile compatibility read, and the preparation output a node retains. Each item stays defined beside the code it controls.
+//! holds, the profile compatibility read, and the preparation output a node retains. Each item stays
+//! defined beside the code it controls.
 
 pub use dotcore_domain::{
     clock::{ManualClock, VirtualClock},

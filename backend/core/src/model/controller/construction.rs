@@ -14,6 +14,8 @@ use std::{
 };
 
 use dotcore_artifact::{ArtifactManager, OciImagePreparer};
+use dotcore_domain::clock::Clock;
+use dotcore_domain::timing::ModelTiming;
 #[cfg(test)]
 use dotcore_domain::{clock::SystemClock, timing::Timing};
 use dotcore_proto::dotcore::{
@@ -58,8 +60,8 @@ where
         desired: D,
         state: S,
         target_capabilities: Arc<dyn TargetCapabilitySource>,
-        timing: dotcore_domain::timing::ModelTiming,
-        clock: Arc<dyn dotcore_domain::clock::Clock>,
+        timing: ModelTiming,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let verification_http = Arc::new(
             crate::model::upstream::ReqwestVerificationHttp::new().map_err(|source| {
@@ -460,10 +462,10 @@ pub(crate) struct NodeModelRealizerDependencies<D: super::ModelRealizationInput>
     pub(crate) workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
 
     /// Timing of the realizer's observer passes and of its stored download progress.
-    pub(crate) timing: dotcore_domain::timing::ModelTiming,
+    pub(crate) timing: ModelTiming,
 
     /// Backend clock the realizer waits through.
-    pub(crate) clock: Arc<dyn dotcore_domain::clock::Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
 }
 
 #[derive(Clone)]
@@ -485,16 +487,16 @@ struct ControllerDependencies {
     shutdown: tokio_util::sync::CancellationToken,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
-    timing: dotcore_domain::timing::ModelTiming,
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    timing: ModelTiming,
+    clock: Arc<dyn Clock>,
 }
 
 /// Upstream health dependencies on the backend's `timing` and `clock`, with stable
 /// per-deployment jitter.
 fn health(
     verification_http: Arc<dyn crate::model::upstream::VerificationHttp>,
-    timing: dotcore_domain::timing::ModelTiming,
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    timing: ModelTiming,
+    clock: Arc<dyn Clock>,
 ) -> crate::model::upstream::HealthDependencies {
     crate::model::upstream::HealthDependencies {
         verification_http,

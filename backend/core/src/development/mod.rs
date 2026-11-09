@@ -27,6 +27,8 @@ use dotcore_artifact::{
     ArtifactManager, DockerOciClient, NixSources, OciImagePreparer, OciPreparer,
 };
 use dotcore_catalog::{Catalog, CatalogModelId};
+use dotcore_domain::clock::SystemClock;
+use dotcore_domain::timing::Timing;
 use dotcore_domain::{
     clock::Clock as _,
     deployment::launch_pin::{LaunchPinResolver as _, RetainedArtifact, pin_source},
@@ -246,7 +248,7 @@ impl DirectWorkloadFacade {
     ) -> Result<(SiteExecutionTarget, TargetCapabilityInventory), DirectWorkloadLaunchError> {
         // Direct launches run outside a composed backend, on the system clock that also stamps
         // the hardware collection.
-        let clock = dotcore_domain::clock::SystemClock;
+        let clock = SystemClock;
         #[cfg(test)]
         if let Some((platform, driver)) = &self.test_target_capabilities {
             let accelerator = NodeAcceleratorObservation::nvidia(
@@ -270,10 +272,8 @@ impl DirectWorkloadFacade {
             .await
             .map_err(DirectWorkloadLaunchError::resolution)?;
         let snapshot = tokio::task::spawn_blocking(|| {
-            SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(
-                dotcore_domain::clock::SystemClock,
-            ))
-            .collect_snapshot()
+            SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(SystemClock))
+                .collect_snapshot()
         })
         .await
         .map_err(DirectWorkloadLaunchError::resolution)?;
@@ -1183,9 +1183,7 @@ fn direct_target_capabilities(
             observed_at,
         )],
         [accelerator],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::production().node_control.capability_max_age,
         observed_at,
     );
     (development_target, inventory)
@@ -1313,7 +1311,7 @@ fn native_development_runtime(
     Ok(dotcore_runtime_backends::native::NativeRuntimeBackend::new(
         config,
         launcher,
-        &dotcore_domain::timing::Timing::for_process().native,
+        &Timing::for_process().native,
     )?)
 }
 

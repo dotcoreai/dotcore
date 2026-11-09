@@ -153,9 +153,8 @@ impl Timing {
     /// production waits seconds.
     ///
     /// Expiries stay long enough that a live node never lapses while a loaded host delays its
-    /// heartbeats, and the capability age, join bounds, stale-status age, watch heartbeats, metric
-    /// store health, metric stream silence and application startup window keep their production
-    /// values, which tests that idle for a moment would otherwise notice.
+    /// heartbeats. Durations that tests which idle for a moment would otherwise notice keep their
+    /// production values.
     #[cfg(any(test, feature = "test-support"))]
     pub const fn test() -> Self {
         let production = Self::production();
@@ -521,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn production_application_passes_back_off_to_two_seconds_and_a_reset_starts_over() {
+    fn production_application_passes_back_off_to_the_maximum_and_a_reset_starts_over() {
         let mut cadence = ReconcileCadence::new(Timing::production().application.reconcile);
 
         let pending: Vec<_> = (0..5)
@@ -546,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn production_wall_aligned_slots_stay_whole_seconds() {
+    fn production_wall_aligned_slots_are_whole_seconds() {
         let production = Timing::production();
 
         assert_eq!(

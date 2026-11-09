@@ -2,6 +2,7 @@
 
 use std::{future::Future, sync::Arc, time::Duration};
 
+use dotcore_domain::clock::Clock;
 use dotcore_domain::hardware_observation::HardwareSnapshotSource;
 use dotcore_domain::{BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, timing::Timing};
 #[cfg(feature = "test-support")]
@@ -178,7 +179,7 @@ impl Backend {
         B: FnOnce(
             &dotcore_proto::dotcore::site::v1::Site,
             &std::path::Path,
-            Arc<dyn dotcore_domain::clock::Clock>,
+            Arc<dyn Clock>,
         ) -> CompositionResult<C>,
         A: FnOnce(),
     {
@@ -624,7 +625,7 @@ pub struct BackendTestSupport {
     /// Clock the composed backend reads instead of system time, such as a manual or virtual test
     /// clock; the test keeps a clone to advance it. `None` keeps system time.
     #[cfg(feature = "test-support")]
-    pub clock: Option<Arc<dyn dotcore_domain::clock::Clock>>,
+    pub clock: Option<Arc<dyn Clock>>,
 
     /// Receives the site manager's metric recorder, so a test records metrics into the served
     /// history as in-process writers do. `None` keeps the recorder private.
@@ -675,7 +676,9 @@ impl BackendTestSupport {
 /// Manual clock of a backend test, starting at the current wall second.
 #[cfg(feature = "test-support")]
 fn test_clock() -> dotcore_domain::clock::ManualClock {
-    dotcore_domain::clock::ManualClock::starting_at(dotcore_domain::clock::slot_start(
+    use dotcore_domain::clock::{ManualClock, slot_start};
+
+    ManualClock::starting_at(slot_start(
         dotcore_domain::real_time::wall_now(),
         Duration::from_secs(1),
     ))

@@ -13,6 +13,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use dotcore_domain::timing::ApplicationTiming;
 use dotcore_domain::{
     SiteNodeId, deployment::launch_pin::LaunchPinResolver, inference_route::is_valid_route_name,
 };
@@ -101,10 +102,10 @@ pub(crate) struct NodeApplicationComposition {
     pub(crate) inventory: Arc<dyn HardwareInventorySource>,
 
     /// Timing of the realizer's observer passes and of each deployment's startup.
-    pub(crate) timing: dotcore_domain::timing::ApplicationTiming,
+    pub(crate) timing: ApplicationTiming,
 
     /// Backend clock the realizer's observer waits through.
-    pub(crate) clock: Arc<dyn dotcore_domain::clock::Clock>,
+    pub(crate) clock: Arc<dyn Clock>,
 }
 
 /// Composed node apps-controller realizer, the status owner reporting what it realized, and

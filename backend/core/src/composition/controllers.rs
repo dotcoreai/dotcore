@@ -4,6 +4,8 @@
 
 use std::sync::Arc;
 
+use dotcore_domain::clock::Clock;
+use dotcore_domain::timing::SimulatedTiming;
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{application::v1::ApplicationDeployment, site::v1::ExecutionTarget};
 use dotcore_site::node::{
@@ -90,9 +92,7 @@ impl SiteWorkloadSource for ControllerWorkloads {
 }
 
 /// The host's hardware collector, stamping snapshots with `clock`.
-pub(super) fn system_collector(
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
-) -> SystemHardwareSnapshotCollector {
+pub(super) fn system_collector(clock: Arc<dyn Clock>) -> SystemHardwareSnapshotCollector {
     SystemHardwareSnapshotCollector::with_platform_accelerators(clock)
 }
 
@@ -101,8 +101,8 @@ pub(super) fn system_collector(
 /// local engine kind.
 pub(super) fn engine_integrations(
     simulated_inference: Option<crate::inference::simulated::SimulatedInferenceTestSupport>,
-    timing: &dotcore_domain::timing::SimulatedTiming,
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    timing: &SimulatedTiming,
+    clock: Arc<dyn Clock>,
 ) -> Arc<crate::model::engine::EngineIntegrationRegistry> {
     let provider = crate::inference::simulated::SimulatedNativeProvider::new(timing, clock);
     Arc::new(
@@ -118,7 +118,9 @@ pub(super) fn engine_integrations(
 
 #[cfg(test)]
 pub(super) fn default_collector() -> SystemHardwareSnapshotCollector {
-    system_collector(Arc::new(dotcore_domain::clock::SystemClock))
+    use dotcore_domain::clock::SystemClock;
+
+    system_collector(Arc::new(SystemClock))
 }
 
 pub(super) async fn oci_preparer_for<C>(

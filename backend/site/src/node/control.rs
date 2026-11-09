@@ -741,10 +741,12 @@ impl ManagerNodeControlCoordinator {
     /// control time.
     #[cfg(any(test, feature = "test-support"))]
     pub fn on_system_clock(manager_session: ManagerSession) -> Self {
+        use dotcore_domain::{clock::SystemClock, timing::Timing};
+
         Self::new(
             manager_session,
-            &dotcore_domain::timing::Timing::test().node_control,
-            Arc::new(dotcore_domain::clock::SystemClock),
+            &Timing::test().node_control,
+            Arc::new(SystemClock),
         )
     }
 }

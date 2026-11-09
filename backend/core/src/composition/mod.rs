@@ -24,6 +24,8 @@ use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 use anyhow::anyhow;
 use dotcore_catalog::{Catalog, service::CatalogService};
 use dotcore_domain::SitePaths;
+use dotcore_domain::clock::Clock;
+use dotcore_domain::clock::SystemClock;
 use dotcore_domain::hardware_observation::HardwareSnapshotSource;
 use dotcore_domain::timing::Timing;
 use dotcore_observability::{
@@ -583,14 +585,14 @@ fn checked_timing(test_support: &BackendTestSupport) -> CompositionResult<Timing
 
 /// Chooses the clock of one composed backend: the test's manual clock when it supplies one,
 /// otherwise system time.
-fn backend_clock(test_support: &BackendTestSupport) -> Arc<dyn dotcore_domain::clock::Clock> {
+fn backend_clock(test_support: &BackendTestSupport) -> Arc<dyn Clock> {
     #[cfg(feature = "test-support")]
     if let Some(clock) = &test_support.clock {
         return Arc::clone(clock);
     }
     #[cfg(not(feature = "test-support"))]
     let _ = test_support;
-    Arc::new(dotcore_domain::clock::SystemClock)
+    Arc::new(SystemClock)
 }
 
 /// Composes the inference controller that owns model declarations, over the site's owner current
@@ -600,7 +602,7 @@ async fn model_owner_for(
     target_capabilities: Arc<dyn TargetCapabilitySource>,
     log_admission: crate::management_logs::ManagementLogAdmission,
     timing: Timing,
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    clock: Arc<dyn Clock>,
 ) -> CompositionResult<SelectedModelService> {
     let inventory = target_capabilities.observe().await.map_err(|error| {
         CompositionError::composition_with_source("target capability observation failed", error)

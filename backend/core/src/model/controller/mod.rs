@@ -17,7 +17,9 @@ use std::{
 
 use dotcore_artifact::ArtifactManager;
 use dotcore_catalog::CatalogModelId;
+use dotcore_domain::clock::Clock;
 use dotcore_domain::diagnostic::truncate_utf8_with_ellipsis;
+use dotcore_domain::timing::ModelTiming;
 use dotcore_proto::dotcore::model::v1::{
     CreateLocalModelDeploymentRequest, CreateUpstreamModelDeploymentRequest,
     EstimateLocalModelResourcesResponse, ListModelDeploymentsResponse,
@@ -623,7 +625,7 @@ pub(super) struct ManagerInferenceControllerInner<D, S> {
     node_progress_write_interval: std::time::Duration,
 
     /// Backend clock whose wall time judges target observations fresh.
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    clock: Arc<dyn Clock>,
 }
 
 impl<D, S> ManagerInferenceControllerInner<D, S>
@@ -668,10 +670,10 @@ pub(super) struct InferenceControllerInner<D, S, R> {
     shutdown: tokio_util::sync::CancellationToken,
 
     /// Timing of the observer's passes and of stored download progress.
-    timing: dotcore_domain::timing::ModelTiming,
+    timing: ModelTiming,
 
     /// Backend clock the observer and download progress writes wait through.
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
+    clock: Arc<dyn Clock>,
 }
 
 impl<D, S> InferenceController<D, S> {
