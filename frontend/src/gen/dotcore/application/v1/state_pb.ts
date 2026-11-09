@@ -14,7 +14,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/application/v1/state.proto.
  */
 export const file_dotcore_application_v1_state: GenFile = /*@__PURE__*/
-  fileDesc("CiJkb3Rjb3JlL2FwcGxpY2F0aW9uL3YxL3N0YXRlLnByb3RvEhZkb3Rjb3JlLmFwcGxpY2F0aW9uLnYxIu8BChxDdXJyZW50QXBwbGljYXRpb25EZXBsb3ltZW50EiEKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYASABKAkSFwoPcmVjb3JkX3JldmlzaW9uGAIgASgEEkEKBXN0YXRlGAMgASgLMjIuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnRTdGF0ZRIsCh9yZWNvbmNpbGVkX2xpZmVjeWNsZV9nZW5lcmF0aW9uGAQgASgESACIAQFCIgogX3JlY29uY2lsZWRfbGlmZWN5Y2xlX2dlbmVyYXRpb24i0AQKGkFwcGxpY2F0aW9uRGVwbG95bWVudFN0YXRlEkoKD2xpZmVjeWNsZV9zdGF0ZRgBIAEoDjIxLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25MaWZlY3ljbGVTdGF0ZRJKCg9yZWFkaW5lc3Nfc3RhdGUYAiABKA4yMS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uUmVhZGluZXNzU3RhdGUSDQoFc3RhZ2UYAyABKAkSLgoKc3RhcnRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASRQoHZmFpbHVyZRgGIAEoCzI0LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50RmFpbHVyZRJHCghzZXJ2aWNlcxgHIAMoCzI1LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25TZXJ2aWNlT2JzZXJ2YXRpb24SPQoIZW5kcG9pbnQYCCABKAsyKy5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uRW5kcG9pbnQSQQoSb2JzZXJ2ZWRfcGxhY2VtZW50GAkgASgLMiUuZG90Y29yZS5kZXBsb3ltZW50LnYxLkV4YWN0UGxhY2VtZW50EhkKEW9ic2VydmF0aW9uX3N0YWxlGAogASgIIlIKHEFwcGxpY2F0aW9uRGVwbG95bWVudEZhaWx1cmUSDAoEY29kZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJEhMKC2RpYWdub3N0aWNzGAMgAygJItQBCh1BcHBsaWNhdGlvblNlcnZpY2VPYnNlcnZhdGlvbhIUCgxzZXJ2aWNlX25hbWUYASABKAkSUQoPbGlmZWN5Y2xlX3N0YXRlGAIgASgOMjguZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvblNlcnZpY2VMaWZlY3ljbGVTdGF0ZRJKCg9yZWFkaW5lc3Nfc3RhdGUYAyABKA4yMS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uUmVhZGluZXNzU3RhdGUiIgoTQXBwbGljYXRpb25FbmRwb2ludBILCgN1cmwYASABKAkqjgQKGUFwcGxpY2F0aW9uTGlmZWN5Y2xlU3RhdGUSKwonQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX1VOU1BFQ0lGSUVEEAASJgoiQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX1FVRVVFRBABEikKJUFQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9QUkVQQVJJTkcQAhIoCiRBUFBMSUNBVElPTl9MSUZFQ1lDTEVfU1RBVEVfU1RBUlRJTkcQAxInCiNBUFBMSUNBVElPTl9MSUZFQ1lDTEVfU1RBVEVfUlVOTklORxAEEiUKIUFQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9SRUFEWRAFEigKJEFQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9TVE9QUElORxAGEicKI0FQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9TVE9QUEVEEAcSJgoiQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX0ZBSUxFRBAIEisKJ0FQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9VTkFWQUlMQUJMRRAJEicKI0FQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9QQVVTSU5HEAoSJgoiQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX1BBVVNFRBALKpoBChlBcHBsaWNhdGlvblJlYWRpbmVzc1N0YXRlEisKJ0FQUExJQ0FUSU9OX1JFQURJTkVTU19TVEFURV9VTlNQRUNJRklFRBAAEikKJUFQUExJQ0FUSU9OX1JFQURJTkVTU19TVEFURV9OT1RfUkVBRFkQARIlCiFBUFBMSUNBVElPTl9SRUFESU5FU1NfU1RBVEVfUkVBRFkQAiqBAwogQXBwbGljYXRpb25TZXJ2aWNlTGlmZWN5Y2xlU3RhdGUSMwovQVBQTElDQVRJT05fU0VSVklDRV9MSUZFQ1lDTEVfU1RBVEVfVU5TUEVDSUZJRUQQABIvCitBUFBMSUNBVElPTl9TRVJWSUNFX0xJRkVDWUNMRV9TVEFURV9QRU5ESU5HEAESMAosQVBQTElDQVRJT05fU0VSVklDRV9MSUZFQ1lDTEVfU1RBVEVfU1RBUlRJTkcQAhIvCitBUFBMSUNBVElPTl9TRVJWSUNFX0xJRkVDWUNMRV9TVEFURV9SVU5OSU5HEAMSLworQVBQTElDQVRJT05fU0VSVklDRV9MSUZFQ1lDTEVfU1RBVEVfU1RPUFBFRBAEEi4KKkFQUExJQ0FUSU9OX1NFUlZJQ0VfTElGRUNZQ0xFX1NUQVRFX0ZBSUxFRBAFEjMKL0FQUExJQ0FUSU9OX1NFUlZJQ0VfTElGRUNZQ0xFX1NUQVRFX1VOQVZBSUxBQkxFEAZiBnByb3RvMw", [file_dotcore_deployment_v1_placement, file_google_protobuf_timestamp]);
+  fileDesc("CiJkb3Rjb3JlL2FwcGxpY2F0aW9uL3YxL3N0YXRlLnByb3RvEhZkb3Rjb3JlLmFwcGxpY2F0aW9uLnYxIu8BChxDdXJyZW50QXBwbGljYXRpb25EZXBsb3ltZW50EiEKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYASABKAkSFwoPcmVjb3JkX3JldmlzaW9uGAIgASgEEkEKBXN0YXRlGAMgASgLMjIuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnRTdGF0ZRIsCh9yZWNvbmNpbGVkX2xpZmVjeWNsZV9nZW5lcmF0aW9uGAQgASgESACIAQFCIgogX3JlY29uY2lsZWRfbGlmZWN5Y2xlX2dlbmVyYXRpb24ikwUKGkFwcGxpY2F0aW9uRGVwbG95bWVudFN0YXRlEkoKD2xpZmVjeWNsZV9zdGF0ZRgBIAEoDjIxLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25MaWZlY3ljbGVTdGF0ZRJKCg9yZWFkaW5lc3Nfc3RhdGUYAiABKA4yMS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uUmVhZGluZXNzU3RhdGUSDQoFc3RhZ2UYAyABKAkSLgoKc3RhcnRlZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASRQoHZmFpbHVyZRgGIAEoCzI0LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50RmFpbHVyZRJHCghzZXJ2aWNlcxgHIAMoCzI1LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25TZXJ2aWNlT2JzZXJ2YXRpb24SPQoIZW5kcG9pbnQYCCABKAsyKy5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uRW5kcG9pbnQSQQoSb2JzZXJ2ZWRfcGxhY2VtZW50GAkgASgLMiUuZG90Y29yZS5kZXBsb3ltZW50LnYxLkV4YWN0UGxhY2VtZW50EhkKEW9ic2VydmF0aW9uX3N0YWxlGAogASgIEkEKBXN0ZXBzGAsgASgLMjIuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnRTdGVwcyJvChpBcHBsaWNhdGlvbkRlcGxveW1lbnRTdGVwcxJACgVzdGVwcxgBIAMoDjIxLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50U3RlcBIPCgdjdXJyZW50GAIgASgNIlIKHEFwcGxpY2F0aW9uRGVwbG95bWVudEZhaWx1cmUSDAoEY29kZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJEhMKC2RpYWdub3N0aWNzGAMgAygJItQBCh1BcHBsaWNhdGlvblNlcnZpY2VPYnNlcnZhdGlvbhIUCgxzZXJ2aWNlX25hbWUYASABKAkSUQoPbGlmZWN5Y2xlX3N0YXRlGAIgASgOMjguZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvblNlcnZpY2VMaWZlY3ljbGVTdGF0ZRJKCg9yZWFkaW5lc3Nfc3RhdGUYAyABKA4yMS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uUmVhZGluZXNzU3RhdGUiIgoTQXBwbGljYXRpb25FbmRwb2ludBILCgN1cmwYASABKAkqjgQKGUFwcGxpY2F0aW9uTGlmZWN5Y2xlU3RhdGUSKwonQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX1VOU1BFQ0lGSUVEEAASJgoiQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX1FVRVVFRBABEikKJUFQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9QUkVQQVJJTkcQAhIoCiRBUFBMSUNBVElPTl9MSUZFQ1lDTEVfU1RBVEVfU1RBUlRJTkcQAxInCiNBUFBMSUNBVElPTl9MSUZFQ1lDTEVfU1RBVEVfUlVOTklORxAEEiUKIUFQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9SRUFEWRAFEigKJEFQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9TVE9QUElORxAGEicKI0FQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9TVE9QUEVEEAcSJgoiQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX0ZBSUxFRBAIEisKJ0FQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9VTkFWQUlMQUJMRRAJEicKI0FQUExJQ0FUSU9OX0xJRkVDWUNMRV9TVEFURV9QQVVTSU5HEAoSJgoiQVBQTElDQVRJT05fTElGRUNZQ0xFX1NUQVRFX1BBVVNFRBALKtkBChlBcHBsaWNhdGlvbkRlcGxveW1lbnRTdGVwEisKJ0FQUExJQ0FUSU9OX0RFUExPWU1FTlRfU1RFUF9VTlNQRUNJRklFRBAAEi8KK0FQUExJQ0FUSU9OX0RFUExPWU1FTlRfU1RFUF9QUkVQQVJJTkdfSU1BR0UQARIoCiRBUFBMSUNBVElPTl9ERVBMT1lNRU5UX1NURVBfU1RBUlRJTkcQAhI0CjBBUFBMSUNBVElPTl9ERVBMT1lNRU5UX1NURVBfV0FJVElOR19GT1JfRU5EUE9JTlQQAyqaAQoZQXBwbGljYXRpb25SZWFkaW5lc3NTdGF0ZRIrCidBUFBMSUNBVElPTl9SRUFESU5FU1NfU1RBVEVfVU5TUEVDSUZJRUQQABIpCiVBUFBMSUNBVElPTl9SRUFESU5FU1NfU1RBVEVfTk9UX1JFQURZEAESJQohQVBQTElDQVRJT05fUkVBRElORVNTX1NUQVRFX1JFQURZEAIqgQMKIEFwcGxpY2F0aW9uU2VydmljZUxpZmVjeWNsZVN0YXRlEjMKL0FQUExJQ0FUSU9OX1NFUlZJQ0VfTElGRUNZQ0xFX1NUQVRFX1VOU1BFQ0lGSUVEEAASLworQVBQTElDQVRJT05fU0VSVklDRV9MSUZFQ1lDTEVfU1RBVEVfUEVORElORxABEjAKLEFQUExJQ0FUSU9OX1NFUlZJQ0VfTElGRUNZQ0xFX1NUQVRFX1NUQVJUSU5HEAISLworQVBQTElDQVRJT05fU0VSVklDRV9MSUZFQ1lDTEVfU1RBVEVfUlVOTklORxADEi8KK0FQUExJQ0FUSU9OX1NFUlZJQ0VfTElGRUNZQ0xFX1NUQVRFX1NUT1BQRUQQBBIuCipBUFBMSUNBVElPTl9TRVJWSUNFX0xJRkVDWUNMRV9TVEFURV9GQUlMRUQQBRIzCi9BUFBMSUNBVElPTl9TRVJWSUNFX0xJRkVDWUNMRV9TVEFURV9VTkFWQUlMQUJMRRAGYgZwcm90bzM", [file_dotcore_deployment_v1_placement, file_google_protobuf_timestamp]);
 
 /**
  * Current record for one desired application deployment.
@@ -135,6 +135,13 @@ export type ApplicationDeploymentState = Message<"dotcore.application.v1.Applica
    * @generated from field: bool observation_stale = 10;
    */
   observationStale: boolean;
+
+  /**
+   * Ordered start steps and the current one; absent unless the deployment is preparing or starting.
+   *
+   * @generated from field: dotcore.application.v1.ApplicationDeploymentSteps steps = 11;
+   */
+  steps?: ApplicationDeploymentSteps;
 };
 
 /**
@@ -143,6 +150,34 @@ export type ApplicationDeploymentState = Message<"dotcore.application.v1.Applica
  */
 export const ApplicationDeploymentStateSchema: GenMessage<ApplicationDeploymentState> = /*@__PURE__*/
   messageDesc(file_dotcore_application_v1_state, 1);
+
+/**
+ * The ordered steps of one application deployment start and the step it is on.
+ *
+ * @generated from message dotcore.application.v1.ApplicationDeploymentSteps
+ */
+export type ApplicationDeploymentSteps = Message<"dotcore.application.v1.ApplicationDeploymentSteps"> & {
+  /**
+   * Every step of this start in order; the list keeps its length for the whole start.
+   *
+   * @generated from field: repeated dotcore.application.v1.ApplicationDeploymentStep steps = 1;
+   */
+  steps: ApplicationDeploymentStep[];
+
+  /**
+   * Zero-based index into steps of the current step; never decreases during one start.
+   *
+   * @generated from field: uint32 current = 2;
+   */
+  current: number;
+};
+
+/**
+ * Describes the message dotcore.application.v1.ApplicationDeploymentSteps.
+ * Use `create(ApplicationDeploymentStepsSchema)` to create a new message.
+ */
+export const ApplicationDeploymentStepsSchema: GenMessage<ApplicationDeploymentSteps> = /*@__PURE__*/
+  messageDesc(file_dotcore_application_v1_state, 2);
 
 /**
  * A controller-owned failure summary without backend-private identity.
@@ -177,7 +212,7 @@ export type ApplicationDeploymentFailure = Message<"dotcore.application.v1.Appli
  * Use `create(ApplicationDeploymentFailureSchema)` to create a new message.
  */
 export const ApplicationDeploymentFailureSchema: GenMessage<ApplicationDeploymentFailure> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_state, 2);
+  messageDesc(file_dotcore_application_v1_state, 3);
 
 /**
  * Public controller projection for one named service observation.
@@ -212,7 +247,7 @@ export type ApplicationServiceObservation = Message<"dotcore.application.v1.Appl
  * Use `create(ApplicationServiceObservationSchema)` to create a new message.
  */
 export const ApplicationServiceObservationSchema: GenMessage<ApplicationServiceObservation> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_state, 3);
+  messageDesc(file_dotcore_application_v1_state, 4);
 
 /**
  * Exact controller-projected direct endpoint without allocation details.
@@ -233,7 +268,7 @@ export type ApplicationEndpoint = Message<"dotcore.application.v1.ApplicationEnd
  * Use `create(ApplicationEndpointSchema)` to create a new message.
  */
 export const ApplicationEndpointSchema: GenMessage<ApplicationEndpoint> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_state, 4);
+  messageDesc(file_dotcore_application_v1_state, 5);
 
 /**
  * The controller-projected lifecycle of an application deployment.
@@ -335,6 +370,47 @@ export const ApplicationLifecycleStateSchema: GenEnum<ApplicationLifecycleState>
   enumDesc(file_dotcore_application_v1_state, 0);
 
 /**
+ * One step of starting an application deployment.
+ *
+ * @generated from enum dotcore.application.v1.ApplicationDeploymentStep
+ */
+export enum ApplicationDeploymentStep {
+  /**
+   * No step was specified.
+   *
+   * @generated from enum value: APPLICATION_DEPLOYMENT_STEP_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Preparing the application's image on the machine.
+   *
+   * @generated from enum value: APPLICATION_DEPLOYMENT_STEP_PREPARING_IMAGE = 1;
+   */
+  PREPARING_IMAGE = 1,
+
+  /**
+   * Starting the application's workload group.
+   *
+   * @generated from enum value: APPLICATION_DEPLOYMENT_STEP_STARTING = 2;
+   */
+  STARTING = 2,
+
+  /**
+   * Waiting for the primary endpoint to answer its readiness check.
+   *
+   * @generated from enum value: APPLICATION_DEPLOYMENT_STEP_WAITING_FOR_ENDPOINT = 3;
+   */
+  WAITING_FOR_ENDPOINT = 3,
+}
+
+/**
+ * Describes the enum dotcore.application.v1.ApplicationDeploymentStep.
+ */
+export const ApplicationDeploymentStepSchema: GenEnum<ApplicationDeploymentStep> = /*@__PURE__*/
+  enumDesc(file_dotcore_application_v1_state, 1);
+
+/**
  * The controller-evaluated protocol readiness of a deployment or service.
  *
  * @generated from enum dotcore.application.v1.ApplicationReadinessState
@@ -366,7 +442,7 @@ export enum ApplicationReadinessState {
  * Describes the enum dotcore.application.v1.ApplicationReadinessState.
  */
 export const ApplicationReadinessStateSchema: GenEnum<ApplicationReadinessState> = /*@__PURE__*/
-  enumDesc(file_dotcore_application_v1_state, 1);
+  enumDesc(file_dotcore_application_v1_state, 2);
 
 /**
  * The controller-projected lifecycle of one named application service.
@@ -428,5 +504,5 @@ export enum ApplicationServiceLifecycleState {
  * Describes the enum dotcore.application.v1.ApplicationServiceLifecycleState.
  */
 export const ApplicationServiceLifecycleStateSchema: GenEnum<ApplicationServiceLifecycleState> = /*@__PURE__*/
-  enumDesc(file_dotcore_application_v1_state, 2);
+  enumDesc(file_dotcore_application_v1_state, 3);
 

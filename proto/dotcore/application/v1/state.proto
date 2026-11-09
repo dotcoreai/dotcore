@@ -53,6 +53,18 @@ message ApplicationDeploymentState {
   // current status has not yet listed this deployment; the node endpoint may still answer, but
   // the manager cannot confirm the state until it reports.
   bool observation_stale = 10;
+
+  // Ordered start steps and the current one; absent unless the deployment is preparing or starting.
+  ApplicationDeploymentSteps steps = 11;
+}
+
+// The ordered steps of one application deployment start and the step it is on.
+message ApplicationDeploymentSteps {
+  // Every step of this start in order; the list keeps its length for the whole start.
+  repeated ApplicationDeploymentStep steps = 1;
+
+  // Zero-based index into steps of the current step; never decreases during one start.
+  uint32 current = 2;
 }
 
 // A controller-owned failure summary without backend-private identity.
@@ -124,6 +136,21 @@ enum ApplicationLifecycleState {
 
   // A deployment whose retained workload group is stopped.
   APPLICATION_LIFECYCLE_STATE_PAUSED = 11;
+}
+
+// One step of starting an application deployment.
+enum ApplicationDeploymentStep {
+  // No step was specified.
+  APPLICATION_DEPLOYMENT_STEP_UNSPECIFIED = 0;
+
+  // Preparing the application's image on the machine.
+  APPLICATION_DEPLOYMENT_STEP_PREPARING_IMAGE = 1;
+
+  // Starting the application's workload group.
+  APPLICATION_DEPLOYMENT_STEP_STARTING = 2;
+
+  // Waiting for the primary endpoint to answer its readiness check.
+  APPLICATION_DEPLOYMENT_STEP_WAITING_FOR_ENDPOINT = 3;
 }
 
 // The controller-evaluated protocol readiness of a deployment or service.

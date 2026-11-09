@@ -84,6 +84,10 @@ message ModelDeploymentStatus {
   // Development launch identity this node resolved for the deployment's engine; reported until
   // the manager projects it back in the declaration.
   repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity resolved_launch_identities = 13;
+
+  // Ordered start steps and the current one; present only while the lifecycle is Downloading or
+  // Loading.
+  dotcore.model.v1.ModelDeploymentSteps steps = 17;
 }
 
 // Node-retained proof that withdrawn intent has no remaining realization. Its identity is
