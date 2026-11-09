@@ -210,7 +210,7 @@ export const runtimeSchemaModel = create(ModelSchema, {
       },
     },
     {
-      configurationId: "ninfer-nvidia-5090",
+      configurationId: "ninfer-nvidia-gb202",
       engineArtifacts: [
         { engineReleaseId: ninferRelease.engineReleaseId, engineArtifactId: "linux-amd64-cuda" },
       ],
@@ -267,7 +267,7 @@ export const runtimeSchemaModel = create(ModelSchema, {
       profileId: "ninfer-nvfp4",
       displayName: "NVFP4 ninfer",
       description: "Runs Qwen3.8 27B through ninfer on an RTX 5090 for text and image inference.",
-      configurationId: "ninfer-nvidia-5090",
+      configurationId: "ninfer-nvidia-gb202",
       defaultModelArtifactBindingId: "ninfer-nvfp4",
       engineParameterDefaults: {
         values: [
