@@ -15,7 +15,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 /// Typed runtime lifecycle behavior for one exact execution target.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SimulatedRuntimeConfig {
     /// Platform the simulated workloads report as their execution platform.
     pub execution_platform: ExecutionPlatform,
@@ -49,23 +49,6 @@ pub struct SimulatedRuntimeConfig {
 
     /// Backend clock the workloads time their transitions and startup steps on.
     pub clock: Arc<dyn Clock>,
-}
-
-impl std::fmt::Debug for SimulatedRuntimeConfig {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("SimulatedRuntimeConfig")
-            .field("execution_platform", &self.execution_platform)
-            .field("managed_node_id", &self.managed_node_id)
-            .field("machine", &self.machine)
-            .field("default_ready_delay", &self.default_ready_delay)
-            .field("default_stop_delay", &self.default_stop_delay)
-            .field("deployment_ready_delays", &self.deployment_ready_delays)
-            .field("deployment_stop_delays", &self.deployment_stop_delays)
-            .field("test_support", &self.test_support)
-            .field("startup", &self.startup)
-            .finish_non_exhaustive()
-    }
 }
 
 impl Default for SimulatedRuntimeConfig {

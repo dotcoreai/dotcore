@@ -165,8 +165,7 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         read: &mut DeclaredDeploymentIds<'_>,
     ) -> Result<(), ModelLifecycleError>;
 
-    /// Declares a local deployment, judging its target's observations fresh at `now`.
-    #[allow(clippy::too_many_arguments)]
+    /// Declares a local deployment.
     fn load_model(
         &self,
         model_id: &str,
@@ -175,13 +174,11 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         configuration: &dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration,
         exposure: &ModelDeploymentExposureIntent,
         name: Option<&str>,
-        now: std::time::SystemTime,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError>;
 
     fn preview_local_model(
         &self,
         _request: &CreateLocalModelDeploymentRequest,
-        _now: std::time::SystemTime,
     ) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelDeclarationRepositoryError> {
         Err(ModelDeclarationRepositoryError::InvalidState(
             "local deployment preview is unavailable",
@@ -207,7 +204,6 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         _scenario: Option<&SizingScenario>,
         _inventory: Option<&TargetCapabilityInventory>,
         _workloads: &crate::hardware::capacity::NodeWorkloads,
-        _now: std::time::SystemTime,
     ) -> Result<ListModelProfileCompatibilityResponse, ModelDeclarationRepositoryError> {
         Err(ModelDeclarationRepositoryError::InvalidState(
             "model profile compatibility is unavailable",
@@ -219,7 +215,6 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         _use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
         _inventory: Option<&TargetCapabilityInventory>,
         _deployments: &[ModelDeployment],
-        _now: std::time::SystemTime,
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
         Err(ModelDeclarationRepositoryError::InvalidState(
             "model recommendations are unavailable",
@@ -431,7 +426,6 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
         configuration: &dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration,
         exposure: &ModelDeploymentExposureIntent,
         name: Option<&str>,
-        now: std::time::SystemTime,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
         self.load_model(
             model_id,
@@ -440,14 +434,12 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
             configuration,
             exposure,
             name,
-            now,
         )
     }
 
     fn preview_local_model(
         &self,
         request: &CreateLocalModelDeploymentRequest,
-        now: std::time::SystemTime,
     ) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelDeclarationRepositoryError> {
         let configuration =
             request
@@ -466,7 +458,6 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
                     "local deployment preview has no exact placement",
                 ))?,
             configuration,
-            now,
         )
     }
 
@@ -487,9 +478,8 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
         scenario: Option<&SizingScenario>,
         inventory: Option<&TargetCapabilityInventory>,
         workloads: &crate::hardware::capacity::NodeWorkloads,
-        now: std::time::SystemTime,
     ) -> Result<ListModelProfileCompatibilityResponse, ModelDeclarationRepositoryError> {
-        self.profile_compatibility(model_id, target, scenario, inventory, workloads, now)
+        self.profile_compatibility(model_id, target, scenario, inventory, workloads)
     }
 
     fn model_recommendations(
@@ -497,9 +487,8 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
         use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
         inventory: Option<&TargetCapabilityInventory>,
         deployments: &[ModelDeployment],
-        now: std::time::SystemTime,
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
-        self.model_recommendations(use_cases, inventory, deployments, now)
+        self.model_recommendations(use_cases, inventory, deployments)
     }
 
     fn load_upstream_model(

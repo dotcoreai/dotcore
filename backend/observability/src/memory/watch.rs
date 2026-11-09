@@ -172,10 +172,7 @@ impl Follower {
                 }
                 continue;
             }
-            let sleep = self
-                .shared
-                .clock
-                .sleep_until(self.shared.clock.now() + Duration::from_millis(wake - now));
+            let sleep = self.shared.clock.sleep(Duration::from_millis(wake - now));
             let upsert = tokio::select! {
                 // Revisions and a lag surface before the next deadline's points.
                 biased;

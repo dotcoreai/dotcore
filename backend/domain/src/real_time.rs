@@ -1,15 +1,19 @@
-//! Real-time waits for real I/O and real processes.
+//! Real-time waits and wall-time reads for real I/O, real processes and real records.
 //!
 //! Behavior timing waits through the backend clock, so a test clock's advance reaches it. A few
 //! waits must follow real time whatever clock the backend runs: the bound on a call to another
 //! process, a daemon or the network, and the pause between two polls of a real file or process.
-//! This module is the only place production code reaches real-time timers for them.
+//! Likewise a few wall-time reads record when something really happened. This module is the only
+//! place production code reaches real-time timers and the host's wall time for them.
 #![expect(
     clippy::disallowed_methods,
-    reason = "real time is only for bounding real I/O and pacing polls of real files and processes"
+    reason = "real time is only for real I/O, real processes and records of real wall time"
 )]
 
-use std::{future::Future, time::Duration};
+use std::{
+    future::Future,
+    time::{Duration, SystemTime},
+};
 
 use tokio::time::{Instant, Sleep, error::Elapsed};
 
@@ -27,6 +31,12 @@ pub async fn bound_until<F: Future>(deadline: Instant, io: F) -> Result<F::Outpu
 /// returned timer can be reset while the connection stays in use.
 pub fn deadline(at: Instant) -> Sleep {
     tokio::time::sleep_until(at)
+}
+
+/// Reads the host's wall time, for a record of when something really happened: a reading of a
+/// real process, a persisted timestamp or a unique identifier.
+pub fn wall_now() -> SystemTime {
+    SystemTime::now()
 }
 
 /// Pauses for `interval` of real time between two polls of a real file or process.

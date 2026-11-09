@@ -594,7 +594,7 @@ async fn flush_loop(shared: Arc<Forwarder>, clock: Arc<dyn Clock>) {
             Some(due) => {
                 let wait = due.duration_since(now).unwrap_or_default();
                 tokio::select! {
-                    () = clock.sleep_until(clock.now() + wait) => {}
+                    () = clock.sleep(wait) => {}
                     () = opened => {}
                 }
             }
@@ -634,9 +634,7 @@ async fn stream_loop(
             }
         }
         shared.disconnected();
-        clock
-            .sleep_until(clock.now() + shared.config.reconnect_delay)
-            .await;
+        clock.sleep(shared.config.reconnect_delay).await;
     }
 }
 

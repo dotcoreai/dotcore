@@ -7,6 +7,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use dotcore_domain::real_time;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -98,7 +99,7 @@ pub trait WorkloadGroupBackend: Send + Sync {
         &'a self,
         group: &'a WorkloadGroupLaunch,
     ) -> RuntimeFuture<'a, BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>> {
-        let observed_at = SystemTime::now();
+        let observed_at = real_time::wall_now();
         Box::pin(std::future::ready(Ok(group
             .units
             .keys()

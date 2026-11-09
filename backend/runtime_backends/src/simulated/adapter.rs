@@ -500,7 +500,7 @@ impl InMemoryRuntimeBackend {
         group: &WorkloadGroupLaunch,
     ) -> BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation> {
         let Some(machine) = &self.config.machine else {
-            let observed_at = std::time::SystemTime::now();
+            let observed_at = self.config.clock.wall_now();
             return group
                 .units
                 .keys()
@@ -747,8 +747,7 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
                     () = cancellation.cancelled() => {
                         return Err(RuntimeBackendError::preparation_cancelled());
                     }
-                    () = self.config.clock.sleep_until(
-                        self.config.clock.now() + startup.step_duration
+                    () = self.config.clock.sleep(startup.step_duration
                     ) => {}
                 }
             }

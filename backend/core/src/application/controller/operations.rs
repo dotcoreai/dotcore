@@ -1,8 +1,9 @@
 //! Apps-controller owner operations: create, lifecycle transitions, and metadata acceptance.
 
-use std::{sync::Arc, time::SystemTime};
+use std::sync::Arc;
 
 use dotcore_domain::SiteNodeId;
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
@@ -560,7 +561,7 @@ where
     }
     let deployment_id = super::identity::allocate_deployment_id(
         &application.application_id,
-        SystemTime::now(),
+        real_time::wall_now(),
         snapshot
             .deployments
             .iter()

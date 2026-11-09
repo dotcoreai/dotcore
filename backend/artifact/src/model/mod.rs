@@ -19,7 +19,7 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Instant, UNIX_EPOCH},
 };
 
 use anyhow::anyhow;
@@ -1735,7 +1735,7 @@ impl SnapshotRepairState {
 }
 
 fn snapshot_repair_now() -> Result<u64, ArtifactCacheError> {
-    SystemTime::now()
+    real_time::wall_now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .map_err(|error| ArtifactCacheError::context("snapshot repair clock failed", error))

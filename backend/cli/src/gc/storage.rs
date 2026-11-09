@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::Context as _;
+use dotcore_domain::real_time;
 use dotcore_runtime::WorkloadStorageKind;
 use dotcore_runtime_backends::docker::{
     DockerMountedFolders, StorageArea, StorageCleanup, StorageRemoval, StorageRemovalOutcome,
@@ -33,7 +34,7 @@ pub(super) async fn clean(paths: &RootPathArgs, unused_days: u32, yes: bool) -> 
         .await
         .context("cannot reach the Docker daemon")?;
     let cleanup = StorageCleanup::new(areas, DAY * unused_days, Arc::new(mounts));
-    let now = SystemTime::now();
+    let now = real_time::wall_now();
     let planned = cleanup
         .plan(now)
         .await
@@ -43,7 +44,7 @@ pub(super) async fn clean(paths: &RootPathArgs, unused_days: u32, yes: bool) -> 
         return Ok(());
     }
 
-    let results = cleanup.apply(planned, SystemTime::now()).await;
+    let results = cleanup.apply(planned, real_time::wall_now()).await;
     if controlling_terminal_condition() == TerminalCondition::Interactive {
         show_results(terminal.as_mut(), &results, now)?;
     } else {

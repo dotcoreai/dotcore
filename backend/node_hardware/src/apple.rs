@@ -365,6 +365,7 @@ mod tests {
     }
 
     /// Wall time fixed at 10 s after the Unix epoch.
+    #[derive(Debug)]
     struct FakeClock;
 
     impl Clock for FakeClock {

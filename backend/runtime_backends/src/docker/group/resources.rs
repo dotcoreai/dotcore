@@ -5,8 +5,7 @@
 //! container's charged memory without the file cache the kernel can reclaim. A unit whose
 //! container is not running, or not known to this backend, has no figures.
 
-use std::time::SystemTime;
-
+use dotcore_domain::real_time;
 use dotcore_runtime::{
     WorkloadUnitResourceObservation, WorkloadUnitResources, WorkloadUnitResourcesUnavailable,
 };
@@ -63,7 +62,7 @@ impl<C: DockerClient> DockerAdapter<C> {
                 observations.insert(
                     name.clone(),
                     WorkloadUnitResourceObservation {
-                        observed_at: SystemTime::now(),
+                        observed_at: real_time::wall_now(),
                         resources,
                     },
                 );

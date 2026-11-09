@@ -2159,6 +2159,7 @@ impl HostFactsAdapter for FixedHostFacts {
 }
 
 /// Tokio monotonic time with wall time fixed at [`fixed_observed_at`].
+#[derive(Debug)]
 struct FixedObservationClock;
 
 impl dotcore_domain::clock::Clock for FixedObservationClock {

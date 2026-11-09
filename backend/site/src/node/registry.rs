@@ -156,8 +156,9 @@ impl NodeRegistry {
             )
         })?;
         let max_age = self.coordinator.capability_max_age();
+        let now = self.coordinator.clock().wall_now();
         let mut inventory =
-            crate::node::target_inventory::TargetCapabilityInventory::empty(max_age);
+            crate::node::target_inventory::TargetCapabilityInventory::empty(max_age, now);
         for node in &site.nodes {
             let node_id = SiteNodeId::parse(&node.node_id).map_err(|source| {
                 crate::node::target_inventory::TargetCapabilitySourceError::Observation(
@@ -181,6 +182,7 @@ impl NodeRegistry {
                     stale,
                     observed_at,
                     max_age,
+                    now,
                 )?);
             }
         }
@@ -766,7 +768,7 @@ mod tests {
             .expect("valid manager receipt time");
             assert_eq!(capabilities.platform_observed_at, Some(received_at));
             assert_eq!(capabilities.accelerator_observed_at, Some(received_at));
-            assert!(inventory.is_fresh(capabilities.platform_observed_at, SystemTime::now()));
+            assert!(inventory.is_fresh(capabilities.platform_observed_at));
             assert!(matches!(
                 &capabilities.platform,
                 CapabilityObservation::Available(platform) if platform.architecture() == architecture
@@ -981,7 +983,7 @@ mod tests {
         let capabilities = inventory
             .for_target("manager-model")
             .expect("manager model target capabilities");
-        assert!(inventory.is_fresh(capabilities.platform_observed_at, SystemTime::now()));
+        assert!(inventory.is_fresh(capabilities.platform_observed_at));
         assert!(matches!(
             &capabilities.platform,
             CapabilityObservation::Available(platform) if platform.architecture() == "arm64"
@@ -1515,6 +1517,7 @@ mod tests {
     }
 
     /// Tokio monotonic time with wall time fixed at 123 s and 456 ns after the Unix epoch.
+    #[derive(Debug)]
     struct FixedWallClock;
 
     impl dotcore_domain::clock::Clock for FixedWallClock {

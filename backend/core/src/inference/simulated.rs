@@ -269,7 +269,7 @@ impl EngineInvoker for SimulatedInvoker {
                                 let _ = sender.send(Err(InferenceError::Cancelled(reason))).await;
                                 return;
                             }
-                            () = clock.sleep_until(clock.now() + token_interval) => {}
+                            () = clock.sleep(token_interval) => {}
                         }
                     }
                     text_sent |= text;

@@ -365,7 +365,6 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             Some(&inventory),
             &deployments,
             &[case.use_case],
-            SystemTime::now(),
         );
 
         assert_eq!(
@@ -391,7 +390,6 @@ fn every_use_case_asked_gets_its_own_list_in_the_order_asked() {
         Some(&inventory),
         &deployments,
         &[DecisionMaking, GeneralAssistant, CodingAndAgents],
-        SystemTime::now(),
     );
 
     assert_eq!(
@@ -405,17 +403,10 @@ fn every_use_case_asked_gets_its_own_list_in_the_order_asked() {
 
     // Without an inventory every target is unknown and nothing is recommended.
     assert_eq!(
-        recommend_models(
-            &catalog,
-            &targets,
-            None,
-            &deployments,
-            &[CodingAndAgents],
-            SystemTime::now(),
-        )
-        .iter()
-        .map(rows)
-        .collect::<Vec<_>>(),
+        recommend_models(&catalog, &targets, None, &deployments, &[CodingAndAgents],)
+            .iter()
+            .map(rows)
+            .collect::<Vec<_>>(),
         [Vec::<OwnedRow>::new()]
     );
 }
@@ -554,6 +545,7 @@ fn site(
         platforms,
         accelerators,
         Timing::production().node_control.capability_max_age,
+        now,
     );
     (targets, inventory, deployments)
 }

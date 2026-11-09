@@ -12,11 +12,9 @@
 //! time a workload is created or started with it, so machine cleanup can tell how long it has
 //! been unused.
 
-use std::{
-    path::{Component, Path, PathBuf},
-    time::SystemTime,
-};
+use std::path::{Component, Path, PathBuf};
 
+use dotcore_domain::real_time;
 use dotcore_runtime::{
     RuntimeBackendError, WorkloadStorageAttachment, WorkloadStorageKey, WorkloadStorageKind,
 };
@@ -220,7 +218,7 @@ fn stamp_last_use(marker: &Path) -> Result<(), RuntimeBackendError> {
         .create(true)
         .append(true)
         .open(marker)
-        .and_then(|file| file.set_modified(SystemTime::now()))
+        .and_then(|file| file.set_modified(real_time::wall_now()))
         .map_err(|source| {
             runtime_error_with_source("Docker runtime could not stamp storage last use", source)
         })
@@ -246,6 +244,8 @@ fn reject_unsafe_component(path: &Path) -> Result<(), RuntimeBackendError> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::SystemTime;
+
     use super::*;
     use crate::docker::{DockerAcceleratorTransport, configuration::DockerLogSourcePermits};
 

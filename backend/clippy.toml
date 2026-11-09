@@ -9,4 +9,5 @@ disallowed-methods = [
   { path = "tokio::time::timeout_at", reason = "bound through the backend clock, or `real_time` for real I/O" },
   { path = "tokio::time::interval", reason = "tick through the backend clock" },
   { path = "tokio::time::interval_at", reason = "tick through the backend clock" },
+  { path = "std::time::SystemTime::now", reason = "read wall time through the backend clock, or `real_time::wall_now` for a record of real wall time" },
 ]

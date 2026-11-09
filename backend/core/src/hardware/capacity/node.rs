@@ -370,6 +370,7 @@ mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            SystemTime::now(),
         );
         assert_eq!(
             inventory.for_target("target-a").expect("target").memory,
@@ -597,6 +598,7 @@ mod tests {
                     dotcore_domain::timing::Timing::production()
                         .node_control
                         .capability_max_age,
+                    SystemTime::now(),
                 );
                 let capabilities = inventory.for_target("target-a").expect("target");
                 let target = TargetCapacity::for_target(

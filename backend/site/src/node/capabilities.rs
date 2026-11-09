@@ -77,7 +77,7 @@ impl NodeTargetCapabilitySource {
         let stale = now
             .duration_since(collected.collected_at)
             .map_or(true, |age| age > self.max_age);
-        let mut inventory = TargetCapabilityInventory::empty(self.max_age);
+        let mut inventory = TargetCapabilityInventory::empty(self.max_age, now);
         for target in &self.targets {
             inventory.extend(node_target_capabilities(
                 target,
@@ -85,6 +85,7 @@ impl NodeTargetCapabilitySource {
                 stale,
                 Some(collected.collected_at),
                 self.max_age,
+                now,
             )?);
         }
         Ok(inventory)
@@ -109,13 +110,15 @@ impl TargetCapabilitySource for NodeTargetCapabilitySource {
 /// Projects one node collection into one target's capabilities: the target's reported runtime
 /// outcome joined with its node's accelerator facts. The manager's admission and the node's own
 /// admission share this projection; a missing `observed_at` reads as unavailable, and an
-/// available observation stays fresh for `max_age`.
+/// available observation stays fresh for `max_age` past it, judged at `as_of`, when the
+/// collection is read.
 pub(crate) fn node_target_capabilities(
     target: &ExecutionTarget,
     snapshot: &NodeObservationSnapshot,
     stale: bool,
     observed_at: Option<SystemTime>,
     max_age: Duration,
+    as_of: SystemTime,
 ) -> Result<TargetCapabilityInventory, TargetCapabilitySourceError> {
     let platform = node_runtime_platform(target, snapshot, stale, observed_at)?;
     let accelerator =
@@ -125,6 +128,7 @@ pub(crate) fn node_target_capabilities(
         [platform],
         [accelerator],
         max_age,
+        as_of,
     ))
 }
 
@@ -349,6 +353,7 @@ mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                now,
             )
             .expect("inventory")
             .for_target("target-one")
@@ -466,6 +471,7 @@ mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                now,
             )
             .expect("inventory")
             .for_target("target-one")

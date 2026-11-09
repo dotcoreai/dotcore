@@ -29,7 +29,7 @@ pub fn canonical_tempdir() -> std::io::Result<tempfile::TempDir> {
 pub fn unique_suffix() -> String {
     static SEQUENCE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-    let nanos = std::time::SystemTime::now()
+    let nanos = crate::real_time::wall_now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time")
         .as_nanos();

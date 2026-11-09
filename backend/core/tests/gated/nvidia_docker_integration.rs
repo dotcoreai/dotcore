@@ -421,6 +421,7 @@ fn qualification_case(
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        std::time::SystemTime::now(),
     );
     let local = dotcore::model::resolution::resolve_local_launch(
         catalog,
@@ -430,7 +431,6 @@ fn qualification_case(
         &target,
         &inventory,
         None,
-        std::time::SystemTime::now(),
     )?;
     let snapshot = ModelDeploymentSnapshot {
         source: Some(

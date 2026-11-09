@@ -331,7 +331,7 @@ where
             let wall = self.clock.wall_now();
             let boundary = next_boundary(wall, interval);
             let wait = boundary.duration_since(wall).unwrap_or_default();
-            self.clock.sleep_until(self.clock.now() + wait).await;
+            self.clock.sleep(wait).await;
 
             let woken = self.clock.wall_now();
             if woken < boundary || woken >= boundary + interval {

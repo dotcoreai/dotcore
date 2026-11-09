@@ -6490,6 +6490,7 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
     let controller = manager_controller(
         desired.clone(),
@@ -6943,6 +6944,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
     let unavailable = TargetCapabilityReconciler::reconcile(
         [("application-target-one", "node-one")],
@@ -6953,6 +6955,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
     let stale = TargetCapabilityReconciler::reconcile(
         [("application-target-one", "node-one")],
@@ -6964,6 +6967,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
     let mismatched = TargetCapabilityReconciler::reconcile(
         [("application-target-one", "node-one")],
@@ -6975,6 +6979,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
 
     for (inventory, expected) in [

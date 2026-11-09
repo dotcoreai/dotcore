@@ -14,7 +14,7 @@ use std::{
     net::Ipv4Addr,
     path::{Path, PathBuf},
     sync::Mutex,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use dotcore_domain::real_time;
@@ -584,7 +584,7 @@ impl NativeRuntimeBackend {
             }),
         };
         Ok(ProcessMemoryObservation {
-            observed_at: SystemTime::now(),
+            observed_at: real_time::wall_now(),
             memory,
             process: engine,
         })

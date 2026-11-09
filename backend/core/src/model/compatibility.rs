@@ -67,9 +67,8 @@ pub(crate) fn evaluate_profile_compatibility(
     scenario: Option<&SizingScenario>,
     inventory: Option<&TargetCapabilityInventory>,
     workloads: &NodeWorkloads,
-    now: SystemTime,
 ) -> ListModelProfileCompatibilityResponse {
-    let checked = check_targets(targets, inventory, workloads, now, StaleTargets::Fail);
+    let checked = check_targets(targets, inventory, workloads, StaleTargets::Fail);
     let mut response = ListModelProfileCompatibilityResponse {
         targets: checked.iter().map(target_compatibility).collect(),
         ..Default::default()
@@ -133,7 +132,7 @@ pub(crate) enum StaleTargets {
     UseLastObserved,
 }
 
-/// Confirms each target's capabilities from `inventory` at `now` and counts in its pools what
+/// Confirms each target's capabilities from `inventory` and counts in its pools what
 /// `workloads` hold of its node's memory, ordered by node then target identifier. A missing
 /// inventory leaves every target unknown; `stale` says what happens to a target that stopped
 /// reporting.
@@ -141,7 +140,6 @@ pub(crate) fn check_targets<'a>(
     targets: &'a [ExecutionTarget],
     inventory: Option<&TargetCapabilityInventory>,
     workloads: &NodeWorkloads,
-    now: SystemTime,
     stale: StaleTargets,
 ) -> Vec<CheckedTarget<'a>> {
     let mut targets = targets.iter().collect::<Vec<_>>();
@@ -154,7 +152,7 @@ pub(crate) fn check_targets<'a>(
         .map(|target| {
             let mut unreachable = false;
             let check = match inventory {
-                Some(inventory) => match select_target_capabilities(target, inventory, now) {
+                Some(inventory) => match select_target_capabilities(target, inventory) {
                     Err(
                         TargetCapabilitySelectionError::StalePlatform { .. }
                         | TargetCapabilitySelectionError::StaleAccelerator { .. },
@@ -905,7 +903,6 @@ mod tests {
             None,
             Some(&inventory),
             &Default::default(),
-            now,
         );
 
         let runs = |profile: &str, target: &ExecutionTarget, advisories: Vec<i32>| {
@@ -979,7 +976,6 @@ mod tests {
             None,
             Some(&inventory),
             &Default::default(),
-            now,
         );
 
         assert_eq!(
@@ -1038,6 +1034,7 @@ mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            now,
         ));
         inventory.extend(observed(
             &no_driver,
@@ -1060,7 +1057,6 @@ mod tests {
             None,
             Some(&inventory),
             &Default::default(),
-            now,
         );
 
         let unknown = ModelCompatibilityStatus::Unknown;
@@ -1119,7 +1115,6 @@ mod tests {
             None,
             None,
             &Default::default(),
-            now,
         );
         assert_eq!(
             unobserved,
@@ -1202,7 +1197,6 @@ mod tests {
             None,
             Some(&inventory),
             &Default::default(),
-            now,
         );
 
         let cannot_run =
@@ -1321,7 +1315,6 @@ mod tests {
             None,
             Some(&inventory),
             &Default::default(),
-            now,
         );
 
         let linux_nvidia = |architecture: &str| Selector {
@@ -1396,7 +1389,6 @@ mod tests {
             None,
             Some(&inventory),
             &Default::default(),
-            now,
         );
 
         assert_eq!(
@@ -1530,7 +1522,7 @@ mod tests {
         )
     }
 
-    /// Inventory for one target whose runtime reports `platform` at `now`.
+    /// Inventory for one target whose runtime reports `platform` at `now`, read at `now`.
     fn observed(
         target: &ExecutionTarget,
         platform: ExecutionPlatform,
@@ -1548,6 +1540,7 @@ mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            now,
         )
     }
 

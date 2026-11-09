@@ -442,6 +442,7 @@ async fn supplied_input_model_owner_composition_does_not_reload_site() {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                std::time::SystemTime::now(),
             ),
         )),
         crate::management_logs::ManagementLogAdmission::new(),

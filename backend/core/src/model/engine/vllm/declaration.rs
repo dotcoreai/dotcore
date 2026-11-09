@@ -852,6 +852,7 @@ mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                std::time::SystemTime::now(),
             );
             let model_id = CatalogModelId("fixture-vllm-model".to_owned());
             let configuration = apply_profile_defaults(
@@ -872,7 +873,6 @@ mod tests {
                 &target,
                 &inventory,
                 None,
-                std::time::SystemTime::now(),
             )
             .expect("vLLM launch on a GPU of a mixed machine");
             let total = launch
@@ -1209,7 +1209,6 @@ profiles:
             &target,
             &inventory,
             None,
-            std::time::SystemTime::now(),
         )
     }
 

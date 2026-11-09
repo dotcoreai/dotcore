@@ -7,7 +7,7 @@
 //! or exceed its total memory are left out there, and the rest merge across targets by their best
 //! declared position. The answer is advisory: it never admits, reserves, or places a deployment.
 
-use std::{cmp::Ordering, collections::BTreeMap, time::SystemTime};
+use std::{cmp::Ordering, collections::BTreeMap};
 
 use dotcore_catalog::{Catalog, CatalogModelId, SupportedHardwareClass};
 use dotcore_proto::dotcore::{
@@ -103,14 +103,12 @@ pub(crate) fn recommend_models(
     inventory: Option<&TargetCapabilityInventory>,
     deployments: &[ModelDeployment],
     use_cases: &[UseCase],
-    now: SystemTime,
 ) -> Vec<UseCaseRecommendations> {
     let workloads = node_workloads(deployments, inventory);
     let checked = check_targets(
         targets,
         inventory,
         &workloads,
-        now,
         StaleTargets::UseLastObserved,
     );
     let declarations = Declarations::read(catalog);

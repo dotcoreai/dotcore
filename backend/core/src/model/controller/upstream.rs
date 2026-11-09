@@ -56,9 +56,6 @@ pub(super) struct UpstreamReconciler<D, S> {
     serving_targets_publisher: ServingTargetsPublisher,
     verification_http: Arc<dyn VerificationHttp>,
     clock: Arc<dyn Clock>,
-
-    /// Instant health scheduling counts its time from.
-    health_origin: tokio::time::Instant,
     health_jitter: Arc<dyn HealthJitter>,
     pacing: ProbePacing,
     reconcile: ReconcileSchedule,
@@ -88,7 +85,6 @@ where
             operation,
             serving_targets_publisher,
             verification_http: health.verification_http,
-            health_origin: health.clock.now(),
             clock: health.clock,
             health_jitter: health.jitter,
             pacing: ProbePacing::new(&health.timing),
@@ -225,20 +221,18 @@ where
             .map_err(ModelLifecycleError::from_current_state)
     }
 
-    /// Time since this reconciler's origin on its clock, which health schedules count in.
-    fn health_now(&self) -> Duration {
-        self.clock
-            .now()
-            .saturating_duration_since(self.health_origin)
-    }
-
     async fn next_upstream_probe_delay(&self) -> Option<Duration> {
-        let now = self.health_now();
+        let now = self.clock.now();
         self.upstream_health
             .lock()
             .await
             .values()
-            .map(|entry| entry.schedule.next_probe_at().saturating_sub(now))
+            .map(|entry| {
+                entry
+                    .schedule
+                    .next_probe_at()
+                    .saturating_duration_since(now)
+            })
             .min()
     }
 
@@ -246,7 +240,7 @@ where
         &self,
         upstreams: &[ModelDeploymentDeclaration],
     ) -> Result<(), ModelLifecycleError> {
-        let now = self.health_now();
+        let now = self.clock.now();
         let present = upstreams
             .iter()
             .filter(|deployment| !is_absent(deployment))
@@ -621,7 +615,7 @@ where
         drop(reconciler);
         tokio::select! {
             _ = wakeup.notified() => cadence.reset(),
-            () = clock.sleep_until(clock.now() + delay) => {},
+            () = clock.sleep(delay) => {},
         }
     }
 }

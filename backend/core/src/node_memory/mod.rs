@@ -471,6 +471,7 @@ mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            std::time::SystemTime::now(),
         );
         let readings = Arc::new(FixedReadings {
             memory: readings,

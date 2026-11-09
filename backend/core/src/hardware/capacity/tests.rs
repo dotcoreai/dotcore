@@ -1702,6 +1702,7 @@ fn a_stale_observation_keeps_its_totals_without_measured_use() {
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
     let capabilities = inventory.for_target("target-a").expect("target");
     assert!(matches!(
@@ -1811,6 +1812,7 @@ fn snapshot_capacity(snapshot: &HardwareSnapshot, selectors: Vec<&str>) -> Targe
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
     let capabilities = inventory.for_target("target-a").expect("target");
     let CapabilityObservation::Available(memory_architecture) = capabilities.accelerator_memory

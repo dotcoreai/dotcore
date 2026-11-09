@@ -654,7 +654,7 @@ async fn sample_in_flight(shared: Arc<Shared>, routes: Option<RouteManager>) {
         let boundary = next_boundary(wall, dotcore_observability::METRIC_BUCKET_WIDTH);
         shared
             .clock
-            .sleep_until(shared.clock.now() + boundary.duration_since(wall).unwrap_or_default())
+            .sleep(boundary.duration_since(wall).unwrap_or_default())
             .await;
         // Counts read after the sample time, so a sample never predates the counts it holds.
         let observed_at = shared.clock.wall_now();

@@ -235,7 +235,7 @@ pub(super) async fn wait_for_observer_wakeup(
 ) -> bool {
     let (reason, desired_change) = tokio::select! {
         _ = desired_wakeup.notified() => ("desired_change", true),
-        () = clock.sleep_until(clock.now() + delay) => ("cadence", false),
+        () = clock.sleep(delay) => ("cadence", false),
     };
     debug!(
         event_kind = "application_observer_wakeup",

@@ -852,7 +852,7 @@ where
         }
         tokio::select! {
             () = listener.notified() => {}
-            () = clock.sleep_until(clock.now() + retry) => {}
+            () = clock.sleep(retry) => {}
         }
     }
 }
@@ -1369,8 +1369,7 @@ mod tests {
         assert_eq!(
             crate::hardware::selection::select_target_capabilities(
                 &node_target,
-                &source.observe().await.expect("aged inventory"),
-                std::time::SystemTime::now()
+                &source.observe().await.expect("aged inventory")
             ),
             Err(
                 crate::hardware::selection::TargetCapabilitySelectionError::StalePlatform {
@@ -1387,7 +1386,6 @@ mod tests {
         let refreshed = crate::hardware::selection::select_target_capabilities(
             &node_target,
             &source.observe().await.expect("refreshed inventory"),
-            std::time::SystemTime::now(),
         )
         .expect("refreshed node capabilities");
 

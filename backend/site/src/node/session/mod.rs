@@ -1018,7 +1018,7 @@ impl RetryBackoff {
     }
 
     async fn wait(&mut self, clock: &dyn Clock) {
-        clock.sleep_until(clock.now() + self.next).await;
+        clock.sleep(self.next).await;
         self.next = (self.next * 2).min(self.max);
     }
 }

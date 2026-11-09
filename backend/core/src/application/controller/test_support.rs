@@ -835,6 +835,7 @@ pub(super) fn node_target_capabilities() -> Arc<dyn TargetCapabilitySource> {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            SystemTime::now(),
         ),
     ))
 }
@@ -2678,6 +2679,7 @@ pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource>
         dotcore_domain::timing::Timing::production()
             .node_control
             .capability_max_age,
+        SystemTime::now(),
     );
     Arc::new(StaticTargetCapabilitySource::new(inventory))
 }

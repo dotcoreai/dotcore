@@ -444,7 +444,7 @@ where
     let _operation = inner.operation.lock().await;
     inner
         .desired
-        .preview_local_model(request, inner.clock.wall_now())
+        .preview_local_model(request)
         .map_err(ModelLifecycleError::from_model_repository)
 }
 
@@ -493,7 +493,6 @@ where
                 placement,
                 inventory: &inventory,
                 workloads: &workloads,
-                now: inner.clock.wall_now(),
             }),
         )
         .map_err(ModelLifecycleError::from_model_repository)
@@ -555,14 +554,7 @@ where
     let workloads = crate::model::compatibility::node_workloads(&deployments, inventory.as_ref());
     inner
         .desired
-        .profile_compatibility(
-            model_id,
-            target,
-            scenario,
-            inventory.as_ref(),
-            &workloads,
-            inner.clock.wall_now(),
-        )
+        .profile_compatibility(model_id, target, scenario, inventory.as_ref(), &workloads)
         .map_err(ModelLifecycleError::from_model_repository)
 }
 
@@ -590,12 +582,7 @@ where
     let deployments = inner.public_projection()?.deployments;
     inner
         .desired
-        .model_recommendations(
-            use_cases,
-            inventory.as_ref(),
-            &deployments,
-            std::time::SystemTime::now(),
-        )
+        .model_recommendations(use_cases, inventory.as_ref(), &deployments)
         .map_err(ModelLifecycleError::from_model_repository)
 }
 
@@ -627,7 +614,6 @@ where
         configuration,
         exposure,
         name,
-        inner.clock.wall_now(),
     ) {
         Ok(desired) => desired,
         Err(error) => {
@@ -1499,6 +1485,7 @@ mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            std::time::SystemTime::now(),
         );
         let own_reads = Cell::new(0);
         let estimate_workloads = |source: Option<&dyn SiteWorkloadSource>| {

@@ -1992,10 +1992,7 @@ where
             .await
             .map_err(ModelLifecycleError::configuration_source)?;
         match crate::model::selection::validate_retained_target_capabilities(
-            target,
-            &inventory,
-            resolved,
-            self.clock.wall_now(),
+            target, &inventory, resolved,
         ) {
             Ok(()) => Ok(None),
             Err(error) if error.is_observation_gap() => {
@@ -3177,7 +3174,7 @@ where
                     drop(inner);
                     tokio::select! {
                         _ = wakeup.notified() => cadence.reset(),
-                        () = clock.sleep_until(clock.now() + delay) => {},
+                        () = clock.sleep(delay) => {},
                     }
                 }
             }

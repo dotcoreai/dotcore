@@ -20,7 +20,7 @@ pub use dotcore_site::node::control::NodeLivenessAges;
 pub use crate::{composition::NodeLiveness, inference::simulated::SimulatedInferenceTestSupport};
 
 /// Evaluates every profile of `models` on `targets` through the profile compatibility read, with
-/// an optional sizing scenario, at the current time.
+/// an optional sizing scenario.
 pub fn profile_compatibility(
     catalog: &dotcore_catalog::Catalog,
     models: &[dotcore_proto::dotcore::catalog::v1::Model],
@@ -35,7 +35,6 @@ pub fn profile_compatibility(
         scenario,
         Some(inventory),
         &Default::default(),
-        std::time::SystemTime::now(),
     )
 }
 

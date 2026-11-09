@@ -62,7 +62,7 @@ where
             let wait = next_boundary(wall, METRIC_BUCKET_WIDTH)
                 .duration_since(wall)
                 .unwrap_or_default();
-            self.clock.sleep_until(self.clock.now() + wait).await;
+            self.clock.sleep(wait).await;
             let observed_at = self.clock.wall_now();
             let second = since_epoch(observed_at).as_secs();
             match last_second {

@@ -511,7 +511,7 @@ async fn run(shared: Arc<Shared>, epoch: u64) {
         tokio::select! {
             biased;
             () = shared.shutdown.cancelled() => return,
-            () = shared.clock.sleep_until(shared.clock.now() + wait) => {}
+            () = shared.clock.sleep(wait) => {}
         }
 
         let woken = shared.clock.wall_now();

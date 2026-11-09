@@ -7,8 +7,6 @@
 //! reads about machines that stopped reporting may accept the last observations instead. The
 //! selected class is unique because catalog validation keeps supported classes disjoint or nested.
 
-use std::time::SystemTime;
-
 use dotcore_catalog::{SelectorRelation, SupportedHardwareClass, selector_relation};
 use dotcore_domain::{
     Accelerator, ExecutionPlatform, MemoryArchitecture, NvidiaDriverVersion, WorkloadArtifactKind,
@@ -66,14 +64,12 @@ impl TargetAccelerator {
     }
 }
 
-/// Validates an execution target against its capability observation, judging freshness at `now`,
-/// the backend clock's wall time.
+/// Validates an execution target against its fresh capability observation.
 pub(crate) fn select_target_capabilities(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
-    now: SystemTime,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    select_observed_capabilities(target, inventory, Some(now))
+    select_observed_capabilities(target, inventory, true)
 }
 
 /// Validates an execution target against its last capability observation, however old. Only
@@ -83,17 +79,17 @@ pub(crate) fn select_last_observed_target_capabilities(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    select_observed_capabilities(target, inventory, None)
+    select_observed_capabilities(target, inventory, false)
 }
 
 /// Validates an execution target against its capability observation, requiring the platform and
-/// accelerator observations to be fresh at `fresh_at` when given.
+/// accelerator observations to have been fresh when the inventory was read when `require_fresh`.
 fn select_observed_capabilities(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
-    fresh_at: Option<SystemTime>,
+    require_fresh: bool,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    let accepted = |observed_at| fresh_at.is_none_or(|now| inventory.is_fresh(observed_at, now));
+    let accepted = |observed_at| !require_fresh || inventory.is_fresh(observed_at);
     let pinned = target
         .platform
         .as_ref()
@@ -113,7 +109,7 @@ fn select_observed_capabilities(
         {
             platform
         }
-        CapabilityObservation::Stale(platform) if fresh_at.is_none() => platform,
+        CapabilityObservation::Stale(platform) if !require_fresh => platform,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: target.execution_target_id.clone(),
@@ -140,7 +136,7 @@ fn select_observed_capabilities(
         {
             vendor
         }
-        CapabilityObservation::Stale(vendor) if fresh_at.is_none() => vendor,
+        CapabilityObservation::Stale(vendor) if !require_fresh => vendor,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StaleAccelerator {
                 execution_target_id: target.execution_target_id.clone(),
@@ -440,9 +436,9 @@ pub(crate) mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                SystemTime::now(),
             );
-            let capabilities =
-                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())?;
+            let capabilities = select_target_capabilities(&target, &inventory)?;
             Ok::<_, TargetCapabilitySelectionError>(selected_class_id(&supported, &capabilities))
         };
         let gb10 = || {
@@ -520,10 +516,10 @@ pub(crate) mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                SystemTime::now(),
             );
             let capabilities =
-                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
-                    .expect("target capabilities");
+                select_target_capabilities(&target, &inventory).expect("target capabilities");
             let class = selected_class_id(&supported, &capabilities).expect("hardware class");
             (class, capabilities.memory_pool_total_bytes())
         };
@@ -577,10 +573,10 @@ pub(crate) mod tests {
                     "node-a", &snapshot, false,
                 )],
                 TARGET_CAPABILITY_MAX_AGE,
+                SystemTime::now(),
             );
             let capabilities =
-                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
-                    .expect("target capabilities");
+                select_target_capabilities(&target, &inventory).expect("target capabilities");
             selected_class_id(supported, &capabilities)
         };
         let no_match = Err(HardwareClassSelectionError::NoMatch {
@@ -757,9 +753,10 @@ pub(crate) mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            SystemTime::now(),
         );
         let kinds = |target: &ExecutionTarget| {
-            select_target_capabilities(target, &inventory, std::time::SystemTime::now())
+            select_target_capabilities(target, &inventory)
                 .expect("target capabilities")
                 .artifact_kinds
         };
@@ -797,11 +794,11 @@ pub(crate) mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                SystemTime::now(),
             );
 
-            let selected =
-                select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
-                    .expect("fresh exact target capabilities");
+            let selected = select_target_capabilities(&target, &inventory)
+                .expect("fresh exact target capabilities");
             assert_eq!(selected.platform, platform);
             assert_eq!(
                 selected.accelerator,
@@ -821,9 +818,9 @@ pub(crate) mod tests {
                 &TargetCapabilityInventory::empty(
                     dotcore_domain::timing::Timing::production()
                         .node_control
-                        .capability_max_age
-                ),
-                std::time::SystemTime::now()
+                        .capability_max_age,
+                    SystemTime::now()
+                )
             ),
             Err(TargetCapabilitySelectionError::MissingObservation {
                 execution_target_id: "target-a".to_owned(),
@@ -837,9 +834,10 @@ pub(crate) mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            SystemTime::now(),
         );
         assert_eq!(
-            select_target_capabilities(&target, &missing, std::time::SystemTime::now()),
+            select_target_capabilities(&target, &missing),
             Err(TargetCapabilitySelectionError::PlatformUnavailable {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -858,9 +856,10 @@ pub(crate) mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            SystemTime::now(),
         );
         assert_eq!(
-            select_target_capabilities(&target, &stale, std::time::SystemTime::now()),
+            select_target_capabilities(&target, &stale),
             Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -876,9 +875,10 @@ pub(crate) mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            SystemTime::now(),
         );
         assert_eq!(
-            select_target_capabilities(&target, &mismatched, std::time::SystemTime::now()),
+            select_target_capabilities(&target, &mismatched),
             Err(TargetCapabilitySelectionError::PlatformMismatch {
                 execution_target_id: "target-a".to_owned(),
                 observed_operating_system: "linux".to_owned(),
@@ -907,6 +907,7 @@ pub(crate) mod tests {
                 NodeAcceleratorFacts::nvidia("580"),
             )],
             TARGET_CAPABILITY_MAX_AGE,
+            SystemTime::now(),
         );
         let selected =
             select_last_observed_target_capabilities(&target, &stale).expect("stale capabilities");
@@ -927,6 +928,7 @@ pub(crate) mod tests {
                 observed_at,
             )],
             TARGET_CAPABILITY_MAX_AGE,
+            SystemTime::now(),
         );
         assert_eq!(
             select_last_observed_target_capabilities(&target, &overdue)
@@ -939,6 +941,7 @@ pub(crate) mod tests {
             std::iter::empty(),
             std::iter::empty(),
             TARGET_CAPABILITY_MAX_AGE,
+            SystemTime::now(),
         );
         assert_eq!(
             select_last_observed_target_capabilities(&target, &missing),
@@ -958,6 +961,7 @@ pub(crate) mod tests {
                 NodeAcceleratorFacts::nvidia("580"),
             )],
             TARGET_CAPABILITY_MAX_AGE,
+            SystemTime::now(),
         );
         assert_eq!(
             select_last_observed_target_capabilities(&target, &mismatched),
@@ -986,14 +990,14 @@ pub(crate) mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                SystemTime::now(),
             )
         };
 
         assert_eq!(
             select_target_capabilities(
                 &target,
-                &inventory(NodeAcceleratorObservation::nvidia("node-a", "driver-580")),
-                std::time::SystemTime::now()
+                &inventory(NodeAcceleratorObservation::nvidia("node-a", "driver-580"))
             ),
             Err(TargetCapabilitySelectionError::NvidiaDriverUnavailable {
                 execution_target_id: "target-a".to_owned(),
@@ -1002,8 +1006,7 @@ pub(crate) mod tests {
         assert_eq!(
             select_target_capabilities(
                 &target,
-                &inventory(NodeAcceleratorObservation::unavailable("node-a")),
-                std::time::SystemTime::now()
+                &inventory(NodeAcceleratorObservation::unavailable("node-a"))
             ),
             Err(TargetCapabilitySelectionError::AcceleratorUnavailable {
                 execution_target_id: "target-a".to_owned(),
@@ -1015,8 +1018,7 @@ pub(crate) mod tests {
                 &inventory(NodeAcceleratorObservation::available(
                     "node-a",
                     NodeAcceleratorFacts::apple()
-                )),
-                std::time::SystemTime::now()
+                ))
             )
             .map(|selected| selected.accelerator),
             Ok(TargetAccelerator::Apple)
@@ -1043,10 +1045,11 @@ pub(crate) mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            now,
         );
 
         assert_eq!(
-            select_target_capabilities(&target, &inventory, now),
+            select_target_capabilities(&target, &inventory),
             Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -1067,9 +1070,10 @@ pub(crate) mod tests {
             dotcore_domain::timing::Timing::production()
                 .node_control
                 .capability_max_age,
+            now,
         );
         assert_eq!(
-            select_target_capabilities(&target, &stale_accelerator, now),
+            select_target_capabilities(&target, &stale_accelerator),
             Err(TargetCapabilitySelectionError::StaleAccelerator {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -1092,8 +1096,9 @@ pub(crate) mod tests {
                 dotcore_domain::timing::Timing::production()
                     .node_control
                     .capability_max_age,
+                SystemTime::now(),
             );
-            select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
+            select_target_capabilities(&target, &inventory)
                 .expect("selection never fails on the memory-pool total")
                 .memory_pool_total_bytes()
         };

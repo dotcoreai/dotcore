@@ -5459,7 +5459,6 @@ async fn an_input_change_wakes_a_settled_observer_without_waiting_for_the_safety
             &crate::test_support::local_model_configuration(),
             &ModelDeploymentExposureIntent::Hidden,
             None,
-            std::time::SystemTime::now(),
         )
         .expect("Load");
     desired.listener().notify_one();

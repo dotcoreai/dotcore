@@ -20,7 +20,7 @@ pub type ClockSleep = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
 /// Time source of one composed backend, so every decision it compares against the same time
 /// reads one timeline.
-pub trait Clock: Send + Sync {
+pub trait Clock: Send + Sync + std::fmt::Debug {
     /// Monotonic time, for leases, ages and expiries.
     fn now(&self) -> Instant;
 
@@ -30,6 +30,11 @@ pub trait Clock: Send + Sync {
 
     /// Completes once [`Self::now`] has reached `deadline`.
     fn sleep_until(&self, deadline: Instant) -> ClockSleep;
+
+    /// Completes once `delay` has passed on this clock.
+    fn sleep(&self, delay: Duration) -> ClockSleep {
+        self.sleep_until(self.now() + delay)
+    }
 }
 
 /// Returns the latest multiple of `interval` since the Unix epoch at or before `wall`, so every
@@ -56,6 +61,7 @@ fn nanos(nanos: u128) -> Duration {
 }
 
 /// Production clock: Tokio monotonic time, which also stops under Tokio's paused test time.
+#[derive(Debug)]
 pub struct SystemClock;
 
 impl Clock for SystemClock {
@@ -63,6 +69,10 @@ impl Clock for SystemClock {
         Instant::now()
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a clock's wall time is where its timeline meets the host's"
+    )]
     fn wall_now(&self) -> SystemTime {
         SystemTime::now()
     }
@@ -102,8 +112,15 @@ mod manual {
     pub struct ManualClock {
         offset: Arc<watch::Sender<Duration>>,
 
-        /// Wall time at `origin.1`, when the clock has a fixed origin.
-        origin: Option<(SystemTime, Instant)>,
+        /// Fixed wall time the clock started at, when it has one.
+        origin: Option<WallOrigin>,
+    }
+
+    /// Wall time a manual clock read at one real instant.
+    #[derive(Clone, Copy, Debug)]
+    struct WallOrigin {
+        wall: SystemTime,
+        at: Instant,
     }
 
     impl ManualClock {
@@ -118,7 +135,10 @@ mod manual {
         /// Creates a clock whose wall time starts at `wall` and then follows real time.
         pub fn starting_at(wall: SystemTime) -> Self {
             Self {
-                origin: Some((wall, Instant::now())),
+                origin: Some(WallOrigin {
+                    wall,
+                    at: Instant::now(),
+                }),
                 ..Self::new()
             }
         }
@@ -145,9 +165,13 @@ mod manual {
             Instant::now() + self.offset()
         }
 
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a clock's wall time is where its timeline meets the host's"
+        )]
         fn wall_now(&self) -> SystemTime {
             let real = match self.origin {
-                Some((wall, started)) => wall + started.elapsed(),
+                Some(origin) => origin.wall + origin.at.elapsed(),
                 None => SystemTime::now(),
             };
             real + self.offset()
@@ -222,13 +246,14 @@ mod virtual_time {
     /// whatever real time passes. Wall time can also step back or forward alone, like a corrected host clock.
     ///
     /// Clones share one timeline.
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct VirtualClock {
         base: Instant,
         base_wall: SystemTime,
         state: Arc<watch::Sender<VirtualTime>>,
     }
 
+    #[derive(Debug)]
     struct VirtualTime {
         offset: Duration,
         wall_step_back: Duration,

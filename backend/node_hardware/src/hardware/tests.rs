@@ -243,6 +243,7 @@ impl AcceleratorSampler for FixedSampler {
 }
 
 /// Wall time fixed at 1_725_000_000 s and 123 ns.
+#[derive(Debug)]
 struct FixedClock;
 
 impl Clock for FixedClock {

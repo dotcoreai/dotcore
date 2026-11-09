@@ -1,5 +1,6 @@
 //! Apps-controller state values and repository error mappings.
 
+use dotcore_domain::real_time;
 use dotcore_runtime::{ObservedWorkloadGroup, WorkloadGroupLaunch};
 
 use super::*;
@@ -269,7 +270,7 @@ fn state(
 }
 
 pub(super) fn now() -> Timestamp {
-    let duration = SystemTime::now()
+    let duration = real_time::wall_now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
     Timestamp {

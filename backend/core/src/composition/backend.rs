@@ -676,7 +676,7 @@ impl BackendTestSupport {
 #[cfg(feature = "test-support")]
 fn test_clock() -> dotcore_domain::clock::ManualClock {
     dotcore_domain::clock::ManualClock::starting_at(dotcore_domain::clock::slot_start(
-        std::time::SystemTime::now(),
+        dotcore_domain::real_time::wall_now(),
         Duration::from_secs(1),
     ))
 }

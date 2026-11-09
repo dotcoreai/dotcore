@@ -1424,9 +1424,7 @@ impl ObservationReportSink for StampSink {
         Box::pin(async move {
             self.stamps.lock().expect("stamps").push(stamp);
             self.reported.notify_one();
-            self.clock
-                .sleep_until(self.clock.now() + self.delivery)
-                .await;
+            self.clock.sleep(self.delivery).await;
             Ok(())
         })
     }
