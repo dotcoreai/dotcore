@@ -27,9 +27,9 @@ import {
   queryResult,
   staticWatch,
 } from "@/features/metrics/metric-test-support";
-import { ModelsPage } from "@/features/models/models-page";
-import { ModelsPollingProvider } from "@/features/models/models-polling-provider";
-import { modelsResourceWatch } from "@/features/models/models-section-test-support";
+import { ModelsPage } from "@/features/models/deployed/models-page";
+import { modelsResourceWatch } from "@/features/models/deployed/models-section-test-support";
+import { ModelsPollingProvider } from "@/features/models/polling/models-polling-provider";
 import { ModelInputModality } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
 import {
   ListEngineReleasesResponseSchema,

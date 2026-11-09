@@ -98,7 +98,7 @@ describe("status tone enforcement", () => {
     // while it is edited; neither word is a state, so neither goes through a status projection.
     expect(literal.sort()).toEqual([
       "features/chat/decisions/decision-question-row.tsx: {typeLabel(type)}",
-      "features/models/upstream-model.tsx: External",
+      "features/models/upstream/upstream-model.tsx: External",
     ]);
   });
 });

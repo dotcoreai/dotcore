@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { RouteSidebarHost } from "@/features/inference-routes/route-sidebar-host";
 import { MachineSidebarHost } from "@/features/machines/machine-sidebar-host";
-import { DeploymentSidebar } from "@/features/models/deployment-sidebar";
+import { DeploymentSidebar } from "@/features/models/deployed/deployment-sidebar";
 import { activePanel, canonicalizePanelLocation } from "@/panels/panel-stack";
 
 export interface OverviewSidebarProps {

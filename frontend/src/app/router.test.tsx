@@ -22,7 +22,7 @@ import {
   localDeployment,
   modelTarget,
   readableMachine,
-} from "@/features/models/models-section-test-support";
+} from "@/features/models/deployed/models-section-test-support";
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   CreateApplicationDeploymentResponseSchema,

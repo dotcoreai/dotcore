@@ -12,7 +12,7 @@ import {
   renderModelsSection,
   upstreamDeployment,
   upstreamTemplate,
-} from "@/features/models/models-section-test-support";
+} from "@/features/models/deployed/models-section-test-support";
 import {
   FallbackGroupSelection,
   InferenceRouteViewSchema,

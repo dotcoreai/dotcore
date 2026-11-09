@@ -8,8 +8,8 @@ import { ApplicationsSection } from "@/features/applications/applications-sectio
 import { ChatPage } from "@/features/chat/chat-page";
 import { RoutesPage } from "@/features/inference-routes/routes-page";
 import { MachinesPage } from "@/features/machines/machines-page";
-import { ModelCatalogPage } from "@/features/models/model-catalog-page";
-import { ModelsPage } from "@/features/models/models-page";
+import { ModelCatalogPage } from "@/features/models/catalog/model-catalog-page";
+import { ModelsPage } from "@/features/models/deployed/models-page";
 import { OverviewPage } from "@/features/overview/overview-page";
 import { PreferencesPage } from "@/features/preferences/preferences-page";
 

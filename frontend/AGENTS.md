@@ -11,7 +11,16 @@ agents get wrong.
 frontend/src/
 ├── app/              app composition and providers; routes in routes.ts, router in router.tsx
 ├── features/         product capabilities and their behavior tests
-│   └── chat/decisions/  the console chat's decision draft, controls and answers
+│   ├── chat/decisions/  the console chat's decision draft, controls and answers
+│   └── models/       model deployment errors and exposure shared by the subfolders below
+│       ├── polling/     the shared view of catalog models and live deployments
+│       ├── profiles/    model and profile rows, compatibility, sizing scenarios, profile tables
+│       ├── runtime/     engine parameters, context size, speculative decoding, launch arguments
+│       ├── inspector/   the catalog model panel and its sections
+│       ├── catalog/     the model catalog page and its table
+│       ├── deploy/      the deploy dialog and its steps; memory/ holds its memory preview
+│       ├── upstream/    upstream model deployments
+│       └── deployed/    the models page and a deployment's sidebar and metrics
 ├── components/
 │   ├── ui/           primitives, from shadcn/ui or shared by several callers
 │   └── <name>/       composites shared by several features

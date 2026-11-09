@@ -13,7 +13,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { type ChatMode, ChatOpenerContext } from "@/features/chat/chat-opener";
 import { ChatPanel } from "@/features/chat/chat-panel";
 import { ChatSessionProvider } from "@/features/chat/chat-session-provider";
-import { ModelsPollingProvider } from "@/features/models/models-polling-provider";
+import { ModelsPollingProvider } from "@/features/models/polling/models-polling-provider";
 import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
 import type { StorageLike } from "@/lib/browser-storage";
 import { usePanelNavigation } from "@/panels/panel-navigation";
