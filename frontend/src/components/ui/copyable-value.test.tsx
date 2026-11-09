@@ -2,12 +2,14 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import * as clipboard from "@/lib/clipboard";
+
 import { CopyableValue } from "./copyable-value";
 
-const writeClipboard = vi.fn();
-vi.mock("@/lib/clipboard", () => ({
-  writeClipboard: (value: string) => writeClipboard(value) as Promise<void>,
-}));
+const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
+beforeEach(() => {
+  vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
+});
 
 // A 40-character value, the length of a Hugging Face revision SHA.
 const longValue = "a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5a1b2c3d4e5";

@@ -18,7 +18,7 @@ import {
   RouterProvider,
   useLocation,
 } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ApplicationClient } from "@/api/application-client";
 import type { ModelClient } from "@/api/model-client";
@@ -80,6 +80,7 @@ import {
   type RuntimeTargetAvailabilitySchema,
 } from "@/gen/dotcore/site/v1/service_pb";
 import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import * as clipboard from "@/lib/clipboard";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import type { ResourcePayload } from "@/resource-watch/resource-watch";
 import { failedSnapshot, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
@@ -88,10 +89,10 @@ import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
 import { MachinesPage, type MachinesSite, tick } from "./machines-page-test-support";
 
-const writeClipboard = vi.fn();
-vi.mock("@/lib/clipboard", () => ({
-  writeClipboard: (value: string) => writeClipboard(value) as Promise<void>,
-}));
+const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
+beforeEach(() => {
+  vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
+});
 
 afterEach(() => {
   vi.useRealTimers();

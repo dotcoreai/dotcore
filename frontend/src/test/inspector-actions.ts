@@ -56,3 +56,11 @@ export function pickMoreAction(name: string | RegExp, scope: HTMLElement = docum
   fireEvent.click(within(scope).getByRole("button", { name: "More actions" }));
   fireEvent.click(screen.getByRole("menuitem", { name }));
 }
+
+/**
+ * Waits until an open inspector has moved focus to its heading. The inspector takes that focus a
+ * frame after it opens, so typing into it any earlier can lose keys to the move.
+ */
+export async function waitForInspectorFocus(inspector: HTMLElement) {
+  await waitFor(() => expect(within(inspector).getByRole("heading", { level: 2 })).toHaveFocus());
+}

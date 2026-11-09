@@ -72,6 +72,16 @@ frontend/src/
   later browser call. Count streams from the request list, and read stream errors in the page or
   the backend logs.
 
+## Tests
+
+- Test files share one environment per worker, so anything a test leaves behind reaches the next
+  file. Spies and stubbed globals and env vars are restored after each test; clear other window
+  state in [`src/test/setup.ts`](src/test/setup.ts), not per file.
+- Replace a project module's export with `vi.spyOn` on its namespace in `beforeEach`, never
+  `vi.mock`: another file may already hold the real module. Mock a package from `node_modules`
+  only with `vi.resetModules()` and a dynamic `import()` of the module under test.
+- Wait for an inspector's opening focus (`waitForInspectorFocus`) before typing into it.
+
 ## Dependencies
 
 - Add packages with `npm install <pkg>` (`--save-dev` for development ones) and shadcn/ui

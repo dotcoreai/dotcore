@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveInferenceOrigin } from "@/api/inference-origin";
 import { ChatOpenerContext } from "@/features/chat/chat-opener";
@@ -30,16 +30,17 @@ import {
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { MetricSeries } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+import * as clipboard from "@/lib/clipboard";
 import { moreActionNames } from "@/test/inspector-actions";
 import { expectResourceMarker } from "@/test/resource-marker";
 
 import { buildModelConnectionExamples } from "./model-connection";
 import { RouteConnectionView, RouteDetails, RouteInspectorActions } from "./route-inspector";
 
-const writeClipboard = vi.fn();
-vi.mock("@/lib/clipboard", () => ({
-  writeClipboard: (value: string) => writeClipboard(value) as Promise<void>,
-}));
+const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
+beforeEach(() => {
+  vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
+});
 
 function view() {
   return create(InferenceRouteViewSchema, {

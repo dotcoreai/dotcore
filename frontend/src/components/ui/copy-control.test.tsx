@@ -3,11 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CodeCopyControl, InlineCopyControl } from "@/components/ui/copy-control";
+import * as clipboard from "@/lib/clipboard";
 
-const writeClipboard = vi.fn();
-vi.mock("@/lib/clipboard", () => ({
-  writeClipboard: (value: string) => writeClipboard(value) as Promise<void>,
-}));
+const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
+beforeEach(() => {
+  vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
+});
 
 afterEach(() => {
   vi.useRealTimers();

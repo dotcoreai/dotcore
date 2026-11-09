@@ -16,6 +16,13 @@ export default defineConfig({
   server: getDevServerConfig(),
   test: {
     environment: "jsdom",
+    pool: "threads",
+    // One environment per worker instead of one per file: setting it up was a third of the
+    // suite's time. Shared setup and the restore options below clear what a test leaves behind.
+    isolate: false,
+    unstubEnvs: true,
+    unstubGlobals: true,
+    restoreMocks: true,
     exclude: [...configDefaults.exclude, "tools/**/*.test.mjs"],
     setupFiles: ["./src/test/setup.ts"],
     // The endpoint tests re-import their client via `vi.resetModules()` + `await import()`,

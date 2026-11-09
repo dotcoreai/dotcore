@@ -7,11 +7,9 @@ import {
   GetRouteResponseSchema,
   ListRoutesResponseSchema,
   ReplaceRouteResponseSchema,
-  RouteService,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 
 import type { RouteClient } from "./route-client";
-import { createRouteClient } from "./route-client";
 
 const { createGrpcWebTransport, createClient, routeService } = vi.hoisted(() => {
   const routeService = {
@@ -42,7 +40,9 @@ describe("Route client", () => {
     vi.unstubAllEnvs();
   });
 
-  it("creates a RouteService client against the configured management origin", () => {
+  it("creates a RouteService client against the configured management origin", async () => {
+    const { RouteService } = await import("@/gen/dotcore/inference/v1/routes_pb");
+    const { createRouteClient } = await import("./route-client");
     vi.stubEnv("VITE_DOTCORE_MANAGEMENT_ORIGIN", "http://100.64.0.7:6207");
 
     const client = createRouteClient("http://100.64.0.7:6207");
@@ -56,6 +56,7 @@ describe("Route client", () => {
   });
 
   it("delegates every CRUD operation with its exact protobuf request and response", async () => {
+    const { createRouteClient } = await import("./route-client");
     const listRequest = {};
     const getRequest = { inferenceRouteId: "route-42" };
     const createRequest = {
@@ -100,6 +101,7 @@ describe("Route client", () => {
   });
 
   it("preserves service validation errors for the page to explain", async () => {
+    const { createRouteClient } = await import("./route-client");
     const error = new Error("route name already exists");
     routeService.createRoute.mockRejectedValue(error);
 

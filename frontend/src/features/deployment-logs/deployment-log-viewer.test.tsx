@@ -414,7 +414,7 @@ describe("DeploymentLogViewer", () => {
     );
 
     const log = await screen.findByRole("log");
-    const currentRow = screen.getByText("current").closest("li");
+    const currentRow = (await screen.findByText("current")).closest("li");
     expect(currentRow).not.toBeNull();
     const currentEntryId = currentRow?.dataset.entryId;
     vi.spyOn(log, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
@@ -495,7 +495,7 @@ describe("DeploymentLogViewer", () => {
     );
 
     const log = await screen.findByRole("log");
-    const workerRow = screen.getByText("worker current").closest("li");
+    const workerRow = (await screen.findByText("worker current")).closest("li");
     const sidecarRow = screen.getByText("sidecar current").closest("li");
     vi.spyOn(log, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
     vi.spyOn(workerRow!, "getBoundingClientRect").mockReturnValue({ top: 10 } as DOMRect);
@@ -629,7 +629,7 @@ describe("DeploymentLogViewer", () => {
     );
 
     const log = await screen.findByRole("log");
-    const currentRow = screen.getByText("current").closest("li");
+    const currentRow = (await screen.findByText("current")).closest("li");
     vi.spyOn(log, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
     vi.spyOn(currentRow!, "getBoundingClientRect").mockImplementation(
       () => ({ top: loadingFinished ? 70 : 20 }) as DOMRect,
@@ -682,7 +682,7 @@ describe("DeploymentLogViewer", () => {
     );
 
     const log = await screen.findByRole("log");
-    const currentRow = screen.getByText("current").closest("li");
+    const currentRow = (await screen.findByText("current")).closest("li");
     vi.spyOn(log, "getBoundingClientRect").mockReturnValue({ top: 0 } as DOMRect);
     vi.spyOn(currentRow!, "getBoundingClientRect").mockImplementation(
       () => ({ top: olderRendered ? 70 : 20 }) as DOMRect,

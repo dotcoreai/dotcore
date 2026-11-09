@@ -2,7 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DeploymentLogOperations } from "@/api/deployment-log-client";
 import { ChatOpenerContext } from "@/features/chat/chat-opener";
@@ -30,16 +30,17 @@ import {
   ModelDeploymentStatus,
 } from "@/gen/dotcore/model/v1/state_pb";
 import { ConfiguredExecutionTargetSchema, MachineSchema } from "@/gen/dotcore/site/v1/service_pb";
+import * as clipboard from "@/lib/clipboard";
 import { PanelParentContext } from "@/panels/panel-titles-context";
 import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
 import { CatalogModelInspector, DeploymentModelInspector } from "./model-inspector";
 
-const writeClipboard = vi.fn();
-vi.mock("@/lib/clipboard", () => ({
-  writeClipboard: (value: string) => writeClipboard(value) as Promise<void>,
-}));
+const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
+beforeEach(() => {
+  vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

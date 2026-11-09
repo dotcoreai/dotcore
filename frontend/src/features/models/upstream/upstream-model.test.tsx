@@ -34,7 +34,11 @@ import {
 import { ModelDeploymentStateSchema, ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { PanelParentContext } from "@/panels/panel-titles-context";
-import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";
+import {
+  chooseMoreAction,
+  inspectorActionList,
+  waitForInspectorFocus,
+} from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
 import {
@@ -605,6 +609,7 @@ describe("generic upstream endpoint UI", () => {
       </MemoryRouter>,
     );
     const inspector = screen.getByRole("complementary", { name: "Upstream model · Edit" });
+    await waitForInspectorFocus(inspector);
     const baseUrl = within(inspector).getByLabelText("Base URL");
     await user.clear(baseUrl);
     await user.type(baseUrl, "https://updated.example/v1");
@@ -969,6 +974,7 @@ describe("generic upstream endpoint UI", () => {
     render(<RouterProvider router={router} />);
 
     const inspector = screen.getByRole("complementary", { name: "Upstream model · Edit" });
+    await waitForInspectorFocus(inspector);
     const baseUrl = within(inspector).getByLabelText("Base URL");
     fireEvent.change(baseUrl, { target: { value: "https://draft.example/v1" } });
     const name = within(inspector).getByRole("textbox", { name: "Name" });
@@ -1251,6 +1257,7 @@ describe("generic upstream endpoint UI", () => {
     renderTerminalUpstreamEdit(save);
 
     const inspector = screen.getByRole("complementary", { name: "Upstream model · Edit" });
+    await waitForInspectorFocus(inspector);
     const name = within(inspector).getByRole("textbox", { name: "Name" });
     await user.clear(name);
     await user.type(name, "Accepted name");

@@ -2,9 +2,10 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelDeployDialogProps } from "@/features/models/deploy/model-deploy-dialog";
+import * as deployDialog from "@/features/models/deploy/model-deploy-dialog";
 import {
   catalogModel,
   currentLocation,
@@ -37,18 +38,14 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { isPanelHistoryState } from "@/panels/panel-stack";
 
 // Records the props of each model deploy dialog render, still rendering the real dialog.
-const deployDialogRender = vi.hoisted(() => vi.fn<(props: ModelDeployDialogProps) => void>());
+const deployDialogRender = vi.fn<(props: ModelDeployDialogProps) => void>();
 
-vi.mock("@/features/models/deploy/model-deploy-dialog", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/features/models/deploy/model-deploy-dialog")>();
-  return {
-    ...actual,
-    ModelDeployDialog: (props: ModelDeployDialogProps) => {
-      deployDialogRender(props);
-      return <actual.ModelDeployDialog {...props} />;
-    },
-  };
+beforeEach(() => {
+  const { ModelDeployDialog } = deployDialog;
+  vi.spyOn(deployDialog, "ModelDeployDialog").mockImplementation((props) => {
+    deployDialogRender(props);
+    return <ModelDeployDialog {...props} />;
+  });
 });
 
 describe("ModelCatalogPage panels", () => {

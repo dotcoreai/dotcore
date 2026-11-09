@@ -11,8 +11,18 @@ import { afterEach, beforeEach, vi } from "vitest";
 // fires still fails.
 configure({ asyncUtilTimeout: 4000 });
 
+// jsdom's viewport width, which puts responsive components on their desktop layout.
+const JSDOM_DEFAULT_WIDTH = 1024;
+
 afterEach(() => {
   cleanup();
+  // Files share one environment, so state a test leaves on the window reaches the next file.
+  delete window.__DOTCORE_CONFIG__;
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    value: JSDOM_DEFAULT_WIDTH,
+    writable: true,
+  });
 });
 
 // The sidebar primitive's useIsMobile hook reads window.matchMedia, which jsdom does not

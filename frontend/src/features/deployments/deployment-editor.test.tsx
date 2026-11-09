@@ -6,6 +6,7 @@ import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
+import { waitForInspectorFocus } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
 import { DeploymentEditor, type DeploymentEditorProps } from "./deployment-editor";
@@ -128,6 +129,7 @@ describe("DeploymentEditor metadata saves", () => {
     render(<RouterProvider router={router} />);
 
     const editor = screen.getByRole("complementary", { name: "Initial name · Edit" });
+    await waitForInspectorFocus(editor);
     const name = within(editor).getByRole("textbox", { name: "Name" });
     await user.clear(name);
     await user.type(name, "Accepted name");

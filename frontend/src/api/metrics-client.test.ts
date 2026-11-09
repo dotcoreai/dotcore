@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MetricsService } from "@/gen/dotcore/metrics/v1/service_pb";
-
-import { createMetricsClient } from "./metrics-client";
-
 const { createGrpcWebTransport, createClient, metricsService } = vi.hoisted(() => {
   const metricsService = { listMetricDescriptors: vi.fn(), watchMetrics: vi.fn() };
 
@@ -22,10 +18,13 @@ vi.mock("@connectrpc/connect", async (importOriginal) => ({
 
 describe("Metrics client", () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
   });
 
-  it("creates a MetricsService client over the shared console transport", () => {
+  it("creates a MetricsService client over the shared console transport", async () => {
+    const { MetricsService } = await import("@/gen/dotcore/metrics/v1/service_pb");
+    const { createMetricsClient } = await import("./metrics-client");
     const client = createMetricsClient("http://100.64.0.7:6207");
     const request = { query: { metric: "node.host.memory.total" } };
     metricsService.watchMetrics.mockReturnValue("stream");
