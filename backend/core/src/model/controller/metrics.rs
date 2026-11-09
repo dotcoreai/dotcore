@@ -1,27 +1,22 @@
-//! Records the accelerator memory a node attributes to each model deployment it hosts as metric
-//! history, at the start of every wall-clock second.
+//! Builds the metric records of the accelerator memory a node attributes to each model deployment
+//! it hosts.
 //!
-//! Each second re-sends the latest attribution the deployment's status reports, so history and
-//! the current value never diverge and change in steps as the node refreshes its observations.
-//! An attribution that is unavailable, not applicable, or too old to trust records nothing, so
-//! history shows a gap rather than a held stale value.
+//! The node records them once per hardware collection, from the same attribution the deployment's
+//! status reports, so history and the current value never diverge and change in steps as the node
+//! refreshes its observations. An attribution that is unavailable or not applicable records
+//! nothing, so history shows a gap rather than a held stale value.
 
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
-use dotcore_domain::clock::Clock;
 use dotcore_observability::{
-    MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricRecord, MetricRecorder,
-    MetricUnit,
+    MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricRecord, MetricUnit,
     labels::{self, LabelSet},
 };
 use dotcore_proto::dotcore::deployment::v1::{
     AcceleratorMemoryObservation, accelerator_memory_observation,
 };
 
-use crate::metric_resend::{Freshness, RESEND_INTERVAL, resend_every_second};
+use crate::collection_metrics::COLLECTION_REPORTING_DELAY;
 
 /// Accelerator memory attributed to one model deployment on its hosting node, per device when the
 /// node names one. The value is held from the latest attribution, which refreshes only at the
@@ -29,12 +24,13 @@ use crate::metric_resend::{Freshness, RESEND_INTERVAL, resend_every_second};
 /// values rather than per-second measurements.
 pub(crate) const DEPLOYMENT_ACCELERATOR_MEMORY_USED: &str = "deployment.accelerator.memory.used";
 
-/// Writer name a node's deployment memory writer records under, the `source` of its
-/// `node.observing` window.
+/// Writer name a node records deployment memory under, the `source` of its `node.observing`
+/// window.
 pub(crate) const DEPLOYMENT_MEMORY_SOURCE: &str = "deployment_memory";
 
-/// Declarations of the deployment memory metrics hosting nodes record.
-pub(crate) fn deployment_metric_descriptors() -> Vec<MetricDescriptor> {
+/// Declarations of the deployment memory metrics hosting nodes record once per hardware
+/// collection, every `refresh_interval`.
+pub(crate) fn deployment_metric_descriptors(refresh_interval: Duration) -> Vec<MetricDescriptor> {
     vec![MetricDescriptor {
         name: DEPLOYMENT_ACCELERATOR_MEMORY_USED.to_owned(),
         kind: MetricKind::Gauge,
@@ -45,7 +41,8 @@ pub(crate) fn deployment_metric_descriptors() -> Vec<MetricDescriptor> {
             MetricDimension::optional(labels::DEVICE),
         ],
         provenance: MetricProvenance::Node,
-        sample_interval: Some(RESEND_INTERVAL),
+        sample_interval: Some(refresh_interval),
+        reporting_delay: Some(COLLECTION_REPORTING_DELAY),
     }]
 }
 
@@ -55,232 +52,104 @@ pub(crate) trait HostedAcceleratorMemory: Send + Sync {
     fn hosted_accelerator_memory(&self) -> Vec<(String, AcceleratorMemoryObservation)>;
 }
 
-/// Records the attributed accelerator memory of one node's hosted deployments every wall-clock
-/// second into a metric recorder.
-pub(crate) struct DeploymentMemoryWriter {
-    node_id: String,
-    hosted: Arc<dyn HostedAcceleratorMemory>,
-    recorder: Arc<dyn MetricRecorder>,
-    clock: Arc<dyn Clock>,
-    freshness: Freshness,
-}
-
-impl DeploymentMemoryWriter {
-    /// Creates the writer of SiteNode `node_id` reading `hosted`, recording through `recorder` and
-    /// scheduling on `clock`. Attributions older than twice `refresh_interval` plus
-    /// `collection_allowance` record nothing.
-    pub(crate) fn new(
-        node_id: &str,
-        hosted: Arc<dyn HostedAcceleratorMemory>,
-        recorder: Arc<dyn MetricRecorder>,
-        clock: Arc<dyn Clock>,
-        refresh_interval: Duration,
-        collection_allowance: Duration,
-    ) -> Self {
-        Self {
-            node_id: node_id.to_owned(),
-            hosted,
-            recorder,
-            clock,
-            freshness: Freshness::new(refresh_interval, collection_allowance),
-        }
-    }
-
-    /// Records at the start of every wall-clock second until dropped; a second the writer missed
-    /// stays absent.
-    pub(crate) async fn run(self) {
-        resend_every_second(self.clock.as_ref(), self.recorder.as_ref(), |at| {
-            self.records(at)
-        })
-        .await;
-    }
-
-    /// One record per device row of every hosted deployment whose attribution is available and
-    /// fresh at `at`, timestamped `at`.
-    fn records(&self, at: SystemTime) -> Vec<MetricRecord> {
-        let mut records = vec![];
-        for (deployment_id, memory) in self.hosted.hosted_accelerator_memory() {
-            let observed_at = memory
-                .observed_at
-                .as_ref()
-                .and_then(crate::metrics::system_time);
-            if !self.freshness.admits(observed_at, at) {
-                continue;
-            }
-            let Some(accelerator_memory_observation::Result::Available(usage)) = memory.result
-            else {
-                continue;
+/// One record per device row of every deployment SiteNode `node_id` hosts whose attribution in
+/// `hosted` is available, stamped `at`.
+pub(crate) fn deployment_memory_records(
+    node_id: &str,
+    hosted: &dyn HostedAcceleratorMemory,
+    at: SystemTime,
+) -> Vec<MetricRecord> {
+    let mut records = vec![];
+    for (deployment_id, memory) in hosted.hosted_accelerator_memory() {
+        let Some(accelerator_memory_observation::Result::Available(usage)) = memory.result else {
+            continue;
+        };
+        let deployment = LabelSet::new()
+            .with(labels::DEPLOYMENT, deployment_id)
+            .with(labels::NODE, node_id);
+        for device in usage.devices {
+            let labels = if device.device_id.is_empty() {
+                deployment.clone()
+            } else {
+                deployment.clone().with(labels::DEVICE, device.device_id)
             };
-            let deployment = LabelSet::new()
-                .with(labels::DEPLOYMENT, deployment_id)
-                .with(labels::NODE, self.node_id.clone());
-            for device in usage.devices {
-                let labels = if device.device_id.is_empty() {
-                    deployment.clone()
-                } else {
-                    deployment.clone().with(labels::DEVICE, device.device_id)
-                };
-                records.push(MetricRecord::gauge(
-                    DEPLOYMENT_ACCELERATOR_MEMORY_USED,
-                    labels,
-                    at,
-                    device.used_memory_bytes as f64,
-                ));
-            }
+            records.push(MetricRecord::gauge(
+                DEPLOYMENT_ACCELERATOR_MEMORY_USED,
+                labels,
+                at,
+                device.used_memory_bytes as f64,
+            ));
         }
-        records
     }
+    records
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Mutex, time::UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
-    use dotcore_domain::clock::VirtualClock;
     use dotcore_proto::dotcore::deployment::v1::{
         AcceleratorMemoryDeviceUsage, AcceleratorMemoryUnavailable, AcceleratorMemoryUsageSet,
     };
     use dotcore_proto::google::protobuf::Empty;
-    use tokio::sync::mpsc;
 
     use super::*;
-    use crate::metric_resend::COLLECTION_ALLOWANCE;
 
-    #[tokio::test]
-    async fn every_second_records_each_device_row_of_every_available_deployment() {
-        let harness = Harness::start(vec![
+    #[test]
+    fn each_device_row_of_every_available_deployment_records_at_the_given_time() {
+        let hosted = FixedHosted(vec![
             (
-                "deployment-a",
-                available(0, &[("GPU-a", 100), ("GPU-b", 200)]),
+                "deployment-a".to_owned(),
+                available(&[("GPU-a", 100), ("GPU-b", 200)]),
             ),
-            ("deployment-b", available(0, &[("", 300)])),
+            ("deployment-b".to_owned(), available(&[("", 300)])),
         ]);
-
-        for second in 1..=2 {
-            harness.clock.advance_to_next_wake().await;
-            assert_eq!(
-                harness.next_records().await,
-                vec![
-                    record("deployment-a", Some("GPU-a"), second, 100.0),
-                    record("deployment-a", Some("GPU-b"), second, 200.0),
-                    record("deployment-b", None, second, 300.0),
-                ]
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn unavailable_not_applicable_and_stale_attributions_record_nothing() {
-        // The first tick is at second 1, where the bound reaches back to second -14.
-        let harness = Harness::start(vec![
-            ("at-the-bound", available(-14, &[("GPU-a", 1)])),
-            ("beyond-the-bound", available(-15, &[("GPU-a", 2)])),
-            ("without-a-time", without_time(&[("GPU-a", 3)])),
-            ("unavailable", unavailable()),
-            ("not-applicable", not_applicable()),
-        ]);
-
-        harness.clock.advance_to_next_wake().await;
 
         assert_eq!(
-            harness.next_records().await,
-            vec![record("at-the-bound", Some("GPU-a"), 1, 1.0)]
+            deployment_memory_records("node-a", &hosted, at()),
+            vec![
+                record("deployment-a", Some("GPU-a"), 100.0),
+                record("deployment-a", Some("GPU-b"), 200.0),
+                record("deployment-b", None, 300.0),
+            ]
         );
     }
 
-    #[tokio::test]
-    async fn an_attribution_observed_after_the_tick_records() {
-        let harness = Harness::start(vec![("deployment-a", available(30, &[("GPU-a", 7)]))]);
-
-        harness.clock.advance_to_next_wake().await;
-
-        assert_eq!(
-            harness.next_records().await,
-            vec![record("deployment-a", Some("GPU-a"), 1, 7.0)]
-        );
-    }
-
-    #[tokio::test]
-    async fn a_deployment_no_longer_hosted_stops_recording() {
-        let harness = Harness::start(vec![
-            ("deployment-a", available(0, &[("GPU-a", 1)])),
-            ("deployment-b", available(0, &[("GPU-a", 2)])),
+    #[test]
+    fn unavailable_and_not_applicable_attributions_record_nothing() {
+        let hosted = FixedHosted(vec![
+            ("available".to_owned(), available(&[("GPU-a", 1)])),
+            ("unavailable".to_owned(), unavailable()),
+            ("not-applicable".to_owned(), not_applicable()),
+            (
+                "without-a-result".to_owned(),
+                AcceleratorMemoryObservation::default(),
+            ),
         ]);
-        harness.clock.advance_to_next_wake().await;
-        assert_eq!(harness.next_records().await.len(), 2);
-
-        harness.host(vec![("deployment-b", available(0, &[("GPU-a", 2)]))]);
-        harness.clock.advance_to_next_wake().await;
 
         assert_eq!(
-            harness.next_records().await,
-            vec![record("deployment-b", Some("GPU-a"), 2, 2.0)]
+            deployment_memory_records("node-a", &hosted, at()),
+            vec![record("available", Some("GPU-a"), 1.0)]
         );
     }
 
-    /// Whole seconds after the Unix epoch the virtual wall clock counts from.
-    const EPOCH_SECONDS: u64 = 1_700_000_000;
+    #[test]
+    fn descriptors_hold_values_for_the_refresh_interval_plus_the_reporting_delay() {
+        let [descriptor] = deployment_metric_descriptors(Duration::from_secs(7))
+            .try_into()
+            .expect("one descriptor");
 
-    /// Hardware refresh interval of the harness writer; with the collection allowance, the age
-    /// bound is 15 seconds.
-    const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
-
-    /// A writer over attributions the test sets, recording into a channel, on a virtual clock that
-    /// starts a quarter second into second 0.
-    struct Harness {
-        clock: VirtualClock,
-        hosted: Arc<FixedHosted>,
-        records: tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<MetricRecord>>>,
-        _task: tokio::task::JoinHandle<()>,
+        assert_eq!(descriptor.validate(), Ok(()));
+        assert_eq!(descriptor.sample_interval, Some(Duration::from_secs(7)));
+        assert_eq!(descriptor.gauge_lookback(), Some(Duration::from_secs(12)));
     }
 
-    impl Harness {
-        fn start(hosted: Vec<(&str, AcceleratorMemoryObservation)>) -> Self {
-            let clock = VirtualClock::starting_at(
-                UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS) + Duration::from_millis(250),
-            );
-            let hosted = Arc::new(FixedHosted(Mutex::new(owned(hosted))));
-            let (sender, records) = mpsc::unbounded_channel();
-            let writer = DeploymentMemoryWriter::new(
-                "node-a",
-                Arc::clone(&hosted) as Arc<dyn HostedAcceleratorMemory>,
-                Arc::new(ChannelRecorder(sender)),
-                Arc::new(clock.clone()),
-                REFRESH_INTERVAL,
-                COLLECTION_ALLOWANCE,
-            );
-            Self {
-                clock,
-                hosted,
-                records: tokio::sync::Mutex::new(records),
-                _task: tokio::spawn(writer.run()),
-            }
-        }
-
-        /// Replaces the deployments the node hosts.
-        fn host(&self, hosted: Vec<(&str, AcceleratorMemoryObservation)>) {
-            *self.hosted.0.lock().expect("hosted deployments") = owned(hosted);
-        }
-
-        async fn next_records(&self) -> Vec<MetricRecord> {
-            tokio::time::timeout(Duration::from_secs(10), self.records.lock().await.recv())
-                .await
-                .expect("writer progress deadline")
-                .expect("writer running")
-        }
+    fn at() -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(1_700_000_000)
     }
 
-    fn owned(
-        hosted: Vec<(&str, AcceleratorMemoryObservation)>,
-    ) -> Vec<(String, AcceleratorMemoryObservation)> {
-        hosted
-            .into_iter()
-            .map(|(deployment_id, memory)| (deployment_id.to_owned(), memory))
-            .collect()
-    }
-
-    /// The record of `bytes` on `device` of `deployment` at second `second`.
-    fn record(deployment: &str, device: Option<&str>, second: u64, bytes: f64) -> MetricRecord {
+    /// The record of `bytes` on `device` of `deployment` at the test time.
+    fn record(deployment: &str, device: Option<&str>, bytes: f64) -> MetricRecord {
         let labels = LabelSet::new()
             .with("deployment", deployment)
             .with("node", "node-a");
@@ -288,25 +157,11 @@ mod tests {
             Some(device) => labels.with("device", device),
             None => labels,
         };
-        MetricRecord::gauge(
-            DEPLOYMENT_ACCELERATOR_MEMORY_USED,
-            labels,
-            UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS + second),
-            bytes,
-        )
+        MetricRecord::gauge(DEPLOYMENT_ACCELERATOR_MEMORY_USED, labels, at(), bytes)
     }
 
-    /// Usage of `devices` as (device id, bytes), observed at second `second`.
-    fn available(second: i64, devices: &[(&str, u64)]) -> AcceleratorMemoryObservation {
-        AcceleratorMemoryObservation {
-            observed_at: Some(crate::metrics::timestamp(
-                UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS.saturating_add_signed(second)),
-            )),
-            ..without_time(devices)
-        }
-    }
-
-    fn without_time(devices: &[(&str, u64)]) -> AcceleratorMemoryObservation {
+    /// Usage of `devices` as (device id, bytes).
+    fn available(devices: &[(&str, u64)]) -> AcceleratorMemoryObservation {
         AcceleratorMemoryObservation {
             observed_at: None,
             refresh: None,
@@ -350,20 +205,12 @@ mod tests {
         }
     }
 
-    /// Hosted deployments the test replaces between ticks.
-    struct FixedHosted(Mutex<Vec<(String, AcceleratorMemoryObservation)>>);
+    /// Hosted deployments fixed by the test.
+    struct FixedHosted(Vec<(String, AcceleratorMemoryObservation)>);
 
     impl HostedAcceleratorMemory for FixedHosted {
         fn hosted_accelerator_memory(&self) -> Vec<(String, AcceleratorMemoryObservation)> {
-            self.0.lock().expect("hosted deployments").clone()
-        }
-    }
-
-    struct ChannelRecorder(mpsc::UnboundedSender<Vec<MetricRecord>>);
-
-    impl MetricRecorder for ChannelRecorder {
-        fn record(&self, records: Vec<MetricRecord>) {
-            let _ = self.0.send(records);
+            self.0.clone()
         }
     }
 }

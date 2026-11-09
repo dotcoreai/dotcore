@@ -36,20 +36,56 @@ use super::*;
 
 #[tokio::test]
 async fn the_metric_catalog_follows_the_naming_and_export_rules() {
-    assert_eq!(
-        dotcore_observability::validate_catalog(&metric_catalog()),
-        Ok(())
-    );
+    let catalog = metric_catalog(std::time::Duration::from_secs(5));
+    assert_eq!(dotcore_observability::validate_catalog(&catalog), Ok(()));
     // The store adds its own metrics and checks the whole catalog again.
     assert_eq!(
         InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
-            metric_catalog(),
+            catalog,
             Arc::new(dotcore_domain::clock::SystemClock),
         )
         .err()
         .map(|error| error.to_string()),
         None
+    );
+}
+
+#[test]
+fn per_collection_metrics_follow_the_sites_hardware_refresh_interval() {
+    let site = Site {
+        hardware_observation: Some(
+            dotcore_proto::dotcore::site::v1::HardwareObservationConfiguration {
+                refresh_interval_seconds: Some(7),
+            },
+        ),
+        ..Default::default()
+    };
+
+    // The same interval every node's observation configuration pins.
+    let catalog = metric_catalog(dotcore_site::validation::hardware_refresh_interval(&site));
+
+    let timing = |name: &str| {
+        catalog
+            .iter()
+            .find(|descriptor| descriptor.name == name)
+            .map(|descriptor| (descriptor.sample_interval, descriptor.reporting_delay))
+    };
+    let per_collection = Some((
+        Some(std::time::Duration::from_secs(7)),
+        Some(std::time::Duration::from_secs(5)),
+    ));
+    for name in [
+        "deployment.accelerator.memory.used",
+        "application.host.cpu.utilization",
+        "application.host.memory.used",
+        "application.accelerator.memory.used",
+    ] {
+        assert_eq!(timing(name), per_collection, "{name}");
+    }
+    assert_eq!(
+        timing("node.host.cpu.utilization"),
+        Some((Some(std::time::Duration::from_secs(1)), None))
     );
 }
 

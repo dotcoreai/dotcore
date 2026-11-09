@@ -154,7 +154,7 @@ mod tests {
         hardware_observation::{HardwareSample, HostMemorySample, HostSample},
         test_support::tracing::{Record, capture_records_async},
     };
-    use dotcore_observability::{MetricRecord, labels::LabelSet};
+    use dotcore_observability::{MetricRecord, labels::LabelSet, test_support::CapturingRecorder};
     use dotcore_proto::dotcore::observation::v1::HardwareSnapshot;
 
     use super::*;
@@ -234,7 +234,7 @@ mod tests {
         })
         .await;
 
-        assert!(harness.records.lock().await.is_empty());
+        assert_eq!(harness.records.try_next_batch(), None);
         let outcomes: Vec<&str> = records
             .iter()
             .filter_map(|record| match record {
@@ -251,11 +251,11 @@ mod tests {
     /// Whole seconds after the Unix epoch the virtual wall clock counts from.
     const EPOCH_SECONDS: u64 = 1_700_000_000;
 
-    /// A sampler over fake hardware, recording into a channel, on a virtual clock that starts a
-    /// quarter second into second 0.
+    /// A sampler over fake hardware, recording into a capturing recorder, on a virtual clock that
+    /// starts a quarter second into second 0.
     struct Harness {
         clock: VirtualClock,
-        records: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<MetricRecord>>>,
+        records: Arc<CapturingRecorder>,
         _task: tokio::task::JoinHandle<()>,
     }
 
@@ -269,7 +269,7 @@ mod tests {
             let clock = VirtualClock::starting_at(
                 UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS) + Duration::from_millis(250),
             );
-            let (sender, records) = tokio::sync::mpsc::unbounded_channel();
+            let records = Arc::new(CapturingRecorder::default());
             let sampler = NodeSampler::new(
                 "node-a",
                 Arc::new(LocalNodeCapability::new(CountingHardware {
@@ -277,18 +277,18 @@ mod tests {
                     gate,
                     empty,
                 })),
-                Arc::new(ChannelRecorder(sender)),
+                Arc::clone(&records) as Arc<dyn MetricRecorder>,
                 Arc::new(clock.clone()),
             );
             Self {
                 clock,
-                records: tokio::sync::Mutex::new(records),
+                records,
                 _task: tokio::spawn(sampler.run()),
             }
         }
 
         async fn next_records(&self) -> Vec<MetricRecord> {
-            Self::wait(&mut *self.records.lock().await).await
+            self.records.next_batch().await
         }
 
         async fn wait<T>(receiver: &mut tokio::sync::mpsc::UnboundedReceiver<T>) -> T {
@@ -371,14 +371,6 @@ mod tests {
                 },
                 accelerators: vec![],
             }
-        }
-    }
-
-    struct ChannelRecorder(tokio::sync::mpsc::UnboundedSender<Vec<MetricRecord>>);
-
-    impl MetricRecorder for ChannelRecorder {
-        fn record(&self, records: Vec<MetricRecord>) {
-            let _ = self.0.send(records);
         }
     }
 }

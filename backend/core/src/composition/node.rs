@@ -56,6 +56,7 @@ use dotcore_site::{
 use tracing::{info, warn};
 
 use super::{BackendTestSupport, CompositionError, runtime_adapters::RuntimeAdapterRegistry};
+use crate::collection_metrics::{CollectionMetricsSource, CollectionMetricsWriter};
 
 /// Node-local inputs of one SiteNode composition.
 pub(super) struct NodeInputs {
@@ -112,6 +113,7 @@ pub(super) struct NodeServices {
     log_owners: crate::deployment_logs::DeploymentLogOwners,
     diagnostics: crate::diagnostic::NodeDiagnosticReader,
     observation: NodeObservation,
+    collection_metrics: CollectionMetricsWriter,
     model_start: Box<dyn FnOnce() + Send>,
     application_start: Box<dyn FnOnce() + Send>,
     session: NodeControlSession,
@@ -164,9 +166,21 @@ impl NodeServices {
         let reporter = observation.reporter.with_private_port(private_port);
         let reported_initial = observation.reported_initial;
         let session = self.session;
+        let collection_metrics = self.collection_metrics;
+        let collection_metrics_task = Arc::clone(&self.lifecycle._collection_metrics.0);
         (
             NodeStarters {
                 reporter: Box::new(move || {
+                    // Records each collection the reporter publishes, including one already
+                    // published by the node's first report.
+                    let writer = tokio::spawn(log_unexpected_loop_end(
+                        "collection_metrics_writer",
+                        collection_metrics.run(),
+                    ));
+                    *collection_metrics_task
+                        .lock()
+                        .expect("node collection metrics writer lock") =
+                        Some(writer.abort_handle());
                     if reported_initial {
                         reporter.start_after_initial()
                     } else {
@@ -195,6 +209,7 @@ pub(super) struct NodeStarters {
 pub(super) struct NodeLifecycle {
     _incarnation: NodeIncarnation,
     _metric_forwarder: MetricForwarderTask,
+    _collection_metrics: CollectionMetricsTask,
     _model: NodeModelLifecycle,
     _application: Option<Arc<crate::application::NodeApplicationRealizer>>,
 
@@ -388,18 +403,7 @@ pub(super) async fn compose_node(
         serving_targets_source.clone(),
         accelerator_attribution,
     ));
-    // Records the memory the node's status reports, so its history never diverges from the
-    // current value.
-    let memory_writer = crate::model::controller::metrics::DeploymentMemoryWriter::new(
-        &node_id,
-        Arc::clone(&model_status) as _,
-        metric_forwarder.recorder(crate::model::controller::metrics::DEPLOYMENT_MEMORY_SOURCE),
-        Arc::clone(&clock),
-        observation.refresh_interval,
-        crate::metric_resend::COLLECTION_ALLOWANCE,
-    );
     let model_construction = Arc::clone(&model_lifecycle.construction);
-    let model_memory_writer = Arc::clone(&model_lifecycle.memory_writer);
     let model_shutdown = model_lifecycle.shutdown.clone();
     let model_root_keeper = Arc::clone(&model_lifecycle.root_keeper);
     let model_preparation_logs = preparation_logs.clone();
@@ -410,13 +414,6 @@ pub(super) async fn compose_node(
             nix_root_keeper.run(),
         ));
         *model_root_keeper.lock().expect("node Nix root keeper lock") = Some(keeper.abort_handle());
-        let writer = tokio::spawn(log_unexpected_loop_end(
-            "deployment_memory_writer",
-            memory_writer.run(),
-        ));
-        *model_memory_writer
-            .lock()
-            .expect("node deployment memory writer lock") = Some(writer.abort_handle());
         let listener =
             crate::model::controller::ModelRealizationInput::register_change_listener(&model_input);
         let construction = tokio::spawn(async move {
@@ -478,21 +475,16 @@ pub(super) async fn compose_node(
         Some(application) => observation.with_collection_reading(application.resource_reading()),
         None => observation,
     };
-    let application_recorder =
-        metric_forwarder.recorder(crate::application::APPLICATION_RESOURCES_SOURCE);
-    let application_clock = Arc::clone(&clock);
-    let application_node_id = node_id.clone();
-    let application_refresh_interval = observation.refresh_interval;
+    let collection_metrics = collection_metrics_writer(
+        &node_id,
+        &observation,
+        &metric_forwarder,
+        Arc::clone(&model_status) as _,
+        application.as_deref(),
+        Arc::clone(&clock),
+    );
     let application_start: Box<dyn FnOnce() + Send> = match application.clone() {
         Some(application) => Box::new(move || {
-            // Records the resources the node's application status attributes, so their history
-            // never diverges from the current value.
-            application.start_resource_writer(
-                &application_node_id,
-                application_recorder,
-                application_clock,
-                application_refresh_interval,
-            );
             application.start_observer();
             info!(
                 event_kind = "node_application_composition",
@@ -530,12 +522,14 @@ pub(super) async fn compose_node(
         log_owners,
         diagnostics,
         observation,
+        collection_metrics,
         model_start,
         application_start,
         session,
         lifecycle: NodeLifecycle {
             _incarnation: incarnation,
             _metric_forwarder: metric_forwarder_task,
+            _collection_metrics: CollectionMetricsTask::default(),
             _model: model_lifecycle,
             _application: application,
             #[cfg(test)]
@@ -544,6 +538,62 @@ pub(super) async fn compose_node(
             node_state: node_state_for_tests,
         },
     })
+}
+
+/// The node's per-collection metrics writer task once started, aborted with the node.
+#[derive(Default)]
+struct CollectionMetricsTask(Arc<Mutex<Option<tokio::task::AbortHandle>>>);
+
+impl Drop for CollectionMetricsTask {
+    fn drop(&mut self) {
+        if let Some(task) = self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+        {
+            task.abort();
+        }
+    }
+}
+
+/// The writer recording, once per collection of SiteNode `node_id`, the memory its model status
+/// and the resources its application status attribute, so their history never diverges from the
+/// current values.
+fn collection_metrics_writer(
+    node_id: &str,
+    observation: &NodeObservation,
+    forwarder: &MetricForwarder,
+    models: Arc<dyn crate::model::controller::metrics::HostedAcceleratorMemory>,
+    applications: Option<&crate::application::NodeApplicationRealizer>,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
+) -> CollectionMetricsWriter {
+    let model_node = node_id.to_owned();
+    let mut sources = vec![CollectionMetricsSource::new(
+        move |at| {
+            crate::model::controller::metrics::deployment_memory_records(
+                &model_node,
+                models.as_ref(),
+                at,
+            )
+        },
+        forwarder.recorder(crate::model::controller::metrics::DEPLOYMENT_MEMORY_SOURCE),
+    )];
+    if let Some(applications) = applications {
+        let hosted = applications.hosted_resources();
+        let application_node = node_id.to_owned();
+        sources.push(CollectionMetricsSource::new(
+            move |at| {
+                crate::application::application_resource_records(
+                    &application_node,
+                    hosted.as_ref(),
+                    at,
+                )
+            },
+            forwarder.recorder(crate::application::APPLICATION_RESOURCES_SOURCE),
+        ));
+    }
+    CollectionMetricsWriter::new(observation.reporter.observations(), clock, sources)
 }
 
 /// Composes the observation part of the SiteNode that shares the manager process: the same
@@ -614,9 +664,6 @@ pub(super) struct NodeObservation {
     control: NodeControlObservations,
     inventory: Arc<NodeObservationInventory>,
 
-    /// Interval at which the node refreshes its hardware observations.
-    refresh_interval: Duration,
-
     /// Whether the first report already completed, so the report loop starts one interval later.
     reported_initial: bool,
 }
@@ -671,7 +718,6 @@ impl NodeObservation {
             reporter,
             control,
             inventory,
-            refresh_interval: interval,
             reported_initial: false,
         })
     }
@@ -981,12 +1027,11 @@ type NodeModelRealizer = crate::model::controller::ModelRealizer<
 >;
 
 /// Slot holding the node model realizer once its first construction succeeds, the tasks that
-/// construct it and record its deployment memory, aborted with the node, and the realizer's
-/// shutdown, cancelled with the node.
+/// construct it and keep its Nix roots, aborted with the node, and the realizer's shutdown,
+/// cancelled with the node.
 struct NodeModelLifecycle {
     realizer: Arc<Mutex<Option<NodeModelRealizer>>>,
     construction: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
-    memory_writer: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
     root_keeper: Arc<Mutex<Option<tokio::task::AbortHandle>>>,
     shutdown: tokio_util::sync::CancellationToken,
 }
@@ -996,7 +1041,6 @@ impl NodeModelLifecycle {
         Self {
             realizer: Arc::new(Mutex::new(None)),
             construction: Arc::new(Mutex::new(None)),
-            memory_writer: Arc::new(Mutex::new(None)),
             root_keeper: Arc::new(Mutex::new(None)),
             shutdown: tokio_util::sync::CancellationToken::new(),
         }
@@ -1006,7 +1050,7 @@ impl NodeModelLifecycle {
 impl Drop for NodeModelLifecycle {
     fn drop(&mut self) {
         self.shutdown.cancel();
-        for task in [&self.construction, &self.memory_writer, &self.root_keeper] {
+        for task in [&self.construction, &self.root_keeper] {
             if let Some(task) = task
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())

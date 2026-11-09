@@ -82,6 +82,7 @@ pub fn hardware_metric_descriptors() -> Vec<MetricDescriptor> {
             .collect(),
         provenance: MetricProvenance::Node,
         sample_interval: Some(HARDWARE_SAMPLE_INTERVAL),
+        reporting_delay: None,
     };
     vec![
         gauge(HOST_MEMORY_TOTAL, MetricUnit::Bytes, NODE),
@@ -103,6 +104,7 @@ pub fn hardware_metric_descriptors() -> Vec<MetricDescriptor> {
             dimensions: vec![MetricDimension::required(labels::NODE)],
             provenance: MetricProvenance::Node,
             sample_interval: None,
+            reporting_delay: None,
         },
     ]
 }

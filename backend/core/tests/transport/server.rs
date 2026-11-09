@@ -768,7 +768,8 @@ async fn manager_backend_server_serves_memory_history_from_node_samples() {
         names.is_sorted(),
         "descriptors are not sorted by name: {names:?}"
     );
-    let writers = writer_metric_descriptors();
+    // Names do not depend on the refresh interval the per-collection metrics follow.
+    let writers = writer_metric_descriptors(std::time::Duration::from_secs(5));
     validate_catalog(&writers).expect("writer catalog is valid");
     for writer in &writers {
         assert!(
@@ -796,8 +797,9 @@ async fn manager_backend_server_serves_memory_history_from_node_samples() {
                 dimension("device", false),
             ],
             provenance: MetricProvenance::Node as i32,
+            // Recorded once per hardware collection, at the site's default refresh interval.
             sample_interval: Some(dotcore_proto::google::protobuf::Duration {
-                seconds: 1,
+                seconds: 5,
                 nanos: 0,
             }),
             histogram_scale: None,

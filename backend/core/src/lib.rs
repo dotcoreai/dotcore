@@ -25,11 +25,11 @@ pub mod telemetry;
 #[cfg(feature = "test-support")]
 pub mod testing;
 
+pub(crate) mod collection_metrics;
 pub(crate) mod deployment_logs;
 pub(crate) mod diagnostic;
 pub(crate) mod hardware;
 pub(crate) mod management_logs;
-pub(crate) mod metric_resend;
 pub(crate) mod metric_stream;
 pub(crate) mod metrics;
 pub(crate) mod node_memory;

@@ -1,5 +1,5 @@
 //! Declares what one metric is: its name, kind, unit, the labels its series carry, where it is
-//! measured, and how often a gauge is expected to be sampled.
+//! measured, and how often a gauge is expected to be sampled and how late its readings may come.
 //!
 //! The store accepts samples only for declared metrics and only with label sets that fit the
 //! declaration, so every series of a metric can be grouped and filtered by the same dimensions.
@@ -31,9 +31,15 @@ pub struct MetricDescriptor {
     /// Where the metric is measured, which decides how its samples are timestamped.
     pub provenance: MetricProvenance,
 
-    /// Expected interval between gauge samples; a gauge reading stays valid for twice this
-    /// interval. Required for gauges, absent for counters and distributions.
+    /// Expected interval between gauge samples. Required for gauges, absent for counters and
+    /// distributions.
     pub sample_interval: Option<Duration>,
+
+    /// How late a node-measured gauge's next reading may come after its sample interval, and so
+    /// how long its points wait for it. The sample interval when absent; set it for a gauge read
+    /// on a slow schedule, whose interval is long but whose readings are never that late. A gauge
+    /// reading stays valid for its sample interval plus this delay.
+    pub reporting_delay: Option<Duration>,
 }
 
 impl MetricDescriptor {
@@ -42,7 +48,8 @@ impl MetricDescriptor {
     /// counter, not ending in `count` or `total`, since an export appends `_total`; unique
     /// dimensions named like Prometheus labels and not reserved by it, as `__` names are and, for
     /// a distribution, `le` and `quantile`; a sample interval exactly when the metric is a gauge;
-    /// and a supported histogram scale for a distribution.
+    /// a reporting delay only on a node-measured gauge; and a supported histogram scale for a
+    /// distribution.
     pub fn validate(&self) -> Result<(), DescriptorError> {
         let valid_name = !self.name.is_empty()
             && self.name.split('.').all(|part| {
@@ -104,6 +111,14 @@ impl MetricDescriptor {
                     dimension: dimension.name.clone(),
                 });
             }
+        }
+
+        if self.reporting_delay.is_some()
+            && (self.kind != MetricKind::Gauge || self.provenance != MetricProvenance::Node)
+        {
+            return Err(DescriptorError::UnexpectedReportingDelay {
+                metric: self.name.clone(),
+            });
         }
 
         match (self.kind, self.sample_interval) {
@@ -181,21 +196,29 @@ impl MetricDescriptor {
             .any(|dimension| dimension.name == name)
     }
 
-    /// How long a gauge reading stays valid after it was observed: twice the sample interval.
+    /// How long a gauge reading stays valid after it was observed: its sample interval plus its
+    /// reporting delay, so it lasts until the next reading is due at the latest.
     pub fn gauge_lookback(&self) -> Option<Duration> {
-        self.sample_interval.map(|interval| interval * 2)
+        self.sample_interval
+            .map(|interval| interval + self.reporting_delay.unwrap_or(interval))
     }
 
     /// How long after a bucket ends its points stay provisional, waiting for samples still on
     /// their way. Manager-measured samples arrive at once; a node's report can trail its
-    /// observation by up to the sample interval, plus a second of transport.
+    /// observation by up to the reporting delay, plus a second of transport.
     pub fn closing_grace(&self) -> Duration {
         match self.provenance {
             MetricProvenance::Manager => MANAGER_CLOSING_GRACE,
-            MetricProvenance::Node => {
-                self.sample_interval.unwrap_or_default() + NODE_TRANSPORT_GRACE
-            }
+            MetricProvenance::Node => self.node_reporting_delay() + NODE_TRANSPORT_GRACE,
         }
+    }
+
+    /// How late a node's sample of this metric may come: the declared reporting delay, else the
+    /// sample interval, else none for metrics without one.
+    fn node_reporting_delay(&self) -> Duration {
+        self.reporting_delay
+            .or(self.sample_interval)
+            .unwrap_or_default()
     }
 }
 
@@ -369,6 +392,9 @@ pub enum DescriptorError {
 
     #[error("counter or distribution metric {metric} declares a sample interval")]
     UnexpectedSampleInterval { metric: String },
+
+    #[error("metric {metric} declares a reporting delay but is not a node-measured gauge")]
+    UnexpectedReportingDelay { metric: String },
 
     #[error("distribution metric {metric} declares unsupported histogram scale {scale}")]
     UnsupportedScale { metric: String, scale: i8 },
@@ -719,6 +745,46 @@ mod tests {
 
         descriptor.provenance = MetricProvenance::Manager;
         assert_eq!(descriptor.closing_grace(), Duration::from_millis(250));
+
+        // A node counter's report trails only by transport.
+        assert_eq!(
+            MetricDescriptor {
+                provenance: MetricProvenance::Node,
+                ..counter_descriptor()
+            }
+            .closing_grace(),
+            Duration::from_secs(1)
+        );
+    }
+
+    #[test]
+    fn a_reporting_delay_decouples_validity_and_grace_from_the_sample_interval() {
+        let mut descriptor = gauge_descriptor();
+        assert_eq!(descriptor.gauge_lookback(), Some(Duration::from_secs(10)));
+
+        descriptor.sample_interval = Some(Duration::from_secs(60));
+        descriptor.reporting_delay = Some(Duration::from_secs(5));
+        assert_eq!(descriptor.validate(), Ok(()));
+        assert_eq!(descriptor.gauge_lookback(), Some(Duration::from_secs(65)));
+        assert_eq!(descriptor.closing_grace(), Duration::from_secs(6));
+    }
+
+    #[test]
+    fn only_node_gauges_declare_a_reporting_delay() {
+        let mut manager_gauge = gauge_descriptor();
+        manager_gauge.provenance = MetricProvenance::Manager;
+        let mut counter = counter_descriptor();
+        counter.provenance = MetricProvenance::Node;
+
+        for mut descriptor in [manager_gauge, counter] {
+            descriptor.reporting_delay = Some(Duration::from_secs(5));
+            assert_eq!(
+                descriptor.validate(),
+                Err(DescriptorError::UnexpectedReportingDelay {
+                    metric: descriptor.name.clone(),
+                })
+            );
+        }
     }
 
     fn counter_descriptor() -> MetricDescriptor {
@@ -729,6 +795,7 @@ mod tests {
             dimensions: vec![MetricDimension::required("outcome")],
             provenance: MetricProvenance::Manager,
             sample_interval: None,
+            reporting_delay: None,
         }
     }
 
@@ -743,6 +810,7 @@ mod tests {
             ],
             provenance: MetricProvenance::Node,
             sample_interval: Some(Duration::from_secs(5)),
+            reporting_delay: None,
         }
     }
 }

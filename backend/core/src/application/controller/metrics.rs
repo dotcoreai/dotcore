@@ -1,21 +1,15 @@
-//! Records the host CPU, host memory and accelerator memory a node attributes to each service of
-//! the application deployments it hosts as metric history, at the start of every wall-clock
-//! second.
+//! Builds the metric records of the host CPU, host memory and accelerator memory a node
+//! attributes to each service of the application deployments it hosts.
 //!
-//! Each second re-sends what the node's application status attributes, so history and the
-//! current value never diverge and change in steps as the node refreshes its observations. A
-//! figure that is unavailable or too old to trust records nothing, so history shows a gap rather
-//! than a held stale value.
+//! The node records them once per hardware collection, from what its application status
+//! attributes, so history and the current value never diverge and change in steps as the node
+//! refreshes its observations. A figure that is unavailable records nothing, so history shows a
+//! gap rather than a held stale value.
 
-use std::{
-    sync::Arc,
-    time::{Duration, SystemTime},
-};
+use std::time::{Duration, SystemTime};
 
-use dotcore_domain::clock::Clock;
 use dotcore_observability::{
-    MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricRecord, MetricRecorder,
-    MetricUnit,
+    MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricRecord, MetricUnit,
     labels::{self, LabelSet},
 };
 use dotcore_proto::dotcore::deployment::v1::{
@@ -23,7 +17,7 @@ use dotcore_proto::dotcore::deployment::v1::{
 };
 
 use super::resources::ServiceHostResources;
-use crate::metric_resend::{Freshness, RESEND_INTERVAL, resend_every_second};
+use crate::collection_metrics::COLLECTION_REPORTING_DELAY;
 
 /// Share, from 0 to 1, of the hosting machine's logical CPUs one application service kept busy
 /// between the node's two latest readings of it.
@@ -36,14 +30,15 @@ pub(crate) const APPLICATION_HOST_MEMORY_USED: &str = "application.host.memory.u
 /// the node names one.
 pub(crate) const APPLICATION_ACCELERATOR_MEMORY_USED: &str = "application.accelerator.memory.used";
 
-/// Writer name a node's application resource writer records under, the `source` of its
+/// Writer name a node records application resources under, the `source` of its
 /// `node.observing` window.
 pub(crate) const APPLICATION_RESOURCES_SOURCE: &str = "application_resources";
 
-/// Declarations of the application resource metrics hosting nodes record. Every value is held
-/// from the latest hardware collection, so minimum and maximum over coarser buckets describe held
-/// values rather than per-second measurements.
-pub(crate) fn application_metric_descriptors() -> Vec<MetricDescriptor> {
+/// Declarations of the application resource metrics hosting nodes record once per hardware
+/// collection, every `refresh_interval`. Every value is held from the latest collection, so
+/// minimum and maximum over coarser buckets describe held values rather than per-second
+/// measurements.
+pub(crate) fn application_metric_descriptors(refresh_interval: Duration) -> Vec<MetricDescriptor> {
     let gauge = |name: &str, unit, device: bool| {
         let mut dimensions = vec![
             MetricDimension::required(labels::DEPLOYMENT),
@@ -59,7 +54,8 @@ pub(crate) fn application_metric_descriptors() -> Vec<MetricDescriptor> {
             unit,
             dimensions,
             provenance: MetricProvenance::Node,
-            sample_interval: Some(RESEND_INTERVAL),
+            sample_interval: Some(refresh_interval),
+            reporting_delay: Some(COLLECTION_REPORTING_DELAY),
         }
     };
     vec![
@@ -94,114 +90,66 @@ pub(crate) struct HostedService {
     pub(crate) accelerator_memory: Option<AcceleratorMemoryObservation>,
 }
 
-/// Records the attributed resources of one node's hosted application services every wall-clock
-/// second into a metric recorder.
-pub(crate) struct ApplicationResourceWriter {
-    node_id: String,
-    hosted: Arc<dyn HostedApplicationResources>,
-    recorder: Arc<dyn MetricRecorder>,
-    clock: Arc<dyn Clock>,
-    freshness: Freshness,
-}
-
-impl ApplicationResourceWriter {
-    /// Creates the writer of SiteNode `node_id` reading `hosted`, recording through `recorder` and
-    /// scheduling on `clock`. Figures older than twice `refresh_interval` plus
-    /// `collection_allowance` record nothing.
-    pub(crate) fn new(
-        node_id: &str,
-        hosted: Arc<dyn HostedApplicationResources>,
-        recorder: Arc<dyn MetricRecorder>,
-        clock: Arc<dyn Clock>,
-        refresh_interval: Duration,
-        collection_allowance: Duration,
-    ) -> Self {
-        Self {
-            node_id: node_id.to_owned(),
-            hosted,
-            recorder,
-            clock,
-            freshness: Freshness::new(refresh_interval, collection_allowance),
-        }
-    }
-
-    /// Records at the start of every wall-clock second until dropped; a second the writer missed
-    /// stays absent.
-    pub(crate) async fn run(self) {
-        resend_every_second(self.clock.as_ref(), self.recorder.as_ref(), |at| {
-            self.records(at)
-        })
-        .await;
-    }
-
-    /// The records of every hosted service's fresh figures at `at`, timestamped `at`: its CPU
-    /// share and host memory, and one accelerator memory record per device row.
-    fn records(&self, at: SystemTime) -> Vec<MetricRecord> {
-        let mut records = vec![];
-        for application in self.hosted.hosted_application_resources() {
-            for service in application.services {
-                let labels = LabelSet::new()
-                    .with(labels::DEPLOYMENT, application.deployment_id.clone())
-                    .with(labels::SERVICE, service.service_name)
-                    .with(labels::NODE, self.node_id.clone());
-                if let Some(host) = service
-                    .host
-                    .filter(|host| self.freshness.admits(Some(host.observed_at), at))
-                {
-                    if let Some(cpu) = host.cpu_utilization {
-                        records.push(MetricRecord::gauge(
-                            APPLICATION_HOST_CPU_UTILIZATION,
-                            labels.clone(),
-                            at,
-                            cpu,
-                        ));
-                    }
+/// The records of every service SiteNode `node_id` hosts with figures in `hosted`, stamped `at`:
+/// its CPU share and host memory, and one accelerator memory record per available device row.
+pub(crate) fn application_resource_records(
+    node_id: &str,
+    hosted: &dyn HostedApplicationResources,
+    at: SystemTime,
+) -> Vec<MetricRecord> {
+    let mut records = vec![];
+    for application in hosted.hosted_application_resources() {
+        for service in application.services {
+            let labels = LabelSet::new()
+                .with(labels::DEPLOYMENT, application.deployment_id.clone())
+                .with(labels::SERVICE, service.service_name)
+                .with(labels::NODE, node_id);
+            if let Some(host) = service.host {
+                if let Some(cpu) = host.cpu_utilization {
                     records.push(MetricRecord::gauge(
-                        APPLICATION_HOST_MEMORY_USED,
+                        APPLICATION_HOST_CPU_UTILIZATION,
                         labels.clone(),
                         at,
-                        host.memory_bytes as f64,
+                        cpu,
                     ));
                 }
-                if let Some(memory) = service.accelerator_memory {
-                    self.accelerator_records(&labels, memory, at, &mut records);
-                }
+                records.push(MetricRecord::gauge(
+                    APPLICATION_HOST_MEMORY_USED,
+                    labels.clone(),
+                    at,
+                    host.memory_bytes as f64,
+                ));
+            }
+            if let Some(memory) = service.accelerator_memory {
+                accelerator_records(&labels, memory, at, &mut records);
             }
         }
-        records
     }
+    records
+}
 
-    /// Appends one record per device row of `memory` when it is available and fresh at `at`.
-    fn accelerator_records(
-        &self,
-        service: &LabelSet,
-        memory: AcceleratorMemoryObservation,
-        at: SystemTime,
-        records: &mut Vec<MetricRecord>,
-    ) {
-        let observed_at = memory
-            .observed_at
-            .as_ref()
-            .and_then(crate::metrics::system_time);
-        if !self.freshness.admits(observed_at, at) {
-            return;
-        }
-        let Some(accelerator_memory_observation::Result::Available(usage)) = memory.result else {
-            return;
+/// Appends one record per device row of `memory` when it is available.
+fn accelerator_records(
+    service: &LabelSet,
+    memory: AcceleratorMemoryObservation,
+    at: SystemTime,
+    records: &mut Vec<MetricRecord>,
+) {
+    let Some(accelerator_memory_observation::Result::Available(usage)) = memory.result else {
+        return;
+    };
+    for device in usage.devices {
+        let labels = if device.device_id.is_empty() {
+            service.clone()
+        } else {
+            service.clone().with(labels::DEVICE, device.device_id)
         };
-        for device in usage.devices {
-            let labels = if device.device_id.is_empty() {
-                service.clone()
-            } else {
-                service.clone().with(labels::DEVICE, device.device_id)
-            };
-            records.push(MetricRecord::gauge(
-                APPLICATION_ACCELERATOR_MEMORY_USED,
-                labels,
-                at,
-                device.used_memory_bytes as f64,
-            ));
-        }
+        records.push(MetricRecord::gauge(
+            APPLICATION_ACCELERATOR_MEMORY_USED,
+            labels,
+            at,
+            device.used_memory_bytes as f64,
+        ));
     }
 }
 
@@ -209,200 +157,73 @@ impl ApplicationResourceWriter {
 mod tests {
     use std::time::UNIX_EPOCH;
 
-    use dotcore_domain::clock::VirtualClock;
     use dotcore_proto::dotcore::deployment::v1::{
         AcceleratorMemoryDeviceUsage, AcceleratorMemoryUnavailable, AcceleratorMemoryUsageSet,
     };
-    use tokio::sync::mpsc;
 
     use super::*;
-    use crate::metric_resend::COLLECTION_ALLOWANCE;
 
-    #[tokio::test]
-    async fn every_second_re_sends_each_services_cpu_memory_and_device_rows() {
-        let harness = Harness::start(vec![application(
+    #[test]
+    fn each_services_cpu_memory_and_device_rows_record_at_the_given_time() {
+        let hosted = FixedHosted(vec![application(
             "app-1",
             vec![
-                service("cache", Some(host(0, 2048, None)), None),
+                service("cache", Some(host(2048, None)), None),
                 service(
                     "web",
-                    Some(host(0, 4096, Some(0.25))),
-                    Some(accelerator(0, &[("GPU-a", 100), ("", 300)])),
+                    Some(host(4096, Some(0.25))),
+                    Some(accelerator(&[("GPU-a", 100), ("", 300)])),
                 ),
             ],
         )]);
-
-        for second in 1..=2 {
-            harness.clock.advance_to_next_wake().await;
-            assert_eq!(
-                harness.next_records().await,
-                vec![
-                    record(APPLICATION_HOST_MEMORY_USED, "cache", None, second, 2048.0),
-                    record(APPLICATION_HOST_CPU_UTILIZATION, "web", None, second, 0.25),
-                    record(APPLICATION_HOST_MEMORY_USED, "web", None, second, 4096.0),
-                    record(
-                        APPLICATION_ACCELERATOR_MEMORY_USED,
-                        "web",
-                        Some("GPU-a"),
-                        second,
-                        100.0
-                    ),
-                    record(
-                        APPLICATION_ACCELERATOR_MEMORY_USED,
-                        "web",
-                        None,
-                        second,
-                        300.0
-                    ),
-                ]
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn services_without_figures_or_past_the_freshness_bound_record_nothing() {
-        // The first tick is at second 1, where the bound reaches back to second -14.
-        let harness = Harness::start(vec![application(
-            "app-1",
-            vec![
-                service("without-figures", None, Some(unavailable())),
-                service(
-                    "at-the-bound",
-                    Some(host(-14, 1, Some(0.5))),
-                    Some(accelerator(-14, &[("GPU-a", 2)])),
-                ),
-                service(
-                    "beyond-the-bound",
-                    Some(host(-15, 3, Some(0.5))),
-                    Some(accelerator(-15, &[("GPU-a", 4)])),
-                ),
-            ],
-        )]);
-
-        harness.clock.advance_to_next_wake().await;
 
         assert_eq!(
-            harness.next_records().await,
+            application_resource_records("node-a", &hosted, at()),
             vec![
-                record(
-                    APPLICATION_HOST_CPU_UTILIZATION,
-                    "at-the-bound",
-                    None,
-                    1,
-                    0.5
-                ),
-                record(APPLICATION_HOST_MEMORY_USED, "at-the-bound", None, 1, 1.0),
+                record(APPLICATION_HOST_MEMORY_USED, "cache", None, 2048.0),
+                record(APPLICATION_HOST_CPU_UTILIZATION, "web", None, 0.25),
+                record(APPLICATION_HOST_MEMORY_USED, "web", None, 4096.0),
                 record(
                     APPLICATION_ACCELERATOR_MEMORY_USED,
-                    "at-the-bound",
+                    "web",
                     Some("GPU-a"),
-                    1,
-                    2.0
+                    100.0
                 ),
+                record(APPLICATION_ACCELERATOR_MEMORY_USED, "web", None, 300.0),
             ]
         );
     }
 
-    #[tokio::test]
-    async fn values_stop_once_the_held_figures_pass_the_freshness_bound() {
-        let harness = Harness::start(vec![application(
+    #[test]
+    fn services_without_figures_record_nothing() {
+        let hosted = FixedHosted(vec![application(
             "app-1",
-            vec![service("web", Some(host(0, 7, Some(0.5))), None)],
+            vec![
+                service("without-figures", None, Some(unavailable())),
+                service("with-figures", Some(host(1, Some(0.5))), None),
+            ],
         )]);
-        harness.clock.advance_to_next_wake().await;
-        assert_eq!(harness.next_records().await.len(), 2);
 
-        // Figures observed at second 0 stay fresh through second 15, then stop.
-        let mut last_recorded = 1;
-        loop {
-            harness.clock.advance_to_next_wake().await;
-            let second = harness.second();
-            if second > 15 {
-                break;
-            }
-            assert_eq!(
-                harness.next_records().await,
-                vec![
-                    record(APPLICATION_HOST_CPU_UTILIZATION, "web", None, second, 0.5),
-                    record(APPLICATION_HOST_MEMORY_USED, "web", None, second, 7.0),
-                ]
-            );
-            last_recorded = second;
-        }
-        assert_eq!(last_recorded, 15);
-
-        // The writer waits for second 17 only once it handled second 16, which sent nothing.
-        harness.clock.advance_to_next_wake().await;
         assert_eq!(
-            harness.records.lock().await.try_recv(),
-            Err(mpsc::error::TryRecvError::Empty)
+            application_resource_records("node-a", &hosted, at()),
+            vec![
+                record(APPLICATION_HOST_CPU_UTILIZATION, "with-figures", None, 0.5),
+                record(APPLICATION_HOST_MEMORY_USED, "with-figures", None, 1.0),
+            ]
         );
     }
 
-    /// Whole seconds after the Unix epoch the virtual wall clock counts from.
-    const EPOCH_SECONDS: u64 = 1_700_000_000;
-
-    /// Hardware refresh interval of the harness writer; with the collection allowance, the age
-    /// bound is 15 seconds.
-    const REFRESH_INTERVAL: Duration = Duration::from_secs(5);
-
-    /// A writer over fixed hosted applications, recording into a channel, on a virtual
-    /// clock that starts a quarter second into second 0.
-    struct Harness {
-        clock: VirtualClock,
-        records: tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<MetricRecord>>>,
-        _task: tokio::task::JoinHandle<()>,
-    }
-
-    impl Harness {
-        fn start(hosted: Vec<HostedApplication>) -> Self {
-            let clock = VirtualClock::starting_at(
-                UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS) + Duration::from_millis(250),
-            );
-            let hosted = Arc::new(FixedHosted(hosted));
-            let (sender, records) = mpsc::unbounded_channel();
-            let writer = ApplicationResourceWriter::new(
-                "node-a",
-                hosted as Arc<dyn HostedApplicationResources>,
-                Arc::new(ChannelRecorder(sender)),
-                Arc::new(clock.clone()),
-                REFRESH_INTERVAL,
-                COLLECTION_ALLOWANCE,
-            );
-            Self {
-                clock,
-                records: tokio::sync::Mutex::new(records),
-                _task: tokio::spawn(writer.run()),
-            }
-        }
-
-        /// Seconds since the harness epoch on the virtual wall clock.
-        fn second(&self) -> u64 {
-            self.clock
-                .wall_now()
-                .duration_since(UNIX_EPOCH)
-                .expect("wall time after the epoch")
-                .as_secs()
-                - EPOCH_SECONDS
-        }
-
-        async fn next_records(&self) -> Vec<MetricRecord> {
-            tokio::time::timeout(Duration::from_secs(10), self.records.lock().await.recv())
-                .await
-                .expect("writer progress deadline")
-                .expect("writer running")
+    #[test]
+    fn descriptors_hold_values_for_the_refresh_interval_plus_the_reporting_delay() {
+        for descriptor in application_metric_descriptors(Duration::from_secs(7)) {
+            assert_eq!(descriptor.validate(), Ok(()), "{}", descriptor.name);
+            assert_eq!(descriptor.sample_interval, Some(Duration::from_secs(7)));
+            assert_eq!(descriptor.gauge_lookback(), Some(Duration::from_secs(12)));
         }
     }
 
-    /// The record of `value` for `service` of `app-1`, on `device` when given, at second
-    /// `second`.
-    fn record(
-        metric: &str,
-        service: &str,
-        device: Option<&str>,
-        second: u64,
-        value: f64,
-    ) -> MetricRecord {
+    /// The record of `value` for `service` of `app-1`, on `device` when given, at the test time.
+    fn record(metric: &str, service: &str, device: Option<&str>, value: f64) -> MetricRecord {
         let labels = LabelSet::new()
             .with("deployment", "app-1")
             .with("service", service)
@@ -411,11 +232,11 @@ mod tests {
             Some(device) => labels.with("device", device),
             None => labels,
         };
-        MetricRecord::gauge(metric, labels, at(second as i64), value)
+        MetricRecord::gauge(metric, labels, at(), value)
     }
 
-    fn at(second: i64) -> SystemTime {
-        UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS.saturating_add_signed(second))
+    fn at() -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(1_700_000_000)
     }
 
     fn application(deployment_id: &str, services: Vec<HostedService>) -> HostedApplication {
@@ -437,19 +258,18 @@ mod tests {
         }
     }
 
-    /// Host figures observed at second `second`.
-    fn host(second: i64, memory_bytes: u64, cpu_utilization: Option<f64>) -> ServiceHostResources {
+    fn host(memory_bytes: u64, cpu_utilization: Option<f64>) -> ServiceHostResources {
         ServiceHostResources {
-            observed_at: at(second),
+            observed_at: at(),
             memory_bytes,
             cpu_utilization,
         }
     }
 
-    /// Accelerator memory of `devices` as (device id, bytes), observed at second `second`.
-    fn accelerator(second: i64, devices: &[(&str, u64)]) -> AcceleratorMemoryObservation {
+    /// Accelerator memory of `devices` as (device id, bytes).
+    fn accelerator(devices: &[(&str, u64)]) -> AcceleratorMemoryObservation {
         AcceleratorMemoryObservation {
-            observed_at: Some(crate::metrics::timestamp(at(second))),
+            observed_at: None,
             refresh: None,
             result: Some(accelerator_memory_observation::Result::Available(
                 AcceleratorMemoryUsageSet {
@@ -470,7 +290,7 @@ mod tests {
 
     fn unavailable() -> AcceleratorMemoryObservation {
         AcceleratorMemoryObservation {
-            observed_at: Some(crate::metrics::timestamp(at(0))),
+            observed_at: None,
             refresh: None,
             result: Some(accelerator_memory_observation::Result::Unavailable(
                 AcceleratorMemoryUnavailable {
@@ -487,14 +307,6 @@ mod tests {
     impl HostedApplicationResources for FixedHosted {
         fn hosted_application_resources(&self) -> Vec<HostedApplication> {
             self.0.clone()
-        }
-    }
-
-    struct ChannelRecorder(mpsc::UnboundedSender<Vec<MetricRecord>>);
-
-    impl MetricRecorder for ChannelRecorder {
-        fn record(&self, records: Vec<MetricRecord>) {
-            let _ = self.0.send(records);
         }
     }
 }

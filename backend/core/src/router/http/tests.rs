@@ -3,7 +3,9 @@
 use std::{sync::Arc, time::Duration};
 
 use dotcore_domain::test_support::tracing::{Record, capture_records, capture_records_async};
-use dotcore_observability::{MetricRecord, MetricRecorder, RecordValue, labels::LabelSet};
+use dotcore_observability::{
+    MetricRecord, RecordValue, labels::LabelSet, test_support::CapturingRecorder,
+};
 use dotcore_proto::dotcore::catalog::v1::InferenceRequestKind;
 use dotcore_proto::dotcore::inference::v1::{
     ChatCompletionChoice, ChatCompletionResult, ChatStreamEvent, ChatStreamStarted, ChatTextDelta,
@@ -1813,17 +1815,7 @@ impl MeteredRouter {
                 _ => None,
             })
         };
-        tokio::time::timeout(WAIT_DEADLINE, async {
-            let mut changes = self.recorder.changes.subscribe();
-            loop {
-                if let Some(value) = find(&self.recorder.records()) {
-                    return value;
-                }
-                changes.changed().await.expect("recorder");
-            }
-        })
-        .await
-        .unwrap_or_else(|_| {
+        self.recorder.wait_for(find).await.unwrap_or_else(|| {
             panic!(
                 "no in-flight sample at {seconds}s: {:?}",
                 self.recorder.records()
@@ -1961,26 +1953,6 @@ impl UpstreamCall {
             .write_all(bytes.as_bytes())
             .await
             .expect("upstream response");
-    }
-}
-
-/// Metric recorder keeping every record, announcing each batch.
-#[derive(Default)]
-struct CapturingRecorder {
-    records: std::sync::Mutex<Vec<MetricRecord>>,
-    changes: watch::Sender<usize>,
-}
-
-impl CapturingRecorder {
-    fn records(&self) -> Vec<MetricRecord> {
-        self.records.lock().expect("records").clone()
-    }
-}
-
-impl MetricRecorder for CapturingRecorder {
-    fn record(&self, records: Vec<MetricRecord>) {
-        self.records.lock().expect("records").extend(records);
-        self.changes.send_modify(|count| *count += 1);
     }
 }
 

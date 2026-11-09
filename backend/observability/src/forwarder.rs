@@ -72,6 +72,7 @@ pub fn forwarder_metric_descriptors() -> Vec<MetricDescriptor> {
             ],
             provenance: MetricProvenance::Node,
             sample_interval: Some(BUCKET_WIDTH),
+            reporting_delay: None,
         },
         MetricDescriptor {
             name: FORWARDER_DROPPED.to_owned(),
@@ -83,6 +84,7 @@ pub fn forwarder_metric_descriptors() -> Vec<MetricDescriptor> {
             ],
             provenance: MetricProvenance::Node,
             sample_interval: None,
+            reporting_delay: None,
         },
     ]
 }
@@ -1245,6 +1247,7 @@ mod tests {
             dimensions: vec![MetricDimension::required("node")],
             provenance: MetricProvenance::Node,
             sample_interval: Some(BUCKET_WIDTH),
+            reporting_delay: None,
         }
     }
 

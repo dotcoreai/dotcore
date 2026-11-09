@@ -240,6 +240,9 @@ impl Follower {
         let now = self.now();
         let step = self.window.step;
         let start = align_down(first, step).max(self.covered_start(now));
+        // A late gauge reading revises every bucket it carries into, so one record can change
+        // points up to a whole lookback after it: for a slowly sampled gauge, its sample interval
+        // plus its reporting delay.
         let end = align_up(last + self.tier_width + self.lookback, step)
             .min(self.open_from)
             .min(self.covered_end(now));
