@@ -219,6 +219,7 @@ Platform services: Artifact manager / Backups manager / Site store
   - Writers own measurement and observability owns retention; recording never blocks the measured work.
   - Every SiteNode sends its metrics through a node-local forwarder to the site manager over the authenticated node channel; a node writes only node-measured metrics about itself.
   - Metric samples carry their observation time; alignment across nodes assumes synchronized node wall clocks.
+  - A gauge reading stays valid for its sample interval plus its reporting delay. Metrics a node can measure only from its full hardware collection declare the site's hardware refresh interval as their sample interval and are recorded once per collection.
   - Does not own node health, deployment status, operation status, or routing readiness.
 
 ## Resource relationships

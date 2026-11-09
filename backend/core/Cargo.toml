@@ -60,6 +60,7 @@ test-support = [
     "dotcore-catalog/test-support",
     "dotcore-domain/test-support",
     "dotcore-host-process/test-support",
+    "dotcore-observability/test-support",
     "dotcore-runtime/test-support",
     "dotcore-runtime-backends/test-support",
     "dotcore-site/test-support",

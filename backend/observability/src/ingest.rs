@@ -614,6 +614,7 @@ mod tests {
                         ],
                         provenance: MetricProvenance::Node,
                         sample_interval: Some(Duration::from_secs(1)),
+                        reporting_delay: None,
                     },
                     MetricDescriptor {
                         name: "router.request.in_flight".to_owned(),
@@ -622,6 +623,7 @@ mod tests {
                         dimensions: vec![MetricDimension::required("route")],
                         provenance: MetricProvenance::Manager,
                         sample_interval: Some(Duration::from_secs(1)),
+                        reporting_delay: None,
                     },
                 ],
                 Arc::new(clock.clone()),

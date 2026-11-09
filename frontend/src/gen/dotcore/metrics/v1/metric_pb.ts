@@ -56,7 +56,7 @@ export type MetricDescriptor = Message<"dotcore.metrics.v1.MetricDescriptor"> & 
   provenance: MetricProvenance;
 
   /**
-   * Expected interval between gauge samples; a gauge reading stays valid for twice this interval. Absent for counters and distributions.
+   * Expected interval between gauge samples; a gauge reading stays valid at least this long, until its next reading is due. Absent for counters and distributions.
    *
    * @generated from field: google.protobuf.Duration sample_interval = 6;
    */

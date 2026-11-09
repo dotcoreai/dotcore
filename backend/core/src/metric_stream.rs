@@ -456,6 +456,7 @@ mod tests {
                         dimensions: vec![MetricDimension::required("node")],
                         provenance: MetricProvenance::Node,
                         sample_interval: Some(Duration::from_secs(1)),
+                        reporting_delay: None,
                     }],
                     Arc::new(clock.clone()),
                 )

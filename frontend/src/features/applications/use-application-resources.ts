@@ -63,7 +63,8 @@ export function applicationResources(
   return resources;
 }
 
-// Apps report every second; a reading a few seconds old no longer counts as current.
+// Apps are measured once per hardware collection, and the store holds each reading until the next
+// one is due, so a step a few seconds past that holding time no longer counts as current.
 const freshSteps = 5;
 
 const resourceQueries: readonly MetricHistoryQuery[] = [

@@ -160,6 +160,72 @@ async fn a_gauge_reading_holds_for_its_lookback_then_goes_absent() {
 }
 
 #[tokio::test]
+async fn a_slowly_sampled_gauge_holds_until_its_next_reading_plus_the_reporting_delay() {
+    let (store, clock) = start_store();
+    let start = aligned(clock.wall_now() - Duration::from_secs(120), 1);
+    store.recorder().record(vec![
+        collection_record(start, 1.0),
+        collection_record(start + Duration::from_secs(30), 2.0),
+    ]);
+
+    let result = store
+        .query(collection_query(QueryRange::Between {
+            start,
+            end: start + Duration::from_secs(100),
+        }))
+        .await
+        .expect("query");
+
+    // Each reading fills every step until the next; the last stays valid for its 30s sample
+    // interval plus the 5s reporting delay, then goes absent.
+    let points = &result.series[0].points;
+    assert_eq!(points.len(), 65);
+    for (second, point) in points.iter().enumerate() {
+        assert_eq!(
+            point.bucket_start,
+            start + Duration::from_secs(second as u64)
+        );
+        let expected = if second < 30 { 1.0 } else { 2.0 };
+        assert_eq!(point.value, PointValue::Gauge(expected));
+    }
+}
+
+#[tokio::test]
+async fn a_slowly_sampled_gauge_bucket_closes_one_second_after_its_reporting_delay() {
+    let (store, clock) = start_store();
+    let now = aligned(clock.wall_now(), 1);
+    store
+        .recorder()
+        .record(vec![collection_record(now - Duration::from_secs(10), 1.0)]);
+
+    let result = store
+        .query(collection_query(QueryRange::Between {
+            start: now - Duration::from_secs(10),
+            end: now,
+        }))
+        .await
+        .expect("query");
+
+    // Buckets ending at least 6s ago are final; later ones still wait for late node samples.
+    let provisional = result.series[0]
+        .points
+        .iter()
+        .map(|point| {
+            let ended = now.duration_since(point.bucket_start).expect("past bucket")
+                - Duration::from_secs(1);
+            (ended.as_secs(), point.provisional)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        provisional,
+        (0..10)
+            .rev()
+            .map(|ended| (ended, ended < 6))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
 async fn an_idle_counter_reads_zero_only_during_the_store_lifetime() {
     let (store, clock) = start_store();
     let started = store.incarnation().started_at;
@@ -1300,6 +1366,16 @@ fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemor
                 dimensions: vec![MetricDimension::required("node")],
                 provenance: MetricProvenance::Node,
                 sample_interval: Some(Duration::from_secs(5)),
+                reporting_delay: None,
+            },
+            MetricDescriptor {
+                name: COLLECTION_GAUGE.to_owned(),
+                kind: MetricKind::Gauge,
+                unit: MetricUnit::Bytes,
+                dimensions: vec![MetricDimension::required("node")],
+                provenance: MetricProvenance::Node,
+                sample_interval: Some(Duration::from_secs(30)),
+                reporting_delay: Some(Duration::from_secs(5)),
             },
             MetricDescriptor {
                 name: "router.requests".to_owned(),
@@ -1308,6 +1384,7 @@ fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemor
                 dimensions: vec![],
                 provenance: MetricProvenance::Manager,
                 sample_interval: None,
+                reporting_delay: None,
             },
             MetricDescriptor {
                 name: "router.request.ttft".to_owned(),
@@ -1316,6 +1393,7 @@ fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemor
                 dimensions: vec![MetricDimension::required("route")],
                 provenance: MetricProvenance::Manager,
                 sample_interval: None,
+                reporting_delay: None,
             },
         ],
         clock,
@@ -1341,6 +1419,7 @@ fn start_virtual_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore
             dimensions: vec![],
             provenance: MetricProvenance::Manager,
             sample_interval: None,
+            reporting_delay: None,
         }],
         Arc::new(clock.clone()),
     )
@@ -1521,6 +1600,20 @@ fn gauge_query(reduce: Reduce, range: QueryRange, step_hint: Duration) -> Metric
         range,
         step_hint,
     }
+}
+
+/// A node gauge sampled every 30s whose readings come at most 5s late.
+const COLLECTION_GAUGE: &str = "node.collection.used";
+
+fn collection_query(range: QueryRange) -> MetricQuery {
+    MetricQuery {
+        metric: COLLECTION_GAUGE.to_owned(),
+        ..gauge_query(Reduce::Last, range, Duration::from_secs(1))
+    }
+}
+
+fn collection_record(at: SystemTime, value: f64) -> MetricRecord {
+    MetricRecord::gauge(COLLECTION_GAUGE, node_labels("node-a"), at, value)
 }
 
 fn gauge_record(node: &str, at: SystemTime, value: f64) -> MetricRecord {

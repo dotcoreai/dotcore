@@ -15,7 +15,10 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::{background_loop::log_unexpected_loop_end, clock::Clock};
+use dotcore_domain::{
+    background_loop::log_unexpected_loop_end,
+    clock::{Clock, next_boundary},
+};
 use dotcore_observability::{
     MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricRecord, MetricRecorder,
     MetricUnit,
@@ -491,6 +494,7 @@ pub(crate) fn router_metric_descriptors() -> Vec<MetricDescriptor> {
         dimensions,
         provenance: MetricProvenance::Manager,
         sample_interval: matches!(kind, MetricKind::Gauge).then_some(IN_FLIGHT_SAMPLE_INTERVAL),
+        reporting_delay: None,
     };
     let route = || MetricDimension::required(labels::ROUTE);
     let outcome = || MetricDimension::required(OUTCOME);
@@ -643,12 +647,16 @@ impl Drop for SamplerTask {
 }
 
 /// Records every declared route's in-flight count for each request kind its members declare,
-/// each interval, plus any deleted route or kind still serving requests.
+/// at each wall-clock multiple of the interval, plus any deleted route or kind still serving
+/// requests. Waiting for the next multiple, rather than one interval after the last sample,
+/// keeps samples on the same second boundaries as every other writer.
 async fn sample_in_flight(shared: Arc<Shared>, routes: Option<RouteManager>) {
     loop {
+        let wall = shared.clock.wall_now();
+        let boundary = next_boundary(wall, IN_FLIGHT_SAMPLE_INTERVAL);
         shared
             .clock
-            .sleep_until(shared.clock.now() + IN_FLIGHT_SAMPLE_INTERVAL)
+            .sleep_until(shared.clock.now() + boundary.duration_since(wall).unwrap_or_default())
             .await;
         // Counts read after the sample time, so a sample never predates the counts it holds.
         let observed_at = shared.clock.wall_now();
@@ -695,8 +703,8 @@ fn is_content(event: &ChatStreamEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::ManualClock;
-    use dotcore_observability::RecordValue;
+    use dotcore_domain::clock::{ManualClock, VirtualClock};
+    use dotcore_observability::{RecordValue, test_support::CapturingRecorder};
     use dotcore_proto::dotcore::inference::v1::{
         ChatReasoningDelta, ChatStreamStarted, ChatTextDelta, ChatToolCallDelta,
     };
@@ -708,6 +716,35 @@ mod tests {
     fn router_metrics_are_valid_declarations() {
         for descriptor in router_metric_descriptors() {
             assert_eq!(descriptor.validate(), Ok(()), "{}", descriptor.name);
+        }
+    }
+
+    #[tokio::test]
+    async fn in_flight_samples_land_on_wall_clock_seconds() {
+        let start = std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        // Started 0.4s into a second, the sampler still samples on whole seconds.
+        let clock = VirtualClock::starting_at(start + Duration::from_millis(400));
+        let recorder = Arc::new(CapturingRecorder::default());
+        let metrics = RouterMetrics::start(
+            Arc::clone(&recorder) as Arc<dyn MetricRecorder>,
+            Arc::new(clock.clone()),
+            None,
+        );
+        let mut meter = metrics.meter(InferenceRequestKind::Chat);
+        meter.resolved("route-id");
+        meter.admitted();
+
+        for second in 1..=3 {
+            clock.advance_to_next_wake().await;
+            let batch = recorder.next_batch().await;
+            assert_eq!(
+                batch
+                    .iter()
+                    .map(|record| (record.metric.as_str(), record.observed_at))
+                    .collect::<Vec<_>>(),
+                vec![(REQUEST_IN_FLIGHT, start + Duration::from_secs(second))],
+                "sample {second}"
+            );
         }
     }
 
@@ -751,7 +788,7 @@ mod tests {
         };
         // Durations follow the real clock, so only their series are asserted.
         assert_eq!(
-            recorder.samples(),
+            samples(&recorder),
             vec![
                 sample(ATTEMPTS, &attempt, true, Some(1.0)),
                 sample(ATTEMPT_DURATION, &attempt, true, None),
@@ -801,41 +838,27 @@ mod tests {
     /// One recorded sample: its metric, labels, and the value of a counter.
     type Sample = (String, BTreeMap<String, String>, Option<f64>);
 
-    /// Recorder keeping every record except in-flight samples, whose timing the sampler owns.
-    #[derive(Default)]
-    struct CapturingRecorder {
-        records: Mutex<Vec<MetricRecord>>,
-    }
-
-    impl CapturingRecorder {
-        fn samples(&self) -> Vec<Sample> {
-            self.records
-                .lock()
-                .expect("records")
-                .iter()
-                .filter(|record| record.metric != REQUEST_IN_FLIGHT)
-                .map(|record| {
-                    let value = match record.value {
-                        RecordValue::Counter(value) => Some(value),
-                        _ => None,
-                    };
-                    (
-                        record.metric.clone(),
-                        record
-                            .labels
-                            .iter()
-                            .map(|(name, value)| (name.to_owned(), value.to_owned()))
-                            .collect(),
-                        value,
-                    )
-                })
-                .collect()
-        }
-    }
-
-    impl MetricRecorder for CapturingRecorder {
-        fn record(&self, records: Vec<MetricRecord>) {
-            self.records.lock().expect("records").extend(records);
-        }
+    /// Every sample `recorder` kept except in-flight samples, whose timing the sampler owns.
+    fn samples(recorder: &CapturingRecorder) -> Vec<Sample> {
+        recorder
+            .records()
+            .iter()
+            .filter(|record| record.metric != REQUEST_IN_FLIGHT)
+            .map(|record| {
+                let value = match record.value {
+                    RecordValue::Counter(value) => Some(value),
+                    _ => None,
+                };
+                (
+                    record.metric.clone(),
+                    record
+                        .labels
+                        .iter()
+                        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+                        .collect(),
+                    value,
+                )
+            })
+            .collect()
     }
 }

@@ -45,6 +45,7 @@ use dotcore_proto::{
     google::protobuf::Empty,
 };
 use dotcore_runtime::{DockerCapabilityReport, NativeCapabilityReport, RuntimeCapabilityProbes};
+use tokio::sync::watch;
 use tonic::transport::{ClientTlsConfig, Endpoint, Identity};
 use tracing::{debug, info, warn};
 use url::Url;
@@ -446,10 +447,12 @@ pub trait CollectionReading: Send + Sync {
 /// Latest complete node observation, shared with node-local consumers such as admission of
 /// accepted model intent and accelerator-memory attribution. Each snapshot carries the start of
 /// the reporting slot it was collected for, so a failed probe appears as an explicit unavailable
-/// outcome and never re-stamps an older fact.
+/// outcome and never re-stamps an older fact. Consumers that act once per collection are told the
+/// revision of each one as it is published.
 #[derive(Clone, Default)]
 pub struct NodeObservationFeed {
     state: Arc<Mutex<FeedState>>,
+    published: Arc<watch::Sender<u64>>,
 }
 
 /// The latest completed collection and the revision of the latest one that began reading.
@@ -498,7 +501,7 @@ impl NodeCollection {
 
 impl NodeObservationFeed {
     /// Replaces the latest observation with one completed collection, reported as observation
-    /// `revision` and stamped with the start of its reporting slot.
+    /// `revision` and stamped with the start of its reporting slot, then announces its revision.
     pub fn publish(&self, collection: NodeCollection, revision: u64, collected_at: SystemTime) {
         self.lock().latest = Some(CollectedNodeObservation {
             snapshot: collection.snapshot,
@@ -506,6 +509,14 @@ impl NodeObservationFeed {
             revision,
             collected_at,
         });
+        self.published.send_replace(revision);
+    }
+
+    /// Follows the revision of the latest published collection, 0 before the first. Revisions
+    /// published in quick succession may be seen only as the latest one; every reader of the
+    /// feed finds the announced collection, or a newer one, already published.
+    pub fn published_revisions(&self) -> watch::Receiver<u64> {
+        self.published.subscribe()
     }
 
     /// Returns the latest completed collection, if any has finished.

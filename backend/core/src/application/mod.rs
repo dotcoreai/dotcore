@@ -8,7 +8,8 @@ pub(crate) mod workloads;
 
 pub(crate) use controller::{
     APPLICATION_RESOURCES_SOURCE, ApplicationNodeViewSection, NodeApplicationComposition,
-    NodeApplicationRealizer, application_metric_descriptors, classify_application_assignment,
+    NodeApplicationRealizer, application_metric_descriptors, application_resource_records,
+    classify_application_assignment,
 };
 pub use controller::{
     ApplicationConfigurationSources, ApplicationController, ApplicationControllerConfiguration,

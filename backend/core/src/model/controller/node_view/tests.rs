@@ -47,14 +47,13 @@ use dotcore_site::{
 };
 
 use super::*;
-use crate::metric_resend::COLLECTION_ALLOWANCE;
 use crate::model::controller::{
     accelerator_memory::{
         ProcessMemoryPort, RuntimeMemoryReading,
         tests::{observed_processes, process, workload},
     },
     metrics::{
-        DEPLOYMENT_ACCELERATOR_MEMORY_USED, DEPLOYMENT_MEMORY_SOURCE, DeploymentMemoryWriter,
+        DEPLOYMENT_ACCELERATOR_MEMORY_USED, DEPLOYMENT_MEMORY_SOURCE, deployment_memory_records,
         deployment_metric_descriptors,
     },
     serving_targets::{LocalServingTargetsPublisher, local_target_for_test},
@@ -717,7 +716,7 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
         InMemoryStoreConfig::default(),
         [
             forwarder_metric_descriptors(),
-            deployment_metric_descriptors(),
+            deployment_metric_descriptors(Duration::from_secs(5)),
         ]
         .concat(),
         Arc::new(clock.clone()),
@@ -734,17 +733,14 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
         ForwarderConfig::default(),
     )
     .expect("start metric forwarder");
-    let _writer = tokio::spawn(
-        DeploymentMemoryWriter::new(
+    // The node records the status's attribution once for the published collection.
+    forwarder
+        .recorder(DEPLOYMENT_MEMORY_SOURCE)
+        .record(deployment_memory_records(
             "worker-one",
-            Arc::clone(&fixture.status) as Arc<dyn HostedAcceleratorMemory>,
-            forwarder.recorder(DEPLOYMENT_MEMORY_SOURCE),
-            Arc::new(clock.clone()),
-            Duration::from_secs(5),
-            COLLECTION_ALLOWANCE,
-        )
-        .run(),
-    );
+            fixture.status.as_ref(),
+            clock.wall_now(),
+        ));
 
     let series = stored_deployment_memory(&store, &clock).await;
 
@@ -762,6 +758,7 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
             .all(|point| point.value == PointValue::Gauge(NATIVE_MEMORY_BYTES as f64)),
         "every second holds the attributed bytes: {series:?}"
     );
+    assert_eq!(forwarder.stale_records(), 0);
 }
 
 /// Node model status over one installed view, real retained node state and a live serving

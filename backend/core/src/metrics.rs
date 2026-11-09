@@ -605,6 +605,7 @@ mod tests {
                 dimensions: Vec::new(),
                 provenance: MetricProvenance::Node,
                 sample_interval: Some(Duration::from_secs(1)),
+                reporting_delay: None,
             });
             let decoded = <proto::MetricDescriptor as prost::Message>::decode(
                 prost::Message::encode_to_vec(&declared).as_slice(),
@@ -1000,6 +1001,7 @@ mod tests {
             dimensions: Vec::new(),
             provenance: MetricProvenance::Manager,
             sample_interval: matches!(kind, MetricKind::Gauge).then_some(Duration::from_secs(1)),
+            reporting_delay: None,
         };
         let store = Arc::new(
             InMemoryMetricStore::start(

@@ -19,6 +19,8 @@ mod query;
 mod record;
 mod retention;
 mod store;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 mod watch;
 
 pub use aggregate::{

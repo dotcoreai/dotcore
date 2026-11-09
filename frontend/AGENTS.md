@@ -97,6 +97,10 @@ frontend/src/
   switch to the loading look only when the hook says so; never draw from the raw pending flag.
 - Draw metric visuals (bar rows, memory rows, history charts) empty at their final size as soon as
   their section mounts, not after the data arrives. Loading feedback only adds text inside them.
+- Resource history (charts, range cards) always comes from metrics (`WatchMetrics`). Each kind of
+  current deployment figure has one source across the console: VRAM from deployment status
+  (`WatchResources`), app CPU and RAM from metrics. Read a new figure from the source its kind
+  already uses, never from both.
 - Every repeating read needs a stop condition: schedule it with `setTimeout` behind the state or
   open panel that needs it, clear the timer on unmount and dependency change, and pause while the
   page is hidden. Never use an always-on `setInterval` or a poll that outlives what displays its

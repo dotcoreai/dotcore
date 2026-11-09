@@ -42,13 +42,18 @@ x509-parser.workspace = true
 
 [features]
 # Test-only fixtures for the unit tests of crates above; never enabled by production builds.
-test-support = ["dotcore-catalog/test-support", "dotcore-domain/test-support"]
+test-support = [
+    "dotcore-catalog/test-support",
+    "dotcore-domain/test-support",
+    "dotcore-observability/test-support",
+]
 
 [dev-dependencies]
 dotcore-catalog = { path = "../catalog", features = ["test-support"] }
 dotcore-domain = { path = "../domain", features = ["test-support"] }
 dotcore-host-process = { path = "../host_process", features = ["test-support"] }
 dotcore-launcher = { path = "../launcher" }
+dotcore-observability = { path = "../observability", features = ["test-support"] }
 dotcore-runtime-backends = { path = "../runtime_backends", features = ["test-support"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

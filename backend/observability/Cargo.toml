@@ -17,6 +17,10 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing.workspace = true
 
+[features]
+# Test-only fakes for the unit tests of crates above; never enabled by production builds.
+test-support = []
+
 [dev-dependencies]
 dotcore-domain = { path = "../domain", features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

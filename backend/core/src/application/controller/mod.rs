@@ -71,7 +71,9 @@ pub use errors::{
 };
 use errors::{configuration, configuration_with_source, outcome_uncertain_with_source};
 pub use logs::ApplicationDeploymentLogController;
-pub(crate) use metrics::{APPLICATION_RESOURCES_SOURCE, application_metric_descriptors};
+pub(crate) use metrics::{
+    APPLICATION_RESOURCES_SOURCE, application_metric_descriptors, application_resource_records,
+};
 use node::ReconciledAssignments;
 pub(crate) use node::{
     NodeApplicationComposition, NodeApplicationRealizer, classify_application_assignment,

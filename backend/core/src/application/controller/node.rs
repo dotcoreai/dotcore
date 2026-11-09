@@ -11,14 +11,11 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Ipv4Addr, SocketAddrV4},
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use dotcore_domain::{
-    SiteNodeId, clock::Clock, deployment::launch_pin::LaunchPinResolver,
-    inference_route::is_valid_route_name,
+    SiteNodeId, deployment::launch_pin::LaunchPinResolver, inference_route::is_valid_route_name,
 };
-use dotcore_observability::MetricRecorder;
 use dotcore_proto::dotcore::{
     application::{
         private::v1::{
@@ -65,9 +62,7 @@ use super::{
     accelerator_memory::GroupAcceleratorAttribution,
     configuration,
     logs::NodeApplicationLogs,
-    metrics::{
-        ApplicationResourceWriter, HostedApplication, HostedApplicationResources, HostedService,
-    },
+    metrics::{HostedApplication, HostedApplicationResources, HostedService},
     outcome_uncertain_with_source,
     realizer::{ApplicationRealizer, NodeRealization, RealizerDependencies},
     resources::GroupResourceAttribution,
@@ -109,15 +104,11 @@ pub(crate) struct NodeApplicationComposition {
 /// Composed node apps-controller realizer, the status owner reporting what it realized, and
 /// the log owner reading what it launched.
 ///
-/// Dropping it stops the realizer's observer and its resource writer; runtime groups it created
-/// keep running.
+/// Dropping it stops the realizer's observer; runtime groups it created keep running.
 pub(crate) struct NodeApplicationRealizer {
     realizer: Arc<ApplicationRealizer>,
     status: Arc<NodeApplicationStatus>,
     logs: Arc<NodeApplicationLogs>,
-
-    /// Task recording the resources the status attributes, once started.
-    resource_writer: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 impl NodeApplicationRealizer {
@@ -191,7 +182,6 @@ impl NodeApplicationRealizer {
                 resources: resource_attribution,
             }),
             logs,
-            resource_writer: Mutex::new(None),
         })
     }
 
@@ -217,33 +207,9 @@ impl NodeApplicationRealizer {
         Arc::new(self.status.resources.clone())
     }
 
-    /// Starts recording the resources this node's status attributes to its application services
-    /// every second, as SiteNode `node_id`, through `recorder` on `clock`. Figures older than
-    /// twice `refresh_interval` plus the collection allowance record nothing.
-    pub(crate) fn start_resource_writer(
-        &self,
-        node_id: &str,
-        recorder: Arc<dyn MetricRecorder>,
-        clock: Arc<dyn Clock>,
-        refresh_interval: Duration,
-    ) {
-        let writer = ApplicationResourceWriter::new(
-            node_id,
-            Arc::clone(&self.status) as Arc<dyn HostedApplicationResources>,
-            recorder,
-            clock,
-            refresh_interval,
-            crate::metric_resend::COLLECTION_ALLOWANCE,
-        );
-        let task = tokio::spawn(writer.run());
-        if let Some(previous) = self
-            .resource_writer
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .replace(task.abort_handle())
-        {
-            previous.abort();
-        }
+    /// Returns the resources this node's status attributes to its application services.
+    pub(crate) fn hosted_resources(&self) -> Arc<dyn HostedApplicationResources> {
+        Arc::clone(&self.status) as Arc<dyn HostedApplicationResources>
     }
 
     #[cfg(test)]
@@ -255,14 +221,6 @@ impl NodeApplicationRealizer {
 impl Drop for NodeApplicationRealizer {
     fn drop(&mut self) {
         self.realizer.shutdown_token().cancel();
-        if let Some(writer) = self
-            .resource_writer
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-        {
-            writer.abort();
-        }
     }
 }
 

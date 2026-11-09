@@ -18,7 +18,7 @@ mod services;
 #[cfg(test)]
 mod tests;
 
-use std::{net::Ipv4Addr, sync::Arc};
+use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use dotcore_catalog::{Catalog, service::CatalogService};
@@ -277,7 +277,9 @@ where
         let metric_store = Arc::new(
             InMemoryMetricStore::start(
                 InMemoryStoreConfig::default(),
-                metric_catalog(),
+                metric_catalog(dotcore_site::validation::hardware_refresh_interval(
+                    &inputs.site,
+                )),
                 Arc::clone(&clock),
             )
             .map_err(|error| {
@@ -529,13 +531,17 @@ fn complete_inputs(
 }
 
 /// Declarations of every metric the site manager's store accepts, beyond those the store records
-/// about itself.
-fn metric_catalog() -> Vec<MetricDescriptor> {
+/// about itself. Metrics recorded once per hardware collection follow the site's
+/// `refresh_interval`, the same one every node collects at.
+fn metric_catalog(refresh_interval: Duration) -> Vec<MetricDescriptor> {
     let mut descriptors = hardware_metric_descriptors();
     descriptors.extend(forwarder_metric_descriptors());
     descriptors.extend(crate::router::metrics::router_metric_descriptors());
-    descriptors.extend(crate::model::controller::metrics::deployment_metric_descriptors());
-    descriptors.extend(crate::application::application_metric_descriptors());
+    descriptors
+        .extend(crate::model::controller::metrics::deployment_metric_descriptors(refresh_interval));
+    descriptors.extend(crate::application::application_metric_descriptors(
+        refresh_interval,
+    ));
     descriptors
 }
 

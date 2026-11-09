@@ -58,6 +58,7 @@ pub(super) fn health_metric_descriptors(up_interval: Duration) -> Vec<MetricDesc
         dimensions: vec![],
         provenance: MetricProvenance::Manager,
         sample_interval: Some(interval),
+        reporting_delay: None,
     };
     let counter = |name: &str, dimensions| MetricDescriptor {
         name: name.to_owned(),
@@ -66,6 +67,7 @@ pub(super) fn health_metric_descriptors(up_interval: Duration) -> Vec<MetricDesc
         dimensions,
         provenance: MetricProvenance::Manager,
         sample_interval: None,
+        reporting_delay: None,
     };
     vec![
         gauge(STORE_UP, MetricUnit::Ratio, up_interval),
