@@ -40,13 +40,10 @@ use tokio_util::sync::CancellationToken;
 use tonic::{Status, transport::Channel};
 use tracing::{debug, warn};
 
-use super::{
-    DeploymentLogReader, MESSAGE_LIMIT_BYTES, WORKER_LOG_DEADLINE, runtime_entry, runtime_error,
-    timestamp,
-};
+use super::{DeploymentLogReader, MESSAGE_LIMIT_BYTES, runtime_entry, runtime_error, timestamp};
 use crate::management_logs::{
     DeploymentLogError, DeploymentLogFollowFailure, DeploymentLogFollowQuery,
-    DeploymentLogReadQuery, DeploymentLogStreams,
+    DeploymentLogReadQuery, DeploymentLogStreams, NODE_LOG_DEADLINE,
 };
 
 /// Events buffered per followed source before the node stream waits for the reader.
@@ -111,7 +108,7 @@ impl NodeDeploymentLogs {
         query: &DeploymentLogReadQuery,
     ) -> Result<Vec<RuntimeLogSourceHistory>, DeploymentLogError> {
         match self.connect(&request) {
-            Some(connection) => read_from(connection, request, query, WORKER_LOG_DEADLINE).await,
+            Some(connection) => read_from(connection, request, query, NODE_LOG_DEADLINE).await,
             None => Ok(unavailable_histories(request.fallback_sources())),
         }
     }
@@ -128,7 +125,7 @@ impl NodeDeploymentLogs {
         match self.connect(&request) {
             Some(connection) => {
                 let present = self.still_present(&request);
-                follow_from(connection, request, query, present, WORKER_LOG_DEADLINE).await
+                follow_from(connection, request, query, present, NODE_LOG_DEADLINE).await
             }
             None => Err(DeploymentLogError::NodeUnavailable),
         }

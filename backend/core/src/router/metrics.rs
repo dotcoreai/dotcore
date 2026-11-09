@@ -476,10 +476,6 @@ const REQUEST_KIND: &str = "request_kind";
 /// Dimension telling whether an attempt targeted a local deployment or an upstream endpoint.
 const TARGET_KIND: &str = "target_kind";
 
-/// Interval between in-flight samples.
-/// Not a behavior duration: the one-second metric bucket contract.
-const IN_FLIGHT_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
-
 /// Histogram scale of latency distributions: percentiles within about 4.4%.
 const LATENCY_SCALE: i8 = 3;
 
@@ -494,7 +490,8 @@ pub(crate) fn router_metric_descriptors() -> Vec<MetricDescriptor> {
         unit,
         dimensions,
         provenance: MetricProvenance::Manager,
-        sample_interval: matches!(kind, MetricKind::Gauge).then_some(IN_FLIGHT_SAMPLE_INTERVAL),
+        sample_interval: matches!(kind, MetricKind::Gauge)
+            .then_some(dotcore_observability::METRIC_BUCKET_WIDTH),
         reporting_delay: None,
     };
     let route = || MetricDimension::required(labels::ROUTE);
@@ -648,13 +645,13 @@ impl Drop for SamplerTask {
 }
 
 /// Records every declared route's in-flight count for each request kind its members declare,
-/// at each wall-clock multiple of the interval, plus any deleted route or kind still serving
-/// requests. Waiting for the next multiple, rather than one interval after the last sample,
-/// keeps samples on the same second boundaries as every other writer.
+/// at each wall-clock multiple of the metric bucket width, plus any deleted route or kind still
+/// serving requests. Waiting for the next multiple, rather than one bucket width after the last
+/// sample, keeps samples on the same second boundaries as every other writer.
 async fn sample_in_flight(shared: Arc<Shared>, routes: Option<RouteManager>) {
     loop {
         let wall = shared.clock.wall_now();
-        let boundary = next_boundary(wall, IN_FLIGHT_SAMPLE_INTERVAL);
+        let boundary = next_boundary(wall, dotcore_observability::METRIC_BUCKET_WIDTH);
         shared
             .clock
             .sleep_until(shared.clock.now() + boundary.duration_since(wall).unwrap_or_default())

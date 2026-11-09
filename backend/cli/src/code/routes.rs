@@ -12,7 +12,6 @@ use serde::Deserialize;
 use super::{CodeError, address::InferenceAddress};
 
 /// How long reading the routes may take, connecting included.
-// Not a behavior duration: bound on one real management call.
 const LIST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Reads the listed route names, in the inference API's order.

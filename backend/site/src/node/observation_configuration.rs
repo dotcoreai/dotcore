@@ -27,13 +27,7 @@ use crate::validation::hardware_refresh_interval;
 
 pub(crate) const NODE_OBSERVATION_CONFIGURATION_SCHEMA_VERSION: u32 = 1;
 const DIGEST_DOMAIN: &[u8] = b"dotcore.worker-observation.v1\0";
-
-/// Shortest hardware refresh interval a node observation configuration may carry.
-/// Not a behavior duration: limit on a site-declared interval.
 const MIN_INTERVAL_SECONDS: u32 = 1;
-
-/// Longest hardware refresh interval a node observation configuration may carry.
-/// Not a behavior duration: limit on a site-declared interval.
 const MAX_INTERVAL_SECONDS: u32 = 3_600;
 
 /// Lowercase SHA-256 identity of one canonical node observation configuration.

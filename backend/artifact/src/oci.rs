@@ -9,6 +9,7 @@
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use bollard::{Docker, errors::Error as BollardError, query_parameters::CreateImageOptionsBuilder};
+use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
 use dotcore_domain::oci::{
     OciReferenceKind, canonical_digest_reference, valid_local_image_id, validate_rendered_reference,
 };
@@ -19,11 +20,6 @@ use super::{
     DockerImageFacts, DockerImageInspectionFuture, DockerImageInspector,
     output::{OutputStream, StepOutput},
 };
-
-/// Longest wait for one bounded Docker Engine request: API version negotiation or an image
-/// inspection.
-// Not a behavior duration: bound on one real Docker Engine request.
-const DOCKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Injectable private preparation boundary for one catalog-selected OCI image.
 pub trait OciImagePreparer: Send + Sync {

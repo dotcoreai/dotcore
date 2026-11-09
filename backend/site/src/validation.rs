@@ -37,16 +37,8 @@ use url::Url;
 
 use crate::repository::SiteRepositoryError;
 
-/// Hardware refresh interval of a site that declares none.
-/// Not a behavior duration: default of the site-declared hardware refresh interval.
 pub(crate) const DEFAULT_HARDWARE_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
-
-/// Shortest hardware refresh interval a site may declare.
-/// Not a behavior duration: limit on a site-declared interval.
 const MIN_HARDWARE_REFRESH_INTERVAL_SECONDS: u32 = 1;
-
-/// Longest hardware refresh interval a site may declare.
-/// Not a behavior duration: limit on a site-declared interval.
 const MAX_HARDWARE_REFRESH_INTERVAL_SECONDS: u32 = 3_600;
 
 /// Returns the validated site-wide current hardware refresh interval.

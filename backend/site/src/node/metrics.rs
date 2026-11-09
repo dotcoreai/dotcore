@@ -7,11 +7,12 @@
 //! sample. A reading a node could not take produces no record, so history shows a gap rather than
 //! a made-up value.
 
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 use dotcore_domain::hardware_observation::HardwareSample;
 use dotcore_observability::{
-    MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricRecord, MetricUnit,
+    METRIC_BUCKET_WIDTH, MetricDescriptor, MetricDimension, MetricKind, MetricProvenance,
+    MetricRecord, MetricUnit,
     labels::{self, LabelSet},
 };
 
@@ -66,12 +67,8 @@ pub const HARDWARE_SAMPLING_SKIPPED: &str = "node.hardware.sampling.skipped";
 /// window.
 pub const HARDWARE_SOURCE: &str = "hardware";
 
-/// Interval at which every node samples its hardware.
-/// Not a behavior duration: the one-second metric bucket contract.
-pub const HARDWARE_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
-
-/// Declarations of the hardware metrics, sampled every [`HARDWARE_SAMPLE_INTERVAL`], and of the
-/// seconds the sampler skipped.
+/// Declarations of the hardware metrics, sampled once per metric bucket, and of the seconds the
+/// sampler skipped.
 pub fn hardware_metric_descriptors() -> Vec<MetricDescriptor> {
     let gauge = |name: &str, unit, dimensions: &[&str]| MetricDescriptor {
         name: name.to_owned(),
@@ -82,7 +79,7 @@ pub fn hardware_metric_descriptors() -> Vec<MetricDescriptor> {
             .map(|dimension| MetricDimension::required(*dimension))
             .collect(),
         provenance: MetricProvenance::Node,
-        sample_interval: Some(HARDWARE_SAMPLE_INTERVAL),
+        sample_interval: Some(METRIC_BUCKET_WIDTH),
         reporting_delay: None,
     };
     vec![
@@ -208,7 +205,7 @@ const DEVICE: &[&str] = &[labels::NODE, labels::DEVICE];
 
 #[cfg(test)]
 mod tests {
-    use std::time::UNIX_EPOCH;
+    use std::time::{Duration, UNIX_EPOCH};
 
     use dotcore_domain::hardware_observation::{
         AcceleratorSample, FilesystemSample, HostMemorySample, HostSample,

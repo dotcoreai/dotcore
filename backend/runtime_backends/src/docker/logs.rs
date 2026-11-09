@@ -2,6 +2,7 @@
 
 use std::{collections::VecDeque, time::SystemTime};
 
+use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
 use dotcore_runtime::{
     MAX_RUNTIME_LOG_ENTRIES, RuntimeBackendError, RuntimeLogEntry, RuntimeLogEvent,
     RuntimeLogHistory, RuntimeLogSource, RuntimeLogStream, RuntimeLogStreamKind,
@@ -11,10 +12,7 @@ use futures_util::{StreamExt as _, stream};
 
 use super::{
     adapter::DockerAdapter,
-    client::{
-        DOCKER_OPERATION_TIMEOUT, DockerClient, DockerLogOutput, DockerLogRequest,
-        DockerLogStreamKind,
-    },
+    client::{DockerClient, DockerLogOutput, DockerLogRequest, DockerLogStreamKind},
 };
 
 pub(super) const MAX_LOG_LINE_BYTES: usize = 64 * 1024;

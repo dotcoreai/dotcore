@@ -32,11 +32,9 @@ use crate::{
 static TRANSACTION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// How often a waiting acquisition retries the site input lock.
-/// Not a behavior duration: poll of a file lock another process may hold.
 const SITE_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Longest time a writer waits for another writer's transaction to release the lock.
-/// Not a behavior duration: bound on a wait for a file lock another process holds.
 const SITE_LOCK_WRITER_WAIT: Duration = Duration::from_secs(30);
 
 /// Holds an advisory sibling site-input lock until dropped.

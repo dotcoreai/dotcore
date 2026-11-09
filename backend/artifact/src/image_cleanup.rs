@@ -32,7 +32,6 @@ use super::{
 const LOADER_NAME_PREFIX: &str = "dotcore-nix/";
 
 /// Longest wait for image loads in progress to finish before cleanup gives up.
-// Not a behavior duration: bound on a wait for a file lock another process may hold.
 const LOCK_WAIT: Duration = Duration::from_secs(30);
 
 /// Docker image cleanup over the machine's daemon and Nix roots.

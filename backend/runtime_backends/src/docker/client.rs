@@ -27,6 +27,7 @@ use bollard::{
         StatsOptionsBuilder, StopContainerOptionsBuilder,
     },
 };
+use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
 use futures_util::{Stream, StreamExt as _, stream};
 
 use super::{
@@ -37,9 +38,6 @@ use super::{
     },
 };
 
-/// Longest one Docker Engine request of the local runtime may take.
-/// Not a behavior duration: bound on one real Docker Engine request.
-pub(super) const DOCKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 /// Log driver of every workload container, so log history does not depend on the daemon default
 /// (a journald default drops lines under its rate limit) and keeps its rotated size bound.
 pub(super) const WORKLOAD_LOG_DRIVER: &str = "local";

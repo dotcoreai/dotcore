@@ -4,12 +4,16 @@
 //! so they always reach the same daemon. It honors a Unix socket chosen in the environment and
 //! otherwise uses the system Docker socket.
 
+use std::time::Duration;
+
 /// Environment variable Docker clients read their daemon endpoint from.
 pub const DOCKER_HOST_ENV: &str = "DOCKER_HOST";
 
 /// Request timeout of the backend's Docker clients, in seconds.
-/// Not a behavior duration: bound on one real Docker Engine request.
 pub const DOCKER_CLIENT_TIMEOUT_SECONDS: u64 = 120;
+
+/// Longest one bounded Docker Engine operation may take.
+pub const DOCKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// System Docker socket used when the environment selects no Unix socket.
 const DEFAULT_ENDPOINT: &str = "unix:///var/run/docker.sock";

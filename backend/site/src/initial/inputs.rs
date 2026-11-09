@@ -46,12 +46,7 @@ use crate::{
     validation::{SiteDeclarationRules, load_validated_site, validate_site},
 };
 
-/// Time a simulated workload of a new site's default scenario takes to become ready.
-/// Not a behavior duration: a value the site declares in its simulated runtime scenario.
 const SIMULATED_READY_DELAY_MILLIS: u64 = 2_000;
-
-/// Time a simulated workload of a new site's default scenario takes to stop.
-/// Not a behavior duration: a value the site declares in its simulated runtime scenario.
 const SIMULATED_STOP_DELAY_MILLIS: u64 = 2_000;
 
 /// Complete in-memory site inputs authored by initial configuration.

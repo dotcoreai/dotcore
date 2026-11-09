@@ -44,8 +44,6 @@ pub const EXIT_FILE: &str = "exit.pb";
 pub const WORK_DIRECTORY: &str = "work";
 
 /// Grace period between the stop signal and the forced kill when a caller has no preference.
-/// Not a behavior duration: time a real workload process gets to stop, which its launcher
-/// measures across backend restarts.
 pub const DEFAULT_GRACE_PERIOD_MS: u64 = 30_000;
 
 /// Size cap of one stream's current log file; one rotated file is kept beside it.

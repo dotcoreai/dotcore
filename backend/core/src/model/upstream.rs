@@ -11,7 +11,6 @@ use dotcore_domain::{clock::Clock, timing::Timing};
 use tokio_util::sync::CancellationToken;
 
 /// Longest one verification of an upstream endpoint may take.
-/// Not a behavior duration: bound on one real HTTP verification round trip.
 pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const MAX_PROBE_BODY_BYTES: usize = 64 * 1024;
 

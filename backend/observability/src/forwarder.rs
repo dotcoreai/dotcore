@@ -46,9 +46,9 @@ pub const NODE_OBSERVING: &str = "node.observing";
 /// sample the forwarder cannot summarize.
 pub const FORWARDER_DROPPED: &str = "observability.forwarder.dropped";
 
-/// Width of the buckets a forwarder summarizes samples into.
-/// Not a behavior duration: the one-second metric bucket contract.
-const BUCKET_WIDTH: Duration = Duration::from_secs(1);
+/// Width of the buckets a forwarder summarizes samples into, and so the interval at which a
+/// regularly sampled metric records one sample per bucket.
+pub const METRIC_BUCKET_WIDTH: Duration = Duration::from_secs(1);
 
 /// Batches sent on a stream and not yet acknowledged before the forwarder waits for an ack, so
 /// re-sending after a long disconnect is paced by the manager.
@@ -72,7 +72,7 @@ pub fn forwarder_metric_descriptors() -> Vec<MetricDescriptor> {
                 MetricDimension::required(labels::SOURCE),
             ],
             provenance: MetricProvenance::Node,
-            sample_interval: Some(BUCKET_WIDTH),
+            sample_interval: Some(METRIC_BUCKET_WIDTH),
             reporting_delay: None,
         },
         MetricDescriptor {
@@ -264,7 +264,7 @@ impl Forwarder {
                     continue;
                 }
             };
-            let start = aligned_bucket_start(record.observed_at, BUCKET_WIDTH);
+            let start = aligned_bucket_start(record.observed_at, METRIC_BUCKET_WIDTH);
             if let Some(flushed) = state.flushed_through
                 && start <= flushed
             {
@@ -320,7 +320,7 @@ impl Forwarder {
         let mut state = self.state.lock().expect("metric forwarder lock");
         loop {
             let (&start, _) = state.open.first_key_value()?;
-            let due = start + BUCKET_WIDTH + self.config.flush_grace;
+            let due = start + METRIC_BUCKET_WIDTH + self.config.flush_grace;
             if due > now {
                 return Some(due);
             }
@@ -365,7 +365,7 @@ impl Forwarder {
             .collect();
         let bucket = MetricBucket {
             start,
-            width: BUCKET_WIDTH,
+            width: METRIC_BUCKET_WIDTH,
             series,
         };
         let bytes = estimated_bytes(&bucket);
@@ -1036,7 +1036,8 @@ mod tests {
         )
         .expect("start forwarder");
         // Five seconds old, so its grace has already passed.
-        let bucket = aligned_bucket_start(clock.wall_now(), BUCKET_WIDTH) - Duration::from_secs(5);
+        let bucket =
+            aligned_bucket_start(clock.wall_now(), METRIC_BUCKET_WIDTH) - Duration::from_secs(5);
 
         forwarder.recorder("hardware").record(vec![
             memory(NODE, bucket + Duration::from_millis(100), 3.0),
@@ -1064,9 +1065,9 @@ mod tests {
                 percentiles: vec![],
                 range: QueryRange::Between {
                     start: bucket,
-                    end: bucket + BUCKET_WIDTH,
+                    end: bucket + METRIC_BUCKET_WIDTH,
                 },
-                step_hint: BUCKET_WIDTH,
+                step_hint: METRIC_BUCKET_WIDTH,
             };
             let store = &store;
             async move {
@@ -1248,7 +1249,7 @@ mod tests {
             unit: MetricUnit::Bytes,
             dimensions: vec![MetricDimension::required("node")],
             provenance: MetricProvenance::Node,
-            sample_interval: Some(BUCKET_WIDTH),
+            sample_interval: Some(METRIC_BUCKET_WIDTH),
             reporting_delay: None,
         }
     }

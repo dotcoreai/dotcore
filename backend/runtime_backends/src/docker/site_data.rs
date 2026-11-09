@@ -4,7 +4,6 @@ use std::{
     future::Future,
     io,
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use anyhow::Context as _;
@@ -17,14 +16,12 @@ use bollard::{
         WaitContainerOptionsBuilder,
     },
 };
+use dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT;
 use tokio_stream::StreamExt;
 
 pub const SITE_DATA_CLEANUP_IMAGE: &str =
     "busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662";
 
-/// Longest one Docker Engine operation of the root-owned site data cleanup may take.
-/// Not a behavior duration: bound on one real Docker Engine operation.
-const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 const CLEANUP_COMMAND: &str = "rm -rf /site/* /site/.[!.]* /site/..?*";
 
 pub async fn cleanup_root_owned_site_data(site_root: &Path) -> anyhow::Result<()> {
@@ -70,7 +67,7 @@ pub async fn cleanup_root_owned_site_data(site_root: &Path) -> anyhow::Result<()
         clippy::disallowed_methods,
         reason = "bounds a real Docker Engine operation"
     )]
-    let outcome = tokio::time::timeout(OPERATION_TIMEOUT, waiting.next())
+    let outcome = tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, waiting.next())
         .await
         .map_err(|source| anyhow::Error::new(source).context("root-owned site cleanup timed out"))
         .and_then(|outcome| {
@@ -160,7 +157,7 @@ async fn provision_cleanup_image(docker: &Docker) -> anyhow::Result<()> {
         }
         Ok(())
     };
-    tokio::time::timeout(OPERATION_TIMEOUT, pulling)
+    tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, pulling)
         .await
         .map_err(|source| {
             anyhow::Error::new(source).context("pinned site cleanup image pull timed out")
@@ -225,7 +222,7 @@ async fn bounded<T>(
     operation: &'static str,
     future: impl Future<Output = Result<T, bollard::errors::Error>>,
 ) -> anyhow::Result<T> {
-    tokio::time::timeout(OPERATION_TIMEOUT, future)
+    tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, future)
         .await
         .map_err(|source| anyhow::Error::new(source).context(format!("{operation} timed out")))?
         .map_err(anyhow::Error::new)

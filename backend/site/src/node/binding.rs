@@ -12,7 +12,6 @@ use dotcore_proto::dotcore::{
 };
 
 /// Default number of daily backend log files to retain.
-/// Not a behavior duration: a count of daily log files, which an operator may configure.
 pub const DEFAULT_LOG_RETENTION_DAYS: u32 = 7;
 
 /// A server-local binding to exactly one declared SiteNode.

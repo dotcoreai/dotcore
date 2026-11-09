@@ -21,7 +21,6 @@ use crate::{
     },
 };
 
-// Not a behavior duration: a unit for age thresholds an operator states in days.
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Removes the shared workload storage that no workload used for more than `unused_days` days,

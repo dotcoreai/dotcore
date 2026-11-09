@@ -32,7 +32,6 @@ use super::{
 };
 
 /// Longest time startup waits for a site writer to release the site input lock.
-/// Not a behavior duration: bound on a wait for a file lock another process holds.
 const SITE_INPUT_LOCK_WAIT: Duration = Duration::from_secs(30);
 
 /// Complete prepared backend and the only whole-product composition façade.

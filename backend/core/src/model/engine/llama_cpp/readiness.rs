@@ -20,8 +20,6 @@ use crate::{
 };
 
 const MAX_HTTP_RESPONSE_BYTES: usize = 1024 * 1024;
-/// Longest one llama.cpp readiness probe may wait on the engine's answer.
-/// Not a behavior duration: bound on real loopback I/O of a readiness probe.
 const READINESS_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Probes one llama.cpp service on its loopback endpoint for readiness under its served model id.

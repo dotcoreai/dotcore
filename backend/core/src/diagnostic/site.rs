@@ -43,9 +43,10 @@ use tonic::{Request, Response, Status, transport::Channel};
 use tracing::debug;
 
 use super::{
-    MAX_RESPONSE_BYTES, MESSAGE_LIMIT_BYTES, NODE_DIAGNOSTIC_DEADLINE, NodeDiagnosticReader,
-    node::NodeFollowFrames, resolve_page_size, retained::CancellableDiagnosticStream,
+    MAX_RESPONSE_BYTES, MESSAGE_LIMIT_BYTES, NodeDiagnosticReader, node::NodeFollowFrames,
+    resolve_page_size, retained::CancellableDiagnosticStream,
 };
+use crate::management_logs::NODE_LOG_DEADLINE;
 
 /// Concurrent site history reads; each fans out to every selected machine.
 const MAX_HISTORY_READS: usize = 4;
@@ -246,7 +247,7 @@ impl NodeDiagnostics {
             site,
             coordinator,
             local: None,
-            deadline: NODE_DIAGNOSTIC_DEADLINE,
+            deadline: NODE_LOG_DEADLINE,
         }
     }
 

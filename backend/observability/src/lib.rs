@@ -35,8 +35,8 @@ pub use descriptor::{
     MetricUnit, validate_catalog,
 };
 pub use forwarder::{
-    ForwarderConfig, ForwarderStartError, MetricForwarder, MetricForwarderTask, NODE_OBSERVING,
-    forwarder_metric_descriptors,
+    ForwarderConfig, ForwarderStartError, METRIC_BUCKET_WIDTH, MetricForwarder,
+    MetricForwarderTask, NODE_OBSERVING, forwarder_metric_descriptors,
 };
 pub use histogram::{ExponentialHistogram, MAX_HISTOGRAM_SCALE, MIN_HISTOGRAM_SCALE};
 pub use ingest::{BucketStreamEnd, InProcessBucketTransport, MetricBucketIngest};

@@ -18,7 +18,6 @@ use super::{Result, Supervisor, SupervisorError};
 use crate::workload::{LogRecord, LogStream};
 
 /// Delay between two reads of a followed log that had nothing new.
-/// Not a behavior duration: poll of a real log file the launcher writes.
 const FOLLOW_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Reads the retained records of both streams, ordered by time.

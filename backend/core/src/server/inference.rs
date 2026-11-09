@@ -8,8 +8,6 @@ use super::{ServerError, ServerResult};
 use crate::router::InferenceRouter;
 
 const MAX_CONCURRENT_CONNECTIONS: usize = 4;
-/// Longest one inference connection may stay open, streamed answers included.
-/// Not a behavior duration: bound on one real inference connection.
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 pub(super) fn prepare<F>(

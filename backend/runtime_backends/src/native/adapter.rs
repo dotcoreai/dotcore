@@ -45,11 +45,9 @@ use super::{
 pub const BACKEND_ID: &str = "runtime/native";
 
 /// Interval between the checks of a new workload while its ports settle.
-/// Not a behavior duration: poll of a real workload process.
 const PORT_SETTLE_POLL: Duration = Duration::from_millis(50);
 
 /// Longest wait for a connection that tells whether a loopback port is in use.
-/// Not a behavior duration: bound on a real loopback connect.
 const PORT_CONNECT_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// Runtime backend that runs workloads of one execution target as launcher-held host processes.

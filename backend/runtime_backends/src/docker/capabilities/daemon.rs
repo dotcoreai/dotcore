@@ -1,17 +1,12 @@
 //! Local Docker daemon negotiation and read-only capability inspection.
 
-use std::time::Duration;
-
 use anyhow::Context;
 use bollard::models::SystemInfo;
-use dotcore_domain::{ExecutionPlatform, ExecutionPlatformError};
+use dotcore_domain::{ExecutionPlatform, ExecutionPlatformError, docker::DOCKER_OPERATION_TIMEOUT};
 
 use crate::docker::client::{LocalDockerClient, WORKLOAD_LOG_DRIVER, bounded_operation};
 
 const DAEMON_CAPABILITY_PROBE: &str = "Docker daemon capability probe";
-/// Longest the Docker daemon capability probe may wait on the Docker Engine.
-/// Not a behavior duration: bound on one real Docker Engine request.
-const DOCKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Effective platform and CDI facts reported by one Docker daemon.
 pub(in crate::docker) struct DockerDaemonCapability {

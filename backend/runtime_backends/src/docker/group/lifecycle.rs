@@ -114,7 +114,7 @@ impl<C: DockerClient> DockerAdapter<C> {
         sources: &RuntimeLogSourceSelection,
         query: &dotcore_runtime::RuntimeLogQuery,
     ) -> Result<Vec<RuntimeLogSourceHistory>, RuntimeBackendError> {
-        tokio::time::timeout(super::super::client::DOCKER_OPERATION_TIMEOUT, async {
+        tokio::time::timeout(dotcore_domain::docker::DOCKER_OPERATION_TIMEOUT, async {
             let Some(known) = self.exact_log_group(group, sources)? else {
                 return Ok(sources
                     .sources()
