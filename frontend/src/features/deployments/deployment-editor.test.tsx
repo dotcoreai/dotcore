@@ -5,7 +5,7 @@ import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "r
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
+import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
 import { DeploymentEditor, type DeploymentEditorProps } from "./deployment-editor";

@@ -2,20 +2,19 @@ import { create } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
 import {
+  configuredExecutionTargetOptionLabel,
+  defaultExecutionTarget,
+  executionTargetName,
+  executionTargetPresentation,
+  placedExecutionTargetName,
+} from "@/domain/execution-target";
+import {
   ConfiguredExecutionTargetSchema,
   ExecutionTargetAvailabilitySchema,
   ExecutionTargetWorkloadKind,
   NodeObservationState,
   RuntimeTargetAvailabilitySchema,
 } from "@/gen/dotcore/site/v1/service_pb";
-
-import {
-  configuredExecutionTargetOptionLabel,
-  defaultExecutionTarget,
-  executionTargetName,
-  executionTargetPresentation,
-  placedExecutionTargetName,
-} from "./execution-target";
 
 function target(
   connectionState: NodeObservationState,

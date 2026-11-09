@@ -1,3 +1,4 @@
+import { modelDeploymentPresentationName } from "@/domain/model-projection";
 import { dimensionNames, metricNames } from "@/features/metrics/metric-names";
 import {
   counterQuery,
@@ -7,7 +8,6 @@ import {
   requestCardSpecs,
 } from "@/features/metrics/request-card-specs";
 import type { MetricCardSpec, MetricCardSplit } from "@/features/metrics/use-metric-cards";
-import { modelDeploymentPresentationName } from "@/features/models/model-projection";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 

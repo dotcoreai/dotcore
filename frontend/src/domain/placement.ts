@@ -2,6 +2,7 @@ import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import type { ConfiguredExecutionTarget, Machine } from "@/gen/dotcore/site/v1/service_pb";
 
 import { placedExecutionTargetName } from "./execution-target";
+import { machineName } from "./machine-name";
 
 /**
  * Names where a deployment runs: the machine's display name and the execution target's display
@@ -16,13 +17,16 @@ export function placementLabel(
 ): string {
   if (!placement) return "Unavailable";
 
-  const name = machineName(placement.siteNodeId, machine);
+  const name = placementMachineName(placement.siteNodeId, machine);
   return targets ? placedExecutionTargetName(placement, targets, name) : name;
 }
 
-/** A machine's display name, or its SiteNode ID when the name is unknown. */
-export function machineName(siteNodeId: string, machine: Machine | undefined): string {
-  return machine?.displayName || siteNodeId;
+/**
+ * The name of the machine a placement's SiteNode runs on. A machine the site doesn't list shows the
+ * SiteNode ID, which is also its machine ID.
+ */
+export function placementMachineName(siteNodeId: string, machine: Machine | undefined): string {
+  return machine ? machineName(machine) : siteNodeId;
 }
 
 /** The listed machine a placement's SiteNode names, if the site reports it. */

@@ -1,10 +1,4 @@
-import type { ComboboxOption } from "@/components/ui/combobox";
-import {
-  localModelSnapshot,
-  modelDeploymentPresentationName,
-  modelStatusLabel,
-  projectModelDeploymentStatus,
-} from "@/features/models/model-projection";
+import { modelDeploymentPresentationName, modelStatusLabel } from "@/domain/model-projection";
 import { ModelInputModality } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
 import {
   type FallbackGroupAvailability,
@@ -15,32 +9,8 @@ import {
   type InferenceRouteView,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
-import { ModelDeploymentDesiredState } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import type { StatusProjection } from "@/lib/status-projection";
-
-export function deploymentOptions(
-  deployments: readonly ModelDeployment[],
-  selectedIds: readonly string[],
-): ComboboxOption[] {
-  const options = deployments
-    .filter((deployment) => deployment.desiredState !== ModelDeploymentDesiredState.TEARDOWN)
-    .map((deployment) => ({
-      id: deployment.modelDeploymentId,
-      label: deploymentLabel(deployment),
-      detail: deploymentModelName(deployment),
-      markerColorKey: deployment.modelDeploymentId,
-      status: projectModelDeploymentStatus(deployment),
-    }));
-  const knownIds = new Set(options.map((option) => option.id));
-
-  return [
-    ...options,
-    ...selectedIds
-      .filter((id) => !knownIds.has(id))
-      .map((id) => ({ id, label: `Unavailable deployment (${id})`, disabled: true })),
-  ];
-}
 
 /** A route's projected status and the fallback group the console shows as serving, if any. */
 export interface RouteHealth {
@@ -168,16 +138,6 @@ export function projectTierStatus(
 /** The name the console shows for a model deployment: its own name, or its model's name. */
 export function deploymentLabel(deployment: ModelDeployment): string {
   return modelDeploymentPresentationName(deployment);
-}
-
-/**
- * The model display name shown beside a deployment's own name so deployments of one model can be told
- * apart. Empty when the deployment has no name of its own, since the label is already the model name.
- */
-function deploymentModelName(deployment: ModelDeployment): string {
-  if (!deployment.modelDeploymentName) return "";
-
-  return localModelSnapshot(deployment.snapshot)?.modelDisplayName ?? "";
 }
 
 /** Whether a reported group has a member the router could pick for a text request. */

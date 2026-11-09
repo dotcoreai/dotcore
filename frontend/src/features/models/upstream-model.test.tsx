@@ -6,6 +6,7 @@ import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "r
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
+import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
 import { ChatOpenerContext } from "@/features/chat/chat-opener";
 import {
   counterPoint,
@@ -31,7 +32,6 @@ import {
   UpstreamModelInputCapabilitiesSchema,
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStateSchema, ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { PanelParentContext } from "@/panels/panel-titles-context";
 import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";

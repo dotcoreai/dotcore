@@ -4,8 +4,8 @@
  * Builds one import graph over every source file (type-only imports, dynamic `import()` and
  * `vi.mock` paths included, since they are structural) and checks it twice: between files, and
  * between `features/<name>` folders, where features mostly loop through different files. Known
- * loops are allowlisted by folder; an allowlist entry with no loop left fails the test, so the
- * lists only shrink. The layer order is checked by lint.
+ * file loops are allowlisted by folder; an allowlist entry with no loop left fails the test, so the
+ * list only shrinks. Features never loop. The layer order is checked by lint.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -26,14 +26,6 @@ const RESOLVE_SUFFIXES = ["", ".ts", ".tsx", "/index.ts", "/index.tsx"];
 // Folders where files may import each other in a loop: the loop is kept inside one folder.
 const KEPT_FILE_LOOP_FOLDERS = ["features/models", "features/preferences", "resource-watch"];
 
-// Features that may loop among themselves until the named phase removes the loops.
-const ALLOWED_FEATURE_LOOPS = [
-  {
-    removedBy: "phase 05 shared domain",
-    features: ["applications", "inference", "machines", "memory", "models", "overview", "routes"],
-  },
-];
-
 describe("import cycles", () => {
   const fileGraph = buildFileGraph();
 
@@ -43,11 +35,10 @@ describe("import cycles", () => {
     expect(checkLoops(fileGraph, allowed)).toEqual([]);
   });
 
-  it("finds no unlisted import cycle between features", () => {
+  it("finds no import cycle between features", () => {
     const { graph, imports } = buildFeatureGraph(fileGraph);
-    const allowed = ALLOWED_FEATURE_LOOPS.map((loop) => loop.features);
 
-    expect(checkLoops(graph, allowed, (edge) => imports.get(edge)!)).toEqual([]);
+    expect(checkLoops(graph, [], (edge) => imports.get(edge)!)).toEqual([]);
   });
 });
 

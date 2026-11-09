@@ -3,13 +3,14 @@ import { useMemo } from "react";
 import { machineSummary } from "@/features/machines/machine-resources";
 import { useDescribedMachines } from "@/features/memory/described-machines";
 import type { MachineSnapshotDetail } from "@/features/memory/use-hardware-snapshots";
+import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
+
 import {
   type MachineFacts,
   machineFacts,
   machineFactsFromKey,
   machineFactsKey,
-} from "@/features/overview/machine-site-values";
-import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
+} from "./machine-site-values";
 
 /** The listed machines and the facts of their hardware that readings combine by. */
 export interface MachineFleet {

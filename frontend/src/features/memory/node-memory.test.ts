@@ -1,7 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
 
-import { runningDeployment } from "@/features/models/model-deploy-memory-test-support";
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import { NodeMemoryState } from "@/gen/dotcore/capacity/v1/memory_pb";
 import { AcceleratorMemoryObservationSchema } from "@/gen/dotcore/deployment/v1/accelerator_memory_pb";
@@ -18,6 +17,7 @@ import {
   mib,
   nodeMemory,
   other,
+  runningDeployment,
   unsized,
 } from "./node-memory-test-support";
 import { pastTotalCapacity } from "./pool-spans";

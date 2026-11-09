@@ -5,10 +5,8 @@ import type { DataTableDefinition } from "@/components/data-table/data-table-mod
 import { createDataTableViewCodec } from "@/components/data-table/data-table-view";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { nodeConnectionStatus } from "@/features/deployments/execution-target";
-import { machineName } from "@/features/memory/described-machines";
-import type { MachineNow } from "@/features/overview/machine-site-values";
-import { formatReading, formatUsed } from "@/features/overview/overview-machine-specs";
+import { nodeConnectionStatus } from "@/domain/execution-target";
+import { machineName } from "@/domain/machine-name";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { type Machine, NodeObservationState } from "@/gen/dotcore/site/v1/service_pb";
@@ -16,6 +14,8 @@ import { formatCount } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";
 
 import { machineInspectorPanelId } from "./machine-panels";
+import { formatReading, formatUsed } from "./machine-readings";
+import type { MachineNow } from "./machine-site-values";
 
 /** A column of the machines table, in display order. */
 export type MachineColumnId = "machine" | "connection" | "cpu" | "ram" | "vram" | "running";

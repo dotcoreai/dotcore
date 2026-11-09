@@ -1,21 +1,10 @@
 import {
   type ChartSeries,
   type ChartUnit,
-  formatChartValue,
   formatChartValueParts,
 } from "@/components/metrics/time-series-chart/chart-data";
-import { machineName } from "@/features/memory/described-machines";
-import { dimensionNames, metricNames } from "@/features/metrics/metric-names";
-import { gaugeRange } from "@/features/metrics/metric-range-values";
-import type {
-  MetricCardReading,
-  MetricCardSpec,
-  MetricCardSplit,
-} from "@/features/metrics/use-metric-cards";
-import type { MetricAnswer, MetricHistoryQuery } from "@/features/metrics/use-metric-watch";
-import { MetricAggregate, MetricReduce } from "@/gen/dotcore/metrics/v1/metric_pb";
-import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
-
+import { machineName } from "@/domain/machine-name";
+import { formatReading, machineQueries, usedParts } from "@/features/machines/machine-readings";
 import {
   type MachineFacts,
   type MachineGrids,
@@ -26,7 +15,17 @@ import {
   noMachineFacts,
   siteSignal,
   type Steps,
-} from "./machine-site-values";
+} from "@/features/machines/machine-site-values";
+import { dimensionNames } from "@/features/metrics/metric-names";
+import { gaugeRange } from "@/features/metrics/metric-range-values";
+import type {
+  MetricCardReading,
+  MetricCardSpec,
+  MetricCardSplit,
+} from "@/features/metrics/use-metric-cards";
+import type { MetricAnswer } from "@/features/metrics/use-metric-watch";
+import { MetricReduce } from "@/gen/dotcore/metrics/v1/metric_pb";
+import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 
 /** The split id and card ids of the machines section. */
 export const machineSplitId = "machine";
@@ -43,48 +42,6 @@ export const machineCardIds = [
 ] as const;
 
 type MachineCardId = (typeof machineCardIds)[number];
-
-/**
- * The machine metrics the overview reads, each per machine (and per GPU for memory), in the order
- * the "now" stream asks for them. GPU utilization is averaged over a machine's GPUs, temperature is
- * its hottest GPU, storage its largest filesystem; every other reading is summed. A bucket reduces
- * to its latest reading unless a reader asks otherwise.
- */
-export const machineMetrics: readonly MachineMetric[] = [
-  "cpu",
-  "gpu",
-  "power",
-  "temperature",
-  "ramTotal",
-  "ramAvailable",
-  "vramUsed",
-  "vramTotal",
-  "storageSize",
-  "storageUsed",
-];
-
-export const machineQueries: Readonly<Record<MachineMetric, MetricHistoryQuery>> = (() => {
-  const query = (
-    metric: string,
-    groupBy: readonly string[],
-    aggregate = MetricAggregate.SUM,
-  ): MetricHistoryQuery => ({ aggregate, groupBy, matchers: {}, metric });
-  const node = [dimensionNames.node];
-  const device = [dimensionNames.node, dimensionNames.device];
-
-  return {
-    cpu: query(metricNames.nodeHostCpuUtilization, node, MetricAggregate.AVG),
-    gpu: query(metricNames.nodeAcceleratorUtilization, node, MetricAggregate.AVG),
-    power: query(metricNames.nodeAcceleratorPower, node),
-    ramAvailable: query(metricNames.nodeHostMemoryAvailable, node),
-    ramTotal: query(metricNames.nodeHostMemoryTotal, node),
-    storageSize: query(metricNames.nodeFilesystemSize, node, MetricAggregate.MAX),
-    storageUsed: query(metricNames.nodeFilesystemUsed, node, MetricAggregate.MAX),
-    temperature: query(metricNames.nodeAcceleratorTemperature, node, MetricAggregate.MAX),
-    vramTotal: query(metricNames.nodeAcceleratorMemoryTotal, device),
-    vramUsed: query(metricNames.nodeAcceleratorMemoryUsed, device),
-  };
-})();
 
 /** A machine card's headline: the value and unit, and the line below. */
 export interface MachineHeadline {
@@ -139,17 +96,6 @@ export function machineSplit(machines: readonly Machine[] = []): MetricCardSplit
   };
 }
 
-/** A reading in its unit, such as "45%" or "150 W"; "—" when absent. */
-export function formatReading(unit: ChartUnit, value: number | undefined): string {
-  return value === undefined ? "—" : formatChartValue(unit, value);
-}
-
-/** Used against total memory as "12.3 / 64 GiB" over one unit, or in full when the units differ. */
-export function formatUsed(used: number | undefined, total: number | undefined): string {
-  const { unit, value } = usedHeadline(used, total);
-  return unit ? `${value} ${unit}` : value;
-}
-
 /**
  * One machine card: the signal it shows, the metrics that signal reads, the extremes its peak
  * reads them at, and its headline wording.
@@ -192,7 +138,7 @@ const machineCards: readonly MachineCard[] = [
   {
     capacity: { label: "Total", signal: "ramTotal" },
     headline: (reading, { now }) => ({
-      ...usedHeadline(now?.ramUsed, now?.ramTotal),
+      ...usedParts(now?.ramUsed, now?.ramTotal),
       line: reading ? `peak ${peakText("bytes", reading)}` : undefined,
     }),
     id: "ram",
@@ -221,7 +167,7 @@ const machineCards: readonly MachineCard[] = [
       if (!facts.dedicated.size) return { line: "unified memory, see RAM", value: "—" };
 
       return {
-        ...usedHeadline(now?.vramUsed, now?.vramTotal),
+        ...usedParts(now?.vramUsed, now?.vramTotal),
         line: reading ? `peak ${peakText("bytes", reading)}` : undefined,
       };
     },
@@ -262,7 +208,7 @@ const machineCards: readonly MachineCard[] = [
     capacity: { label: "Total", signal: "storageSize" },
     // Used storage, against the size of each machine's largest filesystem.
     headline: (reading, { now }) => ({
-      ...usedHeadline(now?.storageUsed, now?.storageSize),
+      ...usedParts(now?.storageUsed, now?.storageSize),
       line: reading ? `peak ${peakText("bytes", reading)}` : undefined,
     }),
     id: "storage",
@@ -367,18 +313,6 @@ function peakText(unit: ChartUnit, reading: MetricCardReading): string {
 
 function headlineParts(unit: ChartUnit, value: number | undefined): MachineHeadline {
   return value === undefined ? { value: "—" } : formatChartValueParts(unit, value);
-}
-
-/** Used against total memory as "12.3 / 64" over one unit, or in full when the units differ. */
-function usedHeadline(used: number | undefined, total: number | undefined): MachineHeadline {
-  if (used === undefined || total === undefined) return { value: "—" };
-
-  const usedParts = formatChartValueParts("bytes", used);
-  const totalParts = formatChartValueParts("bytes", total);
-
-  return usedParts.unit === totalParts.unit
-    ? { unit: totalParts.unit, value: `${usedParts.value} / ${totalParts.value}` }
-    : { value: `${formatChartValue("bytes", used)} / ${formatChartValue("bytes", total)}` };
 }
 
 function line(

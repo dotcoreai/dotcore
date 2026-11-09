@@ -5,8 +5,8 @@ import type { MetricRange } from "@/features/metrics/metric-ranges";
 import { useMetricAnswers } from "@/features/metrics/use-metric-watch";
 import { useWatchPaused } from "@/hooks/use-watch-pause";
 
+import { machineMetrics, machineQueries } from "./machine-readings";
 import { type MachineFacts, type MachineNow, machineNow } from "./machine-site-values";
-import { machineMetrics, machineQueries } from "./overview-machine-specs";
 
 /** The newest closed readings of the site and of each machine. */
 export interface MachinesNow {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 
+import { machineName } from "@/domain/machine-name";
 import type { HardwareSnapshot } from "@/gen/dotcore/observation/v1/observation_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 
@@ -49,9 +50,4 @@ export function useDescribedMachines(
       }),
     [latest, machines],
   );
-}
-
-/** A machine's display name, or its id when it has none. */
-export function machineName(machine: Machine): string {
-  return machine.displayName || machine.machineId;
 }

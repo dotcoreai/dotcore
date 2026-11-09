@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DataTable } from "@/components/data-table/data-table";
 import { buildDataTable } from "@/components/data-table/data-table-model";
+import { projectApplicationDeploymentStatus } from "@/domain/application-projection";
 import {
   ApplicationDeploymentDesiredState,
   ApplicationDeploymentSchema,
@@ -24,7 +25,6 @@ import {
   applicationDeploymentViewCodec,
 } from "./application-deployment-table";
 import { DeploymentApplicationInspector } from "./application-inspector";
-import { projectApplicationDeploymentStatus } from "./application-projection";
 
 /**
  * A table row shows an aggregate status and an inspector shows the underlying states as separate

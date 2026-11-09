@@ -1,4 +1,6 @@
 import { type ValueRange, valueRange } from "@/components/data-table/data-table-model";
+import { localModelSnapshot, projectCatalogModelStatus } from "@/domain/model-projection";
+import { mergeRequestKinds } from "@/domain/request-kinds";
 import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
 import {
@@ -15,11 +17,9 @@ import type {
 import { EngineKind } from "@/gen/dotcore/engine/v1/engine_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { SizingScenarioUnsupportedReason } from "@/gen/dotcore/model/v1/service_pb";
-import { mergeRequestKinds } from "@/lib/request-kinds";
 import type { StatusProjection } from "@/lib/status-projection";
 
 import { maximumContext as configurationMaximumContext } from "./engine-parameter-values";
-import { localModelSnapshot, projectCatalogModelStatus } from "./model-projection";
 import type { MemoryBasis, MemoryFit } from "./profile-compatibility";
 import { sizingUnsupportedText } from "./sizing-scenario";
 

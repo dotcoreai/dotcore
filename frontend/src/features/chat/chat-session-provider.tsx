@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useMemo, useState } from "react";
 import type { ChatClient } from "@/api/chat-client";
 import type { DecisionClient } from "@/api/decision-client";
 import type { ComboboxOption } from "@/components/ui/combobox";
+import { requestKindsLabel, servesChat } from "@/domain/request-kinds";
 import type { ChatMode } from "@/features/chat/chat-opener";
 import {
   ChatConversationContext,
@@ -18,7 +19,6 @@ import { InferenceRequestKind } from "@/gen/dotcore/catalog/v1/model_capabilitie
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { getBrowserStorage, type StorageLike } from "@/lib/browser-storage";
-import { requestKindsLabel, servesChat } from "@/lib/request-kinds";
 import { useWatchedRoutes } from "@/resource-watch/resource-watch";
 
 /**

@@ -1,5 +1,5 @@
+import { validateDeploymentName } from "@/domain/deployment-name";
 import type { ModelDeploymentExposure } from "@/gen/dotcore/model/v1/service_pb";
-import { validateDeploymentName } from "@/lib/deployment-name";
 
 /** Exposure form state. An undefined `routeName` follows the deployment name; a string is custom. */
 export interface DeploymentExposureValues {

@@ -25,30 +25,7 @@ import { InspectorShell } from "@/components/ui/inspector-shell";
 import { Notice } from "@/components/ui/notice";
 import { ResourceMarker, ResourceTitle } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { executionTargetKey, nodeConnectionStatus } from "@/features/deployments/execution-target";
-import { PanelMention } from "@/features/deployments/panel-mention";
-import { machineName, placementLabel } from "@/features/deployments/placement";
-import {
-  type ApplicationDeployment,
-  ApplicationDeploymentDesiredState,
-} from "@/gen/dotcore/application/v1/deployment_pb";
-import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
-import {
-  type ConfiguredExecutionTarget,
-  type Machine,
-  NodeObservationState,
-} from "@/gen/dotcore/site/v1/service_pb";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
-import { formatCount, formatRelativeTime } from "@/lib/format";
-import { cn } from "@/lib/utils";
-
-import {
-  applicationAcceleratorMemory,
-  formatUnitAcceleratorMemory,
-} from "./application-accelerator-memory";
-import { formatGpuDevices } from "./application-gpu-devices";
-import { applicationInspectorPanelId } from "./application-inspector-panel";
-import { applicationParameterFields, retainedParameterValues } from "./application-parameters";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
 import {
   applicationDeploymentDesiredStateLabel,
   applicationDeploymentDesiredStateTone,
@@ -61,7 +38,30 @@ import {
   isResumableApplication,
   isTransitioningApplicationState,
   projectApplicationDeploymentStatus,
-} from "./application-projection";
+} from "@/domain/application-projection";
+import { executionTargetKey, nodeConnectionStatus } from "@/domain/execution-target";
+import { placementLabel, placementMachineName } from "@/domain/placement";
+import { PanelMention } from "@/features/deployments/panel-mention";
+import {
+  type ApplicationDeployment,
+  ApplicationDeploymentDesiredState,
+} from "@/gen/dotcore/application/v1/deployment_pb";
+import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
+import {
+  type ConfiguredExecutionTarget,
+  type Machine,
+  NodeObservationState,
+} from "@/gen/dotcore/site/v1/service_pb";
+import { formatCount, formatRelativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+import {
+  applicationAcceleratorMemory,
+  formatUnitAcceleratorMemory,
+} from "./application-accelerator-memory";
+import { formatGpuDevices } from "./application-gpu-devices";
+import { applicationInspectorPanelId } from "./application-inspector-panel";
+import { applicationParameterFields, retainedParameterValues } from "./application-parameters";
 
 interface InspectorProps {
   onOpenChange: (open: boolean) => void;
@@ -161,7 +161,9 @@ export function DeploymentApplicationInspector({
       )
     : undefined;
   const remoteNodeId = placementNodeId(deployment, placementTarget);
-  const remoteMachineName = remoteNodeId ? machineName(remoteNodeId, placementMachine) : undefined;
+  const remoteMachineName = remoteNodeId
+    ? placementMachineName(remoteNodeId, placementMachine)
+    : undefined;
   const machineLastReport = placementMachine?.observationFreshness?.receivedAt;
   const lastReport = machineLastReport ? formatRelativeTime(machineLastReport) : undefined;
   const pinnedImages = deployment.nodeResolvedLaunchIdentities;
@@ -391,7 +393,7 @@ export function DeploymentApplicationInspector({
                   headingId="application-pinned-images-heading"
                   meta={
                     deployment.placement
-                      ? machineName(deployment.placement.siteNodeId, placementMachine)
+                      ? placementMachineName(deployment.placement.siteNodeId, placementMachine)
                       : undefined
                   }
                   title="Pinned images"

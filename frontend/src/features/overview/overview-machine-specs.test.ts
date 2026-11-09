@@ -1,54 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { noMachineFacts } from "@/features/machines/machine-site-values";
+import { device, facts, grid, node } from "@/features/machines/machine-site-values-test-support";
 import type { MetricStatsGrid } from "@/features/metrics/metric-grid";
 import { MetricReduce } from "@/gen/dotcore/metrics/v1/metric_pb";
 
-import { type MachineFacts, machineNow, noMachineFacts } from "./machine-site-values";
 import { machineCardSpecs } from "./overview-machine-specs";
 
-interface TestSeries {
-  labels: Record<string, string>;
-  open?: number[];
-  values: (number | null)[];
-}
-
-function grid(...series: TestSeries[]): MetricStatsGrid {
-  const stepCount = series[0]?.values.length ?? 0;
-
-  return {
-    incarnation: { id: "a", startedAtMs: 0 },
-    series: series.map((entry) => ({
-      labels: entry.labels,
-      provisional: entry.values.map((_, index) => entry.open?.includes(index) ?? false),
-      steps: entry.values.map((value) => (value === null ? null : { kind: "gauge", value })),
-    })),
-    startMs: 0,
-    stepCount,
-    stepMs: 1000,
-  };
-}
-
 const answer = (stats: MetricStatsGrid | undefined) => ({ grid: undefined, stats });
-const node = (id: string, values: (number | null)[], open?: number[]): TestSeries => ({
-  labels: { node: id },
-  open,
-  values,
-});
-const device = (id: string, deviceId: string, values: (number | null)[]): TestSeries => ({
-  labels: { device: deviceId, node: id },
-  values,
-});
-const facts: MachineFacts = {
-  cpus: new Map([
-    ["big", 48],
-    ["small", 16],
-  ]),
-  dedicated: new Set(["big/gpu0"]),
-  gpus: new Map([
-    ["big", 2],
-    ["small", 1],
-  ]),
-};
 
 function spec(id: string, withFacts = facts) {
   const found = machineCardSpecs(withFacts).find((entry) => entry.id === id);
@@ -203,68 +162,5 @@ describe("machine card readings over the range", () => {
       ["big", [24, 40]],
       ["small", [2, 2]],
     ]);
-  });
-});
-
-describe("machine now readings", () => {
-  it("never reads an open step, however recent", () => {
-    const { machines, site } = machineNow(
-      { cpu: grid(node("big", [0.4, 0.5, 0.99], [2]), node("small", [0.2, 0.3, 0.98], [2])) },
-      facts,
-    );
-
-    // Step 2 is open for both machines; the newest closed step is step 1.
-    expect(machines.get("big")?.cpu).toBe(0.5);
-    expect(site.cpu).toBeCloseTo((0.5 * 48 + 0.3 * 16) / 64);
-  });
-
-  it("skips a step still open on one machine for the site", () => {
-    const { site } = machineNow(
-      { power: grid(node("big", [100, 100, 100]), node("small", [10, 10, 90], [2])) },
-      facts,
-    );
-
-    expect(site.power).toBe(110);
-  });
-
-  it("reads the hottest GPU as the site temperature and sums used storage", () => {
-    const { site } = machineNow(
-      {
-        storageSize: grid(node("big", [1000, 1000]), node("small", [200, 200])),
-        storageUsed: grid(node("big", [100, 100]), node("small", [100, 100])),
-        temperature: grid(node("big", [60, 71]), node("small", [66, 64])),
-      },
-      facts,
-    );
-
-    expect(site.temperature).toBe(71);
-    expect(site.storageUsed).toBe(200);
-    expect(site.storageSize).toBe(1200);
-  });
-
-  it("leaves unified GPU memory out of VRAM and reads used RAM", () => {
-    const { machines, site } = machineNow(
-      {
-        ramAvailable: grid(node("big", [40, 30])),
-        ramTotal: grid(node("big", [64, 64])),
-        vramTotal: grid(device("big", "gpu0", [24, 24]), device("big", "gpu-unified", [900, 900])),
-        vramUsed: grid(device("big", "gpu0", [10, 12]), device("big", "gpu-unified", [500, 500])),
-      },
-      facts,
-    );
-
-    expect(site.vramUsed).toBe(12);
-    expect(site.vramTotal).toBe(24);
-    expect(machines.get("big")).toMatchObject({ ramTotal: 64, ramUsed: 34 });
-  });
-
-  it("reads nothing when no closed step is fresh", () => {
-    const { machines, site } = machineNow(
-      { cpu: grid(node("big", [0.4, null, null, null, null, null, null], undefined)) },
-      facts,
-    );
-
-    expect(site.cpu).toBeUndefined();
-    expect(machines.get("big")?.cpu).toBeUndefined();
   });
 });

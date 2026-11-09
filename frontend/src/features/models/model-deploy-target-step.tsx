@@ -2,13 +2,13 @@ import type { ReactNode, RefObject } from "react";
 
 import { Combobox } from "@/components/ui/combobox";
 import { FieldError } from "@/components/ui/field-error";
-import { DeploymentStepHeading } from "@/features/deployments/deployment-form-layout";
 import {
   configuredExecutionTargetOptionLabel,
   executionTargetKey,
   executionTargetName,
   executionTargetPresentation,
-} from "@/features/deployments/execution-target";
+} from "@/domain/execution-target";
+import { DeploymentStepHeading } from "@/features/deployments/deployment-form-layout";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 

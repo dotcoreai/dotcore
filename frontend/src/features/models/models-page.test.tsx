@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
+import { projectModelSnapshot } from "@/domain/model-projection";
 import { workstationSnapshot } from "@/features/memory/machine-test-support";
 import {
   counterPoint,
@@ -43,7 +44,6 @@ import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction } from "@/test/inspector-actions";
 
-import { projectModelSnapshot } from "./model-projection";
 import {
   catalogModel,
   currentLocation,

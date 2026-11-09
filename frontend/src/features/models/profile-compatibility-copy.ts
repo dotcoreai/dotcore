@@ -1,7 +1,4 @@
-import {
-  executionTargetKey,
-  placedExecutionTargetName,
-} from "@/features/deployments/execution-target";
+import { executionTargetKey, placedExecutionTargetName } from "@/domain/execution-target";
 import type { OciPlatform } from "@/gen/dotcore/catalog/v1/oci_pb";
 import {
   LocalModelDeploymentAdvisory,

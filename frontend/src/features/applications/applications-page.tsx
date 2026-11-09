@@ -20,12 +20,14 @@ import {
   PageSectionHeading,
 } from "@/components/ui/page-header";
 import { AppsSectionIcon } from "@/components/ui/section-icons";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
+import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
+import { placementMachine } from "@/domain/placement";
 import { DeploymentApplicationInspector } from "@/features/applications/application-inspector";
 import { applicationInspectorPanelId } from "@/features/applications/application-inspector-panel";
 import { describeMutationError } from "@/features/applications/application-mutation-errors";
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentEditor } from "@/features/deployments/deployment-editor";
-import { placementMachine } from "@/features/deployments/placement";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
@@ -33,8 +35,6 @@ import {
 import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";

@@ -17,6 +17,8 @@ import {
   type ListNodeMemoryResponse,
   ListNodeMemoryResponseSchema,
 } from "@/gen/dotcore/capacity/v1/service_pb";
+import { type ModelDeployment, ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
+import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 
 export const gib = 1024n ** 3n;
 export const mib = 1024n ** 2n;
@@ -131,4 +133,18 @@ function modelSegment(
   source: MemorySegmentSource,
 ): SegmentInit {
   return { bytes, owner: { case: "modelDeploymentId", value: modelDeploymentId }, source };
+}
+
+/** A ready local deployment of one model, as the site's deployment list holds it. */
+export function runningDeployment(id: string, name: string): ModelDeployment {
+  return create(ModelDeploymentSchema, {
+    modelDeploymentId: id,
+    snapshot: {
+      source: {
+        case: "local",
+        value: { modelDisplayName: name, modelId: `model-${id}`, profileId: "default" },
+      },
+    },
+    state: { status: ModelDeploymentStatus.READY },
+  });
 }

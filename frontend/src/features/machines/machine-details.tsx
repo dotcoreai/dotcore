@@ -7,11 +7,14 @@ import { InspectorRow, InspectorRowList } from "@/components/ui/inspector-row";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
 import { Notice } from "@/components/ui/notice";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { projectApplicationDeploymentStatus } from "@/features/applications/application-projection";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
+import { projectApplicationDeploymentStatus } from "@/domain/application-projection";
+import { executionTargetPresentation, nodeConnectionStatus } from "@/domain/execution-target";
 import {
-  executionTargetPresentation,
-  nodeConnectionStatus,
-} from "@/features/deployments/execution-target";
+  localModelSnapshot,
+  modelDeploymentPresentationName,
+  projectModelDeploymentStatus,
+} from "@/domain/model-projection";
 import { PanelMention } from "@/features/deployments/panel-mention";
 import { projectNodeMemory } from "@/features/memory/node-memory";
 import type { MachineMemory } from "@/features/memory/site-memory";
@@ -19,11 +22,6 @@ import type {
   MachineSnapshotDetail,
   MachineSnapshotUpdateFailure,
 } from "@/features/memory/use-hardware-snapshots";
-import {
-  localModelSnapshot,
-  modelDeploymentPresentationName,
-  projectModelDeploymentStatus,
-} from "@/features/models/model-projection";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { NodeMemory } from "@/gen/dotcore/capacity/v1/memory_pb";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
@@ -38,7 +36,6 @@ import type {
   NodeObservationFreshness,
 } from "@/gen/dotcore/site/v1/service_pb";
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 import { formatCount, formatRelativeTime } from "@/lib/format";
 import type { ReadState } from "@/lib/read-state";
 import type { StatusProjection } from "@/lib/status-projection";

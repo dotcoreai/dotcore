@@ -3,13 +3,13 @@ import {
   inferenceSplitIds,
   inferenceSplits,
 } from "@/features/inference/inference-card-specs";
+import { type MachineFacts, noMachineFacts } from "@/features/machines/machine-site-values";
 import type { MetricCardSpec, MetricCardSplit } from "@/features/metrics/use-metric-cards";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 
-import { type MachineFacts, noMachineFacts } from "./machine-site-values";
 import { appCardIds, appCardSpecs, appSplit, appSplitId } from "./overview-app-specs";
 import {
   machineCardIds,

@@ -1,6 +1,7 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
 import { render } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { vi } from "vitest";
 
@@ -16,7 +17,6 @@ import {
   nodeMemoryPayload,
 } from "@/features/memory/node-memory-test-support";
 import { idleMetricsClient } from "@/features/metrics/metric-test-support";
-import { OverviewPage } from "@/features/overview/overview-page";
 import { type NodeMemory, NodeMemoryState } from "@/gen/dotcore/capacity/v1/memory_pb";
 import {
   type EngineRelease,
@@ -73,9 +73,9 @@ import { ModelsPage } from "./models-page";
 import { ModelsPollingProvider } from "./models-polling-provider";
 
 /**
- * Renders the Models page, the Catalog page and the overview under one shared models polling
- * instance, as the console layout holds it, with fake clients answering from the given catalog and
- * deployments.
+ * Renders the Models page, the Catalog page and, when given, the overview under one shared models
+ * polling instance, as the console layout holds it, with fake clients answering from the given
+ * catalog and deployments.
  */
 export function renderModelsSection({
   chatOpener,
@@ -93,6 +93,7 @@ export function renderModelsSection({
   models = [],
   modelsResponse,
   nodeMemory,
+  overview,
   snapshots = {},
   templates = [],
 }: {
@@ -120,6 +121,8 @@ export function renderModelsSection({
   modelsResponse?: Promise<Awaited<ReturnType<ModelClient["catalog"]["listModels"]>>>;
   /** The machines' node memory; defaults to each idle machine's snapshot, as `modelsResourceWatch`. */
   nodeMemory?: NodeMemory[];
+  /** The overview page to mount at `/overview`, built from the section's clients. */
+  overview?: (clients: { metricsClient: MetricsClient; modelClient: ModelClient }) => ReactNode;
   snapshots?: Record<string, HardwareSnapshot>;
   templates?: UpstreamModelTemplate[];
 }) {
@@ -191,10 +194,9 @@ export function renderModelsSection({
           </ResourceWatchProvider>
         ),
         children: [
-          {
-            path: "/overview",
-            element: <OverviewPage metricsClient={metricsClient} modelClient={client} />,
-          },
+          ...(overview
+            ? [{ path: "/overview", element: overview({ metricsClient, modelClient: client }) }]
+            : []),
           {
             path: "/models",
             children: [

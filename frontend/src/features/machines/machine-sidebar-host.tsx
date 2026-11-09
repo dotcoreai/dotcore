@@ -4,14 +4,14 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { ResourceTitle } from "@/components/ui/resource-marker";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
+import { modelDeploymentPresentationName } from "@/domain/model-projection";
 import {
   type MachineSnapshotDetail,
   useHardwareSnapshots,
 } from "@/features/memory/use-hardware-snapshots";
-import { modelDeploymentPresentationName } from "@/features/models/model-projection";
 import type { ConfiguredExecutionTarget, Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 import { mapRead, type ReadState } from "@/lib/read-state";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import {

@@ -4,7 +4,8 @@ import type { ApplicationClient } from "@/api/application-client";
 import {
   type ApplicationSnapshot,
   projectApplicationSnapshot,
-} from "@/features/applications/application-projection";
+} from "@/domain/application-projection";
+import type { DeploymentMetadata } from "@/domain/deployment-metadata";
 import {
   acceptsOverlay,
   type DeploymentFields,
@@ -17,7 +18,6 @@ import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
 } from "@/gen/dotcore/application/v1/deployment_pb";
-import type { DeploymentMetadata } from "@/lib/deployment-metadata";
 import {
   type ResourceWatchRead,
   useWatchedApplicationDeployments,

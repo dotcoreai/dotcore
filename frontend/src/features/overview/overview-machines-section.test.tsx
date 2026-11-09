@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
+import type { MachineFacts } from "@/features/machines/machine-site-values";
 import {
   gaugePoint,
   metricsClientWith,
@@ -16,7 +17,6 @@ import { useMetricCards } from "@/features/metrics/use-metric-cards";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { MachineSchema, NodeObservationState } from "@/gen/dotcore/site/v1/service_pb";
 
-import type { MachineFacts } from "./machine-site-values";
 import { overviewCardSpecs, overviewSplitIds, overviewSplits } from "./overview-card-specs";
 import { OverviewMachinesSection } from "./overview-machines-section";
 import type { OverviewMetrics } from "./use-overview-metrics";

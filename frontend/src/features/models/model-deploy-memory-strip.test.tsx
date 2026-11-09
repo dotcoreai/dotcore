@@ -3,6 +3,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
+import { runningDeployment } from "@/features/memory/node-memory-test-support";
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
@@ -25,7 +26,6 @@ import {
   other,
   placementPreview,
   previewed,
-  runningDeployment,
 } from "./model-deploy-memory-test-support";
 import { type ResourceEstimate } from "./use-resource-estimate";
 

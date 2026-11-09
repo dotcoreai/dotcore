@@ -8,6 +8,7 @@ import {
   ExecutionTargetsWatch,
   executionTargetsWatch,
 } from "@/features/deployments/execution-targets-watch-test-support";
+import { runningDeployment } from "@/features/memory/node-memory-test-support";
 import {
   EngineArtifactReferenceSchema,
   EngineParameterValueSchema,
@@ -50,7 +51,6 @@ import {
   other,
   placementPreview,
   previewed,
-  runningDeployment,
 } from "./model-deploy-memory-test-support";
 import {
   kvOffloadModel,

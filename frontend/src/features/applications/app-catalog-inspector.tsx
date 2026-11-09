@@ -14,6 +14,21 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Notice } from "@/components/ui/notice";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
+import {
+  inferenceRouteBindings,
+  projectApplicationDeploymentStatus,
+} from "@/domain/application-projection";
+import { validateDeploymentName } from "@/domain/deployment-name";
+import {
+  configuredExecutionTargetOptionLabel,
+  defaultExecutionTarget,
+  executionTargetName,
+  executionTargetPresentation,
+} from "@/domain/execution-target";
+import { placementLabel } from "@/domain/placement";
+import { servesChat } from "@/domain/request-kinds";
+import { projectRouteHealth } from "@/domain/route-projection";
 import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
 import {
   DeploymentForm,
@@ -22,21 +37,13 @@ import {
 } from "@/features/deployments/deployment-form-layout";
 import { DeploymentSummaryStep } from "@/features/deployments/deployment-summary-step";
 import { DeploymentWizardShell } from "@/features/deployments/deployment-wizard-shell";
-import {
-  configuredExecutionTargetOptionLabel,
-  defaultExecutionTarget,
-  executionTargetName,
-  executionTargetPresentation,
-} from "@/features/deployments/execution-target";
 import { ExecutionTargetSummary } from "@/features/deployments/execution-target-presentation";
-import { placementLabel } from "@/features/deployments/placement";
 import { useAdvancedMode } from "@/features/deployments/use-advanced-mode";
 import {
   type ConfiguredExecutionTargetLoader,
   useConfiguredExecutionTargets,
 } from "@/features/deployments/use-configured-execution-targets";
 import { useWizardSteps } from "@/features/deployments/use-wizard-steps";
-import { projectRouteHealth } from "@/features/routes/route-projection";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
@@ -46,11 +53,8 @@ import {
   ExecutionTargetWorkloadKind,
 } from "@/gen/dotcore/site/v1/service_pb";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
-import { validateDeploymentName } from "@/lib/deployment-name";
 import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
 import { formatCount } from "@/lib/format";
-import { servesChat } from "@/lib/request-kinds";
 
 import { formatGpuDevices } from "./application-gpu-devices";
 import { applicationInspectorPanelId } from "./application-inspector-panel";
@@ -61,10 +65,6 @@ import {
   parameterInputError,
   parameterOverrides,
 } from "./application-parameters";
-import {
-  inferenceRouteBindings,
-  projectApplicationDeploymentStatus,
-} from "./application-projection";
 
 export interface DeploymentCreationOptions {
   applicationDeploymentName?: string;

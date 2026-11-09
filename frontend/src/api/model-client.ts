@@ -8,6 +8,8 @@ import {
   toProtoTimestamp,
 } from "@/api/deployment-log-client";
 import { resolveManagementOrigin } from "@/api/management-origin";
+import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
+import { normalizeDeploymentName } from "@/domain/deployment-name";
 import { CatalogService } from "@/gen/dotcore/catalog/v1/service_pb";
 import {
   type ModelDeployment,
@@ -30,8 +32,6 @@ import {
   type ReadDeploymentLogsResponse,
 } from "@/gen/dotcore/model/v1/service_pb";
 import { type ModelDeploymentState, ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
-import { normalizeDeploymentName } from "@/lib/deployment-name";
 
 export type CatalogClient = Pick<
   Client<typeof CatalogService>,

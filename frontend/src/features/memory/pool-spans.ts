@@ -1,9 +1,7 @@
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
 
-import {
-  localModelSnapshot,
-  modelDeploymentPresentationName,
-} from "@/features/models/model-projection";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
+import { localModelSnapshot, modelDeploymentPresentationName } from "@/domain/model-projection";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   type MemoryOwner,
@@ -12,7 +10,6 @@ import {
   MemorySegmentSource,
 } from "@/gen/dotcore/capacity/v1/memory_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 
 import type { MemoryRowCapacity } from "./memory-rows";
 import type {

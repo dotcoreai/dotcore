@@ -5,11 +5,17 @@ import { useLocation } from "react-router-dom";
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type ModelClient, modelClient } from "@/api/model-client";
 import { InspectorPlaceholder } from "@/components/ui/inspector-placeholder";
+import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
+import {
+  deploymentStatus,
+  localModelSnapshot,
+  modelDeploymentPresentationName,
+} from "@/domain/model-projection";
+import { placementMachine } from "@/domain/placement";
 import { deploymentChatTarget } from "@/features/chat/chattable-route";
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentEditor } from "@/features/deployments/deployment-editor";
 import type { RouteMention } from "@/features/deployments/panel-mention";
-import { placementMachine } from "@/features/deployments/placement";
 import { useSiteMemory } from "@/features/memory/use-site-memory";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import {
@@ -18,7 +24,6 @@ import {
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
@@ -44,11 +49,6 @@ import {
 import { DeploymentModelInspector, type DeploymentModelInspectorScreen } from "./model-inspector";
 import { modelInspectorPanelId } from "./model-inspector-panel";
 import { describeMutationError, type MutationAction } from "./model-mutation-errors";
-import {
-  deploymentStatus,
-  localModelSnapshot,
-  modelDeploymentPresentationName,
-} from "./model-projection";
 import { useSharedModelsPolling } from "./models-polling-context";
 import {
   toUpstreamConfiguration,

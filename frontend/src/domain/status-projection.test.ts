@@ -6,12 +6,12 @@ import {
   applicationLifecycleTone,
   applicationReadinessLabel,
   applicationReadinessTone,
-} from "@/features/applications/application-projection";
+} from "@/domain/application-projection";
 import {
   modelDeploymentDesiredStateTone,
   modelStatusLabel,
   modelStatusTone,
-} from "@/features/models/model-projection";
+} from "@/domain/model-projection";
 import { ApplicationDeploymentDesiredState } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   ApplicationLifecycleState,

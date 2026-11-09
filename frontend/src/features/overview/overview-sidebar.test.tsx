@@ -22,6 +22,8 @@ import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { inspectorActionList } from "@/test/inspector-actions";
 
+import { OverviewPage } from "./overview-page";
+
 vi.mock("uplot", () => ({
   default: class {
     setData = vi.fn();
@@ -86,7 +88,7 @@ describe("OverviewSidebar deployments", () => {
         sources: [],
       }),
     };
-    const { router } = renderModelsSection({
+    const { router } = renderOverviewSection({
       deployments: [
         localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
       ],
@@ -110,7 +112,7 @@ describe("OverviewSidebar deployments", () => {
 
   it("returns to the overview when the deployment sidebar closes", async () => {
     const user = userEvent.setup();
-    const { router } = renderModelsSection({
+    const { router } = renderOverviewSection({
       deployments: [
         localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
       ],
@@ -130,7 +132,7 @@ describe("OverviewSidebar deployments", () => {
 describe("OverviewSidebar routes and machines", () => {
   it("opens a route with its sections and actions, and closes to the overview", async () => {
     const user = userEvent.setup();
-    const { router } = renderModelsSection({
+    const { router } = renderOverviewSection({
       deployments: [
         localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
       ],
@@ -179,7 +181,7 @@ describe("OverviewSidebar routes and machines", () => {
 
   it("opens a machine and closes to the overview", async () => {
     const user = userEvent.setup();
-    const { router } = renderModelsSection({
+    const { router } = renderOverviewSection({
       initialEntry: "/overview?panel=machines%2Fmachine%3Anode",
       machines: [listedMachine("node", "Machine one")],
       snapshots: { node: hardwareSnapshot({ cpuCount: 8 }) },
@@ -206,11 +208,21 @@ async function sidebarShape(
   initialEntry: string,
   name: string,
 ) {
-  renderModelsSection({ deployments, initialEntry, models: [gemma] });
+  renderOverviewSection({ deployments, initialEntry, models: [gemma] });
   const sidebar = await screen.findByRole("complementary", { name });
   const sections = within(sidebar)
     .getAllByRole("region")
     .map((section) => within(section).getByRole("heading", { level: 2 }).textContent);
   const actions = await inspectorActionList(user, within(sidebar).getByTestId("inspector-footer"));
   return { actions, sections };
+}
+
+/** Renders the models section with the overview mounted at `/overview`. */
+function renderOverviewSection(options: Parameters<typeof renderModelsSection>[0]) {
+  return renderModelsSection({
+    ...options,
+    overview: ({ metricsClient, modelClient }) => (
+      <OverviewPage metricsClient={metricsClient} modelClient={modelClient} />
+    ),
+  });
 }

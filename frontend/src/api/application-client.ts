@@ -8,6 +8,8 @@ import {
   toProtoTimestamp,
 } from "@/api/deployment-log-client";
 import { resolveManagementOrigin } from "@/api/management-origin";
+import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
+import { normalizeDeploymentName } from "@/domain/deployment-name";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
@@ -27,8 +29,6 @@ import {
 } from "@/gen/dotcore/application/v1/state_pb";
 import { CatalogService } from "@/gen/dotcore/catalog/v1/service_pb";
 import { SiteService } from "@/gen/dotcore/site/v1/service_pb";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
-import { normalizeDeploymentName } from "@/lib/deployment-name";
 
 export type ApplicationCatalogClient = Pick<Client<typeof CatalogService>, "listApplications">;
 type GeneratedApplicationDeploymentServiceClient = Pick<

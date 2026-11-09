@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildModelConnectionExamples } from "@/features/models/model-connection";
+import { buildModelConnectionExamples } from "./model-connection";
 
 describe("buildModelConnectionExamples", () => {
   it("builds complete unauthenticated client examples for an inference route", () => {

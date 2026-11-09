@@ -1,14 +1,14 @@
-import { machineName, placementMachine } from "@/features/deployments/placement";
-import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
-import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
-import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
-import type { StatusProjection } from "@/lib/status-projection";
-
-import { applicationAcceleratorMemory } from "./application-accelerator-memory";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
 import {
   applicationDeploymentEndpoint,
   projectApplicationDeploymentStatus,
-} from "./application-projection";
+} from "@/domain/application-projection";
+import { placementMachine, placementMachineName } from "@/domain/placement";
+import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
+import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
+import type { StatusProjection } from "@/lib/status-projection";
+
+import { applicationAcceleratorMemory } from "./application-accelerator-memory";
 import type { ApplicationResources } from "./use-application-resources";
 
 /** An application deployment flattened for the Apps table. A missing value is absent. */
@@ -67,7 +67,7 @@ function projectApplicationDeploymentRow(
     displayName: applicationDeploymentPresentationName(deployment),
     endpointUrl: applicationDeploymentEndpoint(deployment),
     machineId: siteNodeId,
-    machineName: siteNodeId ? machineName(siteNodeId, machine) : undefined,
+    machineName: siteNodeId ? placementMachineName(siteNodeId, machine) : undefined,
     memoryBytes: resources?.memoryBytes,
     routeName: deployment.selectedInferenceRoute?.routeName || undefined,
     status: projectApplicationDeploymentStatus(deployment),

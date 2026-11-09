@@ -6,17 +6,18 @@ import type { DataTablePredicate } from "@/components/data-table/data-table-view
 import { Detail } from "@/components/ui/detail-list";
 import { FieldError } from "@/components/ui/field-error";
 import { Notice } from "@/components/ui/notice";
-import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
-import { DeploymentStepHeading } from "@/features/deployments/deployment-form-layout";
-import { DeploymentSummaryStep } from "@/features/deployments/deployment-summary-step";
-import { DeploymentWizardShell } from "@/features/deployments/deployment-wizard-shell";
+import { validateDeploymentName } from "@/domain/deployment-name";
 import {
   defaultExecutionTarget,
   executionTargetKey,
   executionTargetName,
   executionTargetPresentation,
   placedExecutionTargetName,
-} from "@/features/deployments/execution-target";
+} from "@/domain/execution-target";
+import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
+import { DeploymentStepHeading } from "@/features/deployments/deployment-form-layout";
+import { DeploymentSummaryStep } from "@/features/deployments/deployment-summary-step";
+import { DeploymentWizardShell } from "@/features/deployments/deployment-wizard-shell";
 import { useAdvancedMode } from "@/features/deployments/use-advanced-mode";
 import {
   type ConfiguredExecutionTargetLoader,
@@ -47,7 +48,6 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import { validateDeploymentName } from "@/lib/deployment-name";
 import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
 import { formatBytes, formatCompactCount, formatCount } from "@/lib/format";
 

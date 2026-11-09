@@ -13,7 +13,6 @@ import {
   queryResult,
   staticWatch,
 } from "@/features/metrics/metric-test-support";
-import { buildModelConnectionExamples } from "@/features/models/model-connection";
 import {
   InferenceRequestKind,
   ModelInputModality,
@@ -34,6 +33,7 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { moreActionNames } from "@/test/inspector-actions";
 import { expectResourceMarker } from "@/test/resource-marker";
 
+import { buildModelConnectionExamples } from "./model-connection";
 import { RouteConnectionView, RouteDetails, RouteInspectorActions } from "./route-inspector";
 
 const writeClipboard = vi.fn();
