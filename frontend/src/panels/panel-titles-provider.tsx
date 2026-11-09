@@ -1,7 +1,6 @@
 import { type ReactNode, useState } from "react";
 
-import { PanelTitleStore } from "@/lib/panel-titles";
-
+import { PanelTitleStore } from "./panel-titles";
 import {
   type PanelTitleLookup,
   PanelTitleLookupContext,

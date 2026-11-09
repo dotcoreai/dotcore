@@ -3,9 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { type ReactNode, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PanelPresentationContext } from "@/app/panel-presentation";
-import { PanelTitlesProvider } from "@/app/panel-titles";
-import { PanelParentContext, usePublishPanelTitles } from "@/app/panel-titles-context";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import {
   Dialog,
@@ -20,7 +17,10 @@ import {
   InspectorShell,
 } from "@/components/ui/inspector-shell";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { panelTitle } from "@/lib/panel-titles";
+import { PanelPresentationContext } from "@/panels/panel-presentation";
+import { panelTitle } from "@/panels/panel-titles";
+import { PanelParentContext, usePublishPanelTitles } from "@/panels/panel-titles-context";
+import { PanelTitlesProvider } from "@/panels/panel-titles-provider";
 
 const popupOptions: ComboboxOption[] = [{ id: "deployment-alpha", label: "Deployment Alpha" }];
 

@@ -15,7 +15,6 @@ import {
   useState,
 } from "react";
 
-import { usePanelNavigationPending } from "@/app/panel-navigation-pending";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -46,6 +45,7 @@ import type {
 } from "@/lib/data-table-view";
 import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePanelNavigationPending } from "@/panels/panel-navigation-pending";
 
 /**
  * A data table definition with what the table and toolbar render: cells per column, an icon and

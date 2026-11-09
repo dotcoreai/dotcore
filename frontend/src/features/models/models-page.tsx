@@ -29,7 +29,7 @@ import {
   canonicalizePanelLocation,
   panelPagePath,
   selectPanelLocation,
-} from "@/lib/panel-stack";
+} from "@/panels/panel-stack";
 
 import { DeploymentSidebar } from "./deployment-sidebar";
 import {

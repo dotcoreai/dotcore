@@ -12,11 +12,11 @@ import {
   usePanelNavigation,
 } from "@/app/console-layout";
 import { PEEK_ENTER_DELAY_MS, PEEK_LEAVE_DELAY_MS } from "@/app/console-sidebar";
-import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
 import { ThemeProvider } from "@/app/theme-provider";
 import { InspectorOpenerCard } from "@/components/ui/inspector-opener-card";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/console-preferences";
+import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 
 // Isolates each test's sidebar preference from real jsdom localStorage (and from each other),
 // the same way ThemeProvider is given an explicit storage below.

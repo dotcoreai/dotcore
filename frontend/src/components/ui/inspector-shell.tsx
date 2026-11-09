@@ -13,8 +13,6 @@ import {
   useState,
 } from "react";
 
-import { usePanelPresentation } from "@/app/panel-presentation";
-import { usePanelParent } from "@/app/panel-titles-context";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -30,6 +28,8 @@ import {
   useInspectorFloatingLayerRegistration,
 } from "@/components/ui/inspector-floating-layer";
 import { cn } from "@/lib/utils";
+import { usePanelPresentation } from "@/panels/panel-presentation";
+import { usePanelParent } from "@/panels/panel-titles-context";
 
 /**
  * Whether a modal over the inspector suspends its dismissal, and how many dismissals that modal

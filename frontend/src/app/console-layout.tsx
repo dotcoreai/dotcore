@@ -30,14 +30,6 @@ import type { ResourceWatchClient } from "@/api/resource-watch-client";
 import { type ChatMode, ChatOpenerContext } from "@/app/chat-opener";
 import { ConsoleHeader } from "@/app/console-header";
 import { ConsoleSidebar } from "@/app/console-sidebar";
-import {
-  PanelNavigationPendingContext,
-  type PanelNavigationPendingRegistration,
-  PanelNavigationPendingRegistrationContext,
-} from "@/app/panel-navigation-pending";
-import { type PanelPresentation, PanelPresentationContext } from "@/app/panel-presentation";
-import { PanelTitlesProvider } from "@/app/panel-titles";
-import { PanelParentContext, type PanelTitleLookup } from "@/app/panel-titles-context";
 import { ResourceColorProvider } from "@/app/resource-color-provider";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { useSidebarPreference } from "@/app/sidebar-preference-context";
@@ -60,6 +52,12 @@ import { ModelsPollingProvider } from "@/features/models/models-polling-provider
 import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
 import type { StorageLike } from "@/lib/browser-storage";
 import {
+  PanelNavigationPendingContext,
+  type PanelNavigationPendingRegistration,
+  PanelNavigationPendingRegistrationContext,
+} from "@/panels/panel-navigation-pending";
+import { type PanelPresentation, PanelPresentationContext } from "@/panels/panel-presentation";
+import {
   activePanel,
   clearPanels,
   createPanelHistoryState,
@@ -73,7 +71,9 @@ import {
   popPanelLocation,
   serializePanelStack,
   sidebarParent,
-} from "@/lib/panel-stack";
+} from "@/panels/panel-stack";
+import { PanelParentContext, type PanelTitleLookup } from "@/panels/panel-titles-context";
+import { PanelTitlesProvider } from "@/panels/panel-titles-provider";
 
 export interface ConsoleLayoutProps {
   chatClient?: ChatClient;

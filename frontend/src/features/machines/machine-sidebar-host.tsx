@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { usePanelNavigation } from "@/app/console-layout";
-import { usePanelTitle, usePublishPanelTitles } from "@/app/panel-titles-context";
 import {
   useWatchedApplicationDeployments,
   useWatchedExecutionTargets,
@@ -21,14 +20,15 @@ import { modelDeploymentPresentationName } from "@/features/models/model-project
 import type { ConfiguredExecutionTarget, Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
+import { mapRead, type ReadState } from "@/lib/read-state";
 import {
   activePanel,
   appendPanelLocation,
   canonicalizePanelLocation,
   type PanelEntry,
-} from "@/lib/panel-stack";
-import { panelTitle } from "@/lib/panel-titles";
-import { mapRead, type ReadState } from "@/lib/read-state";
+} from "@/panels/panel-stack";
+import { panelTitle } from "@/panels/panel-titles";
+import { usePanelTitle, usePublishPanelTitles } from "@/panels/panel-titles-context";
 
 import {
   ExecutionTargetContent,

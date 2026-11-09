@@ -20,7 +20,7 @@ import { InferenceSection } from "@/features/inference/inference-section";
 import { useInferenceMetrics } from "@/features/inference/use-inference-metrics";
 import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 import { buildDataTable } from "@/lib/data-table-model";
-import { canonicalizePanelLocation } from "@/lib/panel-stack";
+import { canonicalizePanelLocation } from "@/panels/panel-stack";
 
 import { routeRows, routeTableDefinition, routeTableUi, routeViewCodec } from "./route-table";
 import { useRouteSidebarHost } from "./use-route-sidebar-host";

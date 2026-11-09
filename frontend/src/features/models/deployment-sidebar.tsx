@@ -5,8 +5,6 @@ import { useLocation } from "react-router-dom";
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type ModelClient, modelClient } from "@/api/model-client";
 import { usePanelNavigation } from "@/app/console-layout";
-import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
-import { usePublishPanelTitles } from "@/app/panel-titles-context";
 import {
   useWatchedExecutionTargets,
   useWatchedMachines,
@@ -28,13 +26,15 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
+import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   appendPanelHref,
   appendPanelLocation,
   type PanelEntry,
   type PanelLocation,
-} from "@/lib/panel-stack";
-import { panelTitle } from "@/lib/panel-titles";
+} from "@/panels/panel-stack";
+import { panelTitle } from "@/panels/panel-titles";
+import { usePublishPanelTitles } from "@/panels/panel-titles-context";
 
 import {
   DeploymentMemoryRows,

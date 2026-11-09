@@ -15,7 +15,6 @@ import {
   RoutesSectionIcon,
   SettingsSectionIcon,
 } from "@/app/console-section-icons";
-import { usePanelNavigationPending } from "@/app/panel-navigation-pending";
 import {
   Sidebar,
   SidebarContent,
@@ -31,6 +30,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { usePanelNavigationPending } from "@/panels/panel-navigation-pending";
 
 interface NavChildItem {
   icon: LucideIcon;

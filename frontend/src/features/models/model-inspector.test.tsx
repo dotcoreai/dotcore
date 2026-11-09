@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DeploymentLogOperations } from "@/api/deployment-log-client";
 import { ChatOpenerContext } from "@/app/chat-opener";
-import { PanelParentContext } from "@/app/panel-titles-context";
 import { EngineParameterValuesSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelSchema, SpeculativeDecodingMethod } from "@/gen/dotcore/catalog/v1/model_pb";
 import {
@@ -23,6 +22,7 @@ import {
   ModelDeploymentStatus,
 } from "@/gen/dotcore/model/v1/state_pb";
 import { ConfiguredExecutionTargetSchema, MachineSchema } from "@/gen/dotcore/site/v1/service_pb";
+import { PanelParentContext } from "@/panels/panel-titles-context";
 import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 

@@ -7,7 +7,7 @@ import type { RouteClient } from "@/api/route-client";
 import { MachineSidebarHost } from "@/features/machines/machine-sidebar-host";
 import { DeploymentSidebar } from "@/features/models/deployment-sidebar";
 import { RouteSidebarHost } from "@/features/routes/route-sidebar-host";
-import { activePanel, canonicalizePanelLocation } from "@/lib/panel-stack";
+import { activePanel, canonicalizePanelLocation } from "@/panels/panel-stack";
 
 export interface OverviewSidebarProps {
   /** The element focus moves to when the open resource disappears, such as the page heading. */

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-import { usePanelNavigationPending } from "@/app/panel-navigation-pending";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { usePanelNavigationPending } from "@/panels/panel-navigation-pending";
 
 // Declared once so every inspector-opener card renders identical geometry.
 const GEOMETRY =

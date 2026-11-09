@@ -1,4 +1,4 @@
-import { panelParameter } from "@/lib/panel-stack";
+import { panelParameter } from "@/panels/panel-stack";
 
 /** The parts of a data table definition that its URL view reads. */
 export interface DataTableViewDefinition<C extends string, F extends string> {

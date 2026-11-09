@@ -1,9 +1,9 @@
 import type { RefObject } from "react";
 
-import { usePanelTitle } from "@/app/panel-titles-context";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import type { PanelEntry } from "@/lib/panel-stack";
+import type { PanelEntry } from "@/panels/panel-stack";
+import { usePanelTitle } from "@/panels/panel-titles-context";
 
 /**
  * The inspector a page shows while the panel URL names a resource its list has not read yet. It

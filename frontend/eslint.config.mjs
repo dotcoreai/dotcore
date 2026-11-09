@@ -17,6 +17,7 @@ const layers = [
   { name: "lib", pending: "phase 05 shared domain" },
   { name: "api" },
   { name: "hooks", pending: "phase 04 resource watch and theme" },
+  { name: "panels" },
   { name: "components", pending: "phase 04 resource watch and theme" },
   { name: "features", pending: "phase 06 routes cleanup" },
   { name: "routes" },

@@ -6,7 +6,6 @@ import { useLocation } from "react-router-dom";
 
 import type { MetricsClient } from "@/api/metrics-client";
 import { usePanelDirtyGuard, usePanelNavigation } from "@/app/console-layout";
-import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
 import { InspectorActions } from "@/components/inspector-actions/inspector-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,8 +48,9 @@ import { useDirtyFields } from "@/hooks/use-dirty-fields";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { validateDeploymentName } from "@/lib/deployment-name";
 import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
-import { popPanelLocation } from "@/lib/panel-stack";
 import { UPSTREAM_MODEL_NAME } from "@/lib/upstream-presentation";
+import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { popPanelLocation } from "@/panels/panel-stack";
 
 import {
   type DeploymentExposureValues,
