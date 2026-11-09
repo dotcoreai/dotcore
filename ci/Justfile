@@ -6,6 +6,10 @@ help:
 lint:
   cd .. && actionlint
 
+# Fail when commits in a range still carry the unreviewed or private prefix, listing each one; defaults to the commits not yet on main.
+check-commit-prefixes range="origin/main..HEAD":
+  cd .. && ci/check-commit-prefixes.sh "{{range}}"
+
 # Run every area's CI validations, without changing files; needs `just frontend::bootstrap` first.
 check:
   cd .. && just ci::lint
