@@ -285,7 +285,7 @@ async fn status_triggers_within_a_second_share_one_message_at_the_next_wall_seco
 
 #[tokio::test]
 async fn under_the_test_policy_triggers_share_one_message_at_the_next_wall_aligned_window() {
-    let window = Timing::test().node_control.status_coalesce_window;
+    let window = Timing::production().node_control.status_coalesce_window;
     let mut node = Node::start_with_timing(vec![model_target()], {
         let mut timing = node_timing();
         timing.node_control.status_coalesce_window = window;

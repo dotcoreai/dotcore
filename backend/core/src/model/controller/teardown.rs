@@ -488,6 +488,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::{ReconcileOutcome, Timing};
     use std::{
         error::Error as _,
         future::ready,
@@ -948,7 +950,7 @@ mod tests {
                     }),
                 )
                 .await,
-            Ok(dotcore_domain::timing::ReconcileOutcome::Settled)
+            Ok(ReconcileOutcome::Settled)
         ));
         let evidence = current
             .node_model_cleanup_evidence()
@@ -1116,8 +1118,8 @@ mod tests {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs: PreparationLogs::on_system_clock(directory),
                 workload_lifecycle: workload_lifecycle.clone(),
-                timing: dotcore_domain::timing::Timing::production().model,
-                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+                timing: Timing::test().model,
+                clock: std::sync::Arc::new(SystemClock),
             },
             current.clone(),
             builder.build().expect("Runtime map"),
@@ -1385,8 +1387,8 @@ mod tests {
             serving_targets_source,
             accelerator_attribution: None,
             shutdown: tokio_util::sync::CancellationToken::new(),
-            timing: dotcore_domain::timing::Timing::production().model,
-            clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            timing: Timing::test().model,
+            clock: std::sync::Arc::new(SystemClock),
         }
     }
 }

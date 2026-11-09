@@ -1,3 +1,4 @@
+use dotcore_domain::timing::Timing;
 use std::{
     collections::{BTreeMap, VecDeque},
     net::SocketAddr,
@@ -1534,7 +1535,7 @@ impl Worker {
                     manager.0.as_slice(),
                 )],
             ),
-            &dotcore_domain::timing::Timing::production().private,
+            &Timing::test().private,
             PrivateServiceAssembly::new(move |context, routes| {
                 routes.add_service(
                     DeploymentLogService::new(
@@ -1571,7 +1572,7 @@ impl Worker {
                         worker_certificate.as_slice(),
                     )],
                 ),
-                &dotcore_domain::timing::Timing::production().private,
+                &Timing::test().private,
             ),
         }
     }

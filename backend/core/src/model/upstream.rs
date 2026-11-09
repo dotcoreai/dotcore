@@ -625,6 +625,7 @@ impl VerificationHttp for ScriptedVerificationHttp {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{
         sync::{
             Arc,
@@ -750,9 +751,7 @@ mod tests {
 
     #[test]
     fn retry_schedule_obeys_exponential_cap_and_provider_minimum() {
-        let mut retry = RetrySchedule::new(ProbePacing::new(
-            &dotcore_domain::timing::Timing::production().model,
-        ));
+        let mut retry = RetrySchedule::new(ProbePacing::new(&Timing::production().model));
         assert_eq!(retry.next(None), Duration::from_secs(10));
         assert_eq!(retry.next(None), Duration::from_secs(20));
         assert_eq!(
@@ -784,10 +783,8 @@ mod tests {
     #[test]
     fn health_schedule_uses_exact_injected_retry_deadline() {
         let start = Instant::now();
-        let mut schedule = HealthSchedule::new(
-            start,
-            ProbePacing::new(&dotcore_domain::timing::Timing::production().model),
-        );
+        let mut schedule =
+            HealthSchedule::new(start, ProbePacing::new(&Timing::production().model));
         schedule.record(start, ProbeClassification::TransientFailure, None, 0.0);
         assert_eq!(schedule.next_probe_at(), start + Duration::from_secs(10));
         assert!(!schedule.due(start + Duration::from_secs(9)));

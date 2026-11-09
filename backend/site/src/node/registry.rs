@@ -577,6 +577,8 @@ fn validate_unavailable(
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::{Clock, ClockSleep};
+    use dotcore_domain::timing::Timing;
     use std::{
         sync::Arc,
         time::{Duration, SystemTime},
@@ -1026,12 +1028,7 @@ mod tests {
             .accept(report(&site, incarnation('1'), 1))
             .expect("first report accepted");
 
-        advance(
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .node_silence,
-        )
-        .await;
+        advance(Timing::test().node_control.node_silence).await;
         assert_eq!(state(), NodeConnectionState::Connected);
         assert!(matches!(
             registry.accept(report(&site, incarnation('2'), 1)),
@@ -1058,13 +1055,7 @@ mod tests {
             [incarnation('1')].into_iter().collect()
         );
         assert_eq!(replacement.connection_state, NodeConnectionState::Connected);
-        advance(
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .node_silence
-                + Duration::from_millis(1),
-        )
-        .await;
+        advance(Timing::test().node_control.node_silence + Duration::from_millis(1)).await;
         assert_eq!(state(), NodeConnectionState::Disconnected);
     }
 
@@ -1160,13 +1151,7 @@ mod tests {
         };
         assert_eq!(devices(&reading), reported);
 
-        advance(
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .node_silence
-                + Duration::from_millis(1),
-        )
-        .await;
+        advance(Timing::test().node_control.node_silence + Duration::from_millis(1)).await;
         let memory = registry.node_memory().expect("node memory");
         assert_eq!(
             memory[0],
@@ -1198,12 +1183,7 @@ mod tests {
                     .connection_state
             };
 
-            advance(
-                dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .node_silence,
-            )
-            .await;
+            advance(Timing::test().node_control.node_silence).await;
             assert_eq!(
                 state(),
                 NodeConnectionState::Connected,
@@ -1362,7 +1342,7 @@ mod tests {
             Arc::new(site),
             ManagerNodeControlCoordinator::new(
                 crate::view::fencing::ManagerSession::generate().expect("manager test session"),
-                &dotcore_domain::timing::Timing::production().node_control,
+                &Timing::test().node_control,
                 Arc::new(FixedWallClock),
             ),
         )
@@ -1520,7 +1500,7 @@ mod tests {
     #[derive(Debug)]
     struct FixedWallClock;
 
-    impl dotcore_domain::clock::Clock for FixedWallClock {
+    impl Clock for FixedWallClock {
         fn now(&self) -> tokio::time::Instant {
             tokio::time::Instant::now()
         }
@@ -1529,7 +1509,7 @@ mod tests {
             std::time::UNIX_EPOCH + std::time::Duration::new(123, 456)
         }
 
-        fn sleep_until(&self, deadline: tokio::time::Instant) -> dotcore_domain::clock::ClockSleep {
+        fn sleep_until(&self, deadline: tokio::time::Instant) -> ClockSleep {
             Box::pin(tokio::time::sleep_until(deadline))
         }
     }

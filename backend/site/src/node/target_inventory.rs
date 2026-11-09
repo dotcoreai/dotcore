@@ -888,6 +888,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{str::FromStr, time::SystemTime};
 
     use dotcore_domain::{MemoryArchitecture, NvidiaDriverVersion};
@@ -912,9 +913,7 @@ mod tests {
                 ExecutionPlatform::linux_arm64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-b", "580.173.02")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
 
@@ -953,9 +952,7 @@ mod tests {
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::unavailable("node-a")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         let target = inventory.for_target("target-a").expect("target a");
@@ -997,9 +994,7 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, true,
             )],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
 
@@ -1037,9 +1032,7 @@ mod tests {
                     *stale,
                 )
             }),
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         let memory = |node: &str| {
@@ -1101,9 +1094,7 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, false,
             )],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
 
@@ -1151,27 +1142,21 @@ mod tests {
                 NodeAcceleratorObservation::available("node-a", node.clone()),
                 NodeAcceleratorObservation::unavailable("node-b"),
             ],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         let mut both = TargetCapabilityReconciler::reconcile(
             [("both", "node-a", ["GPU-b", "nvidia.com/gpu=0"])],
             std::iter::empty(),
             [NodeAcceleratorObservation::stale("node-a", node.clone())],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         both.extend(TargetCapabilityReconciler::reconcile(
             [("none", "node-a")],
             std::iter::empty(),
             [NodeAcceleratorObservation::available("node-a", node)],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         ));
         let devices = |inventory: &super::TargetCapabilityInventory, target: &str| {
@@ -1214,9 +1199,7 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, false,
             )],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         let target = inventory.for_target("target-a").expect("target a");
@@ -1267,9 +1250,7 @@ mod tests {
                 NodeAcceleratorObservation::from_hardware_snapshot("node-amd", &with_amd, false),
                 NodeAcceleratorObservation::from_hardware_snapshot("node-both", &with_apple, false),
             ],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         let accelerator = |target: &str| {
@@ -1323,9 +1304,7 @@ mod tests {
                 &mixed,
                 false,
             )],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         let devices = |observation: &NodeMemoryObservation| {
@@ -1388,9 +1367,7 @@ mod tests {
                 NodeAcceleratorObservation::nvidia("node-b", "580")
                     .with_memory_architecture(Some(MemoryArchitecture::Unified)),
             ],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
 
@@ -1416,9 +1393,7 @@ mod tests {
             [("target-a", "node-a"), ("target-b", "node-b")],
             std::iter::empty(),
             [NodeAcceleratorObservation::nvidia("node-a", "driver-580")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
 

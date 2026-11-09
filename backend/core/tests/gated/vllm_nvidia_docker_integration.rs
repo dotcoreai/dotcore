@@ -10,6 +10,7 @@
 //! that pin, image and startup telemetry. Preparing the engine has its own deadline, so a cold
 //! image does not count against the serving deadlines.
 
+use dotcore_domain::timing::Timing;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -829,9 +830,7 @@ fn qualification_target_capabilities(
             platform.clone(),
         )],
         [node_nvidia],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     (target, inventory)

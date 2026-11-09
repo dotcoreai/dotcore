@@ -115,12 +115,12 @@ pub fn renewal_problem(
 /// Longest age of a live node's contact at an advance; what is left of its lease after the
 /// advance is the real time it has to renew again. A live node sends a message at least every
 /// node heartbeat interval, so most of each interval qualifies.
-fn renewal_age(timing: &Timing) -> Duration {
+pub fn renewal_age(timing: &Timing) -> Duration {
     timing.node_control.heartbeat_interval * 2 / 3
 }
 
 /// Shortest silence of an expiring node at an advance; nodes still running renew well within it,
 /// since it exceeds the node heartbeat interval.
-fn silence_age(timing: &Timing) -> Duration {
+pub fn silence_age(timing: &Timing) -> Duration {
     timing.node_control.heartbeat_interval * 4 / 3
 }

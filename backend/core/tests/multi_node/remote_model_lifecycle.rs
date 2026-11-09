@@ -21,7 +21,7 @@
 
 use std::{fs, time::Duration};
 
-use dotcore::testing::Timing;
+use dotcore::testing::{MISSED_PUBLICATIONS_BEFORE_REOPEN, Timing};
 use dotcore_proto::dotcore::{
     deployment::v1::{
         ExactPlacement, NodeResolvedLaunchIdentity,
@@ -797,8 +797,10 @@ async fn a_worker_deployment_stays_controllable_past_its_action_lease_with_an_un
     let timing = {
         let mut timing = Timing::test();
         timing.node_control.view_republish_interval = SHORT_REPUBLISH_INTERVAL;
-        timing.node_control.manager_silence = SHORT_REPUBLISH_INTERVAL * 3;
+        timing.node_control.manager_silence =
+            SHORT_REPUBLISH_INTERVAL * MISSED_PUBLICATIONS_BEFORE_REOPEN;
         timing.node_control.action_lease = SHORT_ACTION_LEASE;
+        timing.check().expect("a valid short-lease policy");
         timing
     };
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(

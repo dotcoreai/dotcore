@@ -32,7 +32,6 @@ use support::{ProcessCommand, node_control::ControlStream, node_liveness, proces
 use crate::support;
 
 /// Liveness window of the harness's manager, which runs the test timing.
-const LIVENESS_TTL: Duration = Timing::test().node_control.node_silence;
 const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
 /// Refusal the manager returns to a node control stream open from a process whose incarnation
 /// another one replaced.
@@ -184,7 +183,7 @@ async fn two_process_observation_fences_restarts_and_projects_connection_loss() 
     // replacement to have stayed silent through both.
     harness.worker_mut().resume();
     assert!(harness.worker_mut().is_running());
-    let half_lease = LIVENESS_TTL / 2;
+    let half_lease = Timing::test().node_control.node_silence / 2;
     harness.advance_past_silent_worker(half_lease).await;
     let refused = support::refused_stream_opens(&worker_root, FENCED_OPEN_REFUSAL);
     support::wait_for_refused_stream_opens(&worker_root, FENCED_OPEN_REFUSAL, refused + 2).await;
@@ -223,7 +222,9 @@ async fn two_process_observation_fences_restarts_and_projects_connection_loss() 
     assert!(harness.worker_mut().is_running());
     let restarted_received_at = receipt_after_silence(&mut harness, &mut site).await;
     harness
-        .advance_past_silent_worker(LIVENESS_TTL / 2 + Duration::from_millis(1))
+        .advance_past_silent_worker(
+            Timing::test().node_control.node_silence / 2 + Duration::from_millis(1),
+        )
         .await;
     let final_disconnected = wait_for_disconnection(&mut site).await;
     assert_eq!(
@@ -319,19 +320,24 @@ async fn a_worker_rejoins_a_restarted_manager_after_its_path_went_silent() {
 
 #[test]
 fn renewed_live_nodes_and_silent_expiring_nodes_allow_an_advance() {
+    let timing = Timing::test();
+    let renewal = node_liveness::renewal_age(&timing);
     let ages = BTreeMap::from([
-        node_ages("manager", 500, Some(30_000)),
-        node_ages("worker-one", 4_000, Some(4_000)),
-        node_ages("worker-two", 1_900, None),
+        node_ages(
+            "manager",
+            renewal / 4,
+            Some(timing.node_control.node_silence * 3),
+        ),
+        node_ages(
+            "worker-one",
+            node_liveness::silence_age(&timing),
+            Some(node_liveness::silence_age(&timing)),
+        ),
+        node_ages("worker-two", renewal - millis(1), None),
     ]);
 
     assert_eq!(
-        node_liveness::renewal_problem(
-            &Timing::production(),
-            &ages,
-            &["worker-one".to_owned()],
-            millis(2_000)
-        ),
+        node_liveness::renewal_problem(&timing, &ages, &["worker-one".to_owned()], renewal),
         None,
         "a streamed status may be old while its node renews contact"
     );
@@ -339,18 +345,26 @@ fn renewed_live_nodes_and_silent_expiring_nodes_allow_an_advance() {
 
 #[test]
 fn a_live_node_must_renew_contact_after_the_request() {
+    let timing = Timing::test();
+    let renewal = node_liveness::renewal_age(&timing);
     let expiring = ["worker-one".to_owned()];
-    let silent = node_ages("worker-one", 5_000, None);
+    let silent = node_ages("worker-one", node_liveness::silence_age(&timing), None);
     for (live, elapsed) in [
-        (node_ages("manager", 600, Some(200)), 500),
-        (node_ages("manager", 2_100, Some(200)), 3_000),
+        (
+            node_ages("manager", renewal / 2, Some(millis(200))),
+            renewal / 4,
+        ),
+        (
+            node_ages("manager", renewal + millis(1), Some(millis(200))),
+            renewal * 2,
+        ),
     ] {
         assert_eq!(
             node_liveness::renewal_problem(
-                &Timing::production(),
+                &timing,
                 &BTreeMap::from([live, silent.clone()]),
                 &expiring,
-                millis(elapsed)
+                elapsed
             ),
             Some("live node manager has not renewed its contact yet".to_owned())
         );
@@ -359,10 +373,11 @@ fn a_live_node_must_renew_contact_after_the_request() {
 
 #[test]
 fn an_expiring_node_must_be_known_and_silent() {
-    let manager = node_ages("manager", 100, Some(100));
+    let timing = Timing::test();
+    let manager = node_ages("manager", millis(1), Some(millis(1)));
     assert_eq!(
         node_liveness::renewal_problem(
-            &Timing::production(),
+            &timing,
             &BTreeMap::from([manager.clone()]),
             &["worker-one".to_owned()],
             millis(500)
@@ -371,8 +386,15 @@ fn an_expiring_node_must_be_known_and_silent() {
     );
     assert_eq!(
         node_liveness::renewal_problem(
-            &Timing::production(),
-            &BTreeMap::from([manager, node_ages("worker-one", 3_900, None)]),
+            &timing,
+            &BTreeMap::from([
+                manager,
+                node_ages(
+                    "worker-one",
+                    node_liveness::silence_age(&timing) - millis(1),
+                    None
+                )
+            ]),
             &["worker-one".to_owned()],
             millis(500)
         ),
@@ -383,17 +405,14 @@ fn an_expiring_node_must_be_known_and_silent() {
 #[test]
 fn an_advance_refuses_a_step_that_could_expire_a_renewing_node() {
     let clock = ManualClock::new();
+    let timing = Timing::test();
+    let by = timing.node_control.node_silence - node_liveness::renewal_age(&timing);
 
     assert_eq!(
-        node_liveness::advance(
-            &clock,
-            &Timing::production(),
-            BTreeMap::new,
-            Duration::from_secs(9),
-            &[],
-            Duration::ZERO
-        ),
-        Err("advancing the manager clock by 9s could expire a node that keeps renewing".to_owned())
+        node_liveness::advance(&clock, &timing, BTreeMap::new, by, &[], Duration::ZERO),
+        Err(format!(
+            "advancing the manager clock by {by:?} could expire a node that keeps renewing"
+        ))
     );
     assert_eq!(clock.offset(), Duration::ZERO);
 }
@@ -401,31 +420,33 @@ fn an_advance_refuses_a_step_that_could_expire_a_renewing_node() {
 #[test]
 fn an_advance_with_renewed_nodes_moves_the_clock() {
     let clock = ManualClock::new();
+    let timing = Timing::test();
+    let by = timing.node_control.node_silence / 2;
 
-    node_liveness::advance(
-        &clock,
-        &Timing::production(),
-        BTreeMap::new,
-        Duration::from_secs(5),
-        &[],
-        Duration::ZERO,
-    )
-    .expect("no node needs to renew");
+    node_liveness::advance(&clock, &timing, BTreeMap::new, by, &[], Duration::ZERO)
+        .expect("no node needs to renew");
 
-    assert_eq!(clock.offset(), Duration::from_secs(5));
+    assert_eq!(clock.offset(), by);
 }
 
 #[test]
 fn a_failed_advance_reports_the_last_observed_ages() {
     let clock = ManualClock::new();
-    let ages = || BTreeMap::from([node_ages("worker-one", 1_900, None)]);
+    let timing = Timing::test();
+    let ages = || {
+        BTreeMap::from([node_ages(
+            "worker-one",
+            node_liveness::silence_age(&timing) - millis(1),
+            None,
+        )])
+    };
 
     assert_eq!(
         node_liveness::advance(
             &clock,
-            &Timing::production(),
+            &timing,
             ages,
-            Duration::from_secs(5),
+            timing.node_control.node_silence / 2,
             &["worker-one".to_owned()],
             Duration::ZERO,
         ),
@@ -463,7 +484,9 @@ async fn receipt_after_silence(
     harness: &mut support::TwoProcessObservationHarness,
     site: &mut SiteServiceClient<tonic::transport::Channel>,
 ) -> Timestamp {
-    harness.advance_past_silent_worker(LIVENESS_TTL / 2).await;
+    harness
+        .advance_past_silent_worker(Timing::test().node_control.node_silence / 2)
+        .await;
     worker_received_at(&list_machines(site).await)
 }
 
@@ -472,7 +495,7 @@ async fn receipt_after_silence(
 async fn wait_for_disconnection(
     site: &mut SiteServiceClient<tonic::transport::Channel>,
 ) -> Vec<Machine> {
-    assert!(LIVENESS_EXPIRY_DEADLINE > LIVENESS_TTL);
+    assert!(LIVENESS_EXPIRY_DEADLINE > Timing::test().node_control.node_silence);
     let stale_seen = std::cell::Cell::new(false);
     let machines = wait_for_projection_within(site, LIVENESS_EXPIRY_DEADLINE, |machines| {
         let state = worker_machine(machines).map(connection_state);
@@ -667,14 +690,12 @@ fn observation_report(
     }
 }
 
-fn node_ages(node_id: &str, contact: u64, status: Option<u64>) -> (String, NodeLivenessAges) {
-    (
-        node_id.to_owned(),
-        NodeLivenessAges {
-            contact: millis(contact),
-            status: status.map(millis),
-        },
-    )
+fn node_ages(
+    node_id: &str,
+    contact: Duration,
+    status: Option<Duration>,
+) -> (String, NodeLivenessAges) {
+    (node_id.to_owned(), NodeLivenessAges { contact, status })
 }
 
 fn millis(millis: u64) -> Duration {

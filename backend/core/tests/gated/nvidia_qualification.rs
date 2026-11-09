@@ -13,6 +13,7 @@
 //! process it ran is gone, whatever else runs on the device. A suite whose engine release approves
 //! no artifact for the native platform skips instead of failing.
 
+use dotcore_domain::clock::SystemClock;
 use std::{
     collections::{BTreeSet, HashMap},
     fmt,
@@ -258,7 +259,7 @@ impl GpuObservation {
     pub fn collect() -> anyhow::Result<Self> {
         let collector = SystemHardwareSnapshotCollector::for_current_host(
             vec![Box::new(SystemNvidiaAcceleratorAdapter::for_current_host())],
-            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            std::sync::Arc::new(SystemClock),
         );
         Self::from_hardware(&collector.collect_observation())
     }

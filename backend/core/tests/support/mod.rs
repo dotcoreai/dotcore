@@ -4,6 +4,7 @@
     reason = "each integration-test crate includes this shared module but uses a different helper subset"
 )]
 
+use dotcore_domain::clock::SystemClock;
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
@@ -169,7 +170,7 @@ pub fn observed_node_nvidia(managed_node_id: &str) -> NodeAcceleratorObservation
 
     let snapshot = SystemHardwareSnapshotCollector::for_current_host(
         vec![Box::new(SystemNvidiaAcceleratorAdapter::for_current_host())],
-        std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+        std::sync::Arc::new(SystemClock),
     )
     .collect_snapshot();
     NodeAcceleratorObservation::from_hardware_snapshot(managed_node_id, &snapshot, false)
@@ -410,7 +411,7 @@ where
     F: std::future::Future<Output = ()> + Send + 'static,
     C: HardwareSnapshotSource + Send + Sync + 'static,
 {
-    prepare_backend_with_test_support_and_snapshot_collector(
+    prepare_backend_with_collector_and_support(
         site_paths,
         shutdown,
         dotcore::composition::BackendTestSupport::test_development(),
@@ -421,7 +422,7 @@ where
 
 /// Prepares a manager backend on loopback with explicit test controls that collects hardware
 /// from `collector`.
-pub async fn prepare_backend_with_test_support_and_snapshot_collector<F, C>(
+pub async fn prepare_backend_with_collector_and_support<F, C>(
     site_paths: dotcore_domain::SitePaths,
     shutdown: F,
     test_support: dotcore::composition::BackendTestSupport,

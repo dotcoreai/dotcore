@@ -611,6 +611,7 @@ fn map_lifecycle_error(error: ApplicationLifecycleError) -> DeploymentLogError {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{num::NonZeroU16, path::Path};
 
     use dotcore_proto::dotcore::application::v1::ApplicationDeploymentDesiredState;
@@ -727,7 +728,7 @@ mod tests {
                         worker_certificate.as_slice(),
                     )],
                 ),
-                &dotcore_domain::timing::Timing::production().private,
+                &Timing::test().private,
             )),
             SiteRepository::load(&path, crate::test_support::site_declaration_rules())
                 .expect("Site repository"),

@@ -532,7 +532,7 @@ mod tests {
         let mut silent = Box::pin(ingest.first_message(std::future::pending::<()>()));
         // The first poll starts the wait.
         assert_eq!((&mut silent).now_or_never(), None);
-        clock.advance(IDLE_TIMEOUT);
+        clock.advance(Timing::test().metrics.stream_silence);
 
         assert_eq!(arrived, Some("open"));
         assert_eq!(silent.await, None);
@@ -545,7 +545,7 @@ mod tests {
         // The first poll starts the idle wait.
         assert_eq!(stream.next().now_or_never(), None);
 
-        clock.advance(IDLE_TIMEOUT);
+        clock.advance(Timing::test().metrics.stream_silence);
 
         assert_eq!(next(&mut stream).await, Some(Err(BucketStreamEnd::Idle)));
         assert_eq!(next(&mut stream).await, None);
@@ -585,8 +585,6 @@ mod tests {
         );
     }
 
-    const IDLE_TIMEOUT: Duration = Timing::production().metrics.stream_silence;
-
     type BatchSender = mpsc::UnboundedSender<Result<BucketBatch, BucketStreamEnd>>;
 
     type AppliedStream = BoxStream<'static, Result<u64, BucketStreamEnd>>;
@@ -600,8 +598,8 @@ mod tests {
         let store = Arc::new(
             InMemoryMetricStore::start(
                 InMemoryStoreConfig::default(),
-                &dotcore_domain::timing::Timing::production().metrics,
-                &dotcore_domain::timing::Timing::production().watch,
+                &Timing::test().metrics,
+                &Timing::test().watch,
                 vec![
                     MetricDescriptor {
                         name: "node.memory.used".to_owned(),
@@ -632,7 +630,7 @@ mod tests {
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
             Arc::new(clock.clone()),
-            &Timing::production().metrics,
+            &Timing::test().metrics,
         ));
         // Leaves ten minutes of history after the store start for buckets to land in.
         clock.advance(Duration::from_secs(11 * 60));

@@ -134,6 +134,7 @@ impl NodeReadings for NodeRegistry {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{
         sync::{Arc, Mutex},
         time::{Duration, UNIX_EPOCH},
@@ -468,9 +469,7 @@ mod tests {
                 &snapshot,
                 false,
             )],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         let readings = Arc::new(FixedReadings {

@@ -1184,6 +1184,8 @@ pub(super) fn node_view_owner_rules() -> NodeViewOwnerRules {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::{
         sync::{
             Arc,
@@ -1278,7 +1280,7 @@ mod tests {
         let attempts = Arc::new(AtomicUsize::new(0));
         let construction = tokio::spawn(construct_with_retry(
             Arc::clone(&listener),
-            Arc::new(dotcore_domain::clock::SystemClock),
+            Arc::new(SystemClock),
             Duration::from_secs(5),
             {
                 let attempts = Arc::clone(&attempts);
@@ -1323,10 +1325,8 @@ mod tests {
             std::slice::from_ref(&node_target),
             &builder.build().expect("node targets"),
             observations.clone(),
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
-            Arc::new(dotcore_domain::clock::SystemClock),
+            Timing::test().node_control.capability_max_age,
+            Arc::new(SystemClock),
         )
         .await
         .expect("node capability source");
@@ -1360,9 +1360,7 @@ mod tests {
             NodeCollection::without_processes(snapshot.clone()),
             1,
             std::time::SystemTime::now()
-                - dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .capability_max_age
+                - Timing::test().node_control.capability_max_age
                 - Duration::from_secs(1),
         );
 

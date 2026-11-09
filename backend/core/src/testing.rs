@@ -13,7 +13,7 @@ pub use dotcore_domain::{
         host_resolver::FakeHostResolver,
         ports::{ReservedPort, reserve_port},
     },
-    timing::{TEST_TIMING_ENVIRONMENT, Timing},
+    timing::{MISSED_PUBLICATIONS_BEFORE_REOPEN, TEST_TIMING_ENVIRONMENT, Timing},
 };
 pub use dotcore_site::node::control::NodeLivenessAges;
 

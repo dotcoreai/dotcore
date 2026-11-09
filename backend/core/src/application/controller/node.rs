@@ -885,6 +885,8 @@ fn warn_status_not_built(source: &'static str, error: &impl std::fmt::Display) {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::{
         collections::{BTreeMap, BTreeSet},
         net::Ipv4Addr,
@@ -2752,8 +2754,8 @@ mod tests {
                 publication_host: Ipv4Addr::LOCALHOST,
                 preparation_logs: self.preparation_logs(),
                 inventory: Arc::new(HardwareInventoryPublisher::new().1),
-                timing: dotcore_domain::timing::Timing::production().application,
-                clock: Arc::new(dotcore_domain::clock::SystemClock),
+                timing: Timing::test().application,
+                clock: Arc::new(SystemClock),
             })
             .expect("node realizer")
         }

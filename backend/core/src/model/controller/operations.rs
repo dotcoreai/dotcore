@@ -1416,6 +1416,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
     use dotcore_catalog::CatalogModelId;
@@ -1482,9 +1484,7 @@ mod tests {
             }],
         )]);
         let inventory = TargetCapabilityInventory::empty(
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         let own_reads = Cell::new(0);
@@ -1574,8 +1574,8 @@ mod tests {
             desired,
             current,
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production().model,
-            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            Timing::test().model,
+            std::sync::Arc::new(SystemClock),
         )
         .expect("controller");
 
@@ -1625,8 +1625,8 @@ mod tests {
             desired.clone(),
             current,
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production().model,
-            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            Timing::test().model,
+            std::sync::Arc::new(SystemClock),
         )
         .expect("controller");
         desired.fail_next(TestFailure::Failed);
@@ -1686,8 +1686,8 @@ mod tests {
             desired.clone(),
             current.clone(),
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production().model,
-            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            Timing::test().model,
+            std::sync::Arc::new(SystemClock),
         )
         .expect("controller");
         let desired_before = desired.state.lock().expect("desired state").clone();

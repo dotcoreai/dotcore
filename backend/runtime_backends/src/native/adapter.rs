@@ -914,6 +914,7 @@ fn unknown_workload(id: &str) -> RuntimeBackendError {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{
         fs,
         os::unix::fs::PermissionsExt,
@@ -1361,7 +1362,7 @@ mod tests {
                 ..original.config()
             },
             launcher_binary(),
-            &dotcore_domain::timing::Timing::test().native,
+            &Timing::test().native,
         )
         .expect("copied backend");
 
@@ -2249,7 +2250,7 @@ mod tests {
                 ..fixture.config.clone()
             },
             launcher_binary(),
-            &dotcore_domain::timing::Timing::test().native,
+            &Timing::test().native,
         )
         .expect("native backend")
     }

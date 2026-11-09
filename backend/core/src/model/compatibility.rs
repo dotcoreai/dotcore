@@ -649,6 +649,7 @@ fn oci_platform(operating_system: &str, architecture: &str) -> OciPlatform {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{fs, path::Path, time::SystemTime};
 
     use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
@@ -1031,9 +1032,7 @@ mod tests {
                 now,
             )],
             [nvidia(&stale, "580.173.02", now)],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             now,
         ));
         inventory.extend(observed(
@@ -1537,9 +1536,7 @@ mod tests {
                 now,
             )],
             [accelerator],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             now,
         )
     }

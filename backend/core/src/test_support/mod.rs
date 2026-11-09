@@ -1,5 +1,6 @@
 //! Shared support for backend unit tests.
 
+use dotcore_domain::timing::Timing;
 use dotcore_proto::dotcore::{
     deployment::v1::ArtifactPreparationPolicy,
     model::v1::{ModelDeploymentSnapshot, model_deployment_snapshot},
@@ -107,9 +108,7 @@ pub(crate) fn execution_target_capabilities_with_memory(
         [&target],
         [RuntimePlatformObservation::available(target_id, platform)],
         [accelerator],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     (target, inventory)

@@ -1145,6 +1145,7 @@ fn describe_options(option_values: &[ModelOptionValues]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{fs, path::Path};
 
     use dotcore_catalog::test_support::UNPARAMETERIZED_BINDING_SIZING;
@@ -1256,9 +1257,7 @@ mod tests {
                             Some(34_190_917_632 - free_bytes),
                         ),
                     ],
-                    dotcore_domain::timing::Timing::production()
-                        .node_control
-                        .capability_max_age,
+                    Timing::test().node_control.capability_max_age,
                     std::time::SystemTime::now(),
                 );
             resolve_local_launch(

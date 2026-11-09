@@ -1,5 +1,7 @@
 //! Fakes and fixtures for the application controller tests.
 
+use dotcore_domain::clock::SystemClock;
+use dotcore_domain::timing::Timing;
 use std::{
     collections::{BTreeSet, VecDeque},
     fs,
@@ -832,9 +834,7 @@ pub(super) fn node_target_capabilities() -> Arc<dyn TargetCapabilitySource> {
                 dotcore_domain::ExecutionPlatform::linux_amd64(),
             )],
             std::iter::empty(),
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         ),
     ))
@@ -1275,8 +1275,8 @@ where
                 inference_route_resolver,
                 accelerator_attribution: None,
                 resource_attribution: None,
-                timing: dotcore_domain::timing::Timing::production().application,
-                clock: Arc::new(dotcore_domain::clock::SystemClock),
+                timing: Timing::test().application,
+                clock: Arc::new(SystemClock),
                 node: super::realizer::NodeRealization {
                     records,
                     reconciled: ReconciledAssignments::default(),
@@ -2676,9 +2676,7 @@ pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource>
             dotcore_domain::ExecutionPlatform::linux_amd64(),
         )],
         std::iter::empty(),
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
     Arc::new(StaticTargetCapabilitySource::new(inventory))

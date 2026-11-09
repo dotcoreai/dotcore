@@ -741,6 +741,8 @@ impl std::error::Error for SharedPinError {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::sync::Mutex;
 
     use dotcore_domain::ExecutionPlatform;
@@ -1213,11 +1215,7 @@ mod tests {
 
             while node.retained().len() < 2 {
                 assert!(
-                    declared.elapsed()
-                        < dotcore_domain::timing::Timing::production()
-                            .model
-                            .reconcile
-                            .settled,
+                    declared.elapsed() < Timing::test().model.reconcile.settled,
                     "round {round}: both deployments were not pinned before the safety scan: {:?}",
                     node.retained()
                 );
@@ -1696,8 +1694,8 @@ mod tests {
                     serving_targets: ServingTargetsPublisher::new().0,
                     shutdown: self.shutdown.clone(),
                     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                    timing: dotcore_domain::timing::Timing::production().model,
-                    clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+                    timing: Timing::test().model,
+                    clock: std::sync::Arc::new(SystemClock),
                     preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                         self._directory.path(),
                     ),

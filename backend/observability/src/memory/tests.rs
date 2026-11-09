@@ -1,3 +1,4 @@
+use dotcore_domain::timing::Timing;
 use std::time::{Duration, SystemTime};
 
 use dotcore_domain::clock::{ManualClock, VirtualClock};
@@ -1125,11 +1126,7 @@ async fn an_idle_ended_watch_sends_heartbeats() {
     };
     assert_eq!(next_event(&mut watch).await, WatchEvent::BackfillComplete);
 
-    clock.advance(
-        dotcore_domain::timing::Timing::production()
-            .watch
-            .heartbeat_interval,
-    );
+    clock.advance(Timing::test().watch.heartbeat_interval);
 
     assert_eq!(
         next_event(&mut watch).await,
@@ -1286,11 +1283,7 @@ async fn the_sweep_records_rejected_and_late_records() {
         .expect("ingest");
     store.drain().await.expect("drain");
 
-    clock.advance(
-        dotcore_domain::timing::Timing::production()
-            .metrics
-            .store_sweep_interval,
-    );
+    clock.advance(Timing::test().metrics.store_sweep_interval);
     wait_for_gauge(&store, health::STORE_SERIES, clock.wall_now()).await;
 
     assert_eq!(
@@ -1344,11 +1337,7 @@ async fn the_sweep_records_drops_of_a_full_queue() {
     }
     // Lets the ingest task start, and schedule its first sweep, before time moves.
     store.drain().await.expect("drain");
-    clock.advance(
-        dotcore_domain::timing::Timing::production()
-            .metrics
-            .store_sweep_interval,
-    );
+    clock.advance(Timing::test().metrics.store_sweep_interval);
     wait_for_gauge(&store, health::STORE_SERIES, clock.wall_now()).await;
 
     assert_eq!(store.dropped_records(), 6);
@@ -1370,8 +1359,8 @@ fn start_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore, Manual
 fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemoryMetricStore {
     InMemoryMetricStore::start(
         config,
-        &dotcore_domain::timing::Timing::production().metrics,
-        &dotcore_domain::timing::Timing::production().watch,
+        &Timing::test().metrics,
+        &Timing::test().watch,
         vec![
             MetricDescriptor {
                 name: "node.memory.used".to_owned(),
@@ -1426,8 +1415,8 @@ fn start_virtual_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore
     );
     let store = InMemoryMetricStore::start(
         config,
-        &dotcore_domain::timing::Timing::production().metrics,
-        &dotcore_domain::timing::Timing::production().watch,
+        &Timing::test().metrics,
+        &Timing::test().watch,
         vec![MetricDescriptor {
             name: "router.requests".to_owned(),
             kind: MetricKind::Counter,

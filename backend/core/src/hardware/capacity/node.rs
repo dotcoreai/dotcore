@@ -100,6 +100,7 @@ fn unsized_in(pool: &Pool, workloads: &[Workload]) -> Vec<WorkloadKey> {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{collections::BTreeMap, time::SystemTime};
 
     use dotcore_domain::MemoryArchitecture::{self, Dedicated};
@@ -367,9 +368,7 @@ mod tests {
                     .expect("rendered snapshot"),
                 false,
             )],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         );
         assert_eq!(
@@ -595,9 +594,7 @@ mod tests {
                     [NodeAcceleratorObservation::from_hardware_snapshot(
                         "node-a", &snapshot, false,
                     )],
-                    dotcore_domain::timing::Timing::production()
-                        .node_control
-                        .capability_max_age,
+                    Timing::test().node_control.capability_max_age,
                     SystemTime::now(),
                 );
                 let capabilities = inventory.for_target("target-a").expect("target");

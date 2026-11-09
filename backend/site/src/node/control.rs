@@ -737,13 +737,13 @@ impl ManagerNodeControlCoordinator {
         )
     }
 
-    /// Creates a coordinator on system time and the production timing, for unit tests that do
-    /// not control time.
+    /// Creates a coordinator on system time and the test timing, for unit tests that do not
+    /// control time.
     #[cfg(any(test, feature = "test-support"))]
     pub fn on_system_clock(manager_session: ManagerSession) -> Self {
         Self::new(
             manager_session,
-            &dotcore_domain::timing::Timing::production().node_control,
+            &dotcore_domain::timing::Timing::test().node_control,
             Arc::new(dotcore_domain::clock::SystemClock),
         )
     }
@@ -1291,7 +1291,10 @@ mod tests {
         time::Duration,
     };
 
-    use dotcore_domain::{clock::ManualClock, timing::Timing};
+    use dotcore_domain::{
+        clock::{ManualClock, SystemClock},
+        timing::Timing,
+    };
     use dotcore_proto::{
         dotcore::{
             application::private::v1::{
@@ -1315,11 +1318,6 @@ mod tests {
     use tokio::time::Instant;
 
     use super::*;
-
-    const LIVENESS_TTL: Duration = Timing::production().node_control.node_silence;
-
-    const CONTROLLER_STATUS_FRESHNESS: Duration =
-        Timing::production().node_control.controller_status_max_age;
 
     #[test]
     fn mixed_channels_share_one_incarnation_owner_and_replacement_restarts_at_sequence_one() {
@@ -1354,7 +1352,7 @@ mod tests {
             })
             .expect("first status");
 
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
+        clock.advance(Timing::production().node_control.node_silence + Duration::from_secs(1));
         coordinator
             .register_observation(
                 &observation_request(&replacement, 1),
@@ -1403,7 +1401,7 @@ mod tests {
             })
             .expect("first status");
 
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
+        clock.advance(Timing::production().node_control.node_silence + Duration::from_secs(1));
         coordinator
             .register_observation(
                 &observation_request(&replacement, 1),
@@ -1595,7 +1593,7 @@ mod tests {
         stay_in_contact(
             &coordinator,
             &incarnation,
-            CONTROLLER_STATUS_FRESHNESS + Duration::from_secs(1),
+            Timing::production().node_control.controller_status_max_age + Duration::from_secs(1),
         )
         .await;
         assert_eq!(
@@ -1719,7 +1717,12 @@ mod tests {
         let old = publish(&coordinator, &incarnation, "old").expect("publication");
         accept_model_status(&coordinator, &incarnation, &old, 1, "model-one", 7);
         publish(&coordinator, &incarnation, "new").expect("newer publication");
-        stay_in_contact(&coordinator, &incarnation, CONTROLLER_STATUS_FRESHNESS).await;
+        stay_in_contact(
+            &coordinator,
+            &incarnation,
+            Timing::production().node_control.controller_status_max_age,
+        )
+        .await;
         assert_eq!(
             evidence(&coordinator, "model-one", 8),
             DeploymentStatusEvidence::AcknowledgementPending
@@ -1876,7 +1879,10 @@ mod tests {
         );
         let serving = coordinator.serving_evidence();
         assert_eq!(serving.len(), 1);
-        assert_eq!(serving[0].connected_until, Instant::now() + LIVENESS_TTL);
+        assert_eq!(
+            serving[0].connected_until,
+            Instant::now() + Timing::production().node_control.node_silence
+        );
         assert!(serving[0].status.is_some());
     }
 
@@ -1890,7 +1896,10 @@ mod tests {
                 observation_input(&first, 1),
             )
             .expect("first observation");
-        tokio::time::advance(LIVENESS_TTL + Duration::from_secs(1)).await;
+        tokio::time::advance(
+            Timing::production().node_control.node_silence + Duration::from_secs(1),
+        )
+        .await;
         let replacement = incarnation('2');
         coordinator
             .register_observation(
@@ -1903,7 +1912,7 @@ mod tests {
 
         // For the whole window, the replaced process keeps reopening its stream and the current
         // one sends only statuses for a view it was never offered; neither counts as contact.
-        for sequence in 2..=(LIVENESS_TTL.as_secs() + 1) {
+        for sequence in 2..=(Timing::production().node_control.node_silence.as_secs() + 1) {
             tokio::time::advance(Duration::from_secs(1)).await;
             assert!(matches!(
                 publish(&coordinator, &first, "replaced"),
@@ -1949,7 +1958,7 @@ mod tests {
             )
             .expect("first observation");
 
-        clock.advance(LIVENESS_TTL);
+        clock.advance(Timing::production().node_control.node_silence);
         assert!(matches!(
             coordinator.register_observation(
                 &observation_request(&replacement, 1),
@@ -2051,9 +2060,9 @@ mod tests {
         let (_, connected_until, _) = before.expect("serving evidence");
         assert_eq!(
             connected_until,
-            coordinator_contact(&coordinator) + LIVENESS_TTL
+            coordinator_contact(&coordinator) + Timing::production().node_control.node_silence
         );
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
+        clock.advance(Timing::production().node_control.node_silence + Duration::from_secs(1));
         assert!(
             serving_snapshot(&coordinator)
                 .is_some_and(|(_, until, _)| until < coordinator.clock().now()),
@@ -2268,7 +2277,7 @@ mod tests {
             .register_observation(&observation_request(&node, 1), observation_input(&node, 1))
             .expect("observation");
 
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
+        clock.advance(Timing::production().node_control.node_silence + Duration::from_secs(1));
         assert_eq!(coordinator.node_silence(), bound);
         assert_eq!(
             connection(&coordinator),
@@ -2284,7 +2293,11 @@ mod tests {
     }
 
     fn coordinator() -> ManagerNodeControlCoordinator {
-        ManagerNodeControlCoordinator::on_system_clock(manager_session())
+        ManagerNodeControlCoordinator::new(
+            manager_session(),
+            &Timing::production().node_control,
+            Arc::new(SystemClock),
+        )
     }
 
     /// Publishes worker-one's view on its stream of `epoch` under `sequence`.
@@ -2402,7 +2415,7 @@ mod tests {
         let attachment = coordinator
             .open_stream("worker-one", incarnation)
             .expect("open stream");
-        let step = LIVENESS_TTL / 2;
+        let step = Timing::production().node_control.node_silence / 2;
         let mut remaining = duration;
         while !remaining.is_zero() {
             let advanced = remaining.min(step);

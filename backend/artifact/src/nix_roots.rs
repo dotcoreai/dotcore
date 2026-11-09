@@ -268,6 +268,7 @@ async fn link_target(link: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{
         collections::VecDeque, os::unix::fs::PermissionsExt as _, sync::Mutex, time::Duration,
     };
@@ -405,13 +406,9 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let start = |roots: PathBuf, pins: Arc<FakePins>| {
-            let keeper = NixRootKeeper::new(
-                roots,
-                pins,
-                &dotcore_domain::timing::Timing::production().artifact,
-                Arc::new(SystemClock),
-            )
-            .with_executable(nix.clone());
+            let keeper =
+                NixRootKeeper::new(roots, pins, &Timing::test().artifact, Arc::new(SystemClock))
+                    .with_executable(nix.clone());
             Running {
                 passes: keeper.passes(),
                 clock: ManualClock::new(),

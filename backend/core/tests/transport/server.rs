@@ -25,6 +25,7 @@ use async_openai::{
 use dotcore::composition::CompositionError;
 use dotcore::composition::model_service_for;
 use dotcore::testing::writer_metric_descriptors;
+use dotcore_domain::clock::{Clock, ClockSleep};
 use dotcore_domain::hardware_observation::{HardwareSample, HardwareSnapshotSource};
 use dotcore_node_hardware::hardware::{
     AcceleratorDiscovery, AcceleratorVendorDiscoverer, AcceleratorVendorObservation,
@@ -650,7 +651,7 @@ async fn manager_backend_server_exposes_site_inventory_and_current_snapshot_with
     // A frozen clock never reaches the next wall-aligned hardware refresh, so the collection
     // count only moves when a request collects.
     let clock = dotcore::testing::VirtualClock::starting_at(SystemTime::now());
-    let backend = support::prepare_backend_with_test_support_and_snapshot_collector(
+    let backend = support::prepare_backend_with_collector_and_support(
         configuration,
         async move {
             let _ = shutdown_signal.await;
@@ -1222,7 +1223,7 @@ async fn manager_backend_server_streams_metric_watches() {
             seconds,
         )
     };
-    let backfilled_at = dotcore_domain::clock::Clock::wall_now(&clock);
+    let backfilled_at = clock.wall_now();
     recorder.record(vec![ttft(backfilled_at, 0.25), ttft(backfilled_at, 0.75)]);
     let address = backend.addresses().management.expect("management listener");
     let mut server = tokio::spawn(backend.serve());
@@ -1312,7 +1313,7 @@ async fn manager_backend_server_streams_metric_watches() {
     );
 
     clock.advance(Duration::from_secs(2));
-    let live_at = dotcore_domain::clock::Clock::wall_now(&clock);
+    let live_at = clock.wall_now();
     recorder.record(vec![ttft(live_at, 0.5)]);
     // Past the bucket's end and its closing grace, so the live point arrives closed.
     clock.advance(Duration::from_secs(2));
@@ -2162,7 +2163,7 @@ impl HostFactsAdapter for FixedHostFacts {
 #[derive(Debug)]
 struct FixedObservationClock;
 
-impl dotcore_domain::clock::Clock for FixedObservationClock {
+impl Clock for FixedObservationClock {
     fn now(&self) -> tokio::time::Instant {
         tokio::time::Instant::now()
     }
@@ -2171,7 +2172,7 @@ impl dotcore_domain::clock::Clock for FixedObservationClock {
         UNIX_EPOCH + Duration::new(1_725_000_000, 123)
     }
 
-    fn sleep_until(&self, deadline: tokio::time::Instant) -> dotcore_domain::clock::ClockSleep {
+    fn sleep_until(&self, deadline: tokio::time::Instant) -> ClockSleep {
         Box::pin(tokio::time::sleep_until(deadline))
     }
 }

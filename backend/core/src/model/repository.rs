@@ -1013,6 +1013,7 @@ fn next_deployment_id(deployments: &[ModelDeploymentDeclaration]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{fs, path::Path, sync::Arc};
 
     use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
@@ -1319,9 +1320,7 @@ mod tests {
                     NodeAcceleratorFacts::apple(),
                 )
                 .with_host_memory(34_190_917_632, 34_190_917_632)],
-                dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .capability_max_age,
+                Timing::test().node_control.capability_max_age,
                 std::time::SystemTime::now(),
             ),
         );
@@ -1680,9 +1679,7 @@ mod tests {
             site,
             catalog,
             TargetCapabilityInventory::empty(
-                dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .capability_max_age,
+                Timing::test().node_control.capability_max_age,
                 std::time::SystemTime::now(),
             ),
         );
@@ -1777,9 +1774,7 @@ mod tests {
             site,
             catalog,
             TargetCapabilityInventory::empty(
-                dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .capability_max_age,
+                Timing::test().node_control.capability_max_age,
                 std::time::SystemTime::now(),
             ),
         );
@@ -3349,9 +3344,7 @@ selector:
                 NodeAcceleratorObservation::nvidia("worker-node", "580.173.02"),
                 NodeAcceleratorObservation::nvidia("manager-node", "580.173.02"),
             ],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         )
     }

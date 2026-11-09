@@ -471,6 +471,7 @@ fn protocol_violation(message: &str) -> AdapterError {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{
         net::SocketAddr,
         sync::{
@@ -887,7 +888,7 @@ mod tests {
                         peer.worker_certificate.as_slice(),
                     )],
                 ),
-                &dotcore_domain::timing::Timing::production().private,
+                &Timing::test().private,
             )),
             Fixture::installed(Script::Complete).admission(),
         );
@@ -1223,7 +1224,7 @@ mod tests {
                         manager_certificate.as_slice(),
                     )],
                 ),
-                &dotcore_domain::timing::Timing::production().private,
+                &Timing::test().private,
                 worker
                     .private_services()
                     .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
@@ -1263,7 +1264,7 @@ mod tests {
                                 worker_certificate.as_slice(),
                             )],
                         ),
-                        &dotcore_domain::timing::Timing::production().private,
+                        &Timing::test().private,
                     )),
                     Fixture::installed(Script::Complete).admission(),
                 ),
@@ -1287,7 +1288,7 @@ mod tests {
                         (self.manager_certificate.clone(), self.manager_key.clone()),
                         [(WORKER_NODE_ID, PrivateNodeRole::Worker, worker_certificate)],
                     ),
-                    &dotcore_domain::timing::Timing::production().private,
+                    &Timing::test().private,
                 )),
                 Fixture::installed(Script::Complete).admission(),
             )

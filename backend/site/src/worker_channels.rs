@@ -293,6 +293,7 @@ impl From<std::net::SocketAddr> for WorkerAddress {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::time::Duration;
 
     use dotcore_proto::{dotcore::site::private::v1::NodeObservation, google::protobuf::Timestamp};
@@ -335,13 +336,8 @@ mod tests {
         ));
 
         fixture.register("worker-one", Some(47_123));
-        tokio::time::advance(
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .node_silence
-                + Duration::from_secs(1),
-        )
-        .await;
+        tokio::time::advance(Timing::test().node_control.node_silence + Duration::from_secs(1))
+            .await;
 
         assert!(matches!(
             fixture.connect("worker-one"),
@@ -414,7 +410,7 @@ mod tests {
                         worker_certificate.as_slice(),
                     )],
                 ),
-                &dotcore_domain::timing::Timing::production().private,
+                &Timing::test().private,
             );
             Self {
                 site: SiteRepository::load(

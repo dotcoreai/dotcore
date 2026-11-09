@@ -1,3 +1,4 @@
+use dotcore_domain::timing::Timing;
 use std::{
     sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, UNIX_EPOCH},
@@ -714,8 +715,8 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
     publish_apple_gpu(&publisher);
     let store = InMemoryMetricStore::start(
         InMemoryStoreConfig::default(),
-        &dotcore_domain::timing::Timing::production().metrics,
-        &dotcore_domain::timing::Timing::production().watch,
+        &Timing::test().metrics,
+        &Timing::test().watch,
         [
             forwarder_metric_descriptors(),
             deployment_metric_descriptors(Duration::from_secs(5)),
@@ -727,7 +728,7 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
     let ingest = Arc::new(MetricBucketIngest::new(
         store.ingestor(),
         Arc::new(clock.clone()),
-        &dotcore_domain::timing::Timing::production().metrics,
+        &Timing::test().metrics,
     ));
     let (forwarder, _forwarder_task) = MetricForwarder::start(
         "worker-one",

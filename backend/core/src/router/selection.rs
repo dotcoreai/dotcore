@@ -587,6 +587,7 @@ fn request_requires_image(request: &InferenceRequest) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::inference::v1::{
         ChatContentPart, ChatImageContent, ChatImageMediaType, ChatMessage, ChatRequest,
         DecisionRequest, FallbackGroup, chat_content_part,
@@ -1153,7 +1154,7 @@ mod tests {
                         worker_certificate.as_slice(),
                     )],
                 ),
-                &dotcore_domain::timing::Timing::production().private,
+                &Timing::test().private,
             )),
             crate::router::peer_service::test_support::Fixture::installed(
                 crate::router::peer_service::test_support::Script::Complete,

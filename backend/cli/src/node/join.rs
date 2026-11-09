@@ -732,6 +732,7 @@ pub(crate) struct RejoinNameMismatch {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::{JoinTiming, Timing};
     use dotcore_site::node::folder::CertificateFingerprint;
     use url::Url;
 
@@ -972,9 +973,9 @@ mod tests {
         let error = block_on(JoinConnection::connect(
             token,
             None,
-            &dotcore_domain::timing::JoinTiming {
+            &JoinTiming {
                 connect_timeout: std::time::Duration::from_millis(300),
-                ..dotcore_domain::timing::Timing::production().join
+                ..Timing::test().join
             },
         ))
         .err()

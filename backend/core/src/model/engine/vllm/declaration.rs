@@ -428,6 +428,7 @@ fn parameter_has_type(
 mod tests {
     use dotcore_catalog::{CatalogModelId, test_support::vendor_hardware_class};
     use dotcore_domain::ExecutionPlatform;
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::{
         catalog::v1::{
             BooleanEngineParameterSchema, EngineParameterDefinition, EngineParameterSchema,
@@ -849,9 +850,7 @@ mod tests {
                     &snapshot,
                     false,
                 )],
-                dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .capability_max_age,
+                Timing::test().node_control.capability_max_age,
                 std::time::SystemTime::now(),
             );
             let model_id = CatalogModelId("fixture-vllm-model".to_owned());

@@ -4,6 +4,7 @@
 //! validation and service contracts use the smallest available fixture instead
 //! of duplicating the contents of committed catalog YAML.
 
+use dotcore_domain::timing::Timing;
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 use dotcore::model::{
@@ -2448,9 +2449,7 @@ fn target_capabilities(
             platform,
         )],
         [accelerator],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     (target, inventory)
@@ -2808,9 +2807,7 @@ fn simulated_target(machine: &str, gpu: usize) -> (ExecutionTarget, TargetCapabi
             &snapshot,
             false,
         )],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     (target, inventory)
@@ -2847,9 +2844,7 @@ fn accelerator_target(
             platform,
         )],
         [accelerator],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     (target, inventory)
@@ -2882,9 +2877,7 @@ fn macos_native_target_capabilities() -> (ExecutionTarget, TargetCapabilityInven
             NodeAcceleratorObservation::available("mac-node", NodeAcceleratorFacts::apple())
                 .with_host_memory(34_190_917_632, 34_190_917_632),
         ],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     (target, inventory)

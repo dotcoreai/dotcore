@@ -1,3 +1,4 @@
+use dotcore_domain::timing::Timing;
 use std::time::{Duration, SystemTime};
 
 use dotcore_catalog::{Catalog, CatalogLocalModelDeclarations, CatalogModelId, OciArtifactPolicy};
@@ -1112,9 +1113,7 @@ fn profiles(
         scenario,
         &[],
         &TargetCapabilityInventory::empty(
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             SystemTime::now(),
         ),
     )
@@ -1336,9 +1335,7 @@ fn observed_with_free(
             observed_at,
         )
         .with_memory_architecture(Some(memory_architecture))],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         as_of,
     )
 }

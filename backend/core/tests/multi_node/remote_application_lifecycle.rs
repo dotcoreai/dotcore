@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dotcore::testing::Timing;
+use dotcore::testing::{MISSED_PUBLICATIONS_BEFORE_REOPEN, Timing};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeployment, ApplicationDeploymentDesiredState, ApplicationLifecycleState,
@@ -624,14 +624,17 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     // instant plus the republish interval: the first publication answers the worker's stream
     // open, and each republication follows the previous publication by a whole interval.
     let started = Instant::now();
-    // Both processes run one policy with a long republish interval and the production ratios: the
+    // Both processes run one policy with a long republish interval and relations that pass the timing check: the
     // worker neither reopens its stream nor loses its action lease between republications.
     let timing = {
         let mut timing = Timing::test();
         timing.node_control.node_silence = LONG_SILENCE_BOUND;
         timing.node_control.view_republish_interval = LONG_REPUBLISH_INTERVAL;
-        timing.node_control.manager_silence = LONG_REPUBLISH_INTERVAL * 3;
-        timing.node_control.action_lease = LONG_REPUBLISH_INTERVAL * 4;
+        timing.node_control.manager_silence =
+            LONG_REPUBLISH_INTERVAL * MISSED_PUBLICATIONS_BEFORE_REOPEN;
+        timing.node_control.action_lease =
+            LONG_REPUBLISH_INTERVAL * (MISSED_PUBLICATIONS_BEFORE_REOPEN + 1);
+        timing.check().expect("a valid long-republish policy");
         timing
     };
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(

@@ -589,9 +589,10 @@ fn simulated_runtime(
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::sync::Arc;
 
-    use dotcore_domain::clock::SystemClock;
     use dotcore_launcher::workload::Lifetime;
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
@@ -638,7 +639,7 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&launcher),
-            &dotcore_domain::timing::Timing::test().native,
+            &Timing::test().native,
             simulated_inputs(None),
         )
         .expect("registry");
@@ -666,7 +667,7 @@ mod tests {
             "site-one",
             node_id(),
             Some(&launcher),
-            &dotcore_domain::timing::Timing::test().native,
+            &Timing::test().native,
         );
         let persistent = factory
             .native_backend(&targets[0])
@@ -696,7 +697,7 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&missing),
-            &dotcore_domain::timing::Timing::test().native,
+            &Timing::test().native,
             simulated_inputs(Some(rtx_5090_desktop())),
         )
         .expect("registry without a launcher");
@@ -778,7 +779,7 @@ mod tests {
             "site-one",
             node_id(),
             Some(&dotcore_runtime_backends::native::test_support::launcher_binary()),
-            &dotcore_domain::timing::Timing::test().native,
+            &Timing::test().native,
         );
 
         let error = match factory.native_backend(&native_target(
@@ -888,7 +889,7 @@ mod tests {
         DeclaredMachine::new(
             dotcore_node_hardware::MachineDescription::simulated(&["rtx-5090".to_owned()], "amd64")
                 .expect("named machine"),
-            Arc::new(dotcore_domain::clock::SystemClock),
+            Arc::new(SystemClock),
         )
     }
 

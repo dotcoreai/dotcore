@@ -462,6 +462,7 @@ fn descriptor(descriptor: &MetricDescriptor) -> proto::MetricDescriptor {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use std::{collections::HashMap, sync::Mutex};
 
     use dotcore_domain::clock::ManualClock;
@@ -1006,8 +1007,8 @@ mod tests {
         let store = Arc::new(
             InMemoryMetricStore::start(
                 config,
-                &dotcore_domain::timing::Timing::production().metrics,
-                &dotcore_domain::timing::Timing::production().watch,
+                &Timing::test().metrics,
+                &Timing::test().watch,
                 vec![
                     descriptor("node.host.memory.available", MetricKind::Gauge),
                     descriptor("router.requests", MetricKind::Counter),

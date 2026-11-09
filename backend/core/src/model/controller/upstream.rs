@@ -622,6 +622,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
     use dotcore_proto::dotcore::model::v1::{
@@ -1112,9 +1114,9 @@ mod tests {
             ServingTargetsPublisher::new().0,
             HealthDependencies {
                 verification_http: Arc::new(ScriptedVerificationHttp::new([])),
-                clock: Arc::new(dotcore_domain::clock::SystemClock),
+                clock: Arc::new(SystemClock),
                 jitter: Arc::new(StableHealthJitter),
-                timing: dotcore_domain::timing::Timing::production().model,
+                timing: Timing::test().model,
             },
         )
         .expect("upstream reconciler")

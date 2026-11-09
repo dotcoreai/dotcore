@@ -1,3 +1,5 @@
+use dotcore_domain::clock::{ManualClock, SystemClock};
+use dotcore_domain::timing::Timing;
 use std::{
     collections::BTreeMap,
     error::Error as _,
@@ -18,7 +20,7 @@ use dotcore_proto::dotcore::{
         UpstreamModelDesiredConfiguration, UpstreamModelInputCapabilities,
         model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
     },
-    site::v1::{Site, SiteNode},
+    site::v1::{HardwareObservationConfiguration, Site, SiteNode},
 };
 use dotcore_site::{
     NODE_FILE,
@@ -42,10 +44,10 @@ async fn the_metric_catalog_follows_the_naming_and_export_rules() {
     assert_eq!(
         InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
-            &dotcore_domain::timing::Timing::production().metrics,
-            &dotcore_domain::timing::Timing::production().watch,
+            &Timing::test().metrics,
+            &Timing::test().watch,
             catalog,
-            Arc::new(dotcore_domain::clock::SystemClock),
+            Arc::new(SystemClock),
         )
         .err()
         .map(|error| error.to_string()),
@@ -56,11 +58,9 @@ async fn the_metric_catalog_follows_the_naming_and_export_rules() {
 #[test]
 fn per_collection_metrics_follow_the_sites_hardware_refresh_interval() {
     let site = Site {
-        hardware_observation: Some(
-            dotcore_proto::dotcore::site::v1::HardwareObservationConfiguration {
-                refresh_interval_seconds: Some(7),
-            },
-        ),
+        hardware_observation: Some(HardwareObservationConfiguration {
+            refresh_interval_seconds: Some(7),
+        }),
         ..Default::default()
     };
 
@@ -93,7 +93,7 @@ fn per_collection_metrics_follow_the_sites_hardware_refresh_interval() {
 
 #[tokio::test(start_paused = true)]
 async fn a_backend_reads_its_test_manual_clock_or_else_system_time() {
-    let manual = dotcore_domain::clock::ManualClock::new();
+    let manual = ManualClock::new();
     let manual_choice = backend_clock(&BackendTestSupport {
         clock: Some(Arc::new(manual.clone())),
         ..BackendTestSupport::default()
@@ -439,15 +439,13 @@ async fn supplied_input_model_owner_composition_does_not_reload_site() {
         &inputs,
         Arc::new(StaticTargetCapabilitySource::new(
             dotcore_site::node::target_inventory::TargetCapabilityInventory::empty(
-                dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .capability_max_age,
+                Timing::test().node_control.capability_max_age,
                 std::time::SystemTime::now(),
             ),
         )),
         crate::management_logs::ManagementLogAdmission::new(),
-        dotcore_domain::timing::Timing::production(),
-        Arc::new(dotcore_domain::clock::SystemClock),
+        Timing::test(),
+        Arc::new(SystemClock),
     )
     .await
     .expect("model owner composition");

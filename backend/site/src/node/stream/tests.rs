@@ -549,7 +549,7 @@ async fn a_view_that_cannot_be_built_at_open_answers_with_the_last_published_vie
     fixture.applications.set_unbuildable(false);
     fixture
         .clock
-        .advance(Timing::production().node_control.view_republish_interval);
+        .advance(Timing::test().node_control.view_republish_interval);
     let recovered = reopened.publication().await;
     let identity = recovered.identity.as_ref().expect("identity");
     assert_eq!(
@@ -578,7 +578,10 @@ async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_s
     // Paused Tokio time drives both the manager's clock and the node's lease, and auto-advances
     // only to the next republication, the earliest pending wait.
     let fixture = Fixture::with_silence_bound(Duration::from_secs(3_600));
-    let lease = Timing::production().node_control.action_lease;
+    let timing = Timing::test().node_control;
+    let lease = timing.action_lease;
+    // Republications that together outlast the lease.
+    let republications = lease.as_millis() / timing.view_republish_interval.as_millis() + 1;
     let (authority, installer) = node_view(&fixture, lease);
     let started = tokio::time::Instant::now();
     let mut node = fixture.open("worker-one");
@@ -596,7 +599,7 @@ async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_s
         ViewAcceptance::Installed
     );
 
-    for expected_sequence in 2..=6 {
+    for expected_sequence in 2..=(republications as u64 + 1) {
         let republished = node.publication().await;
         let identity = republished.identity.as_ref().expect("identity");
         assert_eq!(
@@ -700,7 +703,7 @@ async fn outbound_keeps_every_reply_and_only_the_latest_view() {
 #[test]
 fn a_stream_must_queue_at_least_one_reply() {
     assert_eq!(
-        NodeControlStreamConfiguration::new(&Timing::production().node_control, 0),
+        NodeControlStreamConfiguration::new(&Timing::test().node_control, 0),
         Err(NodeControlConfigurationError::OutboundReplies)
     );
 }
@@ -709,7 +712,7 @@ fn a_stream_must_queue_at_least_one_reply() {
 fn republishing_every(interval: Duration) -> NodeControlTiming {
     NodeControlTiming {
         view_republish_interval: interval,
-        ..Timing::production().node_control
+        ..Timing::test().node_control
     }
 }
 
@@ -737,7 +740,7 @@ impl Fixture {
         Self::with_configuration(
             silence_bound,
             NodeControlStreamConfiguration::new(
-                &Timing::production().node_control,
+                &Timing::test().node_control,
                 DEFAULT_OUTBOUND_REPLIES,
             )
             .expect("production stream configuration"),
@@ -759,7 +762,7 @@ impl Fixture {
             ManagerSession::parse("a".repeat(32)).expect("manager session"),
             &NodeControlTiming {
                 node_silence: silence_bound,
-                ..Timing::production().node_control
+                ..Timing::test().node_control
             },
             Arc::new(clock.clone()),
         );

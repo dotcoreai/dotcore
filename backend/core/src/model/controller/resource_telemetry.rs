@@ -456,6 +456,7 @@ fn system_time(timestamp: &Timestamp) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
     use std::sync::{
         Condvar,
         atomic::{AtomicUsize, Ordering},
@@ -650,7 +651,7 @@ mod tests {
             first_ready,
             interval: Duration::from_millis(5),
             engine_facts: Box::pin(async { Some(facts()) }),
-            clock: Arc::new(dotcore_domain::clock::SystemClock),
+            clock: Arc::new(SystemClock),
         }
     }
 

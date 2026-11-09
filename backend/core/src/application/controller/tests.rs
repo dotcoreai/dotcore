@@ -6487,9 +6487,7 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
             ),
         ],
         std::iter::empty(),
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
     let controller = manager_controller(
@@ -6941,9 +6939,7 @@ async fn unit_memory_is_read_from_current_node_status_and_unavailable_otherwise(
 #[tokio::test]
 async fn deployment_acceptance_distinguishes_target_observation_failures() {
     let missing = TargetCapabilityInventory::empty(
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
     let unavailable = TargetCapabilityReconciler::reconcile(
@@ -6952,9 +6948,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
             "application-target-one",
         )],
         std::iter::empty(),
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
     let stale = TargetCapabilityReconciler::reconcile(
@@ -6964,9 +6958,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
             dotcore_domain::ExecutionPlatform::linux_amd64(),
         )],
         std::iter::empty(),
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
     let mismatched = TargetCapabilityReconciler::reconcile(
@@ -6976,9 +6968,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
             dotcore_domain::ExecutionPlatform::linux_arm64(),
         )],
         std::iter::empty(),
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
 

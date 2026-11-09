@@ -5,6 +5,8 @@
 //! record their calls and can be armed to fail. This keeps controller tests
 //! free of real site files, runtime backends, and model artifacts.
 
+use dotcore_domain::clock::SystemClock;
+use dotcore_domain::timing::{ReconcileOutcome, Timing};
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::ready,
@@ -79,9 +81,7 @@ pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource>
             platform,
         )],
         [NodeAcceleratorObservation::nvidia("node-one", "580.173.02")],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     Arc::new(StaticTargetCapabilitySource::new(inventory))
@@ -1082,8 +1082,8 @@ pub(super) fn test_engine_integrations() -> Arc<crate::model::engine::EngineInte
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
             Arc::new(crate::inference::simulated::SimulatedNativeProvider::new(
-                &dotcore_domain::timing::Timing::test().simulated,
-                Arc::new(dotcore_domain::clock::SystemClock),
+                &Timing::test().simulated,
+                Arc::new(SystemClock),
             )),
             crate::model::engine::EngineTransportFactories::local_engines(),
         ),
@@ -1282,9 +1282,7 @@ impl AcquisitionControllerHarness {
 
     pub(super) fn start_reconciliation(
         &self,
-    ) -> tokio::task::JoinHandle<
-        Result<dotcore_domain::timing::ReconcileOutcome, ModelLifecycleError>,
-    > {
+    ) -> tokio::task::JoinHandle<Result<ReconcileOutcome, ModelLifecycleError>> {
         for (deployment_id, blocked) in self
             .model_file_blocks
             .lock()
@@ -1311,7 +1309,7 @@ impl AcquisitionControllerHarness {
         for _ in 0..10 {
             if matches!(
                 self.controller.inner.reconcile().await?,
-                dotcore_domain::timing::ReconcileOutcome::Settled
+                ReconcileOutcome::Settled
             ) {
                 return Ok(());
             }

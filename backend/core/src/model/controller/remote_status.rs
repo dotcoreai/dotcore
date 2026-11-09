@@ -554,6 +554,7 @@ fn state_error(error: impl Into<CurrentStateError>) -> RemoteStatusError {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::{
         deployment::v1::ExactPlacement,
         model::{
@@ -1915,9 +1916,7 @@ applicationDeployments: []
 
     /// Least time between two stored progress-only records under the production timing.
     const PRODUCTION_PROGRESS_WRITE_INTERVAL: Duration =
-        dotcore_domain::timing::Timing::production()
-            .model
-            .node_progress_interval;
+        Timing::test().model.node_progress_interval;
 
     /// Commits `records` like a status report under the production timing.
     fn commit_at_production_interval(

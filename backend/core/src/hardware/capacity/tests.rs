@@ -1,3 +1,4 @@
+use dotcore_domain::timing::Timing;
 use std::{collections::BTreeMap, time::SystemTime};
 
 use dotcore_domain::MemoryArchitecture::{self, Dedicated, Unified};
@@ -1699,9 +1700,7 @@ fn a_stale_observation_keeps_its_totals_without_measured_use() {
         [("target-a", "node-a", [gpu.clone()])],
         [],
         [stale],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
     let capabilities = inventory.for_target("target-a").expect("target");
@@ -1809,9 +1808,7 @@ fn snapshot_capacity(snapshot: &HardwareSnapshot, selectors: Vec<&str>) -> Targe
         [NodeAcceleratorObservation::from_hardware_snapshot(
             "node-a", snapshot, false,
         )],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         SystemTime::now(),
     );
     let capabilities = inventory.for_target("target-a").expect("target");

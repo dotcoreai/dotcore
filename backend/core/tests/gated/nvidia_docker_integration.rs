@@ -11,6 +11,7 @@
 //! suite checks that pin and image. Preparing the engine has its own deadline, so a cold image
 //! does not count against the serving deadlines.
 
+use dotcore_domain::timing::Timing;
 use std::{
     collections::{BTreeMap, HashMap},
     fs,
@@ -418,9 +419,7 @@ fn qualification_case(
             platform.clone(),
         )],
         [nvidia.clone()],
-        dotcore_domain::timing::Timing::production()
-            .node_control
-            .capability_max_age,
+        Timing::test().node_control.capability_max_age,
         std::time::SystemTime::now(),
     );
     let local = dotcore::model::resolution::resolve_local_launch(

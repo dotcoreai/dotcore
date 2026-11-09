@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dotcore_domain::{SiteNodeId, real_time};
+use dotcore_domain::{SiteNodeId, real_time, timing::Timing};
 use dotcore_launcher::{
     supervisor::Supervisor,
     workload::{Lifetime, PROCESS_FILE, ProcessRecord, StoredRecord},
@@ -77,12 +77,9 @@ impl NativeTestHost {
         };
         // The fake engine never exits on its own, so a create would otherwise watch it for the
         // whole production settle window.
-        let backend = NativeRuntimeBackend::new(
-            config.clone(),
-            launcher_binary(),
-            &dotcore_domain::timing::Timing::test().native,
-        )
-        .expect("native backend");
+        let backend =
+            NativeRuntimeBackend::new(config.clone(), launcher_binary(), &Timing::test().native)
+                .expect("native backend");
         Self {
             _roots: roots,
             store_path: store_path.to_str().expect("UTF-8 store path").to_owned(),

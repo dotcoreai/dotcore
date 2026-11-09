@@ -552,6 +552,8 @@ fn per_source_result<T>(
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::{
         future::ready,
         num::NonZeroU16,
@@ -1108,8 +1110,8 @@ mod tests {
             desired.clone(),
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production().model,
-            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            Timing::test().model,
+            std::sync::Arc::new(SystemClock),
         )
         .expect("model owner");
         let id = ModelDeploymentId("private-upstream".to_owned());

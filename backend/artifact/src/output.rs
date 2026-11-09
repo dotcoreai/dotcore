@@ -407,6 +407,7 @@ mod tests {
 /// Recorder of preparation output shared by the unit tests of every preparation module.
 #[cfg(test)]
 pub(crate) mod test_support {
+    use dotcore_domain::clock::VirtualClock;
     use std::{
         sync::{Arc, Mutex},
         time::SystemTime,
@@ -417,7 +418,7 @@ pub(crate) mod test_support {
     /// Observer recording every event of the preparations it is given to, on a virtual clock that
     /// starts at [`RecordedOutput::START`].
     pub(crate) struct RecordedOutput {
-        pub(crate) clock: dotcore_domain::clock::VirtualClock,
+        pub(crate) clock: VirtualClock,
         events: Arc<Mutex<Vec<PreparationEvent>>>,
     }
 
@@ -426,7 +427,7 @@ pub(crate) mod test_support {
 
         pub(crate) fn new() -> Self {
             Self {
-                clock: dotcore_domain::clock::VirtualClock::starting_at(Self::START),
+                clock: VirtualClock::starting_at(Self::START),
                 events: Arc::new(Mutex::new(Vec::new())),
             }
         }

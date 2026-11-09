@@ -333,6 +333,7 @@ pub(crate) fn engine_artifact_kind(artifact: &EngineArtifact) -> Option<Workload
 #[cfg(test)]
 mod tests {
     use dotcore_domain::test_support::oci;
+    use dotcore_domain::timing::Timing;
     use dotcore_domain::{
         Accelerator, ExecutionPlatform, MemoryArchitecture, WorkloadArtifactKind, test_support::nix,
     };
@@ -485,9 +486,7 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &mac, false,
             )],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         let capabilities =
@@ -565,9 +564,7 @@ mod tests {
                 linux.clone(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         let docker = select_target_capabilities(&execution_target(&linux, &["target-a"]), &docker)
@@ -619,9 +616,7 @@ mod tests {
                 linux.clone(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         let docker = select_target_capabilities(&execution_target(&linux, &["target-a"]), &docker)
@@ -706,9 +701,7 @@ mod tests {
                 ExecutionPlatform::linux_arm64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         assert!(matches!(
@@ -724,9 +717,7 @@ mod tests {
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "579")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         assert_eq!(
@@ -754,9 +745,7 @@ mod tests {
                 NodeAcceleratorObservation::available("node-a", NodeAcceleratorFacts::apple())
                     .with_memory_architecture(Some(MemoryArchitecture::Dedicated)),
             ],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
 
@@ -782,9 +771,7 @@ mod tests {
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         assert_eq!(
@@ -878,9 +865,7 @@ mod tests {
                     None,
                 ),
             ],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
 
@@ -905,9 +890,7 @@ mod tests {
                 )],
                 [NodeAcceleratorObservation::nvidia("node-a", "580")
                     .with_memory_architecture(Some(memory_architecture))],
-                dotcore_domain::timing::Timing::production()
-                    .node_control
-                    .capability_max_age,
+                Timing::test().node_control.capability_max_age,
                 std::time::SystemTime::now(),
             )
         };
@@ -945,9 +928,7 @@ mod tests {
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")
                 .with_memory_architecture(Some(MemoryArchitecture::Dedicated))],
-            dotcore_domain::timing::Timing::production()
-                .node_control
-                .capability_max_age,
+            Timing::test().node_control.capability_max_age,
             std::time::SystemTime::now(),
         );
         let resolved_with_class_memory = |architecture| {

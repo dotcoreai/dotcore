@@ -157,6 +157,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
 
     #[test]
     fn manager_and_worker_engine_registry_binds_ninfer_loopback_services() {
@@ -174,13 +176,9 @@ mod tests {
             },
         );
 
-        engine_integrations(
-            None,
-            &dotcore_domain::timing::Timing::production().simulated,
-            Arc::new(dotcore_domain::clock::SystemClock),
-        )
-        .bind_workload(&launch, "deployment", &service)
-        .expect("ninfer loopback binding");
+        engine_integrations(None, &Timing::test().simulated, Arc::new(SystemClock))
+            .bind_workload(&launch, "deployment", &service)
+            .expect("ninfer loopback binding");
         assert_eq!(
             crate::model::engine::EngineIntegrationRegistry::production()
                 .bind_workload(&launch, "deployment", &service)

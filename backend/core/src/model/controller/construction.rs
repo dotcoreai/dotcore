@@ -14,6 +14,8 @@ use std::{
 };
 
 use dotcore_artifact::{ArtifactManager, OciImagePreparer};
+#[cfg(test)]
+use dotcore_domain::{clock::SystemClock, timing::Timing};
 use dotcore_proto::dotcore::{
     model::v1::{CurrentModelDeployment, ModelDeploymentLifecycleTransition},
     site::v1::Site,
@@ -84,8 +86,8 @@ where
             crate::model::controller::test_support::test_target_capability_source(),
             health(
                 verification_http,
-                dotcore_domain::timing::Timing::production().model,
-                Arc::new(dotcore_domain::clock::SystemClock),
+                Timing::test().model,
+                Arc::new(SystemClock),
             ),
         )
     }
@@ -421,8 +423,8 @@ where
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs,
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                timing: dotcore_domain::timing::Timing::production().model,
-                clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+                timing: Timing::test().model,
+                clock: std::sync::Arc::new(SystemClock),
             },
         )
     }
@@ -555,6 +557,8 @@ pub(super) fn validate_runtime_inputs(
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
     use dotcore_proto::dotcore::model::v1::{
@@ -594,8 +598,8 @@ mod tests {
             desired,
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production().model,
-            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            Timing::test().model,
+            std::sync::Arc::new(SystemClock),
         )
         .err()
         .expect("mismatched owner state");
@@ -1017,8 +1021,8 @@ mod tests {
                 crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
             shutdown: tokio_util::sync::CancellationToken::new(),
             workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-            timing: dotcore_domain::timing::Timing::production().model,
-            clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            timing: Timing::test().model,
+            clock: std::sync::Arc::new(SystemClock),
             preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(directory),
         }
     }
