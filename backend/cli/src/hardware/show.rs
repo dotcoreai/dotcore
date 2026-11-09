@@ -133,6 +133,21 @@ gpus:
     }
 
     #[test]
+    fn whole_report_loads_back_as_the_declared_machine_it_describes() {
+        let catalog = load_catalog(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/recommendation-catalog"),
+        )
+        .expect("fixture catalog");
+        let machine = MachineDescription::from_yaml("fixture", MACHINE).expect("machine");
+        let report = render(&machine, Some(&catalog), Some("0123456789abcdef")).expect("report");
+
+        assert_eq!(
+            MachineDescription::from_yaml("fixture", &report).expect("report as a machine"),
+            machine
+        );
+    }
+
+    #[test]
     fn report_without_a_catalog_still_prints_the_hardware() {
         let machine = MachineDescription::from_yaml("fixture", MACHINE).expect("machine");
 
