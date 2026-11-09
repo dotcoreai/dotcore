@@ -649,13 +649,11 @@ impl ManagerNodeControlCoordinator {
         deployments
             .iter()
             .map(|deployment| {
-                let Some(status) = state.nodes.get(deployment.node_id).and_then(|node| {
-                    node.public_status(
-                        now,
-                        self.timing.controller_status_max_age,
-                        self.timing.node_silence,
-                    )
-                }) else {
+                let Some(status) = state
+                    .nodes
+                    .get(deployment.node_id)
+                    .and_then(|node| node.public_status(now, *self.timing))
+                else {
                     return (DeploymentStatusEvidence::Unavailable, None);
                 };
                 // The status's view revision is not compared: a status accepted against an
@@ -696,7 +694,7 @@ impl ManagerNodeControlCoordinator {
         incarnation: &IncarnationState,
         observation: &AcceptedNodeObservation,
     ) -> CoordinatorConnectionState {
-        connection_state(incarnation, observation, self.clock.now(), &self.timing)
+        connection_state(incarnation, observation, self.clock.now(), *self.timing)
     }
 
     /// Opens a node control stream of `incarnation` for `node_id`, publishes `input` as its first
@@ -924,17 +922,17 @@ impl CoordinatorNode {
     }
 
     /// Returns the current incarnation's accepted status while it is public evidence: the
-    /// node is live and the status is within `freshness`. Observation age plays no part.
+    /// node is live and the status is within its maximum age. Observation age plays no part.
     fn public_status(
         &self,
         now: Instant,
-        freshness: Duration,
-        node_silence: Duration,
+        timing: NodeControlTiming,
     ) -> Option<&AcceptedControllerStatus> {
         let incarnation = self.incarnations.get(self.current_incarnation.as_ref()?)?;
         incarnation.accepted_status.as_ref().filter(|status| {
-            incarnation.live_at(now, node_silence)
-                && now.saturating_duration_since(status.received_monotonic) <= freshness
+            incarnation.live_at(now, timing.node_silence)
+                && now.saturating_duration_since(status.received_monotonic)
+                    <= timing.controller_status_max_age
         })
     }
 
@@ -1140,7 +1138,7 @@ fn connection_state(
     incarnation: &IncarnationState,
     observation: &AcceptedNodeObservation,
     now: Instant,
-    timing: &NodeControlTiming,
+    timing: NodeControlTiming,
 ) -> CoordinatorConnectionState {
     if !incarnation.connected_at(now, timing.node_silence) {
         CoordinatorConnectionState::Disconnected

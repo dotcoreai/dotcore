@@ -253,7 +253,7 @@ async fn observer_wakeup_waits_for_the_settled_cadence() {
 
     assert_future_blocks(wakeup.as_mut()).await;
 
-    tokio::time::advance(schedule.settled - Duration::from_secs(1)).await;
+    tokio::time::advance(schedule.settled_interval - Duration::from_secs(1)).await;
     assert_future_blocks(wakeup.as_mut()).await;
 
     tokio::time::advance(Duration::from_secs(1)).await;
@@ -273,7 +273,7 @@ async fn observer_wakeup_retries_a_pending_endpoint_after_the_first_pending_dela
 
     assert_future_blocks(wakeup.as_mut()).await;
 
-    tokio::time::advance(schedule.pending_initial).await;
+    tokio::time::advance(schedule.pending.initial).await;
     assert!(!wakeup.await);
 }
 

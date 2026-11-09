@@ -20,7 +20,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use dotcore_artifact::{
@@ -28,11 +28,11 @@ use dotcore_artifact::{
 };
 use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_domain::{
-    clock::{Clock as _, SystemClock},
+    clock::SystemClock,
     deployment::launch_pin::{LaunchPinResolver as _, RetainedArtifact, pin_source},
     hardware_observation::HardwareSnapshotSource,
-    names_every_cdi_device,
-    timing::{NativeTiming, NodeControlTiming, Timing},
+    names_every_cdi_device, real_time,
+    timing::{NativeTiming, Timing},
 };
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{
@@ -252,25 +252,22 @@ impl DirectWorkloadFacade {
         &self,
         target: &ExecutionTarget,
     ) -> Result<(SiteExecutionTarget, TargetCapabilityInventory), DirectWorkloadLaunchError> {
-        // Direct launches run outside a composed backend, on the system clock that also stamps
-        // the hardware collection.
-        let clock = SystemClock;
+        // Direct launches run outside a composed backend: the real hardware collection and its
+        // stamps follow real wall time.
         #[cfg(test)]
         if let Some((platform, driver)) = &self.test_target_capabilities {
             let accelerator = NodeAcceleratorObservation::nvidia(
                 target.managed_node_id.to_string(),
                 driver.major().to_string(),
             );
-            let now = clock.wall_now();
-            let (target, inventory) = direct_target_capabilities(
+            return Ok(direct_target_capabilities(
                 target,
                 self.runtime_adapter(),
                 platform.clone(),
                 accelerator,
-                self.timing.node_control,
-                now,
-            );
-            return Ok((target, inventory));
+                self.timing.node_control.capability_max_age,
+                real_time::wall_now(),
+            ));
         }
 
         let platform = self
@@ -284,8 +281,7 @@ impl DirectWorkloadFacade {
         })
         .await
         .map_err(DirectWorkloadLaunchError::resolution)?;
-        let now = clock.wall_now();
-        let (target, inventory) = direct_target_capabilities(
+        Ok(direct_target_capabilities(
             target,
             self.runtime_adapter(),
             platform,
@@ -294,10 +290,9 @@ impl DirectWorkloadFacade {
                 &snapshot,
                 false,
             ),
-            self.timing.node_control,
-            now,
-        );
-        Ok((target, inventory))
+            self.timing.node_control.capability_max_age,
+            real_time::wall_now(),
+        ))
     }
 
     /// Pins a Nix engine artifact the snapshot leaves to its hosting node to the store path of this
@@ -1170,7 +1165,7 @@ fn direct_target_capabilities(
     adapter: model_runtime_binding::Adapter,
     platform: dotcore_domain::ExecutionPlatform,
     accelerator: NodeAcceleratorObservation,
-    timing: NodeControlTiming,
+    capability_max_age: Duration,
     observed_at: SystemTime,
 ) -> (SiteExecutionTarget, TargetCapabilityInventory) {
     let execution_target_id = "development-target";
@@ -1192,7 +1187,7 @@ fn direct_target_capabilities(
             observed_at,
         )],
         [accelerator],
-        timing.capability_max_age,
+        capability_max_age,
         observed_at,
     );
     (development_target, inventory)

@@ -53,8 +53,7 @@ where
     S: CurrentStateRepository + Clone + 'static,
 {
     /// Creates the manager-owned lifecycle authority over `desired` declarations and the owner's
-    /// current `state`, after checking that both belong to the same site. It runs `timing` and
-    /// waits through `clock`.
+    /// current `state`, after checking that both belong to the same site.
     pub(crate) fn new(
         desired: D,
         state: S,

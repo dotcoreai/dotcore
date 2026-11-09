@@ -62,13 +62,6 @@ pub struct RuntimePlatformObservation {
 }
 
 impl RuntimePlatformObservation {
-    /// Creates a platform observation for one execution target, stamped with the host's wall
-    /// time now.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn available(execution_target_id: impl Into<String>, platform: ExecutionPlatform) -> Self {
-        Self::available_at(execution_target_id, platform, real_time::wall_now())
-    }
-
     /// Creates a timestamped platform observation for one execution target.
     pub fn available_at(
         execution_target_id: impl Into<String>,
@@ -107,6 +100,13 @@ impl RuntimePlatformObservation {
             observation: CapabilityObservation::Unavailable,
             observed_at: None,
         }
+    }
+
+    /// Creates a platform observation for one execution target, stamped with the host's wall
+    /// time now.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn available(execution_target_id: impl Into<String>, platform: ExecutionPlatform) -> Self {
+        Self::available_at(execution_target_id, platform, real_time::wall_now())
     }
 }
 
@@ -297,23 +297,6 @@ impl NodeAcceleratorObservation {
         }
     }
 
-    /// Creates an NVIDIA observation with a raw driver version for one managed node, stamped with
-    /// the host's wall time now.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn nvidia(managed_node_id: impl Into<String>, driver_version: impl Into<String>) -> Self {
-        Self::available(
-            managed_node_id,
-            NodeAcceleratorFacts::nvidia(driver_version),
-        )
-    }
-
-    /// Creates an accelerator observation for one managed node, stamped with the host's wall
-    /// time now.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn available(managed_node_id: impl Into<String>, facts: NodeAcceleratorFacts) -> Self {
-        Self::available_at(managed_node_id, facts, real_time::wall_now())
-    }
-
     /// Creates a timestamped accelerator observation for one managed node.
     pub fn available_at(
         managed_node_id: impl Into<String>,
@@ -357,6 +340,23 @@ impl NodeAcceleratorObservation {
             observation: CapabilityObservation::Unavailable,
             observed_at: None,
         }
+    }
+
+    /// Creates an NVIDIA observation with a raw driver version for one managed node, stamped with
+    /// the host's wall time now.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn nvidia(managed_node_id: impl Into<String>, driver_version: impl Into<String>) -> Self {
+        Self::available(
+            managed_node_id,
+            NodeAcceleratorFacts::nvidia(driver_version),
+        )
+    }
+
+    /// Creates an accelerator observation for one managed node, stamped with the host's wall
+    /// time now.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn available(managed_node_id: impl Into<String>, facts: NodeAcceleratorFacts) -> Self {
+        Self::available_at(managed_node_id, facts, real_time::wall_now())
     }
 
     /// Adds one accelerator device with its reported dedicated memory total and use.
@@ -431,6 +431,15 @@ impl NodeMemoryObservation {
         }
     }
 
+    /// A node whose memory can't be read: it never reported, or its report holds no hardware.
+    pub fn unavailable(site_node_id: impl Into<String>) -> Self {
+        Self {
+            site_node_id: site_node_id.into(),
+            reading: CapabilityObservation::Unavailable,
+            observed_at: None,
+        }
+    }
+
     /// Reads the memory of a node's hardware snapshot at the time the snapshot names.
     #[cfg(any(test, feature = "test-support"))]
     pub fn from_hardware_snapshot(
@@ -443,15 +452,6 @@ impl NodeMemoryObservation {
             .as_ref()
             .and_then(timestamp_to_system_time);
         Self::from_hardware_snapshot_at(site_node_id, snapshot, stale, observed_at)
-    }
-
-    /// A node whose memory can't be read: it never reported, or its report holds no hardware.
-    pub fn unavailable(site_node_id: impl Into<String>) -> Self {
-        Self {
-            site_node_id: site_node_id.into(),
-            reading: CapabilityObservation::Unavailable,
-            observed_at: None,
-        }
     }
 }
 

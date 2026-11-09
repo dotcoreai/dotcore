@@ -2,7 +2,7 @@
 //! the forwarder summarizes into one-second buckets aligned to the Unix epoch and streams to the
 //! manager until it acknowledges them.
 //!
-//! A bucket stays open until a short grace past its end on the backend clock, so writers sampling
+//! A bucket stays open until a short delay past its end on the backend clock, so writers sampling
 //! at different moments, or a little late, all land in it; a sample for a bucket already sent is
 //! dropped and counted. Unacknowledged batches stay in a bounded buffer, so a brief disconnect
 //! leaves no gap: after a reconnect they are sent again, oldest first and a limited number at a
@@ -20,7 +20,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use dotcore_domain::clock::Clock;
+use dotcore_domain::{clock::Clock, timing::MetricsTiming};
 use futures_util::StreamExt;
 use tokio::{sync::Notify, task::JoinHandle, time::Instant};
 use tracing::{debug, warn};
@@ -90,37 +90,23 @@ pub fn forwarder_metric_descriptors() -> Vec<MetricDescriptor> {
     ]
 }
 
-/// Bounds and timing of a forwarder.
+/// Buffer bounds of a forwarder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ForwarderConfig {
-    /// How long past its end a bucket stays open for samples still on their way.
-    pub flush_grace: Duration,
-
     /// Oldest buffered bucket kept, relative to the newest one. A sample older than the last sent
     /// bucket by more than this means the wall clock was set back, and the forwarder starts over.
     pub max_buffer_age: Duration,
 
     /// Estimated memory the buffered batches may take.
     pub max_buffer_bytes: usize,
-
-    /// How long a sent batch may wait for an acknowledgement before the forwarder reconnects.
-    pub ack_timeout: Duration,
-
-    /// Pause before opening a stream again after one failed or ended.
-    pub reconnect_delay: Duration,
 }
 
 impl Default for ForwarderConfig {
-    /// A half-second flush grace, which keeps buckets inside the manager's two-second closing
-    /// grace for node metrics; a buffer of 15 minutes (the finest retained resolution) and 8 MiB; a
-    /// 10 second acknowledgement timeout matching node liveness; and a one second reconnect pause.
+    /// A buffer spanning the finest retained resolution, within a few megabytes.
     fn default() -> Self {
         Self {
-            flush_grace: Duration::from_millis(500),
             max_buffer_age: Duration::from_secs(15 * 60),
             max_buffer_bytes: 8 * 1024 * 1024,
-            ack_timeout: Duration::from_secs(10),
-            reconnect_delay: Duration::from_secs(1),
         }
     }
 }
@@ -132,14 +118,14 @@ pub struct MetricForwarder {
 }
 
 impl MetricForwarder {
-    /// Starts the forwarder of SiteNode `node_id`, streaming through `transport` and flushing and
-    /// timing on `clock`. Must run inside a Tokio runtime; the forwarder's task stops when the
-    /// returned task handle is dropped.
+    /// Starts the forwarder of SiteNode `node_id`, streaming through `transport`. Must run inside
+    /// a Tokio runtime; the forwarder's task stops when the returned task handle is dropped.
     pub fn start(
         node_id: &str,
         transport: Arc<dyn MetricBucketTransport>,
-        clock: Arc<dyn Clock>,
         config: ForwarderConfig,
+        timing: MetricsTiming,
+        clock: Arc<dyn Clock>,
     ) -> Result<(Self, MetricForwarderTask), ForwarderStartError> {
         let mut session = [0_u8; 16];
         getrandom::fill(&mut session).map_err(ForwarderStartError::Session)?;
@@ -147,6 +133,7 @@ impl MetricForwarder {
             node_id: node_id.to_owned(),
             session_id: session.iter().map(|byte| format!("{byte:02x}")).collect(),
             config,
+            timing,
             state: Mutex::new(ForwarderState {
                 open: BTreeMap::new(),
                 flushed_through: None,
@@ -227,6 +214,7 @@ struct Forwarder {
     node_id: String,
     session_id: String,
     config: ForwarderConfig,
+    timing: MetricsTiming,
     state: Mutex<ForwarderState>,
 
     /// Wakes the flush loop when a bucket opens.
@@ -314,13 +302,13 @@ impl Forwarder {
         }
     }
 
-    /// Flushes every open bucket whose grace ended by `now`, oldest first, and returns when the
-    /// next one is due.
+    /// Flushes every open bucket whose flush delay ended by `now`, oldest first, and returns when
+    /// the next one is due.
     fn flush_due(&self, now: SystemTime) -> Option<SystemTime> {
         let mut state = self.state.lock().expect("metric forwarder lock");
         loop {
             let (&start, _) = state.open.first_key_value()?;
-            let due = start + METRIC_BUCKET_WIDTH + self.config.flush_grace;
+            let due = start + METRIC_BUCKET_WIDTH + self.timing.bucket_flush_delay;
             if due > now {
                 return Some(due);
             }
@@ -487,7 +475,7 @@ impl Forwarder {
     }
 
     /// Sends buffered batches on `connection` and trims them as acknowledged, until the stream
-    /// fails, ends, or leaves a batch unacknowledged past the timeout.
+    /// fails, ends, or leaves a batch unacknowledged past the acknowledgement silence.
     async fn stream(&self, mut connection: BucketStreamConnection, clock: &dyn Clock) -> StreamEnd {
         let mut sent_through = 0;
         let mut waiting_since: Option<Instant> = None;
@@ -510,7 +498,7 @@ impl Forwarder {
             }
 
             let flushed = self.flushed.notified();
-            let ack_deadline = waiting_since.map(|since| since + self.config.ack_timeout);
+            let ack_deadline = waiting_since.map(|since| since + self.timing.stream_ack_silence);
             tokio::select! {
                 applied = connection.applied.next() => match applied {
                     Some(Ok(applied)) => {
@@ -584,7 +572,7 @@ enum StreamEnd {
     AckTimeout,
 }
 
-/// Flushes each open bucket once its grace has passed on the clock, waking at the next due
+/// Flushes each open bucket once its flush delay has passed on the clock, waking at the next due
 /// bucket or when one opens.
 async fn flush_loop(shared: Arc<Forwarder>, clock: Arc<dyn Clock>) {
     loop {
@@ -634,7 +622,7 @@ async fn stream_loop(
             }
         }
         shared.disconnected();
-        clock.sleep(shared.config.reconnect_delay).await;
+        clock.sleep(shared.timing.stream_retry_interval).await;
     }
 }
 
@@ -849,6 +837,7 @@ mod tests {
                 max_buffer_age: Duration::from_secs(3),
                 ..ForwarderConfig::default()
             },
+            Timing::production().metrics,
             0,
         );
 
@@ -874,7 +863,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_buffer_drops_its_oldest_batches_past_its_memory_bound() {
-        let measured = Harness::start_gated(ForwarderConfig::default(), 0);
+        let measured =
+            Harness::start_gated(ForwarderConfig::default(), Timing::production().metrics, 0);
         record_seconds(&measured.forwarder, 10..=10);
         measured.clock.advance(Duration::from_millis(1_500));
         eventually(|| measured.forwarder.buffered().0 == 1).await;
@@ -884,6 +874,7 @@ mod tests {
                 max_buffer_bytes: batch_bytes * 2 + batch_bytes / 2,
                 ..ForwarderConfig::default()
             },
+            Timing::production().metrics,
             0,
         );
 
@@ -910,9 +901,10 @@ mod tests {
     #[tokio::test]
     async fn unacknowledged_batches_are_sent_again_after_a_reconnect() {
         let mut harness = Harness::start_gated(
-            ForwarderConfig {
-                reconnect_delay: Duration::ZERO,
-                ..ForwarderConfig::default()
+            ForwarderConfig::default(),
+            MetricsTiming {
+                stream_retry_interval: Duration::ZERO,
+                ..Timing::production().metrics
             },
             1,
         );
@@ -950,11 +942,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_batch_left_unacknowledged_past_the_timeout_reconnects() {
-        let mut harness = Harness::start(ForwarderConfig {
-            ack_timeout: Duration::from_secs(10),
-            reconnect_delay: Duration::ZERO,
-            ..ForwarderConfig::default()
-        });
+        let mut harness = Harness::start_gated(
+            ForwarderConfig::default(),
+            MetricsTiming {
+                stream_ack_silence: Duration::from_secs(10),
+                stream_retry_interval: Duration::ZERO,
+                ..Timing::production().metrics
+            },
+            Semaphore::MAX_PERMITS,
+        );
         record_seconds(&harness.forwarder, 10..=10);
         harness.clock.advance(Duration::from_millis(1_500));
         let mut silent = harness.next_stream().await;
@@ -1031,11 +1027,12 @@ mod tests {
         let (forwarder, _task) = MetricForwarder::start(
             NODE,
             Arc::new(InProcessBucketTransport::new(ingest)),
-            Arc::new(clock.clone()),
             ForwarderConfig::default(),
+            Timing::test().metrics,
+            Arc::new(clock.clone()),
         )
         .expect("start forwarder");
-        // Five seconds old, so its grace has already passed.
+        // Five seconds old, so its flush delay has already passed.
         let bucket =
             aligned_bucket_start(clock.wall_now(), METRIC_BUCKET_WIDTH) - Duration::from_secs(5);
 
@@ -1105,13 +1102,14 @@ mod tests {
     }
 
     impl Harness {
+        /// Starts a forwarder on the production timing, which the tests' clock advances follow.
         fn start(config: ForwarderConfig) -> Self {
-            Self::start_gated(config, Semaphore::MAX_PERMITS)
+            Self::start_gated(config, Timing::production().metrics, Semaphore::MAX_PERMITS)
         }
 
         /// Starts a forwarder whose transport opens only `opens` streams until the test adds
         /// permits to the gate.
-        fn start_gated(config: ForwarderConfig, opens: usize) -> Self {
+        fn start_gated(config: ForwarderConfig, timing: MetricsTiming, opens: usize) -> Self {
             let clock = VirtualClock::starting_at(at(10_000));
             let gate = Arc::new(Semaphore::new(opens));
             let (opened, streams) = mpsc::unbounded_channel();
@@ -1121,8 +1119,9 @@ mod tests {
                     gate: Arc::clone(&gate),
                     opened,
                 }),
-                Arc::new(clock.clone()),
                 config,
+                timing,
+                Arc::new(clock.clone()),
             )
             .expect("start forwarder");
             Self {

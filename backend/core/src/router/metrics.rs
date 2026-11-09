@@ -20,8 +20,8 @@ use dotcore_domain::{
     clock::{Clock, next_boundary},
 };
 use dotcore_observability::{
-    MetricDescriptor, MetricDimension, MetricKind, MetricProvenance, MetricRecord, MetricRecorder,
-    MetricUnit,
+    METRIC_BUCKET_WIDTH, MetricDescriptor, MetricDimension, MetricKind, MetricProvenance,
+    MetricRecord, MetricRecorder, MetricUnit,
     labels::{self, LabelSet},
 };
 use dotcore_proto::dotcore::catalog::v1::InferenceRequestKind;
@@ -490,8 +490,7 @@ pub(crate) fn router_metric_descriptors() -> Vec<MetricDescriptor> {
         unit,
         dimensions,
         provenance: MetricProvenance::Manager,
-        sample_interval: matches!(kind, MetricKind::Gauge)
-            .then_some(dotcore_observability::METRIC_BUCKET_WIDTH),
+        sample_interval: matches!(kind, MetricKind::Gauge).then_some(METRIC_BUCKET_WIDTH),
         reporting_delay: None,
     };
     let route = || MetricDimension::required(labels::ROUTE);
@@ -651,7 +650,7 @@ impl Drop for SamplerTask {
 async fn sample_in_flight(shared: Arc<Shared>, routes: Option<RouteManager>) {
     loop {
         let wall = shared.clock.wall_now();
-        let boundary = next_boundary(wall, dotcore_observability::METRIC_BUCKET_WIDTH);
+        let boundary = next_boundary(wall, METRIC_BUCKET_WIDTH);
         shared
             .clock
             .sleep(boundary.duration_since(wall).unwrap_or_default())

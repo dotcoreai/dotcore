@@ -690,12 +690,12 @@ impl TwoProcessObservationHarness {
     /// Expires the stopped or paused worker's contact lease and serving targets on the manager's
     /// manual clock, instead of waiting for them in real time.
     ///
-    /// Two half-lease advances each wait until every other node has just renewed, so only the
-    /// silent worker expires. The manager must run with `manual_clock`.
+    /// Two advances of half the node silence each wait until every other node has just renewed,
+    /// so only the silent worker expires. The manager must run with `manual_clock`.
     pub async fn expire_silent_worker(&mut self) {
-        let half_lease = self.manager.controls.timing.node_control.node_silence / 2;
-        self.advance_past_silent_worker(half_lease).await;
-        self.advance_past_silent_worker(half_lease + Duration::from_millis(1))
+        let half_silence = self.manager.controls.timing.node_control.node_silence / 2;
+        self.advance_past_silent_worker(half_silence).await;
+        self.advance_past_silent_worker(half_silence + Duration::from_millis(1))
             .await;
     }
 
@@ -1719,7 +1719,7 @@ pub async fn run_external_backend_process() {
         let liveness = backend
             .node_liveness()
             .expect("only a site manager runs on a manual clock");
-        node_liveness::ManagerClock::new(clock, liveness, settings.timing())
+        node_liveness::ManagerClock::new(liveness, settings.timing().node_control, clock)
     });
     settings.serve_commands(simulated_runtime, manager_clock);
     backend.serve().await.expect("serve external backend");
@@ -2243,16 +2243,14 @@ where
                         },
                         std::sync::Arc::new(site),
                         std::sync::Arc::new(AllowEveryNode),
+                        Timing::test().join,
                     )
                     .serve(listener),
                 );
-                let connection = JoinConnection::connect(
-                    token.clone(),
-                    manager_host,
-                    dotcore::testing::Timing::test().join,
-                )
-                .await
-                .expect("connect to join host");
+                let connection =
+                    JoinConnection::connect(token.clone(), manager_host, Timing::test().join)
+                        .await
+                        .expect("connect to join host");
                 let joined = client(connection, token).await;
                 host_task
                     .await
@@ -2886,11 +2884,20 @@ pub fn temporary_fixture() -> TemporaryFixture {
     TemporaryFixture { path: root }
 }
 
+/// Simulated models with their representative startup, no ready or stop delays, and transition
+/// gates; run it on [`instant_startup_timing`], so lifecycle tests wait on no simulated time.
 pub fn simulated_model_transition_test_support() -> SimulatedRuntimeTestSupport {
     SimulatedRuntimeTestSupport::with_stop_failures(0)
-        .with_representative_startup(Duration::ZERO)
+        .with_representative_startup()
         .with_lifecycle_delays(Duration::ZERO, Duration::ZERO)
         .with_model_transition_gates()
+}
+
+/// The test timing with a simulated startup that reports its steps without pause.
+pub fn instant_startup_timing() -> Timing {
+    let mut timing = Timing::test();
+    timing.simulated.startup_step_interval = Duration::ZERO;
+    timing
 }
 
 /// Manager site catalog additions: a llama.cpp release whose darwin/arm64 Apple artifact is the

@@ -1,4 +1,4 @@
-//! Publishes console-facing owner reads once per manager tick, a short grace after each
+//! Publishes console-facing owner reads once per manager tick, a short read delay after each
 //! wall-aligned tick slot.
 //!
 //! Each watched resource kind is read from its owner once per tick however many watches follow
@@ -180,9 +180,9 @@ impl ResourceWatchHub {
         Arc::clone(&self.shared.clock)
     }
 
-    /// Longest a watch stream of this hub stays silent before it sends a heartbeat.
-    pub(crate) fn heartbeat_interval(&self) -> Duration {
-        self.shared.timing.heartbeat_interval
+    /// Watch timing of this hub, which its streams' heartbeats follow.
+    pub(crate) fn timing(&self) -> WatchTiming {
+        self.shared.timing
     }
 
     /// Opens a watch of `kinds`, starting the ticks if none ran. The watch first holds the latest
@@ -493,7 +493,7 @@ struct Latest {
     encoding: Vec<u8>,
 }
 
-/// Ticks a grace after every tick slot until parked or shut down, starting one read per
+/// Ticks a read delay after every tick slot until parked or shut down, starting one read per
 /// watched kind with none in flight. A wall clock stepped across the awaited tick, or a wake
 /// delayed past it, resumes at the next tick after the wall time it observes: never a burst of
 /// catch-up ticks, never a wait for a tick that has passed.
@@ -889,35 +889,26 @@ mod tests {
 
     #[test]
     fn ticks_fall_a_read_delay_after_each_wall_aligned_slot() {
-        // Wall time in milliseconds, then the tick it is followed by, under each policy.
-        let policies = [
-            (
-                Timing::production().watch,
-                [
-                    (1_000_000, 1_000_250),
-                    (1_000_249, 1_000_250),
-                    (1_000_250, 1_001_250),
-                    (1_000_900, 1_001_250),
-                ],
-            ),
-            (
-                Timing::test().watch,
-                [
-                    (1_000_000, 1_000_020),
-                    (1_000_019, 1_000_020),
-                    (1_000_020, 1_000_120),
-                    (1_000_090, 1_000_120),
-                ],
-            ),
-        ];
-        let at = |millis: u64| UNIX_EPOCH + Duration::from_millis(millis);
+        let millisecond = Duration::from_millis(1);
 
-        for (timing, ticks) in policies {
+        for timing in [Timing::production().watch, Timing::test().watch] {
+            let (interval, delay) = (timing.tick_interval, timing.tick_read_delay);
+            let slot = UNIX_EPOCH + interval * 1_000;
+            let next = slot + interval + delay;
+            // Wall time, then the tick it is followed by: the slot's own tick until it passes,
+            // then the next slot's.
+            let ticks = [
+                (slot, slot + delay),
+                (slot + delay - millisecond, slot + delay),
+                (slot + delay, next),
+                (slot + interval - millisecond, next),
+            ];
+
             for (wall, tick) in ticks {
                 assert_eq!(
-                    next_tick_at(at(wall), timing.tick_interval, timing.tick_read_delay),
-                    at(tick),
-                    "{wall} ms under {timing:?}"
+                    next_tick_at(wall, interval, delay),
+                    tick,
+                    "{wall:?} under {timing:?}"
                 );
             }
         }

@@ -23,7 +23,7 @@ use dotcore_domain::{
     clock::Clock,
     diagnostic::diagnostic_chain,
     real_time,
-    timing::{ReconcileCadence, ReconcileOutcome},
+    timing::{ModelTiming, ReconcileCadence, ReconcileOutcome},
 };
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivationPhase, ModelDeploymentFailure,
@@ -310,7 +310,7 @@ where
                 let mut publication = DownloadProgressPublication::new(
                     ticket.clone(),
                     download_progress_kind(requirements),
-                    self.timing.download_progress_interval,
+                    self.timing,
                 );
                 publication.quiet_revalidation = quiet_revalidation;
                 let artifact_progress = publication.observer(progress_notification.clone());
@@ -2854,17 +2854,11 @@ struct DownloadProgressPublication {
     persisted: Option<ObservedPreparationProgress>,
     quiet_revalidation: bool,
     next_write_at: Option<Instant>,
-
-    /// Least time between two stored progress updates.
-    download_progress_interval: Duration,
+    timing: ModelTiming,
 }
 
 impl DownloadProgressPublication {
-    fn new(
-        ticket: PreparationTicket,
-        kind: DownloadProgressKind,
-        download_progress_interval: Duration,
-    ) -> Self {
+    fn new(ticket: PreparationTicket, kind: DownloadProgressKind, timing: ModelTiming) -> Self {
         Self {
             ticket,
             kind,
@@ -2875,7 +2869,7 @@ impl DownloadProgressPublication {
             persisted: None,
             quiet_revalidation: false,
             next_write_at: None,
-            download_progress_interval,
+            timing,
         }
     }
 
@@ -2981,7 +2975,7 @@ impl DownloadProgressPublication {
 
     fn mark_persisted(&mut self, progress: ObservedPreparationProgress, now: Instant) {
         self.persisted = Some(progress);
-        self.next_write_at = Some(now + self.download_progress_interval);
+        self.next_write_at = Some(now + self.timing.download_progress_interval);
     }
 }
 

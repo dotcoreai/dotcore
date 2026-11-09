@@ -733,8 +733,9 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
     let (forwarder, _forwarder_task) = MetricForwarder::start(
         "worker-one",
         Arc::new(InProcessBucketTransport::new(ingest)),
-        Arc::new(clock.clone()),
         ForwarderConfig::default(),
+        Timing::test().metrics,
+        Arc::new(clock.clone()),
     )
     .expect("start metric forwarder");
     // The node records the status's attribution once for the published collection.

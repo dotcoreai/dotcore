@@ -127,7 +127,7 @@ impl ProcessSettings {
         let mut runtime = BackendTestSupport::development()
             .simulated_runtime
             .expect("development simulated runtime")
-            .with_representative_startup(Duration::ZERO)
+            .with_representative_startup()
             .with_lifecycle_delays(Duration::ZERO, Duration::ZERO);
         if let Some(port) = self.application_endpoint_port {
             runtime = runtime.with_application_endpoint_port(port);
@@ -135,9 +135,11 @@ impl ProcessSettings {
         if self.model_transition_gates {
             runtime = runtime.with_model_transition_gates();
         }
+        let mut timing = self.timing;
+        timing.simulated.startup_step_interval = Duration::ZERO;
         BackendTestSupport {
             simulated_runtime: Some(runtime),
-            timing: self.timing,
+            timing,
             simulated_inference: self
                 .held_inference_stream_events
                 .map(SimulatedInferenceTestSupport::blocked_after_stream_events),

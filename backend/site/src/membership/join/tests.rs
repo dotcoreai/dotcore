@@ -524,7 +524,7 @@ async fn wrong_secrets_are_rejected_without_writes_and_stop_the_host_at_the_limi
     let harness = Harness::start(Options {
         limits: JoinHostLimits {
             max_failed_attempts: 2,
-            ..test_limits()
+            ..JoinHostLimits::default()
         },
         ..Options::default()
     })
@@ -822,9 +822,9 @@ async fn a_lost_commit_reply_keeps_the_folder_and_it_authenticates_to_the_manage
 #[tokio::test]
 async fn idle_connections_close_but_reviews_in_progress_do_not() {
     let harness = Harness::start(Options {
-        limits: JoinHostLimits {
+        timing: JoinTiming {
             idle_timeout: Duration::from_millis(200),
-            ..test_limits()
+            ..test_timing()
         },
         review_delay: Duration::from_millis(800),
         ..Options::default()
@@ -859,7 +859,7 @@ async fn a_review_is_cancelled_when_its_connection_closes_or_the_host_stops() {
         hold_reviews: true,
         limits: JoinHostLimits {
             max_failed_attempts: 1,
-            ..test_limits()
+            ..JoinHostLimits::default()
         },
         ..Options::default()
     })
@@ -910,7 +910,7 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
     let harness = Harness::start(Options {
         limits: JoinHostLimits {
             max_failed_attempts: 1,
-            ..test_limits()
+            ..JoinHostLimits::default()
         },
         failing_publish: Some(Box::new(move || {
             let _ = entered
@@ -972,7 +972,7 @@ async fn connections_beyond_the_limit_are_refused_until_one_closes() {
     let harness = Harness::start(Options {
         limits: JoinHostLimits {
             max_connections: 1,
-            ..test_limits()
+            ..JoinHostLimits::default()
         },
         ..Options::default()
     })
@@ -1051,7 +1051,7 @@ async fn the_host_stops_when_the_token_expires() {
     let harness = Harness::start(Options {
         limits: JoinHostLimits {
             overall_timeout: Duration::ZERO,
-            ..test_limits()
+            ..JoinHostLimits::default()
         },
         ..Options::default()
     })
@@ -1846,15 +1846,18 @@ fn simulated_rtx_5090() -> DeclaredMachine {
     }
 }
 
-fn test_limits() -> JoinHostLimits {
-    JoinHostLimits {
-        shutdown_grace: Duration::from_millis(100),
-        ..JoinHostLimits::default()
+/// Test join bounds with a short shutdown, so a finished host returns without waiting long for
+/// the connections a test left open.
+fn test_timing() -> JoinTiming {
+    JoinTiming {
+        shutdown_timeout: Duration::from_millis(100),
+        ..Timing::test().join
     }
 }
 
 struct Options {
     limits: JoinHostLimits,
+    timing: JoinTiming,
     /// Host the site declares for the manager and the token names; the listener's loopback
     /// address when `None`.
     manager_host: Option<&'static str>,
@@ -1874,7 +1877,8 @@ struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            limits: test_limits(),
+            limits: JoinHostLimits::default(),
+            timing: test_timing(),
             manager_host: None,
             resolver: None,
             allow_observed_loopback: false,
@@ -1978,6 +1982,7 @@ impl Harness {
             },
             Arc::clone(&site_writer) as Arc<dyn JoinSiteWriter>,
             Arc::new(ScriptedApproval(Arc::clone(&approval))) as Arc<dyn JoinApproval>,
+            options.timing,
         )
         .with_host_resolver(Arc::clone(&resolver));
         Self {

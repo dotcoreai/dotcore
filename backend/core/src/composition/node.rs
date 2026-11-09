@@ -16,8 +16,11 @@ use std::{
 };
 
 use dotcore_domain::{
-    SitePaths, background_loop::log_unexpected_loop_end, clock::Clock,
-    hardware_observation::HardwareSnapshotSource, timing::ApplicationTiming,
+    SitePaths,
+    background_loop::log_unexpected_loop_end,
+    clock::Clock,
+    hardware_observation::HardwareSnapshotSource,
+    timing::{ApplicationTiming, Timing},
 };
 use dotcore_node_hardware::LocalNodeCapability;
 use dotcore_observability::{
@@ -92,6 +95,9 @@ pub(super) struct NodeInputs {
     /// Machine the node declares, which its observation reports and its simulated model workloads
     /// take memory on; `None` when the node reads its real hardware.
     pub(super) declared_machine: Option<DeclaredMachine>,
+
+    /// Timing policy the node runs, already checked.
+    pub(super) timing: Timing,
 
     pub(super) test_support: BackendTestSupport,
 }
@@ -240,6 +246,7 @@ pub(super) async fn compose_node(
         telemetry_sink,
         dotcore_sources,
         declared_machine,
+        timing,
         test_support,
     } = inputs;
     let clock = super::backend_clock(&test_support);
@@ -247,8 +254,9 @@ pub(super) async fn compose_node(
     let (metric_forwarder, metric_forwarder_task) = MetricForwarder::start(
         &node_id,
         transports.metrics,
-        Arc::clone(&clock),
         ForwarderConfig::default(),
+        timing.metrics,
+        Arc::clone(&clock),
     )
     .map_err(|error| {
         CompositionError::composition_with_source("start the node metric forwarder", error)
@@ -263,7 +271,7 @@ pub(super) async fn compose_node(
         node_id.clone(),
         incarnation.clone(),
         manager_session,
-        test_support.timing.node_control.action_lease,
+        timing.node_control.action_lease,
     )
     .map_err(|error| {
         CompositionError::composition_with_source("prepare accepted node view", error)
@@ -293,10 +301,11 @@ pub(super) async fn compose_node(
         &site_id,
         &site_node_id,
         test_support.native_launcher.as_deref(),
-        test_support.timing.native,
+        timing.native,
         super::runtime::SimulatedRuntimeInputs {
             test_support: test_support.simulated_runtime.clone(),
             machine: declared_machine,
+            timing: timing.simulated,
             clock: Arc::clone(&clock),
         },
     )?;
@@ -319,7 +328,7 @@ pub(super) async fn compose_node(
         &installed_targets,
         &runtimes,
         observation.reporter.observations(),
-        test_support.timing.node_control.capability_max_age,
+        timing.node_control.capability_max_age,
         Arc::clone(&clock),
     )
     .await?;
@@ -336,7 +345,7 @@ pub(super) async fn compose_node(
         Arc::new(NodeStorePins {
             state: state.clone(),
         }),
-        test_support.timing.artifact,
+        timing.artifact,
         Arc::clone(&clock),
     );
     let artifacts = crate::model::controller::ArtifactDependencies {
@@ -352,7 +361,7 @@ pub(super) async fn compose_node(
         target_capabilities,
         engine_integrations: super::controllers::engine_integrations(
             test_support.simulated_inference,
-            test_support.timing.simulated,
+            timing.simulated,
             Arc::clone(&clock),
         ),
         accelerator_attribution: Some(accelerator_attribution.clone()),
@@ -408,7 +417,7 @@ pub(super) async fn compose_node(
     ));
     let model_construction = Arc::clone(&model_lifecycle.construction);
     let model_shutdown = model_lifecycle.shutdown.clone();
-    let model_timing = test_support.timing.model;
+    let model_timing = timing.model;
     let model_clock = Arc::clone(&clock);
     let model_root_keeper = Arc::clone(&model_lifecycle.root_keeper);
     let model_preparation_logs = preparation_logs.clone();
@@ -469,7 +478,7 @@ pub(super) async fn compose_node(
             },
             preparation_logs,
             inventory: observation.inventory(),
-            timing: test_support.timing.application,
+            timing: timing.application,
             clock: Arc::clone(&clock),
         },
         publication_host,
@@ -521,7 +530,7 @@ pub(super) async fn compose_node(
         state,
         model_status,
         application_status,
-        test_support.timing.node_control,
+        timing.node_control,
         clock,
     );
     let diagnostics =

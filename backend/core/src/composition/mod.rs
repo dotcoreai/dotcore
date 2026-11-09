@@ -159,9 +159,10 @@ pub async fn model_service_with_sources_for(
         let collector = system_collector(backend_clock(&test_support));
         let services = compose_capabilities_with_current(
             configuration,
-            ManagerNodeProcessInputs {
+            ManagerProcessInputs {
                 telemetry_sink: None,
                 dotcore_sources,
+                timing: checked_timing(&test_support)?,
             },
             0,
             test_support,
@@ -197,7 +198,11 @@ pub async fn application_service_for(
         let collector = system_collector(backend_clock(&test_support));
         let services = compose_capabilities_with_current(
             configuration,
-            ManagerNodeProcessInputs::default(),
+            ManagerProcessInputs {
+                telemetry_sink: None,
+                dotcore_sources: Default::default(),
+                timing: checked_timing(&test_support)?,
+            },
             inference_port,
             test_support,
             collector,
@@ -226,9 +231,10 @@ where
 {
     compose_capabilities_with_current(
         configuration,
-        ManagerNodeProcessInputs {
+        ManagerProcessInputs {
             telemetry_sink,
             dotcore_sources: Default::default(),
+            timing: checked_timing(&test_support)?,
         },
         inference_port,
         test_support,
@@ -239,19 +245,20 @@ where
     .await
 }
 
-/// Inputs of the site manager's own SiteNode taken from the process configuration rather than
-/// the site.
-#[derive(Default)]
-struct ManagerNodeProcessInputs {
+/// Inputs of the site manager and its own SiteNode taken from the process rather than the site.
+struct ManagerProcessInputs {
     telemetry_sink: Option<Arc<dyn crate::telemetry::TelemetrySink>>,
 
     /// Dotcore sources the manager node builds Nix artifacts from, when it hosts them.
     dotcore_sources: dotcore_domain::nix::DotcoreSources,
+
+    /// Timing policy the manager and its node run, already checked.
+    timing: Timing,
 }
 
 async fn compose_capabilities_with_current<C>(
     configuration: &SitePaths,
-    process: ManagerNodeProcessInputs,
+    process: ManagerProcessInputs,
     inference_port: u16,
     test_support: BackendTestSupport,
     collector: C,
@@ -268,6 +275,7 @@ where
         outcome = field::Empty,
         error_kind = field::Empty,
     );
+    let timing = process.timing;
     let result = async {
         let inputs = complete_inputs(configuration, current)?;
         let log_admission = crate::management_logs::ManagementLogAdmission::new();
@@ -278,7 +286,6 @@ where
                 error,
             )
         })?;
-        let timing = checked_timing(&test_support)?;
         let manager_node_control = ManagerNodeControlCoordinator::new(
             manager_session,
             timing.node_control,
@@ -421,6 +428,7 @@ where
                 telemetry_sink: process.telemetry_sink,
                 dotcore_sources: process.dotcore_sources,
                 declared_machine,
+                timing,
                 test_support,
             },
             node::NodeTransports {
@@ -584,7 +592,7 @@ fn backend_clock(test_support: &BackendTestSupport) -> Arc<dyn Clock> {
 }
 
 /// Composes the inference controller that owns model declarations, over the site's owner current
-/// state, running `timing` on `clock`.
+/// state.
 async fn model_owner_for(
     inputs: &CompleteCompositionInputs,
     target_capabilities: Arc<dyn TargetCapabilitySource>,

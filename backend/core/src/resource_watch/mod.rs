@@ -14,10 +14,9 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     pin::Pin,
     sync::Arc,
-    time::Duration,
 };
 
-use dotcore_domain::clock::Clock;
+use dotcore_domain::{clock::Clock, timing::WatchTiming};
 use dotcore_proto::{
     dotcore::watch::v1::{
         KeyedResource, WatchResourcesRequest, WatchResourcesResponse, resource_subscription,
@@ -97,7 +96,7 @@ impl ResourceWatchServiceContract for ResourceWatchService {
             completed: false,
             queued: VecDeque::new(),
             tick: 0,
-            heartbeat_interval: self.hub.heartbeat_interval(),
+            timing: self.hub.timing(),
             sent_at: clock.now(),
             clock,
         };
@@ -148,8 +147,7 @@ struct ResourceStream {
     /// Latest tick sent on this stream.
     tick: u64,
 
-    /// Longest this stream stays silent before it sends a heartbeat.
-    heartbeat_interval: Duration,
+    timing: WatchTiming,
 
     /// When the latest event was sent.
     sent_at: Instant,
@@ -170,7 +168,7 @@ impl ResourceStream {
                 continue;
             }
 
-            let heartbeat_at = self.sent_at + self.heartbeat_interval;
+            let heartbeat_at = self.sent_at + self.timing.heartbeat_interval;
             tokio::select! {
                 biased;
                 publication = self.watch.next() => {

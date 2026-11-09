@@ -46,9 +46,8 @@ pub struct NixRootKeeper {
 }
 
 impl NixRootKeeper {
-    /// Keeps the roots in `roots` for the store paths `pins` names, waiting through `clock`, the
-    /// backend's time source. A failed pass runs again after the retry interval of `timing` when
-    /// no pin change triggers one sooner.
+    /// Keeps the roots in `roots` for the store paths `pins` names. A failed pass runs again after
+    /// the retry interval of `timing` when no pin change triggers one sooner.
     pub fn new(
         roots: PathBuf,
         pins: Arc<dyn PinnedStorePaths>,

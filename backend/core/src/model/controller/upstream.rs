@@ -69,8 +69,7 @@ where
     S: CurrentStateRepository,
 {
     /// Creates the reconciler and records a Loading state for every declared upstream deployment
-    /// that has no current record yet, so the owner can project it before the first probe. It
-    /// paces its passes and verifications by `timing` and waits through `clock`.
+    /// that has no current record yet, so the owner can project it before the first probe.
     pub(super) fn new(
         desired: D,
         state: S,
@@ -546,17 +545,17 @@ where
     /// Starts the loop that reconciles after each owner mutation or site change and otherwise
     /// wakes for the next due probe. The loop stops once the reconciler is dropped.
     pub(super) fn start(self: &Arc<Self>) {
-        let observer = UpstreamObserver {
-            reconciler: Arc::downgrade(self),
-            wakeup: Arc::clone(&self.wakeup),
-            clock: Arc::clone(&self.clock),
-            reconcile: self.timing.reconcile,
-        };
+        let observer = run_observer(
+            Arc::downgrade(self),
+            Arc::clone(&self.wakeup),
+            self.timing.reconcile,
+            Arc::clone(&self.clock),
+        );
         let task_span = tracing::info_span!(
             "model_upstream_observer",
             operation = "model_upstream_observer"
         );
-        tokio::spawn(run_observer(observer).instrument(task_span));
+        tokio::spawn(observer.instrument(task_span));
     }
 }
 
@@ -572,27 +571,17 @@ struct UpstreamHealthEntry {
     cancellation: CancellationToken,
 }
 
-/// What the upstream observer task holds: its reconciler, which it never keeps alive, and the
-/// wakeup and timing it waits on.
-struct UpstreamObserver<D, S> {
+/// Reconciles on `schedule` and after each `wakeup`, never keeping the reconciler alive.
+async fn run_observer<D, S>(
     reconciler: Weak<UpstreamReconciler<D, S>>,
     wakeup: Arc<Notify>,
+    schedule: ReconcileSchedule,
     clock: Arc<dyn Clock>,
-    reconcile: ReconcileSchedule,
-}
-
-async fn run_observer<D, S>(observer: UpstreamObserver<D, S>)
-where
+) where
     D: DesiredDeploymentRepository,
     S: CurrentStateRepository,
 {
-    let UpstreamObserver {
-        reconciler,
-        wakeup,
-        clock,
-        reconcile,
-    } = observer;
-    let mut cadence = ReconcileCadence::new(reconcile);
+    let mut cadence = ReconcileCadence::new(schedule);
     loop {
         let Some(reconciler) = reconciler.upgrade() else {
             info!(

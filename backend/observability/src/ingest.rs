@@ -50,7 +50,7 @@ pub struct MetricBucketIngest {
 
 impl MetricBucketIngest {
     /// Creates an ingest writing into `store` that ends streams silent for the stream silence of
-    /// `timing`, measured on `clock`.
+    /// `timing`.
     pub fn new(store: Arc<dyn MetricIngest>, timing: MetricsTiming, clock: Arc<dyn Clock>) -> Self {
         Self {
             store,

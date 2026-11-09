@@ -281,12 +281,13 @@ impl Backend {
             .map(|configuration| WorkerChannels::new(configuration, timing.private));
         let capabilities = compose_capabilities_with_current(
             &configuration.site_paths,
-            super::ManagerNodeProcessInputs {
+            super::ManagerProcessInputs {
                 telemetry_sink: configuration.telemetry_directory.clone().map(|directory| {
                     Arc::new(crate::telemetry::FileTelemetrySink::new(directory))
                         as Arc<dyn crate::telemetry::TelemetrySink>
                 }),
                 dotcore_sources: configuration.dotcore_sources.clone(),
+                timing,
             },
             inference_port,
             test_support,
@@ -486,6 +487,7 @@ where
         }),
         dotcore_sources: configuration.dotcore_sources.clone(),
         declared_machine,
+        timing,
         test_support,
     };
     let manager_endpoint = private_client.endpoint().map_err(|error| {
@@ -646,12 +648,12 @@ impl BackendTestSupport {
         Self::development_on(Timing::production())
     }
 
-    /// Representative simulated startup whose steps follow `timing`.
+    /// Representative simulated startup on `timing`.
     fn development_on(timing: Timing) -> Self {
         Self {
             simulated_runtime: Some(
                 dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport::with_stop_failures(0)
-                    .with_representative_startup(timing.simulated.startup_step_interval),
+                    .with_representative_startup(),
             ),
             timing,
             ..Self::default()

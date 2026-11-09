@@ -52,9 +52,11 @@ impl Timing {
             },
             model: ModelTiming {
                 reconcile: ReconcileSchedule {
-                    pending_initial: Duration::from_millis(25),
-                    pending_max: Duration::from_millis(250),
-                    settled: Duration::from_secs(30),
+                    pending: Backoff {
+                        initial: Duration::from_millis(25),
+                        max: Duration::from_millis(250),
+                    },
+                    settled_interval: Duration::from_secs(30),
                 },
                 construction_retry_interval: Duration::from_secs(5),
                 download_progress_interval: Duration::from_secs(1),
@@ -68,15 +70,20 @@ impl Timing {
             },
             application: ApplicationTiming {
                 reconcile: ReconcileSchedule {
-                    pending_initial: Duration::from_millis(250),
-                    pending_max: Duration::from_secs(2),
-                    settled: Duration::from_secs(30),
+                    pending: Backoff {
+                        initial: Duration::from_millis(250),
+                        max: Duration::from_secs(2),
+                    },
+                    settled_interval: Duration::from_secs(30),
                 },
                 startup_window: Duration::from_secs(5 * 60),
             },
             metrics: MetricsTiming {
                 store_sweep_interval: Duration::from_secs(10),
                 stream_silence: Duration::from_secs(30),
+                bucket_flush_delay: Duration::from_millis(500),
+                stream_ack_silence: Duration::from_secs(10),
+                stream_retry_interval: Duration::from_secs(1),
             },
             artifact: ArtifactTiming {
                 nix_root_retry_interval: Duration::from_secs(60),
@@ -92,6 +99,8 @@ impl Timing {
             join: JoinTiming {
                 connect_timeout: Duration::from_secs(10),
                 commit_timeout: Duration::from_secs(30),
+                idle_timeout: Duration::from_secs(60),
+                shutdown_timeout: Duration::from_secs(5),
             },
             private: PrivateTiming {
                 keepalive_interval: Duration::from_secs(10),
@@ -140,14 +149,12 @@ impl Timing {
         if control.heartbeat_interval * HEARTBEATS_PER_SILENCE > control.node_silence {
             return Err(TimingError::NodeSilence);
         }
-        if control.view_republish_interval * MISSED_PUBLICATIONS_BEFORE_REOPEN
-            > control.manager_silence
-        {
+        let missed_publications =
+            control.view_republish_interval * MISSED_PUBLICATIONS_BEFORE_REOPEN;
+        if missed_publications > control.manager_silence {
             return Err(TimingError::ManagerSilence);
         }
-        let reopen = control.view_republish_interval * MISSED_PUBLICATIONS_BEFORE_REOPEN
-            + control.stream_retry.max;
-        if reopen >= control.action_lease {
+        if missed_publications + control.stream_retry.max >= control.action_lease {
             return Err(TimingError::ActionLease);
         }
         Ok(())
@@ -184,9 +191,11 @@ impl Timing {
             },
             model: ModelTiming {
                 reconcile: ReconcileSchedule {
-                    pending_initial: Duration::from_millis(5),
-                    pending_max: Duration::from_millis(50),
-                    settled: Duration::from_secs(1),
+                    pending: Backoff {
+                        initial: Duration::from_millis(5),
+                        max: Duration::from_millis(50),
+                    },
+                    settled_interval: Duration::from_secs(1),
                 },
                 construction_retry_interval: Duration::from_millis(100),
                 download_progress_interval: Duration::from_millis(50),
@@ -199,9 +208,11 @@ impl Timing {
             },
             application: ApplicationTiming {
                 reconcile: ReconcileSchedule {
-                    pending_initial: Duration::from_millis(10),
-                    pending_max: Duration::from_millis(100),
-                    settled: Duration::from_secs(1),
+                    pending: Backoff {
+                        initial: Duration::from_millis(10),
+                        max: Duration::from_millis(100),
+                    },
+                    settled_interval: Duration::from_secs(1),
                 },
                 ..production.application
             },
@@ -366,6 +377,17 @@ pub struct MetricsTiming {
 
     /// Silence after which the site manager ends a node's metric bucket stream.
     pub stream_silence: Duration,
+
+    /// Delay past a metric bucket's end before a node sends it, so samples still on their way
+    /// land in it.
+    pub bucket_flush_delay: Duration,
+
+    /// Silence on a node's sent and unacknowledged metric buckets after which the node reopens
+    /// its stream.
+    pub stream_ack_silence: Duration,
+
+    /// Pause before a node reopens a metric bucket stream that failed or ended.
+    pub stream_retry_interval: Duration,
 }
 
 /// Timing of the artifact manager.
@@ -402,6 +424,14 @@ pub struct JoinTiming {
 
     /// Bound on a join's commit round trip; past it the outcome is unknown.
     pub commit_timeout: Duration,
+
+    /// Longest silence of a join listener's connection with no request in progress, including
+    /// between an offer and its commit.
+    pub idle_timeout: Duration,
+
+    /// Longest a join listener waits for its open connections to close once the join has
+    /// finished.
+    pub shutdown_timeout: Duration,
 }
 
 /// Real-time keepalive of the private connections between the site manager and its workers.
@@ -422,8 +452,8 @@ pub struct TerminalTiming {
     pub cursor_query_timeout: Duration,
 }
 
-/// Pauses before a failed attempt runs again: the first pause, doubling after each failure up to
-/// the longest.
+/// Pauses before an attempt runs again while it fails or leaves work pending: the first pause,
+/// doubling after each such attempt up to the longest.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Backoff {
     pub initial: Duration,
@@ -434,14 +464,11 @@ pub struct Backoff {
 /// pending, at a fixed cadence once everything is settled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReconcileSchedule {
-    /// First delay while work is pending; it doubles after each pending pass.
-    pub pending_initial: Duration,
-
-    /// Longest delay while work is pending.
-    pub pending_max: Duration,
+    /// Delays while work is pending.
+    pub pending: Backoff,
 
     /// Delay once every deployment is settled, which also bounds how long missed drift waits.
-    pub settled: Duration,
+    pub settled_interval: Duration,
 }
 
 /// Outcome of one reconciliation pass, which picks the delay before the next one.
@@ -464,7 +491,7 @@ impl ReconcileCadence {
     pub fn new(schedule: ReconcileSchedule) -> Self {
         Self {
             schedule,
-            pending_delay: schedule.pending_initial,
+            pending_delay: schedule.pending.initial,
         }
     }
 
@@ -476,19 +503,19 @@ impl ReconcileCadence {
                 self.pending_delay = self
                     .pending_delay
                     .saturating_mul(2)
-                    .min(self.schedule.pending_max);
+                    .min(self.schedule.pending.max);
                 delay
             }
             ReconcileOutcome::Settled => {
                 self.reset();
-                self.schedule.settled
+                self.schedule.settled_interval
             }
         }
     }
 
     /// Starts the pending back-off over, as after a change wakes the observer.
     pub fn reset(&mut self) {
-        self.pending_delay = self.schedule.pending_initial;
+        self.pending_delay = self.schedule.pending.initial;
     }
 }
 

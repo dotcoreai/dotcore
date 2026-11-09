@@ -341,6 +341,7 @@ async fn a_node_memory_watch_streams_a_deployments_claim_then_its_measured_use_t
         support::configuration(&root),
         BackendTestSupport {
             simulated_runtime: Some(simulation.clone()),
+            timing: support::instant_startup_timing(),
             ..BackendTestSupport::test()
         },
         RealHardware::new().0,
@@ -863,7 +864,7 @@ async fn ready_models_keep_their_estimates(machine: &str, accelerator_bytes: &[u
         BackendTestSupport {
             simulated_runtime: Some(
                 SimulatedRuntimeTestSupport::with_stop_failures(0)
-                    .with_representative_startup(Duration::ZERO)
+                    .with_representative_startup()
                     .with_lifecycle_delays(Duration::ZERO, Duration::ZERO),
             ),
             timing: watched_reading_timing(),
@@ -1149,6 +1150,7 @@ async fn claims_count_a_starting_deployment_once(
         support::configuration(&root),
         BackendTestSupport {
             simulated_runtime: Some(simulation.clone()),
+            timing: support::instant_startup_timing(),
             ..BackendTestSupport::test()
         },
         // The node declares its machine, so this stands in for hardware nothing reads.
@@ -1734,14 +1736,15 @@ fn fast_simulation() -> BackendTestSupport {
     }
 }
 
-/// Test timing whose watches tick on the production schedule. A node sends its observation and
-/// the statuses attributing that collection as separate messages, and a tick reads both only
-/// after the production grace past the reading slot, so a watched state never pairs a new reading
-/// with an attribution from the collection before it and counts a deployment's memory twice.
+/// Instant-startup test timing whose watches tick on the production schedule. A node sends its
+/// observation and the statuses attributing that collection as separate messages, and a tick
+/// reads both only after the production read delay past the reading slot, so a watched state
+/// never pairs a new reading with an attribution from the collection before it and counts a
+/// deployment's memory twice.
 fn watched_reading_timing() -> Timing {
     let timing = Timing {
         watch: Timing::production().watch,
-        ..Timing::test()
+        ..support::instant_startup_timing()
     };
     timing.check().expect("watched reading timing");
     timing

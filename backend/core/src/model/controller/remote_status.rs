@@ -48,6 +48,7 @@ use super::{
 };
 use crate::model::{
     engine_pin::{validate_local_declaration, with_node_pins},
+    service::timestamp_from,
     state::CurrentStateError,
 };
 
@@ -473,7 +474,7 @@ fn commit_changed_records(
         .iter()
         .map(|record| (record.model_deployment_id.as_str(), record))
         .collect::<BTreeMap<_, _>>();
-    let stamp = crate::model::service::timestamp_from(now);
+    let stamp = timestamp_from(now);
     let changed = records
         .into_iter()
         .filter_map(|mut record| {

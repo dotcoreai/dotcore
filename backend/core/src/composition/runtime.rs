@@ -5,7 +5,11 @@ use std::{
     sync::Arc,
 };
 
-use dotcore_domain::{SiteNodeId, SitePaths, clock::Clock, timing::NativeTiming};
+use dotcore_domain::{
+    SiteNodeId, SitePaths,
+    clock::Clock,
+    timing::{NativeTiming, SimulatedTiming},
+};
 use dotcore_proto::dotcore::site::v1::{
     ExecutionTarget, application_runtime_binding, execution_target, model_runtime_binding,
 };
@@ -20,7 +24,7 @@ use dotcore_runtime_backends::{
     },
     simulated::{
         DeclaredMachine, InMemoryRuntimeBackend, SimulatedRuntimeConfig,
-        SimulatedRuntimeTestSupport,
+        SimulatedRuntimeTestSupport, SimulatedStartupConfig,
     },
 };
 use dotcore_site::view::fencing::AcceptedNodeViewAuthority;
@@ -138,13 +142,18 @@ pub(super) async fn node_application_runtimes_for(
 }
 
 /// What a node's simulated runtimes run with: their test controls, the machine the node
-/// declares, and the backend clock.
+/// declares, and their timing on the backend clock.
 pub(super) struct SimulatedRuntimeInputs {
+    /// Call evidence, failure injection and lifecycle controls the simulated workloads follow;
+    /// `None` runs them without controls.
     pub(super) test_support: Option<SimulatedRuntimeTestSupport>,
 
     /// Machine the node declares, on which its simulated model workloads and application units
     /// take memory.
     pub(super) machine: Option<DeclaredMachine>,
+
+    /// Pace of the simulated workloads' representative startup.
+    pub(super) timing: SimulatedTiming,
 
     /// Backend clock simulated workloads time their transitions and startup steps on.
     pub(super) clock: Arc<dyn Clock>,
@@ -420,13 +429,8 @@ impl ModelRuntimeAdapterFactory for SimulatedRuntimeAdapterFactory {
                     "simulated",
                 ));
             };
-            Ok(Box::new(simulated_runtime(
-                settings,
-                target,
-                self.inputs.test_support.clone(),
-                self.inputs.machine.clone(),
-                Arc::clone(&self.inputs.clock),
-            )?) as Box<dyn dotcore_runtime::RuntimeBackend>)
+            Ok(Box::new(simulated_runtime(settings, target, &self.inputs)?)
+                as Box<dyn dotcore_runtime::RuntimeBackend>)
         })
     }
 }
@@ -500,12 +504,10 @@ fn mismatched_adapter(owner: &str, location: &str, expected: &str) -> Compositio
 fn simulated_runtime(
     settings: &dotcore_proto::dotcore::site::v1::SimulatedRuntimeAdapter,
     target: &ExecutionTarget,
-    test_support: Option<SimulatedRuntimeTestSupport>,
-    machine: Option<DeclaredMachine>,
-    clock: Arc<dyn Clock>,
+    inputs: &SimulatedRuntimeInputs,
 ) -> Result<InMemoryRuntimeBackend, CompositionError> {
     // A simulated model target has no real hardware to fall back on.
-    let machine = machine.ok_or_else(|| {
+    let machine = inputs.machine.clone().ok_or_else(|| {
         CompositionError::composition(format!(
             "simulated execution target {:?} requires its node to declare a machine",
             target.execution_target_id
@@ -567,9 +569,11 @@ fn simulated_runtime(
             })
         })
         .unzip();
+    let test_support = inputs.test_support.clone();
     let startup = test_support
         .as_ref()
-        .and_then(SimulatedRuntimeTestSupport::startup);
+        .is_some_and(SimulatedRuntimeTestSupport::representative_startup)
+        .then(|| SimulatedStartupConfig::development_default(inputs.timing.startup_step_interval));
     Ok(InMemoryRuntimeBackend::for_target(
         SimulatedRuntimeConfig {
             execution_platform,
@@ -581,7 +585,7 @@ fn simulated_runtime(
             deployment_stop_delays,
             startup,
             test_support,
-            clock,
+            clock: Arc::clone(&inputs.clock),
         },
         &target.execution_target_id,
     ))
@@ -946,6 +950,7 @@ mod tests {
         SimulatedRuntimeInputs {
             test_support: None,
             machine,
+            timing: Timing::test().simulated,
             clock: Arc::new(SystemClock),
         }
     }

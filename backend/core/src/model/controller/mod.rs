@@ -165,7 +165,6 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         read: &mut DeclaredDeploymentIds<'_>,
     ) -> Result<(), ModelLifecycleError>;
 
-    /// Declares a local deployment.
     fn load_model(
         &self,
         model_id: &str,

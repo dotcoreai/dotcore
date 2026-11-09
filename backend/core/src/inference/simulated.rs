@@ -129,8 +129,7 @@ pub(crate) struct SimulatedNativeProvider {
 }
 
 impl SimulatedNativeProvider {
-    /// Creates a provider pacing streamed tokens at the simulated generation speed of `timing`,
-    /// waiting on `clock`.
+    /// Creates a provider pacing streamed tokens at the simulated generation speed of `timing`.
     pub(crate) fn new(timing: SimulatedTiming, clock: Arc<dyn Clock>) -> Self {
         Self {
             test_support: None,

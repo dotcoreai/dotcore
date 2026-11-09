@@ -77,12 +77,12 @@ pub struct InMemoryMetricStore {
 impl InMemoryMetricStore {
     /// Starts a store accepting `descriptors`, plus the metrics it records about itself, and
     /// keeping history per `config`. It sweeps and records its health at the sweep interval of
-    /// `timing`, and an idle watch sends a heartbeat at the heartbeat interval of `watch`. Must
+    /// `metrics`, and an idle watch sends a heartbeat at the heartbeat interval of `watch`. Must
     /// run inside a Tokio runtime, which hosts the store's ingest task until the store is dropped.
     pub fn start(
         config: InMemoryStoreConfig,
         descriptors: Vec<MetricDescriptor>,
-        timing: MetricsTiming,
+        metrics: MetricsTiming,
         watch: WatchTiming,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, StoreStartError> {
@@ -95,7 +95,7 @@ impl InMemoryMetricStore {
             .into_iter()
             .chain(health::health_metric_descriptors(
                 finest,
-                timing.store_sweep_interval,
+                metrics.store_sweep_interval,
             ))
             .collect();
         validate_catalog(&descriptors)?;
@@ -113,7 +113,7 @@ impl InMemoryMetricStore {
 
         let shared = Arc::new(Shared {
             clock,
-            timing,
+            metrics,
             watch,
             retention,
             descriptors: declared,
@@ -271,7 +271,7 @@ pub enum StoreStartError {
 struct Shared {
     clock: Arc<dyn Clock>,
     /// Sweep schedule of the store.
-    timing: MetricsTiming,
+    metrics: MetricsTiming,
 
     /// Heartbeat schedule of idle watches: an idle watch sends a point-less upsert, so a vanished
     /// watcher's broken connection is noticed and its watch closed.
@@ -384,7 +384,7 @@ async fn ingest_loop(
     mut up: UpReadings,
 ) {
     let mut health = HealthCounts::default();
-    let mut next_sweep = shared.clock.now() + shared.timing.store_sweep_interval;
+    let mut next_sweep = shared.clock.now() + shared.metrics.store_sweep_interval;
     loop {
         // Changes are collected only while someone watches.
         let mut changed = (changes.receiver_count() > 0).then(Vec::new);
@@ -414,7 +414,7 @@ async fn ingest_loop(
             Wake::Message(None) => return,
             Wake::Sweep => {
                 sweep(&shared, &mut health, changed.as_mut());
-                next_sweep = shared.clock.now() + shared.timing.store_sweep_interval;
+                next_sweep = shared.clock.now() + shared.metrics.store_sweep_interval;
             }
             Wake::Bucket => {}
         }

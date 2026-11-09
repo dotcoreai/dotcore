@@ -201,8 +201,9 @@ mod tests {
         let (forwarder, _forwarder_task) = MetricForwarder::start(
             "node-a",
             Arc::new(InProcessBucketTransport::new(ingest)),
-            Arc::new(clock.clone()),
             ForwarderConfig::default(),
+            Timing::test().metrics,
+            Arc::new(clock.clone()),
         )
         .expect("start metric forwarder");
         let feed = NodeObservationFeed::default();

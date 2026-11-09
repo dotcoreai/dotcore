@@ -1213,7 +1213,7 @@ mod tests {
 
             while node.retained().len() < 2 {
                 assert!(
-                    declared.elapsed() < Timing::test().model.reconcile.settled,
+                    declared.elapsed() < Timing::test().model.reconcile.settled_interval,
                     "round {round}: both deployments were not pinned before the safety scan: {:?}",
                     node.retained()
                 );

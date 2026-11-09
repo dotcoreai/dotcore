@@ -16,7 +16,8 @@ use std::{
 };
 
 use dotcore::{
-    application::repository::CurrentApplicationRepository, composition::catalog_service_for,
+    application::repository::CurrentApplicationRepository,
+    composition::{BackendTestSupport, catalog_service_for},
 };
 use dotcore_proto::dotcore::{
     application::v1::{
@@ -73,9 +74,13 @@ async fn simulated_download_progress_precedes_runtime_loading_through_management
 
     let root = support::temporary_fast_fixture();
     let runtime = support::simulated_model_transition_test_support();
-    let backend = support::RunningBackend::start_with_simulated_runtime_test_support(
+    let backend = support::RunningBackend::start_with_test_support(
         support::configuration(&root),
-        runtime.clone(),
+        BackendTestSupport {
+            simulated_runtime: Some(runtime.clone()),
+            timing: support::instant_startup_timing(),
+            ..BackendTestSupport::test()
+        },
     )
     .await;
     let mut client = backend.model_client();

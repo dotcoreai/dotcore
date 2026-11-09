@@ -666,7 +666,7 @@ async fn download_progress_publication_writes_first_changed_interval_and_final_s
     let mut publication = DownloadProgressPublication::new(
         lease.ticket(),
         DownloadProgressKind::Artifact,
-        Timing::test().model.download_progress_interval,
+        Timing::test().model,
     );
     let started = tokio::time::Instant::now();
     let first = ObservedPreparationProgress::artifact(ModelArtifactProgress {
@@ -719,7 +719,7 @@ async fn download_progress_observer_coalesces_a_flood_to_one_latest_snapshot() {
     let mut publication = DownloadProgressPublication::new(
         lease.ticket(),
         DownloadProgressKind::Artifact,
-        Timing::test().model.download_progress_interval,
+        Timing::test().model,
     );
     let notification = Arc::new(Notify::new());
     let observer = publication.observer(notification.clone());
@@ -763,7 +763,7 @@ async fn artifact_stage_observer_retains_transfer_order_across_transitions() {
     let mut publication = DownloadProgressPublication::new(
         lease.ticket(),
         DownloadProgressKind::Artifact,
-        Timing::test().model.download_progress_interval,
+        Timing::test().model,
     );
     let notification = Arc::new(Notify::new());
     let progress = publication.observer(notification.clone());

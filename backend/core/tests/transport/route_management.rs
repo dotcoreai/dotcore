@@ -2,6 +2,7 @@
 
 use std::fs;
 
+use dotcore::composition::BackendTestSupport;
 use dotcore_proto::dotcore::{
     catalog::v1::ModelInputModality,
     inference::v1::{
@@ -481,9 +482,13 @@ async fn route_management_keeps_source_neutral_member_rejections_exact() {
 async fn unavailable_targets_project_only_lean_not_ready_reasons() {
     let root = support::temporary_fixture();
     let runtime = support::simulated_model_transition_test_support();
-    let backend = support::RunningBackend::start_with_simulated_runtime_test_support(
+    let backend = support::RunningBackend::start_with_test_support(
         support::configuration(&root),
-        runtime.clone(),
+        BackendTestSupport {
+            simulated_runtime: Some(runtime.clone()),
+            timing: support::instant_startup_timing(),
+            ..BackendTestSupport::test()
+        },
     )
     .await;
     let deployment_id = load_hidden_deployment(&backend).await;

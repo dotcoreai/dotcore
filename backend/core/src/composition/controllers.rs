@@ -97,8 +97,7 @@ pub(super) fn system_collector(clock: Arc<dyn Clock>) -> SystemHardwareSnapshotC
 }
 
 /// Builds the engine integration registry of a manager or worker model controller, with the
-/// simulated native provider pacing on `timing` and `clock`, and a loopback transport for every
-/// local engine kind.
+/// simulated native provider and a loopback transport for every local engine kind.
 pub(super) fn engine_integrations(
     simulated_inference: Option<SimulatedInferenceTestSupport>,
     timing: SimulatedTiming,
