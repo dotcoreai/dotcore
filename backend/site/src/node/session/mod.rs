@@ -48,8 +48,8 @@ use crate::{
     view::{
         contract::{APPLICATION_SECTION_SCHEMA_VERSION, MODEL_SECTION_SCHEMA_VERSION},
         desired::{
-            DesiredViewDistributionError, MAXIMUM_RETRY_BACKOFF_MILLIS, NodeApplicationStatusOwner,
-            NodeModelStatusOwner, NodeViewInstaller, rejection_code,
+            DesiredViewDistributionError, NodeApplicationStatusOwner, NodeModelStatusOwner,
+            NodeViewInstaller, rejection_code,
         },
         fencing::{AcceptedNodeViewAuthority, ManagerSession, NodeViewStream, ViewAcceptance},
     },
@@ -159,12 +159,12 @@ impl NodeControlSession {
             acknowledgement_sequence: 1,
             status_rejected: false,
         };
-        let mut backoff = RetryBackoff::new(self.configuration.retry_backoff);
+        let mut backoff = RetryBackoff::new(&self.configuration);
         loop {
             match self.serve_stream(&mut cursors, &mut triggers).await {
                 StreamOutcome::NotOpened => {}
                 StreamOutcome::Ended => {
-                    backoff = RetryBackoff::new(self.configuration.retry_backoff);
+                    backoff = RetryBackoff::new(&self.configuration);
                 }
                 StreamOutcome::Stopped => return,
             }
@@ -765,6 +765,7 @@ pub struct NodeControlSessionConfiguration {
     status_check_interval: Duration,
     status_coalesce_window: Duration,
     retry_backoff: Duration,
+    retry_backoff_max: Duration,
 }
 
 impl NodeControlSessionConfiguration {
@@ -780,6 +781,7 @@ impl NodeControlSessionConfiguration {
             status_check_interval: timing.node_status_check_interval,
             status_coalesce_window: timing.node_status_coalesce_window,
             retry_backoff: timing.node_stream_retry_backoff,
+            retry_backoff_max: timing.node_stream_retry_backoff_max,
         };
         if [
             configuration.heartbeat_interval,
@@ -790,6 +792,7 @@ impl NodeControlSessionConfiguration {
         ]
         .iter()
         .any(Duration::is_zero)
+            || configuration.retry_backoff_max < configuration.retry_backoff
         {
             return Err(NodeControlSessionConfigurationError);
         }
@@ -806,7 +809,9 @@ impl NodeControlSessionConfiguration {
 
 /// An invalid node control stream timing.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("every node control stream interval and bound must be nonzero")]
+#[error(
+    "every node control stream interval and bound must be nonzero, and the longest retry pause at least the first"
+)]
 pub struct NodeControlSessionConfigurationError;
 
 /// The node's latest observation, shared between its reporter and its control stream: the stream
@@ -1050,21 +1055,23 @@ enum StreamOutcome {
     Stopped,
 }
 
-/// Exponential pause between failed opens, bounded by the manager's longest retry backoff.
+/// Exponential pause between failed opens, bounded by the configured longest retry backoff.
 struct RetryBackoff {
     next: Duration,
+    max: Duration,
 }
 
 impl RetryBackoff {
-    fn new(initial: Duration) -> Self {
-        Self { next: initial }
+    fn new(configuration: &NodeControlSessionConfiguration) -> Self {
+        Self {
+            next: configuration.retry_backoff,
+            max: configuration.retry_backoff_max,
+        }
     }
 
     async fn wait(&mut self, clock: &dyn Clock) {
         clock.sleep_until(clock.now() + self.next).await;
-        self.next = (self.next * 2).min(Duration::from_millis(u64::from(
-            MAXIMUM_RETRY_BACKOFF_MILLIS,
-        )));
+        self.next = (self.next * 2).min(self.max);
     }
 }
 

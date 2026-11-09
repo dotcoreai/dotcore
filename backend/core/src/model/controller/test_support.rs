@@ -1078,7 +1078,10 @@ pub(super) fn test_simulated_runtime_target() -> RuntimeTargetMap {
 pub(super) fn test_engine_integrations() -> Arc<crate::model::engine::EngineIntegrationRegistry> {
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
-            Arc::new(crate::inference::simulated::SimulatedNativeProvider::default()),
+            Arc::new(crate::inference::simulated::SimulatedNativeProvider::new(
+                &dotcore_domain::timing::Timing::test(),
+                Arc::new(dotcore_domain::clock::SystemClock),
+            )),
             crate::model::engine::EngineTransportFactories::local_engines(),
         ),
     )

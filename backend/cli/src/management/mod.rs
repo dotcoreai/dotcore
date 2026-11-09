@@ -31,7 +31,7 @@ pub(crate) use deployment::{
 };
 
 /// How long connecting to the manager may take before the command reports it unreachable.
-// Not a behavior duration: bound on a real management connection.
+/// Not a behavior duration: bound on a real management connection.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The `--manager` flag of every command that calls the running site manager.

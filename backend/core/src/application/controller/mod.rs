@@ -92,7 +92,8 @@ use realizer::ApplicationRealizer;
 pub use serving::{InferenceRouteResolutionError, InferenceRouteResolver, ResolvedInferenceRoute};
 use state::*;
 
-// Not a behavior duration: bound on one real HTTP readiness probe.
+/// Longest one readiness probe of an application deployment may take.
+/// Not a behavior duration: bound on one real HTTP readiness probe.
 const READINESS_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Name catalog applications resolve for the OpenAI-compatible base URL of the site inference

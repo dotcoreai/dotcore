@@ -22,7 +22,8 @@ use tokio_stream::StreamExt;
 pub const SITE_DATA_CLEANUP_IMAGE: &str =
     "busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662";
 
-// Not a behavior duration: bound on one real Docker Engine operation.
+/// Longest one Docker Engine operation of the root-owned site data cleanup may take.
+/// Not a behavior duration: bound on one real Docker Engine operation.
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 const CLEANUP_COMMAND: &str = "rm -rf /site/* /site/.[!.]* /site/..?*";
 

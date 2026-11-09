@@ -477,7 +477,7 @@ const REQUEST_KIND: &str = "request_kind";
 const TARGET_KIND: &str = "target_kind";
 
 /// Interval between in-flight samples.
-// Not a behavior duration: the one-second metric bucket contract.
+/// Not a behavior duration: the one-second metric bucket contract.
 const IN_FLIGHT_SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Histogram scale of latency distributions: percentiles within about 4.4%.

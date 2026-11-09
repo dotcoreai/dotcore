@@ -25,7 +25,8 @@ use crate::{
 };
 
 const MAX_HTTP_RESPONSE_BYTES: usize = 1024 * 1024;
-// Not a behavior duration: bound on real loopback I/O of a readiness probe.
+/// Longest one vLLM readiness probe may wait on the engine's answer.
+/// Not a behavior duration: bound on real loopback I/O of a readiness probe.
 const READINESS_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Probes one vLLM service on its loopback endpoint for readiness under its served model id.

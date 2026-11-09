@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::clock::Clock;
+use dotcore_domain::{clock::Clock, timing::Timing};
 use futures_util::{
     StreamExt,
     future::{self, BoxFuture},
@@ -34,11 +34,6 @@ use crate::{
     store::MetricIngest,
 };
 
-/// How long a stream may stay silent before the manager ends it; a node forwarder sends every
-/// second while it records.
-// Not a behavior duration: bound on a real stream that went quiet.
-const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Sessions remembered per node for deduplication, so a forwarder of an older process that still
 /// sends during a restart never merges a batch twice.
 const REMEMBERED_SESSIONS: usize = 4;
@@ -55,20 +50,15 @@ pub struct MetricBucketIngest {
 }
 
 impl MetricBucketIngest {
-    /// Creates an ingest writing into `store`, timing idle streams on `clock`.
-    pub fn new(store: Arc<dyn MetricIngest>, clock: Arc<dyn Clock>) -> Self {
+    /// Creates an ingest writing into `store` that ends streams silent for the idle timeout of
+    /// `timing`, measured on `clock`. A node forwarder sends every second while it records.
+    pub fn new(store: Arc<dyn MetricIngest>, clock: Arc<dyn Clock>, timing: &Timing) -> Self {
         Self {
             store,
             clock,
-            idle_timeout: DEFAULT_IDLE_TIMEOUT,
+            idle_timeout: timing.metric_stream_idle_timeout,
             nodes: Mutex::default(),
         }
-    }
-
-    /// Ends streams silent for `idle_timeout` instead of the default 30 seconds.
-    pub fn with_idle_timeout(mut self, idle_timeout: Duration) -> Self {
-        self.idle_timeout = idle_timeout;
-        self
     }
 
     /// Waits for a stream's first message for at most the idle timeout; `None` when it did not
@@ -589,7 +579,7 @@ mod tests {
         );
     }
 
-    const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+    const IDLE_TIMEOUT: Duration = Timing::production().metric_stream_idle_timeout;
 
     type BatchSender = mpsc::UnboundedSender<Result<BucketBatch, BucketStreamEnd>>;
 
@@ -631,10 +621,11 @@ mod tests {
             )
             .expect("start store"),
         );
-        let ingest = Arc::new(
-            MetricBucketIngest::new(store.ingestor(), Arc::new(clock.clone()))
-                .with_idle_timeout(IDLE_TIMEOUT),
-        );
+        let ingest = Arc::new(MetricBucketIngest::new(
+            store.ingestor(),
+            Arc::new(clock.clone()),
+            &Timing::production(),
+        ));
         // Leaves ten minutes of history after the store start for buckets to land in.
         clock.advance(Duration::from_secs(11 * 60));
         (store, clock, ingest)

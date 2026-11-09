@@ -298,6 +298,7 @@ where
         let metric_buckets = Arc::new(MetricBucketIngest::new(
             metric_store.ingestor(),
             Arc::clone(&clock),
+            &timing,
         ));
         #[cfg(feature = "test-support")]
         if let Some(slot) = &test_support.metric_recorder {
@@ -561,7 +562,7 @@ fn node_control_stream_configuration(
     test_support: &BackendTestSupport,
 ) -> CompositionResult<NodeControlStreamConfiguration> {
     NodeControlStreamConfiguration::default()
-        .with_republish_interval(test_support.timing.view_republish_interval)
+        .with_timing(&test_support.timing)
         .map_err(|error| {
             CompositionError::composition_with_source("configure node control streams", error)
         })

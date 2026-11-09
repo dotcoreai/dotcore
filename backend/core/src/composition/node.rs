@@ -353,6 +353,8 @@ pub(super) async fn compose_node(
         target_capabilities,
         engine_integrations: super::controllers::engine_integrations(
             test_support.simulated_inference,
+            &test_support.timing,
+            Arc::clone(&clock),
         ),
         accelerator_attribution: Some(accelerator_attribution.clone()),
     };

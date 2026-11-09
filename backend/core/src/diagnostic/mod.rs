@@ -29,7 +29,7 @@ const MAX_PAGE_SIZE: u32 = 200;
 
 /// Longest a manager waits for a node's history, or for the first frame of a follow, so a hung
 /// node cannot hold a management request.
-// Not a behavior duration: bound on a real call to a node's diagnostics service.
+/// Not a behavior duration: bound on a real call to a node's diagnostics service.
 const NODE_DIAGNOSTIC_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Resolves a requested page size; 0 selects the default and sizes above 200 are invalid.

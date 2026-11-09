@@ -24,8 +24,12 @@ pub struct Timing {
     /// Wall-aligned window in which a node's triggered statuses share one message.
     pub node_status_coalesce_window: Duration,
 
-    /// First pause before a node reopens a control stream that failed or ended.
+    /// First pause before a node reopens a control stream that failed or ended; it doubles up
+    /// to the maximum.
     pub node_stream_retry_backoff: Duration,
+
+    /// Longest pause before a node reopens a control stream that failed or ended.
+    pub node_stream_retry_backoff_max: Duration,
 
     /// Silence after which the site manager treats a node incarnation as no longer live.
     pub node_liveness_ttl: Duration,
@@ -97,6 +101,12 @@ pub struct Timing {
     /// How often the metric store trims expired history and records its own health.
     pub metric_store_sweep_interval: Duration,
 
+    /// Silence after which the site manager ends a node's metric bucket stream.
+    pub metric_stream_idle_timeout: Duration,
+
+    /// Pause between two streamed text tokens of a simulated model, its generation speed.
+    pub simulated_token_interval: Duration,
+
     /// Pause before a failed pass over a node's Nix roots runs again, when no pin change triggers
     /// one sooner.
     pub nix_root_retry: Duration,
@@ -124,6 +134,7 @@ impl Timing {
             node_status_check_interval: Duration::from_secs(1),
             node_status_coalesce_window: Duration::from_secs(1),
             node_stream_retry_backoff: Duration::from_millis(250),
+            node_stream_retry_backoff_max: Duration::from_secs(5),
             node_liveness_ttl: Duration::from_secs(10),
             view_republish_interval: Duration::from_secs(20),
             node_action_lease: Duration::from_secs(90),
@@ -154,6 +165,9 @@ impl Timing {
             application_startup_grace: Duration::from_secs(5 * 60),
             watch_heartbeat_interval: Duration::from_secs(15),
             metric_store_sweep_interval: Duration::from_secs(10),
+            metric_stream_idle_timeout: Duration::from_secs(30),
+            // 50 tokens per second, so the router measures simulated generation as an engine's.
+            simulated_token_interval: Duration::from_millis(20),
             nix_root_retry: Duration::from_secs(60),
             private_keepalive_interval: Duration::from_secs(10),
             private_keepalive_timeout: Duration::from_secs(5),
@@ -191,6 +205,7 @@ impl Timing {
             node_status_check_interval: Duration::from_millis(20),
             node_status_coalesce_window: Duration::from_millis(20),
             node_stream_retry_backoff: Duration::from_millis(20),
+            node_stream_retry_backoff_max: Duration::from_millis(500),
             node_liveness_ttl: Duration::from_secs(2),
             view_republish_interval: Duration::from_millis(500),
             node_action_lease: Duration::from_secs(5),
@@ -223,6 +238,11 @@ impl Timing {
             application_startup_grace: production.application_startup_grace,
             watch_heartbeat_interval: production.watch_heartbeat_interval,
             metric_store_sweep_interval: production.metric_store_sweep_interval,
+            // A node forwarder sends every second of its 1s bucket contract while it records, so
+            // the idle timeout stays production.
+            metric_stream_idle_timeout: production.metric_stream_idle_timeout,
+            // Streamed simulated answers arrive without pause.
+            simulated_token_interval: Duration::ZERO,
             nix_root_retry: Duration::from_millis(500),
             // A lost private connection is noticed within two seconds; a loopback ping answers
             // far sooner even on a loaded host.
@@ -420,6 +440,10 @@ mod tests {
                 test.node_stream_retry_backoff,
                 production.node_stream_retry_backoff,
             ),
+            (
+                test.node_stream_retry_backoff_max,
+                production.node_stream_retry_backoff_max,
+            ),
             (test.node_liveness_ttl, production.node_liveness_ttl),
             (
                 test.view_republish_interval,
@@ -435,6 +459,10 @@ mod tests {
             (
                 test.simulated_startup_step,
                 production.simulated_startup_step,
+            ),
+            (
+                test.simulated_token_interval,
+                production.simulated_token_interval,
             ),
             (
                 test.model_construction_retry,

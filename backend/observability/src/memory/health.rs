@@ -42,7 +42,7 @@ pub(crate) const RECORDER_DROPPED: &str = "observability.recorder.dropped";
 
 /// Most an up reading lies past its bucket's start, which keeps a reading recorded as its bucket
 /// starts within the store's tolerance for future observations.
-// Not a behavior duration: part of the metric bucket contract.
+/// Not a behavior duration: part of the metric bucket contract.
 const UP_READING_OFFSET: Duration = Duration::from_millis(500);
 
 /// Label value standing for every undeclared metric name.

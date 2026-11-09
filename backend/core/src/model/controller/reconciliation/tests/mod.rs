@@ -931,8 +931,11 @@ impl crate::inference::NativeInferenceProvider for FirstReadinessGatedProvider {
         identity: crate::inference::EngineBindingIdentity,
         expected_model_id: String,
     ) -> Result<crate::inference::EngineBinding, crate::inference::EngineBindingError> {
-        let base = crate::inference::simulated::SimulatedNativeProvider::default()
-            .bind(identity.clone(), expected_model_id.clone())?;
+        let base = crate::inference::simulated::SimulatedNativeProvider::new(
+            &dotcore_domain::timing::Timing::test(),
+            Arc::new(dotcore_domain::clock::SystemClock),
+        )
+        .bind(identity.clone(), expected_model_id.clone())?;
         Ok(crate::inference::EngineBinding::new(
             identity,
             Arc::new(FirstReadinessGatedProbe {

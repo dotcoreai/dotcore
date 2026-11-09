@@ -55,7 +55,7 @@ const CHANGES_CAPACITY: usize = 1024;
 
 /// How far past the store's wall time a record may be observed, absorbing small clock skew
 /// between machines.
-// Not a behavior duration: tolerance for clock differences between machines.
+/// Not a behavior duration: tolerance for clock differences between machines.
 const FUTURE_TOLERANCE: Duration = Duration::from_secs(5);
 
 /// Estimated memory of one series beyond its buckets, metric name and labels.

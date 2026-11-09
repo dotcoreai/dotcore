@@ -97,16 +97,20 @@ pub(super) fn system_collector(
 }
 
 /// Builds the engine integration registry of a manager or worker model controller, with the
-/// simulated native provider and a loopback transport for every local engine kind.
+/// simulated native provider pacing on `timing` and `clock`, and a loopback transport for every
+/// local engine kind.
 pub(super) fn engine_integrations(
     simulated_inference: Option<crate::inference::simulated::SimulatedInferenceTestSupport>,
+    timing: &dotcore_domain::timing::Timing,
+    clock: Arc<dyn dotcore_domain::clock::Clock>,
 ) -> Arc<crate::model::engine::EngineIntegrationRegistry> {
+    let provider = crate::inference::simulated::SimulatedNativeProvider::new(timing, clock);
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
-            Arc::new(simulated_inference.map_or_else(
-                crate::inference::simulated::SimulatedNativeProvider::default,
-                crate::inference::simulated::SimulatedNativeProvider::with_test_support,
-            )),
+            Arc::new(match simulated_inference {
+                Some(test_support) => provider.with_test_support(test_support),
+                None => provider,
+            }),
             crate::model::engine::EngineTransportFactories::local_engines(),
         ),
     )
@@ -170,9 +174,13 @@ mod tests {
             },
         );
 
-        engine_integrations(None)
-            .bind_workload(&launch, "deployment", &service)
-            .expect("ninfer loopback binding");
+        engine_integrations(
+            None,
+            &dotcore_domain::timing::Timing::production(),
+            Arc::new(dotcore_domain::clock::SystemClock),
+        )
+        .bind_workload(&launch, "deployment", &service)
+        .expect("ninfer loopback binding");
         assert_eq!(
             crate::model::engine::EngineIntegrationRegistry::production()
                 .bind_workload(&launch, "deployment", &service)

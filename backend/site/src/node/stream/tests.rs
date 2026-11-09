@@ -574,7 +574,7 @@ async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_s
     // Paused Tokio time drives both the manager's clock and the node's lease, and auto-advances
     // only to the next republication, the earliest pending wait.
     let fixture = Fixture::with_silence_bound(Duration::from_secs(3_600));
-    let lease = Duration::from_secs(FRESHNESS_WINDOW_SECONDS.into());
+    let lease = Timing::production().node_action_lease;
     let (authority, installer) = node_view(&fixture, lease);
     let started = tokio::time::Instant::now();
     let mut node = fixture.open("worker-one");
@@ -625,7 +625,8 @@ async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_s
 async fn replies_are_never_dropped_and_an_unread_stream_ends_resource_exhausted() {
     let fixture = Fixture::with_configuration(
         TEST_SILENCE_BOUND,
-        NodeControlStreamConfiguration::new(Duration::from_secs(20), 2).expect("configuration"),
+        NodeControlStreamConfiguration::new(&republishing_every(Duration::from_secs(20)), 2)
+            .expect("configuration"),
     );
     let mut node = fixture.open("worker-one");
     node.opened(&incarnation('1')).await;
@@ -695,23 +696,36 @@ async fn outbound_keeps_every_reply_and_only_the_latest_view() {
 #[test]
 fn a_republish_interval_must_keep_nodes_inside_their_action_lease() {
     assert_eq!(
-        NodeControlStreamConfiguration::new(
-            Timing::production().view_republish_interval,
-            DEFAULT_OUTBOUND_REPLIES
-        ),
+        NodeControlStreamConfiguration::new(&Timing::production(), DEFAULT_OUTBOUND_REPLIES),
         Ok(NodeControlStreamConfiguration::default())
     );
-    assert!(NodeControlStreamConfiguration::new(Duration::from_secs(28), 1).is_ok());
+    // Three missed 28s publications and the 5s longest retry pause fit the 90s lease.
+    assert!(
+        NodeControlStreamConfiguration::new(&republishing_every(Duration::from_secs(28)), 1)
+            .is_ok()
+    );
     for interval in [Duration::ZERO, Duration::from_secs(29), Duration::MAX] {
         assert_eq!(
-            NodeControlStreamConfiguration::new(interval, 1),
+            NodeControlStreamConfiguration::new(&republishing_every(interval), 1),
             Err(NodeControlConfigurationError::RepublishInterval)
         );
     }
+    assert!(
+        NodeControlStreamConfiguration::new(&Timing::test(), 1).is_ok(),
+        "the test timing keeps nodes inside their action lease"
+    );
     assert_eq!(
-        NodeControlStreamConfiguration::new(Duration::from_secs(20), 0),
+        NodeControlStreamConfiguration::new(&republishing_every(Duration::from_secs(20)), 0),
         Err(NodeControlConfigurationError::OutboundReplies)
     );
+}
+
+/// The production timing, republishing an unchanged view every `interval`.
+fn republishing_every(interval: Duration) -> Timing {
+    Timing {
+        view_republish_interval: interval,
+        ..Timing::production()
+    }
 }
 
 type Message = stream_node_control_request::Message;

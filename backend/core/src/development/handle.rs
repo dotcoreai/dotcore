@@ -24,7 +24,8 @@ use tokio_util::sync::CancellationToken;
 
 const HANDLE_FORMAT_VERSION: u32 = 3;
 const MAX_HANDLE_BYTES: u64 = 64 * 1024;
-// Not a behavior duration: poll of a file lock another process may hold.
+/// Pause between two attempts to take the development handle's file lock.
+/// Not a behavior duration: poll of a file lock another process may hold.
 const LOCK_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 static TEMPORARY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 

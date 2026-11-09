@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// Longest wait for a worker to accept the connection, and again to complete the TLS handshake.
-// Not a behavior duration: bound on a real network connect and handshake.
+/// Not a behavior duration: bound on a real network connect and handshake.
 const WORKER_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The manager's single holder of worker certificate pins and per-worker private channels.

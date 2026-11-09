@@ -57,7 +57,7 @@ const MESSAGE_LIMIT_BYTES: usize = RESPONSE_BUDGET_BYTES + 64 * 1024;
 
 /// Longest a manager waits for a node's history, or for the opening frame of a follow, so a
 /// hung node cannot hold a management request.
-// Not a behavior duration: bound on a real call to a node's log service.
+/// Not a behavior duration: bound on a real call to a node's log service.
 const WORKER_LOG_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Boxed future returned by one deployment owner's log operation.

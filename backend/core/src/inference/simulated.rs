@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::{clock::Clock, timing::Timing};
 use dotcore_proto::{
     dotcore::inference::v1::{
         ChatCompletionChoice, ChatCompletionResult, ChatFinishReason, ChatMessage, ChatMessageRole,
@@ -36,17 +37,10 @@ use super::{
 /// Text the simulated model answers with, one token per streamed delta.
 const SIMULATED_TEXT_TOKENS: [&str; 3] = ["Simulated", " response", "."];
 
-/// Pause between streamed text tokens outside tests: a generation speed of 50 tokens per second,
-/// so the router measures token generation for simulated deployments as it does for engines.
-// Not a behavior duration: the simulated engine's generation speed, which tests set through its test support.
-const DEFAULT_TOKEN_INTERVAL: Duration = Duration::from_millis(20);
-
-/// Test-only controls for deterministic native simulated inference. Under them, streamed tokens
-/// follow each other without pause.
+/// Test-only controls for deterministic native simulated inference.
 #[derive(Clone, Default)]
 pub struct SimulatedInferenceTestSupport {
     admission: Arc<SimulatedInferenceAdmission>,
-    token_interval: Duration,
 }
 
 #[derive(Default)]
@@ -87,7 +81,6 @@ impl SimulatedInferenceTestSupport {
                 stream_events_before_hold: events,
                 ..SimulatedInferenceAdmission::default()
             }),
-            token_interval: Duration::ZERO,
         };
         support.admission.blocked.store(true, Ordering::Release);
         support
@@ -129,26 +122,29 @@ impl SimulatedInferenceTestSupport {
 }
 
 /// Native inference provider paired with simulated runtime composition. It streams its answer one
-/// token at a time, paced at a fixed generation speed.
+/// token at a time, paced at the simulated generation speed of its timing policy.
 pub(crate) struct SimulatedNativeProvider {
     test_support: Option<SimulatedInferenceTestSupport>,
     token_interval: Duration,
-}
-
-impl Default for SimulatedNativeProvider {
-    fn default() -> Self {
-        Self {
-            test_support: None,
-            token_interval: DEFAULT_TOKEN_INTERVAL,
-        }
-    }
+    clock: Arc<dyn Clock>,
 }
 
 impl SimulatedNativeProvider {
-    pub(crate) fn with_test_support(test_support: SimulatedInferenceTestSupport) -> Self {
+    /// Creates a provider pacing streamed tokens at the simulated generation speed of `timing`,
+    /// waiting on `clock`.
+    pub(crate) fn new(timing: &Timing, clock: Arc<dyn Clock>) -> Self {
         Self {
-            token_interval: test_support.token_interval,
+            test_support: None,
+            token_interval: timing.simulated_token_interval,
+            clock,
+        }
+    }
+
+    /// This provider, holding its attempts under `test_support`.
+    pub(crate) fn with_test_support(self, test_support: SimulatedInferenceTestSupport) -> Self {
+        Self {
             test_support: Some(test_support),
+            ..self
         }
     }
 }
@@ -171,6 +167,7 @@ impl NativeInferenceProvider for SimulatedNativeProvider {
             Arc::new(SimulatedInvoker {
                 test_support: self.test_support.clone(),
                 token_interval: self.token_interval,
+                clock: Arc::clone(&self.clock),
             }),
         ))
     }
@@ -200,12 +197,9 @@ struct SimulatedInvoker {
     test_support: Option<SimulatedInferenceTestSupport>,
     /// Pause before each streamed text token after the first.
     token_interval: Duration,
+    clock: Arc<dyn Clock>,
 }
 impl EngineInvoker for SimulatedInvoker {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "paces simulated engine output in real time, as an engine streams it"
-    )]
     fn invoke<'a>(
         &'a self,
         request: ChatRequest,
@@ -250,6 +244,7 @@ impl EngineInvoker for SimulatedInvoker {
             }
 
             let token_interval = self.token_interval;
+            let clock = Arc::clone(&self.clock);
             let (sender, receiver) = mpsc::channel(8);
             tokio::spawn(async move {
                 let mut text_sent = false;
@@ -275,7 +270,7 @@ impl EngineInvoker for SimulatedInvoker {
                                 let _ = sender.send(Err(InferenceError::Cancelled(reason))).await;
                                 return;
                             }
-                            () = tokio::time::sleep(token_interval) => {}
+                            () = clock.sleep_until(clock.now() + token_interval) => {}
                         }
                     }
                     text_sent |= text;
@@ -612,6 +607,8 @@ mod tests {
         ChatMessage, ChatMessageRole, ChatRequest, chat_message, chat_stream_event::Event,
     };
 
+    use dotcore_domain::clock::SystemClock;
+
     use super::*;
     use crate::inference::{
         InferenceCancellationReason, InferenceResponse, NativeInferenceProvider,
@@ -623,7 +620,7 @@ mod tests {
         let identity =
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
-        let binding = SimulatedNativeProvider::default()
+        let binding = test_provider()
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (_, cancellation) = inference_cancellation();
@@ -664,7 +661,7 @@ mod tests {
         let identity =
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
-        let binding = SimulatedNativeProvider::default()
+        let binding = test_provider()
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
 
@@ -720,7 +717,7 @@ mod tests {
         let identity =
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
-        let binding = SimulatedNativeProvider::default()
+        let binding = test_provider()
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (signal, cancellation) = inference_cancellation();
@@ -754,7 +751,8 @@ mod tests {
         let identity =
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
-        let binding = SimulatedNativeProvider::with_test_support(support.clone())
+        let binding = test_provider()
+            .with_test_support(support.clone())
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (signal, cancellation) = inference_cancellation();
@@ -782,7 +780,8 @@ mod tests {
         let identity =
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
-        let binding = SimulatedNativeProvider::with_test_support(support.clone())
+        let binding = test_provider()
+            .with_test_support(support.clone())
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (signal, cancellation) = inference_cancellation();
@@ -830,7 +829,7 @@ mod tests {
         let identity =
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
-        let binding = SimulatedNativeProvider::default()
+        let binding = test_provider()
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (_, cancellation) = inference_cancellation();
@@ -872,7 +871,8 @@ mod tests {
         let identity =
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
-        let binding = SimulatedNativeProvider::default()
+        let production = Timing::production();
+        let binding = SimulatedNativeProvider::new(&production, Arc::new(SystemClock))
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (_, cancellation) = inference_cancellation();
@@ -913,9 +913,14 @@ mod tests {
                 .windows(2)
                 .map(|pair| pair[1].1 - pair[0].1)
                 .collect::<Vec<_>>(),
-            [DEFAULT_TOKEN_INTERVAL, DEFAULT_TOKEN_INTERVAL]
+            [production.simulated_token_interval; 2]
         );
         assert_eq!(usage.expect("usage").completion_tokens, 3);
+    }
+
+    /// A provider on the test timing, whose streamed tokens follow each other without pause.
+    fn test_provider() -> SimulatedNativeProvider {
+        SimulatedNativeProvider::new(&Timing::test(), Arc::new(SystemClock))
     }
 
     fn decision_request() -> DecisionRequest {

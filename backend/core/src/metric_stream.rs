@@ -467,6 +467,7 @@ mod tests {
             let ingest = Arc::new(MetricBucketIngest::new(
                 store.ingestor(),
                 Arc::new(clock.clone()),
+                &dotcore_domain::timing::Timing::production(),
             ));
             let manager_certificate = manager.0.clone();
             let server = crate::server::private::prepare(

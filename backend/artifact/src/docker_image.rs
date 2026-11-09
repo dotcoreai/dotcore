@@ -30,7 +30,7 @@ use super::{
 
 /// Longest loader run: sized for the slowest realization, a pull of a large CUDA image or a local
 /// build of a CUDA engine.
-// Not a behavior duration: bound on a real image loader process.
+/// Not a behavior duration: bound on a real image loader process.
 pub(crate) const LOADER_TIME_LIMIT: Duration = Duration::from_secs(2 * 60 * 60);
 
 /// Loader command that makes the image available and prints its result.

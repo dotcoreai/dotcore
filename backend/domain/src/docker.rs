@@ -8,6 +8,7 @@
 pub const DOCKER_HOST_ENV: &str = "DOCKER_HOST";
 
 /// Request timeout of the backend's Docker clients, in seconds.
+/// Not a behavior duration: bound on one real Docker Engine request.
 pub const DOCKER_CLIENT_TIMEOUT_SECONDS: u64 = 120;
 
 /// System Docker socket used when the environment selects no Unix socket.

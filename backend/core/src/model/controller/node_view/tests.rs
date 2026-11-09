@@ -725,6 +725,7 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
     let ingest = Arc::new(MetricBucketIngest::new(
         store.ingestor(),
         Arc::new(clock.clone()),
+        &dotcore_domain::timing::Timing::production(),
     ));
     let (forwarder, _forwarder_task) = MetricForwarder::start(
         "worker-one",

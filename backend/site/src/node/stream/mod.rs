@@ -42,10 +42,7 @@ use crate::{
     },
     view::{
         contract::validate_stream_open,
-        desired::{
-            DesiredViewDistributionError, FRESHNESS_WINDOW_SECONDS, MAXIMUM_RETRY_BACKOFF_MILLIS,
-            ManagerNodeViewPublisher, rejected_exchange,
-        },
+        desired::{DesiredViewDistributionError, ManagerNodeViewPublisher, rejected_exchange},
         fencing::{IncarnationFenceError, NodeIncarnation},
     },
 };
@@ -60,8 +57,10 @@ const MISSED_PUBLICATIONS_BEFORE_REOPEN: u32 = 3;
 const _: () = assert!(
     Timing::production().view_republish_interval.as_millis()
         * MISSED_PUBLICATIONS_BEFORE_REOPEN as u128
-        + (MAXIMUM_RETRY_BACKOFF_MILLIS as u128)
-        < (FRESHNESS_WINDOW_SECONDS as u128) * 1_000
+        + Timing::production()
+            .node_stream_retry_backoff_max
+            .as_millis()
+        < Timing::production().node_action_lease.as_millis()
 );
 
 /// The site manager's node control streams, one per node process, each message served through
@@ -146,25 +145,21 @@ pub struct NodeControlStreamConfiguration {
 }
 
 impl NodeControlStreamConfiguration {
-    /// Republishes an unchanged view every `republish_interval` and queues at most
+    /// Republishes an unchanged view at the republish interval of `timing` and queues at most
     /// `outbound_replies` unsent replies per stream.
     ///
-    /// The interval must let a node that misses three publications, then reconnects after the
+    /// The interval must let a node that misses three publications, then reconnects after its
     /// longest retry pause, receive a new view before its action lease expires.
     pub fn new(
-        republish_interval: Duration,
+        timing: &Timing,
         outbound_replies: usize,
     ) -> Result<Self, NodeControlConfigurationError> {
+        let republish_interval = timing.view_republish_interval;
         let reopen_bound = republish_interval
             .checked_mul(MISSED_PUBLICATIONS_BEFORE_REOPEN)
-            .and_then(|missed| {
-                missed.checked_add(Duration::from_millis(u64::from(
-                    MAXIMUM_RETRY_BACKOFF_MILLIS,
-                )))
-            });
+            .and_then(|missed| missed.checked_add(timing.node_stream_retry_backoff_max));
         if republish_interval.is_zero()
-            || reopen_bound
-                .is_none_or(|bound| bound >= Duration::from_secs(FRESHNESS_WINDOW_SECONDS.into()))
+            || reopen_bound.is_none_or(|bound| bound >= timing.node_action_lease)
         {
             return Err(NodeControlConfigurationError::RepublishInterval);
         }
@@ -177,13 +172,10 @@ impl NodeControlStreamConfiguration {
         })
     }
 
-    /// Keeps this configuration's reply bound and republishes every `republish_interval` instead,
-    /// under the same rule as [`Self::new`].
-    pub fn with_republish_interval(
-        self,
-        republish_interval: Duration,
-    ) -> Result<Self, NodeControlConfigurationError> {
-        Self::new(republish_interval, self.outbound_replies)
+    /// Keeps this configuration's reply bound and follows `timing` instead, under the same rule
+    /// as [`Self::new`].
+    pub fn with_timing(self, timing: &Timing) -> Result<Self, NodeControlConfigurationError> {
+        Self::new(timing, self.outbound_replies)
     }
 }
 

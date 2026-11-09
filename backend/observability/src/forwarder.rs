@@ -47,7 +47,7 @@ pub const NODE_OBSERVING: &str = "node.observing";
 pub const FORWARDER_DROPPED: &str = "observability.forwarder.dropped";
 
 /// Width of the buckets a forwarder summarizes samples into.
-// Not a behavior duration: the one-second metric bucket contract.
+/// Not a behavior duration: the one-second metric bucket contract.
 const BUCKET_WIDTH: Duration = Duration::from_secs(1);
 
 /// Batches sent on a stream and not yet acknowledged before the forwarder waits for an ack, so
@@ -1025,6 +1025,7 @@ mod tests {
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
             Arc::new(clock.clone()),
+            &dotcore_domain::timing::Timing::production(),
         ));
         clock.advance(Duration::from_secs(60));
         let (forwarder, _task) = MetricForwarder::start(

@@ -63,10 +63,6 @@ use crate::{
     },
 };
 
-/// Action lease a node's accepted view grants, in seconds.
-pub(crate) const FRESHNESS_WINDOW_SECONDS: u32 = 90;
-/// Longest pause between a node's attempts to reach the manager.
-pub(crate) const MAXIMUM_RETRY_BACKOFF_MILLIS: u32 = 5_000;
 /// Longest inference route name, the site identifier bound, used to size linked-route projections.
 const MAX_ROUTE_NAME_BYTES: usize = 63;
 /// Manager-owned projector and revision authority for complete node views.

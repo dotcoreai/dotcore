@@ -29,7 +29,7 @@ const MAX_HTTP_RESPONSE_BYTES: usize = 1024 * 1024;
 /// answers. The controller probes deployments one after another in each reconcile pass, so this
 /// bound is how long a pass waits on each loading deployment; a slow answer from a ready engine
 /// only defers readiness to a later pass.
-// Not a behavior duration: bound on real loopback I/O of a readiness probe.
+/// Not a behavior duration: bound on real loopback I/O of a readiness probe.
 const READINESS_IO_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Probes one ninfer service on its loopback endpoint for readiness under its served model id.

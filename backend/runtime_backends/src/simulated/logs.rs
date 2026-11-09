@@ -22,7 +22,13 @@ use tokio_util::sync::CancellationToken;
 use super::adapter::InMemoryRuntimeBackend;
 
 const LOG_LINE_COUNT: u64 = 12;
+
+/// Timestamp of a simulated workload's first log line, in seconds since the Unix epoch.
+/// Not a behavior duration: a fixed timestamp of simulated log content.
 const LOG_EPOCH_SECONDS: u64 = 1_700_000_000;
+
+/// Time between the timestamps of two simulated log lines.
+/// Not a behavior duration: spacing of simulated log content, never waited on.
 // Two seconds apart so that paging by the whole second before the oldest line, an exclusive
 // boundary, never skips a line.
 const LOG_SPACING_SECONDS: u64 = 2;

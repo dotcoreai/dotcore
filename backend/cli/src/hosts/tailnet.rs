@@ -17,7 +17,7 @@ use dotcore_domain::SiteNodeHost;
 use serde_json::Value;
 
 /// Longest wait for the tailnet client to report its status.
-// Not a behavior duration: bound on a real tailnet client process.
+/// Not a behavior duration: bound on a real tailnet client process.
 const STATUS_DEADLINE: Duration = Duration::from_secs(2);
 
 /// Absolute locations of the tailnet client searched after the executable search path, for

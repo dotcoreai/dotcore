@@ -194,6 +194,7 @@ mod tests {
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
             Arc::new(clock.clone()),
+            &dotcore_domain::timing::Timing::production(),
         ));
         let (forwarder, _forwarder_task) = MetricForwarder::start(
             "node-a",

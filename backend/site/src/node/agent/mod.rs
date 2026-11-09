@@ -63,14 +63,15 @@ use crate::{
     view::fencing::NodeIncarnation,
 };
 
-// Not a behavior duration: bound on a real capability probe.
+/// Longest one runtime capability probe of a node's collection may take.
+/// Not a behavior duration: bound on a real capability probe.
 const DEFAULT_PROBE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Longest wait for one observation delivery to the manager. It exceeds the transport's connect,
 /// handshake, and request bounds together, so their errors surface first; it only stops a delivery
 /// that ignores them. Missed report ticks are delayed, so a delivery that runs to this bound delays
 /// the next report by at most this long.
-// Not a behavior duration: bound on one real report delivery.
+/// Not a behavior duration: bound on one real report delivery.
 const DEFAULT_REPORT_DELIVERY_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Authenticated outbound manager transport projected once from a validated node folder.

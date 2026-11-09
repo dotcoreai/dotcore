@@ -627,9 +627,11 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
             site_catalog: APPLICATION_CATALOG,
+            // The manager checks its republish interval against the worker's action lease.
             timing: Timing {
                 node_liveness_ttl: LONG_SILENCE_BOUND,
                 view_republish_interval: LONG_REPUBLISH_INTERVAL,
+                node_action_lease: LONG_REPUBLISH_INTERVAL * 4,
                 ..Timing::test()
             },
             ..ProcessTestControls::default()

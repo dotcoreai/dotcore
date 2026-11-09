@@ -65,8 +65,8 @@ gate-nvml-single-owner:
   fi
   echo "nvml single-owner gate: OK (nvml-wrapper only in $expected)"
 
-# Fail when production code declares a `Duration` constant outside the timing policy
-# (`domain/src/timing.rs`) without a `// Not a behavior duration: <reason>` line above it.
+# Fail when production code declares a duration constant outside the timing policy
+# (`domain/src/timing.rs`) whose doc comment lacks a `/// Not a behavior duration: <reason>` line.
 [script]
 gate-timing-policy:
   set -euo pipefail
@@ -80,17 +80,17 @@ gate-timing-policy:
         previous ~ /^#\[cfg\(test\)\]$/ && /^(pub(\([a-z]+\))? )?mod [a-z_]+ \{/ { stop = 1; next }
         { previous = $0 }
         /^[[:space:]]*(\/\/|#\[)/ {
-          if ($0 ~ /\/\/ Not a behavior duration: [^[:space:]]/) marked = 1
+          if ($0 ~ /^[[:space:]]*\/\/\/ Not a behavior duration: [^[:space:]]/) marked = 1
           if ($0 ~ /#\[cfg\((test|any\(test, feature = "test-support"\))\)\]/) gated = 1
           next
         }
-        /^[[:space:]]*(pub(\([a-z]+\))? )?(const|static) [A-Z0-9_]+: (std::time::)?Duration([^A-Za-z0-9_]|$)/ {
+        /^[[:space:]]*(pub(\([a-z]+\))? )?(const|static) ([A-Z0-9_]+: (std::time::)?Duration([^A-Za-z0-9_]|$)|[A-Z0-9_]+_(MS|MILLIS|SECS|SECONDS|MINUTES|HOURS|DAYS): [iuf](8|16|32|64|128|size) )/ {
           if (!marked && !gated) print FILENAME ":" FNR ": " $0
         }
         { marked = 0; gated = 0 }
       ')
   if [ -n "$violations" ]; then
-    echo "timing policy gate: Duration constants outside the timing policy (move a behavior duration into \`Timing\`; mark a real I/O bound or fixed contract with \`// Not a behavior duration: <reason>\`):" >&2
+    echo "timing policy gate: duration constants outside the timing policy (move a behavior duration into \`Timing\`; end the doc comment of a real I/O bound or fixed contract with \`/// Not a behavior duration: <reason>\`):" >&2
     echo "$violations" | sed 's/^/  /' >&2
     exit 1
   fi
