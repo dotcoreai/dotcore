@@ -14,7 +14,7 @@ use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc, time::Dura
 use anyhow::Context as _;
 use dotcore_domain::{
     clock::{Clock, next_boundary},
-    timing::Timing,
+    timing::{Backoff, NodeControlTiming},
 };
 use dotcore_proto::dotcore::{
     application::private::v1::ApplicationCleanupDisposition,
@@ -75,7 +75,8 @@ pub struct NodeControlSession {
     state: FileNodeState,
     model: Arc<dyn NodeModelStatusOwner>,
     application: Option<Arc<dyn NodeApplicationStatusOwner>>,
-    configuration: NodeControlSessionConfiguration,
+    /// Heartbeat, manager silence, status slots and retry pauses of the stream.
+    timing: NodeControlTiming,
     clock: Arc<dyn Clock>,
 }
 
@@ -84,6 +85,11 @@ impl NodeControlSession {
     /// install through `installer` into `authority`, status is built from the owners with
     /// accelerator memory attributed from one collection of `inventory`, and the latest
     /// observation comes from `observations`.
+    ///
+    /// The node sends a heartbeat after an idle heartbeat interval, and reopens the stream after
+    /// the manager stays silent past its silence, which also bounds the wait for the manager's
+    /// answer to an open. A changed status is looked for at every wall-aligned check slot, and
+    /// triggered statuses go out at the end of the current wall-aligned coalesce window.
     #[expect(
         clippy::too_many_arguments,
         reason = "each argument is a distinct node-lifetime dependency injected by composition"
@@ -99,7 +105,7 @@ impl NodeControlSession {
         state: FileNodeState,
         model: Arc<dyn NodeModelStatusOwner>,
         application: Option<Arc<dyn NodeApplicationStatusOwner>>,
-        configuration: NodeControlSessionConfiguration,
+        timing: &NodeControlTiming,
         clock: Arc<dyn Clock>,
     ) -> Self {
         let open = NodeControlOpen {
@@ -118,7 +124,7 @@ impl NodeControlSession {
             state,
             model,
             application,
-            configuration,
+            timing: *timing,
             clock,
         }
     }
@@ -159,12 +165,12 @@ impl NodeControlSession {
             acknowledgement_sequence: 1,
             status_rejected: false,
         };
-        let mut backoff = RetryBackoff::new(&self.configuration);
+        let mut backoff = RetryBackoff::new(&self.timing.stream_retry);
         loop {
             match self.serve_stream(&mut cursors, &mut triggers).await {
                 StreamOutcome::NotOpened => {}
                 StreamOutcome::Ended => {
-                    backoff = RetryBackoff::new(&self.configuration);
+                    backoff = RetryBackoff::new(&self.timing.stream_retry);
                 }
                 StreamOutcome::Stopped => return,
             }
@@ -186,7 +192,7 @@ impl NodeControlSession {
             .expect("a new outbound queue has room for the open");
         let opened = within(
             self.clock.as_ref(),
-            self.configuration.manager_silence_bound,
+            self.timing.manager_silence,
             self.open_stream(receiver),
         )
         .await
@@ -227,7 +233,7 @@ impl NodeControlSession {
             stream,
             last_sent: now,
             last_received: now,
-            next_status_check: self.aligned_deadline(self.configuration.status_check_interval),
+            next_status_check: self.aligned_deadline(self.timing.status_check_interval),
             status_due: None,
             status_in_flight: None,
             status_wanted: false,
@@ -309,8 +315,8 @@ impl NodeControlSession {
             return end;
         }
         loop {
-            let heartbeat_at = link.last_sent + self.configuration.heartbeat_interval;
-            let silent_at = link.last_received + self.configuration.manager_silence_bound;
+            let heartbeat_at = link.last_sent + self.timing.heartbeat_interval;
+            let silent_at = link.last_received + self.timing.manager_silence;
             let event = tokio::select! {
                 biased;
                 message = inbound.next() => match message {
@@ -359,7 +365,7 @@ impl NodeControlSession {
                 Event::StatusCheck => {
                     // The check runs at a wall boundary, so a change it finds goes out at once.
                     link.next_status_check =
-                        self.aligned_deadline(self.configuration.status_check_interval);
+                        self.aligned_deadline(self.timing.status_check_interval);
                     if self.status_changed(link) {
                         self.send_status(link, cursors).await
                     } else {
@@ -559,8 +565,7 @@ impl NodeControlSession {
     fn request_status(&self, link: &mut StreamLink) {
         link.status_wanted = true;
         if link.status_due.is_none() {
-            link.status_due =
-                Some(self.aligned_deadline(self.configuration.status_coalesce_window));
+            link.status_due = Some(self.aligned_deadline(self.timing.status_coalesce_window));
         }
     }
 
@@ -756,63 +761,6 @@ impl Drop for NodeControlSessionTask {
         self.task.abort();
     }
 }
-
-/// Timing of a node's control stream.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NodeControlSessionConfiguration {
-    heartbeat_interval: Duration,
-    manager_silence_bound: Duration,
-    status_check_interval: Duration,
-    status_coalesce_window: Duration,
-    retry_backoff: Duration,
-    retry_backoff_max: Duration,
-}
-
-impl NodeControlSessionConfiguration {
-    /// Takes the stream's schedule from `timing`. The node sends a heartbeat after an idle
-    /// heartbeat interval, and reopens the stream after the manager stays silent past its bound,
-    /// which also bounds the wait for the manager's answer to an open. A changed status is looked
-    /// for at every wall-aligned check slot, and triggered statuses go out at the end of the
-    /// current wall-aligned coalesce window.
-    pub fn new(timing: &Timing) -> Result<Self, NodeControlSessionConfigurationError> {
-        let configuration = Self {
-            heartbeat_interval: timing.node_heartbeat_interval,
-            manager_silence_bound: timing.manager_silence_bound,
-            status_check_interval: timing.node_status_check_interval,
-            status_coalesce_window: timing.node_status_coalesce_window,
-            retry_backoff: timing.node_stream_retry_backoff,
-            retry_backoff_max: timing.node_stream_retry_backoff_max,
-        };
-        if [
-            configuration.heartbeat_interval,
-            configuration.manager_silence_bound,
-            configuration.status_check_interval,
-            configuration.status_coalesce_window,
-            configuration.retry_backoff,
-        ]
-        .iter()
-        .any(Duration::is_zero)
-            || configuration.retry_backoff_max < configuration.retry_backoff
-        {
-            return Err(NodeControlSessionConfigurationError);
-        }
-        Ok(configuration)
-    }
-
-    /// Checks for an unannounced status change every `interval` instead.
-    #[cfg(test)]
-    fn with_status_check_interval(mut self, interval: Duration) -> Self {
-        self.status_check_interval = interval;
-        self
-    }
-}
-
-/// An invalid node control stream timing.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error(
-    "every node control stream interval and bound must be nonzero, and the longest retry pause at least the first"
-)]
-pub struct NodeControlSessionConfigurationError;
 
 /// The node's latest observation, shared between its reporter and its control stream: the stream
 /// sends each new one and re-sends the latest on every open.
@@ -1055,17 +1003,17 @@ enum StreamOutcome {
     Stopped,
 }
 
-/// Exponential pause between failed opens, bounded by the configured longest retry backoff.
+/// Exponential pause between failed opens, bounded by the longest retry pause.
 struct RetryBackoff {
     next: Duration,
     max: Duration,
 }
 
 impl RetryBackoff {
-    fn new(configuration: &NodeControlSessionConfiguration) -> Self {
+    fn new(backoff: &Backoff) -> Self {
         Self {
-            next: configuration.retry_backoff,
-            max: configuration.retry_backoff_max,
+            next: backoff.initial,
+            max: backoff.max,
         }
     }
 

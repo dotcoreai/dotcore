@@ -468,6 +468,9 @@ mod tests {
                 &snapshot,
                 false,
             )],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let readings = Arc::new(FixedReadings {
             memory: readings,

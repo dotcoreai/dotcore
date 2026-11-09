@@ -1006,6 +1006,8 @@ mod tests {
         let store = Arc::new(
             InMemoryMetricStore::start(
                 config,
+                &dotcore_domain::timing::Timing::production().metrics,
+                &dotcore_domain::timing::Timing::production().watch,
                 vec![
                     descriptor("node.host.memory.available", MetricKind::Gauge),
                     descriptor("router.requests", MetricKind::Counter),

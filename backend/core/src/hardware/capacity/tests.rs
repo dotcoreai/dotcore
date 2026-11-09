@@ -1695,8 +1695,14 @@ fn a_stale_observation_keeps_its_totals_without_measured_use() {
         .render(&[], SystemTime::now())
         .expect("rendered snapshot");
     let stale = NodeAcceleratorObservation::from_hardware_snapshot("node-a", &rendered, true);
-    let inventory =
-        TargetCapabilityReconciler::reconcile([("target-a", "node-a", [gpu.clone()])], [], [stale]);
+    let inventory = TargetCapabilityReconciler::reconcile(
+        [("target-a", "node-a", [gpu.clone()])],
+        [],
+        [stale],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
+    );
     let capabilities = inventory.for_target("target-a").expect("target");
     assert!(matches!(
         capabilities.memory,
@@ -1802,6 +1808,9 @@ fn snapshot_capacity(snapshot: &HardwareSnapshot, selectors: Vec<&str>) -> Targe
         [NodeAcceleratorObservation::from_hardware_snapshot(
             "node-a", snapshot, false,
         )],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     let capabilities = inventory.for_target("target-a").expect("target");
     let CapabilityObservation::Available(memory_architecture) = capabilities.accelerator_memory

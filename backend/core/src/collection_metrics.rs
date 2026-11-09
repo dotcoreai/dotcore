@@ -183,6 +183,8 @@ mod tests {
         let clock = VirtualClock::starting_at(UNIX_EPOCH + Duration::from_secs(EPOCH_SECONDS));
         let store = InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
+            &dotcore_domain::timing::Timing::production().metrics,
+            &dotcore_domain::timing::Timing::production().watch,
             [
                 forwarder_metric_descriptors(),
                 deployment_metric_descriptors(Duration::from_secs(5)),
@@ -194,7 +196,7 @@ mod tests {
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
             Arc::new(clock.clone()),
-            &dotcore_domain::timing::Timing::production(),
+            &dotcore_domain::timing::Timing::production().metrics,
         ));
         let (forwarder, _forwarder_task) = MetricForwarder::start(
             "node-a",

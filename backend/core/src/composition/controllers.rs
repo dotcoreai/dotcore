@@ -101,7 +101,7 @@ pub(super) fn system_collector(
 /// local engine kind.
 pub(super) fn engine_integrations(
     simulated_inference: Option<crate::inference::simulated::SimulatedInferenceTestSupport>,
-    timing: &dotcore_domain::timing::Timing,
+    timing: &dotcore_domain::timing::SimulatedTiming,
     clock: Arc<dyn dotcore_domain::clock::Clock>,
 ) -> Arc<crate::model::engine::EngineIntegrationRegistry> {
     let provider = crate::inference::simulated::SimulatedNativeProvider::new(timing, clock);
@@ -176,7 +176,7 @@ mod tests {
 
         engine_integrations(
             None,
-            &dotcore_domain::timing::Timing::production(),
+            &dotcore_domain::timing::Timing::production().simulated,
             Arc::new(dotcore_domain::clock::SystemClock),
         )
         .bind_workload(&launch, "deployment", &service)

@@ -101,7 +101,7 @@ pub(crate) struct NodeApplicationComposition {
     pub(crate) inventory: Arc<dyn HardwareInventorySource>,
 
     /// Timing of the realizer's observer passes and of each deployment's startup.
-    pub(crate) timing: dotcore_domain::timing::Timing,
+    pub(crate) timing: dotcore_domain::timing::ApplicationTiming,
 
     /// Backend clock the realizer's observer waits through.
     pub(crate) clock: Arc<dyn dotcore_domain::clock::Clock>,
@@ -2752,7 +2752,7 @@ mod tests {
                 publication_host: Ipv4Addr::LOCALHOST,
                 preparation_logs: self.preparation_logs(),
                 inventory: Arc::new(HardwareInventoryPublisher::new().1),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().application,
                 clock: Arc::new(dotcore_domain::clock::SystemClock),
             })
             .expect("node realizer")

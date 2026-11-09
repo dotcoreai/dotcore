@@ -15,7 +15,7 @@ use std::{
 
 use dotcore_domain::{
     clock::{Clock, next_boundary},
-    timing::Timing,
+    timing::WatchTiming,
 };
 use dotcore_proto::dotcore::watch::v1::keyed_resource::Payload;
 use futures_util::future::BoxFuture;
@@ -123,35 +123,22 @@ impl ResourceReads {
 /// Tick and admission settings of the hub.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ResourceWatchConfig {
-    /// Spacing of ticks, aligned on multiples of it since the epoch.
-    pub(crate) tick_interval: Duration,
-
-    /// Delay after each tick slot starts before the tick reads, so readings of that slot arrive.
-    pub(crate) grace: Duration,
+    /// Tick slots, aligned on multiples of the tick interval since the epoch, the read delay
+    /// after each slot starts, and the heartbeat of a silent watch stream.
+    pub(crate) timing: WatchTiming,
 
     /// Most watches open at once across the process.
     pub(crate) max_watches: usize,
-
-    /// Longest a watch stream stays silent before it sends a heartbeat.
-    pub(crate) heartbeat_interval: Duration,
 }
 
 impl ResourceWatchConfig {
     /// Ticks on the watch slots of `timing` and sends its heartbeats, admitting the default
     /// number of watches.
-    pub(crate) fn new(timing: &Timing) -> Self {
+    pub(crate) fn new(timing: &WatchTiming) -> Self {
         Self {
-            tick_interval: timing.watch_tick_interval,
-            grace: timing.watch_tick_grace,
+            timing: *timing,
             max_watches: 256,
-            heartbeat_interval: timing.watch_heartbeat_interval,
         }
-    }
-}
-
-impl Default for ResourceWatchConfig {
-    fn default() -> Self {
-        Self::new(&Timing::production())
     }
 }
 
@@ -175,10 +162,8 @@ impl ResourceWatchHub {
                 manager_session_id,
                 reads,
                 clock,
-                tick_interval: config.tick_interval,
-                grace: config.grace,
+                timing: config.timing,
                 max_watches: config.max_watches,
-                heartbeat_interval: config.heartbeat_interval,
                 permits: Arc::new(Semaphore::new(config.max_watches)),
                 shutdown: CancellationToken::new(),
                 publications,
@@ -197,7 +182,7 @@ impl ResourceWatchHub {
 
     /// Longest a watch stream of this hub stays silent before it sends a heartbeat.
     pub(crate) fn heartbeat_interval(&self) -> Duration {
-        self.shared.heartbeat_interval
+        self.shared.timing.heartbeat_interval
     }
 
     /// Opens a watch of `kinds`, starting the ticks if none ran. The watch first holds the latest
@@ -364,10 +349,8 @@ struct Shared {
     manager_session_id: String,
     reads: ResourceReads,
     clock: Arc<dyn Clock>,
-    tick_interval: Duration,
-    grace: Duration,
+    timing: WatchTiming,
     max_watches: usize,
-    heartbeat_interval: Duration,
     permits: Arc<Semaphore>,
     shutdown: CancellationToken,
 
@@ -519,7 +502,11 @@ async fn run(shared: Arc<Shared>, epoch: u64) {
     let mut reads = JoinSet::new();
     loop {
         let wall = shared.clock.wall_now();
-        let due = next_tick_at(wall, shared.tick_interval, shared.grace);
+        let due = next_tick_at(
+            wall,
+            shared.timing.tick_interval,
+            shared.timing.tick_read_delay,
+        );
         let wait = due.duration_since(wall).unwrap_or_default();
         tokio::select! {
             biased;
@@ -528,7 +515,7 @@ async fn run(shared: Arc<Shared>, epoch: u64) {
         }
 
         let woken = shared.clock.wall_now();
-        if woken < due || woken >= due + shared.tick_interval {
+        if woken < due || woken >= due + shared.timing.tick_interval {
             continue;
         }
         while reads.try_join_next().is_some() {}
@@ -569,7 +556,9 @@ mod tests {
 
     #[tokio::test]
     async fn each_watched_kind_is_read_on_open_then_once_per_tick_whatever_the_watchers() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let kinds = BTreeSet::from([ResourceKind::Machines, ResourceKind::Routes]);
         let mut watches = (0..3)
             .map(|_| harness.hub.watch(kinds.clone()).expect("watch"))
@@ -605,7 +594,9 @@ mod tests {
     #[tokio::test]
     async fn an_unchanged_read_publishes_nothing_and_a_change_publishes_at_its_tick() {
         for kind in ALL_KINDS {
-            let harness = Harness::new(ResourceWatchConfig::default());
+            let harness = Harness::new(ResourceWatchConfig::new(
+                &dotcore_domain::timing::Timing::production().watch,
+            ));
             let mut watch = harness.hub.watch(BTreeSet::from([kind])).expect("watch");
 
             assert_eq!(
@@ -631,7 +622,9 @@ mod tests {
 
     #[tokio::test]
     async fn kinds_changed_in_one_tick_share_its_tick_sequence() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let kinds = BTreeSet::from([
             ResourceKind::Machines,
             ResourceKind::ModelDeployments,
@@ -660,8 +653,10 @@ mod tests {
     #[tokio::test]
     async fn time_derived_state_is_published_on_the_next_tick_without_any_event() {
         let disconnected_at = UNIX_EPOCH + Duration::from_secs(START_SECONDS + 3);
-        let harness =
-            Harness::with_disconnection_at(ResourceWatchConfig::default(), disconnected_at);
+        let harness = Harness::with_disconnection_at(
+            ResourceWatchConfig::new(&dotcore_domain::timing::Timing::production().watch),
+            disconnected_at,
+        );
         let mut watch = harness
             .hub
             .watch(BTreeSet::from([ResourceKind::Machines]))
@@ -684,7 +679,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_blocked_kind_does_not_delay_another_kind() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let kinds = BTreeSet::from([ResourceKind::ModelDeployments, ResourceKind::Routes]);
         harness.block(ResourceKind::ModelDeployments, true);
         let mut watch = harness.hub.watch(kinds).expect("watch");
@@ -705,7 +702,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_watch_joining_between_ticks_starts_without_waiting_and_misses_no_update() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let mut first = harness
             .hub
             .watch(BTreeSet::from([ResourceKind::Machines]))
@@ -746,7 +745,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_wall_clock_stepped_back_or_forward_ticks_once_per_corrected_second() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let _watch = harness
             .hub
             .watch(BTreeSet::from([ResourceKind::Machines]))
@@ -774,7 +775,9 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_is_read_while_nobody_watches_and_the_sequence_survives_a_park() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         harness.clock.advance(Duration::from_secs(5));
         tokio::task::yield_now().await;
         assert_eq!(harness.reads(ResourceKind::Machines), 0);
@@ -809,7 +812,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_owner_read_failure_ends_its_watches_and_drops_its_cached_payload() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let mut machines = harness
             .hub
             .watch(BTreeSet::from([ResourceKind::Machines]))
@@ -844,7 +849,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_watch_fallen_behind_the_publications_is_lagged() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let mut watch = harness
             .hub
             .watch(BTreeSet::from([ResourceKind::Machines]))
@@ -866,7 +873,7 @@ mod tests {
     async fn watches_past_the_process_cap_are_refused_until_one_closes() {
         let harness = Harness::new(ResourceWatchConfig {
             max_watches: 2,
-            ..ResourceWatchConfig::default()
+            ..ResourceWatchConfig::new(&dotcore_domain::timing::Timing::production().watch)
         });
         let kinds = BTreeSet::from([ResourceKind::Machines]);
         let first = harness.hub.watch(kinds.clone()).expect("first watch");
@@ -882,7 +889,9 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_ends_open_watches_and_refuses_new_ones() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let kinds = BTreeSet::from([ResourceKind::Machines]);
         let mut watch = harness.hub.watch(kinds.clone()).expect("watch");
 
@@ -897,12 +906,12 @@ mod tests {
 
     #[test]
     fn production_ticks_fall_a_quarter_second_after_each_wall_second() {
-        let config = ResourceWatchConfig::default();
+        let config = ResourceWatchConfig::new(&dotcore_domain::timing::Timing::production().watch);
         let next = |millis: u64| {
             next_tick_at(
                 UNIX_EPOCH + Duration::from_millis(millis),
-                config.tick_interval,
-                config.grace,
+                config.timing.tick_interval,
+                config.timing.tick_read_delay,
             )
         };
         let at = |millis: u64| UNIX_EPOCH + Duration::from_millis(millis);
@@ -915,12 +924,12 @@ mod tests {
 
     #[test]
     fn test_policy_ticks_fall_a_grace_after_each_wall_aligned_slot() {
-        let config = ResourceWatchConfig::new(&Timing::test());
+        let config = ResourceWatchConfig::new(&dotcore_domain::timing::Timing::test().watch);
         let next = |millis: u64| {
             next_tick_at(
                 UNIX_EPOCH + Duration::from_millis(millis),
-                config.tick_interval,
-                config.grace,
+                config.timing.tick_interval,
+                config.timing.tick_read_delay,
             )
         };
         let at = |millis: u64| UNIX_EPOCH + Duration::from_millis(millis);
@@ -1037,8 +1046,8 @@ pub(super) mod test_support {
                 clock,
                 hub,
                 owners,
-                tick_interval: config.tick_interval,
-                grace: config.grace,
+                tick_interval: config.timing.tick_interval,
+                grace: config.timing.tick_read_delay,
             }
         }
 

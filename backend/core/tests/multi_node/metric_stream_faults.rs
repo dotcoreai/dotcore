@@ -39,11 +39,12 @@ async fn a_silent_manager_path_leaves_no_gap_and_no_double_count_after_it_recove
         support::ProcessTestControls {
             // The outage lasts the liveness window, so keepalive pings that would notice the
             // silent path sooner keep their production timing.
-            timing: Timing {
-                node_liveness_ttl: OUTAGE_LIVENESS_TTL,
-                private_keepalive_interval: Timing::production().private_keepalive_interval,
-                private_keepalive_timeout: Timing::production().private_keepalive_timeout,
-                ..Timing::test()
+            timing: {
+                let mut timing = Timing::test();
+                timing.node_control.node_silence = OUTAGE_LIVENESS_TTL;
+                timing.private.keepalive_interval = Timing::production().private.keepalive_interval;
+                timing.private.keepalive_timeout = Timing::production().private.keepalive_timeout;
+                timing
             },
             ..support::ProcessTestControls::default()
         },

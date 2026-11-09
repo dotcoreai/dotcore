@@ -624,27 +624,25 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     // instant plus the republish interval: the first publication answers the worker's stream
     // open, and each republication follows the previous publication by a whole interval.
     let started = Instant::now();
+    // Both processes run one policy with a long republish interval and the production ratios: the
+    // worker neither reopens its stream nor loses its action lease between republications.
+    let timing = {
+        let mut timing = Timing::test();
+        timing.node_control.node_silence = LONG_SILENCE_BOUND;
+        timing.node_control.view_republish_interval = LONG_REPUBLISH_INTERVAL;
+        timing.node_control.manager_silence = LONG_REPUBLISH_INTERVAL * 3;
+        timing.node_control.action_lease = LONG_REPUBLISH_INTERVAL * 4;
+        timing
+    };
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
             site_catalog: APPLICATION_CATALOG,
-            // The manager checks its republish interval against the worker's action lease.
-            timing: Timing {
-                node_liveness_ttl: LONG_SILENCE_BOUND,
-                view_republish_interval: LONG_REPUBLISH_INTERVAL,
-                node_action_lease: LONG_REPUBLISH_INTERVAL * 4,
-                ..Timing::test()
-            },
+            timing,
             ..ProcessTestControls::default()
         },
         ProcessTestControls {
             application_endpoint_port: Some(health.address.port()),
-            // The worker waits out the long republish interval as the production ratios do: it
-            // neither reopens its stream nor loses its action lease between republications.
-            timing: Timing {
-                manager_silence_bound: LONG_REPUBLISH_INTERVAL * 3,
-                node_action_lease: LONG_REPUBLISH_INTERVAL * 4,
-                ..Timing::test()
-            },
+            timing,
             ..ProcessTestControls::default()
         },
     ) else {
@@ -740,9 +738,10 @@ async fn the_resource_watch_shows_a_worker_deployment_status_and_its_closed_stre
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
             site_catalog: APPLICATION_CATALOG,
-            timing: Timing {
-                node_liveness_ttl: LONG_SILENCE_BOUND,
-                ..Timing::test()
+            timing: {
+                let mut timing = Timing::test();
+                timing.node_control.node_silence = LONG_SILENCE_BOUND;
+                timing
             },
             ..ProcessTestControls::default()
         },

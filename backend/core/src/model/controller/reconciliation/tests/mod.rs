@@ -54,7 +54,7 @@ use tracing::{debug, info, info_span};
 
 use super::{
     DownloadProgressKind, DownloadProgressPublication, ModelLifecycleError,
-    ObservedPreparationProgress, ReconciliationState, emit_observer_failure, paused_initial_state,
+    ObservedPreparationProgress, ReconcileOutcome, emit_observer_failure, paused_initial_state,
     replace_stale_workload, runtime_startup_progress_state,
 };
 use crate::{
@@ -932,7 +932,7 @@ impl crate::inference::NativeInferenceProvider for FirstReadinessGatedProvider {
         expected_model_id: String,
     ) -> Result<crate::inference::EngineBinding, crate::inference::EngineBindingError> {
         let base = crate::inference::simulated::SimulatedNativeProvider::new(
-            &dotcore_domain::timing::Timing::test(),
+            &dotcore_domain::timing::Timing::test().simulated,
             Arc::new(dotcore_domain::clock::SystemClock),
         )
         .bind(identity.clone(), expected_model_id.clone())?;
@@ -1415,7 +1415,7 @@ async fn reconciliation_from(
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        timing: dotcore_domain::timing::Timing::production(),
+        timing: dotcore_domain::timing::Timing::production().model,
         clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     calls.lock().expect("calls").clear();
@@ -1526,13 +1526,13 @@ async fn reconciliation_stops_and_removes_a_valid_owned_orphan() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        timing: dotcore_domain::timing::Timing::production(),
+        timing: dotcore_domain::timing::Timing::production().model,
         clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
 
     assert!(matches!(
         inner.reconcile().await,
-        Ok(ReconciliationState::Settled)
+        Ok(ReconcileOutcome::Settled)
     ));
     assert_eq!(calls.lock().expect("calls").as_slice(), ["stop", "remove"]);
 }
@@ -1609,7 +1609,7 @@ async fn node_pass_never_treats_changed_or_newly_declared_workloads_as_orphans()
                     crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
                 preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                     directory.path(),
@@ -1709,7 +1709,7 @@ async fn paused_stopped_workload_projects_paused_without_runtime_mutation() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        timing: dotcore_domain::timing::Timing::production(),
+        timing: dotcore_domain::timing::Timing::production().model,
         clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     calls.lock().expect("calls").clear();
@@ -2001,7 +2001,7 @@ async fn upstream_declarations_do_not_block_local_runtime_reconciliation() {
     .expect("controller construction");
 
     let (reconciliation, records, _) = capture_records_async(|| controller.inner.reconcile()).await;
-    assert!(matches!(reconciliation, Ok(ReconciliationState::Settled)));
+    assert!(matches!(reconciliation, Ok(ReconcileOutcome::Settled)));
     let ready_events = records
         .iter()
         .filter(|record| {
@@ -2681,7 +2681,7 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        timing: dotcore_domain::timing::Timing::production(),
+        timing: dotcore_domain::timing::Timing::production().model,
         clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     let controller = manager_test_controller(
@@ -3568,7 +3568,7 @@ async fn retained_docker_workload_restarts_after_pause_and_resume() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
@@ -3789,7 +3789,7 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
@@ -3966,7 +3966,7 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
         serving_targets_publisher,
         serving_targets_source,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        timing: dotcore_domain::timing::Timing::production(),
+        timing: dotcore_domain::timing::Timing::production().model,
         clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
 
@@ -4092,7 +4092,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
@@ -4182,7 +4182,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
@@ -4561,14 +4561,14 @@ async fn repaired_docker_artifact_recreates_a_stopped_workload_before_ready() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
-        timing: dotcore_domain::timing::Timing::production(),
+        timing: dotcore_domain::timing::Timing::production().model,
         clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
     };
     let mut changes = inner.workload_lifecycle.subscribe("deployment");
 
     assert!(matches!(
         inner.reconcile().await,
-        Ok(ReconciliationState::Settled)
+        Ok(ReconcileOutcome::Settled)
     ));
     let runtime_calls = calls
         .lock()
@@ -4709,7 +4709,7 @@ async fn preparation_failure_cancels_and_drains_other_deployments_before_returni
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
@@ -4862,7 +4862,7 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
@@ -4881,7 +4881,7 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
     assert!(reconciled.is_ok());
     assert!(matches!(
         controller.inner.reconcile().await,
-        Ok(ReconciliationState::Settled)
+        Ok(ReconcileOutcome::Settled)
     ));
     assert_eq!(
         current.snapshot().expect("current state").model_deployments[0]
@@ -5011,7 +5011,7 @@ async fn pause_intent_is_not_undone_by_stale_final_publication_and_other_deploym
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             }),
         },
@@ -5397,8 +5397,8 @@ fn repeated_observer_outcomes_do_not_accumulate_span_fields() {
     let (_, records, output) = capture_records(|| {
         let span = info_span!("model_observer", operation = "model_observer");
         span.in_scope(|| {
-                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconciliationState::Settled, "model reconciliation completed");
-                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconciliationState::Pending, "model reconciliation completed");
+                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconcileOutcome::Settled, "model reconciliation completed");
+                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconcileOutcome::Pending, "model reconciliation completed");
                 emit_observer_failure(
                     &span,
                     &ModelLifecycleError::outcome_uncertain_with_source("failure", anyhow!("failure")),
@@ -5993,5 +5993,6 @@ fn model_started() -> crate::deployment_logs::WorkloadChange {
 }
 
 /// Least time between two stored download progress updates under the production timing.
-const DOWNLOAD_PROGRESS_WRITE_INTERVAL: Duration =
-    dotcore_domain::timing::Timing::production().download_progress_write_interval;
+const DOWNLOAD_PROGRESS_WRITE_INTERVAL: Duration = dotcore_domain::timing::Timing::production()
+    .model
+    .download_progress_interval;

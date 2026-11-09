@@ -79,6 +79,9 @@ pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource>
             platform,
         )],
         [NodeAcceleratorObservation::nvidia("node-one", "580.173.02")],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     Arc::new(StaticTargetCapabilitySource::new(inventory))
 }
@@ -1079,7 +1082,7 @@ pub(super) fn test_engine_integrations() -> Arc<crate::model::engine::EngineInte
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
             Arc::new(crate::inference::simulated::SimulatedNativeProvider::new(
-                &dotcore_domain::timing::Timing::test(),
+                &dotcore_domain::timing::Timing::test().simulated,
                 Arc::new(dotcore_domain::clock::SystemClock),
             )),
             crate::model::engine::EngineTransportFactories::local_engines(),
@@ -1280,7 +1283,7 @@ impl AcquisitionControllerHarness {
     pub(super) fn start_reconciliation(
         &self,
     ) -> tokio::task::JoinHandle<
-        Result<dotcore_domain::timing::ReconciliationState, ModelLifecycleError>,
+        Result<dotcore_domain::timing::ReconcileOutcome, ModelLifecycleError>,
     > {
         for (deployment_id, blocked) in self
             .model_file_blocks
@@ -1308,7 +1311,7 @@ impl AcquisitionControllerHarness {
         for _ in 0..10 {
             if matches!(
                 self.controller.inner.reconcile().await?,
-                dotcore_domain::timing::ReconciliationState::Settled
+                dotcore_domain::timing::ReconcileOutcome::Settled
             ) {
                 return Ok(());
             }

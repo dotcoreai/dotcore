@@ -679,7 +679,7 @@ pub(super) struct InferenceControllerInner<D, S, R> {
     shutdown: tokio_util::sync::CancellationToken,
 
     /// Timing of the observer's passes and of stored download progress.
-    timing: dotcore_domain::timing::Timing,
+    timing: dotcore_domain::timing::ModelTiming,
 
     /// Backend clock the observer and download progress writes wait through.
     clock: Arc<dyn dotcore_domain::clock::Clock>,

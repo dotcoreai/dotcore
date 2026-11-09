@@ -1215,7 +1215,8 @@ mod tests {
                 assert!(
                     declared.elapsed()
                         < dotcore_domain::timing::Timing::production()
-                            .model_reconcile
+                            .model
+                            .reconcile
                             .settled,
                     "round {round}: both deployments were not pinned before the safety scan: {:?}",
                     node.retained()
@@ -1695,7 +1696,7 @@ mod tests {
                     serving_targets: ServingTargetsPublisher::new().0,
                     shutdown: self.shutdown.clone(),
                     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                    timing: dotcore_domain::timing::Timing::production(),
+                    timing: dotcore_domain::timing::Timing::production().model,
                     clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
                     preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                         self._directory.path(),

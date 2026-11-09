@@ -276,16 +276,18 @@ where
             )
         })?;
         let timing = test_support.timing;
-        let manager_node_control = ManagerNodeControlCoordinator::with_clock(
+        let manager_node_control = ManagerNodeControlCoordinator::new(
             manager_session,
+            &timing.node_control,
             backend_clock(&test_support),
-        )
-        .with_timing(&timing);
+        );
         // Site-wide metric history lives with the site manager for this process's lifetime.
         let clock = backend_clock(&test_support);
         let metric_store = Arc::new(
             InMemoryMetricStore::start(
-                InMemoryStoreConfig::default().with_timing(&timing),
+                InMemoryStoreConfig::default(),
+                &timing.metrics,
+                &timing.watch,
                 metric_catalog(dotcore_site::validation::hardware_refresh_interval(
                     &inputs.site,
                 )),
@@ -298,7 +300,7 @@ where
         let metric_buckets = Arc::new(MetricBucketIngest::new(
             metric_store.ingestor(),
             Arc::clone(&clock),
-            &timing,
+            &timing.metrics,
         ));
         #[cfg(feature = "test-support")]
         if let Some(slot) = &test_support.metric_recorder {
@@ -466,7 +468,7 @@ where
                 Arc::clone(&node_memory),
             ),
             clock,
-            crate::resource_watch::ResourceWatchConfig::new(&timing),
+            crate::resource_watch::ResourceWatchConfig::new(&timing.watch),
         );
         let manager = ManagerBackendServices {
             catalog_service: CatalogService::new(Arc::clone(&inputs.catalog)),
@@ -561,11 +563,22 @@ fn metric_catalog(refresh_interval: Duration) -> Vec<MetricDescriptor> {
 fn node_control_stream_configuration(
     test_support: &BackendTestSupport,
 ) -> CompositionResult<NodeControlStreamConfiguration> {
-    NodeControlStreamConfiguration::default()
-        .with_timing(&test_support.timing)
-        .map_err(|error| {
-            CompositionError::composition_with_source("configure node control streams", error)
-        })
+    NodeControlStreamConfiguration::new(
+        &test_support.timing.node_control,
+        dotcore_site::node::stream::DEFAULT_OUTBOUND_REPLIES,
+    )
+    .map_err(|error| {
+        CompositionError::composition_with_source("configure node control streams", error)
+    })
+}
+
+/// The backend's timing policy, once its relations hold, so a policy that would let a live node
+/// lapse fails composition instead of misbehaving at run time.
+fn checked_timing(test_support: &BackendTestSupport) -> CompositionResult<Timing> {
+    test_support.timing.check().map_err(|error| {
+        CompositionError::composition_with_source("check the backend timing policy", error)
+    })?;
+    Ok(test_support.timing)
 }
 
 /// Chooses the clock of one composed backend: the test's manual clock when it supplies one,
@@ -602,7 +615,7 @@ async fn model_owner_for(
         desired,
         inputs.current.clone(),
         target_capabilities,
-        timing,
+        timing.model,
         clock,
     )?;
     Ok(ModelDeploymentService::new(controller, log_admission))

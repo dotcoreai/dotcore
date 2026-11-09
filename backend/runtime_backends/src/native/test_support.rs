@@ -77,11 +77,12 @@ impl NativeTestHost {
         };
         // The fake engine never exits on its own, so a create would otherwise watch it for the
         // whole production settle window.
-        let backend = NativeRuntimeBackend::new(config.clone(), launcher_binary())
-            .expect("native backend")
-            .with_port_settle_window(
-                dotcore_domain::timing::Timing::test().native_port_settle_window,
-            );
+        let backend = NativeRuntimeBackend::new(
+            config.clone(),
+            launcher_binary(),
+            &dotcore_domain::timing::Timing::test().native,
+        )
+        .expect("native backend");
         Self {
             _roots: roots,
             store_path: store_path.to_str().expect("UTF-8 store path").to_owned(),

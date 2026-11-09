@@ -1,6 +1,9 @@
 use std::time::SystemTime;
 
-use dotcore_domain::clock::VirtualClock;
+use dotcore_domain::{
+    clock::VirtualClock,
+    timing::{NodeControlTiming, Timing},
+};
 use dotcore_proto::dotcore::{
     application::{
         private::v1::{
@@ -138,7 +141,7 @@ async fn a_dropped_stream_is_reopened_after_the_retry_pause() {
     let woke_at = node.clock.advance_to_next_wake().await;
     assert_eq!(
         woke_at,
-        dropped_at + Timing::production().node_stream_retry_backoff
+        dropped_at + Timing::production().node_control.stream_retry.initial
     );
     let mut reopened = node.next_stream().await;
     assert_eq!(reopened.message().await, Message::Open(node_open()));
@@ -282,14 +285,12 @@ async fn status_triggers_within_a_second_share_one_message_at_the_next_wall_seco
 
 #[tokio::test]
 async fn under_the_test_policy_triggers_share_one_message_at_the_next_wall_aligned_window() {
-    let window = Timing::test().node_status_coalesce_window;
-    let mut node = Node::start_with_timing(
-        vec![model_target()],
-        Timing {
-            node_status_coalesce_window: window,
-            ..node_timing()
-        },
-    );
+    let window = Timing::test().node_control.status_coalesce_window;
+    let mut node = Node::start_with_timing(vec![model_target()], {
+        let mut timing = node_timing();
+        timing.node_control.status_coalesce_window = window;
+        timing
+    });
     node.observations.seed(observation(1));
     let mut stream = node.opened_stream().await;
     let opened_at = node.clock.now();
@@ -748,9 +749,10 @@ impl Node {
             self.state.clone(),
             Arc::clone(&self.model) as Arc<dyn NodeModelStatusOwner>,
             application,
-            NodeControlSessionConfiguration::new(&self.timing)
-                .expect("session configuration")
-                .with_status_check_interval(self.status_check_interval),
+            &NodeControlTiming {
+                status_check_interval: self.status_check_interval,
+                ..self.timing.node_control
+            },
             Arc::new(self.clock.clone()),
         )
     }
@@ -1245,9 +1247,10 @@ fn manager_session(character: char) -> ManagerSession {
 
 /// Production stream timing with this module's heartbeat and manager silence.
 fn node_timing() -> Timing {
-    Timing {
-        node_heartbeat_interval: HEARTBEAT,
-        manager_silence_bound: MANAGER_SILENCE,
-        ..Timing::production()
+    {
+        let mut timing = Timing::production();
+        timing.node_control.heartbeat_interval = HEARTBEAT;
+        timing.node_control.manager_silence = MANAGER_SILENCE;
+        timing
     }
 }

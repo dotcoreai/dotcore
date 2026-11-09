@@ -266,11 +266,11 @@ impl Backend {
                     "the manager's inference listener is not bound",
                 )
             })?;
-        let timing = test_support.timing;
+        let timing = super::checked_timing(&test_support)?;
         // One holder of worker pins and channels serves both forwarded inference and logs.
         let worker_channels = private_configuration
             .as_ref()
-            .map(|configuration| WorkerChannels::new(configuration).with_timing(&timing));
+            .map(|configuration| WorkerChannels::new(configuration, &timing.private));
         let capabilities = compose_capabilities_with_current(
             &configuration.site_paths,
             super::ManagerNodeProcessInputs {
@@ -300,7 +300,7 @@ impl Backend {
                 routes: private_services
                     .assemble(configuration.local_role, &configuration.local_node_id),
                 configuration,
-                timing,
+                timing: timing.private,
             });
         let server = crate::server::Server::prepare(
             transports,
@@ -430,7 +430,7 @@ where
         )
     })?;
     let clock = super::backend_clock(&test_support);
-    let timing = test_support.timing;
+    let timing = super::checked_timing(&test_support)?;
     let declared_machine = folder.declared_machine().map(|machine| {
         dotcore_runtime_backends::simulated::DeclaredMachine::new(machine, Arc::clone(&clock))
     });
@@ -509,7 +509,7 @@ where
         Some(crate::server::private::PrivateListener {
             configuration: private_configuration,
             routes: private_routes,
-            timing,
+            timing: timing.private,
         }),
         shutdown,
     )
@@ -644,7 +644,7 @@ impl BackendTestSupport {
         Self {
             simulated_runtime: Some(
                 dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport::with_stop_failures(0)
-                    .with_representative_startup(timing.simulated_startup_step),
+                    .with_representative_startup(timing.simulated.startup_step_interval),
             ),
             timing,
             ..Self::default()

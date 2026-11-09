@@ -1347,6 +1347,9 @@ mod tests {
                     NodeAcceleratorFacts::apple(),
                 )
                 .with_host_memory(34_190_917_632, 34_190_917_632)],
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
             ),
         );
         let configuration = crate::test_support::local_model_configuration();
@@ -1707,8 +1710,15 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::default());
+        let repository = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            TargetCapabilityInventory::empty(
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
+            ),
+        );
         let inventory = fixture_target_capabilities();
         let model_target = dotcore_proto::dotcore::deployment::v1::ExactPlacement {
             site_node_id: "fixture-node".to_owned(),
@@ -1797,8 +1807,15 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::default());
+        let repository = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            TargetCapabilityInventory::empty(
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
+            ),
+        );
 
         assert_eq!(
             repository
@@ -3398,6 +3415,9 @@ selector:
                 NodeAcceleratorObservation::nvidia("worker-node", "580.173.02"),
                 NodeAcceleratorObservation::nvidia("manager-node", "580.173.02"),
             ],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         )
     }
 

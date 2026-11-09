@@ -849,6 +849,9 @@ mod tests {
                     &snapshot,
                     false,
                 )],
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
             );
             let model_id = CatalogModelId("fixture-vllm-model".to_owned());
             let configuration = apply_profile_defaults(

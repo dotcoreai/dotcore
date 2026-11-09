@@ -832,6 +832,9 @@ pub(super) fn node_target_capabilities() -> Arc<dyn TargetCapabilitySource> {
                 dotcore_domain::ExecutionPlatform::linux_amd64(),
             )],
             std::iter::empty(),
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         ),
     ))
 }
@@ -884,7 +887,7 @@ pub(super) struct ConnectedWorker {
 impl ConnectedWorker {
     pub(super) fn new(desired: SiteRepository, current: FileCurrentState) -> Self {
         Self {
-            coordinator: ManagerNodeControlCoordinator::new(
+            coordinator: ManagerNodeControlCoordinator::on_system_clock(
                 ManagerSession::generate().expect("manager session"),
             ),
             section: super::ApplicationNodeViewSection::new(
@@ -1271,7 +1274,7 @@ where
                 inference_route_resolver,
                 accelerator_attribution: None,
                 resource_attribution: None,
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().application,
                 clock: Arc::new(dotcore_domain::clock::SystemClock),
                 node: super::realizer::NodeRealization {
                     records,
@@ -2672,6 +2675,9 @@ pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource>
             dotcore_domain::ExecutionPlatform::linux_amd64(),
         )],
         std::iter::empty(),
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     Arc::new(StaticTargetCapabilitySource::new(inventory))
 }

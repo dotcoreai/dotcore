@@ -1495,7 +1495,11 @@ mod tests {
                 attributed: Some([("GPU-a".to_owned(), 1024)].into()),
             }],
         )]);
-        let inventory = TargetCapabilityInventory::default();
+        let inventory = TargetCapabilityInventory::empty(
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
+        );
         let own_reads = Cell::new(0);
         let estimate_workloads = |source: Option<&dyn SiteWorkloadSource>| {
             super::estimate_workloads(source, &inventory, || {
@@ -1583,7 +1587,7 @@ mod tests {
             desired,
             current,
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production(),
+            dotcore_domain::timing::Timing::production().model,
             std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("controller");
@@ -1634,7 +1638,7 @@ mod tests {
             desired.clone(),
             current,
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production(),
+            dotcore_domain::timing::Timing::production().model,
             std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("controller");
@@ -1695,7 +1699,7 @@ mod tests {
             desired.clone(),
             current.clone(),
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production(),
+            dotcore_domain::timing::Timing::production().model,
             std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("controller");

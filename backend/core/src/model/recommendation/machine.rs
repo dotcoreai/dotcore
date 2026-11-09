@@ -8,6 +8,7 @@
 use std::time::SystemTime;
 
 use dotcore_catalog::{Catalog, SupportedHardwareClass};
+use dotcore_domain::timing::NodeControlTiming;
 use dotcore_node_hardware::{MachineDescription, MachineError};
 use dotcore_proto::dotcore::{
     catalog::v1::{HardwareClass, UseCase},
@@ -38,9 +39,13 @@ pub struct IdleMachine {
 }
 
 impl IdleMachine {
-    /// Declares the targets of `machine`'s hardware and observes them idle now. The machine stands
+    /// Declares the targets of `machine`'s hardware and observes them idle now, under the node
+    /// control timing that bounds how long capability observations stay fresh. The machine stands
     /// for a node named after it.
-    pub fn new(machine: &MachineDescription) -> Result<Self, IdleMachineError> {
+    pub fn new(
+        machine: &MachineDescription,
+        timing: NodeControlTiming,
+    ) -> Result<Self, IdleMachineError> {
         let node_id = machine.name();
         let targets =
             described_execution_targets(node_id, machine).map_err(IdleMachineError::Targets)?;
@@ -62,7 +67,12 @@ impl IdleMachine {
                 ))
             })
             .collect::<Vec<_>>();
-        let inventory = TargetCapabilityReconciler::reconcile(&targets, platforms, [accelerators]);
+        let inventory = TargetCapabilityReconciler::reconcile(
+            &targets,
+            platforms,
+            [accelerators],
+            timing.capability_max_age,
+        );
         Ok(Self {
             targets,
             inventory,
@@ -168,6 +178,7 @@ pub enum IdleMachineError {
 #[cfg(test)]
 mod tests {
     use dotcore_catalog::Catalog;
+    use dotcore_domain::timing::Timing;
     use dotcore_node_hardware::MachineDescription;
     use dotcore_proto::dotcore::catalog::v1::UseCase;
 
@@ -236,7 +247,7 @@ mod tests {
 
     fn idle(name: &str, yaml: &str) -> IdleMachine {
         let machine = MachineDescription::from_yaml(name, yaml).expect("described machine");
-        IdleMachine::new(&machine).expect("idle machine")
+        IdleMachine::new(&machine, Timing::test().node_control).expect("idle machine")
     }
 
     /// Each target as `name: class`.

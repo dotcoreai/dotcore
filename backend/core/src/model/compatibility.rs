@@ -1035,6 +1035,9 @@ mod tests {
                 now,
             )],
             [nvidia(&stale, "580.173.02", now)],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         ));
         inventory.extend(observed(
             &no_driver,
@@ -1542,6 +1545,9 @@ mod tests {
                 now,
             )],
             [accelerator],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         )
     }
 

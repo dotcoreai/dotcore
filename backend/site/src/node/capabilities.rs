@@ -77,13 +77,14 @@ impl NodeTargetCapabilitySource {
         let stale = now
             .duration_since(collected.collected_at)
             .map_or(true, |age| age > self.max_age);
-        let mut inventory = TargetCapabilityInventory::default();
+        let mut inventory = TargetCapabilityInventory::empty(self.max_age);
         for target in &self.targets {
             inventory.extend(node_target_capabilities(
                 target,
                 &collected.snapshot,
                 stale,
                 Some(collected.collected_at),
+                self.max_age,
             )?);
         }
         Ok(inventory)
@@ -107,12 +108,14 @@ impl TargetCapabilitySource for NodeTargetCapabilitySource {
 
 /// Projects one node collection into one target's capabilities: the target's reported runtime
 /// outcome joined with its node's accelerator facts. The manager's admission and the node's own
-/// admission share this projection; a missing `observed_at` reads as unavailable.
+/// admission share this projection; a missing `observed_at` reads as unavailable, and an
+/// available observation stays fresh for `max_age`.
 pub(crate) fn node_target_capabilities(
     target: &ExecutionTarget,
     snapshot: &NodeObservationSnapshot,
     stale: bool,
     observed_at: Option<SystemTime>,
+    max_age: Duration,
 ) -> Result<TargetCapabilityInventory, TargetCapabilitySourceError> {
     let platform = node_runtime_platform(target, snapshot, stale, observed_at)?;
     let accelerator =
@@ -121,6 +124,7 @@ pub(crate) fn node_target_capabilities(
         [target],
         [platform],
         [accelerator],
+        max_age,
     ))
 }
 
@@ -264,7 +268,9 @@ mod tests {
     };
 
     const TARGET_CAPABILITY_MAX_AGE: std::time::Duration =
-        dotcore_domain::timing::Timing::production().target_capability_max_age;
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age;
 
     #[test]
     fn refreshed_collection_restores_capabilities_after_the_max_age() {
@@ -335,11 +341,19 @@ mod tests {
                 }),
                 ..available_snapshot()
             };
-            super::node_target_capabilities(&simulated, &snapshot, false, Some(now))
-                .expect("inventory")
-                .for_target("target-one")
-                .expect("target capabilities")
-                .clone()
+            super::node_target_capabilities(
+                &simulated,
+                &snapshot,
+                false,
+                Some(now),
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
+            )
+            .expect("inventory")
+            .for_target("target-one")
+            .expect("target capabilities")
+            .clone()
         };
 
         let gb10 = project(
@@ -444,11 +458,19 @@ mod tests {
                 }),
                 ..available_snapshot()
             };
-            super::node_target_capabilities(&target(), &snapshot, false, Some(now))
-                .expect("inventory")
-                .for_target("target-one")
-                .expect("target capabilities")
-                .clone()
+            super::node_target_capabilities(
+                &target(),
+                &snapshot,
+                false,
+                Some(now),
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
+            )
+            .expect("inventory")
+            .for_target("target-one")
+            .expect("target capabilities")
+            .clone()
         };
         let declared = |name: &str, workload: MachineWorkload| {
             MachineDescription::simulated(&[name.to_owned()], "amd64")

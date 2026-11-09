@@ -487,6 +487,9 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &mac, false,
             )],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let capabilities =
             select_target_capabilities(&target, &inventory, std::time::SystemTime::now())
@@ -564,6 +567,9 @@ mod tests {
                 linux.clone(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let docker = select_target_capabilities(
             &execution_target(&linux, &["target-a"]),
@@ -618,6 +624,9 @@ mod tests {
                 linux.clone(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let docker = select_target_capabilities(
             &execution_target(&linux, &["target-a"]),
@@ -705,6 +714,9 @@ mod tests {
                 ExecutionPlatform::linux_arm64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         assert!(matches!(
             validate_retained_target_capabilities(
@@ -724,6 +736,9 @@ mod tests {
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "579")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         assert_eq!(
             validate_retained_target_capabilities(
@@ -755,6 +770,9 @@ mod tests {
                 NodeAcceleratorObservation::available("node-a", NodeAcceleratorFacts::apple())
                     .with_memory_architecture(Some(MemoryArchitecture::Dedicated)),
             ],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
 
         assert_eq!(
@@ -784,6 +802,9 @@ mod tests {
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         assert_eq!(
             validate_retained_target_capabilities(
@@ -886,6 +907,9 @@ mod tests {
                     None,
                 ),
             ],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
 
         assert_eq!(
@@ -914,6 +938,9 @@ mod tests {
                 )],
                 [NodeAcceleratorObservation::nvidia("node-a", "580")
                     .with_memory_architecture(Some(memory_architecture))],
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
             )
         };
 
@@ -952,6 +979,9 @@ mod tests {
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")
                 .with_memory_architecture(Some(MemoryArchitecture::Dedicated))],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let resolved_with_class_memory = |architecture| {
             let mut snapshot = local_model_snapshot("fixture-model");

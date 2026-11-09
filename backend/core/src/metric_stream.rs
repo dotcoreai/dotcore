@@ -449,6 +449,8 @@ mod tests {
             let store = Arc::new(
                 InMemoryMetricStore::start(
                     InMemoryStoreConfig::default(),
+                    &dotcore_domain::timing::Timing::production().metrics,
+                    &dotcore_domain::timing::Timing::production().watch,
                     vec![MetricDescriptor {
                         name: "node.memory.used".to_owned(),
                         kind: MetricKind::Gauge,
@@ -467,7 +469,7 @@ mod tests {
             let ingest = Arc::new(MetricBucketIngest::new(
                 store.ingestor(),
                 Arc::new(clock.clone()),
-                &dotcore_domain::timing::Timing::production(),
+                &dotcore_domain::timing::Timing::production().metrics,
             ));
             let manager_certificate = manager.0.clone();
             let server = crate::server::private::prepare(
@@ -478,7 +480,7 @@ mod tests {
                     manager,
                     [(WORKER_ID, PrivateNodeRole::Worker, worker.0.as_slice())],
                 ),
-                &dotcore_domain::timing::Timing::production(),
+                &dotcore_domain::timing::Timing::production().private,
                 PrivateServiceAssembly::new(move |context, routes| {
                     routes.add_service(
                         MetricBucketStreamService::new(ingest, &context).into_server(),

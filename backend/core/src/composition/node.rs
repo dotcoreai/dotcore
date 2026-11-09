@@ -42,8 +42,8 @@ use dotcore_site::{
         },
         registry::NodeRegistry,
         session::{
-            NodeControlObservations, NodeControlSession, NodeControlSessionConfiguration,
-            NodeControlSessionTask, NodeControlTransport,
+            NodeControlObservations, NodeControlSession, NodeControlSessionTask,
+            NodeControlTransport,
         },
         target_inventory::TargetCapabilitySource,
     },
@@ -243,7 +243,6 @@ pub(super) async fn compose_node(
         test_support,
     } = inputs;
     let clock = super::backend_clock(&test_support);
-    let control_configuration = node_control_configuration(&test_support)?;
     // Opens its stream to the manager once the node's hardware sampler records into it.
     let (metric_forwarder, metric_forwarder_task) = MetricForwarder::start(
         &node_id,
@@ -264,7 +263,7 @@ pub(super) async fn compose_node(
         node_id.clone(),
         incarnation.clone(),
         manager_session,
-        test_support.timing.node_action_lease,
+        test_support.timing.node_control.action_lease,
     )
     .map_err(|error| {
         CompositionError::composition_with_source("prepare accepted node view", error)
@@ -294,7 +293,7 @@ pub(super) async fn compose_node(
         &site_id,
         &site_node_id,
         test_support.native_launcher.as_deref(),
-        test_support.timing.native_port_settle_window,
+        &test_support.timing.native,
         super::runtime::SimulatedRuntimeInputs {
             test_support: test_support.simulated_runtime.clone(),
             machine: declared_machine,
@@ -320,7 +319,7 @@ pub(super) async fn compose_node(
         &installed_targets,
         &runtimes,
         observation.reporter.observations(),
-        test_support.timing.target_capability_max_age,
+        test_support.timing.node_control.capability_max_age,
         Arc::clone(&clock),
     )
     .await?;
@@ -337,9 +336,9 @@ pub(super) async fn compose_node(
         Arc::new(NodeStorePins {
             state: state.clone(),
         }),
-    )
-    .with_clock(Arc::clone(&clock))
-    .with_retry_delay(test_support.timing.nix_root_retry);
+        &test_support.timing.artifact,
+        Arc::clone(&clock),
+    );
     let artifacts = crate::model::controller::ArtifactDependencies {
         oci_preparer: super::controllers::oci_preparer_for(
             &installed_targets,
@@ -353,7 +352,7 @@ pub(super) async fn compose_node(
         target_capabilities,
         engine_integrations: super::controllers::engine_integrations(
             test_support.simulated_inference,
-            &test_support.timing,
+            &test_support.timing.simulated,
             Arc::clone(&clock),
         ),
         accelerator_attribution: Some(accelerator_attribution.clone()),
@@ -409,7 +408,7 @@ pub(super) async fn compose_node(
     ));
     let model_construction = Arc::clone(&model_lifecycle.construction);
     let model_shutdown = model_lifecycle.shutdown.clone();
-    let model_timing = test_support.timing;
+    let model_timing = test_support.timing.model;
     let model_clock = Arc::clone(&clock);
     let model_root_keeper = Arc::clone(&model_lifecycle.root_keeper);
     let model_preparation_logs = preparation_logs.clone();
@@ -423,7 +422,7 @@ pub(super) async fn compose_node(
         let listener =
             crate::model::controller::ModelRealizationInput::register_change_listener(&model_input);
         let construction = tokio::spawn(async move {
-            let retry = model_timing.model_construction_retry;
+            let retry = model_timing.construction_retry_interval;
             let realizer = construct_with_retry(listener, Arc::clone(&model_clock), retry, || {
                 construct_model_realizer(
                     crate::model::controller::NodeModelRealizerDependencies {
@@ -470,7 +469,7 @@ pub(super) async fn compose_node(
             },
             preparation_logs,
             inventory: observation.inventory(),
-            timing: test_support.timing,
+            timing: test_support.timing.application,
             clock: Arc::clone(&clock),
         },
         publication_host,
@@ -522,7 +521,7 @@ pub(super) async fn compose_node(
         state,
         model_status,
         application_status,
-        control_configuration,
+        &test_support.timing.node_control,
         clock,
     );
     let diagnostics =
@@ -939,7 +938,7 @@ struct ApplicationRealizerSources {
     fixed_pins: FixedLaunchPins,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     inventory: Arc<dyn HardwareInventorySource>,
-    timing: dotcore_domain::timing::Timing,
+    timing: dotcore_domain::timing::ApplicationTiming,
     clock: Arc<dyn dotcore_domain::clock::Clock>,
 }
 
@@ -1175,14 +1174,6 @@ impl dotcore_artifact::PinnedStorePaths for NodeStorePins {
     }
 }
 
-fn node_control_configuration(
-    test_support: &BackendTestSupport,
-) -> Result<NodeControlSessionConfiguration, CompositionError> {
-    NodeControlSessionConfiguration::new(&test_support.timing).map_err(|error| {
-        CompositionError::composition_with_source("configure the node control stream", error)
-    })
-}
-
 /// The model and application rules the node installer applies to each accepted view.
 pub(super) fn node_view_owner_rules() -> NodeViewOwnerRules {
     NodeViewOwnerRules {
@@ -1332,7 +1323,9 @@ mod tests {
             std::slice::from_ref(&node_target),
             &builder.build().expect("node targets"),
             observations.clone(),
-            dotcore_domain::timing::Timing::production().target_capability_max_age,
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
             Arc::new(dotcore_domain::clock::SystemClock),
         )
         .await
@@ -1367,7 +1360,9 @@ mod tests {
             NodeCollection::without_processes(snapshot.clone()),
             1,
             std::time::SystemTime::now()
-                - dotcore_domain::timing::Timing::production().target_capability_max_age
+                - dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age
                 - Duration::from_secs(1),
         );
 

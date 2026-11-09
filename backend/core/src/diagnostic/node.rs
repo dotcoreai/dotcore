@@ -444,7 +444,7 @@ mod tests {
                 (worker_certificate.clone(), worker_key),
                 [(MANAGER_ID, PrivateNodeRole::Manager, manager.0.as_slice())],
             ),
-            &dotcore_domain::timing::Timing::production(),
+            &dotcore_domain::timing::Timing::production().private,
             PrivateServiceAssembly::new(move |context, routes| {
                 routes.add_service(NodeDiagnosticService::new(reader, &context).into_server());
             })
@@ -455,17 +455,20 @@ mod tests {
         .expect("worker private listener");
         let address = server.address;
         tokio::spawn(server.serve());
-        let channels = WorkerChannels::new(&authority.private_configuration(
-            SITE_ID,
-            MANAGER_ID,
-            PrivateNodeRole::Manager,
-            manager,
-            [(
-                NODE_ID,
-                PrivateNodeRole::Worker,
-                worker_certificate.as_slice(),
-            )],
-        ));
+        let channels = WorkerChannels::new(
+            &authority.private_configuration(
+                SITE_ID,
+                MANAGER_ID,
+                PrivateNodeRole::Manager,
+                manager,
+                [(
+                    NODE_ID,
+                    PrivateNodeRole::Worker,
+                    worker_certificate.as_slice(),
+                )],
+            ),
+            &dotcore_domain::timing::Timing::production().private,
+        );
         let channel = channels
             .channel(NODE_ID, WorkerChannelPurpose::Diagnostics, address.into())
             .expect("worker channel");

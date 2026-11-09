@@ -8,7 +8,7 @@ use std::{
 };
 
 use dotcore_domain::real_time;
-use dotcore_domain::{clock::Clock, timing::Timing};
+use dotcore_domain::{clock::Clock, timing::ModelTiming};
 use tokio_util::sync::CancellationToken;
 
 /// Longest one verification of an upstream endpoint may take.
@@ -213,24 +213,19 @@ impl HealthState {
 /// back-off after a failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ProbePacing {
-    healthy: Duration,
-    retry_initial: Duration,
-    retry_max: Duration,
+    timing: ModelTiming,
 }
 
 impl ProbePacing {
     /// The pacing `timing` sets for upstream verifications.
-    pub(crate) fn new(timing: &Timing) -> Self {
-        Self {
-            healthy: timing.upstream_healthy_interval,
-            retry_initial: timing.upstream_retry_initial,
-            retry_max: timing.upstream_retry_max,
-        }
+    pub(crate) fn new(timing: &ModelTiming) -> Self {
+        Self { timing: *timing }
     }
 
     /// Pause after a success, spread by the deployment's `jitter_fraction`.
     pub(crate) fn healthy_delay(&self, jitter_fraction: f64) -> Duration {
-        self.healthy
+        self.timing
+            .upstream_healthy_interval
             .mul_f64((1.0 + jitter_fraction).clamp(0.8, 1.2))
     }
 }
@@ -246,16 +241,19 @@ impl RetrySchedule {
     pub(crate) fn new(pacing: ProbePacing) -> Self {
         Self {
             pacing,
-            delay: pacing.retry_initial,
+            delay: pacing.timing.upstream_retry.initial,
         }
     }
     pub(crate) fn next(&mut self, minimum: Option<Duration>) -> Duration {
         let delay = self.delay.max(minimum.unwrap_or_default());
-        self.delay = self.delay.saturating_mul(2).min(self.pacing.retry_max);
+        self.delay = self
+            .delay
+            .saturating_mul(2)
+            .min(self.pacing.timing.upstream_retry.max);
         delay
     }
     pub(crate) fn reset(&mut self) {
-        self.delay = self.pacing.retry_initial;
+        self.delay = self.pacing.timing.upstream_retry.initial;
     }
 }
 
@@ -284,7 +282,7 @@ pub(crate) struct HealthDependencies {
     pub(crate) jitter: std::sync::Arc<dyn HealthJitter>,
 
     /// Timing of the verifications and of the observer's passes.
-    pub(crate) timing: Timing,
+    pub(crate) timing: ModelTiming,
 }
 
 /// Time-injected per-target health scheduling and stale-readiness control.
@@ -751,7 +749,9 @@ mod tests {
 
     #[test]
     fn retry_schedule_obeys_exponential_cap_and_provider_minimum() {
-        let mut retry = RetrySchedule::new(ProbePacing::new(&Timing::production()));
+        let mut retry = RetrySchedule::new(ProbePacing::new(
+            &dotcore_domain::timing::Timing::production().model,
+        ));
         assert_eq!(retry.next(None), Duration::from_secs(10));
         assert_eq!(retry.next(None), Duration::from_secs(20));
         assert_eq!(
@@ -784,7 +784,7 @@ mod tests {
     fn health_schedule_uses_exact_injected_retry_deadline() {
         let mut schedule = HealthSchedule::new(
             Duration::from_secs(5),
-            ProbePacing::new(&Timing::production()),
+            ProbePacing::new(&dotcore_domain::timing::Timing::production().model),
         );
         schedule.record(
             Duration::from_secs(5),

@@ -1915,7 +1915,9 @@ applicationDeployments: []
 
     /// Least time between two stored progress-only records under the production timing.
     const PRODUCTION_PROGRESS_WRITE_INTERVAL: Duration =
-        dotcore_domain::timing::Timing::production().node_progress_write_interval;
+        dotcore_domain::timing::Timing::production()
+            .model
+            .node_progress_interval;
 
     /// Commits `records` like a status report under the production timing.
     fn commit_at_production_interval(

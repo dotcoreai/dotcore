@@ -62,7 +62,7 @@ pub fn advance(
     expiring: &[String],
     deadline: Duration,
 ) -> Result<(), String> {
-    if by + renewal_age(timing) >= timing.node_liveness_ttl {
+    if by + renewal_age(timing) >= timing.node_control.node_silence {
         return Err(format!(
             "advancing the manager clock by {by:?} could expire a node that keeps renewing"
         ));
@@ -116,11 +116,11 @@ pub fn renewal_problem(
 /// advance is the real time it has to renew again. A live node sends a message at least every
 /// node heartbeat interval, so most of each interval qualifies.
 fn renewal_age(timing: &Timing) -> Duration {
-    timing.node_heartbeat_interval * 2 / 3
+    timing.node_control.heartbeat_interval * 2 / 3
 }
 
 /// Shortest silence of an expiring node at an advance; nodes still running renew well within it,
 /// since it exceeds the node heartbeat interval.
 fn silence_age(timing: &Timing) -> Duration {
-    timing.node_heartbeat_interval * 4 / 3
+    timing.node_control.heartbeat_interval * 4 / 3
 }

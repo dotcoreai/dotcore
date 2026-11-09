@@ -14,7 +14,7 @@ use dotcore_catalog::{CatalogBuilder, OciArtifactPolicy};
 use dotcore_domain::clock::SystemClock;
 use dotcore_domain::test_support::oci::{ServiceArtifactOci as _, digest_artifact};
 use dotcore_domain::test_support::tracing::{Record, capture_records_async};
-use dotcore_domain::timing::{ReconcileCadence, ReconciliationState, Timing};
+use dotcore_domain::timing::{ReconcileCadence, ReconcileOutcome, Timing};
 use dotcore_proto::dotcore::application::v1::ApplicationConfigurationAttachment;
 use dotcore_proto::dotcore::{
     application::private::v1::{ApplicationLifecycleObservation, ApplicationStatusStage},
@@ -239,11 +239,11 @@ async fn observer_starts_once_and_each_desired_change_wakes_reconciliation() {
 #[tokio::test(start_paused = true)]
 async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new(Timing::production().application_reconcile);
+    let mut cadence = ReconcileCadence::new(Timing::production().application.reconcile);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
         &SystemClock,
-        cadence.next_delay(ReconciliationState::Settled),
+        cadence.next_delay(ReconcileOutcome::Settled),
     ));
 
     assert_future_blocks(wakeup.as_mut()).await;
@@ -258,11 +258,11 @@ async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
 #[tokio::test(start_paused = true)]
 async fn observer_wakeup_retries_a_pending_endpoint_within_a_quarter_second() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new(Timing::production().application_reconcile);
+    let mut cadence = ReconcileCadence::new(Timing::production().application.reconcile);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
         &SystemClock,
-        cadence.next_delay(ReconciliationState::Pending),
+        cadence.next_delay(ReconcileOutcome::Pending),
     ));
 
     assert_future_blocks(wakeup.as_mut()).await;
@@ -6147,7 +6147,7 @@ async fn booting_group_starts_until_ready_and_becomes_unavailable_when_it_stops_
 
     // Booting: the endpoint does not answer yet, so the deployment starts and is probed soon.
     let booting = controller.realizer.reconcile().await.expect("booting pass");
-    assert_eq!(booting, ReconciliationState::Pending);
+    assert_eq!(booting, ReconcileOutcome::Pending);
     let starting = state();
     assert_eq!(
         starting.lifecycle_state,
@@ -6162,7 +6162,7 @@ async fn booting_group_starts_until_ready_and_becomes_unavailable_when_it_stops_
 
     // Ready once the endpoint answers.
     let ready = controller.realizer.reconcile().await.expect("ready pass");
-    assert_eq!(ready, ReconciliationState::Settled);
+    assert_eq!(ready, ReconcileOutcome::Settled);
     let endpoint = Some(ApplicationEndpoint {
         url: format!("http://{address}"),
     });
@@ -6174,7 +6174,7 @@ async fn booting_group_starts_until_ready_and_becomes_unavailable_when_it_stops_
 
     // Lost readiness after being ready in this start is a fault.
     let lost = controller.realizer.reconcile().await.expect("lost pass");
-    assert_eq!(lost, ReconciliationState::Pending);
+    assert_eq!(lost, ReconcileOutcome::Pending);
     let unavailable = state();
     assert_eq!(
         unavailable.lifecycle_state,
@@ -6487,6 +6487,9 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
             ),
         ],
         std::iter::empty(),
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     let controller = manager_controller(
         desired.clone(),
@@ -6936,13 +6939,20 @@ async fn unit_memory_is_read_from_current_node_status_and_unavailable_otherwise(
 
 #[tokio::test]
 async fn deployment_acceptance_distinguishes_target_observation_failures() {
-    let missing = TargetCapabilityInventory::default();
+    let missing = TargetCapabilityInventory::empty(
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
+    );
     let unavailable = TargetCapabilityReconciler::reconcile(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::unavailable(
             "application-target-one",
         )],
         std::iter::empty(),
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     let stale = TargetCapabilityReconciler::reconcile(
         [("application-target-one", "node-one")],
@@ -6951,6 +6961,9 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
             dotcore_domain::ExecutionPlatform::linux_amd64(),
         )],
         std::iter::empty(),
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     let mismatched = TargetCapabilityReconciler::reconcile(
         [("application-target-one", "node-one")],
@@ -6959,6 +6972,9 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
             dotcore_domain::ExecutionPlatform::linux_arm64(),
         )],
         std::iter::empty(),
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
 
     for (inventory, expected) in [

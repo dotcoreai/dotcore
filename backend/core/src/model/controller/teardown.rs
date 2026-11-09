@@ -111,7 +111,7 @@ where
         site: &Site,
         desired: &ModelDeploymentDeclaration,
         observation: Option<TargetObservation>,
-    ) -> Result<dotcore_domain::timing::ReconciliationState, ModelLifecycleError> {
+    ) -> Result<dotcore_domain::timing::ReconcileOutcome, ModelLifecycleError> {
         let span = info_span!(
             "model_teardown",
             operation = "model_teardown",
@@ -179,13 +179,11 @@ enum TeardownOutcome {
 }
 
 impl TeardownOutcome {
-    fn into_result(
-        self,
-    ) -> Result<dotcore_domain::timing::ReconciliationState, ModelLifecycleError> {
+    fn into_result(self) -> Result<dotcore_domain::timing::ReconcileOutcome, ModelLifecycleError> {
         match self {
-            Self::Settled => Ok(dotcore_domain::timing::ReconciliationState::Settled),
+            Self::Settled => Ok(dotcore_domain::timing::ReconcileOutcome::Settled),
             Self::Pending | Self::RuntimeFailure(_) => {
-                Ok(dotcore_domain::timing::ReconciliationState::Pending)
+                Ok(dotcore_domain::timing::ReconcileOutcome::Pending)
             }
             Self::StateError(error) => Err(error),
         }
@@ -950,7 +948,7 @@ mod tests {
                     }),
                 )
                 .await,
-            Ok(dotcore_domain::timing::ReconciliationState::Settled)
+            Ok(dotcore_domain::timing::ReconcileOutcome::Settled)
         ));
         let evidence = current
             .node_model_cleanup_evidence()
@@ -1118,7 +1116,7 @@ mod tests {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs: PreparationLogs::on_system_clock(directory),
                 workload_lifecycle: workload_lifecycle.clone(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             },
             current.clone(),
@@ -1387,7 +1385,7 @@ mod tests {
             serving_targets_source,
             accelerator_attribution: None,
             shutdown: tokio_util::sync::CancellationToken::new(),
-            timing: dotcore_domain::timing::Timing::production(),
+            timing: dotcore_domain::timing::Timing::production().model,
             clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         }
     }

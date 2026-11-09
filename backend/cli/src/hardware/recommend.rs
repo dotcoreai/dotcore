@@ -10,6 +10,7 @@ use anyhow::{Context, Result};
 use clap::{Args, ValueEnum};
 use dotcore::model::{IdleMachine, RecommendationFit, UseCaseRecommendations};
 use dotcore_catalog::{Catalog, CatalogModelId};
+use dotcore_domain::timing::Timing;
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::dotcore::catalog::v1::UseCase;
 
@@ -71,7 +72,8 @@ pub(super) fn recommend(paths: &RootPathArgs, arguments: RecommendArgs) -> Resul
         .map(UseCaseArg::use_case)
         .collect::<Vec<_>>();
 
-    let idle = IdleMachine::new(&machine).context("cannot work out the execution targets")?;
+    let idle = IdleMachine::new(&machine, Timing::for_process().node_control)
+        .context("cannot work out the execution targets")?;
     let recommendations = idle.recommend(&catalog, &use_cases);
     print!("{}", render(&catalog, &idle, &recommendations));
     Ok(())

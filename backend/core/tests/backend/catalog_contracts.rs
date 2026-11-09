@@ -23,7 +23,7 @@ use dotcore_catalog::{
         write_sizing_model_with,
     },
 };
-use dotcore_domain::{ExecutionPlatform, MemoryArchitecture};
+use dotcore_domain::{ExecutionPlatform, MemoryArchitecture, timing::Timing};
 use dotcore_proto::dotcore::catalog::v1::catalog_service_server::CatalogService as CatalogServiceContract;
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -2461,6 +2461,9 @@ fn target_capabilities(
             platform,
         )],
         [accelerator],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     (target, inventory)
 }
@@ -2595,7 +2598,8 @@ fn recommendation_entry_failures(catalog: &Catalog) -> Vec<String> {
                 );
                 let runs = |machine: &SimulatedClassMachine, memory: Memory| {
                     let described = machine.resized(memory);
-                    let idle = IdleMachine::new(&described).expect("idle simulated machine");
+                    let idle = IdleMachine::new(&described, Timing::test().node_control)
+                        .expect("idle simulated machine");
                     idle.recommend(catalog, &[use_case])
                         .iter()
                         .flat_map(|recommendations| &recommendations.rows)
@@ -2734,7 +2738,8 @@ fn simulated_class_machines(catalog: &Catalog) -> Vec<SimulatedClassMachine> {
         .into_iter()
         .filter_map(|choice| {
             let described = simulated_alone(choice.name);
-            let idle = IdleMachine::new(&described).expect("idle simulated machine");
+            let idle = IdleMachine::new(&described, Timing::test().node_control)
+                .expect("idle simulated machine");
             let class = idle
                 .hardware_classes(catalog)
                 .into_iter()
@@ -2815,6 +2820,9 @@ fn simulated_target(machine: &str, gpu: usize) -> (ExecutionTarget, TargetCapabi
             &snapshot,
             false,
         )],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     (target, inventory)
 }
@@ -2850,6 +2858,9 @@ fn accelerator_target(
             platform,
         )],
         [accelerator],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     (target, inventory)
 }
@@ -2881,6 +2892,9 @@ fn macos_native_target_capabilities() -> (ExecutionTarget, TargetCapabilityInven
             NodeAcceleratorObservation::available("mac-node", NodeAcceleratorFacts::apple())
                 .with_host_memory(34_190_917_632, 34_190_917_632),
         ],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     (target, inventory)
 }

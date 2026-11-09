@@ -1144,7 +1144,11 @@ fn profiles(
         model_id,
         scenario,
         &[],
-        &TargetCapabilityInventory::default(),
+        &TargetCapabilityInventory::empty(
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
+        ),
         SystemTime::now(),
     )
     .profiles
@@ -1366,6 +1370,9 @@ fn observed_with_free(
             now,
         )
         .with_memory_architecture(Some(memory_architecture))],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     )
 }
 

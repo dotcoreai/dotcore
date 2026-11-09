@@ -418,6 +418,9 @@ fn qualification_case(
             platform.clone(),
         )],
         [nvidia.clone()],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     let local = dotcore::model::resolution::resolve_local_launch(
         catalog,

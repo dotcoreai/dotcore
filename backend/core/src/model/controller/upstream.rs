@@ -16,7 +16,7 @@ use std::{
 use dotcore_domain::{
     clock::Clock,
     diagnostic::diagnostic_chain,
-    timing::{ReconcileCadence, ReconcileSchedule, ReconciliationState},
+    timing::{ReconcileCadence, ReconcileOutcome, ReconcileSchedule},
 };
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentStatus,
@@ -92,7 +92,7 @@ where
             clock: health.clock,
             health_jitter: health.jitter,
             pacing: ProbePacing::new(&health.timing),
-            reconcile: health.timing.model_reconcile,
+            reconcile: health.timing.reconcile,
             health_shutdown: CancellationToken::new(),
             upstream_health: AsyncMutex::new(BTreeMap::new()),
             wakeup,
@@ -609,8 +609,8 @@ where
             return;
         };
         let state = match reconciler.reconcile().await {
-            Ok(()) => ReconciliationState::Settled,
-            Err(_) => ReconciliationState::Pending,
+            Ok(()) => ReconcileOutcome::Settled,
+            Err(_) => ReconcileOutcome::Pending,
         };
         let delay = cadence.next_delay(state).min(
             reconciler
@@ -1120,7 +1120,7 @@ mod tests {
                 verification_http: Arc::new(ScriptedVerificationHttp::new([])),
                 clock: Arc::new(dotcore_domain::clock::SystemClock),
                 jitter: Arc::new(StableHealthJitter),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
             },
         )
         .expect("upstream reconciler")

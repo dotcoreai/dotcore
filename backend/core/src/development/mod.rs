@@ -1190,6 +1190,9 @@ fn direct_target_capabilities(
             observed_at,
         )],
         [accelerator],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     (development_target, inventory)
 }
@@ -1314,7 +1317,9 @@ fn native_development_runtime(
         lifetime: dotcore_runtime_backends::native::NativeWorkloadLifetime::Persistent,
     };
     Ok(dotcore_runtime_backends::native::NativeRuntimeBackend::new(
-        config, launcher,
+        config,
+        launcher,
+        &dotcore_domain::timing::Timing::for_process().native,
     )?)
 }
 

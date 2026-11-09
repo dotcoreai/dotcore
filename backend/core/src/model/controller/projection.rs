@@ -394,7 +394,7 @@ mod tests {
             desired,
             current,
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production(),
+            dotcore_domain::timing::Timing::production().model,
             std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("model owner");
@@ -694,7 +694,7 @@ mod tests {
     fn node_coordinator(reported: Option<&[(&str, u64)]>) -> ManagerNodeControlCoordinator {
         let session = ManagerSession::parse("a".repeat(32)).expect("manager session");
         let incarnation = NodeIncarnation::parse("1".repeat(32)).expect("incarnation");
-        let coordinator = ManagerNodeControlCoordinator::new(session.clone());
+        let coordinator = ManagerNodeControlCoordinator::on_system_clock(session.clone());
         coordinator
             .register_observation(
                 &NodeObservation {

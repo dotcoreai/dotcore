@@ -367,6 +367,9 @@ mod tests {
                     .expect("rendered snapshot"),
                 false,
             )],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         assert_eq!(
             inventory.for_target("target-a").expect("target").memory,
@@ -591,6 +594,9 @@ mod tests {
                     [NodeAcceleratorObservation::from_hardware_snapshot(
                         "node-a", &snapshot, false,
                     )],
+                    dotcore_domain::timing::Timing::production()
+                        .node_control
+                        .capability_max_age,
                 );
                 let capabilities = inventory.for_target("target-a").expect("target");
                 let target = TargetCapacity::for_target(

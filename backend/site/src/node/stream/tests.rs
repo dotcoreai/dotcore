@@ -1,6 +1,10 @@
 use std::{collections::VecDeque, time::Duration};
 
-use dotcore_domain::{SiteNodeId, clock::ManualClock};
+use dotcore_domain::{
+    SiteNodeId,
+    clock::ManualClock,
+    timing::{NodeControlTiming, Timing},
+};
 use dotcore_proto::{
     dotcore::{
         application::{
@@ -545,7 +549,7 @@ async fn a_view_that_cannot_be_built_at_open_answers_with_the_last_published_vie
     fixture.applications.set_unbuildable(false);
     fixture
         .clock
-        .advance(Timing::production().view_republish_interval);
+        .advance(Timing::production().node_control.view_republish_interval);
     let recovered = reopened.publication().await;
     let identity = recovered.identity.as_ref().expect("identity");
     assert_eq!(
@@ -574,7 +578,7 @@ async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_s
     // Paused Tokio time drives both the manager's clock and the node's lease, and auto-advances
     // only to the next republication, the earliest pending wait.
     let fixture = Fixture::with_silence_bound(Duration::from_secs(3_600));
-    let lease = Timing::production().node_action_lease;
+    let lease = Timing::production().node_control.action_lease;
     let (authority, installer) = node_view(&fixture, lease);
     let started = tokio::time::Instant::now();
     let mut node = fixture.open("worker-one");
@@ -694,37 +698,18 @@ async fn outbound_keeps_every_reply_and_only_the_latest_view() {
 }
 
 #[test]
-fn a_republish_interval_must_keep_nodes_inside_their_action_lease() {
+fn a_stream_must_queue_at_least_one_reply() {
     assert_eq!(
-        NodeControlStreamConfiguration::new(&Timing::production(), DEFAULT_OUTBOUND_REPLIES),
-        Ok(NodeControlStreamConfiguration::default())
-    );
-    // Three missed 28s publications and the 5s longest retry pause fit the 90s lease.
-    assert!(
-        NodeControlStreamConfiguration::new(&republishing_every(Duration::from_secs(28)), 1)
-            .is_ok()
-    );
-    for interval in [Duration::ZERO, Duration::from_secs(29), Duration::MAX] {
-        assert_eq!(
-            NodeControlStreamConfiguration::new(&republishing_every(interval), 1),
-            Err(NodeControlConfigurationError::RepublishInterval)
-        );
-    }
-    assert!(
-        NodeControlStreamConfiguration::new(&Timing::test(), 1).is_ok(),
-        "the test timing keeps nodes inside their action lease"
-    );
-    assert_eq!(
-        NodeControlStreamConfiguration::new(&republishing_every(Duration::from_secs(20)), 0),
+        NodeControlStreamConfiguration::new(&Timing::production().node_control, 0),
         Err(NodeControlConfigurationError::OutboundReplies)
     );
 }
 
 /// The production timing, republishing an unchanged view every `interval`.
-fn republishing_every(interval: Duration) -> Timing {
-    Timing {
+fn republishing_every(interval: Duration) -> NodeControlTiming {
+    NodeControlTiming {
         view_republish_interval: interval,
-        ..Timing::production()
+        ..Timing::production().node_control
     }
 }
 
@@ -749,7 +734,14 @@ impl Fixture {
     }
 
     fn with_silence_bound(silence_bound: Duration) -> Self {
-        Self::with_configuration(silence_bound, NodeControlStreamConfiguration::default())
+        Self::with_configuration(
+            silence_bound,
+            NodeControlStreamConfiguration::new(
+                &Timing::production().node_control,
+                DEFAULT_OUTBOUND_REPLIES,
+            )
+            .expect("production stream configuration"),
+        )
     }
 
     fn with_configuration(
@@ -763,14 +755,14 @@ impl Fixture {
         let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
             .expect("validated site");
         let clock = ManualClock::new();
-        let coordinator = ManagerNodeControlCoordinator::with_clock(
+        let coordinator = ManagerNodeControlCoordinator::new(
             ManagerSession::parse("a".repeat(32)).expect("manager session"),
+            &NodeControlTiming {
+                node_silence: silence_bound,
+                ..Timing::production().node_control
+            },
             Arc::new(clock.clone()),
-        )
-        .with_timing(&Timing {
-            node_liveness_ttl: silence_bound,
-            ..Timing::production()
-        });
+        );
         let registry = NodeRegistry::with_coordinator(Arc::new(site.clone()), coordinator.clone());
         let status_owner = Arc::new(ScriptedModelStatus::default());
         let applications = Arc::new(TestApplications::default());

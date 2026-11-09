@@ -3,10 +3,9 @@
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 
-use dotcore_domain::{SiteNodeId, SitePaths, clock::Clock};
+use dotcore_domain::{SiteNodeId, SitePaths, clock::Clock, timing::NativeTiming};
 use dotcore_proto::dotcore::site::v1::{
     ExecutionTarget, application_runtime_binding, execution_target, model_runtime_binding,
 };
@@ -53,7 +52,7 @@ pub(super) fn runtime_adapter_registry_for_site_id(
     site_id: &str,
     node_id: &SiteNodeId,
     native_launcher: Option<&Path>,
-    native_port_settle_window: Duration,
+    native_timing: &NativeTiming,
     simulated: SimulatedRuntimeInputs,
 ) -> Result<RuntimeAdapterRegistry, CompositionError> {
     let mut registry = runtime_adapter_registry_with_docker_factory(
@@ -68,7 +67,7 @@ pub(super) fn runtime_adapter_registry_for_site_id(
                 site_id,
                 node_id.clone(),
                 native_launcher,
-                native_port_settle_window,
+                native_timing,
             )),
         )
         .map_err(runtime_registration_error)?;
@@ -295,7 +294,7 @@ struct NativeRuntimeAdapterFactory {
     launcher: Result<PathBuf, Arc<NativeLauncherError>>,
 
     /// How long each backend's creates watch a new workload's ports.
-    port_settle_window: Duration,
+    timing: NativeTiming,
 }
 
 impl NativeRuntimeAdapterFactory {
@@ -304,7 +303,7 @@ impl NativeRuntimeAdapterFactory {
         site_id: &str,
         node_id: SiteNodeId,
         launcher: Option<&Path>,
-        port_settle_window: Duration,
+        timing: &NativeTiming,
     ) -> Self {
         Self {
             state_root: NativeStateRoot::for_site(&configuration.root),
@@ -313,7 +312,7 @@ impl NativeRuntimeAdapterFactory {
             node_id,
             launcher: dotcore_runtime_backends::native::resolve_launcher(launcher)
                 .map_err(Arc::new),
-            port_settle_window,
+            timing: *timing,
         }
     }
 
@@ -370,15 +369,14 @@ impl NativeRuntimeAdapterFactory {
             execution_target_id: target.execution_target_id.clone(),
             lifetime,
         };
-        let backend = NativeRuntimeBackend::new(config, launcher)
+        let backend = NativeRuntimeBackend::new(config, launcher, &self.timing)
             .map_err(|error| {
                 CompositionError::Composition(anyhow::Error::new(error).context(format!(
                     "native execution target {:?} cannot open its workload state under {}; make the site directory writable by the server user",
                     target.execution_target_id,
                     self.state_root.path().display()
                 )))
-            })?
-            .with_port_settle_window(self.port_settle_window);
+            })?;
         info!(
             event_kind = "native_runtime_composed",
             execution_target_id = %target.execution_target_id,
@@ -612,9 +610,6 @@ mod tests {
 
     use super::*;
 
-    const TEST_PORT_SETTLE_WINDOW: Duration =
-        dotcore_domain::timing::Timing::test().native_port_settle_window;
-
     #[tokio::test]
     async fn composes_only_the_application_targets_among_the_node_targets() {
         let site = site_with_targets();
@@ -643,7 +638,7 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&launcher),
-            TEST_PORT_SETTLE_WINDOW,
+            &dotcore_domain::timing::Timing::test().native,
             simulated_inputs(None),
         )
         .expect("registry");
@@ -671,7 +666,7 @@ mod tests {
             "site-one",
             node_id(),
             Some(&launcher),
-            TEST_PORT_SETTLE_WINDOW,
+            &dotcore_domain::timing::Timing::test().native,
         );
         let persistent = factory
             .native_backend(&targets[0])
@@ -701,7 +696,7 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&missing),
-            TEST_PORT_SETTLE_WINDOW,
+            &dotcore_domain::timing::Timing::test().native,
             simulated_inputs(Some(rtx_5090_desktop())),
         )
         .expect("registry without a launcher");
@@ -783,7 +778,7 @@ mod tests {
             "site-one",
             node_id(),
             Some(&dotcore_runtime_backends::native::test_support::launcher_binary()),
-            TEST_PORT_SETTLE_WINDOW,
+            &dotcore_domain::timing::Timing::test().native,
         );
 
         let error = match factory.native_backend(&native_target(

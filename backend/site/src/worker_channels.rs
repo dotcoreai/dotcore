@@ -16,7 +16,7 @@ use std::{
 };
 
 use anyhow::Context as _;
-use dotcore_domain::{SiteNodeHost, timing::Timing};
+use dotcore_domain::{SiteNodeHost, timing::PrivateTiming};
 use dotcore_proto::dotcore::site::v1::Site;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Identity};
 
@@ -44,16 +44,13 @@ pub struct WorkerChannels {
     identity: Arc<ManagerClientIdentity>,
     channels: Arc<Mutex<BTreeMap<(String, WorkerChannelPurpose), WorkerChannel>>>,
 
-    /// Interval of HTTP/2 pings that detect a lost worker connection, including while idle.
-    keepalive_interval: Duration,
-
-    /// Longest wait for a ping acknowledgement before the worker connection is considered lost.
-    keepalive_timeout: Duration,
+    /// HTTP/2 pings that detect a lost worker connection, including while idle.
+    keepalive: PrivateTiming,
 }
 
 impl WorkerChannels {
     /// Projects the manager's private listener identity and its worker pins.
-    pub fn new(configuration: &PrivateServerConfiguration) -> Self {
+    pub fn new(configuration: &PrivateServerConfiguration, timing: &PrivateTiming) -> Self {
         Self {
             identity: Arc::new(ManagerClientIdentity {
                 site_id: configuration.site_id.clone(),
@@ -68,18 +65,7 @@ impl WorkerChannels {
                     .collect(),
             }),
             channels: Arc::default(),
-            keepalive_interval: Timing::production().private_keepalive_interval,
-            keepalive_timeout: Timing::production().private_keepalive_timeout,
-        }
-    }
-
-    /// Detects lost worker connections at the keepalive interval and timeout of `timing`
-    /// instead of the production ones.
-    pub fn with_timing(self, timing: &Timing) -> Self {
-        Self {
-            keepalive_interval: timing.private_keepalive_interval,
-            keepalive_timeout: timing.private_keepalive_timeout,
-            ..self
+            keepalive: *timing,
         }
     }
 
@@ -187,8 +173,8 @@ impl WorkerChannels {
             .context("build the worker endpoint")
             .map_err(WorkerChannelError::Endpoint)?
             .connect_timeout(WORKER_CONNECT_TIMEOUT)
-            .http2_keep_alive_interval(self.keepalive_interval)
-            .keep_alive_timeout(self.keepalive_timeout)
+            .http2_keep_alive_interval(self.keepalive.keepalive_interval)
+            .keep_alive_timeout(self.keepalive.keepalive_timeout)
             .keep_alive_while_idle(true)
             .tls_config_with_verifier(
                 // No verifier checks the server name; the worker is authenticated by its pin.
@@ -350,7 +336,10 @@ mod tests {
 
         fixture.register("worker-one", Some(47_123));
         tokio::time::advance(
-            dotcore_domain::timing::Timing::production().node_liveness_ttl + Duration::from_secs(1),
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .node_silence
+                + Duration::from_secs(1),
         )
         .await;
 
@@ -413,17 +402,20 @@ mod tests {
             std::fs::write(&site_path, MANAGER_SITE).expect("manager site");
             let authority = TestAuthority::new();
             let (worker_certificate, _) = authority.issue("site-one", "worker-one", true);
-            let channels = WorkerChannels::new(&authority.private_configuration(
-                "site-one",
-                "manager-node",
-                PrivateNodeRole::Manager,
-                authority.issue("site-one", "manager-node", false),
-                [(
-                    "worker-one",
-                    PrivateNodeRole::Worker,
-                    worker_certificate.as_slice(),
-                )],
-            ));
+            let channels = WorkerChannels::new(
+                &authority.private_configuration(
+                    "site-one",
+                    "manager-node",
+                    PrivateNodeRole::Manager,
+                    authority.issue("site-one", "manager-node", false),
+                    [(
+                        "worker-one",
+                        PrivateNodeRole::Worker,
+                        worker_certificate.as_slice(),
+                    )],
+                ),
+                &dotcore_domain::timing::Timing::production().private,
+            );
             Self {
                 site: SiteRepository::load(
                     &site_path,
@@ -431,7 +423,7 @@ mod tests {
                 )
                 .expect("validated manager site"),
                 _directory: directory,
-                coordinator: ManagerNodeControlCoordinator::new(session()),
+                coordinator: ManagerNodeControlCoordinator::on_system_clock(session()),
                 channels,
             }
         }

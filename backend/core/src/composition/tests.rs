@@ -42,6 +42,8 @@ async fn the_metric_catalog_follows_the_naming_and_export_rules() {
     assert_eq!(
         InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
+            &dotcore_domain::timing::Timing::production().metrics,
+            &dotcore_domain::timing::Timing::production().watch,
             catalog,
             Arc::new(dotcore_domain::clock::SystemClock),
         )
@@ -435,7 +437,13 @@ async fn supplied_input_model_owner_composition_does_not_reload_site() {
 
     let composed = model_owner_for(
         &inputs,
-        Arc::new(StaticTargetCapabilitySource::default()),
+        Arc::new(StaticTargetCapabilitySource::new(
+            dotcore_site::node::target_inventory::TargetCapabilityInventory::empty(
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .capability_max_age,
+            ),
+        )),
         crate::management_logs::ManagementLogAdmission::new(),
         dotcore_domain::timing::Timing::production(),
         Arc::new(dotcore_domain::clock::SystemClock),

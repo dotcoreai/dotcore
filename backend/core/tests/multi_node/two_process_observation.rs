@@ -32,7 +32,7 @@ use support::{ProcessCommand, node_control::ControlStream, node_liveness, proces
 use crate::support;
 
 /// Liveness window of the harness's manager, which runs the test timing.
-const LIVENESS_TTL: Duration = Timing::test().node_liveness_ttl;
+const LIVENESS_TTL: Duration = Timing::test().node_control.node_silence;
 const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
 /// Refusal the manager returns to a node control stream open from a process whose incarnation
 /// another one replaced.

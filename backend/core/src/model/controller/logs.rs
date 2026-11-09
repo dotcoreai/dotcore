@@ -1108,7 +1108,7 @@ mod tests {
             desired.clone(),
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production(),
+            dotcore_domain::timing::Timing::production().model,
             std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .expect("model owner");

@@ -13,10 +13,9 @@ use std::{
     collections::VecDeque,
     future::Future,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
-use dotcore_domain::{clock::Clock, timing::Timing};
+use dotcore_domain::{clock::Clock, timing::MetricsTiming};
 use futures_util::{
     StreamExt,
     future::{self, BoxFuture},
@@ -45,18 +44,22 @@ const IN_PROCESS_QUEUE: usize = 16;
 pub struct MetricBucketIngest {
     store: Arc<dyn MetricIngest>,
     clock: Arc<dyn Clock>,
-    idle_timeout: Duration,
+    timing: MetricsTiming,
     nodes: Mutex<HashMap<String, Arc<NodeStreams>>>,
 }
 
 impl MetricBucketIngest {
-    /// Creates an ingest writing into `store` that ends streams silent for the idle timeout of
+    /// Creates an ingest writing into `store` that ends streams silent for the stream silence of
     /// `timing`, measured on `clock`. A node forwarder sends every second while it records.
-    pub fn new(store: Arc<dyn MetricIngest>, clock: Arc<dyn Clock>, timing: &Timing) -> Self {
+    pub fn new(
+        store: Arc<dyn MetricIngest>,
+        clock: Arc<dyn Clock>,
+        timing: &MetricsTiming,
+    ) -> Self {
         Self {
             store,
             clock,
-            idle_timeout: timing.metric_stream_idle_timeout,
+            timing: *timing,
             nodes: Mutex::default(),
         }
     }
@@ -64,7 +67,7 @@ impl MetricBucketIngest {
     /// Waits for a stream's first message for at most the idle timeout; `None` when it did not
     /// arrive in time.
     pub async fn first_message<F: Future>(&self, message: F) -> Option<F::Output> {
-        let deadline = self.clock.now() + self.idle_timeout;
+        let deadline = self.clock.now() + self.timing.stream_silence;
         tokio::select! {
             message = message => Some(message),
             () = self.clock.sleep_until(deadline) => None,
@@ -214,7 +217,7 @@ struct NodeStream {
 impl NodeStream {
     /// Waits for the next batch and applies it; `None` once the node closed its side.
     async fn next_applied(&mut self) -> Option<Result<u64, BucketStreamEnd>> {
-        let deadline = self.ingest.clock.now() + self.ingest.idle_timeout;
+        let deadline = self.ingest.clock.now() + self.ingest.timing.stream_silence;
         tokio::select! {
             biased;
             // The sender lives in `node`, which this stream holds, so it never closes.
@@ -296,9 +299,12 @@ fn remember(sessions: &mut VecDeque<AppliedSession>, session: AppliedSession) {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, time::SystemTime};
+    use std::{
+        collections::BTreeMap,
+        time::{Duration, SystemTime},
+    };
 
-    use dotcore_domain::clock::ManualClock;
+    use dotcore_domain::{clock::ManualClock, timing::Timing};
     use futures_util::FutureExt;
 
     use super::*;
@@ -579,7 +585,7 @@ mod tests {
         );
     }
 
-    const IDLE_TIMEOUT: Duration = Timing::production().metric_stream_idle_timeout;
+    const IDLE_TIMEOUT: Duration = Timing::production().metrics.stream_silence;
 
     type BatchSender = mpsc::UnboundedSender<Result<BucketBatch, BucketStreamEnd>>;
 
@@ -594,6 +600,8 @@ mod tests {
         let store = Arc::new(
             InMemoryMetricStore::start(
                 InMemoryStoreConfig::default(),
+                &dotcore_domain::timing::Timing::production().metrics,
+                &dotcore_domain::timing::Timing::production().watch,
                 vec![
                     MetricDescriptor {
                         name: "node.memory.used".to_owned(),
@@ -624,7 +632,7 @@ mod tests {
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
             Arc::new(clock.clone()),
-            &Timing::production(),
+            &Timing::production().metrics,
         ));
         // Leaves ten minutes of history after the store start for buckets to land in.
         clock.advance(Duration::from_secs(11 * 60));

@@ -334,7 +334,7 @@ impl Follower {
     /// Aligned end of an explicit range; a `last` range has none.
     /// Longest silence of this watch, in milliseconds.
     fn heartbeat_millis(&self) -> u64 {
-        self.shared.watch_heartbeat_interval.as_millis() as u64
+        self.shared.watch.heartbeat_interval.as_millis() as u64
     }
 
     fn range_end(&self) -> u64 {

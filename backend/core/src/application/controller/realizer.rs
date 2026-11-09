@@ -17,7 +17,7 @@ use std::{
 use dotcore_domain::{
     clock::Clock,
     deployment::launch_pin::LaunchPinResolver,
-    timing::{ReconcileCadence, ReconcileSchedule, ReconciliationState, Timing},
+    timing::{ApplicationTiming, ReconcileCadence, ReconcileOutcome, ReconcileSchedule},
 };
 use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tracing::{debug, info, warn};
@@ -95,7 +95,7 @@ pub(super) struct RealizerDependencies {
     pub(super) resource_attribution: Option<super::resources::GroupResourceAttribution>,
 
     /// Timing of the observer's passes and of each deployment's startup.
-    pub(super) timing: Timing,
+    pub(super) timing: ApplicationTiming,
 
     /// Backend clock the observer waits through.
     pub(super) clock: Arc<dyn Clock>,
@@ -133,11 +133,11 @@ impl ApplicationRealizer {
             node: dependencies.node,
             accelerator_attribution: dependencies.accelerator_attribution,
             resource_attribution: dependencies.resource_attribution,
-            startup: StartupTracker::new(dependencies.timing.application_startup_grace),
+            startup: StartupTracker::new(dependencies.timing.startup_window),
             active_reconciliation: Mutex::new(None),
             shutdown: tokio_util::sync::CancellationToken::new(),
             observer_started: Mutex::new(false),
-            reconcile: dependencies.timing.application_reconcile,
+            reconcile: dependencies.timing.reconcile,
             clock: dependencies.clock,
         }
     }
@@ -209,12 +209,12 @@ async fn observer_loop(observer: ObserverDependencies) {
 /// Logs one observer pass outcome and returns its state; a failed pass is retried at the settled
 /// cadence.
 fn record_observer_reconciliation(
-    result: Result<ReconciliationState, ApplicationLifecycleError>,
-) -> ReconciliationState {
+    result: Result<ReconcileOutcome, ApplicationLifecycleError>,
+) -> ReconcileOutcome {
     match result {
         Err(source) => {
             warn!(event_kind = "application_observer_reconciliation_failed", error = ?source, "Application observer reconciliation failed");
-            ReconciliationState::Settled
+            ReconcileOutcome::Settled
         }
         Ok(state) => {
             debug!(

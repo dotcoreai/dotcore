@@ -9,10 +9,9 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
 };
 
-use dotcore_domain::{clock::Clock, timing::Timing};
+use dotcore_domain::{clock::Clock, timing::SimulatedTiming};
 use dotcore_proto::{
     dotcore::inference::v1::{
         ChatCompletionChoice, ChatCompletionResult, ChatFinishReason, ChatMessage, ChatMessageRole,
@@ -125,17 +124,17 @@ impl SimulatedInferenceTestSupport {
 /// token at a time, paced at the simulated generation speed of its timing policy.
 pub(crate) struct SimulatedNativeProvider {
     test_support: Option<SimulatedInferenceTestSupport>,
-    token_interval: Duration,
+    timing: SimulatedTiming,
     clock: Arc<dyn Clock>,
 }
 
 impl SimulatedNativeProvider {
     /// Creates a provider pacing streamed tokens at the simulated generation speed of `timing`,
     /// waiting on `clock`.
-    pub(crate) fn new(timing: &Timing, clock: Arc<dyn Clock>) -> Self {
+    pub(crate) fn new(timing: &SimulatedTiming, clock: Arc<dyn Clock>) -> Self {
         Self {
             test_support: None,
-            token_interval: timing.simulated_token_interval,
+            timing: *timing,
             clock,
         }
     }
@@ -166,7 +165,7 @@ impl NativeInferenceProvider for SimulatedNativeProvider {
             }),
             Arc::new(SimulatedInvoker {
                 test_support: self.test_support.clone(),
-                token_interval: self.token_interval,
+                timing: self.timing,
                 clock: Arc::clone(&self.clock),
             }),
         ))
@@ -196,7 +195,7 @@ impl EngineReadinessProbe for SimulatedReadinessProbe {
 struct SimulatedInvoker {
     test_support: Option<SimulatedInferenceTestSupport>,
     /// Pause before each streamed text token after the first.
-    token_interval: Duration,
+    timing: SimulatedTiming,
     clock: Arc<dyn Clock>,
 }
 impl EngineInvoker for SimulatedInvoker {
@@ -243,7 +242,7 @@ impl EngineInvoker for SimulatedInvoker {
                 ));
             }
 
-            let token_interval = self.token_interval;
+            let token_interval = self.timing.token_interval;
             let clock = Arc::clone(&self.clock);
             let (sender, receiver) = mpsc::channel(8);
             tokio::spawn(async move {
@@ -607,7 +606,7 @@ mod tests {
         ChatMessage, ChatMessageRole, ChatRequest, chat_message, chat_stream_event::Event,
     };
 
-    use dotcore_domain::clock::SystemClock;
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
 
     use super::*;
     use crate::inference::{
@@ -872,7 +871,7 @@ mod tests {
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
         let production = Timing::production();
-        let binding = SimulatedNativeProvider::new(&production, Arc::new(SystemClock))
+        let binding = SimulatedNativeProvider::new(&production.simulated, Arc::new(SystemClock))
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (_, cancellation) = inference_cancellation();
@@ -913,14 +912,14 @@ mod tests {
                 .windows(2)
                 .map(|pair| pair[1].1 - pair[0].1)
                 .collect::<Vec<_>>(),
-            [production.simulated_token_interval; 2]
+            [production.simulated.token_interval; 2]
         );
         assert_eq!(usage.expect("usage").completion_tokens, 3);
     }
 
     /// A provider on the test timing, whose streamed tokens follow each other without pause.
     fn test_provider() -> SimulatedNativeProvider {
-        SimulatedNativeProvider::new(&Timing::test(), Arc::new(SystemClock))
+        SimulatedNativeProvider::new(&Timing::test().simulated, Arc::new(SystemClock))
     }
 
     fn decision_request() -> DecisionRequest {

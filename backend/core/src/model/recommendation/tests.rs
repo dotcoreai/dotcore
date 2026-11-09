@@ -1,6 +1,7 @@
 use std::time::SystemTime;
 
 use dotcore_catalog::{Catalog, OciArtifactPolicy};
+use dotcore_domain::timing::Timing;
 use dotcore_node_hardware::{MachineDescription, MachineWorkload};
 use dotcore_proto::dotcore::{
     catalog::v1::UseCase,
@@ -516,7 +517,7 @@ fn site(
     let stale = |index: usize| index == 0 && first_stale;
     let reported_at = |index: usize| {
         if stale(index) {
-            now - 2 * dotcore_domain::timing::Timing::production().target_capability_max_age
+            now - 2 * Timing::production().node_control.capability_max_age
         } else {
             now
         }
@@ -548,7 +549,12 @@ fn site(
             )
         })
         .collect::<Vec<_>>();
-    let inventory = TargetCapabilityReconciler::reconcile(&targets, platforms, accelerators);
+    let inventory = TargetCapabilityReconciler::reconcile(
+        &targets,
+        platforms,
+        accelerators,
+        Timing::production().node_control.capability_max_age,
+    );
     (targets, inventory, deployments)
 }
 

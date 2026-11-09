@@ -830,6 +830,9 @@ fn qualification_target_capabilities(
             platform.clone(),
         )],
         [node_nvidia],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     (target, inventory)
 }

@@ -302,7 +302,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_stream_sends_every_key_its_first_payload_at_once_then_completes_then_changes() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut events = open(
             &service,
@@ -334,7 +336,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_stream_opened_between_ticks_completes_from_the_cached_payloads() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut first = open(&service, vec![machines("machines")])
             .await
@@ -355,7 +359,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_idle_stream_sends_a_heartbeat_fifteen_seconds_after_its_last_event() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut events = open(&service, vec![machines("machines")])
             .await
@@ -385,7 +391,9 @@ mod tests {
                 .wall_now()
                 .duration_since(completed_at)
                 .expect("later"),
-            dotcore_domain::timing::Timing::production().watch_heartbeat_interval
+            dotcore_domain::timing::Timing::production()
+                .watch
+                .heartbeat_interval
         );
         assert_eq!(heartbeat.manager_session_id, "a".repeat(32));
         assert!(matches!(
@@ -402,7 +410,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_owner_read_failure_ends_the_stream_with_unavailable() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(
+            &dotcore_domain::timing::Timing::production().watch,
+        ));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut events = open(&service, vec![machines("machines"), routes("routes")])
             .await
@@ -428,7 +438,7 @@ mod tests {
     async fn a_stream_past_the_process_cap_fails_and_a_closed_one_frees_its_place() {
         let harness = Harness::new(ResourceWatchConfig {
             max_watches: 1,
-            ..ResourceWatchConfig::default()
+            ..ResourceWatchConfig::new(&dotcore_domain::timing::Timing::production().watch)
         });
         let service = ResourceWatchService::new(harness.hub.clone());
         let held = open(&service, vec![machines("machines")])

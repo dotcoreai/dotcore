@@ -51,7 +51,10 @@ impl NodeRegistry {
     pub(crate) fn new(site: Arc<dyn SiteConfigurationSource>) -> Self {
         let manager_session =
             crate::view::fencing::ManagerSession::generate().expect("manager test session");
-        Self::with_coordinator(site, ManagerNodeControlCoordinator::new(manager_session))
+        Self::with_coordinator(
+            site,
+            ManagerNodeControlCoordinator::on_system_clock(manager_session),
+        )
     }
 
     /// Creates an empty registry stamping receipt times with `coordinator`'s clock.
@@ -152,7 +155,9 @@ impl NodeRegistry {
                 anyhow::Error::new(source).context("read site topology for node admission"),
             )
         })?;
-        let mut inventory = crate::node::target_inventory::TargetCapabilityInventory::default();
+        let max_age = self.coordinator.capability_max_age();
+        let mut inventory =
+            crate::node::target_inventory::TargetCapabilityInventory::empty(max_age);
         for node in &site.nodes {
             let node_id = SiteNodeId::parse(&node.node_id).map_err(|source| {
                 crate::node::target_inventory::TargetCapabilitySourceError::Observation(
@@ -175,6 +180,7 @@ impl NodeRegistry {
                     &observation.snapshot,
                     stale,
                     observed_at,
+                    max_age,
                 )?);
             }
         }
@@ -216,7 +222,11 @@ impl NodeRegistry {
                     &observation.received_at,
                 );
                 let stale = observation.connection_state != NodeConnectionState::Connected
-                    || !crate::node::target_inventory::observation_is_fresh(observed_at, now);
+                    || !crate::node::target_inventory::observation_is_fresh(
+                        observed_at,
+                        now,
+                        self.coordinator.capability_max_age(),
+                    );
                 Ok(crate::node::capabilities::node_memory_observation(
                     &node.node_id,
                     &observation.snapshot,
@@ -756,10 +766,7 @@ mod tests {
             .expect("valid manager receipt time");
             assert_eq!(capabilities.platform_observed_at, Some(received_at));
             assert_eq!(capabilities.accelerator_observed_at, Some(received_at));
-            assert!(crate::node::target_inventory::observation_is_fresh(
-                capabilities.platform_observed_at,
-                SystemTime::now()
-            ));
+            assert!(inventory.is_fresh(capabilities.platform_observed_at, SystemTime::now()));
             assert!(matches!(
                 &capabilities.platform,
                 CapabilityObservation::Available(platform) if platform.architecture() == architecture
@@ -974,10 +981,7 @@ mod tests {
         let capabilities = inventory
             .for_target("manager-model")
             .expect("manager model target capabilities");
-        assert!(crate::node::target_inventory::observation_is_fresh(
-            capabilities.platform_observed_at,
-            SystemTime::now()
-        ));
+        assert!(inventory.is_fresh(capabilities.platform_observed_at, SystemTime::now()));
         assert!(matches!(
             &capabilities.platform,
             CapabilityObservation::Available(platform) if platform.architecture() == "arm64"
@@ -1020,7 +1024,12 @@ mod tests {
             .accept(report(&site, incarnation('1'), 1))
             .expect("first report accepted");
 
-        advance(dotcore_domain::timing::Timing::production().node_liveness_ttl).await;
+        advance(
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .node_silence,
+        )
+        .await;
         assert_eq!(state(), NodeConnectionState::Connected);
         assert!(matches!(
             registry.accept(report(&site, incarnation('2'), 1)),
@@ -1048,7 +1057,9 @@ mod tests {
         );
         assert_eq!(replacement.connection_state, NodeConnectionState::Connected);
         advance(
-            dotcore_domain::timing::Timing::production().node_liveness_ttl
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .node_silence
                 + Duration::from_millis(1),
         )
         .await;
@@ -1148,7 +1159,9 @@ mod tests {
         assert_eq!(devices(&reading), reported);
 
         advance(
-            dotcore_domain::timing::Timing::production().node_liveness_ttl
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .node_silence
                 + Duration::from_millis(1),
         )
         .await;
@@ -1183,7 +1196,12 @@ mod tests {
                     .connection_state
             };
 
-            advance(dotcore_domain::timing::Timing::production().node_liveness_ttl).await;
+            advance(
+                dotcore_domain::timing::Timing::production()
+                    .node_control
+                    .node_silence,
+            )
+            .await;
             assert_eq!(
                 state(),
                 NodeConnectionState::Connected,
@@ -1331,7 +1349,7 @@ mod tests {
     fn admission_registry(site: Site) -> NodeRegistry {
         NodeRegistry::with_coordinator(
             Arc::new(site),
-            ManagerNodeControlCoordinator::new(
+            ManagerNodeControlCoordinator::on_system_clock(
                 crate::view::fencing::ManagerSession::generate().expect("manager test session"),
             ),
         )
@@ -1340,8 +1358,9 @@ mod tests {
     fn test_registry(site: Site) -> NodeRegistry {
         NodeRegistry::with_coordinator(
             Arc::new(site),
-            ManagerNodeControlCoordinator::with_clock(
+            ManagerNodeControlCoordinator::new(
                 crate::view::fencing::ManagerSession::generate().expect("manager test session"),
+                &dotcore_domain::timing::Timing::production().node_control,
                 Arc::new(FixedWallClock),
             ),
         )

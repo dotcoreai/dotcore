@@ -722,7 +722,7 @@ impl ManagerFixture {
         let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
             .expect("validated two-worker site");
         let application = Arc::clone(applications) as Arc<dyn ApplicationNodeViewOwner>;
-        let coordinator = ManagerNodeControlCoordinator::new(
+        let coordinator = ManagerNodeControlCoordinator::on_system_clock(
             ManagerSession::parse("a".repeat(32)).expect("manager session"),
         );
         for node_id in ["worker-one", "worker-two"] {

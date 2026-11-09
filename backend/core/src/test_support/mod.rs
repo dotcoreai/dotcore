@@ -107,6 +107,9 @@ pub(crate) fn execution_target_capabilities_with_memory(
         [&target],
         [RuntimePlatformObservation::available(target_id, platform)],
         [accelerator],
+        dotcore_domain::timing::Timing::production()
+            .node_control
+            .capability_max_age,
     );
     (target, inventory)
 }

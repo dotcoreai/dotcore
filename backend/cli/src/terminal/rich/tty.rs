@@ -192,7 +192,7 @@ fn install_panic_restore() {
 /// How long a terminal may take to answer the cursor-position query, from this process's timing
 /// policy.
 fn cursor_query_timeout() -> Duration {
-    Timing::for_process().terminal_cursor_query_timeout
+    Timing::for_process().terminal.cursor_query_timeout
 }
 
 /// Sends `ESC[6n` on the terminal and parses its `ESC[row;columnR` reply; bytes typed before

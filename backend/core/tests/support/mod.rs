@@ -692,7 +692,7 @@ impl TwoProcessObservationHarness {
     /// Two half-lease advances each wait until every other node has just renewed, so only the
     /// silent worker expires. The manager must run with `manual_clock`.
     pub async fn expire_silent_worker(&mut self) {
-        let half_lease = self.manager.controls.timing.node_liveness_ttl / 2;
+        let half_lease = self.manager.controls.timing.node_control.node_silence / 2;
         self.advance_past_silent_worker(half_lease).await;
         self.advance_past_silent_worker(half_lease + Duration::from_millis(1))
             .await;
@@ -2248,7 +2248,7 @@ where
                 let connection = JoinConnection::connect(
                     token.clone(),
                     manager_host,
-                    dotcore::testing::Timing::test().join_connect_timeout,
+                    &dotcore::testing::Timing::test().join,
                 )
                 .await
                 .expect("connect to join host");

@@ -17,11 +17,12 @@ use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
 
 use dotcore_domain::real_time;
-use dotcore_domain::{BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, timing::Timing};
+use dotcore_domain::{
+    BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, timing::JoinTiming,
+};
 use dotcore_proto::dotcore::node::v1::{
     CommitRequest, DeclaredMachine, JoinResponse, node_join_service_client::NodeJoinServiceClient,
 };
@@ -65,7 +66,8 @@ pub struct JoinConnection {
     manager_host: SiteNodeHost,
     client: NodeJoinServiceClient<Channel>,
     host: VerifiedJoinHost,
-    commit_timeout: Duration,
+    /// Bound on the commit round trip; past it the outcome is unknown.
+    timing: JoinTiming,
     resolver: Arc<dyn HostResolver>,
     filesystem: Arc<dyn FileSystem>,
 }
@@ -75,11 +77,13 @@ impl JoinConnection {
     ///
     /// `manager_host` replaces the endpoint's host, for a node that reaches the manager at
     /// another address or host name than the token names; the port and the pinned identity stay
-    /// the token's. A host name is resolved by this machine when it connects.
+    /// the token's. A host name is resolved by this machine when it connects. `timing` bounds
+    /// the connection and the commit round trip; when the commit bound elapses the outcome is
+    /// unknown and the installed folder is kept.
     pub async fn connect(
         token: JoinToken,
         manager_host: Option<SiteNodeHost>,
-        connect_timeout: Duration,
+        timing: &JoinTiming,
     ) -> Result<Self, NodeJoinError> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let manager_host = match manager_host {
@@ -100,7 +104,7 @@ impl JoinConnection {
         let verifier = Arc::new(JoinHostVerifier::new(&token));
         let channel = Endpoint::from_shared(endpoint.to_string())
             .map_err(|source| NodeJoinError::Connect(anyhow::Error::new(source)))?
-            .connect_timeout(connect_timeout)
+            .connect_timeout(timing.connect_timeout)
             .tls_config_with_verifier(
                 ClientTlsConfig::new()
                     .domain_name(manager_host.to_string())
@@ -124,7 +128,7 @@ impl JoinConnection {
             manager_host,
             client: NodeJoinServiceClient::new(channel),
             host,
-            commit_timeout: Timing::production().join_commit_timeout,
+            timing: *timing,
             resolver: Arc::new(SystemHostResolver),
             filesystem: Arc::new(StdFileSystem),
         })
@@ -142,13 +146,6 @@ impl JoinConnection {
     #[cfg(test)]
     pub(crate) fn with_file_system(mut self, filesystem: Arc<dyn FileSystem>) -> Self {
         self.filesystem = filesystem;
-        self
-    }
-
-    /// Bounds the commit round trip; when it elapses the commit outcome is unknown and the
-    /// installed folder is kept.
-    pub fn with_commit_timeout(mut self, commit_timeout: Duration) -> Self {
-        self.commit_timeout = commit_timeout;
         self
     }
 
@@ -349,7 +346,7 @@ impl JoinConnection {
             join_secret: self.token.secret.as_bytes().to_vec(),
             offer_id,
         };
-        real_time::bound(self.commit_timeout, self.client.commit(commit))
+        real_time::bound(self.timing.commit_timeout, self.client.commit(commit))
             .await
             .unwrap_or_else(|_| {
                 Err(Status::deadline_exceeded(

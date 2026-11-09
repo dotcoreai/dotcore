@@ -573,12 +573,29 @@ pub struct TargetCapabilities {
 }
 
 /// Site-manager-owned current inventory keyed by declared execution-target identity.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TargetCapabilityInventory {
     targets: BTreeMap<String, TargetCapabilities>,
+
+    /// Age up to which an available observation still counts as fresh.
+    max_age: Duration,
 }
 
 impl TargetCapabilityInventory {
+    /// Creates an inventory without targets whose observations stay fresh for `max_age`.
+    pub fn empty(max_age: Duration) -> Self {
+        Self {
+            targets: BTreeMap::new(),
+            max_age,
+        }
+    }
+
+    /// Whether an observation taken at `observed_at` is still young enough at `now` for
+    /// deployment admission or launch.
+    pub fn is_fresh(&self, observed_at: Option<SystemTime>, now: SystemTime) -> bool {
+        observation_is_fresh(observed_at, now, self.max_age)
+    }
+
     /// Returns capability observations only for the exact execution target requested.
     pub fn for_target(&self, execution_target_id: &str) -> Option<&TargetCapabilities> {
         self.targets.get(execution_target_id)
@@ -622,7 +639,7 @@ pub enum TargetCapabilitySourceError {
 }
 
 /// Deterministic capability source for compositions whose observations are explicitly supplied.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct StaticTargetCapabilitySource {
     inventory: TargetCapabilityInventory,
 }
@@ -658,6 +675,7 @@ impl TargetCapabilityReconciler {
         targets: T,
         runtime_platforms: R,
         node_accelerators: N,
+        max_age: Duration,
     ) -> TargetCapabilityInventory
     where
         T: IntoIterator,
@@ -726,7 +744,7 @@ impl TargetCapabilityReconciler {
                 (execution_target_id, capability)
             })
             .collect();
-        TargetCapabilityInventory { targets }
+        TargetCapabilityInventory { targets, max_age }
     }
 }
 
@@ -775,14 +793,15 @@ pub fn timestamp_to_system_time(timestamp: &Timestamp) -> Option<SystemTime> {
         .checked_add(Duration::from_nanos(u64::from(nanos)))
 }
 
-/// Whether a capability observation taken at `observed_at` is still young enough at `now` for
-/// deployment admission or launch, under the production capability age.
-pub fn observation_is_fresh(observed_at: Option<SystemTime>, now: SystemTime) -> bool {
+/// Whether a capability observation taken at `observed_at` is at most `max_age` old at `now`.
+pub fn observation_is_fresh(
+    observed_at: Option<SystemTime>,
+    now: SystemTime,
+    max_age: Duration,
+) -> bool {
     observed_at
         .and_then(|observed_at| now.duration_since(observed_at).ok())
-        .is_some_and(|age| {
-            age <= dotcore_domain::timing::Timing::production().target_capability_max_age
-        })
+        .is_some_and(|age| age <= max_age)
 }
 
 fn insert_unambiguous_observation<T>(
@@ -871,6 +890,9 @@ mod tests {
                 ExecutionPlatform::linux_arm64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-b", "580.173.02")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
 
         assert_eq!(
@@ -908,6 +930,9 @@ mod tests {
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::unavailable("node-a")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let target = inventory.for_target("target-a").expect("target a");
 
@@ -948,6 +973,9 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, true,
             )],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
 
         assert_eq!(
@@ -984,6 +1012,9 @@ mod tests {
                     *stale,
                 )
             }),
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let memory = |node: &str| {
             inventory
@@ -1044,6 +1075,9 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, false,
             )],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
 
         assert_eq!(
@@ -1090,16 +1124,25 @@ mod tests {
                 NodeAcceleratorObservation::available("node-a", node.clone()),
                 NodeAcceleratorObservation::unavailable("node-b"),
             ],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let mut both = TargetCapabilityReconciler::reconcile(
             [("both", "node-a", ["GPU-b", "nvidia.com/gpu=0"])],
             std::iter::empty(),
             [NodeAcceleratorObservation::stale("node-a", node.clone())],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         both.extend(TargetCapabilityReconciler::reconcile(
             [("none", "node-a")],
             std::iter::empty(),
             [NodeAcceleratorObservation::available("node-a", node)],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         ));
         let devices = |inventory: &super::TargetCapabilityInventory, target: &str| {
             inventory
@@ -1141,6 +1184,9 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, false,
             )],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let target = inventory.for_target("target-a").expect("target a");
 
@@ -1190,6 +1236,9 @@ mod tests {
                 NodeAcceleratorObservation::from_hardware_snapshot("node-amd", &with_amd, false),
                 NodeAcceleratorObservation::from_hardware_snapshot("node-both", &with_apple, false),
             ],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let accelerator = |target: &str| {
             inventory
@@ -1242,6 +1291,9 @@ mod tests {
                 &mixed,
                 false,
             )],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
         let devices = |observation: &NodeMemoryObservation| {
             let CapabilityObservation::Available(reading) = &observation.reading else {
@@ -1303,6 +1355,9 @@ mod tests {
                 NodeAcceleratorObservation::nvidia("node-b", "580")
                     .with_memory_architecture(Some(MemoryArchitecture::Unified)),
             ],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
 
         assert_eq!(
@@ -1327,6 +1382,9 @@ mod tests {
             [("target-a", "node-a"), ("target-b", "node-b")],
             std::iter::empty(),
             [NodeAcceleratorObservation::nvidia("node-a", "driver-580")],
+            dotcore_domain::timing::Timing::production()
+                .node_control
+                .capability_max_age,
         );
 
         assert_eq!(

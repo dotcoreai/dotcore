@@ -56,7 +56,7 @@ where
         desired: D,
         state: S,
         target_capabilities: Arc<dyn TargetCapabilitySource>,
-        timing: dotcore_domain::timing::Timing,
+        timing: dotcore_domain::timing::ModelTiming,
         clock: Arc<dyn dotcore_domain::clock::Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let verification_http = Arc::new(
@@ -84,7 +84,7 @@ where
             crate::model::controller::test_support::test_target_capability_source(),
             health(
                 verification_http,
-                dotcore_domain::timing::Timing::production(),
+                dotcore_domain::timing::Timing::production().model,
                 Arc::new(dotcore_domain::clock::SystemClock),
             ),
         )
@@ -106,7 +106,7 @@ where
             ));
         }
         let operation = Arc::new(AsyncMutex::new(()));
-        let node_progress_write_interval = health.timing.node_progress_write_interval;
+        let node_progress_write_interval = health.timing.node_progress_interval;
         let clock = Arc::clone(&health.clock);
         let (serving_targets_publisher, serving_targets_source) = ServingTargetsPublisher::new();
         let upstream = super::upstream::UpstreamReconciler::new(
@@ -421,7 +421,7 @@ where
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs,
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-                timing: dotcore_domain::timing::Timing::production(),
+                timing: dotcore_domain::timing::Timing::production().model,
                 clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             },
         )
@@ -458,7 +458,7 @@ pub(crate) struct NodeModelRealizerDependencies<D: super::ModelRealizationInput>
     pub(crate) workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
 
     /// Timing of the realizer's observer passes and of its stored download progress.
-    pub(crate) timing: dotcore_domain::timing::Timing,
+    pub(crate) timing: dotcore_domain::timing::ModelTiming,
 
     /// Backend clock the realizer waits through.
     pub(crate) clock: Arc<dyn dotcore_domain::clock::Clock>,
@@ -483,7 +483,7 @@ struct ControllerDependencies {
     shutdown: tokio_util::sync::CancellationToken,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
-    timing: dotcore_domain::timing::Timing,
+    timing: dotcore_domain::timing::ModelTiming,
     clock: Arc<dyn dotcore_domain::clock::Clock>,
 }
 
@@ -491,7 +491,7 @@ struct ControllerDependencies {
 /// per-deployment jitter.
 fn health(
     verification_http: Arc<dyn crate::model::upstream::VerificationHttp>,
-    timing: dotcore_domain::timing::Timing,
+    timing: dotcore_domain::timing::ModelTiming,
     clock: Arc<dyn dotcore_domain::clock::Clock>,
 ) -> crate::model::upstream::HealthDependencies {
     crate::model::upstream::HealthDependencies {
@@ -594,7 +594,7 @@ mod tests {
             desired,
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
-            dotcore_domain::timing::Timing::production(),
+            dotcore_domain::timing::Timing::production().model,
             std::sync::Arc::new(dotcore_domain::clock::SystemClock),
         )
         .err()
@@ -1017,7 +1017,7 @@ mod tests {
                 crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
             shutdown: tokio_util::sync::CancellationToken::new(),
             workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
-            timing: dotcore_domain::timing::Timing::production(),
+            timing: dotcore_domain::timing::Timing::production().model,
             clock: std::sync::Arc::new(dotcore_domain::clock::SystemClock),
             preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(directory),
         }

@@ -482,6 +482,7 @@ mod tests {
                     lifetime: NativeWorkloadLifetime::Ephemeral,
                 },
                 launcher,
+                &dotcore_domain::timing::Timing::production().native,
             )
             .expect("native backend");
             crate::build_runtime()

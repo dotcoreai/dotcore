@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
-use dotcore_domain::timing::Timing;
+use dotcore_domain::timing::PrivateTiming;
 use dotcore_site::{
     node::folder::CertificateFingerprint,
     private_transport::{
@@ -86,7 +86,7 @@ impl PreparedPrivateServer {
 pub(crate) struct PrivateListener {
     pub(crate) configuration: PrivateServerConfiguration,
     pub(crate) routes: tonic::service::Routes,
-    pub(crate) timing: Timing,
+    pub(crate) timing: PrivateTiming,
 }
 
 /// Binds and prepares a native-tonic mTLS listener with exact ingress authentication. It pings
@@ -94,7 +94,7 @@ pub(crate) struct PrivateListener {
 /// that vanished without closing its connection ends.
 pub(crate) async fn prepare(
     configuration: PrivateServerConfiguration,
-    timing: &Timing,
+    timing: &PrivateTiming,
     routes: tonic::service::Routes,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<PreparedPrivateServer, super::ServerError> {
@@ -122,8 +122,8 @@ pub(crate) async fn prepare(
     // here and small responses aren't held for the peer's acknowledgment.
     let incoming = tonic::transport::server::TcpIncoming::from(listener).with_nodelay(Some(true));
     let future = tonic::transport::Server::builder()
-        .http2_keepalive_interval(Some(timing.private_keepalive_interval))
-        .http2_keepalive_timeout(Some(timing.private_keepalive_timeout))
+        .http2_keepalive_interval(Some(timing.keepalive_interval))
+        .http2_keepalive_timeout(Some(timing.keepalive_timeout))
         .tls_config(tls)
         .map_err(|source| super::ServerError::Private(anyhow::Error::new(source)))?
         .layer(InterceptorLayer::new(ingress))

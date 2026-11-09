@@ -1534,7 +1534,7 @@ impl Worker {
                     manager.0.as_slice(),
                 )],
             ),
-            &dotcore_domain::timing::Timing::production(),
+            &dotcore_domain::timing::Timing::production().private,
             PrivateServiceAssembly::new(move |context, routes| {
                 routes.add_service(
                     DeploymentLogService::new(
@@ -1559,17 +1559,20 @@ impl Worker {
         tokio::spawn(server.serve());
         Listener {
             address,
-            channels: WorkerChannels::new(&authority.private_configuration(
-                SITE_ID,
-                MANAGER_NODE_ID,
-                PrivateNodeRole::Manager,
-                manager,
-                [(
-                    WORKER_NODE_ID,
-                    PrivateNodeRole::Worker,
-                    worker_certificate.as_slice(),
-                )],
-            )),
+            channels: WorkerChannels::new(
+                &authority.private_configuration(
+                    SITE_ID,
+                    MANAGER_NODE_ID,
+                    PrivateNodeRole::Manager,
+                    manager,
+                    [(
+                        WORKER_NODE_ID,
+                        PrivateNodeRole::Worker,
+                        worker_certificate.as_slice(),
+                    )],
+                ),
+                &dotcore_domain::timing::Timing::production().private,
+            ),
         }
     }
 }

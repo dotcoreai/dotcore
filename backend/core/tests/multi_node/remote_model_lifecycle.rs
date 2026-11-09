@@ -89,9 +89,10 @@ async fn manager_created_model_is_realized_only_by_the_provisioned_worker_proces
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls::manual_clock(),
         ProcessTestControls {
-            timing: Timing {
-                target_capability_max_age: WORKER_CAPABILITY_MAX_AGE,
-                ..Timing::test()
+            timing: {
+                let mut timing = Timing::test();
+                timing.node_control.capability_max_age = WORKER_CAPABILITY_MAX_AGE;
+                timing
             },
             model_transition_gates: true,
             ..ProcessTestControls::default()
@@ -637,9 +638,10 @@ async fn one_follow_opened_before_preparation_receives_the_workload_and_its_end(
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls::manual_clock(),
         ProcessTestControls {
-            timing: Timing {
-                target_capability_max_age: WORKER_CAPABILITY_MAX_AGE,
-                ..Timing::test()
+            timing: {
+                let mut timing = Timing::test();
+                timing.node_control.capability_max_age = WORKER_CAPABILITY_MAX_AGE;
+                timing
             },
             model_transition_gates: true,
             ..ProcessTestControls::default()
@@ -792,21 +794,21 @@ async fn a_worker_deployment_stays_controllable_past_its_action_lease_with_an_un
     }
     // A short action lease and republish interval stand in for the production ones, keeping the
     // ratio that lets republications renew the lease.
+    let timing = {
+        let mut timing = Timing::test();
+        timing.node_control.view_republish_interval = SHORT_REPUBLISH_INTERVAL;
+        timing.node_control.manager_silence = SHORT_REPUBLISH_INTERVAL * 3;
+        timing.node_control.action_lease = SHORT_ACTION_LEASE;
+        timing
+    };
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
-            timing: Timing {
-                view_republish_interval: SHORT_REPUBLISH_INTERVAL,
-                ..Timing::test()
-            },
+            timing,
             ..ProcessTestControls::default()
         },
         ProcessTestControls {
             model_transition_gates: true,
-            timing: Timing {
-                node_action_lease: SHORT_ACTION_LEASE,
-                manager_silence_bound: SHORT_REPUBLISH_INTERVAL * 3,
-                ..Timing::test()
-            },
+            timing,
             ..ProcessTestControls::default()
         },
     ) else {

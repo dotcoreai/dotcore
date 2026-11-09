@@ -385,7 +385,9 @@ mod tests {
         route_manager::RouteAvailabilityTargetsSource,
     };
 
-    const LIVENESS_TTL: Duration = dotcore_domain::timing::Timing::production().node_liveness_ttl;
+    const LIVENESS_TTL: Duration = dotcore_domain::timing::Timing::production()
+        .node_control
+        .node_silence;
 
     #[test]
     fn publishes_only_fresh_connected_ready_evidence_for_the_present_generation() {
@@ -961,13 +963,20 @@ mod tests {
 
     impl Manager {
         fn new(deployments: Vec<ModelDeploymentDeclaration>) -> Self {
-            Self::with_coordinator(deployments, ManagerNodeControlCoordinator::new(session()))
+            Self::with_coordinator(
+                deployments,
+                ManagerNodeControlCoordinator::on_system_clock(session()),
+            )
         }
 
         fn with_clock(deployments: Vec<ModelDeploymentDeclaration>, clock: ManualClock) -> Self {
             Self::with_coordinator(
                 deployments,
-                ManagerNodeControlCoordinator::with_clock(session(), Arc::new(clock)),
+                ManagerNodeControlCoordinator::new(
+                    session(),
+                    &dotcore_domain::timing::Timing::production().node_control,
+                    Arc::new(clock),
+                ),
             )
         }
 

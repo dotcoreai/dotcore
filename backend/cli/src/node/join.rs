@@ -577,7 +577,7 @@ async fn connect_to_manager(
     JoinConnection::connect(
         token.clone(),
         manager_host,
-        dotcore_domain::timing::Timing::production().join_connect_timeout,
+        &dotcore_domain::timing::Timing::for_process().join,
     )
     .await
     .map_err(|error| join_failure(error).context(format!("cannot reach the manager at {tried}")))
@@ -972,7 +972,10 @@ mod tests {
         let error = block_on(JoinConnection::connect(
             token,
             None,
-            std::time::Duration::from_millis(300),
+            &dotcore_domain::timing::JoinTiming {
+                connect_timeout: std::time::Duration::from_millis(300),
+                ..dotcore_domain::timing::Timing::production().join
+            },
         ))
         .err()
         .expect("connect timeout");

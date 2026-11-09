@@ -1018,6 +1018,8 @@ mod tests {
         descriptors.push(memory_descriptor());
         let store = InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
+            &dotcore_domain::timing::Timing::production().metrics,
+            &dotcore_domain::timing::Timing::production().watch,
             descriptors,
             Arc::new(clock.clone()),
         )
@@ -1025,7 +1027,7 @@ mod tests {
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
             Arc::new(clock.clone()),
-            &dotcore_domain::timing::Timing::production(),
+            &dotcore_domain::timing::Timing::production().metrics,
         ));
         clock.advance(Duration::from_secs(60));
         let (forwarder, _task) = MetricForwarder::start(

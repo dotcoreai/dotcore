@@ -24,7 +24,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use dotcore_domain::{background_loop::log_unexpected_loop_end, clock::Clock, timing::Timing};
+use dotcore_domain::{
+    background_loop::log_unexpected_loop_end,
+    clock::Clock,
+    timing::{MetricsTiming, WatchTiming},
+};
 use futures_util::future::BoxFuture;
 use tokio::{
     sync::{Semaphore, broadcast, mpsc, oneshot},
@@ -72,23 +76,27 @@ pub struct InMemoryMetricStore {
 
 impl InMemoryMetricStore {
     /// Starts a store accepting `descriptors`, plus the metrics it records about itself, and
-    /// keeping history per `config`. Must run inside a Tokio runtime, which hosts the store's
-    /// ingest task until the store is dropped.
+    /// keeping history per `config`. It sweeps and records its health at the sweep interval of
+    /// `timing`, and an idle watch sends a heartbeat at the heartbeat interval of `watch`. Must
+    /// run inside a Tokio runtime, which hosts the store's ingest task until the store is dropped.
     pub fn start(
         config: InMemoryStoreConfig,
+        timing: &MetricsTiming,
+        watch: &WatchTiming,
         descriptors: Vec<MetricDescriptor>,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, StoreStartError> {
         let InMemoryStoreConfig {
             retention,
             max_open_queries,
-            sweep_interval,
-            watch_heartbeat_interval,
         } = config;
         let finest = retention.tiers()[0].width;
         let descriptors: Vec<_> = descriptors
             .into_iter()
-            .chain(health::health_metric_descriptors(finest, sweep_interval))
+            .chain(health::health_metric_descriptors(
+                finest,
+                timing.store_sweep_interval,
+            ))
             .collect();
         validate_catalog(&descriptors)?;
         let declared: BTreeMap<_, _> = descriptors
@@ -105,8 +113,8 @@ impl InMemoryMetricStore {
 
         let shared = Arc::new(Shared {
             clock,
-            sweep_interval,
-            watch_heartbeat_interval,
+            timing: *timing,
+            watch: *watch,
             retention,
             descriptors: declared,
             incarnation,
@@ -238,34 +246,13 @@ pub struct InMemoryStoreConfig {
 
     /// Queries watched at once across the store; every open watch is one query and counts once.
     pub max_open_queries: usize,
-
-    /// How often the store trims expired history and records its own health.
-    pub sweep_interval: Duration,
-
-    /// Longest a watch stays silent: an idle watch then sends a point-less upsert, so a vanished
-    /// watcher's broken connection is noticed and its watch closed.
-    pub watch_heartbeat_interval: Duration,
-}
-
-impl InMemoryStoreConfig {
-    /// These settings with the sweep and watch heartbeat intervals of `timing`.
-    pub fn with_timing(self, timing: &Timing) -> Self {
-        Self {
-            sweep_interval: timing.metric_store_sweep_interval,
-            watch_heartbeat_interval: timing.watch_heartbeat_interval,
-            ..self
-        }
-    }
 }
 
 impl Default for InMemoryStoreConfig {
     fn default() -> Self {
-        let production = Timing::production();
         Self {
             retention: RetentionConfig::default(),
             max_open_queries: 1024,
-            sweep_interval: production.metric_store_sweep_interval,
-            watch_heartbeat_interval: production.watch_heartbeat_interval,
         }
     }
 }
@@ -283,8 +270,12 @@ pub enum StoreStartError {
 /// State shared by the store, its recorders and its ingest task.
 struct Shared {
     clock: Arc<dyn Clock>,
-    sweep_interval: Duration,
-    watch_heartbeat_interval: Duration,
+    /// Sweep schedule of the store.
+    timing: MetricsTiming,
+
+    /// Heartbeat schedule of idle watches: an idle watch sends a point-less upsert, so a vanished
+    /// watcher's broken connection is noticed and its watch closed.
+    watch: WatchTiming,
     retention: RetentionConfig,
     descriptors: BTreeMap<String, MetricDescriptor>,
     incarnation: StoreIncarnation,
@@ -393,7 +384,7 @@ async fn ingest_loop(
     mut up: UpReadings,
 ) {
     let mut health = HealthCounts::default();
-    let mut next_sweep = shared.clock.now() + shared.sweep_interval;
+    let mut next_sweep = shared.clock.now() + shared.timing.store_sweep_interval;
     loop {
         // Changes are collected only while someone watches.
         let mut changed = (changes.receiver_count() > 0).then(Vec::new);
@@ -423,7 +414,7 @@ async fn ingest_loop(
             Wake::Message(None) => return,
             Wake::Sweep => {
                 sweep(&shared, &mut health, changed.as_mut());
-                next_sweep = shared.clock.now() + shared.sweep_interval;
+                next_sweep = shared.clock.now() + shared.timing.store_sweep_interval;
             }
             Wake::Bucket => {}
         }
