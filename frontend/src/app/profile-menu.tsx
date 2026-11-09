@@ -2,8 +2,7 @@ import { Moon, ScrollText } from "lucide-react";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
-import { diagnosticLogOperations } from "@/api/diagnostic-log-client";
+import { useClients } from "@/api/clients";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -16,11 +15,8 @@ import { DiagnosticLogViewer } from "@/features/diagnostic-logs/diagnostic-log-v
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
 import { useTheme } from "@/theme/theme-context";
 
-export function ProfileMenu({
-  diagnostics = diagnosticLogOperations,
-}: {
-  diagnostics?: DiagnosticLogOperations;
-}) {
+export function ProfileMenu() {
+  const { diagnosticLogOperations: diagnostics } = useClients();
   const { colorScheme, setColorScheme } = useTheme();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);

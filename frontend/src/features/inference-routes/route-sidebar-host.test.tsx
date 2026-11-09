@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -27,6 +27,7 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
+import { renderWithClients } from "@/test/render-with-clients";
 
 import { RouteSidebarHost } from "./route-sidebar-host";
 
@@ -146,7 +147,7 @@ function renderOnOverview(client: RouteClient, panels: string[]) {
         element: (
           <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
             <PanelNavigationProvider>
-              <OverviewRouteHost client={client} />
+              <OverviewRouteHost />
             </PanelNavigationProvider>
           </ResourceWatchProvider>
         ),
@@ -155,20 +156,19 @@ function renderOnOverview(client: RouteClient, panels: string[]) {
     { initialEntries: ["/overview", `/overview?${panels.join("&")}`] },
   );
 
-  return { router, ...render(<RouterProvider router={router} />) };
+  return {
+    router,
+    ...renderWithClients(<RouterProvider router={router} />, {
+      metricsClient,
+      routeClient: client,
+    }),
+  };
 }
 
-function OverviewRouteHost({ client }: { client: RouteClient }) {
+function OverviewRouteHost() {
   const openerRef = useRef<HTMLElement>(null);
 
-  return (
-    <RouteSidebarHost
-      client={client}
-      initialRange="6h"
-      metricsClient={metricsClient}
-      openerRef={openerRef}
-    />
-  );
+  return <RouteSidebarHost initialRange="6h" openerRef={openerRef} />;
 }
 
 /** A route client listing one enabled route, `chat`, whose primary tier is `deployment-a`. */

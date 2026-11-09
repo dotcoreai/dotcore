@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { type ModelClient, modelClient } from "@/api/model-client";
+import { useClients } from "@/api/clients";
 import { DataTable } from "@/components/data-table/data-table";
 import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -40,19 +39,12 @@ import {
 } from "./model-deployment-table";
 import { useSharedModelsPolling } from "./models-polling-context";
 
-export interface ModelsPageProps {
-  client?: ModelClient;
-  metricsClient?: MetricsClient;
-}
-
 /**
  * The models page: the site's inference over the page range, by model deployment, then the
  * running model deployments, each opening its sidebar on the page's range.
  */
-export function ModelsPage({
-  client = modelClient,
-  metricsClient = defaultMetricsClient,
-}: ModelsPageProps) {
+export function ModelsPage() {
+  const { metricsClient } = useClients();
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();
@@ -165,11 +157,9 @@ export function ModelsPage({
         ) : null}
 
         <DeploymentSidebar
-          client={client}
           entry={urlEntry}
           fallbackFocusRef={headingRef}
           initialRange={metrics.range?.label}
-          metricsClient={metricsClient}
           openerRef={openerRef}
         />
       </div>

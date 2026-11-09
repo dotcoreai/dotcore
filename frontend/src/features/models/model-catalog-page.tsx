@@ -4,8 +4,8 @@ import { Plus } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { type ModelClient, modelClient } from "@/api/model-client";
-import { type SiteClient, siteClient as defaultSiteClient } from "@/api/site-client";
+import { useClients } from "@/api/clients";
+import type { ModelClient } from "@/api/model-client";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
 import { useDataTableView } from "@/components/data-table/use-data-table-view";
@@ -96,20 +96,13 @@ import {
 import { allModels, useProfileCompatibility } from "./use-profile-compatibility";
 import { useSizedForChipSettings } from "./use-sized-for-chip-settings";
 
-export interface ModelCatalogPageProps {
-  client?: ModelClient;
-  siteClient?: SiteClient;
-}
-
 /**
  * The model Catalog page: the Catalog table with its toolbar, the "Connect upstream" action,
  * and their inspectors. The table view lives in the URL. It owns every deploy; an accepted
  * deployment opens its panel on the Models page.
  */
-export function ModelCatalogPage({
-  client = modelClient,
-  siteClient = defaultSiteClient,
-}: ModelCatalogPageProps) {
+export function ModelCatalogPage() {
+  const { modelClient: client, siteClient } = useClients();
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();

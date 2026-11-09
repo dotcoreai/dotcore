@@ -70,7 +70,8 @@ describe("Model client endpoint resolution", () => {
   it("uses the loopback test fallback when no test management origin is configured", async () => {
     delete process.env.VITE_DOTCORE_MANAGEMENT_ORIGIN;
 
-    const { modelClient } = await import("./model-client");
+    const { createModelClient } = await import("./model-client");
+    const modelClient = createModelClient();
 
     expect(modelClient).toBeDefined();
     expect(createGrpcWebTransport).toHaveBeenCalledWith({
@@ -89,7 +90,8 @@ describe("Model client endpoint resolution", () => {
   it("uses the Vite-exposed workspace management origin", async () => {
     vi.stubEnv("VITE_DOTCORE_MANAGEMENT_ORIGIN", "http://100.64.0.7:6207");
 
-    await import("./model-client");
+    const { createModelClient } = await import("./model-client");
+    createModelClient();
 
     expect(createGrpcWebTransport).toHaveBeenCalledWith({
       baseUrl: "http://100.64.0.7:6207",

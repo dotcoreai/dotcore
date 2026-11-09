@@ -36,7 +36,9 @@ frontend/src/
 - Files and feature folders never import each other in a loop, tests included.
   [`src/test/import-cycles.test.ts`](src/test/import-cycles.test.ts) enforces it, and its
   allowlist only shrinks: fix a loop by moving the shared code down, never by adding an entry.
-- Features and components call `api/` and own no transport or protocol details.
+- Features and components call `api/` and own no transport or protocol details. Pages, sidebar
+  hosts and the console layout get API clients from `useClients()`; hooks and child components take
+  them as parameters; tests provide them with [`src/test/render-with-clients.tsx`](src/test/render-with-clients.tsx).
 - [`proto/AGENTS.md`](../proto/AGENTS.md) owns regenerating `gen/`.
 
 ## Running and checks

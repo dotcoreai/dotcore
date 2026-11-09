@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useMemo, useState } from "react";
 
-import { type ModelClient, modelClient } from "@/api/model-client";
+import type { ModelClient } from "@/api/model-client";
 
 import { ModelsPollingContext } from "./models-polling-context";
 import { useModelsPolling } from "./use-models-polling";
@@ -12,10 +12,10 @@ import { useModelsPolling } from "./use-models-polling";
  */
 export function ModelsPollingProvider({
   children,
-  client = modelClient,
+  client,
 }: {
   children: ReactNode;
-  client?: ModelClient;
+  client: ModelClient;
 }) {
   const [readers, setReaders] = useState(0);
   const polling = useModelsPolling(client, { enabled: readers > 0 });

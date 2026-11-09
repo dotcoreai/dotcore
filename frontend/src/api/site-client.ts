@@ -19,5 +19,3 @@ export function createSiteClient(baseUrl = siteServerUrl): SiteClient {
       generatedClient.listConfiguredExecutionTargets(request, options),
   };
 }
-
-export const siteClient = createSiteClient();

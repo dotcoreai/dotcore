@@ -1,10 +1,11 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
 import { ProfileMenu } from "@/app/profile-menu";
+import { renderWithClients } from "@/test/render-with-clients";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 class FakeStorage {
@@ -18,16 +19,17 @@ class FakeStorage {
 }
 
 function renderProfileMenu(diagnostics?: DiagnosticLogOperations) {
-  return render(
+  return renderWithClients(
     <MemoryRouter>
       <ThemeProvider
         document={document}
         eventTarget={new EventTarget()}
         storage={new FakeStorage()}
       >
-        <ProfileMenu diagnostics={diagnostics} />
+        <ProfileMenu />
       </ThemeProvider>
     </MemoryRouter>,
+    { diagnosticLogOperations: diagnostics },
   );
 }
 

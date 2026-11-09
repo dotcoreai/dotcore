@@ -1,16 +1,20 @@
 /* eslint-disable react-refresh/only-export-components -- test support exports a wrapper and its helpers */
 import { create } from "@bufbuild/protobuf";
 import { act } from "@testing-library/react";
-import { type ComponentProps, useState } from "react";
+import { useState } from "react";
 
 import type { ApplicationClient } from "@/api/application-client";
+import { ClientsProvider } from "@/api/clients-provider";
+import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { SiteClient } from "@/api/site-client";
 import { nodeMemoryPayload } from "@/features/memory/node-memory-test-support";
+import { idleMetricsClient } from "@/features/metrics/metric-test-support";
 import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/application/v1/service_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, type ResourceSources } from "@/test/fake-resource-watch";
+import { testClients } from "@/test/render-with-clients";
 
 import { MachinesPage as RealMachinesPage } from "./machines-page";
 
@@ -35,17 +39,17 @@ export async function tick() {
 /**
  * The Machines page under a resource watch answering from the given site's watched payloads and
  * the clients' list reads, read again every manager tick like the management API does. Deployment
- * lists and node memory default to empty.
+ * lists and node memory default to empty, and the metrics service never answers.
  */
 export function MachinesPage({
   applicationClient,
   client,
-  metricsClient,
+  metricsClient = idleMetricsClient(),
   modelClient,
 }: {
   applicationClient?: ApplicationClient;
   client: MachinesSite;
-  metricsClient?: ComponentProps<typeof RealMachinesPage>["metricsClient"];
+  metricsClient?: MetricsClient;
   modelClient?: ModelClient;
 }) {
   const [watch] = useState(() => {
@@ -71,9 +75,15 @@ export function MachinesPage({
     return watch;
   });
 
+  const [clients] = useState(() =>
+    testClients({ applicationClient, metricsClient, modelClient, siteClient: client }),
+  );
+
   return (
-    <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
-      <RealMachinesPage metricsClient={metricsClient} />
-    </ResourceWatchProvider>
+    <ClientsProvider clients={clients}>
+      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+        <RealMachinesPage />
+      </ResourceWatchProvider>
+    </ClientsProvider>
   );
 }

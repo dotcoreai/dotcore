@@ -132,8 +132,6 @@ export function createApplicationClient(baseUrl = applicationServerUrl): Applica
   };
 }
 
-export const applicationClient = createApplicationClient();
-
 export class ApplicationResponseProtocolError extends Error {
   constructor(action: "Create" | "Update metadata" | "Pause" | "Resume", message: string) {
     super(`${action} response protocol error: ${message}`);

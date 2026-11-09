@@ -1,16 +1,13 @@
 import { type ReactNode, useEffect, useState } from "react";
 
-import {
-  type ResourceWatchClient,
-  resourceWatchClient as defaultResourceWatchClient,
-} from "@/api/resource-watch-client";
+import type { ResourceWatchClient } from "@/api/resource-watch-client";
 import { ResourceWatchContext } from "@/resource-watch/resource-watch";
 import { ResourceWatchStore } from "@/resource-watch/resource-watch-store";
 
 export interface ResourceWatchProviderProps {
   children: ReactNode;
   /** Read once at mount. */
-  client?: ResourceWatchClient;
+  client: ResourceWatchClient;
   /** Wait before reopening the stream after the watched kinds change; read once at mount. */
   reopenDelayMs?: number;
 }
@@ -21,7 +18,7 @@ export interface ResourceWatchProviderProps {
  */
 export function ResourceWatchProvider({
   children,
-  client = defaultResourceWatchClient,
+  client,
   reopenDelayMs,
 }: ResourceWatchProviderProps) {
   const [store] = useState(() => new ResourceWatchStore(client, reopenDelayMs));

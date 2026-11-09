@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -20,6 +20,7 @@ import {
 import type { StorageLike } from "@/lib/browser-storage";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { FailingStorage, MemoryStorage } from "@/test/memory-storage";
+import { renderWithClients } from "@/test/render-with-clients";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 /** A decision client whose answers the test releases one by one, in order. */
@@ -72,14 +73,7 @@ function renderConsole(decisionClient: DecisionClient, storage: StorageLike, ent
   const router = createMemoryRouter(
     [
       {
-        element: (
-          <ConsoleLayout
-            decisionClient={decisionClient}
-            eventTarget={new EventTarget()}
-            resourceWatchClient={watch.client()}
-            storage={storage}
-          />
-        ),
+        element: <ConsoleLayout eventTarget={new EventTarget()} storage={storage} />,
         children: [
           { path: "/models", element: <p>Models page</p> },
           { path: "/routes", element: <p>Routes page</p> },
@@ -89,10 +83,11 @@ function renderConsole(decisionClient: DecisionClient, storage: StorageLike, ent
     ],
     { initialEntries: [entry] },
   );
-  render(
+  renderWithClients(
     <ThemeProvider document={document} eventTarget={new EventTarget()} storage={storage}>
       <RouterProvider router={router} />
     </ThemeProvider>,
+    { decisionClient, resourceWatchClient: watch.client() },
   );
   return userEvent.setup();
 }

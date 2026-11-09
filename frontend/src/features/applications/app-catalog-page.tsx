@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { type ApplicationClient, applicationClient } from "@/api/application-client";
+import { useClients } from "@/api/clients";
 import { DataTable } from "@/components/data-table/data-table";
 import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -47,17 +47,14 @@ import {
   catalogApplicationViewCodec,
 } from "./catalog-application-table";
 
-export interface AppCatalogPageProps {
-  client?: ApplicationClient;
-}
-
 /**
  * The Application Catalog page: the catalog applications as a table, their inspector, and the
  * deploy dialog.
  * It owns every application deployment creation; an accepted application deployment opens its
  * panel on the Apps page.
  */
-export function AppCatalogPage({ client = applicationClient }: AppCatalogPageProps) {
+export function AppCatalogPage() {
+  const { applicationClient: client } = useClients();
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();

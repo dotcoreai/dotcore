@@ -1,9 +1,6 @@
 import { type RefObject, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import type { MetricsClient } from "@/api/metrics-client";
-import type { ModelClient } from "@/api/model-client";
-import type { RouteClient } from "@/api/route-client";
 import { RouteSidebarHost } from "@/features/inference-routes/route-sidebar-host";
 import { MachineSidebarHost } from "@/features/machines/machine-sidebar-host";
 import { DeploymentSidebar } from "@/features/models/deployment-sidebar";
@@ -14,11 +11,8 @@ export interface OverviewSidebarProps {
   fallbackFocusRef: RefObject<HTMLElement | null>;
   /** The range label the sidebar's metrics start at: the overview's range when it opened. */
   initialRange?: string;
-  metricsClient?: MetricsClient;
-  modelClient?: ModelClient;
   /** The element focus returns to when the sidebar closes, set by whatever opened it. */
   openerRef: RefObject<HTMLElement | null>;
-  routeClient?: RouteClient;
 }
 
 /**
@@ -29,10 +23,7 @@ export interface OverviewSidebarProps {
 export function OverviewSidebar({
   fallbackFocusRef,
   initialRange,
-  metricsClient,
-  modelClient,
   openerRef,
-  routeClient,
 }: OverviewSidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -51,32 +42,22 @@ export function OverviewSidebar({
     case "models":
       return (
         <DeploymentSidebar
-          client={modelClient}
           entry={entry}
           fallbackFocusRef={fallbackFocusRef}
           initialRange={initialRange}
-          metricsClient={metricsClient}
           openerRef={openerRef}
         />
       );
     case "routes":
       return (
         <RouteSidebarHost
-          client={routeClient}
           initialRange={initialRange}
-          metricsClient={metricsClient}
           openerRef={openerRef}
           returnFocusRef={fallbackFocusRef}
         />
       );
     case "machines":
-      return (
-        <MachineSidebarHost
-          initialRange={initialRange}
-          metricsClient={metricsClient}
-          openerRef={openerRef}
-        />
-      );
+      return <MachineSidebarHost initialRange={initialRange} openerRef={openerRef} />;
     default:
       return null;
   }

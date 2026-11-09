@@ -2,8 +2,7 @@ import { ConnectError } from "@connectrpc/connect";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { type ModelClient, modelClient } from "@/api/model-client";
+import { useClients } from "@/api/clients";
 import { InspectorPlaceholder } from "@/components/ui/inspector-placeholder";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
 import {
@@ -59,14 +58,12 @@ import {
 import { matchesEndpoint } from "./use-models-polling";
 
 export interface DeploymentSidebarProps {
-  client?: ModelClient;
   /** The active panel entry; the sidebar shows it when it is a model deployment panel. */
   entry: PanelEntry | undefined;
   /** The element focus moves to when the open deployment disappears, such as the page heading. */
   fallbackFocusRef: RefObject<HTMLElement | null>;
   /** The range label the metric cards start at, such as the range of the hosting page. */
   initialRange?: string;
-  metricsClient?: MetricsClient;
   /** The element focus returns to when the sidebar closes, set by whatever opened it. */
   openerRef: RefObject<HTMLElement | null>;
 }
@@ -78,13 +75,12 @@ export interface DeploymentSidebarProps {
  * publishes the deployment, machine and route names its back labels read.
  */
 export function DeploymentSidebar({
-  client = modelClient,
   entry,
   fallbackFocusRef,
   initialRange,
-  metricsClient = defaultMetricsClient,
   openerRef,
 }: DeploymentSidebarProps) {
+  const { metricsClient, modelClient: client } = useClients();
   const location = useLocation();
   const panelNavigation = usePanelNavigation();
   const [selection, setSelection] = useState<DeploymentSelection>();

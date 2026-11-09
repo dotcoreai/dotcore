@@ -13,6 +13,7 @@ import { type ReactNode, useState } from "react";
 import { createMemoryRouter, MemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ClientsProvider } from "@/api/clients-provider";
 import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
@@ -76,6 +77,7 @@ import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider"
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
+import { clientsWrapper, testClients } from "@/test/render-with-clients";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
 import { RoutesPage as RealRoutesPage } from "./routes-page";
@@ -137,10 +139,16 @@ function RoutesPage({
     return watch;
   });
 
+  const [clients] = useState(() =>
+    testClients({ metricsClient, modelClient, routeClient: client }),
+  );
+
   return (
-    <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
-      <RealRoutesPage client={client} metricsClient={metricsClient} />
-    </ResourceWatchProvider>
+    <ClientsProvider clients={clients}>
+      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+        <RealRoutesPage />
+      </ResourceWatchProvider>
+    </ClientsProvider>
   );
 }
 
@@ -235,20 +243,27 @@ function renderConsoleAt(
             path: "/models",
             element: (
               <ModelsPollingProvider client={modelClient}>
-                <ModelsPage client={modelClient} />
+                <ModelsPage />
               </ModelsPollingProvider>
             ),
           },
           {
             path: "/routes",
-            element: <RealRoutesPage client={client} metricsClient={idleMetricsClient} />,
+            element: <RealRoutesPage />,
           },
         ],
       },
     ],
     { initialEntries, initialIndex },
   );
-  rtlRender(<RouterProvider router={router} />);
+  rtlRender(<RouterProvider router={router} />, {
+    wrapper: clientsWrapper({
+      metricsClient: idleMetricsClient,
+      modelClient,
+      routeClient: client,
+      siteClient: emptySiteClient,
+    }),
+  });
   return router;
 }
 

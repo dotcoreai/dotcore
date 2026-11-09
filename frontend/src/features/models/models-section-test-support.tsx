@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
-import { render } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { vi } from "vitest";
@@ -67,6 +66,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
+import { renderWithClients } from "@/test/render-with-clients";
 
 import { ModelCatalogPage } from "./model-catalog-page";
 import { ModelsPage } from "./models-page";
@@ -121,8 +121,8 @@ export function renderModelsSection({
   modelsResponse?: Promise<Awaited<ReturnType<ModelClient["catalog"]["listModels"]>>>;
   /** The machines' node memory; defaults to each idle machine's snapshot, as `modelsResourceWatch`. */
   nodeMemory?: NodeMemory[];
-  /** The overview page to mount at `/overview`, built from the section's clients. */
-  overview?: (clients: { metricsClient: MetricsClient; modelClient: ModelClient }) => ReactNode;
+  /** The overview page to mount at `/overview`, reading the section's clients. */
+  overview?: ReactNode;
   snapshots?: Record<string, HardwareSnapshot>;
   templates?: UpstreamModelTemplate[];
 }) {
@@ -194,19 +194,17 @@ export function renderModelsSection({
           </ResourceWatchProvider>
         ),
         children: [
-          ...(overview
-            ? [{ path: "/overview", element: overview({ metricsClient, modelClient: client }) }]
-            : []),
+          ...(overview ? [{ path: "/overview", element: overview }] : []),
           {
             path: "/models",
             children: [
               {
                 index: true,
-                element: <ModelsPage client={client} metricsClient={metricsClient} />,
+                element: <ModelsPage />,
               },
               {
                 path: "catalog",
-                element: <ModelCatalogPage client={client} siteClient={siteClient} />,
+                element: <ModelCatalogPage />,
               },
             ],
           },
@@ -215,7 +213,7 @@ export function renderModelsSection({
     ],
     { initialEntries: [initialEntry] },
   );
-  render(
+  renderWithClients(
     chatOpener ? (
       <ChatOpenerContext.Provider value={chatOpener}>
         <RouterProvider router={router} />
@@ -223,6 +221,12 @@ export function renderModelsSection({
     ) : (
       <RouterProvider router={router} />
     ),
+    {
+      metricsClient,
+      modelClient: client,
+      routeClient,
+      siteClient,
+    },
   );
   return { client, router, siteClient, watch };
 }

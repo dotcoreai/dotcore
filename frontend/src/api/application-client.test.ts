@@ -62,7 +62,8 @@ describe("Application client endpoint resolution", () => {
   it("uses the established gRPC-Web test fallback", async () => {
     delete process.env.VITE_DOTCORE_MANAGEMENT_ORIGIN;
 
-    const { applicationClient } = await import("./application-client");
+    const { createApplicationClient } = await import("./application-client");
+    const applicationClient = createApplicationClient();
 
     expect(applicationClient).toBeDefined();
     expect(createGrpcWebTransport).toHaveBeenCalledWith({
@@ -84,7 +85,8 @@ describe("Application client endpoint resolution", () => {
   it("uses the Vite-exposed workspace management origin", async () => {
     vi.stubEnv("VITE_DOTCORE_MANAGEMENT_ORIGIN", "http://100.64.0.7:6207");
 
-    await import("./application-client");
+    const { createApplicationClient } = await import("./application-client");
+    createApplicationClient();
 
     expect(createGrpcWebTransport).toHaveBeenCalledWith({
       baseUrl: "http://100.64.0.7:6207",

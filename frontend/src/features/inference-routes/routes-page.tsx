@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { type RouteClient } from "@/api/route-client";
+import { useClients } from "@/api/clients";
 import { DataTable } from "@/components/data-table/data-table";
 import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -25,25 +24,19 @@ import { canonicalizePanelLocation } from "@/panels/panel-stack";
 import { routeRows, routeTableDefinition, routeTableUi, routeViewCodec } from "./route-table";
 import { useRouteSidebarHost } from "./use-route-sidebar-host";
 
-export interface RoutesPageProps {
-  client?: RouteClient;
-  metricsClient?: MetricsClient;
-}
-
 /**
  * The routes page: the site's inference over the page range, by route, then the routes as a table
  * with their traffic over the same range, each row opening its sidebar on the page's range.
  */
-export function RoutesPage({ client, metricsClient = defaultMetricsClient }: RoutesPageProps) {
+export function RoutesPage() {
+  const { metricsClient } = useClients();
   const location = useLocation();
   const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement>(null);
   const metrics = useInferenceMetrics(metricsClient, "routes");
   const host = useRouteSidebarHost({
-    client,
     initialRange: metrics.range?.label,
-    metricsClient,
     openerRef,
     returnFocusRef: headingRef,
   });

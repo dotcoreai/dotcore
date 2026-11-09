@@ -1,17 +1,15 @@
 import { Outlet } from "react-router-dom";
 
-import type { ApplicationClient } from "@/api/application-client";
+import { useClients } from "@/api/clients";
 
 import { ApplicationsPollingProvider } from "./applications-polling-provider";
 
-export interface ApplicationsSectionProps {
-  client?: ApplicationClient;
-}
-
 /** Layout route for the Apps section pages, which share one applications polling instance. */
-export function ApplicationsSection({ client }: ApplicationsSectionProps) {
+export function ApplicationsSection() {
+  const { applicationClient } = useClients();
+
   return (
-    <ApplicationsPollingProvider client={client}>
+    <ApplicationsPollingProvider client={applicationClient}>
       <Outlet />
     </ApplicationsPollingProvider>
   );

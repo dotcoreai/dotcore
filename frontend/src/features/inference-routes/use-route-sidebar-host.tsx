@@ -2,8 +2,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { type ReactNode, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { type RouteClient, routeClient } from "@/api/route-client";
+import { useClients } from "@/api/clients";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -76,10 +75,8 @@ export interface RouteSidebarHostState {
 }
 
 export interface RouteSidebarHostProps {
-  client?: RouteClient;
   /** The range label the route's requests start at, such as the hosting page's range. */
   initialRange?: string;
-  metricsClient?: MetricsClient;
   /** The element focus returns to when the sidebar closes; set it before opening the sidebar. */
   openerRef: RefObject<HTMLElement | null>;
   /** Where focus returns after a create or delete, whose opener is gone or not a route. */
@@ -94,12 +91,11 @@ export interface RouteSidebarHostProps {
  * hosting page, so the sidebar opens over the routes page or the overview alike.
  */
 export function useRouteSidebarHost({
-  client = routeClient,
   initialRange,
-  metricsClient = defaultMetricsClient,
   openerRef,
   returnFocusRef,
 }: RouteSidebarHostProps): RouteSidebarHostState {
+  const { metricsClient, routeClient: client } = useClients();
   const location = useLocation();
   const panelNavigation = usePanelNavigation();
   const [editor, setEditor] = useState<RouteEditorState>();

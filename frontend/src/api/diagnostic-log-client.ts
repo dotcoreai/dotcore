@@ -119,8 +119,6 @@ export function createDiagnosticLogAdapter(
   };
 }
 
-export const diagnosticLogOperations = createDiagnosticLogOperations();
-
 function normalizeHistory(
   response: ReadBackendDiagnosticsResponse,
   labels: Map<string, string>,

@@ -1,5 +1,4 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
-import { render } from "@testing-library/react";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { vi } from "vitest";
 
@@ -46,6 +45,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { renderWithClients } from "@/test/render-with-clients";
 
 import { AppCatalogPage } from "./app-catalog-page";
 import { ApplicationsPage } from "./applications-page";
@@ -92,11 +92,11 @@ export function renderAppsSection({
             children: [
               {
                 index: true,
-                element: <ApplicationsPage client={client} metricsClient={metricsClient} />,
+                element: <ApplicationsPage />,
               },
               {
                 path: "catalog",
-                element: <AppCatalogPage client={client} />,
+                element: <AppCatalogPage />,
               },
             ],
           },
@@ -105,7 +105,11 @@ export function renderAppsSection({
     ],
     { initialEntries: [initialEntry] },
   );
-  const result = render(<RouterProvider router={router} />);
+  const result = renderWithClients(<RouterProvider router={router} />, {
+    applicationClient: client,
+    metricsClient,
+    routeClient,
+  });
   return { ...result, router, watch };
 }
 

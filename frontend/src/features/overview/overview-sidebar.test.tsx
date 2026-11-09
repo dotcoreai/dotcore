@@ -221,8 +221,6 @@ async function sidebarShape(
 function renderOverviewSection(options: Parameters<typeof renderModelsSection>[0]) {
   return renderModelsSection({
     ...options,
-    overview: ({ metricsClient, modelClient }) => (
-      <OverviewPage metricsClient={metricsClient} modelClient={modelClient} />
-    ),
+    overview: <OverviewPage />,
   });
 }

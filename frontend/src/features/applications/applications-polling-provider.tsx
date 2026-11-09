@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { type ApplicationClient, applicationClient } from "@/api/application-client";
+import type { ApplicationClient } from "@/api/application-client";
 
 import { ApplicationsPollingContext } from "./applications-polling-context";
 import { useApplicationsPolling } from "./use-applications-polling";
@@ -11,10 +11,10 @@ import { useApplicationsPolling } from "./use-applications-polling";
  */
 export function ApplicationsPollingProvider({
   children,
-  client = applicationClient,
+  client,
 }: {
   children: ReactNode;
-  client?: ApplicationClient;
+  client: ApplicationClient;
 }) {
   const polling = useApplicationsPolling(client);
 

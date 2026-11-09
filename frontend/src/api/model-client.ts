@@ -164,8 +164,6 @@ export function createModelClient(baseUrl = modelServerUrl): ModelClient {
   };
 }
 
-export const modelClient = createModelClient();
-
 export class ModelResponseProtocolError extends Error {
   constructor(action: "Create" | "Update metadata" | "Pause" | "Resume", message: string) {
     super(`${action} response protocol error: ${message}`);
