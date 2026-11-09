@@ -7,7 +7,7 @@ use, and you pick one when you deploy it.
 | ----------------------- | ---------------------------------------- | -------------------------------------------------- |
 | [llama.cpp](llama-cpp/) | NVIDIA GPUs on Linux, Apple Silicon Macs | The only engine on a Mac                           |
 | [vLLM](vllm/)           | NVIDIA GPUs on Linux                     | Shares prompt prefixes between requests            |
-| [ninfer](ninfer/)       | RTX 5090 on x86_64 Linux                 | Shares prompt prefixes; first deployment builds it |
+| [ninfer](ninfer/)       | RTX 5090, RTX PRO 6000 on x86_64 Linux   | Shares prompt prefixes; first deployment builds it |
 
 ## Shared settings
 
