@@ -6,8 +6,7 @@ import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "r
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { ChatOpenerContext } from "@/app/chat-opener";
-import { PanelNavigationProvider, usePanelNavigation } from "@/app/console-layout";
-import { PanelParentContext } from "@/app/panel-titles-context";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import {
   counterPoint,
   distributionPoint,
@@ -33,6 +32,8 @@ import {
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStateSchema, ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
+import { usePanelNavigation } from "@/panels/panel-navigation";
+import { PanelParentContext } from "@/panels/panel-titles-context";
 import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 

@@ -1,4 +1,4 @@
-import type { PanelEntry, PanelPage, PanelScreen } from "@/lib/panel-stack";
+import type { PanelEntry, PanelPage, PanelScreen } from "./panel-stack";
 
 /** A resource name a page knows, keyed by the panel entry that names the resource. */
 export interface PanelTitle {

@@ -3,10 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
-import { DiagnosticLogViewer } from "@/features/diagnostic-logs/diagnostic-log-viewer";
+import type { LogViewerOperations } from "@/api/log-types";
+import { LogViewerModal } from "@/components/log-viewer/log-viewer-modal";
+import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
 
-import { MetricPauseProvider } from "./metric-pause-provider";
 import {
   gaugePoint,
   metricsClientWith,
@@ -20,7 +20,7 @@ const groups = [
   { current: [{ groupBy: [], matchers: {}, metric: "cpu" }], history: [], id: "cpu" },
 ];
 
-describe("MetricPauseProvider", () => {
+describe("WatchPauseProvider", () => {
   it("closes metric streams while a log viewer is open and keeps the values read", async () => {
     const user = userEvent.setup();
     const watchMetrics = vi.fn(
@@ -32,9 +32,9 @@ describe("MetricPauseProvider", () => {
       ),
     );
     render(
-      <MetricPauseProvider>
+      <WatchPauseProvider>
         <Page client={metricsClientWith(watchMetrics)} />
-      </MetricPauseProvider>,
+      </WatchPauseProvider>,
     );
 
     await screen.findByText("cpu value: 42");
@@ -64,12 +64,19 @@ function Page({ client }: { client: Parameters<typeof useMetricPanel>[0] }) {
         Open logs
       </button>
       <p>cpu value: {value ?? "none"}</p>
-      <DiagnosticLogViewer onOpenChange={setOpen} open={open} operations={idleDiagnostics()} />
+      <LogViewerModal
+        copy={{ ariaLabel: "Logs", continuityWarning: "", empty: "", unavailable: "" }}
+        onOpenChange={setOpen}
+        open={open}
+        operations={idleLogs()}
+        sessionKey="test"
+        title="Logs"
+      />
     </>
   );
 }
 
-function idleDiagnostics(): DiagnosticLogOperations {
+function idleLogs(): LogViewerOperations<never> {
   return {
     follow: async function* () {
       await new Promise(() => undefined);

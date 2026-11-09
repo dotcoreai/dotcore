@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleLayout } from "@/app/console-layout";
 import { PEEK_ENTER_DELAY_MS } from "@/app/console-sidebar";
-import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
 import { ThemeProvider } from "@/app/theme-provider";
+import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 
 class TestStorage {
   private readonly values = new Map<string, string>();

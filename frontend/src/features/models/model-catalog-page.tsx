@@ -6,10 +6,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ModelClient, modelClient } from "@/api/model-client";
 import { type SiteClient, siteClient as defaultSiteClient } from "@/api/site-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import { CatalogSectionIcon } from "@/app/console-section-icons";
-import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
-import { usePublishPanelTitles } from "@/app/panel-titles-context";
 import { useWatchedApplicationDeployments, useWatchedRoutes } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -46,6 +43,8 @@ import {
 } from "@/gen/dotcore/model/v1/service_pb";
 import { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { usePanelNavigation } from "@/panels/panel-navigation";
+import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   activePanel,
   appendPanel,
@@ -58,8 +57,9 @@ import {
   popPanel,
   selectPanel,
   serializePanelStack,
-} from "@/lib/panel-stack";
-import { panelTitle } from "@/lib/panel-titles";
+} from "@/panels/panel-stack";
+import { panelTitle } from "@/panels/panel-titles";
+import { usePublishPanelTitles } from "@/panels/panel-titles-context";
 
 import { catalogModelDeployments, projectModelRows } from "./catalog-model-row";
 import {

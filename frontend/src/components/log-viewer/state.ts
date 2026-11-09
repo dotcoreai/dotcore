@@ -1,4 +1,4 @@
-import type { LogEntry, LogHistoryResult, LogSource } from "./types";
+import type { LogEntry, LogHistoryResult, LogSource } from "@/api/log-types";
 
 export const MAX_DISPLAYED_LOG_ROWS = 10_000;
 

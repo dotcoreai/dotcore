@@ -3,7 +3,7 @@ import {
   type PanelLocation,
   parsePanelStack,
   selectPanelLocation,
-} from "@/lib/panel-stack";
+} from "@/panels/panel-stack";
 
 /** The id of the machine sidebar, for the controls that open it. */
 export const machineInspectorPanelId = "machine-inspector-panel";

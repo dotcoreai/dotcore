@@ -4,8 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
+import { WatchPauseContext } from "@/hooks/use-watch-pause";
 
-import { MetricPauseContext } from "./metric-pause";
 import {
   counterPoint,
   distributionPoint,
@@ -205,9 +205,9 @@ function renderCards(
     return null;
   }
   render(
-    <MetricPauseContext.Provider value={pausedByLogs}>
+    <WatchPauseContext.Provider value={pausedByLogs}>
       <Probe />
-    </MetricPauseContext.Provider>,
+    </WatchPauseContext.Provider>,
   );
 
   return handle;

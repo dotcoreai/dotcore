@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { type Timestamp, TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { type CallOptions, Code, ConnectError } from "@connectrpc/connect";
 
+import type { LogEntry, LogFollowEvent, LogSource, LogTimestamp } from "@/api/log-types";
 import {
   type DeploymentLogEntry as ApplicationDeploymentLogEntry,
   type DeploymentLogHistoryState as ApplicationDeploymentLogHistoryState,
@@ -25,44 +26,18 @@ import {
   type ReadDeploymentLogsResponse as ModelReadDeploymentLogsResponse,
 } from "@/gen/dotcore/model/v1/service_pb";
 
-export interface LogTimestamp {
-  seconds: bigint;
-  nanos: number;
-}
-
-export interface DeploymentLogSource {
-  sourceName: string;
-  sourceLabel: string;
-  state: "available" | "unavailable" | "ended" | "unspecified";
-}
-
-export interface DeploymentLogEntry {
-  sourceName: string;
-  sourceLabel: string;
-  stream: "stdout" | "stderr" | "unspecified";
-  timestamp?: LogTimestamp;
-  content: Uint8Array;
-  text: string;
-  truncated: boolean;
-}
-
 export interface DeploymentLogResumePosition {
   sourceName: string;
   latestTimestamp?: LogTimestamp;
 }
 
 export interface ReadDeploymentLogsResult {
-  sources: DeploymentLogSource[];
-  entries: DeploymentLogEntry[];
+  sources: LogSource[];
+  entries: LogEntry[];
   nextBeforeTimestamp?: LogTimestamp;
   historyState: "older-output-may-remain" | "no-older-output-observed" | "unspecified";
   responseTruncated: boolean;
   latestPositions: DeploymentLogResumePosition[];
-}
-
-export interface FollowDeploymentLogsEvent {
-  event:
-    { kind: "source"; source: DeploymentLogSource } | { kind: "entry"; entry: DeploymentLogEntry };
 }
 
 export interface DeploymentLogReadRequest {
@@ -80,10 +55,7 @@ export interface DeploymentLogFollowRequest {
 
 export interface DeploymentLogOperations {
   read(request: DeploymentLogReadRequest, signal?: AbortSignal): Promise<ReadDeploymentLogsResult>;
-  follow(
-    request: DeploymentLogFollowRequest,
-    signal?: AbortSignal,
-  ): AsyncIterable<FollowDeploymentLogsEvent>;
+  follow(request: DeploymentLogFollowRequest, signal?: AbortSignal): AsyncIterable<LogFollowEvent>;
 }
 
 export class DeploymentLogError extends Error {
@@ -128,7 +100,7 @@ export function createDeploymentLogOperations<
 
 function normalizeFollow<
   Response extends ModelFollowDeploymentLogsResponse | ApplicationFollowDeploymentLogsResponse,
->(stream: AsyncIterable<Response>): AsyncIterable<FollowDeploymentLogsEvent> {
+>(stream: AsyncIterable<Response>): AsyncIterable<LogFollowEvent> {
   return (async function* () {
     try {
       for await (const response of stream) {
@@ -144,7 +116,7 @@ function normalizeFollow<
   })();
 }
 
-function failedFollow(error: DeploymentLogError): AsyncIterable<FollowDeploymentLogsEvent> {
+function failedFollow(error: DeploymentLogError): AsyncIterable<LogFollowEvent> {
   return {
     [Symbol.asyncIterator]: () => ({
       next: () => Promise.reject(error),
@@ -167,7 +139,7 @@ function normalizeReadResponse(
 
 function normalizeSource(
   source: ModelDeploymentLogSource | ApplicationDeploymentLogSource,
-): DeploymentLogSource {
+): LogSource {
   return {
     sourceName: source.sourceName,
     sourceLabel: source.sourceLabel,
@@ -177,7 +149,7 @@ function normalizeSource(
 
 function normalizeSourceEvent(
   event: ModelDeploymentLogSourceEvent | ApplicationDeploymentLogSourceEvent,
-): DeploymentLogSource {
+): LogSource {
   return {
     sourceName: event.sourceName,
     sourceLabel: event.sourceLabel,
@@ -185,15 +157,12 @@ function normalizeSourceEvent(
   };
 }
 
-function normalizeEntry(
-  entry: ModelDeploymentLogEntry | ApplicationDeploymentLogEntry,
-): DeploymentLogEntry {
+function normalizeEntry(entry: ModelDeploymentLogEntry | ApplicationDeploymentLogEntry): LogEntry {
   return {
     sourceName: entry.sourceName,
     sourceLabel: entry.sourceLabel,
-    stream: normalizeStream(entry.stream),
+    category: normalizeStream(entry.stream),
     timestamp: normalizeTimestamp(entry.timestamp),
-    content: entry.content,
     text: new TextDecoder().decode(entry.content),
     truncated: entry.truncated,
   };
@@ -231,7 +200,7 @@ function normalizeHistoryState(
 
 function normalizeSourceState(
   state: ModelDeploymentLogSourceState | ApplicationDeploymentLogSourceState,
-): DeploymentLogSource["state"] {
+): LogSource["state"] {
   switch (Number(state)) {
     case 1:
       return "available";
@@ -246,7 +215,7 @@ function normalizeSourceState(
 
 function normalizeStream(
   stream: ModelDeploymentLogStream | ApplicationDeploymentLogStream,
-): DeploymentLogEntry["stream"] {
+): "stdout" | "stderr" | "unspecified" {
   switch (Number(stream)) {
     case 1:
       return "stdout";

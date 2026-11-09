@@ -6,8 +6,8 @@ import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import type { RouteClient } from "@/api/route-client";
-import { PanelNavigationProvider } from "@/app/console-layout";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import {
   metricsClientWith,
   queryResult,

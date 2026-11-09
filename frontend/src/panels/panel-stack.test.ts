@@ -24,7 +24,7 @@ import {
   serializePanelEntry,
   serializePanelStack,
   sidebarParent,
-} from "@/lib/panel-stack";
+} from "./panel-stack";
 
 const deployment: PanelEntry = {
   page: "models",

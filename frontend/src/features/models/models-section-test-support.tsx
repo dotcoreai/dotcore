@@ -9,8 +9,8 @@ import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
 import type { SiteClient } from "@/api/site-client";
 import { ChatOpenerContext } from "@/app/chat-opener";
-import { PanelNavigationProvider } from "@/app/console-layout";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { idleNodeMemory } from "@/features/memory/machine-test-support";
 import {
   nodeMemory as nodeMemoryOf,

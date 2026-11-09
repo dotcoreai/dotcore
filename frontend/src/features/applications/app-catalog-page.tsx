@@ -2,10 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ApplicationClient, applicationClient } from "@/api/application-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import { CatalogSectionIcon } from "@/app/console-section-icons";
-import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
-import { usePublishPanelTitles } from "@/app/panel-titles-context";
 import { useWatchedRoutes } from "@/app/resource-watch";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -17,6 +14,8 @@ import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 import { buildDataTable } from "@/lib/data-table-model";
+import { usePanelNavigation } from "@/panels/panel-navigation";
+import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   activePanel,
   appendPanelLocation,
@@ -27,8 +26,9 @@ import {
   panelPagePath,
   selectPanel,
   serializePanelStack,
-} from "@/lib/panel-stack";
-import { panelTitle } from "@/lib/panel-titles";
+} from "@/panels/panel-stack";
+import { panelTitle } from "@/panels/panel-titles";
+import { usePublishPanelTitles } from "@/panels/panel-titles-context";
 
 import {
   ApplicationDeployDialog,

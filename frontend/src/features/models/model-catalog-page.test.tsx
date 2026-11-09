@@ -14,7 +14,7 @@ import {
   ListModelDeploymentsResponseSchema,
 } from "@/gen/dotcore/model/v1/service_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
-import { isPanelHistoryState } from "@/lib/panel-stack";
+import { isPanelHistoryState } from "@/panels/panel-stack";
 
 import type { ModelDeployDialogProps } from "./model-deploy-dialog";
 import {

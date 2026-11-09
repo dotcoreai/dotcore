@@ -2,15 +2,14 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PanelEntry } from "@/lib/panel-stack";
-
-import { PanelTitlesProvider } from "./panel-titles";
+import type { PanelEntry } from "./panel-stack";
 import {
   PanelParentContext,
   type PanelTitleLookup,
   usePanelParent,
   usePublishPanelTitles,
 } from "./panel-titles-context";
+import { PanelTitlesProvider } from "./panel-titles-provider";
 
 const route: PanelEntry = { page: "routes", screen: "route", resourceId: "r1" };
 

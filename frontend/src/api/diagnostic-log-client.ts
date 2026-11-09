@@ -2,7 +2,6 @@ import { create } from "@bufbuild/protobuf";
 import { type CallOptions, Code, ConnectError, createClient } from "@connectrpc/connect";
 
 import { createConsoleTransport } from "@/api/console-transport";
-import { resolveManagementOrigin } from "@/api/management-origin";
 import type {
   LogEntry,
   LogFollowEvent,
@@ -10,7 +9,8 @@ import type {
   LogSource,
   LogSourceState,
   LogViewerOperations,
-} from "@/components/log-viewer/types";
+} from "@/api/log-types";
+import { resolveManagementOrigin } from "@/api/management-origin";
 import {
   DiagnosticHistoryContinuationSchema,
   DiagnosticService,

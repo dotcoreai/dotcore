@@ -4,9 +4,6 @@ import { useLocation } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type RouteClient, routeClient } from "@/api/route-client";
-import { usePanelDirtyGuard, usePanelNavigation } from "@/app/console-layout";
-import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
-import { usePublishPanelTitles } from "@/app/panel-titles-context";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -29,6 +26,8 @@ import {
 import { type FallbackGroup, type InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { FieldErrors } from "@/lib/form-validation";
+import { usePanelDirtyGuard, usePanelNavigation } from "@/panels/panel-navigation";
+import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
   activePanel,
   appendPanelHref,
@@ -36,8 +35,9 @@ import {
   canonicalizePanelLocation,
   type PanelEntry,
   selectPanelLocation,
-} from "@/lib/panel-stack";
-import { panelTitle } from "@/lib/panel-titles";
+} from "@/panels/panel-stack";
+import { panelTitle } from "@/panels/panel-titles";
+import { usePublishPanelTitles } from "@/panels/panel-titles-context";
 
 import { newEditorGroup, type RouteEditorState } from "./route-draft";
 import { RouteEditor } from "./route-editor";

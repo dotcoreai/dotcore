@@ -1,7 +1,9 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { describe, expect, it, vi } from "vitest";
 
-import { createDeploymentLogOperations, type LogTimestamp } from "./deployment-log-client";
+import type { LogTimestamp } from "@/api/log-types";
+
+import { createDeploymentLogOperations } from "./deployment-log-client";
 
 const timestamp: LogTimestamp = { seconds: 42n, nanos: 7 };
 
@@ -35,9 +37,8 @@ describe("deployment log adapters", () => {
         {
           sourceName: "worker",
           sourceLabel: "Worker",
-          stream: "stderr",
+          category: "stderr",
           timestamp,
-          content: new TextEncoder().encode("failed"),
           text: "failed",
           truncated: true,
         },
@@ -94,8 +95,7 @@ describe("deployment log adapters", () => {
           entry: {
             sourceName: "worker",
             sourceLabel: "Worker",
-            stream: "stdout",
-            content: new TextEncoder().encode("ok"),
+            category: "stdout",
             text: "ok",
             truncated: false,
           },

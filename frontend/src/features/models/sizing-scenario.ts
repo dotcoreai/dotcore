@@ -5,7 +5,7 @@ import {
   SizingScenarioUnsupportedReason,
 } from "@/gen/dotcore/model/v1/service_pb";
 import { formatCompactCount } from "@/lib/format";
-import { panelParameter } from "@/lib/panel-stack";
+import { panelParameter } from "@/panels/panel-stack";
 
 import { defaultMemoryBasis, type MemoryBasis } from "./profile-compatibility";
 

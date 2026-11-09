@@ -6,8 +6,8 @@ import { vi } from "vitest";
 import type { ApplicationClient } from "@/api/application-client";
 import type { MetricsClient } from "@/api/metrics-client";
 import type { RouteClient } from "@/api/route-client";
-import { PanelNavigationProvider } from "@/app/console-layout";
 import { ResourceWatchProvider } from "@/app/resource-watch-provider";
+import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { idleMetricsClient } from "@/features/metrics/metric-test-support";
 import {
   ApplicationDeploymentDesiredState,

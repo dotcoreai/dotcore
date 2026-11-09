@@ -40,9 +40,9 @@ import type {
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
 import { formatCount, formatRelativeTime } from "@/lib/format";
-import type { PanelEntry } from "@/lib/panel-stack";
 import type { ReadState } from "@/lib/read-state";
 import type { StatusProjection } from "@/lib/status-projection";
+import type { PanelEntry } from "@/panels/panel-stack";
 
 import { MachineMetricSections, PendingMachineResources } from "./machine-metrics";
 

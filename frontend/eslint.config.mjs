@@ -10,6 +10,49 @@ import tseslint from "typescript-eslint";
 
 const typeScriptFiles = ["src/**/*.{ts,tsx}", "vite.config.ts"];
 
+// Folders under src/, lowest layer first: a folder imports only from the ones before it. A folder
+// marked `pending` still imports later layers; its rule is off until the named phase cleans it.
+const layers = [
+  { name: "gen" },
+  { name: "lib", pending: "phase 05 shared domain" },
+  { name: "api" },
+  { name: "hooks", pending: "phase 04 resource watch and theme" },
+  { name: "panels" },
+  { name: "components", pending: "phase 04 resource watch and theme" },
+  { name: "features", pending: "phase 06 routes cleanup" },
+  { name: "routes" },
+  { name: "app" },
+];
+
+const transportPath = {
+  name: "@connectrpc/connect-web",
+  message: "Create transports with createConsoleTransport in src/api/console-transport.ts.",
+};
+
+// Blocks don't merge, so each repeats the transport path.
+const layerBlocks = layers.flatMap(({ name, pending }, i) => {
+  const names = layers.map((layer) => layer.name);
+  if (pending || i === names.length - 1) {
+    return [];
+  }
+
+  const group = (folders) => folders.flatMap((f) => [`@/${f}`, `@/${f}/**`, `../**/${f}/**`]);
+  const message = `src/${name} may import only from: ${names.slice(0, i).join(", ")}.`;
+  const patterns = [{ group: group(names.slice(i + 1)), message }];
+  if (name === "components") {
+    patterns.push({ group: group(["gen"]), message: "src/components stays free of protobuf." });
+  }
+
+  return [
+    {
+      files: [`src/${name}/**/*.{ts,tsx}`],
+      // The transport path is allowed in the one file that builds transports.
+      ignores: name === "api" ? ["src/api/console-transport.ts"] : [],
+      rules: { "no-restricted-imports": ["error", { paths: [transportPath], patterns }] },
+    },
+  ];
+});
+
 export default defineConfig(
   globalIgnores(["node_modules/", "dist/", "coverage/", "src/gen/"]),
   {
@@ -43,13 +86,7 @@ export default defineConfig(
       "no-restricted-imports": [
         "error",
         {
-          paths: [
-            {
-              name: "@connectrpc/connect-web",
-              message:
-                "Create transports with createConsoleTransport in src/api/console-transport.ts.",
-            },
-          ],
+          paths: [transportPath],
         },
       ],
     },
@@ -61,13 +98,7 @@ export default defineConfig(
       "no-restricted-imports": [
         "error",
         {
-          paths: [
-            {
-              name: "@connectrpc/connect-web",
-              message:
-                "Create transports with createConsoleTransport in src/api/console-transport.ts.",
-            },
-          ],
+          paths: [transportPath],
           patterns: [
             {
               group: ["@/features/**", "**/features/**"],
@@ -78,6 +109,7 @@ export default defineConfig(
       ],
     },
   },
+  ...layerBlocks,
   {
     files: ["src/**/*.{test,spec}.{ts,tsx}", "src/test/**/*.{ts,tsx}"],
     languageOptions: {

@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 
-import type { PanelEntry } from "@/lib/panel-stack";
+import type { PanelEntry } from "./panel-stack";
 import {
   panelKindLabel,
   type PanelTitle,
   panelTitleKey,
   type PanelTitleStore,
-} from "@/lib/panel-titles";
+} from "./panel-titles";
 
 /** Reads one resource's name from the backend, or undefined when it is not known. */
 export type PanelTitleLookup = (

@@ -9,12 +9,13 @@ import {
   useState,
 } from "react";
 
+import type { LogViewerOperations } from "@/api/log-types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useInspectorFloatingLayerRegistration } from "@/components/ui/inspector-shell";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { useMetricPauseWhile } from "@/features/metrics/metric-pause";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { useWatchPausedWhile } from "@/hooks/use-watch-pause";
 import type { StatusProjection } from "@/lib/status-projection";
 
 import {
@@ -24,7 +25,6 @@ import {
   type SourceChipState,
   sourceChipState,
 } from "./state";
-import type { LogViewerOperations } from "./types";
 import { useLogViewer } from "./use-log-viewer";
 
 const latestThreshold = 16;
@@ -65,7 +65,7 @@ export function LogViewerModal<Position>({
   title,
 }: LogViewerModalProps<Position>) {
   useInspectorFloatingLayerRegistration(open);
-  useMetricPauseWhile(open);
+  useWatchPausedWhile(open);
   const viewer = useLogViewer({ enabled: open, operations, perSourceReconnect, sessionKey });
   const [sourceSelection, setSourceSelection] = useState<SourceSelection>({ sessionKey });
   const [latestState, setLatestState] = useState({ sessionKey, value: true });

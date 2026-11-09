@@ -5,9 +5,9 @@ import { resourcesCurrentWindow } from "@/features/machines/machine-resources";
 import { currentValue } from "@/features/metrics/metric-current";
 import type { MetricGrid } from "@/features/metrics/metric-grid";
 import { dimensionNames, metricNames } from "@/features/metrics/metric-names";
-import { useMetricsPausedByLogs } from "@/features/metrics/metric-pause";
 import type { MetricRange } from "@/features/metrics/metric-ranges";
 import { type MetricHistoryQuery, useMetricAnswers } from "@/features/metrics/use-metric-watch";
+import { useWatchPaused } from "@/hooks/use-watch-pause";
 
 /** What an application deployment currently uses of its machine; a value without a reading is absent. */
 export interface ApplicationResources {
@@ -26,7 +26,7 @@ export function useApplicationResources(
   client: MetricsClient,
   enabled: boolean,
 ): ReadonlyMap<string, ApplicationResources> {
-  const paused = useMetricsPausedByLogs();
+  const paused = useWatchPaused();
   const watch = useMetricAnswers(
     client,
     enabled ? resourceQueries : [],

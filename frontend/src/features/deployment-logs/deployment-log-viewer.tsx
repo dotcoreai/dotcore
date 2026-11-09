@@ -2,18 +2,17 @@ import { Code } from "@connectrpc/connect";
 import { type RefObject, useMemo } from "react";
 
 import {
-  type DeploymentLogEntry,
   DeploymentLogError,
   type DeploymentLogOperations,
   type DeploymentLogResumePosition,
-  type LogTimestamp,
 } from "@/api/deployment-log-client";
-import { LogViewerModal } from "@/components/log-viewer/log-viewer-modal";
 import type {
   LogEntry,
   LogFollowFailure,
+  LogTimestamp,
   LogViewerOperations,
-} from "@/components/log-viewer/types";
+} from "@/api/log-types";
+import { LogViewerModal } from "@/components/log-viewer/log-viewer-modal";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 
 export interface DeploymentLogViewerProps {
@@ -89,7 +88,7 @@ function bindDeploymentOperations(
         signal,
       );
       return {
-        entries: result.entries.map(toViewerEntry),
+        entries: result.entries,
         historyState: result.historyState,
         latestPosition: {
           resumePositions: result.latestPositions.length
@@ -104,23 +103,21 @@ function bindDeploymentOperations(
       };
     },
     follow: (request, signal) =>
-      normalizeFollow(
-        operations.follow(
-          {
-            deploymentId,
-            resumePositions: request.sourceName
-              ? request.resumePosition?.resumePositions?.filter(
-                  (position) => position.sourceName === request.sourceName,
-                )
-              : request.resumePosition?.resumePositions,
-            sourceNames: request.sourceName
-              ? [request.sourceName]
-              : sourceNames?.length
-                ? [...sourceNames]
-                : undefined,
-          },
-          signal,
-        ),
+      operations.follow(
+        {
+          deploymentId,
+          resumePositions: request.sourceName
+            ? request.resumePosition?.resumePositions?.filter(
+                (position) => position.sourceName === request.sourceName,
+              )
+            : request.resumePosition?.resumePositions,
+          sourceNames: request.sourceName
+            ? [request.sourceName]
+            : sourceNames?.length
+              ? [...sourceNames]
+              : undefined,
+        },
+        signal,
       ),
     classifyFollowError: classifyFollowFailure,
     advancePosition: (current, entry) => {
@@ -147,28 +144,7 @@ function classifyFollowFailure(error: unknown): LogFollowFailure {
   return error.code === Code.Unavailable || error.code === Code.Unknown ? "retry" : "fatal";
 }
 
-async function* normalizeFollow(events: ReturnType<DeploymentLogOperations["follow"]>) {
-  for await (const event of events) {
-    if (event.event.kind === "entry") {
-      yield { event: { kind: "entry" as const, entry: toViewerEntry(event.event.entry) } };
-    } else {
-      yield { event: { kind: "source" as const, source: event.event.source } };
-    }
-  }
-}
-
-function toViewerEntry(entry: DeploymentLogEntry): LogEntry {
-  return {
-    category: entry.stream,
-    sourceLabel: entry.sourceLabel,
-    sourceName: entry.sourceName,
-    text: entry.text,
-    timestamp: entry.timestamp,
-    truncated: entry.truncated,
-  };
-}
-
-function latestResumePositions(entries: readonly DeploymentLogEntry[]) {
+function latestResumePositions(entries: readonly LogEntry[]) {
   const positions = new Map<string, DeploymentLogResumePosition>();
   for (const entry of entries) {
     if (entry.timestamp) {

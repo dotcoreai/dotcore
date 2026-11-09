@@ -2,7 +2,6 @@ import { useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import { usePanelNavigation } from "@/app/console-layout";
 import { MachinesSectionIcon } from "@/app/console-section-icons";
 import {
   useWatchedApplicationDeployments,
@@ -29,6 +28,7 @@ import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { buildDataTable } from "@/lib/data-table-model";
 import { mapRead } from "@/lib/read-state";
+import { usePanelNavigation } from "@/panels/panel-navigation";
 
 import { inspectedMachineId, machineSelectionLocation } from "./machine-panels";
 import { machineSummary } from "./machine-resources";
