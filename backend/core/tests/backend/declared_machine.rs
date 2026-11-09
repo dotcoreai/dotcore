@@ -24,6 +24,7 @@ use dotcore::composition::BackendTestSupport;
 use dotcore_domain::{
     ExecutionPlatform,
     hardware_observation::{HardwareSample, HardwareSnapshotSource, NodeHardwareObservation},
+    timing::Timing,
 };
 use dotcore_node_hardware::{MachineDescription, MachineWorkload};
 use dotcore_proto::dotcore::{
@@ -750,6 +751,7 @@ async fn measured_use_counts_once(machine: &str, accelerator_bytes: &[u64]) {
         support::configuration(&root),
         BackendTestSupport {
             simulated_runtime: Some(simulation.clone()),
+            timing: watched_reading_timing(),
             ..BackendTestSupport::test()
         },
         RealHardware::new().0,
@@ -864,6 +866,7 @@ async fn ready_models_keep_their_estimates(machine: &str, accelerator_bytes: &[u
                     .with_representative_startup(Duration::ZERO)
                     .with_lifecycle_delays(Duration::ZERO, Duration::ZERO),
             ),
+            timing: watched_reading_timing(),
             ..BackendTestSupport::test()
         },
         RealHardware::new().0,
@@ -1729,6 +1732,19 @@ fn fast_simulation() -> BackendTestSupport {
         ),
         ..BackendTestSupport::test()
     }
+}
+
+/// Test timing whose watches tick on the production schedule. A node sends its observation and
+/// the statuses attributing that collection as separate messages, and a tick reads both only
+/// after the production grace past the reading slot, so a watched state never pairs a new reading
+/// with an attribution from the collection before it and counts a deployment's memory twice.
+fn watched_reading_timing() -> Timing {
+    let timing = Timing {
+        watch: Timing::production().watch,
+        ..Timing::test()
+    };
+    timing.check().expect("watched reading timing");
+    timing
 }
 
 /// The snapshot `machine` renders with `workloads` running, as the manager lists it.
