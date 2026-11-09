@@ -24,6 +24,12 @@ import {
 export type MemoryRowsMode = "merged" | "spans";
 
 /**
+ * What a bar's segments stand for: each deployment in its card color, with hatched use outside any
+ * deployment, or each machine's whole use in its marker color.
+ */
+export type MemorySegmentBy = "deployment" | "machine";
+
+/**
  * What the rows say about the focused deployment on one row while its size can't be drawn, such as
  * a pending estimate: `detail` is its line in the row's detail, and `readout` replaces the readout.
  */
@@ -139,7 +145,8 @@ export function MemoryRows({
  * machines, since free memory spread over machines is not room for one workload. `pending` kinds
  * without a row yet draw as empty metric rows. `kinds` are always drawn, first and in that order,
  * so the list keeps its shape whatever memory is read; one with no row draws empty and expands to
- * `emptyChildren`.
+ * `emptyChildren`. `segmentBy` draws deployments by default; by machine, each machine's use is one
+ * segment in its marker color, naming its deployments on hover.
  */
 export function MemoryMetricRows({
   capacity,
@@ -156,6 +163,7 @@ export function MemoryMetricRows({
   onExpandedChange,
   pending = [],
   rows,
+  segmentBy = "deployment",
   surface = "panel",
   unavailable = [],
 }: {
@@ -179,6 +187,7 @@ export function MemoryMetricRows({
   /** Memory kinds whose rows are not known yet, drawn empty after the known rows. */
   pending?: readonly MemoryKind[];
   rows: readonly MemoryRow[];
+  segmentBy?: MemorySegmentBy;
   surface?: "page" | "panel";
   unavailable?: readonly UnavailableMemory[];
 }) {
@@ -207,6 +216,7 @@ export function MemoryMetricRows({
         mode={mode}
         onExpandedChange={(open) => onExpandedChange(row.kind, open)}
         row={row}
+        segmentBy={segmentBy}
         surface={surface}
         unavailable={rowUnavailable}
       >
@@ -291,7 +301,6 @@ function MemoryRowLine({
     stale,
     unavailable,
   });
-  const segments = row.spans.flatMap((span) => span.segments);
   const staleClass = cn(stale && "opacity-60");
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -324,6 +333,7 @@ function MemoryRowLine({
             deviceLabel={deviceLabel}
             highlighted={highlighted}
             row={row}
+            segmentBy="deployment"
             surface={surface}
             unavailable={unavailable}
           />
@@ -331,9 +341,7 @@ function MemoryRowLine({
           <Bar
             ariaLabel={barLabel(row.kind, row.spans, unavailable, capacity, deviceLabel)}
             capacity={capacity}
-            highlighted={highlighted}
-            otherParts={row.spans}
-            segments={segments}
+            parts={barParts("deployment", row.spans, highlighted)}
             surface={surface}
             totalBytes={row.totalBytes}
           />
@@ -406,6 +414,7 @@ function MemoryMetricRow({
   mode,
   onExpandedChange,
   row,
+  segmentBy,
   surface,
   unavailable,
 }: {
@@ -421,6 +430,7 @@ function MemoryMetricRow({
   mode: MemoryRowsMode;
   onExpandedChange: (expanded: boolean) => void;
   row: MemoryRow;
+  segmentBy: MemorySegmentBy;
   surface: "page" | "panel";
   unavailable: readonly UnavailableMemory[];
 }) {
@@ -447,6 +457,7 @@ function MemoryMetricRow({
               deviceLabel={deviceLabel}
               highlighted={highlighted}
               row={row}
+              segmentBy={segmentBy}
               surface={surface}
               unavailable={unavailable}
             />
@@ -454,9 +465,7 @@ function MemoryMetricRow({
             <Bar
               ariaLabel={barLabel(row.kind, row.spans, unavailable, capacity, deviceLabel)}
               capacity={capacity}
-              highlighted={highlighted}
-              otherParts={row.spans}
-              segments={row.spans.flatMap((span) => span.segments)}
+              parts={barParts(segmentBy, row.spans, highlighted)}
               surface={surface}
               totalBytes={row.totalBytes}
             />
@@ -509,6 +518,7 @@ function MemorySpans({
   deviceLabel,
   highlighted,
   row,
+  segmentBy,
   surface,
   unavailable,
 }: {
@@ -516,6 +526,7 @@ function MemorySpans({
   deviceLabel?: string;
   highlighted?: string;
   row: MemoryRow;
+  segmentBy: MemorySegmentBy;
   surface: "page" | "panel";
   unavailable: readonly UnavailableMemory[];
 }) {
@@ -536,9 +547,7 @@ function MemorySpans({
           <Bar
             ariaLabel={barLabel(row.kind, [span], unavailable, spanCapacity(span), deviceLabel)}
             capacity={spanCapacity(span)}
-            highlighted={highlighted}
-            otherParts={[span]}
-            segments={span.segments}
+            parts={barParts(segmentBy, [span], highlighted)}
             surface={surface}
             totalBytes={span.totalBytes}
           />
@@ -644,31 +653,25 @@ function DetailLines({ lines }: { lines: readonly DetailLine[] }) {
 }
 
 /**
- * One bar: segments, then hatched memory in use outside any deployment, over a free-memory track. It
- * scales to its contents when drawn use exceeds the total, such as a claim past it, so it never
- * overflows. With a
- * `capacity` verdict, a line shows where the total ends or where the fit line sits.
+ * One bar: its parts in order over a free-memory track, each giving its detail on hover. It scales
+ * to its contents when drawn use exceeds the total, such as a claim past it, so it never overflows.
+ * With a `capacity` verdict, a line shows where the total ends or where the fit line sits.
  */
 function Bar({
   ariaLabel,
   capacity,
-  highlighted,
-  otherParts,
-  segments,
+  parts,
   surface,
   totalBytes,
 }: {
   ariaLabel: string;
   capacity?: MemoryRowCapacity;
-  highlighted?: string;
-  otherParts: readonly MemorySpan[];
-  segments: readonly MemorySegment[];
+  parts: readonly BarPart[];
   surface: "page" | "panel";
   totalBytes: bigint;
 }) {
   const { colorOf } = useResourceColors();
-  const otherBytes = sum(otherParts.map((span) => span.otherBytes));
-  const drawn = sum(segments.map((segment) => segment.bytes)) + otherBytes;
+  const drawn = sum(parts.map((part) => part.bytes));
   const scale = Number(drawn > totalBytes ? drawn : totalBytes) || 1;
   const width = (bytes: bigint) => `${(Number(bytes) / scale) * 100}%`;
 
@@ -683,44 +686,29 @@ function Bar({
         )}
         role="img"
       >
-        {/* A zero-byte segment would still draw its separator, so it stays in the text only. */}
-        {segments
-          .filter((segment) => segment.bytes > 0n)
-          .map((segment) => (
-            <Tooltip
-              key={`${segment.machineId}:${segment.owner ?? "model"}:${segment.deploymentId}`}
-            >
+        {/* A zero-byte part would still draw its separator, so it stays in the text only. */}
+        {parts
+          .filter((part) => part.bytes > 0n)
+          .map((part) => (
+            <Tooltip key={part.key}>
               <TooltipTrigger
                 className={cn(
                   "h-full shrink-0 transition-[filter,opacity]",
-                  highlighted !== undefined &&
-                    highlighted !== segment.deploymentId &&
-                    "opacity-45 grayscale",
+                  part.colorKey === undefined && otherClass,
+                  part.dimmed && "opacity-45 grayscale",
                 )}
-                data-deployment-id={segment.deploymentId}
+                data-deployment-id={part.deploymentId}
                 render={<span />}
                 style={{
-                  backgroundColor: colorOf(segment.colorKey),
-                  width: width(segment.bytes),
+                  backgroundColor: part.colorKey === undefined ? undefined : colorOf(part.colorKey),
+                  width: width(part.bytes),
                 }}
               />
               <TooltipContent className="flex-col items-start gap-0.5 text-left">
-                <SegmentDetail parts={otherParts} segment={segment} />
+                {part.detail}
               </TooltipContent>
             </Tooltip>
           ))}
-        {otherBytes > 0n ? (
-          <Tooltip>
-            <TooltipTrigger
-              className={cn("h-full shrink-0", otherClass)}
-              render={<span />}
-              style={{ width: width(otherBytes) }}
-            />
-            <TooltipContent className="flex-col items-start gap-0.5 text-left">
-              <OtherDetail parts={otherParts} />
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
       </div>
       {capacity ? (
         // A tick taller than the bar, so the crossed line reads by shape and not only by the
@@ -738,6 +726,76 @@ function Bar({
         />
       ) : null}
     </div>
+  );
+}
+
+/** One drawn part of a bar: its size, fill and hover detail. */
+interface BarPart {
+  bytes: bigint;
+  /** The part's marker color; a part without one draws hatched, as use outside any deployment. */
+  colorKey?: string;
+  deploymentId?: string;
+  detail: ReactNode;
+  /** Grays the part out while another deployment is highlighted. */
+  dimmed?: boolean;
+  key: string;
+}
+
+/**
+ * The parts of a bar over `spans`: each deployment segment, then hatched use outside any
+ * deployment, or by machine, each machine's whole use.
+ */
+function barParts(
+  segmentBy: MemorySegmentBy,
+  spans: readonly MemorySpan[],
+  highlighted?: string,
+): BarPart[] {
+  if (segmentBy === "machine") {
+    return spans.map((span) => ({
+      bytes: span.usedBytes,
+      colorKey: span.machine.machineId,
+      detail: <MachineDetail span={span} />,
+      key: span.machine.machineId,
+    }));
+  }
+
+  const segments: BarPart[] = spans
+    .flatMap((span) => span.segments)
+    .map((segment) => ({
+      bytes: segment.bytes,
+      colorKey: segment.colorKey,
+      deploymentId: segment.deploymentId,
+      detail: <SegmentDetail parts={spans} segment={segment} />,
+      dimmed: highlighted !== undefined && highlighted !== segment.deploymentId,
+      key: `${segment.machineId}:${segment.owner ?? "model"}:${segment.deploymentId}`,
+    }));
+  const otherBytes = sum(spans.map((span) => span.otherBytes));
+
+  return [...segments, { bytes: otherBytes, detail: <OtherDetail parts={spans} />, key: "other" }];
+}
+
+/** A machine's part of a bar: its use, then each deployment and other use within it. */
+function MachineDetail({ span }: { span: MemorySpan }) {
+  return (
+    <>
+      <span className="font-semibold">{span.machine.name}</span>
+      <span>
+        {formatBytes(span.usedBytes)} / {formatBytes(span.totalBytes)}
+      </span>
+      {span.segments
+        .filter((segment) => segment.bytes > 0n)
+        .map((segment) => (
+          <span key={`${segment.owner ?? "model"}:${segment.deploymentId}`}>
+            {segment.name} · {formatBytes(segment.bytes)}
+            {sourceSuffix(segment)}
+          </span>
+        ))}
+      {span.otherBytes > 0n ? (
+        <span>
+          {span.otherLabel} · {formatBytes(span.otherBytes)}
+        </span>
+      ) : null}
+    </>
   );
 }
 

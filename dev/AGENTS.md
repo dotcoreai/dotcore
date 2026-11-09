@@ -31,7 +31,7 @@ cover what agents get wrong.
 
 - Start it with `just dev::up-daemon`. `just dev::up` is the interactive terminal UI, not for
   agents.
-- Reuse a running stack and leave it running; stop it only if you started it in this task.
+- Reuse a running stack, and leave the stack running when you finish so the user can review it.
 - `just dev::pc` runs any Process Compose command against this workspace's stack.
 - A running process shows `Launching`, since the stack defines no readiness probe. Judge readiness
   by `is_running` in `just dev::pc process get <process> -o json`, the listening ports and the
@@ -88,9 +88,7 @@ NVIDIA on Linux arm64 or a Mac. It runs your uncommitted workspace state.
   several. It owns the workflow.
 - Pick join arguments and deployments for what you test. Default to simulated or small model
   profiles, and deploy apps only when the task needs them: their data can block worker cleanup.
-- Clean up every worker you joined before reporting the work done, and check each remote host for
-  leftovers. If `just dev::cluster::clean` refuses or leaves containers behind, stop and tell the
-  user instead of deleting worker data or containers by hand.
+- Leave a cluster running when you finish so the user can review it.
 - Remote hosts are shared: never stop or remove workloads that belong to another site.
 
 ## Changing the development tooling

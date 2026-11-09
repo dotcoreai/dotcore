@@ -160,6 +160,7 @@ export function MachinesResources({
             mode={spans ? "spans" : "merged"}
             onExpandedChange={(kind, expanded) => panel.setExpanded(kind, expanded)}
             rows={memoryRows}
+            segmentBy="machine"
             surface="page"
             unavailable={memory.kind === "ready" ? memory.memory.unavailable : []}
           >

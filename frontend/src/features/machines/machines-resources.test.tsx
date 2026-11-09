@@ -140,6 +140,12 @@ describe("MachinesResources", () => {
     renderPage(metricsClientWith(staticWatch(answer())));
     const resources = await screen.findByRole("region", { name: "Resources" });
     await waitFor(() => expect(rows(resources)).toHaveLength(5));
+    // Memory splits by machine in machine colors, in either view.
+    await waitFor(() =>
+      expect(memoryPartColors(rowElement(resources, "RAM"))).toEqual([
+        [cssColor("gpu1"), cssColor("spark")],
+      ]),
+    );
 
     await user.click(within(resources).getByRole("button", { name: "By machine" }));
 
@@ -148,6 +154,10 @@ describe("MachinesResources", () => {
     expectResourceMarker(within(cpu).getByText(/gpu1/), "gpu1");
     expect(fillColors(cpu)).toEqual([cssColor("gpu1"), cssColor("spark")]);
     expect(spanNames(rowElement(resources, "RAM"))).toEqual(["gpu1", "spark-01"]);
+    expect(memoryPartColors(rowElement(resources, "RAM"))).toEqual([
+      [cssColor("gpu1")],
+      [cssColor("spark")],
+    ]);
     expect(rows(resources)[0]).toEqual(["CPU", "25% · 52 CPUs"]);
   });
 
@@ -205,7 +215,7 @@ describe("MachinesResources", () => {
     await waitFor(() => expect(watchMetrics).toHaveBeenCalledTimes(4));
   });
 
-  it("adds a line per measured model to the memory row its machine runs models in", async () => {
+  it("draws memory history by machine only, with no line per model", async () => {
     const user = userEvent.setup();
     const watchMetrics = vi.fn(
       staticWatch(
@@ -224,22 +234,17 @@ describe("MachinesResources", () => {
     const resources = await screen.findByRole("region", { name: "Resources" });
     await waitFor(() => expect(rows(resources)).toHaveLength(5));
 
-    // spark's GPU is unified, so its model sits in RAM; gpu1's is dedicated, so in VRAM.
     await user.click(within(resources).getByRole("button", { name: "RAM" }));
     const ram = await screen.findByRole("group", { name: "RAM history" });
-    expect(chartReadout(ram)).toBe("Used 103 GiB Capacity 181 GiB Llama 3.1 8B 21 GiB");
-    expect(swatchColors(ram).at(-1)).toBe(cssColor("llama"));
+    expect(chartReadout(ram)).toBe("Used 103 GiB Capacity 181 GiB");
     await user.click(within(resources).getByRole("button", { name: "VRAM" }));
     const vram = await screen.findByRole("group", { name: "VRAM history" });
-    expect(chartReadout(vram)).toBe("Used 512 MiB Capacity 32 GiB Gemma 3 27B 256 MiB");
-    expect(swatchColors(vram).at(-1)).toBe(cssColor("gemma"));
-    // The table's stream, the current stream, and one history stream while rows are expanded.
-    expect(watchMetrics).toHaveBeenCalledTimes(3);
+    expect(chartReadout(vram)).toBe("Used 512 MiB Capacity 32 GiB");
 
     await user.click(within(resources).getByRole("button", { name: "By machine" }));
-    expect(chartReadout(screen.getByRole("group", { name: "RAM history" }))).toBe(
-      "gpu1 15 GiB spark-01 88 GiB Llama 3.1 8B 21 GiB",
-    );
+    const byMachine = screen.getByRole("group", { name: "RAM history" });
+    expect(chartReadout(byMachine)).toBe("gpu1 15 GiB spark-01 88 GiB");
+    expect(swatchColors(byMachine)).toEqual([cssColor("gpu1"), cssColor("spark")]);
   });
 
   it("names machines not counted now with their state, and leaves them out of every value", async () => {
@@ -470,6 +475,13 @@ function spanNames(row: HTMLElement): string[] {
 function fillColors(row: HTMLElement): string[] {
   return [...row.querySelectorAll<HTMLElement>('[data-slot="metric-bar-fill"]')].map(
     (fill) => fill.style.backgroundColor,
+  );
+}
+
+/** Each memory bar's drawn parts, by fill color. */
+function memoryPartColors(row: HTMLElement): string[][] {
+  return [...row.querySelectorAll<HTMLElement>('[role="img"]')].map((bar) =>
+    [...bar.querySelectorAll<HTMLElement>(":scope > *")].map((part) => part.style.backgroundColor),
   );
 }
 
