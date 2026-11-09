@@ -315,6 +315,9 @@ enum ModelRecommendationFit {
 
   // What is free on the target is unknown.
   MODEL_RECOMMENDATION_FIT_UNKNOWN = 3;
+
+  // The target stopped reporting; it is judged on the hardware it last reported, and what is free there is unknown.
+  MODEL_RECOMMENDATION_FIT_UNREACHABLE = 4;
 }
 
 // Target-level compatibility shared by every profile on one configured model execution target.
