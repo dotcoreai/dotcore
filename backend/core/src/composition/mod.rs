@@ -535,6 +535,7 @@ fn metric_catalog() -> Vec<MetricDescriptor> {
     descriptors.extend(forwarder_metric_descriptors());
     descriptors.extend(crate::router::metrics::router_metric_descriptors());
     descriptors.extend(crate::model::controller::metrics::deployment_metric_descriptors());
+    descriptors.extend(crate::application::application_metric_descriptors());
     descriptors
 }
 

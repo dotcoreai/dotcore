@@ -383,7 +383,8 @@ impl ModelRuntimeAdapterFactory for NativeRuntimeAdapterFactory {
 struct SimulatedRuntimeAdapterFactory {
     test_support: Option<SimulatedRuntimeTestSupport>,
 
-    /// Machine the node declares, on which its simulated model workloads take memory.
+    /// Machine the node declares, on which its simulated model workloads and application units
+    /// take memory.
     machine: Option<DeclaredMachine>,
 }
 
@@ -455,6 +456,8 @@ impl ApplicationRuntimeAdapterFactory for SimulatedRuntimeAdapterFactory {
             Ok(Box::new(InMemoryRuntimeBackend::for_target(
                 SimulatedRuntimeConfig {
                     execution_platform,
+                    managed_node_id: dotcore_domain::SiteNodeId::parse(&target.site_node_id).ok(),
+                    machine: self.machine.clone(),
                     test_support: self.test_support.clone(),
                     ..Default::default()
                 },

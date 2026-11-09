@@ -26,6 +26,7 @@ mod recovery;
 mod registry;
 mod removal;
 mod request;
+mod resources;
 mod types;
 mod validation;
 mod verification;

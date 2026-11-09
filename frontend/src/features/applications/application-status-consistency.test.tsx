@@ -3,7 +3,7 @@ import { render } from "@testing-library/react";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ResourceCard } from "@/components/ui/resource-card";
+import { DataTable } from "@/components/data-table/data-table";
 import {
   ApplicationDeploymentDesiredState,
   ApplicationDeploymentSchema,
@@ -15,18 +15,25 @@ import {
 } from "@/gen/dotcore/application/v1/state_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import { ApplicationSchema } from "@/gen/dotcore/catalog/v1/application_pb";
+import { buildDataTable } from "@/lib/data-table-model";
 
+import { projectApplicationDeploymentRows } from "./application-deployment-row";
+import {
+  applicationDeploymentTableDefinition,
+  applicationDeploymentTableUi,
+  applicationDeploymentViewCodec,
+} from "./application-deployment-table";
 import { DeploymentApplicationInspector } from "./application-inspector";
 import { projectApplicationDeploymentStatus } from "./application-projection";
 
 /**
- * A card shows an aggregate status and an inspector shows the underlying states as separate rows, so
- * the two surfaces deliberately show different words for the same deployment. What they may never do
- * is give one state two different colours.
+ * A table row shows an aggregate status and an inspector shows the underlying states as separate
+ * rows, so the two surfaces deliberately show different words for the same deployment. What they
+ * may never do is give one state two different colours.
  *
- * This is the seam the console got wrong: the card projected a status while the inspector computed
+ * This is the seam the console got wrong: the list projected a status while the inspector computed
  * its own tones from the raw fields, so a deployment reported up but not serving rendered a red
- * `Not ready` card that opened a green `Ready` panel.
+ * `Not ready` row that opened a green `Ready` panel.
  */
 
 const application = create(ApplicationSchema, {
@@ -61,6 +68,26 @@ function deploymentIn(
       readinessState,
     }),
   });
+}
+
+/** Renders the Apps table with one row for the deployment. */
+function renderRow(deployment: ReturnType<typeof deploymentIn>) {
+  const view = applicationDeploymentViewCodec.defaultView;
+  return render(
+    <DataTable
+      onViewChange={vi.fn()}
+      table={buildDataTable(
+        applicationDeploymentTableDefinition,
+        projectApplicationDeploymentRows([deployment], {
+          machines: [],
+          resources: new Map(),
+        }),
+        view,
+      )}
+      ui={applicationDeploymentTableUi}
+      view={view}
+    />,
+  );
 }
 
 /** Every status badge on screen, as the word it shows paired with the tone it carries. */
@@ -130,7 +157,7 @@ const cases: [
 
 describe("application status tone consistency", () => {
   it.each(cases)(
-    "gives every state one tone across the card and the inspector: %s",
+    "gives every state one tone across the row and the inspector: %s",
     (_name, lifecycleState, readinessState, desiredState, observationStale) => {
       const deployment = deploymentIn(
         lifecycleState,
@@ -148,19 +175,9 @@ describe("application status tone consistency", () => {
         }
       };
 
-      const card = render(
-        <ResourceCard
-          accessibleName="Team chat"
-          description="OpenWebUI"
-          name="Team chat"
-          onSelect={vi.fn()}
-          panelId="panel"
-          selected={false}
-          status={projectApplicationDeploymentStatus(deployment)}
-        />,
-      );
+      const row = renderRow(deployment);
       record();
-      card.unmount();
+      row.unmount();
 
       const panel = render(
         <DeploymentApplicationInspector
@@ -185,11 +202,15 @@ describe("application status tone consistency", () => {
     },
   );
 
-  it("shows the card aggregate as the panel State, with no separate readiness badge", () => {
+  it("shows the row aggregate as the panel State, with no separate readiness badge", () => {
     const deployment = deploymentIn(
       ApplicationLifecycleState.READY,
       ApplicationReadinessState.NOT_READY,
     );
+
+    const row = renderRow(deployment);
+    const rowBadges = badgeTones();
+    row.unmount();
 
     render(
       <DeploymentApplicationInspector
@@ -203,12 +224,12 @@ describe("application status tone consistency", () => {
     );
 
     // One badge carries the aggregate: a ready lifecycle with an unready deployment reads as the
-    // readiness that contradicts it, as on the card.
-    expect(badgeTones()).toEqual([["Not ready", "destructive"]]);
-    expect(projectApplicationDeploymentStatus(deployment).label).toBe("Not ready");
+    // readiness that contradicts it, in the row and as the panel's State.
+    expect(rowBadges).toEqual([["Not ready", "destructive"]]);
+    expect(badgeTones()).toEqual(rowBadges);
   });
 
-  it("colours the card aggregate from the state it chose to show", () => {
+  it("colours the row aggregate from the state it chose to show", () => {
     const notServing = projectApplicationDeploymentStatus(
       deploymentIn(ApplicationLifecycleState.READY, ApplicationReadinessState.NOT_READY),
     );

@@ -38,7 +38,7 @@ describe("PageHeader", () => {
     );
   });
 
-  it("keeps page actions on the heading's row at every width", () => {
+  it("keeps page actions on the heading's row, wrapping them below only when they don't fit", () => {
     render(
       <PageHeader data-testid="header">
         <PageHeaderHeading>Routes</PageHeaderHeading>
@@ -52,12 +52,15 @@ describe("PageHeader", () => {
       "min-h-control-action",
       "items-center",
       "justify-between",
-      "gap-4",
+      "flex-wrap",
+      "gap-x-4",
+      "gap-y-3",
     );
-    // No breakpoint may reintroduce stacking: a header that stacks is taller than one without
-    // actions, which is the offset this rule exists to prevent.
+    // No breakpoint may stack the header: a stacked header is taller than one without actions even
+    // when its actions fit, which is the offset this rule exists to prevent. Wrapping only moves
+    // actions that overflow the row.
     expect(header.className).not.toMatch(/flex-col|:flex-row/);
-    expect(screen.getByTestId("actions")).toHaveClass("flex", "items-center", "gap-2");
+    expect(screen.getByTestId("actions")).toHaveClass("flex", "flex-wrap", "items-center", "gap-2");
   });
 
   it("renders a decorative icon before the heading text", () => {

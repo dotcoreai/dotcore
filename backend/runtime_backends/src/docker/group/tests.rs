@@ -15,16 +15,18 @@ use dotcore_runtime::{
     RuntimeLogQuery, RuntimeLogSource, RuntimeLogSourceSelection, WorkloadCorrelation,
     WorkloadDependencyCondition, WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupStaleReason,
     WorkloadPort, WorkloadPublicationRequest, WorkloadStorageAttachment, WorkloadStorageKind,
-    WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitObservation, WorkloadUnitState,
+    WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitObservation,
+    WorkloadUnitResourceObservation, WorkloadUnitResources, WorkloadUnitResourcesUnavailable,
+    WorkloadUnitState,
 };
 
 use super::{
     super::{
         adapter::{DockerAcceleratorTransport, DockerRuntimeConfig},
         client::{
-            ClientError, ContainerInspection, DockerClient, DockerContainer, DockerGroupExecution,
-            DockerLogOutput, DockerLogRequest, DockerLogStream, DockerNetwork,
-            DockerNetworkSummary, GroupContainerInspection, GroupContainerOwnership,
+            ClientError, ContainerInspection, DockerClient, DockerContainer, DockerContainerStats,
+            DockerGroupExecution, DockerLogOutput, DockerLogRequest, DockerLogStream,
+            DockerNetwork, DockerNetworkSummary, GroupContainerInspection, GroupContainerOwnership,
             GroupNetworkAttachment,
         },
         ownership::{
@@ -1824,6 +1826,128 @@ async fn group_observation_reports_the_node_qualified_host_process_of_running_un
     assert_eq!(
         observed.units[&WorkloadUnitName("cache".to_owned())].host_process,
         None
+    );
+    std::fs::remove_dir_all(root).expect("remove application site-data root");
+}
+
+#[tokio::test]
+async fn group_resources_pass_cumulative_cpu_and_working_set_memory_through_per_unit() {
+    let root = test_root("group-unit-resources");
+    let client = GroupClient::default();
+    let adapter = test_adapter(client.clone(), root.clone());
+    let group = group();
+    let web = "container-dotcore_site-one_group_apps-01_unit_web";
+    let cache = "container-dotcore_site-one_group_apps-01_unit_cache";
+    let web_stats = |cpu_time_ns| DockerContainerStats {
+        cpu_time_ns: Some(cpu_time_ns),
+        memory_usage_bytes: Some(500),
+        memory_stat: BTreeMap::from([("inactive_file".to_owned(), 100)]),
+    };
+    let units = |observations: &BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>| {
+        observations
+            .iter()
+            .map(|(name, observation)| (name.0.clone(), describe(&observation.resources)))
+            .collect::<Vec<_>>()
+    };
+
+    // A group this backend has not created or verified lends no figures.
+    assert_eq!(
+        units(
+            &adapter
+                .observe_group_resources(&group)
+                .await
+                .expect("unknown group")
+        ),
+        [
+            ("cache".to_owned(), "not running".to_owned()),
+            ("web".to_owned(), "not running".to_owned()),
+        ]
+    );
+
+    adapter
+        .create_workload_group(&group)
+        .await
+        .expect("create group");
+    client
+        .stats
+        .lock()
+        .expect("stats")
+        .insert(web.to_owned(), web_stats(1_000));
+    assert_eq!(
+        units(
+            &adapter
+                .observe_group_resources(&group)
+                .await
+                .expect("first reading")
+        ),
+        [
+            (
+                "cache".to_owned(),
+                "unreadable: Docker container stats failed".to_owned()
+            ),
+            ("web".to_owned(), "cpu 1000 ns, memory 400 bytes".to_owned()),
+        ]
+    );
+
+    client
+        .stats
+        .lock()
+        .expect("stats")
+        .insert(web.to_owned(), web_stats(3_500));
+    assert_eq!(
+        units(
+            &adapter
+                .observe_group_resources(&group)
+                .await
+                .expect("second reading")
+        )[1],
+        ("web".to_owned(), "cpu 3500 ns, memory 400 bytes".to_owned())
+    );
+
+    // Another launch generation of the same group never reads this generation's containers.
+    let mut next_generation = group.clone();
+    next_generation.correlation.reconcile_generation += 1;
+    assert_eq!(
+        units(
+            &adapter
+                .observe_group_resources(&next_generation)
+                .await
+                .expect("other generation")
+        )[1],
+        ("web".to_owned(), "not running".to_owned())
+    );
+
+    adapter
+        .stop_workload_group(&group)
+        .await
+        .expect("stop group");
+    assert_eq!(
+        units(
+            &adapter
+                .observe_group_resources(&group)
+                .await
+                .expect("stopped group")
+        ),
+        [
+            ("cache".to_owned(), "not running".to_owned()),
+            ("web".to_owned(), "not running".to_owned()),
+        ]
+    );
+
+    // A container removed behind the backend's back reads as not running.
+    client
+        .requests
+        .lock()
+        .expect("requests")
+        .retain(|_, request| format!("container-{}", request.name) != cache);
+    assert_eq!(
+        units(
+            &adapter
+                .observe_group_resources(&group)
+                .await
+                .expect("missing container")
+        )[0],
+        ("cache".to_owned(), "not running".to_owned())
     );
     std::fs::remove_dir_all(root).expect("remove application site-data root");
 }
@@ -4525,6 +4649,7 @@ struct GroupClient {
     log_requests: Arc<Mutex<Vec<DockerLogRequest>>>,
     pending_logs: Arc<Mutex<BTreeSet<String>>>,
     pending_ownership: Arc<Mutex<BTreeSet<String>>>,
+    stats: Arc<Mutex<BTreeMap<String, DockerContainerStats>>>,
 }
 
 impl GroupClient {
@@ -5197,6 +5322,32 @@ impl DockerClient for GroupClient {
                 .ok_or_else(|| ClientError::not_found("missing")),
         )
     }
+
+    fn container_stats(
+        &self,
+        id: &str,
+    ) -> impl std::future::Future<Output = Result<DockerContainerStats, ClientError>> + Send {
+        let exists = self
+            .requests
+            .lock()
+            .expect("requests")
+            .values()
+            .any(|request| format!("container-{}", request.name) == id);
+        let result = if !exists {
+            Err(ClientError::not_found("missing"))
+        } else if !self.running.lock().expect("running").contains(id) {
+            // The Engine answers a container that is not running with empty stats.
+            Ok(DockerContainerStats::default())
+        } else {
+            self.stats
+                .lock()
+                .expect("stats")
+                .get(id)
+                .cloned()
+                .ok_or_else(|| ClientError::new("no stats fixture"))
+        };
+        ready(result)
+    }
 }
 
 fn container_labels(
@@ -5275,4 +5426,21 @@ fn expected_host_process(
     _process_id: u32,
 ) -> Option<dotcore_domain::host_process::HostProcessIdentity> {
     None
+}
+
+/// One unit's resource figures, or its unavailable reason with the read failure's context.
+fn describe(resources: &WorkloadUnitResources) -> String {
+    match resources {
+        WorkloadUnitResources::Available {
+            cpu_time_ns,
+            memory_bytes,
+        } => format!("cpu {cpu_time_ns} ns, memory {memory_bytes} bytes"),
+        WorkloadUnitResources::Unavailable(WorkloadUnitResourcesUnavailable::NotRunning) => {
+            "not running".to_owned()
+        }
+        WorkloadUnitResources::Unavailable(WorkloadUnitResourcesUnavailable::Read(error)) => {
+            format!("unreadable: {error}")
+        }
+        WorkloadUnitResources::NotReported => "not reported".to_owned(),
+    }
 }

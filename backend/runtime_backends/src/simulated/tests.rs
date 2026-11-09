@@ -12,7 +12,8 @@ use dotcore_runtime::{
     RuntimeWorkloadLogQuery, WorkloadCorrelation, WorkloadGroupBackend, WorkloadGroupId,
     WorkloadGroupLaunch, WorkloadGroupObservation, WorkloadId, WorkloadIpcMode, WorkloadLaunch,
     WorkloadObservation, WorkloadPublicationRequest, WorkloadStorageAttachment, WorkloadStorageKey,
-    WorkloadStorageKind, WorkloadUnitLaunch, WorkloadUnitName, WorkloadUnitState,
+    WorkloadStorageKind, WorkloadUnitLaunch, WorkloadUnitName, WorkloadUnitResources,
+    WorkloadUnitResourcesUnavailable, WorkloadUnitState,
 };
 use futures_util::StreamExt as _;
 
@@ -393,6 +394,111 @@ async fn group_stop_and_start_retain_identity_without_removal() {
 }
 
 #[tokio::test]
+async fn running_group_units_take_synthetic_host_memory_and_cpu_time_on_the_declared_machine() {
+    use dotcore_domain::hardware_observation::HardwareSnapshotSource;
+    use dotcore_proto::dotcore::observation::v1::host_observation;
+
+    let clock = dotcore_domain::clock::VirtualClock::starting_at(
+        std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_800_000_000),
+    );
+    let machine = super::DeclaredMachine::new(
+        dotcore_node_hardware::MachineDescription::simulated(&["rtx-5090".to_owned()], "amd64")
+            .expect("named machine"),
+        std::sync::Arc::new(clock.clone()),
+    );
+    let runtime = InMemoryRuntimeBackend::with_config(SimulatedRuntimeConfig {
+        managed_node_id: Some(SiteNodeId::for_test("node-01")),
+        machine: Some(machine.clone()),
+        ..Default::default()
+    });
+    let group = group_launch();
+    let unit_bytes = machine.description().host_memory_bytes() / 256;
+    let available = || match machine.collect_snapshot().host.and_then(|host| host.result) {
+        Some(host_observation::Result::Facts(facts)) => facts.available_memory_bytes,
+        other => panic!("expected host facts, got {other:?}"),
+    };
+    let idle = available();
+
+    runtime
+        .create_workload_group(&group)
+        .await
+        .expect("create group");
+    assert_eq!(available(), idle - unit_bytes);
+    assert_eq!(
+        web_resources(&runtime, &group, machine.wall_now()).await,
+        Some((0, unit_bytes))
+    );
+    // A unit keeps a quarter of one CPU busy, so its CPU time grows by a quarter of wall time.
+    clock.advance(std::time::Duration::from_secs(4));
+    assert_eq!(
+        web_resources(&runtime, &group, machine.wall_now()).await,
+        Some((1_000_000_000, unit_bytes))
+    );
+    clock.advance(std::time::Duration::from_secs(2));
+    assert_eq!(
+        web_resources(&runtime, &group, machine.wall_now()).await,
+        Some((1_500_000_000, unit_bytes))
+    );
+
+    runtime
+        .stop_workload_group(&group)
+        .await
+        .expect("stop group");
+    assert_eq!(available(), idle);
+    assert_eq!(
+        web_resources(&runtime, &group, machine.wall_now()).await,
+        None
+    );
+
+    // A restarted unit takes its memory again and counts CPU time from its new start.
+    runtime
+        .start_workload_group(&group)
+        .await
+        .expect("start group");
+    clock.advance(std::time::Duration::from_secs(4));
+    assert_eq!(available(), idle - unit_bytes);
+    assert_eq!(
+        web_resources(&runtime, &group, machine.wall_now()).await,
+        Some((1_000_000_000, unit_bytes))
+    );
+
+    runtime
+        .remove_workload_group(&group)
+        .await
+        .expect("remove group");
+    assert_eq!(available(), idle);
+    assert_eq!(
+        web_resources(&runtime, &group, machine.wall_now()).await,
+        None
+    );
+}
+
+#[tokio::test]
+async fn group_units_without_a_declared_machine_report_no_resources() {
+    let runtime = InMemoryRuntimeBackend::new(dotcore_domain::ExecutionPlatform::linux_amd64());
+    let group = group_launch();
+    runtime
+        .create_workload_group(&group)
+        .await
+        .expect("create group");
+
+    let observations = runtime
+        .observe_group_resources(&group)
+        .await
+        .expect("observe group resources");
+
+    assert_eq!(
+        observations.keys().cloned().collect::<Vec<_>>(),
+        [WorkloadUnitName("web".to_owned())]
+    );
+    assert!(
+        observations
+            .values()
+            .all(|unit| matches!(unit.resources, WorkloadUnitResources::NotReported))
+    );
+}
+
+#[tokio::test]
 async fn device_carrying_group_launch_is_accepted_and_retained_without_realization() {
     let support = SimulatedRuntimeTestSupport::with_stop_failures(0);
     let runtime = InMemoryRuntimeBackend::with_config(SimulatedRuntimeConfig {
@@ -424,6 +530,31 @@ async fn device_carrying_group_launch_is_accepted_and_retained_without_realizati
         retained[0].execution_target.accelerator_device_ids,
         group.execution_target.accelerator_device_ids
     );
+}
+
+/// The figures of the `web` unit of `group`, observed at `now`, or none while it is not running.
+async fn web_resources(
+    runtime: &InMemoryRuntimeBackend,
+    group: &WorkloadGroupLaunch,
+    now: std::time::SystemTime,
+) -> Option<(u64, u64)> {
+    let mut observations = runtime
+        .observe_group_resources(group)
+        .await
+        .expect("observe group resources");
+    assert_eq!(observations.len(), 1);
+    let observation = observations
+        .remove(&WorkloadUnitName("web".to_owned()))
+        .expect("web unit");
+    assert_eq!(observation.observed_at, now);
+    match observation.resources {
+        WorkloadUnitResources::Available {
+            cpu_time_ns,
+            memory_bytes,
+        } => Some((cpu_time_ns, memory_bytes)),
+        WorkloadUnitResources::Unavailable(WorkloadUnitResourcesUnavailable::NotRunning) => None,
+        other => panic!("unexpected unit resources: {other:?}"),
+    }
 }
 
 fn group_storage(group: &WorkloadGroupLaunch) -> WorkloadStorageKey {

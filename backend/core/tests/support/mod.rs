@@ -2729,6 +2729,16 @@ impl RunningBackend {
         SiteServiceClient::new(self.channel.clone())
     }
 
+    pub fn metrics_client(
+        &self,
+    ) -> dotcore_proto::dotcore::metrics::v1::metrics_service_client::MetricsServiceClient<
+        tonic::transport::Channel,
+    > {
+        dotcore_proto::dotcore::metrics::v1::metrics_service_client::MetricsServiceClient::new(
+            self.channel.clone(),
+        )
+    }
+
     pub async fn stop(mut self) {
         self.shutdown
             .take()

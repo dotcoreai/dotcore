@@ -11,7 +11,8 @@ use dotcore_runtime::{
     ObservedWorkloadGroup, RuntimeBackendError, RuntimeBackendId, RuntimeGroupLogFollowQuery,
     RuntimeLogQuery, RuntimeLogSourceHistory, RuntimeLogSourceSelection, RuntimeLogSourceStream,
     WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupLaunch, WorkloadGroupObservation,
-    WorkloadMaterializationRequirements, WorkloadStorageKey,
+    WorkloadMaterializationRequirements, WorkloadStorageKey, WorkloadUnitName,
+    WorkloadUnitResourceObservation,
 };
 use dotcore_site::view::fencing::{
     AcceptedNodeViewAuthority, ActionAssignment, ActionPermitError, LifecycleOperationAttempt,
@@ -243,6 +244,23 @@ impl ApplicationRuntimeMap {
             execution_target_id: execution_target_id.to_owned(),
             source,
         })
+    }
+
+    /// Measures the CPU time and memory of each unit of a workload group through the runtime
+    /// configured for `execution_target_id`.
+    pub(crate) async fn observe_group_resources(
+        &self,
+        execution_target_id: &str,
+        group: &WorkloadGroupLaunch,
+    ) -> Result<BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>, ApplicationRuntimeError>
+    {
+        self.target_adapter(execution_target_id)?
+            .observe_group_resources(group)
+            .await
+            .map_err(|source| ApplicationRuntimeError::TargetAdapter {
+                execution_target_id: execution_target_id.to_owned(),
+                source,
+            })
     }
 
     /// Removes a workload group through the runtime configured for `execution_target_id`.

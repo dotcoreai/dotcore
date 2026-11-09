@@ -1,11 +1,13 @@
 //! Runtime trait dispatch for Docker workload groups.
 
+use std::collections::BTreeMap;
+
 use dotcore_runtime::{
     ReadyLaunchGateOutcome, RuntimeBackend, RuntimeBackendError, RuntimeBackendId, RuntimeFuture,
     RuntimeGroupLogFollowQuery, RuntimeLogFuture, RuntimeLogSourceHistory,
     RuntimeLogSourceSelection, RuntimeLogSourceStream, WorkloadDependencyCondition,
     WorkloadGroupBackend, WorkloadGroupLaunch, WorkloadGroupObservation, WorkloadUnitName,
-    WorkloadUnitState,
+    WorkloadUnitResourceObservation, WorkloadUnitState,
 };
 use tracing::{debug, warn};
 
@@ -62,6 +64,13 @@ impl<C: DockerClient> WorkloadGroupBackend for DockerAdapter<C> {
         group: &'a WorkloadGroupLaunch,
     ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
         self.inspect_group(group)
+    }
+
+    fn observe_group_resources<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>> {
+        self.group_resources(group)
     }
 
     fn remove_workload_group<'a>(

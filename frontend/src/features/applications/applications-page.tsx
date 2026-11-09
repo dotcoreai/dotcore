@@ -3,10 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { type ApplicationClient, applicationClient } from "@/api/application-client";
+import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { usePanelNavigation } from "@/app/console-layout";
 import { AppsSectionIcon } from "@/app/console-section-icons";
 import { usePanelPendingNavigation } from "@/app/panel-navigation-pending";
 import { usePublishPanelTitles } from "@/app/panel-titles-context";
+import { DataTable } from "@/components/data-table/data-table";
+import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
+import { useDataTableView } from "@/components/data-table/use-data-table-view";
 import { DeployActionIcon } from "@/components/ui/action-icons";
 import { AddAction } from "@/components/ui/add-action";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,24 +22,21 @@ import {
   PageHeaderHeading,
   PageSectionHeading,
 } from "@/components/ui/page-header";
-import { ResourceCard } from "@/components/ui/resource-card";
-import { ResourceMarker } from "@/components/ui/resource-marker";
 import { DeploymentApplicationInspector } from "@/features/applications/application-inspector";
 import { applicationInspectorPanelId } from "@/features/applications/application-inspector-panel";
 import { describeMutationError } from "@/features/applications/application-mutation-errors";
-import { projectApplicationDeploymentStatus } from "@/features/applications/application-projection";
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentEditor } from "@/features/deployments/deployment-editor";
-import { placementLabel, placementMachine } from "@/features/deployments/placement";
+import { placementMachine } from "@/features/deployments/placement";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
 } from "@/gen/dotcore/application/v1/deployment_pb";
 import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
-import type { ConfiguredExecutionTarget, Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { applicationDeploymentPresentationName } from "@/lib/application-deployment-name";
+import { buildDataTable } from "@/lib/data-table-model";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/lib/deployment-metadata";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
 import {
@@ -50,10 +51,18 @@ import {
 } from "@/lib/panel-stack";
 import { panelTitle } from "@/lib/panel-titles";
 
+import { projectApplicationDeploymentRows } from "./application-deployment-row";
+import {
+  applicationDeploymentTableDefinition,
+  applicationDeploymentTableUi,
+  applicationDeploymentViewCodec,
+} from "./application-deployment-table";
 import { useSharedApplicationsPolling } from "./applications-polling-context";
+import { useApplicationResources } from "./use-application-resources";
 
 export interface ApplicationsPageProps {
   client?: ApplicationClient;
+  metricsClient?: MetricsClient;
 }
 
 export interface ApplicationInspectorSelection {
@@ -90,6 +99,8 @@ function deploymentPendingKey(
   return `deployment:${applicationDeploymentId}:${action}`;
 }
 
+const noDeployments: readonly ApplicationDeployment[] = [];
+
 const deploymentActions = ["pause", "resume", "remove", "update-metadata"] as const;
 
 function isDeploymentPending(
@@ -101,11 +112,15 @@ function isDeploymentPending(
   );
 }
 
-export function ApplicationsPage({ client = applicationClient }: ApplicationsPageProps) {
+export function ApplicationsPage({
+  client = applicationClient,
+  metricsClient = defaultMetricsClient,
+}: ApplicationsPageProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();
   const [selection, setSelection] = useState<ApplicationInspectorSelection>();
+  const view = useDataTableView(applicationDeploymentViewCodec);
   const canonical = useMemo(
     () => canonicalizePanelLocation({ pathname: location.pathname, search: location.search }),
     [location.pathname, location.search],
@@ -135,7 +150,16 @@ export function ApplicationsPage({ client = applicationClient }: ApplicationsPag
   }, [panelNavigation]);
   useEffect(() => {
     if (canonical.recovered || (urlEntry && !urlSelection)) {
-      void navigate(canonical, { replace: true });
+      // The shown view wins over the one the location was read with; another page takes none.
+      void navigate(
+        canonical.pathname === location.pathname
+          ? {
+              ...canonical,
+              search: applicationDeploymentViewCodec.apply(canonical.search, view.state),
+            }
+          : canonical,
+        { replace: true },
+      );
       return;
     }
 
@@ -152,10 +176,26 @@ export function ApplicationsPage({ client = applicationClient }: ApplicationsPag
       setMutationError(undefined);
       setSelection(urlSelection);
     }
-  }, [canonical, navigate, urlEntry, urlSelection]);
+  }, [canonical, location.pathname, navigate, urlEntry, urlSelection, view.state]);
 
   const { applyDeploymentMetadataOverlay, applyDeploymentOverlay, snapshot, statuses } =
     useSharedApplicationsPolling();
+  const deployments = snapshot?.deployments ?? noDeployments;
+  const resources = useApplicationResources(metricsClient, deployments.length > 0);
+  const deploymentRows = useMemo(
+    () =>
+      snapshot
+        ? projectApplicationDeploymentRows(snapshot.deployments, {
+            machines: snapshot.machines,
+            resources,
+          })
+        : [],
+    [resources, snapshot],
+  );
+  const deploymentTable = useMemo(
+    () => buildDataTable(applicationDeploymentTableDefinition, deploymentRows, view.state),
+    [deploymentRows, view.state],
+  );
   const loadingFeedbackVisible = useDelayedLoading(!snapshot);
   const initialLoadFailed = Boolean(
     statuses.catalog.error || statuses.deployments.error || statuses.executionTargets.error,
@@ -548,35 +588,24 @@ export function ApplicationsPage({ client = applicationClient }: ApplicationsPag
                 </Notice>
               ) : null}
               {snapshot.deployments.length ? (
-                <ul aria-label="Installed applications" className="inspector-card-grid">
-                  {snapshot.deployments.map((deployment) => (
-                    <DeploymentApplicationCard
-                      deployment={deployment}
-                      duplicateName={
-                        snapshot.deployments.filter(
-                          (candidate) =>
-                            applicationDeploymentPresentationName(candidate) ===
-                            applicationDeploymentPresentationName(deployment),
-                        ).length > 1
-                      }
-                      key={deployment.applicationDeploymentId}
-                      machine={placementMachine(
-                        snapshot.machines,
-                        deployment.placement?.siteNodeId,
-                      )}
-                      executionTargets={executionTargets}
-                      onSelect={(opener) =>
-                        select(
-                          { applicationDeploymentId: deployment.applicationDeploymentId },
-                          opener,
-                        )
-                      }
-                      selected={
-                        selection?.applicationDeploymentId === deployment.applicationDeploymentId
-                      }
-                    />
-                  ))}
-                </ul>
+                <div className="flex min-w-0 flex-col gap-2">
+                  <DataTableToolbar
+                    facets={deploymentTable.facets}
+                    onViewChange={view.set}
+                    ui={applicationDeploymentTableUi}
+                    view={view.state}
+                  />
+                  <DataTable
+                    onOpenRow={({ row }, opener) =>
+                      select({ applicationDeploymentId: row.deploymentId }, opener)
+                    }
+                    onViewChange={view.set}
+                    selection={selection ? { rowId: selection.applicationDeploymentId } : undefined}
+                    table={deploymentTable}
+                    ui={applicationDeploymentTableUi}
+                    view={view.state}
+                  />
+                </div>
               ) : (
                 <EmptyState
                   action={
@@ -742,48 +771,4 @@ function catalogApplicationHref(
     resourceId: applicationId,
     screen: "catalog",
   });
-}
-
-function DeploymentApplicationCard({
-  deployment,
-  duplicateName,
-  executionTargets,
-  machine,
-  onSelect,
-  selected,
-}: {
-  duplicateName: boolean;
-  deployment: ApplicationDeployment;
-  /** The site's configured execution targets, undefined until read. */
-  executionTargets: readonly ConfiguredExecutionTarget[] | undefined;
-  machine: Machine | undefined;
-  onSelect: (opener: HTMLElement) => void;
-  selected: boolean;
-}) {
-  const displayName = applicationDeploymentPresentationName(deployment);
-  const accessibleName = duplicateName
-    ? `${displayName} deployment (${deployment.applicationDeploymentId})`
-    : `${displayName} deployment`;
-  const version = deployment.snapshot?.version;
-
-  return (
-    <li className="min-w-0">
-      <ResourceCard
-        accessibleName={accessibleName}
-        colorKey={deployment.applicationDeploymentId}
-        description={
-          <>
-            {version ? `${version} · ` : null}
-            <ResourceMarker colorKey={deployment.placement?.siteNodeId ?? ""} />
-            {placementLabel(deployment.placement, machine, executionTargets)}
-          </>
-        }
-        name={displayName}
-        onSelect={onSelect}
-        panelId={applicationInspectorPanelId}
-        selected={selected}
-        status={projectApplicationDeploymentStatus(deployment)}
-      />
-    </li>
-  );
 }

@@ -11,8 +11,11 @@ pub const NODE: &str = "node";
 /// Dimension naming an accelerator device of a node.
 pub const DEVICE: &str = "device";
 
-/// Dimension naming a model deployment.
+/// Dimension naming a model or application deployment; the metric name says which kind.
 pub const DEPLOYMENT: &str = "deployment";
+
+/// Dimension naming one service of an application deployment.
+pub const SERVICE: &str = "service";
 
 /// Dimension naming a catalog model.
 pub const MODEL: &str = "model";

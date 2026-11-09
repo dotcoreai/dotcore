@@ -47,14 +47,15 @@ use dotcore_site::{
 };
 
 use super::*;
+use crate::metric_resend::COLLECTION_ALLOWANCE;
 use crate::model::controller::{
     accelerator_memory::{
         ProcessMemoryPort, RuntimeMemoryReading,
         tests::{observed_processes, process, workload},
     },
     metrics::{
-        COLLECTION_ALLOWANCE, DEPLOYMENT_ACCELERATOR_MEMORY_USED, DEPLOYMENT_MEMORY_SOURCE,
-        DeploymentMemoryWriter, deployment_metric_descriptors,
+        DEPLOYMENT_ACCELERATOR_MEMORY_USED, DEPLOYMENT_MEMORY_SOURCE, DeploymentMemoryWriter,
+        deployment_metric_descriptors,
     },
     serving_targets::{LocalServingTargetsPublisher, local_target_for_test},
 };

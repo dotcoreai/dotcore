@@ -6,13 +6,13 @@ pub mod repository;
 pub mod service;
 pub(crate) mod workloads;
 
+pub(crate) use controller::{
+    APPLICATION_RESOURCES_SOURCE, ApplicationNodeViewSection, NodeApplicationComposition,
+    NodeApplicationRealizer, application_metric_descriptors, classify_application_assignment,
+};
 pub use controller::{
     ApplicationConfigurationSources, ApplicationController, ApplicationControllerConfiguration,
     ApplicationDeploymentLogController, ApplicationLifecycleController, ApplicationLifecycleError,
     InferenceRouteResolutionError, InferenceRouteResolver, ParameterRejection,
     ResolvedInferenceRoute, RetainedTargetMismatch, TargetIneligibility,
-};
-pub(crate) use controller::{
-    ApplicationNodeViewSection, NodeApplicationComposition, NodeApplicationRealizer,
-    classify_application_assignment,
 };

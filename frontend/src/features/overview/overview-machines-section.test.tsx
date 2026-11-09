@@ -1,7 +1,6 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createRef } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,7 +15,6 @@ import {
 import { useMetricCards } from "@/features/metrics/use-metric-cards";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { MachineSchema, NodeObservationState } from "@/gen/dotcore/site/v1/service_pb";
-import { parsePanelStack } from "@/lib/panel-stack";
 
 import type { MachineFacts } from "./machine-site-values";
 import { overviewCardSpecs, overviewSplitIds, overviewSplits } from "./overview-card-specs";
@@ -129,28 +127,13 @@ describe("OverviewMachinesSection", () => {
     expect(metrics.current.chart?.series.map((series) => series.label)).toEqual(["CPU"]);
   });
 
-  it("lists every machine with its current readings, dashes when disconnected", async () => {
-    renderSection(metricsClientWith(staticWatch(answer)));
-
-    const table = await screen.findByRole("table", { name: "Machines" });
-    await waitFor(() => expect(rowTexts(table)[0]).not.toContain("— | —"));
-    expect(rowTexts(table)).toEqual([
-      "Spark | NVIDIA GB10 · 20 CPUs | 50% | 20% | 32 / 64 GiB | — | 512 GiB / 1.5 TiB",
-      "Mac | Apple M4 · 10 CPUs | 10% | 20% | 16 / 32 GiB | — | 768 GiB / 1 TiB",
-      "Old box | Disconnected | — | — | — | — | —",
-    ]);
-  });
-
-  it("opens the machine's sidebar from a row and keeps the row for focus return", async () => {
+  it("opens the machines page from the connected count", async () => {
     const user = userEvent.setup();
-    const { location, openerRef } = renderSection(metricsClientWith(staticWatch(answer)));
+    const { location } = renderSection(metricsClientWith(staticWatch(answer)));
 
-    await user.click(await screen.findByRole("row", { name: "Mac" }));
+    await user.click(screen.getByRole("link", { name: "Machines" }));
 
-    expect(parsePanelStack(location.current)).toEqual([
-      { page: "machines", resourceId: "mac", screen: "machine" },
-    ]);
-    expect(openerRef.current).toBe(screen.getByRole("row", { name: "Mac" }));
+    expect(location.pathname).toBe("/machines");
   });
 
   it("opens a one-second stream of its own for the newest readings next to the page's", async () => {
@@ -181,8 +164,7 @@ function renderSection(
   factsPending = false,
 ) {
   const metrics = {} as { current: OverviewMetrics };
-  const location = { current: "" };
-  const openerRef = createRef<HTMLElement | null>() as { current: HTMLElement | null };
+  const location = { current: "", pathname: "" };
   const specs = overviewCardSpecs(facts);
   const splits = overviewSplits([], [], machines);
   function Page() {
@@ -191,14 +173,10 @@ function renderSection(
       splits,
     });
     metrics.current = { ...cards, fleet: { facts, factsPending, machines, summaries } };
-    location.current = useLocation().search;
-    return (
-      <OverviewMachinesSection
-        metrics={metrics.current}
-        metricsClient={client}
-        openerRef={openerRef}
-      />
-    );
+    const current = useLocation();
+    location.current = current.search;
+    location.pathname = current.pathname;
+    return <OverviewMachinesSection metrics={metrics.current} metricsClient={client} />;
   }
   act(() => {
     render(
@@ -208,7 +186,7 @@ function renderSection(
     );
   });
 
-  return { location, metrics, openerRef };
+  return { location, metrics };
 }
 
 function cardTexts(section: HTMLElement): string[] {
@@ -222,23 +200,6 @@ function cardTexts(section: HTMLElement): string[] {
       .filter(Boolean)
       .join(" | "),
   );
-}
-
-function rowTexts(table: HTMLElement): string[] {
-  return within(table)
-    .getAllByRole("row")
-    .slice(1)
-    .map((row) =>
-      Array.from(row.querySelectorAll("td"))
-        .map((cell, index) =>
-          index === 0
-            ? Array.from(cell.querySelectorAll("div"))
-                .map((line) => line.textContent)
-                .join(" | ")
-            : cell.textContent,
-        )
-        .join(" | "),
-    );
 }
 
 /** Two connected machines reporting steady readings. */

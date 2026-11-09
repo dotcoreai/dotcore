@@ -18,7 +18,9 @@ use dotcore_runtime::{
     WorkloadId, WorkloadLaunch, WorkloadMaterializationRequirements, WorkloadObservation,
     WorkloadServiceBinding, WorkloadStartupActivity, WorkloadStartupObserver, WorkloadStartupPhase,
     WorkloadStartupProgress, WorkloadStartupProgressUnit, WorkloadStartupRequest,
-    WorkloadStorageAttachment, WorkloadStorageKey, WorkloadUnitObservation, WorkloadUnitState,
+    WorkloadStorageAttachment, WorkloadStorageKey, WorkloadUnitName, WorkloadUnitObservation,
+    WorkloadUnitResourceObservation, WorkloadUnitResources, WorkloadUnitResourcesUnavailable,
+    WorkloadUnitState,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -26,6 +28,7 @@ use super::configuration::{
     SimulatedRuntimeConfig, SimulatedRuntimeGroupCall, SimulatedRuntimeGroupDrift,
     SimulatedRuntimeTestSupport,
 };
+use super::machine::ApplicationUnitProcess;
 
 /// Runtime backend identifier of the simulated backend.
 pub const BACKEND_ID: &str = "runtime/simulated-memory";
@@ -139,7 +142,10 @@ pub(super) struct FakeState {
 #[derive(Debug)]
 struct FakeWorkloadGroup {
     launch: WorkloadGroupLaunch,
-    unit_states: BTreeMap<dotcore_runtime::WorkloadUnitName, WorkloadUnitState>,
+    unit_states: BTreeMap<WorkloadUnitName, WorkloadUnitState>,
+
+    /// Simulated process of every running unit on the node's declared machine, if any.
+    unit_processes: BTreeMap<WorkloadUnitName, ApplicationUnitProcess>,
 }
 
 impl WorkloadGroupBackend for InMemoryRuntimeBackend {
@@ -230,7 +236,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
             if let Some(test_support) = &self.config.test_support {
                 test_support.record_group_call("ensure-absent", &group_id.0);
             }
-            state.groups.remove(&group_id.0);
+            self.forget_group(&mut state, &group_id.0);
             Ok(())
         })
     }
@@ -260,10 +266,8 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
                         .map(WorkloadStorageAttachment::storage_key),
                 );
             }
-            state
-                .groups
-                .entry(group.group_id.0.clone())
-                .or_insert_with(|| FakeWorkloadGroup {
+            if !state.groups.contains_key(&group.group_id.0) {
+                let mut created = FakeWorkloadGroup {
                     launch: group.clone(),
                     unit_states: group
                         .units
@@ -271,7 +275,11 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
                         .cloned()
                         .map(|name| (name, WorkloadUnitState::Running))
                         .collect(),
-                });
+                    unit_processes: BTreeMap::new(),
+                };
+                self.start_unit_processes(&mut created);
+                state.groups.insert(group.group_id.0.clone(), created);
+            }
             Ok(simulated_group_observation(
                 state
                     .groups
@@ -318,6 +326,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
             for unit in stored.unit_states.values_mut() {
                 *unit = WorkloadUnitState::Running;
             }
+            self.start_unit_processes(stored);
             Ok(simulated_group_observation(
                 stored,
                 RuntimeBackend::backend_id(self),
@@ -370,6 +379,13 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
         })
     }
 
+    fn observe_group_resources<'a>(
+        &'a self,
+        group: &'a WorkloadGroupLaunch,
+    ) -> RuntimeFuture<'a, BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation>> {
+        Box::pin(std::future::ready(Ok(self.group_resources(group))))
+    }
+
     fn remove_workload_group<'a>(
         &'a self,
         group: &'a WorkloadGroupLaunch,
@@ -391,7 +407,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
                     "simulated workload group launch identity does not match removal request",
                 ));
             }
-            state.groups.remove(&group.group_id.0);
+            self.forget_group(&mut state, &group.group_id.0);
             Ok(())
         })
     }
@@ -416,7 +432,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
             if let Some(test_support) = &self.config.test_support {
                 test_support.record_group_call("remove", &group.group_id.0);
             }
-            state.groups.remove(&group.group_id.0);
+            self.forget_group(&mut state, &group.group_id.0);
             Ok(())
         })
     }
@@ -447,6 +463,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
             for unit in stored.unit_states.values_mut() {
                 *unit = WorkloadUnitState::Stopped;
             }
+            self.end_unit_processes(stored);
             Ok(())
         })
     }
@@ -475,6 +492,88 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
 }
 
 impl InMemoryRuntimeBackend {
+    /// Synthetic figures of every requested unit, from its process on the declared machine. A
+    /// unit without a running process, or of another launch generation, has none; without a
+    /// machine, the runtime reports none.
+    fn group_resources(
+        &self,
+        group: &WorkloadGroupLaunch,
+    ) -> BTreeMap<WorkloadUnitName, WorkloadUnitResourceObservation> {
+        let Some(machine) = &self.config.machine else {
+            let observed_at = std::time::SystemTime::now();
+            return group
+                .units
+                .keys()
+                .map(|name| {
+                    (
+                        name.clone(),
+                        WorkloadUnitResourceObservation {
+                            observed_at,
+                            resources: WorkloadUnitResources::NotReported,
+                        },
+                    )
+                })
+                .collect();
+        };
+        let state = self.state.lock().expect("simulated runtime state");
+        let stored = state
+            .groups
+            .get(&group.group_id.0)
+            .filter(|stored| stored.launch.correlation == group.correlation);
+        group
+            .units
+            .keys()
+            .map(|name| {
+                let observation = match stored.and_then(|stored| stored.unit_processes.get(name)) {
+                    Some(process) => machine.application_unit_resources(process),
+                    None => WorkloadUnitResourceObservation {
+                        observed_at: machine.wall_now(),
+                        resources: WorkloadUnitResources::Unavailable(
+                            WorkloadUnitResourcesUnavailable::NotRunning,
+                        ),
+                    },
+                };
+                (name.clone(), observation)
+            })
+            .collect()
+    }
+
+    /// Starts a process on the declared machine for every unit of `group` without one, so its
+    /// synthetic memory counts as used there.
+    fn start_unit_processes(&self, group: &mut FakeWorkloadGroup) {
+        let Some((machine, node)) = self
+            .config
+            .machine
+            .as_ref()
+            .zip(self.config.managed_node_id.as_ref())
+        else {
+            return;
+        };
+        for name in group.unit_states.keys() {
+            group
+                .unit_processes
+                .entry(name.clone())
+                .or_insert_with(|| machine.start_application_unit(node));
+        }
+    }
+
+    /// Ends every unit process of `group`, releasing its memory on the declared machine.
+    fn end_unit_processes(&self, group: &mut FakeWorkloadGroup) {
+        let processes = std::mem::take(&mut group.unit_processes);
+        if let Some(machine) = &self.config.machine {
+            processes
+                .values()
+                .for_each(|process| machine.end_application_unit(process));
+        }
+    }
+
+    /// Drops a retained group and ends its unit processes.
+    fn forget_group(&self, state: &mut FakeState, group_id: &str) {
+        if let Some(mut removed) = state.groups.remove(group_id) {
+            self.end_unit_processes(&mut removed);
+        }
+    }
+
     /// Whether exactly `group` is retained. A group retained under the same identity with another
     /// launch is an error, as for every other exact group operation.
     pub(super) fn retains_group(
