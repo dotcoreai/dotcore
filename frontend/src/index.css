@@ -4,6 +4,25 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * Sliding highlight shared by the step bar's current segment and the animated status pill. A
+ * keyframe cannot be a utility, and the percentages are of the sliding element's own width, so one
+ * travel distance fits both a bar block and a pill band.
+ */
+@theme {
+  --animate-slide-block: slide-block 1.4s ease-in-out infinite;
+
+  @keyframes slide-block {
+    from {
+      transform: translateX(-100%);
+    }
+
+    to {
+      transform: translateX(300%);
+    }
+  }
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: ui-sans-serif, system-ui, sans-serif;

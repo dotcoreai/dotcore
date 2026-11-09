@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
 import { Notice } from "@/components/ui/notice";
-import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { StepProgress, type StepProgressDetail } from "@/components/ui/step-progress";
 import {
   deploymentStatus,
   isModelDesiredStateVisible,
@@ -35,7 +35,11 @@ import {
   type ModelDeployment,
   type ResolvedLocalModelDeploymentSnapshot,
 } from "@/gen/dotcore/model/v1/deployment_pb";
-import { type ModelDeploymentProgress } from "@/gen/dotcore/model/v1/state_pb";
+import {
+  type ModelDeploymentProgress,
+  ModelDeploymentStep,
+  type ModelDeploymentSteps,
+} from "@/gen/dotcore/model/v1/state_pb";
 import { type ConfiguredExecutionTarget, type Machine } from "@/gen/dotcore/site/v1/service_pb";
 import { formatBytes, formatCompactCount, formatRelativeTime } from "@/lib/format";
 
@@ -147,7 +151,9 @@ export function DeploymentOverview({
           ) : null}
           {failure?.code ? <Detail label="Failure code" value={failure.code} /> : null}
         </DetailList>
-        {state?.progress ? <DeploymentProgress progress={state.progress} /> : null}
+        {state?.steps?.steps.length ? (
+          <DeploymentSteps progress={state.progress} steps={state.steps} />
+        ) : null}
         {failure?.message ? (
           <div className="mt-3">
             {/* Notice renders a `p`, so the diagnostics stay inline content rather than block children. */}
@@ -229,22 +235,53 @@ export function DeploymentOverview({
   );
 }
 
-/** Download progress of a deployment's artifacts, with a percentage once the total size is known. */
-function DeploymentProgress({ progress }: { progress: ModelDeploymentProgress }) {
-  const total = progress.total;
-  const percent = progress.percent;
-  const knownTotal = total !== undefined && percent !== undefined;
-  const value = knownTotal ? percent : null;
-  const summary = knownTotal
-    ? `${formatBytes(progress.completed)} / ${formatBytes(total)} · ${percent}%`
-    : `${formatBytes(progress.completed)} downloaded`;
+/**
+ * The step bar of a starting deployment. The download step also shows the artifacts' byte progress,
+ * with a percentage once the total size is known.
+ */
+function DeploymentSteps({
+  progress,
+  steps,
+}: {
+  progress: ModelDeploymentProgress | undefined;
+  steps: ModelDeploymentSteps;
+}) {
+  const downloading = steps.steps[steps.current] === ModelDeploymentStep.DOWNLOADING_ARTIFACTS;
 
   return (
-    <Progress className="mt-3" value={value}>
-      <ProgressLabel>Download progress</ProgressLabel>
-      <ProgressValue>{() => summary}</ProgressValue>
-    </Progress>
+    <StepProgress
+      className="mt-3"
+      current={steps.current}
+      currentProgress={downloading && progress ? downloadProgress(progress) : undefined}
+      steps={steps.steps.map(modelStepLabel)}
+    />
   );
+}
+
+function downloadProgress(progress: ModelDeploymentProgress): StepProgressDetail {
+  const { completed, percent, total } = progress;
+  if (total === undefined || percent === undefined) {
+    return { text: `${formatBytes(completed)} downloaded` };
+  }
+
+  return { percent, text: `${formatBytes(completed)} / ${formatBytes(total)} · ${percent}%` };
+}
+
+function modelStepLabel(step: ModelDeploymentStep): string {
+  switch (step) {
+    case ModelDeploymentStep.CHECKING_ARTIFACTS:
+      return "Checking artifacts";
+    case ModelDeploymentStep.DOWNLOADING_ARTIFACTS:
+      return "Downloading artifacts";
+    case ModelDeploymentStep.PREPARING_ENGINE:
+      return "Preparing engine";
+    case ModelDeploymentStep.STARTING:
+      return "Starting";
+    case ModelDeploymentStep.LOADING_MODEL:
+      return "Loading model";
+    default:
+      return "Starting";
+  }
 }
 
 function DeploymentModelMention({

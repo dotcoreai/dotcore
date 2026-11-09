@@ -25,6 +25,11 @@ const transitioningStates = new Set([
   ApplicationLifecycleState.PAUSING,
 ]);
 
+const inProgressStates = new Set([
+  ApplicationLifecycleState.PREPARING,
+  ApplicationLifecycleState.STARTING,
+]);
+
 const staleMachineAttention = "Machine stale";
 
 const pausedLifecycleStates = new Set([
@@ -292,6 +297,7 @@ export function projectApplicationDeploymentStatus(
 
   return {
     attention,
+    ...(inProgressStates.has(lifecycleState) && { inProgress: true }),
     label: applicationLifecycleLabel(lifecycleState),
     tone: applicationLifecycleTone(lifecycleState),
   };

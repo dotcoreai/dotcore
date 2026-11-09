@@ -75,22 +75,36 @@ describe("model deployment status projection", () => {
   }
 
   it.each([
-    [ModelDeploymentStatus.QUEUED, "Queued", "info"],
-    [ModelDeploymentStatus.PREPARING, "Preparing", "info"],
-    [ModelDeploymentStatus.DOWNLOADING, "Downloading", "info"],
-    [ModelDeploymentStatus.LOADING, "Loading", "info"],
-    [ModelDeploymentStatus.WARMING_UP, "Warming up", "info"],
-    [ModelDeploymentStatus.READY, "Ready", "success"],
-    [ModelDeploymentStatus.UNLOADING, "Tearing down", "info"],
-    [ModelDeploymentStatus.PAUSED, "Paused", "neutral"],
-    [ModelDeploymentStatus.FAILED, "Failed", "destructive"],
-    [ModelDeploymentStatus.UNAVAILABLE, "Unavailable", "destructive"],
-    [ModelDeploymentStatus.UNSPECIFIED, "Unknown", "neutral"],
-  ])("projects %s as %s with %s tone", (status, label, tone) => {
+    [ModelDeploymentStatus.QUEUED, "Queued", "info", false],
+    [ModelDeploymentStatus.PREPARING, "Preparing", "info", true],
+    [ModelDeploymentStatus.DOWNLOADING, "Downloading", "info", true],
+    [ModelDeploymentStatus.LOADING, "Loading", "info", true],
+    [ModelDeploymentStatus.WARMING_UP, "Warming up", "info", true],
+    [ModelDeploymentStatus.READY, "Ready", "success", false],
+    [ModelDeploymentStatus.UNLOADING, "Tearing down", "info", false],
+    [ModelDeploymentStatus.PAUSED, "Paused", "neutral", false],
+    [ModelDeploymentStatus.FAILED, "Failed", "destructive", false],
+    [ModelDeploymentStatus.UNAVAILABLE, "Unavailable", "destructive", false],
+    [ModelDeploymentStatus.UNSPECIFIED, "Unknown", "neutral", false],
+  ])("projects %s as %s with %s tone, in progress %s", (status, label, tone, inProgress) => {
     expect(projectModelDeploymentStatus(deploymentInState(status))).toEqual({
       label,
       tone,
+      ...(inProgress && { inProgress }),
     });
+  });
+
+  it("is not in progress while a pause or teardown rewrites a starting status", () => {
+    for (const desiredState of [
+      ModelDeploymentDesiredState.PAUSED,
+      ModelDeploymentDesiredState.TEARDOWN,
+    ]) {
+      expect(
+        projectModelDeploymentStatus(
+          deploymentInState(ModelDeploymentStatus.DOWNLOADING, {}, desiredState),
+        ).inProgress,
+      ).toBeUndefined();
+    }
   });
 
   it("keeps download progress off the card; the inspector is the only progress surface", () => {

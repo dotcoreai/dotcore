@@ -27,6 +27,7 @@ import {
   ModelDeploymentProgressUnit,
   ModelDeploymentStateSchema,
   ModelDeploymentStatus,
+  ModelDeploymentStep,
 } from "@/gen/dotcore/model/v1/state_pb";
 import { ConfiguredExecutionTargetSchema, MachineSchema } from "@/gen/dotcore/site/v1/service_pb";
 import * as clipboard from "@/lib/clipboard";
@@ -94,6 +95,7 @@ function transitioningDeployment(state: {
   };
   status?: ModelDeploymentStatus;
   statusMessage: string;
+  steps?: { current: number; steps: ModelDeploymentStep[] };
 }) {
   return create(ModelDeploymentSchema, {
     modelDeploymentId: "deployment-1",
@@ -622,19 +624,18 @@ describe("model inspectors", () => {
     expect(panel).toHaveTextContent("No route configured.");
   });
 
-  it("shows determinate byte progress while downloading", () => {
-    render(
+  const startSteps = [
+    ModelDeploymentStep.CHECKING_ARTIFACTS,
+    ModelDeploymentStep.DOWNLOADING_ARTIFACTS,
+    ModelDeploymentStep.PREPARING_ENGINE,
+    ModelDeploymentStep.STARTING,
+    ModelDeploymentStep.LOADING_MODEL,
+  ];
+
+  function renderInspector(deployment: ModelDeployment) {
+    return render(
       <DeploymentModelInspector
-        deployment={transitioningDeployment({
-          status: ModelDeploymentStatus.DOWNLOADING,
-          statusMessage: "Downloading model artifacts",
-          progress: {
-            percent: 40,
-            completed: 40n * 1024n * 1024n,
-            total: 100n * 1024n * 1024n,
-            unit: ModelDeploymentProgressUnit.BYTES,
-          },
-        })}
+        deployment={deployment}
         onOpenChange={vi.fn()}
         onUnload={vi.fn()}
         open
@@ -642,43 +643,89 @@ describe("model inspectors", () => {
         pending={false}
       />,
     );
+  }
+
+  it("shows determinate byte progress on the download step", () => {
+    renderInspector(
+      transitioningDeployment({
+        status: ModelDeploymentStatus.DOWNLOADING,
+        statusMessage: "Downloading model artifacts",
+        progress: {
+          percent: 40,
+          completed: 40n * 1024n * 1024n,
+          total: 100n * 1024n * 1024n,
+          unit: ModelDeploymentProgressUnit.BYTES,
+        },
+        steps: { current: 1, steps: startSteps },
+      }),
+    );
 
     const status = screen.getByRole("region", { name: "Status" });
-    expect(status).toHaveTextContent("Downloading model artifacts");
-    expect(status).toHaveTextContent("40 MiB / 100 MiB · 40%");
-    expect(within(status).getByRole("progressbar", { name: "Download progress" })).toHaveAttribute(
-      "aria-valuenow",
-      "40",
-    );
+    const bar = within(status).getByRole("progressbar", { name: "Downloading artifacts" });
+    expect(bar).toHaveAttribute("aria-valuenow", "1");
+    expect(bar).toHaveAttribute("aria-valuemax", "5");
+    expect(bar).toHaveTextContent("Step 2 of 5 · 40 MiB / 100 MiB · 40%");
+    expect(
+      [...bar.querySelectorAll('[data-slot="step-progress-segment"]')].map((segment) =>
+        segment.getAttribute("data-state"),
+      ),
+    ).toEqual(["done", "current", "pending", "pending", "pending"]);
+    expect(bar.querySelector('[data-slot="step-progress-fill"]')).toHaveStyle({ width: "40%" });
     expect(status).not.toHaveTextContent("Started");
   });
 
-  it("shows indeterminate completed bytes when the download total is unknown", () => {
-    render(
-      <DeploymentModelInspector
-        deployment={transitioningDeployment({
-          status: ModelDeploymentStatus.DOWNLOADING,
-          statusMessage: "Downloading model artifacts",
-          progress: {
-            completed: 1536n,
-            unit: ModelDeploymentProgressUnit.BYTES,
-          },
-        })}
-        onOpenChange={vi.fn()}
-        onUnload={vi.fn()}
-        open
-        openerRef={createRef<HTMLElement>()}
-        pending={false}
-      />,
+  it("slides the download step when the total is unknown", () => {
+    renderInspector(
+      transitioningDeployment({
+        status: ModelDeploymentStatus.DOWNLOADING,
+        statusMessage: "Downloading model artifacts",
+        progress: { completed: 1536n, unit: ModelDeploymentProgressUnit.BYTES },
+        steps: { current: 1, steps: startSteps },
+      }),
     );
 
-    const status = screen.getByRole("region", { name: "Status" });
-    const progress = within(status).getByRole("progressbar", { name: "Download progress" });
-    expect(progress).toHaveAttribute("data-indeterminate");
-    expect(progress).not.toHaveAttribute("aria-valuenow");
-    expect(status).toHaveTextContent("1.5 KiB downloaded");
-    expect(status).not.toHaveTextContent("/");
-    expect(status).not.toHaveTextContent("%");
+    const bar = screen.getByRole("progressbar", { name: "Downloading artifacts" });
+    expect(bar).toHaveTextContent("Step 2 of 5 · 1.5 KiB downloaded");
+    expect(bar).not.toHaveTextContent("%");
+    expect(bar.querySelector('[data-slot="step-progress-fill"]')).toBeNull();
+    expect(bar.querySelector('[data-slot="step-progress-block"]')).not.toBeNull();
+  });
+
+  it("drops the byte progress once the download step is passed", () => {
+    renderInspector(
+      transitioningDeployment({
+        status: ModelDeploymentStatus.LOADING,
+        statusMessage: "Starting engine",
+        progress: {
+          percent: 100,
+          completed: 100n,
+          total: 100n,
+          unit: ModelDeploymentProgressUnit.BYTES,
+        },
+        steps: { current: 4, steps: startSteps },
+      }),
+    );
+
+    const bar = screen.getByRole("progressbar", { name: "Loading model" });
+    expect(bar).toHaveTextContent("Step 5 of 5");
+    expect(bar).not.toHaveTextContent("100");
+  });
+
+  it("hides the bar when the deployment reports no steps, even with byte progress", () => {
+    renderInspector(
+      transitioningDeployment({
+        status: ModelDeploymentStatus.DOWNLOADING,
+        statusMessage: "Downloading model artifacts",
+        progress: {
+          percent: 40,
+          completed: 40n,
+          total: 100n,
+          unit: ModelDeploymentProgressUnit.BYTES,
+        },
+      }),
+    );
+
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   });
 
   it("shows status messages without inventing progress and restores Started when ready", () => {

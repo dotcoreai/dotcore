@@ -14,6 +14,8 @@ export type LifecycleTone = "success" | "info" | "warning" | "neutral" | "destru
  */
 export interface StatusProjection {
   attention?: string;
+  /** True while the resource is being deployed, so the badge animates. */
+  inProgress?: boolean;
   label: string;
   tone: LifecycleTone;
 }

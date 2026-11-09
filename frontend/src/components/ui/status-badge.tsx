@@ -32,7 +32,12 @@ export interface StatusTextProps {
  */
 export function StatusBadge({ status }: StatusBadgeProps) {
   return (
-    <Badge title={status.attention} variant={status.tone}>
+    <Badge
+      className={cn(status.inProgress && "relative", status.inProgress && PROGRESS_BAND)}
+      data-in-progress={status.inProgress ? "true" : undefined}
+      title={status.attention}
+      variant={status.tone}
+    >
       {status.label}
     </Badge>
   );
@@ -75,6 +80,11 @@ export function StatusText({ className, status }: StatusTextProps) {
     </span>
   );
 }
+
+// A band of the badge's own ink slides across the pill while it is in progress; reduced motion
+// leaves the pill still.
+const PROGRESS_BAND =
+  "after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-2/5 after:animate-slide-block after:bg-linear-to-r after:from-transparent after:via-current/25 after:to-transparent motion-reduce:after:hidden";
 
 const DOT_TONES: Record<LifecycleTone, string> = {
   destructive: "bg-destructive",

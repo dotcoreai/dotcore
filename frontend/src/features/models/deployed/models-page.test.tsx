@@ -38,6 +38,7 @@ import {
   ModelDeploymentProgressUnit,
   ModelDeploymentStateSchema,
   ModelDeploymentStatus,
+  ModelDeploymentStep,
 } from "@/gen/dotcore/model/v1/state_pb";
 import { productionTiming, setTiming } from "@/lib/timing";
 import { expectHeadingOutline } from "@/test/heading-outline";
@@ -283,12 +284,20 @@ describe("ModelsPage table", () => {
             total: 100n,
             unit: ModelDeploymentProgressUnit.BYTES,
           },
+          steps: {
+            current: 1,
+            steps: [
+              ModelDeploymentStep.CHECKING_ARTIFACTS,
+              ModelDeploymentStep.DOWNLOADING_ARTIFACTS,
+            ],
+          },
         }),
       ],
     });
 
     const row = await screen.findByRole("row", { name: "Gemma" });
     expect(row).toHaveTextContent("Downloading");
+    expect(within(row).getByText("Downloading")).toHaveAttribute("data-in-progress", "true");
     expect(row).not.toHaveTextContent("Downloading model artifacts");
 
     await user.click(row);
@@ -298,7 +307,9 @@ describe("ModelsPage table", () => {
     const status = within(panel).getByRole("region", { name: "Status" });
     expect(status).toHaveTextContent("Downloading model artifacts");
     expect(status).toHaveTextContent("40 bytes / 100 bytes · 40%");
-    expect(within(status).getByRole("progressbar", { name: "Download progress" })).toBeVisible();
+    expect(
+      within(status).getByRole("progressbar", { name: "Downloading artifacts" }),
+    ).toBeVisible();
   });
 
   it("keeps generic teardown failures in the retryable dialog", async () => {

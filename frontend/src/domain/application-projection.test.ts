@@ -148,9 +148,38 @@ describe("Application projection", () => {
         attention,
         label,
         tone,
+        ...(lifecycle === ApplicationLifecycleState.STARTING && { inProgress: true }),
       });
     },
   );
+
+  it.each([
+    [ApplicationLifecycleState.PREPARING, ApplicationDeploymentDesiredState.PRESENT, true],
+    [ApplicationLifecycleState.STARTING, ApplicationDeploymentDesiredState.PRESENT, true],
+    [ApplicationLifecycleState.QUEUED, ApplicationDeploymentDesiredState.PRESENT, false],
+    [ApplicationLifecycleState.READY, ApplicationDeploymentDesiredState.PRESENT, false],
+    [ApplicationLifecycleState.PAUSED, ApplicationDeploymentDesiredState.PAUSED, false],
+    [ApplicationLifecycleState.STARTING, ApplicationDeploymentDesiredState.PAUSED, false],
+    [ApplicationLifecycleState.FAILED, ApplicationDeploymentDesiredState.PRESENT, false],
+    [ApplicationLifecycleState.STOPPED, ApplicationDeploymentDesiredState.PRESENT, false],
+    [ApplicationLifecycleState.STARTING, ApplicationDeploymentDesiredState.TEARDOWN, false],
+  ])("flags %s with target %s as in progress: %s", (lifecycle, desiredState, inProgress) => {
+    const projected = projectApplicationDeploymentStatus(
+      deployment(lifecycle, ApplicationReadinessState.NOT_READY, desiredState),
+    );
+
+    expect(projected.inProgress === true).toBe(inProgress);
+  });
+
+  it("does not animate a stale starting state", () => {
+    const value = deployment(
+      ApplicationLifecycleState.STARTING,
+      ApplicationReadinessState.NOT_READY,
+    );
+    value.state!.observationStale = true;
+
+    expect(projectApplicationDeploymentStatus(value).inProgress).toBeUndefined();
+  });
 
   it("never joins the lifecycle and readiness words into one label", () => {
     const value = deployment(

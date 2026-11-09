@@ -35,6 +35,22 @@ describe("StatusBadge", () => {
     expect(badge).toHaveClass("text-warning-foreground");
   });
 
+  it("animates a band across the badge only while the status is in progress", () => {
+    const { rerender } = render(
+      <StatusBadge status={{ inProgress: true, label: "Downloading", tone: "info" }} />,
+    );
+
+    const badge = screen.getByText("Downloading");
+    expect(badge).toHaveAttribute("data-in-progress", "true");
+    expect(badge).toHaveClass("after:animate-slide-block", "motion-reduce:after:hidden");
+
+    rerender(<StatusBadge status={{ label: "Ready", tone: "success" }} />);
+
+    const still = screen.getByText("Ready");
+    expect(still).not.toHaveAttribute("data-in-progress");
+    expect(still.className).not.toContain("animate-slide-block");
+  });
+
   it("renders no tooltip when nothing qualifies the status", () => {
     render(<StatusBadge status={{ label: "Ready", tone: "success" }} />);
 

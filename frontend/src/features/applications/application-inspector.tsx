@@ -25,6 +25,7 @@ import { InspectorShell } from "@/components/ui/inspector-shell";
 import { Notice } from "@/components/ui/notice";
 import { ResourceMarker, ResourceTitle } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { StepProgress } from "@/components/ui/step-progress";
 import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
 import {
   applicationDeploymentDesiredStateLabel,
@@ -46,7 +47,10 @@ import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
 } from "@/gen/dotcore/application/v1/deployment_pb";
-import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
+import {
+  ApplicationDeploymentStep,
+  ApplicationLifecycleState,
+} from "@/gen/dotcore/application/v1/state_pb";
 import {
   type ConfiguredExecutionTarget,
   type Machine,
@@ -134,6 +138,7 @@ export function DeploymentApplicationInspector({
   const actionDisabled = pending || isTransitioningApplicationState(lifecycleState);
   const pauseDisabled = pending || isPauseConflictingLifecycleState(lifecycleState);
   const observationStale = Boolean(deployment.state?.observationStale);
+  const steps = deployment.state?.steps;
   const editAction: InspectorAction = {
     disabled: pending || tearingDown,
     icon: Pencil,
@@ -243,6 +248,13 @@ export function DeploymentApplicationInspector({
                 ) : null}
                 {failure?.code ? <Detail label="Failure code" value={failure.code} /> : null}
               </DetailList>
+              {steps?.steps.length && !observationStale ? (
+                <StepProgress
+                  className="mt-3"
+                  current={steps.current}
+                  steps={steps.steps.map(applicationStepLabel)}
+                />
+              ) : null}
               {observationStale ? (
                 <Notice className="mt-3" role="status" tone="warning">
                   Machine stale. Showing the last state {remoteMachineName ?? "the machine"}{" "}
@@ -546,6 +558,19 @@ function placementNodeId(
       connectionState !== NodeObservationState.UNSPECIFIED &&
       !placementTarget?.siteManager);
   return remote ? deployment.placement?.siteNodeId : undefined;
+}
+
+function applicationStepLabel(step: ApplicationDeploymentStep): string {
+  switch (step) {
+    case ApplicationDeploymentStep.PREPARING_IMAGE:
+      return "Preparing image";
+    case ApplicationDeploymentStep.STARTING:
+      return "Starting";
+    case ApplicationDeploymentStep.WAITING_FOR_ENDPOINT:
+      return "Waiting for endpoint";
+    default:
+      return "Starting";
+  }
 }
 
 function isPauseConflictingLifecycleState(state: ApplicationLifecycleState): boolean {
