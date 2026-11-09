@@ -15,7 +15,7 @@ const typeScriptFiles = ["src/**/*.{ts,tsx}", "vite.config.ts"];
 const layers = [
   { name: "gen" },
   { name: "lib", pending: "phase 05 shared domain" },
-  { name: "api", pending: "phase 02 logs layer fixes" },
+  { name: "api" },
   { name: "hooks", pending: "phase 04 resource watch and theme" },
   { name: "components", pending: "phase 04 resource watch and theme" },
   { name: "features", pending: "phase 06 routes cleanup" },
@@ -45,6 +45,8 @@ const layerBlocks = layers.flatMap(({ name, pending }, i) => {
   return [
     {
       files: [`src/${name}/**/*.{ts,tsx}`],
+      // The transport path is allowed in the one file that builds transports.
+      ignores: name === "api" ? ["src/api/console-transport.ts"] : [],
       rules: { "no-restricted-imports": ["error", { paths: [transportPath], patterns }] },
     },
   ];

@@ -16,10 +16,9 @@ import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { DeploymentLogViewer } from "./deployment-log-viewer";
 
 const logEntry = (text: string, sourceName = "worker") => ({
-  content: new TextEncoder().encode(text),
+  category: "stdout",
   sourceLabel: sourceName === "worker" ? "Worker" : "Sidecar",
   sourceName,
-  stream: "stdout" as const,
   text,
   timestamp: { nanos: 0, seconds: 1n },
   truncated: false,

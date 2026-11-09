@@ -3,9 +3,9 @@ import { useMemo, useRef, useState } from "react";
 import type { MetricsClient } from "@/api/metrics-client";
 import type { ChartSeries, ChartUnit } from "@/components/metrics/time-series-chart/chart-data";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { useWatchPaused } from "@/hooks/use-watch-pause";
 
 import type { MetricStatsGrid, MetricStatsSeries } from "./metric-grid";
-import { useMetricsPausedByLogs } from "./metric-pause";
 import { coveredTime, perStepValues } from "./metric-range-values";
 import { cardRanges, type MetricRange } from "./metric-ranges";
 import { useMetricRanges } from "./use-metric-ranges";
@@ -166,7 +166,7 @@ export function useMetricCards(
   specs: readonly MetricCardSpec[],
   options: MetricCardsOptions = {},
 ): MetricCards {
-  const pausedByLogs = useMetricsPausedByLogs();
+  const pausedByLogs = useWatchPaused();
   const paused = (options.paused ?? false) || pausedByLogs;
   const splits = options.splits ?? noSplits;
   const served = useMetricRanges(client);

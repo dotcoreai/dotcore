@@ -2,9 +2,9 @@ import { useState } from "react";
 
 import type { MetricsClient } from "@/api/metrics-client";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { useWatchPaused } from "@/hooks/use-watch-pause";
 
 import type { MetricGrid } from "./metric-grid";
-import { useMetricsPausedByLogs } from "./metric-pause";
 import type { MetricRange } from "./metric-ranges";
 import { useMetricRanges } from "./use-metric-ranges";
 import { type MetricHistoryQuery, useMetricWatch } from "./use-metric-watch";
@@ -72,7 +72,7 @@ export function useMetricPanel(
   currentWindow: MetricCurrentWindow,
   options: MetricPanelOptions = {},
 ): MetricPanel {
-  const pausedByLogs = useMetricsPausedByLogs();
+  const pausedByLogs = useWatchPaused();
   const paused = (options.paused ?? false) || pausedByLogs;
   const ranges = useMetricRanges(client);
   const [rangeLabel, setRangeLabel] = useState(options.initialRange);

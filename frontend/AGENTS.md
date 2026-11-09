@@ -16,9 +16,9 @@ frontend/src/
 ├── components/
 │   ├── ui/           primitives, from shadcn/ui or shared by several callers
 │   └── <name>/       composites shared by several features
-├── api/              hand-written Connect-ES transport and API adapters
+├── api/              hand-written Connect-ES transport and API adapters; log-types.ts is the log contract
 ├── gen/              generated Protobuf-ES code
-├── hooks/            shared React hooks
+├── hooks/            shared React hooks, including the watch pause that log viewers hold
 ├── lib/              shared utilities with no UI
 └── test/             shared Vitest and Testing Library setup, and repository-wide checks
 ```

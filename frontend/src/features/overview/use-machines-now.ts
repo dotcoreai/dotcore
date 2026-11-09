@@ -1,9 +1,9 @@
 import { useMemo } from "react";
 
 import type { MetricsClient } from "@/api/metrics-client";
-import { useMetricsPausedByLogs } from "@/features/metrics/metric-pause";
 import type { MetricRange } from "@/features/metrics/metric-ranges";
 import { useMetricAnswers } from "@/features/metrics/use-metric-watch";
+import { useWatchPaused } from "@/hooks/use-watch-pause";
 
 import { type MachineFacts, type MachineNow, machineNow } from "./machine-site-values";
 import { machineMetrics, machineQueries } from "./overview-machine-specs";
@@ -24,7 +24,7 @@ export function useMachinesNow(
   client: MetricsClient,
   facts: MachineFacts,
 ): MachinesNow | undefined {
-  const paused = useMetricsPausedByLogs();
+  const paused = useWatchPaused();
   const watch = useMetricAnswers(client, nowQueries, nowRange, { paused });
   const answers = watch?.value;
 

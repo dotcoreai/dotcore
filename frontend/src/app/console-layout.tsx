@@ -56,8 +56,8 @@ import { InspectorDismissalSuspension } from "@/components/ui/inspector-shell";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ChatPanel } from "@/features/chat/chat-panel";
 import { ChatSessionProvider } from "@/features/chat/chat-session-provider";
-import { MetricPauseProvider } from "@/features/metrics/metric-pause-provider";
 import { ModelsPollingProvider } from "@/features/models/models-polling-provider";
+import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
 import type { StorageLike } from "@/lib/browser-storage";
 import {
   activePanel,
@@ -132,14 +132,14 @@ export function ConsoleLayout({
       <ResourceWatchProvider client={resourceWatchClient}>
         <ResourceColorProvider>
           <ModelsPollingProvider client={modelClient}>
-            <MetricPauseProvider>
+            <WatchPauseProvider>
               <ConsoleLayoutShell
                 chatClient={chatClient}
                 decisionClient={decisionClient}
                 panelTitleLookup={panelTitleLookup}
                 storage={storage}
               />
-            </MetricPauseProvider>
+            </WatchPauseProvider>
           </ModelsPollingProvider>
         </ResourceColorProvider>
       </ResourceWatchProvider>

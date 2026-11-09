@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
+import type { LogEntry, LogViewerOperations } from "@/api/log-types";
+
 import { createLogViewerState, logViewerReducer, MAX_DISPLAYED_LOG_ROWS } from "./state";
-import type { LogEntry, LogViewerOperations } from "./types";
 
 const reconnectDelays = [250, 500, 1_000, 2_000, 4_000, 8_000];
 export const MAX_PENDING_LOG_ENTRIES = MAX_DISPLAYED_LOG_ROWS;

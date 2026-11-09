@@ -3,7 +3,7 @@ import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { describe, expect, it, vi } from "vitest";
 
-import type { LogFollowEvent } from "@/components/log-viewer/types";
+import type { LogFollowEvent } from "@/api/log-types";
 import {
   BackendDiagnosticEventSchema,
   DiagnosticHistoryState,
