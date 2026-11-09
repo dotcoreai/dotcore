@@ -25,7 +25,7 @@ use dotcore_proto::dotcore::{
         v1::{
             CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentDesiredState,
             ModelDeploymentProgress, ModelDeploymentProgressUnit, ModelDeploymentState,
-            ModelDeploymentStatus,
+            ModelDeploymentStatus, ModelDeploymentStep, ModelDeploymentSteps,
         },
     },
     site::private::v1::{ControllerStatusReceipt, controller_status_receipt},
@@ -49,7 +49,7 @@ use super::{
 use crate::model::{
     engine_pin::{validate_local_declaration, with_node_pins},
     service::timestamp_from,
-    state::CurrentStateError,
+    state::{CurrentStateError, retain_start_steps},
 };
 
 /// Stored node byte progress moves in steps of this fraction of a known total (5%).
@@ -360,12 +360,13 @@ fn validate_complete_status(
 }
 
 /// Builds the owner record a node status stands for: the node's lifecycle, status message,
-/// failure summary, and Downloading progress as the node recorded them, so a node-hosted record
-/// reads like a record the realizer writes in this process.
+/// failure summary, start steps, and Downloading progress as the node recorded them, so a
+/// node-hosted record reads like a record the realizer writes in this process.
 ///
 /// Two observations are the owner's own: a Reconciling node has no observation for this
-/// generation and reads as Loading, and a Ready record without a Ready binding reads as
-/// Unavailable.
+/// generation and reads as Loading without start steps, and a Ready record without a Ready
+/// binding reads as Unavailable. Start steps the manager cannot read are dropped while the rest
+/// of the status is kept.
 pub(super) fn current_record(
     status: &PrivateModelDeploymentStatus,
 ) -> Result<CurrentModelDeployment, ModelLifecycleError> {
@@ -416,23 +417,38 @@ pub(super) fn current_record(
         .as_ref()
         .filter(|_| public_status == ModelDeploymentStatus::Downloading)
         .map(stored_progress);
+    let mut state = ModelDeploymentState {
+        status: public_status as i32,
+        status_message: message,
+        progress,
+        failure: status
+            .failure
+            .clone()
+            .filter(|_| public_status == ModelDeploymentStatus::Failed),
+        observed_placements: status.observed_placements.clone(),
+        steps: status
+            .steps
+            .clone()
+            .filter(|steps| !reconciling && valid_steps(steps)),
+        ..Default::default()
+    };
+    retain_start_steps(&mut state);
     Ok(CurrentModelDeployment {
         model_deployment_id: status.model_deployment_id.clone(),
         reconciled_lifecycle_generation: (!reconciling).then_some(status.lifecycle_generation),
         record_revision: 0,
-        state: Some(ModelDeploymentState {
-            status: public_status as i32,
-            status_message: message,
-            progress,
-            failure: status
-                .failure
-                .clone()
-                .filter(|_| public_status == ModelDeploymentStatus::Failed),
-            observed_placements: status.observed_placements.clone(),
-            ..Default::default()
-        }),
+        state: Some(state),
         recovery_barrier: None,
     })
+}
+
+/// Reports whether node start steps name only known steps and a current step within the list.
+fn valid_steps(steps: &ModelDeploymentSteps) -> bool {
+    (steps.current as usize) < steps.steps.len()
+        && steps.steps.iter().all(|step| {
+            ModelDeploymentStep::try_from(*step)
+                .is_ok_and(|step| step != ModelDeploymentStep::Unspecified)
+        })
 }
 
 /// Quantizes reported byte progress to coarse steps and derives the percent from the stored
@@ -589,6 +605,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::model::controller::test_support::expected_start_steps;
 
     #[test]
     fn storage_and_uncertain_outcomes_are_retryable_and_rejections_are_not() {
@@ -780,6 +797,10 @@ mod tests {
         let ready = current.snapshot().expect("state").model_deployments[0].clone();
         let mut reconciling = status("model-one", 2);
         reconciling.lifecycle = ModelLifecycleObservation::Reconciling as i32;
+        reconciling.steps = Some(ModelDeploymentSteps {
+            steps: expected_start_steps(),
+            current: 1,
+        });
         reconciling.binding_readiness = ModelBindingReadiness::Absent as i32;
         reconciling.realization_generation = None;
         reconciling.state_revision = 0;
@@ -979,9 +1000,9 @@ mod tests {
     #[test]
     fn node_hosted_progress_steps_project_like_manager_local_records() {
         use super::super::state::{
-            checking_model_artifacts_state, deployment_status_state, downloading_state,
-            paused_state, pausing_state, resuming_state, runtime_startup_progress_state,
-            unavailable_state, unloading_state,
+            acquiring_engine_image_state, checking_model_artifacts_state, deployment_status_state,
+            downloading_state, paused_state, pausing_state, realization_prepared_state,
+            resuming_state, runtime_startup_progress_state, unavailable_state, unloading_state,
         };
         let progress = dotcore_artifact::ModelArtifactProgress {
             completed: 40,
@@ -996,6 +1017,8 @@ mod tests {
             ),
             checking_model_artifacts_state(Some(&downloading_state(None, progress)))
                 .expect("checking state"),
+            acquiring_engine_image_state(None).expect("engine state"),
+            realization_prepared_state(None),
             resuming_state(3),
             deployment_status_state(ModelDeploymentStatus::WarmingUp, None, None),
             unavailable_state(None),
@@ -1012,17 +1035,62 @@ mod tests {
                     node_hosted.status,
                     &node_hosted.status_message,
                     &node_hosted.progress,
-                    &node_hosted.failure
+                    &node_hosted.failure,
+                    &node_hosted.steps
                 ),
                 (
                     local.status,
                     &local.status_message,
                     &local.progress,
-                    &local.failure
+                    &local.failure,
+                    &local.steps
                 ),
                 "{}",
                 local.status_message
             );
+        }
+    }
+
+    #[test]
+    fn invalid_node_steps_are_dropped_while_the_status_is_kept() {
+        let with_steps = |steps: Vec<i32>, current| {
+            let mut status = preparation_status(
+                ModelLifecycleObservation::Loading,
+                "Acquiring engine image",
+                None,
+            );
+            status.steps = Some(ModelDeploymentSteps { steps, current });
+            current_record(&status)
+                .expect("status accepted")
+                .state
+                .expect("state")
+        };
+        let mut unknown = expected_start_steps();
+        unknown[1] = 99;
+        let mut unspecified = expected_start_steps();
+        unspecified[0] = ModelDeploymentStep::Unspecified as i32;
+
+        assert_eq!(
+            with_steps(expected_start_steps(), 4).steps,
+            Some(ModelDeploymentSteps {
+                steps: expected_start_steps(),
+                current: 4,
+            })
+        );
+        for (name, steps, current) in [
+            ("current past the list", expected_start_steps(), 5),
+            ("empty list", Vec::new(), 0),
+            ("unknown step", unknown, 1),
+            ("unspecified step", unspecified, 1),
+        ] {
+            let state = with_steps(steps, current);
+            assert_eq!(state.steps, None, "{name}");
+            assert_eq!(
+                state.status,
+                ModelDeploymentStatus::Loading as i32,
+                "{name}"
+            );
+            assert_eq!(state.status_message, "Acquiring engine image", "{name}");
         }
     }
 
@@ -1907,6 +1975,7 @@ applicationDeployments: []
 
     fn status(id: &str, generation: u64) -> PrivateModelDeploymentStatus {
         PrivateModelDeploymentStatus {
+            steps: None,
             model_deployment_id: id.to_owned(),
             lifecycle_generation: generation,
             placement: Some(ExactPlacement {

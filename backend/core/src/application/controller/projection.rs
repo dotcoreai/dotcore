@@ -42,6 +42,7 @@ fn sanitize_state(
             ) {
                 state.lifecycle_state = ApplicationLifecycleState::Pausing as i32;
                 state.stage = "pausing".to_owned();
+                state.steps = None;
             }
             suppress_endpoint_projection(&mut state);
         }
@@ -54,6 +55,7 @@ fn sanitize_state(
             ) {
                 state.lifecycle_state = ApplicationLifecycleState::Stopping as i32;
                 state.stage = "stopping".to_owned();
+                state.steps = None;
             }
             suppress_endpoint_projection(&mut state);
         }

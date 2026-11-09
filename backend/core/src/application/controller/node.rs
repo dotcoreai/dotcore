@@ -681,6 +681,7 @@ impl NodeApplicationStatus {
             services: Vec::new(),
             endpoint: None,
             service_accelerator_memory: Vec::new(),
+            steps: None,
             resolved_launch_identities: realization
                 .map(|realization| {
                     realization
@@ -721,6 +722,7 @@ impl NodeApplicationStatus {
         status.readiness = state.readiness_state;
         status.failure_code = super::status_text::status_failure_code(state) as i32;
         status.services = state.services.clone();
+        status.steps = state.steps.clone();
         status.service_accelerator_memory = service_accelerator_memory(
             &installed.node_id,
             self.accelerator_memory.projection(
@@ -815,11 +817,10 @@ pub(crate) fn classify_application_assignment(
 fn private_lifecycle(lifecycle: i32) -> ApplicationLifecycleObservation {
     match ApplicationLifecycleState::try_from(lifecycle) {
         Ok(ApplicationLifecycleState::Queued) => ApplicationLifecycleObservation::Queued,
-        Ok(
-            ApplicationLifecycleState::Preparing
-            | ApplicationLifecycleState::Starting
-            | ApplicationLifecycleState::Running,
-        ) => ApplicationLifecycleObservation::Starting,
+        Ok(ApplicationLifecycleState::Preparing) => ApplicationLifecycleObservation::Preparing,
+        Ok(ApplicationLifecycleState::Starting | ApplicationLifecycleState::Running) => {
+            ApplicationLifecycleObservation::Starting
+        }
         Ok(ApplicationLifecycleState::Ready) => ApplicationLifecycleObservation::Ready,
         Ok(ApplicationLifecycleState::Pausing) => ApplicationLifecycleObservation::Pausing,
         Ok(ApplicationLifecycleState::Paused) => ApplicationLifecycleObservation::Paused,
@@ -984,7 +985,7 @@ mod tests {
         application::{
             controller::test_support::{
                 application_execution_target, application_with_route_input, deployment,
-                resolved_snapshot,
+                resolved_snapshot, start_steps,
             },
             repository::CurrentApplicationRepository as _,
         },
@@ -1769,6 +1770,102 @@ mod tests {
                 port: published_port,
             })
         );
+        assert_eq!(
+            status.steps, None,
+            "a ready deployment reports no start steps"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restarted_node_reports_its_recorded_preparing_for_the_view_it_prepares_under() {
+        let preparer = Arc::new(GatedImagePreparer::default());
+        let fixture = NodeFixture::new(None);
+        let artifacts = ArtifactManager::new(
+            fixture.directory.path().join("cache"),
+            Some(Arc::clone(&preparer) as Arc<dyn OciImagePreparer>),
+        )
+        .expect("artifact manager");
+        let fixture = fixture.with_artifacts(artifacts);
+        // The node restarted while it prepared this start's image.
+        fixture
+            .state()
+            .upsert(
+                CurrentApplicationDeployment {
+                    application_deployment_id: "app-1".to_owned(),
+                    record_revision: 0,
+                    state: Some(super::super::with_start_steps(
+                        None,
+                        super::super::preparing_state(None),
+                    )),
+                    reconciled_lifecycle_generation: Some(1),
+                },
+                None,
+            )
+            .expect("recorded preparing");
+        let recorded = fixture.current("app-1").expect("recorded preparing");
+        fixture.install(1, vec![assignment(declaration("app-1", 1, Present), None)]);
+        let node = fixture.realizer();
+
+        let (pass, (preparing, record)) = tokio::join!(node.reconcile_for_test(), async {
+            preparer.started.notified().await;
+            let status = deployment_status(&status_of(&node), "app-1");
+            let record = fixture.current("app-1");
+            preparer.release.notify_one();
+            (status, record)
+        });
+        pass.expect("reconcile pass");
+
+        assert_eq!(
+            record,
+            Some(recorded),
+            "an unchanged preparing is not written again"
+        );
+        assert_eq!(
+            preparing.lifecycle,
+            ApplicationLifecycleObservation::Preparing as i32
+        );
+        assert_eq!(preparing.accepted_view_revision, 1);
+        assert_eq!(preparing.steps, Some(start_steps(0)));
+    }
+
+    #[tokio::test]
+    async fn status_reports_preparing_and_its_step_while_the_image_is_prepared() {
+        let preparer = Arc::new(GatedImagePreparer::default());
+        let fixture = NodeFixture::new(None);
+        let artifacts = ArtifactManager::new(
+            fixture.directory.path().join("cache"),
+            Some(Arc::clone(&preparer) as Arc<dyn OciImagePreparer>),
+        )
+        .expect("artifact manager");
+        let fixture = fixture.with_artifacts(artifacts);
+        fixture.install(1, vec![assignment(declaration("app-1", 1, Present), None)]);
+        let node = fixture.realizer();
+
+        let (pass, preparing) = tokio::join!(node.reconcile_for_test(), async {
+            preparer.started.notified().await;
+            let status = deployment_status(&status_of(&node), "app-1");
+            preparer.release.notify_one();
+            status
+        });
+        pass.expect("reconcile pass");
+
+        assert_eq!(
+            preparing.lifecycle,
+            ApplicationLifecycleObservation::Preparing as i32
+        );
+        assert_eq!(preparing.stage, ApplicationStatusStage::Preparing as i32);
+        assert_eq!(preparing.accepted_view_revision, 1);
+        assert_eq!(preparing.steps, Some(start_steps(0)));
+        let started = deployment_status(&status_of(&node), "app-1");
+        assert_eq!(
+            started.lifecycle,
+            ApplicationLifecycleObservation::Starting as i32
+        );
+        assert_eq!(
+            started.stage,
+            ApplicationStatusStage::EndpointNotReady as i32
+        );
+        assert_eq!(started.steps, Some(start_steps(2)));
     }
 
     #[tokio::test]
@@ -1916,6 +2013,17 @@ mod tests {
 
     #[tokio::test]
     async fn uncertain_start_of_a_newer_generation_fails_only_its_deployment() {
+        for retained in [
+            super::super::starting_state(None),
+            super::super::preparing_state(None),
+        ] {
+            uncertain_start_fails_only_its_deployment(retained).await;
+        }
+    }
+
+    async fn uncertain_start_fails_only_its_deployment(
+        retained: dotcore_proto::dotcore::application::v1::ApplicationDeploymentState,
+    ) {
         let fixture = NodeFixture::new(None);
         fixture
             .state()
@@ -1923,7 +2031,7 @@ mod tests {
                 CurrentApplicationDeployment {
                     application_deployment_id: "regressed-1".to_owned(),
                     record_revision: 0,
-                    state: Some(super::super::starting_state(None)),
+                    state: Some(retained),
                     reconciled_lifecycle_generation: Some(3),
                 },
                 None,
@@ -3265,6 +3373,30 @@ mod tests {
                 }
             });
             Self { port, _task: task }
+        }
+    }
+
+    /// Image preparer that holds each preparation until the test releases it.
+    #[derive(Default)]
+    struct GatedImagePreparer {
+        started: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+    }
+
+    impl OciImagePreparer for GatedImagePreparer {
+        fn prepare(
+            &self,
+            _: OciPreparationRequest,
+            _: tokio_util::sync::CancellationToken,
+            _: dotcore_artifact::StepOutput,
+        ) -> OciPreparationFuture {
+            let started = Arc::clone(&self.started);
+            let release = Arc::clone(&self.release);
+            Box::pin(async move {
+                started.notify_one();
+                release.notified().await;
+                Ok(())
+            })
         }
     }
 

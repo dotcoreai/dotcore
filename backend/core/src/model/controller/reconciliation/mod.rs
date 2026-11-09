@@ -51,8 +51,8 @@ use super::{
     state::{
         RegisteredObservationStatus, apply_observation, apply_startup_failure,
         checking_model_artifacts_state, configuration, current_error, desired_error,
-        downloading_state, failed_state, is_absent, observation_identity, paused_state,
-        pausing_state, previously_realized, realization_prepared_state,
+        downloading_state, failed_state, generation_state, is_absent, observation_identity,
+        paused_state, pausing_state, previously_realized, realization_prepared_state,
         realization_startup_admitted_state, reconciled_generation, register_observation_status,
         resolve_observation_status, resume_matches_generation, resume_matches_lifecycle,
         resume_phase, resume_start_state, resume_start_uncertain_state, resuming_state,
@@ -780,7 +780,7 @@ where
                 .into_iter()
                 .find(|record| record.model_deployment_id == deployment_id);
             let Some(state) = realization_startup_admitted_state(
-                existing.as_ref().and_then(|record| record.state.as_ref()),
+                generation_state(existing.as_ref(), desired).as_ref(),
             ) else {
                 return Ok(None);
             };
@@ -1254,7 +1254,8 @@ where
                 .model_deployments
                 .into_iter()
                 .find(|record| record.model_deployment_id == deployment_id);
-            let Some(state) = next(existing.as_ref().and_then(|record| record.state.as_ref()))
+            let Some(state) =
+                next(generation_state(existing.as_ref(), &ticket.declaration).as_ref())
             else {
                 return Ok(());
             };

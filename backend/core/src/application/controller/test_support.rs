@@ -27,8 +27,9 @@ use dotcore_proto::dotcore::{
     },
     application::v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
-        ApplicationDeploymentState, ApplicationEndpoint, ApplicationLifecycleState,
-        ApplicationReadinessState, ApplicationServiceLifecycleState, ApplicationServiceObservation,
+        ApplicationDeploymentState, ApplicationDeploymentStep, ApplicationDeploymentSteps,
+        ApplicationEndpoint, ApplicationLifecycleState, ApplicationReadinessState,
+        ApplicationServiceLifecycleState, ApplicationServiceObservation,
         CreateApplicationDeploymentRequest, CurrentApplicationDeployment,
     },
     catalog::v1::{
@@ -106,6 +107,44 @@ impl dotcore_artifact::OciImagePreparer for RecordingApplicationPreparer {
     ) -> dotcore_artifact::OciPreparationFuture {
         self.requests.lock().expect("OCI requests").push(request);
         self.calls.lock().expect("calls").push("prepare");
+        Box::pin(async { Ok(()) })
+    }
+}
+
+/// Image preparer that records the deployment's current state each time it prepares, so a test
+/// sees what a pass recorded while the image was prepared.
+pub(super) struct StateCapturingPreparer {
+    pub(super) current: InMemoryCurrentState,
+    pub(super) states: Mutex<Vec<ApplicationDeploymentState>>,
+}
+
+impl StateCapturingPreparer {
+    pub(super) fn new(current: InMemoryCurrentState) -> Self {
+        Self {
+            current,
+            states: Mutex::new(Vec::new()),
+        }
+    }
+
+    pub(super) fn states(&self) -> Vec<ApplicationDeploymentState> {
+        self.states.lock().expect("captured states").clone()
+    }
+}
+
+impl dotcore_artifact::OciImagePreparer for StateCapturingPreparer {
+    fn prepare(
+        &self,
+        _: dotcore_artifact::OciPreparationRequest,
+        _: tokio_util::sync::CancellationToken,
+        _: dotcore_artifact::StepOutput,
+    ) -> dotcore_artifact::OciPreparationFuture {
+        let state = CurrentApplicationRepository::snapshot(&self.current)
+            .expect("current state")
+            .deployments
+            .into_iter()
+            .find_map(|record| record.state)
+            .expect("state recorded before preparation");
+        self.states.lock().expect("captured states").push(state);
         Box::pin(async { Ok(()) })
     }
 }
@@ -2270,6 +2309,18 @@ impl dotcore_runtime::WorkloadGroupBackend for SelectiveCreateRuntime {
 
     fn remove_workload_group<'a>(&'a self, _: &'a WorkloadGroupLaunch) -> RuntimeFuture<'a, ()> {
         Box::pin(ready(Ok(())))
+    }
+}
+
+/// Every step of an application start, on the step at index `current`.
+pub(super) fn start_steps(current: u32) -> ApplicationDeploymentSteps {
+    ApplicationDeploymentSteps {
+        steps: vec![
+            ApplicationDeploymentStep::PreparingImage as i32,
+            ApplicationDeploymentStep::Starting as i32,
+            ApplicationDeploymentStep::WaitingForEndpoint as i32,
+        ],
+        current,
     }
 }
 

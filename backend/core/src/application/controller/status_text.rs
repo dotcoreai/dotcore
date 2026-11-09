@@ -20,8 +20,9 @@ use super::{
 const CREATION_FAILED: &str = "CreationFailed";
 
 /// Every typed stage with the exact text the realizer records for it.
-const STAGE_TEXT: [(ApplicationStatusStage, &str); 32] = [
+const STAGE_TEXT: [(ApplicationStatusStage, &str); 33] = [
     (ApplicationStatusStage::Queued, "queued"),
+    (ApplicationStatusStage::Preparing, "preparing"),
     (ApplicationStatusStage::Starting, "starting"),
     (ApplicationStatusStage::Ready, "ready"),
     (ApplicationStatusStage::Pausing, "pausing"),
@@ -218,7 +219,7 @@ mod tests {
 
     #[test]
     fn every_typed_stage_round_trips_through_its_recorded_text() {
-        for value in 1..=32 {
+        for value in 1..=33 {
             let stage = ApplicationStatusStage::try_from(value).expect("typed stage");
             let text = stage_text(stage).expect("recorded text");
             assert_eq!(status_stage(text), stage, "{text}");

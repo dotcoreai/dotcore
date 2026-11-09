@@ -7,7 +7,10 @@ use dotcore_proto::dotcore::application::{
         ApplicationLinkedRouteProjection, ApplicationPublishedEndpoint,
         application_linked_route_projection,
     },
-    v1::{ApplicationDeploymentDeclaration, ApplicationServiceAcceleratorMemory},
+    v1::{
+        ApplicationDeploymentDeclaration, ApplicationDeploymentStep, ApplicationDeploymentSteps,
+        ApplicationServiceAcceleratorMemory,
+    },
 };
 use dotcore_proto::{
     dotcore::{
@@ -906,6 +909,23 @@ fn application_status_problems_never_reject_model_status_and_receipts_answer_its
         Err(DesiredViewContractError::ReceiptMismatch)
     ));
 
+    // Start steps are progress only: steps the manager cannot show never reject the status, and
+    // the manager drops them when it records it.
+    let mut odd_steps = status.clone();
+    let Some(controller_status_section::Payload::Application(section)) =
+        odd_steps.sections[1].payload.as_mut()
+    else {
+        panic!("application status")
+    };
+    section.deployments[0].steps = Some(ApplicationDeploymentSteps {
+        steps: vec![
+            ApplicationDeploymentStep::Unspecified as i32,
+            ApplicationDeploymentStep::PreparingImage as i32,
+        ],
+        current: 2,
+    });
+    assert!(validate_application_status(&odd_steps).is_ok());
+
     let invalid_edits: [(&str, StatusEdit); 7] = [
         ("evidence digest", |section| {
             section.cleanup_evidence[0].evidence_sha256 = "c".repeat(64);
@@ -1247,6 +1267,7 @@ fn status_report() -> NodeControllerStatus {
                         state_revision: 4,
                         observed_placements: Vec::new(),
                         binding_token: "b".repeat(64),
+                        steps: None,
                         resolved_launch_identities: Vec::new(),
                         accelerator_memory: Some(node_memory("worker-one")),
                     }],

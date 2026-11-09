@@ -6,7 +6,7 @@ use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivation, ModelDeploymentActivationPhase,
     ModelDeploymentDeclaration, ModelDeploymentDesiredState, ModelDeploymentFailure,
     ModelDeploymentProgress, ModelDeploymentProgressUnit, ModelDeploymentState,
-    ModelDeploymentStatus, ObservedPlacement,
+    ModelDeploymentStatus, ModelDeploymentStep, ModelDeploymentSteps, ObservedPlacement,
 };
 use dotcore_proto::google::protobuf::Timestamp;
 use dotcore_runtime::{ObservedWorkload, WorkloadObservation};
@@ -155,25 +155,36 @@ pub(super) fn apply_observation<S: super::CurrentStateRepository>(
         execution_target,
     );
     let prior = existing.as_ref().and_then(|record| record.state.as_ref());
-    let activation = prior
-        .and_then(|state| state.activation)
-        .filter(|activation| {
-            activation.workload_generation.is_none_or(|generation| {
-                observation_identity(observation)
-                    .is_some_and(|workload| workload.correlation.reconcile_generation == generation)
-            })
-        });
+    if lifecycle == ModelDeploymentStatus::Loading {
+        next_state.activation = prior
+            .and_then(|state| state.activation)
+            .filter(|activation| {
+                activation.workload_generation.is_none_or(|generation| {
+                    observation_identity(observation).is_some_and(|workload| {
+                        workload.correlation.reconcile_generation == generation
+                    })
+                })
+            });
+        // A started workload is still Starting; a running one reports Loading only while its
+        // engine loads the model.
+        next_state.steps =
+            generation_state(existing.as_ref(), desired).and_then(|state| state.steps);
+        let step = match observation {
+            WorkloadObservation::Starting(_) => ModelDeploymentStep::Starting,
+            _ => ModelDeploymentStep::LoadingModel,
+        };
+        advance_start_step(&mut next_state, step);
+    }
     if reconciled_generation(existing.as_ref(), desired)
         && prior.is_some_and(|state| {
             state.status == lifecycle as i32
                 && state.observed_placements == next_state.observed_placements
-                && (lifecycle != ModelDeploymentStatus::Loading || state.activation == activation)
+                && (lifecycle != ModelDeploymentStatus::Loading
+                    || state.activation == next_state.activation)
+                && state.steps == next_state.steps
         })
     {
         return Ok(());
-    }
-    if lifecycle == ModelDeploymentStatus::Loading {
-        next_state.activation = activation;
     }
     state
         .upsert(
@@ -202,6 +213,20 @@ pub(super) fn reconciled_generation(
     })
 }
 
+/// The record's state as a start of the declaration's lifecycle generation continues it. Start
+/// steps recorded for another generation belong to an earlier start, such as one before a pause
+/// and resume this node never observed, so they are dropped and the next step begins a fresh list.
+pub(super) fn generation_state(
+    record: Option<&CurrentModelDeployment>,
+    desired: &ModelDeploymentDeclaration,
+) -> Option<ModelDeploymentState> {
+    let mut state = record?.state.clone()?;
+    if !reconciled_generation(record, desired) {
+        state.steps = None;
+    }
+    Some(state)
+}
+
 /// Rebinds a retained record whose Resume activation or failure belongs to another lifecycle
 /// generation. An unconfirmed Start from newer intent the manager lost becomes an uncertain
 /// failure instead of a retry, while one superseded by a newer Resume restarts that Resume as a
@@ -228,6 +253,8 @@ pub(super) fn record_for_declared_generation(
                 if let Some(activation) = state.activation.as_mut() {
                     activation.lifecycle_generation = generation;
                 }
+                // The start of the declared generation reports its own steps.
+                state.steps = None;
                 state
             }
         }
@@ -302,15 +329,24 @@ pub(super) fn loading_state() -> ModelDeploymentState {
     deployment_status_state(ModelDeploymentStatus::Loading, None, None)
 }
 
+/// Fresh Loading state of a local deployment whose start was just requested, on its first step.
+pub(super) fn start_requested_state() -> ModelDeploymentState {
+    let mut state = loading_state();
+    advance_start_step(&mut state, ModelDeploymentStep::CheckingArtifacts);
+    state
+}
+
 pub(super) fn first_realization_pending_state() -> ModelDeploymentState {
-    download_progress_state(
+    let mut state = download_progress_state(
         None,
         ModelArtifactProgress {
             completed: 0,
             total: None,
         },
         PREPARING_MODEL_REALIZATION,
-    )
+    );
+    advance_start_step(&mut state, ModelDeploymentStep::CheckingArtifacts);
+    state
 }
 
 pub(super) fn first_realization_pending(state: &ModelDeploymentState) -> bool {
@@ -325,6 +361,7 @@ pub(super) fn realization_startup_admitted_state(
     let mut state = previous.clone();
     state.status_message = STARTING_MODEL_REALIZATION.to_owned();
     state.updated_at = Some(now());
+    advance_start_step(&mut state, ModelDeploymentStep::CheckingArtifacts);
     Some(state)
 }
 
@@ -342,8 +379,10 @@ pub(super) fn checking_model_artifacts_state(
     state.progress = None;
     state.updated_at = Some(now());
     state.failure = None;
+    advance_start_step(&mut state, ModelDeploymentStep::CheckingArtifacts);
     Some(state)
 }
+
 pub(super) fn artifact_preparation_stage_state(
     previous: Option<&ModelDeploymentState>,
     stage: ModelArtifactStage,
@@ -376,6 +415,7 @@ pub(super) fn artifact_preparation_stage_state(
     state.progress = None;
     state.updated_at = Some(now());
     state.failure = None;
+    advance_start_step(&mut state, ModelDeploymentStep::CheckingArtifacts);
     Some(state)
 }
 
@@ -383,7 +423,9 @@ pub(super) fn downloading_state(
     previous: Option<&ModelDeploymentState>,
     progress: ModelArtifactProgress,
 ) -> ModelDeploymentState {
-    download_progress_state(previous, progress, DOWNLOADING_MODEL_ARTIFACTS)
+    let mut state = download_progress_state(previous, progress, DOWNLOADING_MODEL_ARTIFACTS);
+    advance_start_step(&mut state, ModelDeploymentStep::DownloadingArtifacts);
+    state
 }
 
 pub(super) fn runtime_startup_progress_state(
@@ -391,7 +433,9 @@ pub(super) fn runtime_startup_progress_state(
     progress: ModelArtifactProgress,
     status_message: &str,
 ) -> ModelDeploymentState {
-    download_progress_state(previous, progress, status_message)
+    let mut state = download_progress_state(previous, progress, status_message);
+    advance_start_step(&mut state, ModelDeploymentStep::DownloadingArtifacts);
+    state
 }
 
 fn download_progress_state(
@@ -418,7 +462,7 @@ fn download_progress_state(
 }
 
 pub(super) fn resuming_state(lifecycle_generation: u64) -> ModelDeploymentState {
-    let mut state = loading_state();
+    let mut state = start_requested_state();
     state.status_message = "Resuming".to_owned();
     state.activation = Some(ModelDeploymentActivation {
         phase: ModelDeploymentActivationPhase::AwaitingStart as i32,
@@ -533,6 +577,7 @@ pub(super) fn realization_prepared_state(
     state.progress = None;
     state.updated_at = Some(now());
     state.failure = None;
+    advance_start_step(&mut state, ModelDeploymentStep::Starting);
     state
 }
 
@@ -550,6 +595,7 @@ pub(super) fn acquiring_engine_image_state(
     state.progress = None;
     state.updated_at = Some(now());
     state.failure = None;
+    advance_start_step(&mut state, ModelDeploymentStep::PreparingEngine);
     Some(state)
 }
 
@@ -749,6 +795,7 @@ pub(super) fn deployment_status_state(
         observed_placements: observed_placement(lifecycle, workload, execution_target)
             .into_iter()
             .collect(),
+        steps: None,
     }
 }
 
@@ -765,11 +812,11 @@ pub(super) fn state_from_observation(
         }
         WorkloadObservation::Absent(_) | WorkloadObservation::Unknown { .. } => return None,
     };
-    Some(deployment_status_state(
-        lifecycle,
-        observation_identity(observation),
-        None,
-    ))
+    let mut state = deployment_status_state(lifecycle, observation_identity(observation), None);
+    if lifecycle == ModelDeploymentStatus::Loading {
+        advance_start_step(&mut state, ModelDeploymentStep::Starting);
+    }
+    Some(state)
 }
 
 pub(super) fn desired_state(
@@ -823,6 +870,33 @@ pub(super) fn observation_identity(observation: &WorkloadObservation) -> Option<
         WorkloadObservation::Stopped { workload, .. } => Some(workload),
         WorkloadObservation::Unknown { .. } => None,
     }
+}
+
+/// The steps every start of a local model deployment goes through, in order.
+const START_STEPS: [ModelDeploymentStep; 5] = [
+    ModelDeploymentStep::CheckingArtifacts,
+    ModelDeploymentStep::DownloadingArtifacts,
+    ModelDeploymentStep::PreparingEngine,
+    ModelDeploymentStep::Starting,
+    ModelDeploymentStep::LoadingModel,
+];
+
+/// Moves a starting state to `step` within its start. A state already in a start keeps its list
+/// and never moves back, so a step reached late, or one that turned out not to be needed, is
+/// passed; a state outside a start begins the list at `step`.
+fn advance_start_step(state: &mut ModelDeploymentState, step: ModelDeploymentStep) {
+    let index = START_STEPS
+        .iter()
+        .position(|candidate| *candidate == step)
+        .unwrap_or_default() as u32;
+    let current = state
+        .steps
+        .as_ref()
+        .map_or(index, |steps| steps.current.max(index));
+    state.steps = Some(ModelDeploymentSteps {
+        steps: START_STEPS.iter().map(|step| *step as i32).collect(),
+        current,
+    });
 }
 
 pub(super) fn validate_id(value: &str) -> Result<(), ModelLifecycleError> {
@@ -882,7 +956,7 @@ mod tests {
     use anyhow::anyhow;
     use dotcore_proto::dotcore::model::v1::{
         ModelDeploymentDesiredState, ModelDeploymentFailure, ModelDeploymentState,
-        ModelDeploymentStatus, ObservedPlacement,
+        ModelDeploymentStatus, ModelDeploymentSteps, ObservedPlacement,
     };
     use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadObservation};
     use dotcore_site::{persistence::SiteStorageError, repository::SiteRepositoryError};
@@ -892,17 +966,22 @@ mod tests {
         StartupRefusal, acquiring_engine_image_state, apply_observation,
         artifact_preparation_stage_state, checking_model_artifacts_state,
         configuration_with_source, current_error, deployment_status_state, desired_error,
-        downloading_state, engine_startup_failed_state, first_realization_pending_state,
-        loading_state, partial_current_error, pausing_state, preparation_completed_state,
-        previously_realized, realization_startup_admitted_state, resuming_state,
-        runtime_startup_progress_state, status_from_observation,
+        downloading_state, engine_image_acquisition_failed_state, engine_startup_failed_state,
+        failed_state, first_realization_pending_state, generation_state, loading_state,
+        partial_current_error, paused_state, pausing_state, preparation_completed_state,
+        previously_realized, realization_prepared_state, realization_startup_admitted_state,
+        record_for_declared_generation, resume_recovery_required_state,
+        resume_start_uncertain_state, resuming_state, runtime_startup_progress_state,
+        start_requested_state, state_from_observation, status_from_observation, unavailable_state,
+        unloading_state,
     };
     use crate::model::{
         controller::{
             CurrentStateRepository as _,
             test_support::{
-                TestCurrent, expected_identity, test_desired_deployment, test_engine_integrations,
-                test_ninfer_desired_deployment, test_site,
+                TestCurrent, current_deployment, expected_identity, expected_start_steps,
+                test_desired_deployment, test_engine_integrations, test_ninfer_desired_deployment,
+                test_site,
             },
         },
         repository::ModelDeclarationRepositoryError,
@@ -1553,6 +1632,7 @@ mod tests {
     #[test]
     fn pausing_state_preserves_existing_details_while_changing_lifecycle() {
         let previous = ModelDeploymentState {
+            steps: None,
             status: ModelDeploymentStatus::Failed as i32,
             activation: None,
             status_message: "loading failed".to_owned(),
@@ -1583,6 +1663,309 @@ mod tests {
         assert_eq!(pausing.progress, None);
         assert_eq!(pausing.started_at, previous.started_at);
         assert_eq!(pausing.failure, previous.failure);
+    }
+
+    #[test]
+    fn start_builders_report_their_step_in_the_fixed_start_list() {
+        let progress = dotcore_artifact::ModelArtifactProgress {
+            completed: 40,
+            total: Some(100),
+        };
+        let desired = test_desired_deployment("model", ModelDeploymentDesiredState::Present);
+        let workload = expected_identity(&test_site(), &desired, "runtime/test");
+        let stage = |stage| artifact_preparation_stage_state(Some(&loading_state()), stage);
+        let cases = [
+            ("start requested", Some(start_requested_state()), 0),
+            ("resuming", Some(resuming_state(1)), 0),
+            (
+                "first realization pending",
+                Some(first_realization_pending_state()),
+                0,
+            ),
+            (
+                "startup admitted",
+                realization_startup_admitted_state(Some(&first_realization_pending_state())),
+                0,
+            ),
+            (
+                "checking artifacts",
+                checking_model_artifacts_state(Some(&first_realization_pending_state())),
+                0,
+            ),
+            (
+                "verifying",
+                stage(dotcore_artifact::ModelArtifactStage::Verify),
+                0,
+            ),
+            (
+                "publishing",
+                stage(dotcore_artifact::ModelArtifactStage::Publish),
+                0,
+            ),
+            (
+                "reusing",
+                stage(dotcore_artifact::ModelArtifactStage::Reuse),
+                0,
+            ),
+            (
+                "downloading",
+                Some(downloading_state(Some(&loading_state()), progress.clone())),
+                1,
+            ),
+            (
+                "simulated download",
+                Some(runtime_startup_progress_state(
+                    None,
+                    progress,
+                    "Simulating model artifact download",
+                )),
+                1,
+            ),
+            ("acquiring engine", acquiring_engine_image_state(None), 2),
+            ("prepared", Some(realization_prepared_state(None)), 3),
+            (
+                "preparation completed",
+                preparation_completed_state(acquiring_engine_image_state(None).as_ref()),
+                3,
+            ),
+            (
+                "observed starting",
+                state_from_observation(&WorkloadObservation::Starting(workload.clone())),
+                3,
+            ),
+            (
+                "observed running",
+                state_from_observation(&WorkloadObservation::Running(workload)),
+                3,
+            ),
+        ];
+
+        for (name, state, current) in cases {
+            assert_eq!(
+                state.expect(name).steps,
+                Some(ModelDeploymentSteps {
+                    steps: expected_start_steps(),
+                    current,
+                }),
+                "{name}"
+            );
+        }
+        assert_eq!(loading_state().steps, None, "plain and upstream loading");
+        assert_eq!(
+            deployment_status_state(ModelDeploymentStatus::Loading, None, None).steps,
+            None
+        );
+    }
+
+    #[test]
+    fn start_steps_only_move_forward_within_one_start() {
+        use dotcore_artifact::ModelArtifactStage::{Publish, Verify};
+
+        let progress = dotcore_artifact::ModelArtifactProgress {
+            completed: 40,
+            total: Some(100),
+        };
+        type Transition = Box<dyn Fn(&ModelDeploymentState) -> Option<ModelDeploymentState>>;
+        let transitions: [(&str, Transition); 7] = [
+            (
+                "download",
+                Box::new(move |state| Some(downloading_state(Some(state), progress.clone()))),
+            ),
+            (
+                "publish",
+                Box::new(|state| artifact_preparation_stage_state(Some(state), Publish)),
+            ),
+            (
+                "engine",
+                Box::new(|state| acquiring_engine_image_state(Some(state))),
+            ),
+            (
+                "late verify",
+                Box::new(|state| artifact_preparation_stage_state(Some(state), Verify)),
+            ),
+            (
+                "prepared",
+                Box::new(|state| preparation_completed_state(Some(state))),
+            ),
+            (
+                "late engine",
+                Box::new(|state| acquiring_engine_image_state(Some(state))),
+            ),
+            (
+                "late check",
+                Box::new(|state| {
+                    let mut downloading = state.clone();
+                    downloading.status = ModelDeploymentStatus::Downloading as i32;
+                    checking_model_artifacts_state(Some(&downloading))
+                }),
+            ),
+        ];
+
+        let mut state = first_realization_pending_state();
+        let mut observed = vec![("pending", state.steps.as_ref().map(|steps| steps.current))];
+        for (name, transition) in transitions {
+            state = transition(&state).expect(name);
+            observed.push((name, state.steps.as_ref().map(|steps| steps.current)));
+        }
+
+        assert_eq!(
+            observed,
+            [
+                ("pending", Some(0)),
+                ("download", Some(1)),
+                ("publish", Some(1)),
+                ("engine", Some(2)),
+                ("late verify", Some(2)),
+                ("prepared", Some(3)),
+                ("late engine", Some(3)),
+                ("late check", Some(3)),
+            ]
+        );
+    }
+
+    #[test]
+    fn states_outside_a_start_carry_no_steps_once_recorded() {
+        let starting = realization_prepared_state(None);
+        assert!(starting.steps.is_some());
+        let failure = ModelDeploymentFailure {
+            code: "runtime".to_owned(),
+            message: "failed".to_owned(),
+            diagnostics: Vec::new(),
+        };
+        let with_status = |status: ModelDeploymentStatus| {
+            let mut state = starting.clone();
+            state.status = status as i32;
+            state
+        };
+        let cases = [
+            ("failed", failed_state(Some(&starting), "Failed", failure)),
+            (
+                "engine startup failed",
+                engine_startup_failed_state(&starting, None, Vec::new()),
+            ),
+            (
+                "engine image failed",
+                engine_image_acquisition_failed_state(Some(&starting), Vec::new()),
+            ),
+            (
+                "resume start uncertain",
+                resume_start_uncertain_state(&starting),
+            ),
+            ("recovery required", resume_recovery_required_state()),
+            ("pausing", pausing_state(Some(&starting))),
+            ("paused", paused_state(Some(&starting))),
+            ("unavailable", unavailable_state(Some(&starting))),
+            ("unloading", unloading_state(Some(&starting))),
+            ("ready", with_status(ModelDeploymentStatus::Ready)),
+            ("warming up", with_status(ModelDeploymentStatus::WarmingUp)),
+            ("queued", with_status(ModelDeploymentStatus::Queued)),
+        ];
+
+        for (name, state) in cases {
+            assert_eq!(recorded(state).steps, None, "{name}");
+        }
+        for (name, state) in [
+            ("loading", starting.clone()),
+            (
+                "downloading",
+                with_status(ModelDeploymentStatus::Downloading),
+            ),
+        ] {
+            assert_eq!(recorded(state).steps, starting.steps, "{name}");
+        }
+    }
+
+    #[test]
+    fn observation_keeps_steps_and_moves_from_starting_to_loading_model() {
+        let current = TestCurrent::new(Arc::new(Mutex::new(Vec::new())));
+        let desired = test_desired_deployment("model", ModelDeploymentDesiredState::Present);
+        let workload = expected_identity(&test_site(), &desired, "runtime/test");
+        let mut record = current_deployment(&desired.model_deployment_id);
+        record.reconciled_lifecycle_generation = Some(desired.lifecycle_generation);
+        record.state = acquiring_engine_image_state(None);
+        current.upsert(record, None).expect("engine step record");
+        let observe = |observation: WorkloadObservation, lifecycle| {
+            apply_observation(&current, &desired, &observation, lifecycle, None)
+                .expect("observation");
+            current.snapshot().expect("state").model_deployments[0].clone()
+        };
+
+        let starting = observe(
+            WorkloadObservation::Starting(workload.clone()),
+            ModelDeploymentStatus::Loading,
+        );
+        let unchanged = observe(
+            WorkloadObservation::Starting(workload.clone()),
+            ModelDeploymentStatus::Loading,
+        );
+        let loading = observe(
+            WorkloadObservation::Running(workload.clone()),
+            ModelDeploymentStatus::Loading,
+        );
+        let ready = observe(
+            WorkloadObservation::Running(workload),
+            ModelDeploymentStatus::Ready,
+        );
+
+        let current_step = |record: &dotcore_proto::dotcore::model::v1::CurrentModelDeployment| {
+            let steps = record.state.as_ref()?.steps.as_ref()?;
+            assert_eq!(steps.steps, expected_start_steps());
+            Some(steps.current)
+        };
+        assert_eq!(current_step(&starting), Some(3));
+        assert_eq!(unchanged.record_revision, starting.record_revision);
+        assert_eq!(current_step(&loading), Some(4));
+        assert_eq!(loading.record_revision, starting.record_revision + 1);
+        assert_eq!(
+            loading.state.as_ref().expect("loading").status,
+            ModelDeploymentStatus::Loading as i32
+        );
+        assert_eq!(current_step(&ready), None);
+        assert_eq!(
+            current.start_step_history(&desired.model_deployment_id),
+            [Some(2), Some(3), Some(4), None]
+        );
+    }
+
+    #[test]
+    fn a_new_lifecycle_generation_starts_a_fresh_step_list() {
+        let current = TestCurrent::new(Arc::new(Mutex::new(Vec::new())));
+        let mut desired = test_desired_deployment("model", ModelDeploymentDesiredState::Present);
+        let workload = expected_identity(&test_site(), &desired, "runtime/test");
+        let mut loading_model = realization_prepared_state(None);
+        loading_model.steps.as_mut().expect("start steps").current = 4;
+        let mut record = current_deployment(&desired.model_deployment_id);
+        record.reconciled_lifecycle_generation = Some(desired.lifecycle_generation);
+        record.state = Some(loading_model);
+        current.upsert(record.clone(), None).expect("earlier start");
+        let previous_generation = desired.clone();
+        desired.lifecycle_generation += 1;
+
+        let step = |state: Option<ModelDeploymentState>| state?.steps.map(|steps| steps.current);
+        assert_eq!(
+            step(generation_state(Some(&record), &previous_generation)),
+            Some(4)
+        );
+        assert_eq!(step(generation_state(Some(&record), &desired)), None);
+
+        let mut awaiting = record.clone();
+        let state = awaiting.state.as_mut().expect("state");
+        state.activation = resuming_state(previous_generation.lifecycle_generation).activation;
+        let rebound = record_for_declared_generation(&awaiting, &desired).expect("rebound");
+        assert_eq!(step(rebound.state), None);
+
+        apply_observation(
+            &current,
+            &desired,
+            &WorkloadObservation::Starting(workload),
+            ModelDeploymentStatus::Loading,
+            None,
+        )
+        .expect("observation of the new generation");
+        assert_eq!(
+            current.start_step_history(&desired.model_deployment_id),
+            [Some(4), Some(3)]
+        );
     }
 
     #[test]
@@ -1664,6 +2047,18 @@ mod tests {
                 .downcast_ref::<CurrentStateError>()
                 .is_some_and(|error| matches!(error, CurrentStateError::Poisoned))
         }));
+    }
+
+    /// Writes a state through the current-state store and returns it as recorded.
+    fn recorded(state: ModelDeploymentState) -> ModelDeploymentState {
+        let current = TestCurrent::new(Arc::new(Mutex::new(Vec::new())));
+        let mut record = current_deployment("deployment");
+        record.state = Some(state);
+        current.upsert(record, None).expect("recorded state");
+        current.snapshot().expect("state").model_deployments[0]
+            .state
+            .clone()
+            .expect("state")
     }
 
     fn source_chain_contains(error: &dyn std::error::Error, expected: &str) -> bool {

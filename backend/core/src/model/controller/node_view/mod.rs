@@ -340,9 +340,9 @@ impl InstalledAssignments {
 /// published local target serving the declared lifecycle generation makes a Ready record report a
 /// Ready binding, its token, and its runtime reconcile generation.
 ///
-/// The record's lifecycle, status message, failure summary, and Downloading byte progress are
-/// reported as recorded, cut to the contract sizes, and its observed placements keep only the
-/// rows the manager accepts from `node_id`. The realizer removes protected launch values before
+/// The record's lifecycle, status message, failure summary, start steps, and Downloading byte
+/// progress are reported as recorded, cut to the contract sizes, and its observed placements keep
+/// only the rows the manager accepts from `node_id`. The realizer removes protected launch values before
 /// it records any text, so none can leave the node here.
 pub(crate) fn deployment_status(
     node_id: &str,
@@ -373,6 +373,7 @@ pub(crate) fn deployment_status(
         binding_token: String::new(),
         resolved_launch_identities: Vec::new(),
         accelerator_memory: None,
+        steps: None,
     };
     let Some((state, lifecycle)) = observation else {
         return status;
@@ -414,6 +415,7 @@ pub(crate) fn deployment_status(
     status.binding_readiness = binding_readiness as i32;
     status.failure = failure;
     status.observed_placements = bounded_observed_placements(node_id, &state.observed_placements);
+    status.steps = state.steps.clone();
     status
 }
 

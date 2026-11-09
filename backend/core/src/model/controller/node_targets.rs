@@ -1269,6 +1269,7 @@ mod tests {
         token: char,
     ) -> PrivateModelDeploymentStatus {
         PrivateModelDeploymentStatus {
+            steps: None,
             model_deployment_id: id.to_owned(),
             lifecycle_generation: generation,
             placement: Some(placement(node_id)),

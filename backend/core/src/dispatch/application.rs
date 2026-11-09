@@ -53,6 +53,18 @@ impl ApplicationRuntimeMap {
             .map_err(fenced)
     }
 
+    /// Runs one synchronous owner state write for the operation `token` captured, only while that
+    /// operation is still admitted, so a write made part-way through it never outlives its lease.
+    pub(crate) fn commit_operation<T>(
+        &self,
+        token: &LifecycleOperationToken,
+        commit: impl FnOnce() -> T,
+    ) -> Result<T, ApplicationRuntimeError> {
+        self.action_authority
+            .commit_operation(token, commit)
+            .map_err(fenced)
+    }
+
     /// Returns configured execution-target identities in deterministic order.
     #[cfg(test)]
     pub fn target_ids(&self) -> impl Iterator<Item = &str> {
@@ -689,11 +701,22 @@ mod tests {
             .await
             .expect("admitted creation");
 
+        assert_eq!(
+            map.commit_operation(&token, || 7).expect("admitted write"),
+            7
+        );
+
         tokio::time::advance(std::time::Duration::from_secs(31)).await;
         assert!(matches!(
             map.stop_workload_group(&token, "target-a", &group).await,
             Err(ApplicationRuntimeError::ActionRejected)
         ));
+        let mut written = false;
+        assert!(matches!(
+            map.commit_operation(&token, || written = true),
+            Err(ApplicationRuntimeError::ActionRejected)
+        ));
+        assert!(!written, "a refused write never runs");
         assert!(
             matches!(
                 map.inspect_workload_group("target-a", &group).await,

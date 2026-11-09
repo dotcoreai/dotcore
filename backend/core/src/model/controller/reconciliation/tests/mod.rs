@@ -2691,9 +2691,11 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         .model_deployments
         .push(deployment);
     let current = TestCurrent::new(calls.clone());
-    current
-        .upsert(current_deployment("deployment"), None)
-        .expect("current state");
+    let mut starting = current_deployment("deployment");
+    starting.state = Some(crate::model::controller::state::realization_prepared_state(
+        None,
+    ));
+    current.upsert(starting, None).expect("current state");
     let mut builder = RuntimeTargetMapBuilder::new();
     let startup_logs = Arc::new(Mutex::new(StartupLogBehavior::Unavailable));
     builder
@@ -2828,6 +2830,8 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         failure.diagnostics,
         ["Stage: engine startup", "Exit status: 17"]
     );
+    // The failure part-way through the starting step clears the steps.
+    assert_eq!(current.start_step_history("deployment"), [Some(3), None]);
 
     let source = dotcore_runtime::RuntimeLogSource {
         name: "model".to_owned(),
@@ -3030,6 +3034,62 @@ async fn simulated_download_precedes_runtime_creation_clears_progress_and_skips_
     assert_eq!(ready.progress, None);
     assert_eq!(runtime_support.call_counts().creates, 1);
     assert_eq!(oci.calls.load(Ordering::SeqCst), 0);
+    // Checking, then the simulated download, then starting; the engine step is passed.
+    assert_eq!(
+        current.start_step_history("deployment"),
+        [Some(0), Some(1), Some(3), None]
+    );
+}
+
+#[tokio::test]
+async fn simulated_start_without_a_download_passes_the_download_and_engine_steps() {
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let desired = TestDesired::new(calls.clone());
+    desired.persist_present("fixture-model");
+    let current = TestCurrent::new(calls);
+    let mut pending = current_deployment("deployment");
+    pending.state = Some(crate::model::controller::state::first_realization_pending_state());
+    current
+        .upsert(pending, None)
+        .expect("durable first-realization intent");
+    let mut runtime_builder = RuntimeTargetMapBuilder::new();
+    runtime_builder
+        .insert(
+            "target-one",
+            InMemoryRuntimeBackend::with_config(SimulatedRuntimeConfig::default()),
+        )
+        .expect("simulated runtime");
+    let controller =
+        crate::model::controller::test_support::TestRealizer::for_test_with_dependencies(
+            desired.clone(),
+            current.clone(),
+            runtime_builder.build().expect("Runtime map"),
+            Vec::new(),
+            "/test-cache".into(),
+            crate::model::controller::ModelControllerDependencies {
+                target_capabilities:
+                    crate::model::controller::test_support::test_target_capability_source(),
+                artifacts: ArtifactDependencies::default(),
+                engine_integrations:
+                    crate::model::controller::test_support::test_engine_integrations(),
+                accelerator_attribution: None,
+            },
+        )
+        .expect("controller");
+
+    for _ in 0..2 {
+        controller.inner.reconcile().await.expect("reconciliation");
+    }
+
+    let ready = current.snapshot().expect("current state").model_deployments[0]
+        .state
+        .clone()
+        .expect("ready state");
+    assert_eq!(ready.status, ModelDeploymentStatus::Ready as i32);
+    assert_eq!(
+        current.start_step_history("deployment"),
+        [Some(0), Some(3), None]
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -3651,6 +3711,11 @@ async fn retained_docker_workload_restarts_after_pause_and_resume() {
     assert_eq!(resumed_state.status, ModelDeploymentStatus::Ready as i32);
     assert_eq!(resumed_state.status_message, "Ready");
     assert!(resumed_state.failure.is_none());
+    // The restarted controller goes on from the retained steps; the download is passed.
+    assert_eq!(
+        current.start_step_history("deployment"),
+        [None, Some(0), Some(2), Some(3), None]
+    );
     ready_server.await.expect("readiness server");
 
     source.abort();
@@ -3695,6 +3760,11 @@ async fn retained_docker_workload_resumes_through_the_same_node_realizer() {
     assert_eq!(resumed_state.status, ModelDeploymentStatus::Ready as i32);
     assert_eq!(resumed_state.status_message, "Ready");
     assert_eq!(runtime_calls(&calls), ["start"]);
+    // Resume starts a fresh step list after the paused record; the download is passed.
+    assert_eq!(
+        current.start_step_history("deployment"),
+        [None, Some(0), Some(2), Some(3), None]
+    );
     assert_eq!(
         published_changes(&mut changes),
         [model_started()],
