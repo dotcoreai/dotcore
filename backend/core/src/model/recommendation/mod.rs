@@ -32,8 +32,8 @@ use crate::{
     },
     model::{
         compatibility::{
-            CheckedTarget, ProfileEvaluation, ProfileRequest, check_targets, evaluate_profile,
-            node_workloads,
+            CheckedTarget, ProfileEvaluation, ProfileRequest, StaleTargets, check_targets,
+            evaluate_profile, node_workloads,
         },
         engine::EngineIntegrationRegistry,
         sizing_scenario::{ProfileSizing, size_profile},
@@ -85,12 +85,18 @@ pub enum RecommendationFit {
 
     /// What is free there is unknown.
     Unknown,
+
+    /// The target stopped reporting, so it is judged on the hardware it last reported and what
+    /// is free there is unknown.
+    Unreachable,
 }
 
 /// Ranks the master catalog's recommendations for each of `use_cases`, in the order asked, on
 /// `targets`, which must be configured model execution targets. `inventory` is the current target
-/// observation, or none when it couldn't be read, which leaves nothing to recommend; `deployments`
-/// are the site's model deployments, which hold memory and mark the profiles already deployed.
+/// observation, or none when it couldn't be read, which leaves nothing to recommend; a target that
+/// stopped reporting is judged on its last observations, its rows marked unreachable, until it
+/// leaves the site. `deployments` are the site's model deployments, which hold memory and mark the
+/// profiles already deployed.
 pub(crate) fn recommend_models(
     catalog: &Catalog,
     targets: &[ExecutionTarget],
@@ -100,7 +106,13 @@ pub(crate) fn recommend_models(
     now: SystemTime,
 ) -> Vec<UseCaseRecommendations> {
     let workloads = node_workloads(deployments, inventory);
-    let checked = check_targets(targets, inventory, &workloads, now);
+    let checked = check_targets(
+        targets,
+        inventory,
+        &workloads,
+        now,
+        StaleTargets::UseLastObserved,
+    );
     let declarations = Declarations::read(catalog);
     let mut recommender = Recommender {
         catalog,
@@ -168,6 +180,11 @@ impl Recommender<'_> {
                     self.judge(model, profile, entry, checked.target, selected)
                 else {
                     continue;
+                };
+                let fit = if checked.unreachable {
+                    RecommendationFit::Unreachable
+                } else {
+                    fit
                 };
                 let placement = ExactPlacement {
                     site_node_id: checked.target.site_node_id.clone(),

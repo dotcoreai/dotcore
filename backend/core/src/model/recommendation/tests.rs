@@ -22,7 +22,7 @@ use dotcore_site::node::target_inventory::{
 
 use super::{RecommendationFit, UseCaseRecommendations, recommend_models};
 
-use RecommendationFit::{FitsNow, NeedsMemoryFreed, Unknown};
+use RecommendationFit::{FitsNow, NeedsMemoryFreed, Unknown, Unreachable};
 use UseCase::{CodingAndAgents, DecisionMaking, GeneralAssistant, Translation};
 
 /// Expected recommendations for one site of declared machines under one occupancy and use case.
@@ -45,8 +45,12 @@ enum Occupancy {
     /// One deployment of unknown size still downloading on the site's first machine.
     StartingUnsized,
 
-    /// The site's machines last reported long ago.
+    /// The site's first machine last reported long ago.
     Stale,
+
+    /// The site's first machine last reported long ago, with one ready deployment of the model
+    /// and profile on it, using its estimate.
+    StaleRunning(&'static str, &'static str),
 }
 
 /// One expected row: `model/profile`, then each target with its fit, whether the profile is
@@ -286,12 +290,61 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             use_case: GeneralAssistant,
             rows: vec![],
         },
-        // A target whose facts are stale can't be matched to a class, so it gets no rows.
+        // A machine that stopped reporting keeps the rows its last reported hardware holds, each
+        // unreachable and starting from the profile default, since what is free there is unknown.
         Case {
             machines: &["x32"],
             occupancy: Occupancy::Stale,
             use_case: CodingAndAgents,
-            rows: vec![],
+            rows: vec![
+                ("x-only/x", vec![("x32", Unreachable, false, 32_768)]),
+                ("big/q4", vec![("x32", Unreachable, false, 32_768)]),
+                ("mid/q4", vec![("x32", Unreachable, false, 32_768)]),
+                ("small/q4", vec![("x32", Unreachable, false, 32_768)]),
+            ],
+        },
+        // What runs on an unreachable machine is deployed there, and never drops an entry its
+        // last reported total holds.
+        Case {
+            machines: &["x32"],
+            occupancy: Occupancy::StaleRunning("big", "q4"),
+            use_case: CodingAndAgents,
+            rows: vec![
+                ("x-only/x", vec![("x32", Unreachable, false, 32_768)]),
+                ("big/q4", vec![("x32", Unreachable, true, 32_768)]),
+                ("mid/q4", vec![("x32", Unreachable, false, 32_768)]),
+                ("small/q4", vec![("x32", Unreachable, false, 32_768)]),
+            ],
+        },
+        // An unreachable machine beside a reachable one: each target keeps its own fit in a row.
+        Case {
+            machines: &["mac64", "x32"],
+            occupancy: Occupancy::Stale,
+            use_case: CodingAndAgents,
+            rows: vec![
+                ("x-only/x", vec![("x32", FitsNow, false, 293_888)]),
+                (
+                    "big/q4",
+                    vec![
+                        ("mac64", Unreachable, false, 32_768),
+                        ("x32", FitsNow, false, 174_080),
+                    ],
+                ),
+                (
+                    "mid/q4",
+                    vec![
+                        ("mac64", Unreachable, false, 32_768),
+                        ("x32", FitsNow, false, 274_432),
+                    ],
+                ),
+                (
+                    "small/q4",
+                    vec![
+                        ("mac64", Unreachable, false, 32_768),
+                        ("x32", FitsNow, false, 314_368),
+                    ],
+                ),
+            ],
         },
     ];
 
@@ -432,7 +485,7 @@ fn site(
     let architecture = described[0].accelerator_facts()[0].memory_architecture();
     let (deployments, workloads) = match occupancy {
         Occupancy::Idle | Occupancy::Stale => (Vec::new(), Vec::new()),
-        Occupancy::Running(model, profile) => {
+        Occupancy::Running(model, profile) | Occupancy::StaleRunning(model, profile) => {
             let bytes = default_estimate(model);
             (
                 vec![deployment(
@@ -459,11 +512,14 @@ fn site(
             Vec::new(),
         ),
     };
-    let stale = matches!(occupancy, Occupancy::Stale);
-    let reported_at = if stale {
-        now - 2 * dotcore_site::node::target_inventory::TARGET_CAPABILITY_MAX_AGE
-    } else {
-        now
+    let first_stale = matches!(occupancy, Occupancy::Stale | Occupancy::StaleRunning(..));
+    let stale = |index: usize| index == 0 && first_stale;
+    let reported_at = |index: usize| {
+        if stale(index) {
+            now - 2 * dotcore_site::node::target_inventory::TARGET_CAPABILITY_MAX_AGE
+        } else {
+            now
+        }
     };
 
     let accelerators = described
@@ -472,18 +528,23 @@ fn site(
         .map(|(index, description)| {
             let running = if index == 0 { &workloads[..] } else { &[] };
             let snapshot = description
-                .render(running, reported_at)
+                .render(running, reported_at(index))
                 .expect("rendered snapshot");
-            NodeAcceleratorObservation::from_hardware_snapshot(description.name(), &snapshot, stale)
+            NodeAcceleratorObservation::from_hardware_snapshot(
+                description.name(),
+                &snapshot,
+                stale(index),
+            )
         })
         .collect::<Vec<_>>();
     let platforms = described
         .iter()
-        .map(|description| {
+        .enumerate()
+        .map(|(index, description)| {
             RuntimePlatformObservation::available_at(
                 description.name(),
                 description.platform().clone(),
-                reported_at,
+                reported_at(index),
             )
         })
         .collect::<Vec<_>>();

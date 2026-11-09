@@ -718,6 +718,9 @@ fn recommendations_response(
                                         ModelRecommendationFit::NeedsMemoryFreed
                                     }
                                     RecommendationFit::Unknown => ModelRecommendationFit::Unknown,
+                                    RecommendationFit::Unreachable => {
+                                        ModelRecommendationFit::Unreachable
+                                    }
                                 }
                                 .into(),
                                 deployed: target.deployed,

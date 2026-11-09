@@ -2,9 +2,10 @@
 //! and selects the most specific supported hardware class that describes them.
 //!
 //! Every reader of a target's capabilities goes through this one rule, so a platform, accelerator
-//! vendor, memory architecture and device model mean the same thing wherever they are read. A missing, stale,
-//! or mismatched observation is a typed failure, never a guess, and the selected class is unique
-//! because catalog validation keeps supported classes disjoint or nested.
+//! vendor, memory architecture and device model mean the same thing wherever they are read. A
+//! missing, stale, or mismatched observation is a typed failure, never a guess; only advisory
+//! reads about machines that stopped reporting may accept the last observations instead. The
+//! selected class is unique because catalog validation keeps supported classes disjoint or nested.
 
 use std::time::SystemTime;
 
@@ -79,6 +80,27 @@ pub(crate) fn select_target_capabilities_at(
     inventory: &TargetCapabilityInventory,
     now: SystemTime,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
+    select_observed_capabilities(target, inventory, Some(now))
+}
+
+/// Validates an execution target against its last capability observation, however old. Only
+/// advisory reads about machines that stopped reporting use it; measured memory use is dropped
+/// from stale memory facts, so only totals count.
+pub(crate) fn select_last_observed_target_capabilities(
+    target: &ExecutionTarget,
+    inventory: &TargetCapabilityInventory,
+) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
+    select_observed_capabilities(target, inventory, None)
+}
+
+/// Validates an execution target against its capability observation, requiring the platform and
+/// accelerator observations to be fresh at `fresh_at` when given.
+fn select_observed_capabilities(
+    target: &ExecutionTarget,
+    inventory: &TargetCapabilityInventory,
+    fresh_at: Option<SystemTime>,
+) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
+    let accepted = |observed_at| fresh_at.is_none_or(|now| observation_is_fresh(observed_at, now));
     let pinned = target
         .platform
         .as_ref()
@@ -94,10 +116,11 @@ pub(crate) fn select_target_capabilities_at(
         })?;
     let observed_platform = match &capabilities.platform {
         CapabilityObservation::Available(platform)
-            if observation_is_fresh(capabilities.platform_observed_at, now) =>
+            if accepted(capabilities.platform_observed_at) =>
         {
             platform
         }
+        CapabilityObservation::Stale(platform) if fresh_at.is_none() => platform,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: target.execution_target_id.clone(),
@@ -120,10 +143,11 @@ pub(crate) fn select_target_capabilities_at(
     }
     let vendor = match capabilities.accelerator {
         CapabilityObservation::Available(vendor)
-            if observation_is_fresh(capabilities.accelerator_observed_at, now) =>
+            if accepted(capabilities.accelerator_observed_at) =>
         {
             vendor
         }
+        CapabilityObservation::Stale(vendor) if fresh_at.is_none() => vendor,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StaleAccelerator {
                 execution_target_id: target.execution_target_id.clone(),
@@ -369,7 +393,8 @@ pub(crate) mod tests {
 
     use super::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetAccelerator,
-        TargetCapabilitySelectionError, select_hardware_class, select_target_capabilities,
+        TargetCapabilitySelectionError, select_hardware_class,
+        select_last_observed_target_capabilities, select_target_capabilities,
         select_target_capabilities_at,
     };
     use crate::hardware::capacity::TargetCapacity;
@@ -823,6 +848,84 @@ pub(crate) mod tests {
         );
         assert_eq!(
             select_target_capabilities(&target, &mismatched),
+            Err(TargetCapabilitySelectionError::PlatformMismatch {
+                execution_target_id: "target-a".to_owned(),
+                observed_operating_system: "linux".to_owned(),
+                observed_architecture: "arm64".to_owned(),
+                required_operating_system: "linux".to_owned(),
+                required_architecture: "amd64".to_owned(),
+            })
+        );
+    }
+
+    #[test]
+    fn last_observed_capabilities_accept_stale_and_overdue_observations_but_nothing_else() {
+        let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
+        let nvidia = TargetAccelerator::Nvidia {
+            driver: driver("580"),
+        };
+
+        let stale = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            [RuntimePlatformObservation::stale(
+                "target-a",
+                ExecutionPlatform::linux_amd64(),
+            )],
+            [NodeAcceleratorObservation::stale(
+                "node-a",
+                NodeAcceleratorFacts::nvidia("580"),
+            )],
+        );
+        let selected =
+            select_last_observed_target_capabilities(&target, &stale).expect("stale capabilities");
+        assert_eq!(selected.platform, ExecutionPlatform::linux_amd64());
+        assert_eq!(selected.accelerator, nvidia);
+
+        let observed_at = SystemTime::UNIX_EPOCH;
+        let overdue = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            [RuntimePlatformObservation::available_at(
+                "target-a",
+                ExecutionPlatform::linux_amd64(),
+                observed_at,
+            )],
+            [NodeAcceleratorObservation::available_at(
+                "node-a",
+                NodeAcceleratorFacts::nvidia("580"),
+                observed_at,
+            )],
+        );
+        assert_eq!(
+            select_last_observed_target_capabilities(&target, &overdue)
+                .map(|selected| selected.accelerator),
+            Ok(nvidia)
+        );
+
+        let missing = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            std::iter::empty(),
+            std::iter::empty(),
+        );
+        assert_eq!(
+            select_last_observed_target_capabilities(&target, &missing),
+            Err(TargetCapabilitySelectionError::PlatformUnavailable {
+                execution_target_id: "target-a".to_owned(),
+            })
+        );
+
+        let mismatched = TargetCapabilityReconciler::reconcile(
+            [("target-a", "node-a")],
+            [RuntimePlatformObservation::stale(
+                "target-a",
+                ExecutionPlatform::linux_arm64(),
+            )],
+            [NodeAcceleratorObservation::stale(
+                "node-a",
+                NodeAcceleratorFacts::nvidia("580"),
+            )],
+        );
+        assert_eq!(
+            select_last_observed_target_capabilities(&target, &mismatched),
             Err(TargetCapabilitySelectionError::PlatformMismatch {
                 execution_target_id: "target-a".to_owned(),
                 observed_operating_system: "linux".to_owned(),

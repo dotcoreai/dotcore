@@ -25,7 +25,7 @@ use tracing::debug;
 use super::{UseCaseRecommendations, recommend_models};
 use crate::{
     hardware::selection::select_hardware_class,
-    model::compatibility::{check_targets, node_workloads},
+    model::compatibility::{StaleTargets, check_targets, node_workloads},
 };
 
 /// A described machine as an idle node of its own: the execution targets site setup would declare
@@ -96,6 +96,7 @@ impl IdleMachine {
             Some(&self.inventory),
             &workloads,
             self.observed_at,
+            StaleTargets::Fail,
         );
         self.targets
             .iter()

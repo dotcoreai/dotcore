@@ -38,7 +38,7 @@ use crate::{
     },
     hardware::selection::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetCapabilitySelectionError,
-        select_target_capabilities_at,
+        select_last_observed_target_capabilities, select_target_capabilities_at,
     },
     model::{
         advisory::local_deployment_advisories,
@@ -69,7 +69,7 @@ pub(crate) fn evaluate_profile_compatibility(
     workloads: &NodeWorkloads,
     now: SystemTime,
 ) -> ListModelProfileCompatibilityResponse {
-    let checked = check_targets(targets, inventory, workloads, now);
+    let checked = check_targets(targets, inventory, workloads, now, StaleTargets::Fail);
     let mut response = ListModelProfileCompatibilityResponse {
         targets: checked.iter().map(target_compatibility).collect(),
         ..Default::default()
@@ -113,6 +113,9 @@ pub(crate) struct CheckedTarget<'a> {
     /// status and reason that keep every profile from being judged there.
     pub(crate) check: Result<SelectedTargetCapabilities, Failure>,
 
+    /// Whether the target stopped reporting and its check used its last observations instead.
+    pub(crate) unreachable: bool,
+
     /// When the target's runtime last reported its platform.
     observed_at: Option<SystemTime>,
 }
@@ -120,14 +123,26 @@ pub(crate) struct CheckedTarget<'a> {
 /// A status other than runs, with the typed reason for it.
 pub(crate) type Failure = (ModelCompatibilityStatus, ModelCompatibilityReason);
 
+/// What target checks do with a target whose platform or accelerator observations are stale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StaleTargets {
+    /// The target fails its check, as admission would.
+    Fail,
+
+    /// The target is checked on its last observations and marked unreachable.
+    UseLastObserved,
+}
+
 /// Confirms each target's capabilities from `inventory` at `now` and counts in its pools what
 /// `workloads` hold of its node's memory, ordered by node then target identifier. A missing
-/// inventory leaves every target unknown.
+/// inventory leaves every target unknown; `stale` says what happens to a target that stopped
+/// reporting.
 pub(crate) fn check_targets<'a>(
     targets: &'a [ExecutionTarget],
     inventory: Option<&TargetCapabilityInventory>,
     workloads: &NodeWorkloads,
     now: SystemTime,
+    stale: StaleTargets,
 ) -> Vec<CheckedTarget<'a>> {
     let mut targets = targets.iter().collect::<Vec<_>>();
     targets.sort_by(|left, right| {
@@ -137,9 +152,19 @@ pub(crate) fn check_targets<'a>(
     targets
         .into_iter()
         .map(|target| {
+            let mut unreachable = false;
             let check = match inventory {
-                Some(inventory) => select_target_capabilities_at(target, inventory, now)
-                    .map_err(|error| target_failure(&error)),
+                Some(inventory) => match select_target_capabilities_at(target, inventory, now) {
+                    Err(
+                        TargetCapabilitySelectionError::StalePlatform { .. }
+                        | TargetCapabilitySelectionError::StaleAccelerator { .. },
+                    ) if stale == StaleTargets::UseLastObserved => {
+                        unreachable = true;
+                        select_last_observed_target_capabilities(target, inventory)
+                    }
+                    selected => selected,
+                }
+                .map_err(|error| target_failure(&error)),
                 None => Err((
                     ModelCompatibilityStatus::Unknown,
                     reason(ModelCompatibilityReasonCode::TargetNotReporting),
@@ -155,6 +180,7 @@ pub(crate) fn check_targets<'a>(
             CheckedTarget {
                 target,
                 check,
+                unreachable,
                 observed_at: inventory
                     .and_then(|inventory| inventory.for_target(&target.execution_target_id))
                     .and_then(|capabilities| capabilities.platform_observed_at),

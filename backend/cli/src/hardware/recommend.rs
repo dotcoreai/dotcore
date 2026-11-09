@@ -160,6 +160,7 @@ fn fit_label(fit: RecommendationFit) -> &'static str {
         RecommendationFit::FitsNow => "fits now",
         RecommendationFit::NeedsMemoryFreed => "needs memory freed",
         RecommendationFit::Unknown => "fit unknown",
+        RecommendationFit::Unreachable => "unreachable",
     }
 }
 
