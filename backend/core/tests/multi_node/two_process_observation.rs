@@ -31,7 +31,7 @@ use support::{ProcessCommand, node_control::ControlStream, node_liveness, proces
 
 use crate::support;
 
-/// Liveness window of the harness's manager, which runs the test timing.
+/// Longest real wait for the manager's projection to reach an expected state before a test fails.
 const PROJECTION_DEADLINE: Duration = Duration::from_secs(15);
 /// Refusal the manager returns to a node control stream open from a process whose incarnation
 /// another one replaced.

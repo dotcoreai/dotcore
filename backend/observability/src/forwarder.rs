@@ -666,10 +666,9 @@ fn estimated_bytes(bucket: &MetricBucket) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{collections::BTreeMap, time::UNIX_EPOCH};
 
-    use dotcore_domain::clock::VirtualClock;
+    use dotcore_domain::{clock::VirtualClock, timing::Timing};
     use futures_util::{future::BoxFuture, stream};
     use tokio::sync::{Semaphore, mpsc};
 
@@ -1017,16 +1016,16 @@ mod tests {
         descriptors.push(memory_descriptor());
         let store = InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
-            &Timing::test().metrics,
-            &Timing::test().watch,
             descriptors,
+            Timing::test().metrics,
+            Timing::test().watch,
             Arc::new(clock.clone()),
         )
         .expect("start store");
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
+            Timing::test().metrics,
             Arc::new(clock.clone()),
-            &Timing::test().metrics,
         ));
         clock.advance(Duration::from_secs(60));
         let (forwarder, _task) = MetricForwarder::start(

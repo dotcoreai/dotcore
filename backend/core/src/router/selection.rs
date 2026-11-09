@@ -1154,7 +1154,7 @@ mod tests {
                         worker_certificate.as_slice(),
                     )],
                 ),
-                &Timing::test().private,
+                Timing::test().private,
             )),
             crate::router::peer_service::test_support::Fixture::installed(
                 crate::router::peer_service::test_support::Script::Complete,

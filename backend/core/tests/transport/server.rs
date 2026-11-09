@@ -25,8 +25,10 @@ use async_openai::{
 use dotcore::composition::CompositionError;
 use dotcore::composition::model_service_for;
 use dotcore::testing::writer_metric_descriptors;
-use dotcore_domain::clock::{Clock, ClockSleep};
-use dotcore_domain::hardware_observation::{HardwareSample, HardwareSnapshotSource};
+use dotcore_domain::{
+    clock::{Clock, ClockSleep},
+    hardware_observation::{HardwareSample, HardwareSnapshotSource},
+};
 use dotcore_node_hardware::hardware::{
     AcceleratorDiscovery, AcceleratorVendorDiscoverer, AcceleratorVendorObservation,
     AcceleratorVendorPoller, HardwareSnapshotCollector, HostFactsAdapter, UnavailableReason,

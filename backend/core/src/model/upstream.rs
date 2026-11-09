@@ -7,8 +7,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use dotcore_domain::real_time;
-use dotcore_domain::{clock::Clock, timing::ModelTiming};
+use dotcore_domain::{
+    real_time,
+    timing::{Backoff, ModelTiming},
+};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
@@ -210,51 +212,27 @@ impl HealthState {
     }
 }
 
-/// Pauses between verifications of one upstream endpoint: the healthy interval and the retry
-/// back-off after a failure.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProbePacing {
-    timing: ModelTiming,
-}
-
-impl ProbePacing {
-    /// The pacing `timing` sets for upstream verifications.
-    pub(crate) fn new(timing: &ModelTiming) -> Self {
-        Self { timing: *timing }
-    }
-
-    /// Pause after a success, spread by the deployment's `jitter_fraction`.
-    pub(crate) fn healthy_delay(&self, jitter_fraction: f64) -> Duration {
-        self.timing
-            .upstream_healthy_interval
-            .mul_f64((1.0 + jitter_fraction).clamp(0.8, 1.2))
-    }
-}
-
 /// Deterministic retry delay calculation. Jitter is applied by the scheduler.
 #[derive(Clone, Debug)]
 pub(crate) struct RetrySchedule {
-    pacing: ProbePacing,
+    backoff: Backoff,
     delay: Duration,
 }
 
 impl RetrySchedule {
-    pub(crate) fn new(pacing: ProbePacing) -> Self {
+    pub(crate) fn new(backoff: Backoff) -> Self {
         Self {
-            pacing,
-            delay: pacing.timing.upstream_retry.initial,
+            backoff,
+            delay: backoff.initial,
         }
     }
     pub(crate) fn next(&mut self, minimum: Option<Duration>) -> Duration {
         let delay = self.delay.max(minimum.unwrap_or_default());
-        self.delay = self
-            .delay
-            .saturating_mul(2)
-            .min(self.pacing.timing.upstream_retry.max);
+        self.delay = self.delay.saturating_mul(2).min(self.backoff.max);
         delay
     }
     pub(crate) fn reset(&mut self) {
-        self.delay = self.pacing.timing.upstream_retry.initial;
+        self.delay = self.backoff.initial;
     }
 }
 
@@ -277,31 +255,26 @@ impl HealthJitter for StableHealthJitter {
 /// Controller-owned injectable health boundary dependencies.
 pub(crate) struct HealthDependencies {
     pub(crate) verification_http: std::sync::Arc<dyn VerificationHttp>,
-
-    /// Backend clock health scheduling reads and waits through.
-    pub(crate) clock: std::sync::Arc<dyn Clock>,
     pub(crate) jitter: std::sync::Arc<dyn HealthJitter>,
-
-    /// Timing of the verifications and of the observer's passes.
-    pub(crate) timing: ModelTiming,
 }
 
 /// Time-injected per-target health scheduling and stale-readiness control.
 #[derive(Clone, Debug)]
 pub(crate) struct HealthSchedule {
     health: HealthState,
-    pacing: ProbePacing,
+    timing: ModelTiming,
     retry: RetrySchedule,
     last_success_at: Option<Instant>,
     next_probe_at: Instant,
 }
 
 impl HealthSchedule {
-    pub(crate) fn new(now: Instant, pacing: ProbePacing) -> Self {
+    /// Starts a target's schedule at `now`, pacing its verifications by `timing`.
+    pub(crate) fn new(now: Instant, timing: ModelTiming) -> Self {
         Self {
             health: HealthState::new(),
-            pacing,
-            retry: RetrySchedule::new(pacing),
+            timing,
+            retry: RetrySchedule::new(timing.upstream_retry),
             last_success_at: None,
             next_probe_at: now,
         }
@@ -328,7 +301,8 @@ impl HealthSchedule {
             ProbeClassification::Success => {
                 self.last_success_at = Some(now);
                 self.retry.reset();
-                self.next_probe_at = now + self.pacing.healthy_delay(jitter_fraction);
+                self.next_probe_at =
+                    now + healthy_delay(self.timing.upstream_healthy_interval, jitter_fraction);
             }
             ProbeClassification::TransientFailure | ProbeClassification::ImmediateWithdrawal => {
                 self.next_probe_at = now + self.retry.next(minimum_retry)
@@ -339,7 +313,7 @@ impl HealthSchedule {
     /// Withdraws an otherwise eligible target once no successful evidence remains fresh.
     pub(crate) fn withdraw_if_stale(&mut self, now: Instant) -> bool {
         let stale = self.last_success_at.is_some_and(|success| {
-            now.saturating_duration_since(success) >= Duration::from_secs(5 * 60)
+            now.saturating_duration_since(success) >= self.timing.upstream_success_max_age
         });
         if stale && self.health.ready {
             self.health.ready = false;
@@ -348,6 +322,12 @@ impl HealthSchedule {
             false
         }
     }
+}
+
+/// Pause after a successful verification: the healthy `interval`, spread by the deployment's
+/// `jitter_fraction`.
+fn healthy_delay(interval: Duration, jitter_fraction: f64) -> Duration {
+    interval.mul_f64((1.0 + jitter_fraction).clamp(0.8, 1.2))
 }
 
 /// Builds the generic endpoint availability request for a deployment.
@@ -625,7 +605,6 @@ impl VerificationHttp for ScriptedVerificationHttp {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{
         sync::{
             Arc,
@@ -634,6 +613,7 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
+    use dotcore_domain::timing::Timing;
     use futures_util::FutureExt;
 
     use super::*;
@@ -751,7 +731,7 @@ mod tests {
 
     #[test]
     fn retry_schedule_obeys_exponential_cap_and_provider_minimum() {
-        let mut retry = RetrySchedule::new(ProbePacing::new(&Timing::production().model));
+        let mut retry = RetrySchedule::new(Timing::production().model.upstream_retry);
         assert_eq!(retry.next(None), Duration::from_secs(10));
         assert_eq!(retry.next(None), Duration::from_secs(20));
         assert_eq!(
@@ -783,8 +763,7 @@ mod tests {
     #[test]
     fn health_schedule_uses_exact_injected_retry_deadline() {
         let start = Instant::now();
-        let mut schedule =
-            HealthSchedule::new(start, ProbePacing::new(&Timing::production().model));
+        let mut schedule = HealthSchedule::new(start, Timing::production().model);
         schedule.record(start, ProbeClassification::TransientFailure, None, 0.0);
         assert_eq!(schedule.next_probe_at(), start + Duration::from_secs(10));
         assert!(!schedule.due(start + Duration::from_secs(9)));

@@ -293,10 +293,9 @@ fn sanitize_state(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::{
         deployment::v1::{AcceleratorMemoryObservation, NodeResolvedLaunchIdentity},
         model::{
@@ -397,7 +396,7 @@ mod tests {
             current,
             crate::model::controller::test_support::test_target_capability_source(),
             Timing::test().model,
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         )
         .expect("model owner");
 

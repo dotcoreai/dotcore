@@ -5,8 +5,6 @@
 //! record their calls and can be armed to fail. This keeps controller tests
 //! free of real site files, runtime backends, and model artifacts.
 
-use dotcore_domain::clock::SystemClock;
-use dotcore_domain::timing::{ReconcileOutcome, Timing};
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::ready,
@@ -17,8 +15,12 @@ use std::{
 };
 
 use anyhow::anyhow;
-use dotcore_domain::SiteNodeId;
-use dotcore_domain::test_support::oci::digest_reference;
+use dotcore_domain::{
+    SiteNodeId,
+    clock::SystemClock,
+    test_support::oci::digest_reference,
+    timing::{ReconcileOutcome, Timing},
+};
 use dotcore_proto::dotcore::{
     catalog::v1::{
         ModelParallelShape, OciPlatform, UpstreamModelBoundary, UpstreamModelDataEgressClass,
@@ -74,15 +76,13 @@ use crate::{
 
 pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource> {
     let platform = dotcore_domain::ExecutionPlatform::linux_amd64();
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [("target-one", "node-one")],
         [RuntimePlatformObservation::available(
             "target-one",
             platform,
         )],
         [NodeAcceleratorObservation::nvidia("node-one", "580.173.02")],
-        Timing::test().node_control.capability_max_age,
-        std::time::SystemTime::now(),
     );
     Arc::new(StaticTargetCapabilitySource::new(inventory))
 }
@@ -1082,7 +1082,7 @@ pub(super) fn test_engine_integrations() -> Arc<crate::model::engine::EngineInte
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
             Arc::new(crate::inference::simulated::SimulatedNativeProvider::new(
-                &Timing::test().simulated,
+                Timing::test().simulated,
                 Arc::new(SystemClock),
             )),
             crate::model::engine::EngineTransportFactories::local_engines(),

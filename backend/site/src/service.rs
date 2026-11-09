@@ -480,10 +480,9 @@ impl SiteServiceContract for SiteService {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
-    use dotcore_domain::SiteNodeId;
+    use dotcore_domain::{SiteNodeId, timing::Timing};
     use dotcore_proto::{
         dotcore::{
             catalog::v1::OciPlatform,

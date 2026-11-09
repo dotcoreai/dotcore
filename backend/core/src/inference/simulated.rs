@@ -131,10 +131,10 @@ pub(crate) struct SimulatedNativeProvider {
 impl SimulatedNativeProvider {
     /// Creates a provider pacing streamed tokens at the simulated generation speed of `timing`,
     /// waiting on `clock`.
-    pub(crate) fn new(timing: &SimulatedTiming, clock: Arc<dyn Clock>) -> Self {
+    pub(crate) fn new(timing: SimulatedTiming, clock: Arc<dyn Clock>) -> Self {
         Self {
             test_support: None,
-            timing: *timing,
+            timing,
             clock,
         }
     }
@@ -194,7 +194,7 @@ impl EngineReadinessProbe for SimulatedReadinessProbe {
 
 struct SimulatedInvoker {
     test_support: Option<SimulatedInferenceTestSupport>,
-    /// Pause before each streamed text token after the first.
+    /// Simulated timing that paces the streamed text tokens.
     timing: SimulatedTiming,
     clock: Arc<dyn Clock>,
 }
@@ -871,7 +871,7 @@ mod tests {
             crate::inference::EngineBindingIdentity::new("deployment", "realization", "http", 1)
                 .expect("binding identity");
         let production = Timing::production();
-        let binding = SimulatedNativeProvider::new(&production.simulated, Arc::new(SystemClock))
+        let binding = SimulatedNativeProvider::new(production.simulated, Arc::new(SystemClock))
             .bind(identity, "fixture-model".to_owned())
             .expect("native binding");
         let (_, cancellation) = inference_cancellation();
@@ -919,7 +919,7 @@ mod tests {
 
     /// A provider on the test timing, whose streamed tokens follow each other without pause.
     fn test_provider() -> SimulatedNativeProvider {
-        SimulatedNativeProvider::new(&Timing::test().simulated, Arc::new(SystemClock))
+        SimulatedNativeProvider::new(Timing::test().simulated, Arc::new(SystemClock))
     }
 
     fn decision_request() -> DecisionRequest {

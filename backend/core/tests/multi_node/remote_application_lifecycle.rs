@@ -63,8 +63,8 @@ const NIX_APPLICATION_PACKAGE: &str = "apps.remote-nix-fixture.docker";
 const SERVICE_NAME: &str = "web";
 const ROUTE_NAME: &str = "worker-application-route";
 const RENAMED_ROUTE_NAME: &str = "worker-application-route-renamed";
-/// Manager silence bound long enough that only a closed stream explains a prompt disconnect.
-const LONG_SILENCE_BOUND: Duration = Duration::from_secs(60);
+/// Node silence long enough that only a closed stream explains a prompt disconnect.
+const LONG_NODE_SILENCE: Duration = Duration::from_secs(60);
 /// Republish interval near the longest a manager accepts, leaving the processes time to start
 /// and the test time to change the worker's view before any republication.
 const LONG_REPUBLISH_INTERVAL: Duration = Duration::from_secs(25);
@@ -628,7 +628,7 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     // timing check: the worker neither reopens its stream nor loses its action lease between republications.
     let timing = {
         let mut timing = Timing::test();
-        timing.node_control.node_silence = LONG_SILENCE_BOUND;
+        timing.node_control.node_silence = LONG_NODE_SILENCE;
         timing.node_control.view_republish_interval = LONG_REPUBLISH_INTERVAL;
         timing.node_control.manager_silence =
             LONG_REPUBLISH_INTERVAL * MISSED_PUBLICATIONS_BEFORE_REOPEN;
@@ -710,7 +710,7 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     support::wait_for_worker_observation(manager_address, NodeObservationState::Disconnected).await;
     let disconnected_after = killed.elapsed();
     assert!(
-        disconnected_after < LONG_SILENCE_BOUND / 2,
+        disconnected_after < LONG_NODE_SILENCE / 2,
         "the killed worker disconnected {disconnected_after:?} after it stopped"
     );
 
@@ -728,7 +728,7 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     assert_ready(&after_restart, &placement, &health);
     let admitted_after = killed.elapsed();
     assert!(
-        admitted_after < LONG_SILENCE_BOUND,
+        admitted_after < LONG_NODE_SILENCE,
         "the restarted worker was admitted {admitted_after:?} after the old one stopped"
     );
 }
@@ -743,7 +743,7 @@ async fn the_resource_watch_shows_a_worker_deployment_status_and_its_closed_stre
             site_catalog: APPLICATION_CATALOG,
             timing: {
                 let mut timing = Timing::test();
-                timing.node_control.node_silence = LONG_SILENCE_BOUND;
+                timing.node_control.node_silence = LONG_NODE_SILENCE;
                 timing
             },
             ..ProcessTestControls::default()
@@ -881,7 +881,7 @@ async fn the_resource_watch_shows_a_worker_deployment_status_and_its_closed_stre
     }
     let disconnected_after = killed.elapsed();
     assert!(
-        disconnected_after < LONG_SILENCE_BOUND / 2,
+        disconnected_after < LONG_NODE_SILENCE / 2,
         "the watch showed the disconnection {disconnected_after:?} after the worker stopped"
     );
 }

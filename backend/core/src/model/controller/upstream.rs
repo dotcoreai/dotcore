@@ -16,7 +16,7 @@ use std::{
 use dotcore_domain::{
     clock::Clock,
     diagnostic::diagnostic_chain,
-    timing::{ReconcileCadence, ReconcileOutcome, ReconcileSchedule},
+    timing::{ModelTiming, ReconcileCadence, ReconcileOutcome, ReconcileSchedule},
 };
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentStatus,
@@ -39,8 +39,8 @@ use crate::model::{
     domain::ModelDeploymentId,
     state::{CurrentStateError, CurrentStateRepository},
     upstream::{
-        HealthDependencies, HealthJitter, HealthSchedule, ProbeClassification, ProbePacing,
-        VerificationHttp, VerificationObservation, VerificationRequest, VerificationTransportError,
+        HealthDependencies, HealthJitter, HealthSchedule, ProbeClassification, VerificationHttp,
+        VerificationObservation, VerificationRequest, VerificationTransportError,
     },
 };
 
@@ -55,10 +55,9 @@ pub(super) struct UpstreamReconciler<D, S> {
     operation: Arc<AsyncMutex<()>>,
     serving_targets_publisher: ServingTargetsPublisher,
     verification_http: Arc<dyn VerificationHttp>,
-    clock: Arc<dyn Clock>,
     health_jitter: Arc<dyn HealthJitter>,
-    pacing: ProbePacing,
-    reconcile: ReconcileSchedule,
+    timing: ModelTiming,
+    clock: Arc<dyn Clock>,
     health_shutdown: CancellationToken,
     upstream_health: AsyncMutex<BTreeMap<String, UpstreamHealthEntry>>,
     wakeup: Arc<Notify>,
@@ -70,13 +69,16 @@ where
     S: CurrentStateRepository,
 {
     /// Creates the reconciler and records a Loading state for every declared upstream deployment
-    /// that has no current record yet, so the owner can project it before the first probe.
+    /// that has no current record yet, so the owner can project it before the first probe. It
+    /// paces its passes and verifications by `timing` and waits through `clock`.
     pub(super) fn new(
         desired: D,
         state: S,
         operation: Arc<AsyncMutex<()>>,
         serving_targets_publisher: ServingTargetsPublisher,
         health: HealthDependencies,
+        timing: ModelTiming,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let wakeup = desired.register_change_listener();
         let reconciler = Self {
@@ -85,10 +87,9 @@ where
             operation,
             serving_targets_publisher,
             verification_http: health.verification_http,
-            clock: health.clock,
             health_jitter: health.jitter,
-            pacing: ProbePacing::new(&health.timing),
-            reconcile: health.timing.reconcile,
+            timing,
+            clock,
             health_shutdown: CancellationToken::new(),
             upstream_health: AsyncMutex::new(BTreeMap::new()),
             wakeup,
@@ -263,14 +264,14 @@ where
                     .entry(deployment.model_deployment_id.clone())
                     .or_insert_with(|| UpstreamHealthEntry {
                         declaration: deployment.clone(),
-                        schedule: HealthSchedule::new(now, self.pacing),
+                        schedule: HealthSchedule::new(now, self.timing),
                         cancellation: self.health_shutdown.child_token(),
                     });
                 if entry.declaration != *deployment {
                     entry.cancellation.cancel();
                     *entry = UpstreamHealthEntry {
                         declaration: deployment.clone(),
-                        schedule: HealthSchedule::new(now, self.pacing),
+                        schedule: HealthSchedule::new(now, self.timing),
                         cancellation: self.health_shutdown.child_token(),
                     };
                 }
@@ -549,7 +550,7 @@ where
             reconciler: Arc::downgrade(self),
             wakeup: Arc::clone(&self.wakeup),
             clock: Arc::clone(&self.clock),
-            reconcile: self.reconcile,
+            reconcile: self.timing.reconcile,
         };
         let task_span = tracing::info_span!(
             "model_upstream_observer",
@@ -622,10 +623,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::model::v1::{
         ModelDeploymentDesiredState, ModelDeploymentSnapshot, ModelDeploymentStatus,
         UpstreamModelDesiredConfiguration,
@@ -1114,10 +1114,10 @@ mod tests {
             ServingTargetsPublisher::new().0,
             HealthDependencies {
                 verification_http: Arc::new(ScriptedVerificationHttp::new([])),
-                clock: Arc::new(SystemClock),
                 jitter: Arc::new(StableHealthJitter),
-                timing: Timing::test().model,
             },
+            Timing::test().model,
+            Arc::new(SystemClock),
         )
         .expect("upstream reconciler")
     }

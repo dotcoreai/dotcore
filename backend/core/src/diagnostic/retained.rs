@@ -510,7 +510,10 @@ impl FileIdentity {
     }
 }
 async fn wait(cancellation: &CancellationToken) {
-    tokio::select! { () = cancellation.cancelled() => {}, () = real_time::poll_pause(POLL_INTERVAL) => {} }
+    tokio::select! {
+        () = cancellation.cancelled() => {}
+        () = real_time::pause(POLL_INTERVAL) => {}
+    }
 }
 
 async fn send_event(

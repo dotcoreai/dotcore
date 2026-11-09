@@ -65,8 +65,8 @@ impl Server {
             Some(listener) => {
                 let prepared = private::prepare(
                     listener.configuration,
-                    &listener.timing,
                     listener.routes,
+                    listener.timing,
                     lifecycle::wait(receiver.clone()),
                 )
                 .await?;

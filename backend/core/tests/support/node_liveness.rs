@@ -13,13 +13,6 @@ use dotcore::testing::{ManualClock, NodeLiveness, NodeLivenessAges, Timing};
 /// How often an advance rechecks whether every live node has renewed.
 const RENEWAL_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
-/// Share of the node heartbeat interval within which a live node counts as having renewed.
-const RENEWAL_SHARE: (u32, u32) = (2, 3);
-
-/// Share of the node heartbeat interval a node must stay silent to count as expiring; above a
-/// whole interval, so a node still sending never qualifies.
-const SILENCE_SHARE: (u32, u32) = (4, 3);
-
 /// Manual clock of one site manager subprocess and the liveness it tracks on that clock.
 pub struct ManagerClock {
     clock: ManualClock,
@@ -123,15 +116,13 @@ pub fn renewal_problem(
 /// advance is the real time it has to renew again. A live node sends a message at least every
 /// node heartbeat interval, so most of each interval qualifies.
 pub fn renewal_age(timing: &Timing) -> Duration {
-    share_of(timing.node_control.heartbeat_interval, RENEWAL_SHARE)
+    // Two thirds of a heartbeat interval: most of it, with room left before the next heartbeat.
+    timing.node_control.heartbeat_interval * 2 / 3
 }
 
 /// Shortest silence of an expiring node at an advance; nodes still running renew well within it,
 /// since it exceeds the node heartbeat interval.
 pub fn silence_age(timing: &Timing) -> Duration {
-    share_of(timing.node_control.heartbeat_interval, SILENCE_SHARE)
-}
-
-fn share_of(interval: Duration, (numerator, denominator): (u32, u32)) -> Duration {
-    interval * numerator / denominator
+    // A third past a whole heartbeat interval, so a node still sending never qualifies.
+    timing.node_control.heartbeat_interval * 4 / 3
 }

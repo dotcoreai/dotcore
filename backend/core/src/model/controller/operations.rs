@@ -1416,12 +1416,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
     use dotcore_catalog::CatalogModelId;
-    use dotcore_domain::test_support::tracing::{Record, capture_records, capture_records_async};
+    use dotcore_domain::{
+        clock::SystemClock,
+        test_support::tracing::{Record, capture_records, capture_records_async},
+        timing::Timing,
+    };
     use dotcore_proto::dotcore::model::v1::{
         CreateLocalModelDeploymentRequest, CreateUpstreamModelDeploymentRequest,
         LocalModelDeploymentConfiguration, ModelDeploymentDesiredState, ModelDeploymentStatus,
@@ -1483,10 +1485,7 @@ mod tests {
                 attributed: Some([("GPU-a".to_owned(), 1024)].into()),
             }],
         )]);
-        let inventory = TargetCapabilityInventory::empty(
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
-        );
+        let inventory = TargetCapabilityInventory::empty_now();
         let own_reads = Cell::new(0);
         let estimate_workloads = |source: Option<&dyn SiteWorkloadSource>| {
             super::estimate_workloads(source, &inventory, || {
@@ -1575,7 +1574,7 @@ mod tests {
             current,
             crate::model::controller::test_support::test_target_capability_source(),
             Timing::test().model,
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         )
         .expect("controller");
 
@@ -1626,7 +1625,7 @@ mod tests {
             current,
             crate::model::controller::test_support::test_target_capability_source(),
             Timing::test().model,
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         )
         .expect("controller");
         desired.fail_next(TestFailure::Failed);
@@ -1687,7 +1686,7 @@ mod tests {
             current.clone(),
             crate::model::controller::test_support::test_target_capability_source(),
             Timing::test().model,
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         )
         .expect("controller");
         let desired_before = desired.state.lock().expect("desired state").clone();

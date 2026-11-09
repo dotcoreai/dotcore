@@ -231,9 +231,9 @@ fn record_rejection(operation: &'static str, reason: NodeDiagnosticRejectionReas
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{fs, path::PathBuf, time::Duration};
 
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::diagnostic::{
         private::v1::{
             FollowNodeDiagnosticsRequest, NodeDiagnosticRejectionReason, NodeDiagnosticTarget,
@@ -445,11 +445,11 @@ mod tests {
                 (worker_certificate.clone(), worker_key),
                 [(MANAGER_ID, PrivateNodeRole::Manager, manager.0.as_slice())],
             ),
-            &Timing::test().private,
             PrivateServiceAssembly::new(move |context, routes| {
                 routes.add_service(NodeDiagnosticService::new(reader, &context).into_server());
             })
             .assemble(PrivateNodeRole::Worker, NODE_ID),
+            Timing::test().private,
             std::future::pending(),
         )
         .await
@@ -468,7 +468,7 @@ mod tests {
                     worker_certificate.as_slice(),
                 )],
             ),
-            &Timing::test().private,
+            Timing::test().private,
         );
         let channel = channels
             .channel(NODE_ID, WorkerChannelPurpose::Diagnostics, address.into())

@@ -78,7 +78,7 @@ impl NativeTestHost {
         // The fake engine never exits on its own, so a create would otherwise watch it for the
         // whole production settle window.
         let backend =
-            NativeRuntimeBackend::new(config.clone(), launcher_binary(), &Timing::test().native)
+            NativeRuntimeBackend::new(config.clone(), launcher_binary(), Timing::test().native)
                 .expect("native backend");
         Self {
             _roots: roots,
@@ -187,7 +187,7 @@ pub async fn wait_until(condition: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
         assert!(Instant::now() < deadline, "condition not met in time");
-        real_time::poll_pause(Duration::from_millis(20)).await;
+        real_time::pause(Duration::from_millis(20)).await;
     }
 }
 

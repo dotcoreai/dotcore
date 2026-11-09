@@ -407,11 +407,12 @@ mod tests {
 /// Recorder of preparation output shared by the unit tests of every preparation module.
 #[cfg(test)]
 pub(crate) mod test_support {
-    use dotcore_domain::clock::VirtualClock;
     use std::{
         sync::{Arc, Mutex},
         time::SystemTime,
     };
+
+    use dotcore_domain::clock::VirtualClock;
 
     use super::{PreparationEvent, PreparationEventKind, PreparationOutput, PreparationStep};
 

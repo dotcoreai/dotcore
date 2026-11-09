@@ -14,8 +14,7 @@ use std::{
 };
 
 use dotcore_artifact::{ArtifactManager, OciImagePreparer};
-use dotcore_domain::clock::Clock;
-use dotcore_domain::timing::ModelTiming;
+use dotcore_domain::{clock::Clock, timing::ModelTiming};
 #[cfg(test)]
 use dotcore_domain::{clock::SystemClock, timing::Timing};
 use dotcore_proto::dotcore::{
@@ -72,7 +71,9 @@ where
             desired,
             state,
             target_capabilities,
-            health(verification_http, timing, clock),
+            health(verification_http),
+            timing,
+            clock,
         )
     }
 
@@ -86,11 +87,9 @@ where
             desired,
             state,
             crate::model::controller::test_support::test_target_capability_source(),
-            health(
-                verification_http,
-                Timing::test().model,
-                Arc::new(SystemClock),
-            ),
+            health(verification_http),
+            Timing::test().model,
+            Arc::new(SystemClock),
         )
     }
 
@@ -99,6 +98,8 @@ where
         state: S,
         target_capabilities: Arc<dyn TargetCapabilitySource>,
         health: crate::model::upstream::HealthDependencies,
+        timing: ModelTiming,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let declared_site_id = desired
             .declaration_snapshot()
@@ -110,8 +111,6 @@ where
             ));
         }
         let operation = Arc::new(AsyncMutex::new(()));
-        let node_progress_write_interval = health.timing.node_progress_interval;
-        let clock = Arc::clone(&health.clock);
         let (serving_targets_publisher, serving_targets_source) = ServingTargetsPublisher::new();
         let upstream = super::upstream::UpstreamReconciler::new(
             desired.clone(),
@@ -119,6 +118,8 @@ where
             Arc::clone(&operation),
             serving_targets_publisher.clone(),
             health,
+            timing,
+            Arc::clone(&clock),
         )?;
         Ok(InferenceController {
             inner: Arc::new(super::ManagerInferenceControllerInner {
@@ -133,7 +134,7 @@ where
                 remote_status: std::sync::RwLock::new(None),
                 node_logs: std::sync::RwLock::new(None),
                 site_workloads: std::sync::RwLock::new(None),
-                node_progress_write_interval,
+                timing,
                 clock,
             }),
         })
@@ -426,7 +427,7 @@ where
                 preparation_logs,
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             },
         )
     }
@@ -491,18 +492,13 @@ struct ControllerDependencies {
     clock: Arc<dyn Clock>,
 }
 
-/// Upstream health dependencies on the backend's `timing` and `clock`, with stable
-/// per-deployment jitter.
+/// Upstream health dependencies over `verification_http`, with stable per-deployment jitter.
 fn health(
     verification_http: Arc<dyn crate::model::upstream::VerificationHttp>,
-    timing: ModelTiming,
-    clock: Arc<dyn Clock>,
 ) -> crate::model::upstream::HealthDependencies {
     crate::model::upstream::HealthDependencies {
         verification_http,
-        clock,
         jitter: Arc::new(crate::model::upstream::StableHealthJitter),
-        timing,
     }
 }
 
@@ -559,10 +555,9 @@ pub(super) fn validate_runtime_inputs(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::sync::{Arc, Mutex};
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::model::v1::{
         ModelDeploymentActivation, ModelDeploymentActivationPhase, ModelDeploymentDesiredState,
         ModelDeploymentLifecycleTransition, ModelDeploymentStatus,
@@ -601,7 +596,7 @@ mod tests {
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
             Timing::test().model,
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         )
         .err()
         .expect("mismatched owner state");
@@ -1024,7 +1019,7 @@ mod tests {
             shutdown: tokio_util::sync::CancellationToken::new(),
             workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
             timing: Timing::test().model,
-            clock: std::sync::Arc::new(SystemClock),
+            clock: Arc::new(SystemClock),
             preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(directory),
         }
     }

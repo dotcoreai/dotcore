@@ -3,8 +3,9 @@
 //! Behavior timing waits through the backend clock, so a test clock's advance reaches it. A few
 //! waits must follow real time whatever clock the backend runs: the bound on a call to another
 //! process, a daemon or the network, and the pause between two polls of a real file or process.
-//! Likewise a few wall-time reads record when something really happened. This module is the only
-//! place production code reaches real-time timers and the host's wall time for them.
+//! Likewise a few wall-time reads record when something really happened. Production code reaches
+//! real-time timers and the host's wall time through this module; only the clocks themselves and
+//! the launcher, which runs below the clock, read them directly.
 #![expect(
     clippy::disallowed_methods,
     reason = "real time is only for real I/O, real processes and records of real wall time"
@@ -39,7 +40,8 @@ pub fn wall_now() -> SystemTime {
     SystemTime::now()
 }
 
-/// Pauses for `interval` of real time between two polls of a real file or process.
-pub async fn poll_pause(interval: Duration) {
-    tokio::time::sleep(interval).await;
+/// Pauses for `duration` of real time: between two polls of a real file or process, or while a
+/// real connection winds down.
+pub async fn pause(duration: Duration) {
+    tokio::time::sleep(duration).await;
 }

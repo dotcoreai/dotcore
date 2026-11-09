@@ -1174,9 +1174,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
     use std::num::NonZeroU16;
 
+    use dotcore_domain::clock::SystemClock;
     use tokio_util::sync::CancellationToken;
 
     use super::*;

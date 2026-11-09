@@ -1013,7 +1013,6 @@ fn next_deployment_id(deployments: &[ModelDeploymentDeclaration]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{fs, path::Path, sync::Arc};
 
     use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
@@ -1309,7 +1308,7 @@ mod tests {
         let repository = ModelDeclarationRepository::new(
             site,
             Arc::new(development_source_darwin_catalog(directory.path())),
-            TargetCapabilityReconciler::reconcile(
+            TargetCapabilityReconciler::reconcile_now(
                 [("worker-target", "worker-node")],
                 [RuntimePlatformObservation::available(
                     "worker-target",
@@ -1320,8 +1319,6 @@ mod tests {
                     NodeAcceleratorFacts::apple(),
                 )
                 .with_host_memory(34_190_917_632, 34_190_917_632)],
-                Timing::test().node_control.capability_max_age,
-                std::time::SystemTime::now(),
             ),
         );
         let configuration = crate::test_support::local_model_configuration();
@@ -1675,14 +1672,8 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository = ModelDeclarationRepository::new(
-            site,
-            catalog,
-            TargetCapabilityInventory::empty(
-                Timing::test().node_control.capability_max_age,
-                std::time::SystemTime::now(),
-            ),
-        );
+        let repository =
+            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::empty_now());
         let inventory = fixture_target_capabilities();
         let model_target = dotcore_proto::dotcore::deployment::v1::ExactPlacement {
             site_node_id: "fixture-node".to_owned(),
@@ -1770,14 +1761,8 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository = ModelDeclarationRepository::new(
-            site,
-            catalog,
-            TargetCapabilityInventory::empty(
-                Timing::test().node_control.capability_max_age,
-                std::time::SystemTime::now(),
-            ),
-        );
+        let repository =
+            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::empty_now());
 
         assert_eq!(
             repository
@@ -3325,7 +3310,7 @@ selector:
     }
 
     fn two_node_target_capabilities() -> TargetCapabilityInventory {
-        TargetCapabilityReconciler::reconcile(
+        TargetCapabilityReconciler::reconcile_now(
             [
                 ("worker-target", "worker-node"),
                 ("manager-target", "manager-node"),
@@ -3344,8 +3329,6 @@ selector:
                 NodeAcceleratorObservation::nvidia("worker-node", "580.173.02"),
                 NodeAcceleratorObservation::nvidia("manager-node", "580.173.02"),
             ],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         )
     }
 

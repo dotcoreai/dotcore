@@ -1,7 +1,5 @@
 mod acquisition_contract;
 
-use dotcore_domain::clock::SystemClock;
-use dotcore_domain::timing::Timing;
 use std::{
     collections::BTreeMap,
     future::ready,
@@ -17,7 +15,11 @@ use anyhow::anyhow;
 use dotcore_artifact::{
     ArtifactManager, BlockingWorkGate, ModelArtifactCache, ModelArtifactProgress,
 };
-use dotcore_domain::test_support::tracing::{Record, capture_records, capture_records_async};
+use dotcore_domain::{
+    clock::SystemClock,
+    test_support::tracing::{Record, capture_records, capture_records_async},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     catalog::v1::{
         HuggingFaceSnapshotArtifact, HuggingFaceSnapshotFile,
@@ -934,7 +936,7 @@ impl crate::inference::NativeInferenceProvider for FirstReadinessGatedProvider {
         expected_model_id: String,
     ) -> Result<crate::inference::EngineBinding, crate::inference::EngineBindingError> {
         let base = crate::inference::simulated::SimulatedNativeProvider::new(
-            &Timing::test().simulated,
+            Timing::test().simulated,
             Arc::new(SystemClock),
         )
         .bind(identity.clone(), expected_model_id.clone())?;
@@ -1418,7 +1420,7 @@ async fn reconciliation_from(
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
-        clock: std::sync::Arc::new(SystemClock),
+        clock: Arc::new(SystemClock),
     };
     calls.lock().expect("calls").clear();
     let mut reconciled = true;
@@ -1529,7 +1531,7 @@ async fn reconciliation_stops_and_removes_a_valid_owned_orphan() {
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
-        clock: std::sync::Arc::new(SystemClock),
+        clock: Arc::new(SystemClock),
     };
 
     assert!(matches!(
@@ -1612,7 +1614,7 @@ async fn node_pass_never_treats_changed_or_newly_declared_workloads_as_orphans()
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
                 preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                     directory.path(),
                 ),
@@ -1712,7 +1714,7 @@ async fn paused_stopped_workload_projects_paused_without_runtime_mutation() {
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
-        clock: std::sync::Arc::new(SystemClock),
+        clock: Arc::new(SystemClock),
     };
     calls.lock().expect("calls").clear();
 
@@ -2684,7 +2686,7 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
-        clock: std::sync::Arc::new(SystemClock),
+        clock: Arc::new(SystemClock),
     };
     let controller = manager_test_controller(
         desired.clone(),
@@ -3571,7 +3573,7 @@ async fn retained_docker_workload_restarts_after_pause_and_resume() {
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -3792,7 +3794,7 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -3969,7 +3971,7 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
         serving_targets_source,
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
-        clock: std::sync::Arc::new(SystemClock),
+        clock: Arc::new(SystemClock),
     };
 
     inner.reconcile().await.expect("replacement reconciliation");
@@ -4095,7 +4097,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -4185,7 +4187,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -4564,7 +4566,7 @@ async fn repaired_docker_artifact_recreates_a_stopped_workload_before_ready() {
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
-        clock: std::sync::Arc::new(SystemClock),
+        clock: Arc::new(SystemClock),
     };
     let mut changes = inner.workload_lifecycle.subscribe("deployment");
 
@@ -4712,7 +4714,7 @@ async fn preparation_failure_cancels_and_drains_other_deployments_before_returni
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -4865,7 +4867,7 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -5014,7 +5016,7 @@ async fn pause_intent_is_not_undone_by_stale_final_publication_and_other_deploym
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             }),
         },
     );

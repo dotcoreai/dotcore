@@ -1,8 +1,7 @@
 use std::time::SystemTime;
 
-use dotcore_domain::clock::next_boundary;
 use dotcore_domain::{
-    clock::VirtualClock,
+    clock::{VirtualClock, next_boundary},
     timing::{NodeControlTiming, Timing},
 };
 use dotcore_proto::dotcore::{
@@ -750,7 +749,7 @@ impl Node {
             self.state.clone(),
             Arc::clone(&self.model) as Arc<dyn NodeModelStatusOwner>,
             application,
-            &NodeControlTiming {
+            NodeControlTiming {
                 status_check_interval: self.status_check_interval,
                 ..self.timing.node_control
             },

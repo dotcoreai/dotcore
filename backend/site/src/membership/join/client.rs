@@ -19,9 +19,8 @@ use std::{
     sync::Arc,
 };
 
-use dotcore_domain::real_time;
 use dotcore_domain::{
-    BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, timing::JoinTiming,
+    BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, real_time, timing::JoinTiming,
 };
 use dotcore_proto::dotcore::node::v1::{
     CommitRequest, DeclaredMachine, JoinResponse, node_join_service_client::NodeJoinServiceClient,
@@ -66,7 +65,7 @@ pub struct JoinConnection {
     manager_host: SiteNodeHost,
     client: NodeJoinServiceClient<Channel>,
     host: VerifiedJoinHost,
-    /// Bound on the commit round trip; past it the outcome is unknown.
+    /// Real-time bounds of the connection and its commit round trip.
     timing: JoinTiming,
     resolver: Arc<dyn HostResolver>,
     filesystem: Arc<dyn FileSystem>,
@@ -83,7 +82,7 @@ impl JoinConnection {
     pub async fn connect(
         token: JoinToken,
         manager_host: Option<SiteNodeHost>,
-        timing: &JoinTiming,
+        timing: JoinTiming,
     ) -> Result<Self, NodeJoinError> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let manager_host = match manager_host {
@@ -128,7 +127,7 @@ impl JoinConnection {
             manager_host,
             client: NodeJoinServiceClient::new(channel),
             host,
-            timing: *timing,
+            timing,
             resolver: Arc::new(SystemHostResolver),
             filesystem: Arc::new(StdFileSystem),
         })

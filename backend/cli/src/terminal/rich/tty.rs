@@ -12,11 +12,11 @@ use std::{
     fs::{File, OpenOptions},
     io::{self, Read, Write},
     os::fd::AsRawFd,
-    sync::{Mutex, Once, OnceLock, PoisonError},
+    sync::{Mutex, Once, PoisonError},
     time::{Duration, Instant},
 };
 
-use dotcore_domain::timing::Timing;
+use dotcore_domain::timing::TerminalTiming;
 use ratatui::{
     backend::{Backend, ClearType, CrosstermBackend, WindowSize},
     buffer::Cell,
@@ -68,9 +68,9 @@ impl Drop for RawModeGuard {
 /// answer, since inline prompts cannot find their rows on such a terminal.
 ///
 /// Nothing is drawn, and the terminal is restored before returning.
-pub(super) fn probe_cursor_reports(tty: &File) -> io::Result<()> {
+pub(super) fn probe_cursor_reports(tty: &File, timing: TerminalTiming) -> io::Result<()> {
     let _raw = RawModeGuard::enable()?;
-    query_cursor_position(tty, cursor_query_timeout())?;
+    query_cursor_position(tty, timing.cursor_query_timeout)?;
     Ok(())
 }
 
@@ -81,15 +81,17 @@ pub(super) fn probe_cursor_reports(tty: &File) -> io::Result<()> {
 pub(super) struct TtyBackend {
     inner: CrosstermBackend<File>,
     tty: File,
+    timing: TerminalTiming,
 }
 
 impl TtyBackend {
-    /// Creates a backend drawing on `tty`.
-    pub(super) fn new(tty: File) -> io::Result<Self> {
+    /// Creates a backend drawing on `tty`, whose cursor-position queries are bounded by `timing`.
+    pub(super) fn new(tty: File, timing: TerminalTiming) -> io::Result<Self> {
         let query = tty.try_clone()?;
         Ok(Self {
             inner: CrosstermBackend::new(tty),
             tty: query,
+            timing,
         })
     }
 
@@ -128,7 +130,7 @@ impl Backend for TtyBackend {
 
     fn get_cursor_position(&mut self) -> io::Result<Position> {
         Backend::flush(&mut self.inner)?;
-        query_cursor_position(&self.tty, cursor_query_timeout())
+        query_cursor_position(&self.tty, self.timing.cursor_query_timeout)
     }
 
     fn set_cursor_position<P: Into<Position>>(&mut self, position: P) -> io::Result<()> {
@@ -187,14 +189,6 @@ fn install_panic_restore() {
             previous(info);
         }));
     });
-}
-
-/// How long a terminal may take to answer the cursor-position query, from this process's timing
-/// policy.
-fn cursor_query_timeout() -> Duration {
-    static TIMEOUT: OnceLock<Duration> = OnceLock::new();
-
-    *TIMEOUT.get_or_init(|| Timing::for_process().terminal.cursor_query_timeout)
 }
 
 /// Sends `ESC[6n` on the terminal and parses its `ESC[row;columnR` reply; bytes typed before

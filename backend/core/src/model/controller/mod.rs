@@ -17,9 +17,7 @@ use std::{
 
 use dotcore_artifact::ArtifactManager;
 use dotcore_catalog::CatalogModelId;
-use dotcore_domain::clock::Clock;
-use dotcore_domain::diagnostic::truncate_utf8_with_ellipsis;
-use dotcore_domain::timing::ModelTiming;
+use dotcore_domain::{clock::Clock, diagnostic::truncate_utf8_with_ellipsis, timing::ModelTiming};
 use dotcore_proto::dotcore::model::v1::{
     CreateLocalModelDeploymentRequest, CreateUpstreamModelDeploymentRequest,
     EstimateLocalModelResourcesResponse, ListModelDeploymentsResponse,
@@ -620,11 +618,11 @@ pub(super) struct ManagerInferenceControllerInner<D, S> {
     /// until then estimates count only this controller's deployments.
     site_workloads: std::sync::RwLock<Option<Arc<dyn SiteWorkloadSource>>>,
 
-    /// Least time between two stored records of a node-hosted model that differ only in
-    /// progress.
-    node_progress_write_interval: std::time::Duration,
+    /// Timing of the stored records of node-hosted models.
+    timing: ModelTiming,
 
-    /// Backend clock whose wall time judges target observations fresh.
+    /// Backend clock whose wall time stamps node-hosted records and judges target observations
+    /// fresh.
     clock: Arc<dyn Clock>,
 }
 

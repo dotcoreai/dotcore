@@ -10,7 +10,6 @@
 //! that pin, image and startup telemetry. Preparing the engine has its own deadline, so a cold
 //! image does not count against the serving deadlines.
 
-use dotcore_domain::timing::Timing;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -823,15 +822,13 @@ fn qualification_target_capabilities(
             ),
         ),
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             EXECUTION_TARGET_ID,
             platform.clone(),
         )],
         [node_nvidia],
-        Timing::test().node_control.capability_max_age,
-        std::time::SystemTime::now(),
     );
     (target, inventory)
 }

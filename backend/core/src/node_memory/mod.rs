@@ -134,7 +134,6 @@ impl NodeReadings for NodeRegistry {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{
         sync::{Arc, Mutex},
         time::{Duration, UNIX_EPOCH},
@@ -458,7 +457,7 @@ mod tests {
         applications: Vec<ApplicationDeployment>,
     ) -> (NodeMemoryRead, Arc<FixedReadings>) {
         let snapshot = render(&[]);
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [
                 ("model-target", "worker-node", [GPU]),
                 ("app-target", "worker-node", [GPU]),
@@ -469,8 +468,6 @@ mod tests {
                 &snapshot,
                 false,
             )],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         let readings = Arc::new(FixedReadings {
             memory: readings,

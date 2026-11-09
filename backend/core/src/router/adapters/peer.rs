@@ -471,7 +471,6 @@ fn protocol_violation(message: &str) -> AdapterError {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{
         net::SocketAddr,
         sync::{
@@ -481,6 +480,7 @@ mod tests {
         time::Duration,
     };
 
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::inference::private::v1::RequestErrorCategory;
     use dotcore_proto::dotcore::inference::v1::{
         ChatContentPart, ChatImageContent, ChatImageMediaType, ChatMessage, ChatMessageRole,
@@ -888,7 +888,7 @@ mod tests {
                         peer.worker_certificate.as_slice(),
                     )],
                 ),
-                &Timing::test().private,
+                Timing::test().private,
             )),
             Fixture::installed(Script::Complete).admission(),
         );
@@ -1224,10 +1224,10 @@ mod tests {
                         manager_certificate.as_slice(),
                     )],
                 ),
-                &Timing::test().private,
                 worker
                     .private_services()
                     .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
+                Timing::test().private,
                 std::future::pending(),
             )
             .await
@@ -1264,7 +1264,7 @@ mod tests {
                                 worker_certificate.as_slice(),
                             )],
                         ),
-                        &Timing::test().private,
+                        Timing::test().private,
                     )),
                     Fixture::installed(Script::Complete).admission(),
                 ),
@@ -1288,7 +1288,7 @@ mod tests {
                         (self.manager_certificate.clone(), self.manager_key.clone()),
                         [(WORKER_NODE_ID, PrivateNodeRole::Worker, worker_certificate)],
                     ),
-                    &Timing::test().private,
+                    Timing::test().private,
                 )),
                 Fixture::installed(Script::Complete).admission(),
             )

@@ -27,13 +27,12 @@ use dotcore_artifact::{
     ArtifactManager, DockerOciClient, NixSources, OciImagePreparer, OciPreparer,
 };
 use dotcore_catalog::{Catalog, CatalogModelId};
-use dotcore_domain::clock::SystemClock;
-use dotcore_domain::timing::Timing;
 use dotcore_domain::{
-    clock::Clock as _,
+    clock::{Clock as _, SystemClock},
     deployment::launch_pin::{LaunchPinResolver as _, RetainedArtifact, pin_source},
     hardware_observation::HardwareSnapshotSource,
     names_every_cdi_device,
+    timing::{NativeTiming, NodeControlTiming, Timing},
 };
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{
@@ -89,6 +88,9 @@ pub struct DirectWorkloadFacade {
     artifacts: ArtifactManager,
     runtime: Arc<dyn DevelopmentRuntime>,
     namespace: DevelopmentRuntimeNamespace,
+
+    /// Timing of this process, read once when the facade connects.
+    timing: Timing,
     #[cfg(test)]
     test_target_capabilities: Option<(
         dotcore_domain::ExecutionPlatform,
@@ -102,6 +104,7 @@ impl DirectWorkloadFacade {
     pub async fn connect(
         config: DirectWorkloadFacadeConfig,
     ) -> Result<Self, DirectWorkloadLaunchError> {
+        let timing = Timing::for_process();
         let namespace = DevelopmentRuntimeNamespace::derive(&config.runtime_scope)?;
         validate_operation_path(&config.master_catalog_root)?;
         if let Some(development_catalog_root) = &config.development_catalog_root {
@@ -167,6 +170,7 @@ impl DirectWorkloadFacade {
                 &config.cache_root,
                 model_artifacts,
                 launcher.as_deref(),
+                timing.native,
             )?),
         };
         Ok(Self {
@@ -174,6 +178,7 @@ impl DirectWorkloadFacade {
             artifacts,
             runtime,
             namespace,
+            timing,
             #[cfg(test)]
             test_target_capabilities: None,
         })
@@ -191,6 +196,7 @@ impl DirectWorkloadFacade {
             artifacts,
             runtime,
             namespace,
+            timing: Timing::test(),
             test_target_capabilities: Some((
                 dotcore_domain::ExecutionPlatform::linux_amd64(),
                 "580".parse().expect("valid test NVIDIA driver"),
@@ -261,6 +267,7 @@ impl DirectWorkloadFacade {
                 self.runtime_adapter(),
                 platform.clone(),
                 accelerator,
+                self.timing.node_control,
                 now,
             );
             return Ok((target, inventory));
@@ -287,6 +294,7 @@ impl DirectWorkloadFacade {
                 &snapshot,
                 false,
             ),
+            self.timing.node_control,
             now,
         );
         Ok((target, inventory))
@@ -1162,6 +1170,7 @@ fn direct_target_capabilities(
     adapter: model_runtime_binding::Adapter,
     platform: dotcore_domain::ExecutionPlatform,
     accelerator: NodeAcceleratorObservation,
+    timing: NodeControlTiming,
     observed_at: SystemTime,
 ) -> (SiteExecutionTarget, TargetCapabilityInventory) {
     let execution_target_id = "development-target";
@@ -1183,7 +1192,7 @@ fn direct_target_capabilities(
             observed_at,
         )],
         [accelerator],
-        Timing::production().node_control.capability_max_age,
+        timing.capability_max_age,
         observed_at,
     );
     (development_target, inventory)
@@ -1288,6 +1297,7 @@ fn native_development_runtime(
     cache_root: &Path,
     model_artifacts: PathBuf,
     launcher: Option<&Path>,
+    timing: NativeTiming,
 ) -> Result<dotcore_runtime_backends::native::NativeRuntimeBackend, DirectWorkloadLaunchError> {
     let launcher =
         dotcore_runtime_backends::native::resolve_launcher(launcher).map_err(|error| {
@@ -1309,9 +1319,7 @@ fn native_development_runtime(
         lifetime: dotcore_runtime_backends::native::NativeWorkloadLifetime::Persistent,
     };
     Ok(dotcore_runtime_backends::native::NativeRuntimeBackend::new(
-        config,
-        launcher,
-        &Timing::for_process().native,
+        config, launcher, timing,
     )?)
 }
 

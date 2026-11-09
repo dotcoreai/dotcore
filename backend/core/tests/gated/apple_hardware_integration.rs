@@ -10,15 +10,15 @@
 
 #![cfg(target_os = "macos")]
 
-use dotcore_domain::clock::SystemClock;
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use dotcore::model::engine::declaration_validator;
-use dotcore_domain::hardware_observation::HardwareSnapshotSource;
+use dotcore_domain::{clock::SystemClock, hardware_observation::HardwareSnapshotSource};
 use dotcore_launcher::workload::{LauncherRecord, ProcessRecord, StoredRecord};
 use dotcore_node_hardware::{
     apple::SystemAppleAcceleratorAdapter,
@@ -87,9 +87,8 @@ const MINIMUM_ENGINE_FOOTPRINT_BYTES: u64 = 1024 * 1024 * 1024;
 #[test]
 #[ignore = "hardware: just backend::test-apple"]
 fn hw_apple_gpu_is_observed_with_a_fixed_device_id_across_polls() {
-    let collector = SystemHardwareSnapshotCollector::with_platform_accelerators(
-        std::sync::Arc::new(SystemClock),
-    );
+    let collector =
+        SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(SystemClock));
 
     let snapshots = (0..3)
         .map(|_| collector.collect_snapshot())
@@ -788,9 +787,8 @@ async fn load_without_measured_memory(
 
 /// Host available memory as the node's collector reads it.
 fn host_available_bytes() -> u64 {
-    let collector = SystemHardwareSnapshotCollector::with_platform_accelerators(
-        std::sync::Arc::new(SystemClock),
-    );
+    let collector =
+        SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(SystemClock));
     match collector
         .collect_snapshot()
         .host

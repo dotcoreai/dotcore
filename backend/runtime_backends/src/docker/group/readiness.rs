@@ -70,7 +70,7 @@ impl<C: DockerClient> DockerAdapter<C> {
                 Err(_) if Instant::now() >= deadline => {
                     return Ok(ReadyLaunchGateOutcome::TimedOut);
                 }
-                Err(_) => real_time::poll_pause(gate.interval().min(remaining)).await,
+                Err(_) => real_time::pause(gate.interval().min(remaining)).await,
             }
         }
     }

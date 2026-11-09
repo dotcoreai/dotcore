@@ -94,8 +94,8 @@ pub(crate) struct PrivateListener {
 /// that vanished without closing its connection ends.
 pub(crate) async fn prepare(
     configuration: PrivateServerConfiguration,
-    timing: &PrivateTiming,
     routes: tonic::service::Routes,
+    timing: PrivateTiming,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<PreparedPrivateServer, super::ServerError> {
     let _ = rustls::crypto::ring::default_provider().install_default();

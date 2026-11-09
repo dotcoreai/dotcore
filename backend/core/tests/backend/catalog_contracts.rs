@@ -4,7 +4,6 @@
 //! validation and service contracts use the smallest available fixture instead
 //! of duplicating the contents of committed catalog YAML.
 
-use dotcore_domain::timing::Timing;
 use std::{collections::BTreeSet, path::Path, sync::Arc};
 
 use dotcore::model::{
@@ -2442,15 +2441,13 @@ fn target_capabilities(
         NodeAcceleratorObservation::available("fixture-node", NodeAcceleratorFacts::apple())
             .with_host_memory(34_190_917_632, 34_190_917_632)
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "fixture-target",
             platform,
         )],
         [accelerator],
-        Timing::test().node_control.capability_max_age,
-        std::time::SystemTime::now(),
     );
     (target, inventory)
 }
@@ -2796,7 +2793,7 @@ fn simulated_target(machine: &str, gpu: usize) -> (ExecutionTarget, TargetCapabi
     let snapshot = description
         .render(&[], std::time::SystemTime::now())
         .expect("rendered snapshot");
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "machine-target",
@@ -2807,8 +2804,6 @@ fn simulated_target(machine: &str, gpu: usize) -> (ExecutionTarget, TargetCapabi
             &snapshot,
             false,
         )],
-        Timing::test().node_control.capability_max_age,
-        std::time::SystemTime::now(),
     );
     (target, inventory)
 }
@@ -2837,15 +2832,13 @@ fn accelerator_target(
     if memory_architecture.is_some() {
         accelerator = accelerator.with_memory_architecture(memory_architecture);
     }
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "facts-target",
             platform,
         )],
         [accelerator],
-        Timing::test().node_control.capability_max_age,
-        std::time::SystemTime::now(),
     );
     (target, inventory)
 }
@@ -2867,7 +2860,7 @@ fn macos_native_target_capabilities() -> (ExecutionTarget, TargetCapabilityInven
             adapter: Some(Adapter::NativeRuntime(Default::default())),
         })),
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "native-target",
@@ -2877,8 +2870,6 @@ fn macos_native_target_capabilities() -> (ExecutionTarget, TargetCapabilityInven
             NodeAcceleratorObservation::available("mac-node", NodeAcceleratorFacts::apple())
                 .with_host_memory(34_190_917_632, 34_190_917_632),
         ],
-        Timing::test().node_control.capability_max_age,
-        std::time::SystemTime::now(),
     );
     (target, inventory)
 }

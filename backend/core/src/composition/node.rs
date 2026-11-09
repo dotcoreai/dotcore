@@ -15,11 +15,9 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::SitePaths;
-use dotcore_domain::clock::Clock;
-use dotcore_domain::timing::ApplicationTiming;
 use dotcore_domain::{
-    background_loop::log_unexpected_loop_end, hardware_observation::HardwareSnapshotSource,
+    SitePaths, background_loop::log_unexpected_loop_end, clock::Clock,
+    hardware_observation::HardwareSnapshotSource, timing::ApplicationTiming,
 };
 use dotcore_node_hardware::LocalNodeCapability;
 use dotcore_observability::{
@@ -295,7 +293,7 @@ pub(super) async fn compose_node(
         &site_id,
         &site_node_id,
         test_support.native_launcher.as_deref(),
-        &test_support.timing.native,
+        test_support.timing.native,
         super::runtime::SimulatedRuntimeInputs {
             test_support: test_support.simulated_runtime.clone(),
             machine: declared_machine,
@@ -338,7 +336,7 @@ pub(super) async fn compose_node(
         Arc::new(NodeStorePins {
             state: state.clone(),
         }),
-        &test_support.timing.artifact,
+        test_support.timing.artifact,
         Arc::clone(&clock),
     );
     let artifacts = crate::model::controller::ArtifactDependencies {
@@ -354,7 +352,7 @@ pub(super) async fn compose_node(
         target_capabilities,
         engine_integrations: super::controllers::engine_integrations(
             test_support.simulated_inference,
-            &test_support.timing.simulated,
+            test_support.timing.simulated,
             Arc::clone(&clock),
         ),
         accelerator_attribution: Some(accelerator_attribution.clone()),
@@ -523,7 +521,7 @@ pub(super) async fn compose_node(
         state,
         model_status,
         application_status,
-        &test_support.timing.node_control,
+        test_support.timing.node_control,
         clock,
     );
     let diagnostics =
@@ -605,7 +603,7 @@ fn collection_metrics_writer(
             forwarder.recorder(crate::application::APPLICATION_RESOURCES_SOURCE),
         ));
     }
-    CollectionMetricsWriter::new(observation.reporter.observations(), clock, sources)
+    CollectionMetricsWriter::new(observation.reporter.observations(), sources, clock)
 }
 
 /// Composes the observation part of the SiteNode that shares the manager process: the same
@@ -1186,8 +1184,6 @@ pub(super) fn node_view_owner_rules() -> NodeViewOwnerRules {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::{
         sync::{
             Arc,
@@ -1196,7 +1192,7 @@ mod tests {
         time::Duration,
     };
 
-    use dotcore_domain::{ExecutionPlatform, SiteNodeId};
+    use dotcore_domain::{ExecutionPlatform, SiteNodeId, clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
         site::v1::{

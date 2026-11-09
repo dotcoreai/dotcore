@@ -308,7 +308,6 @@ fn series_from_proto(series: metrics::MetricSeriesAggregate) -> Option<BucketSer
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{
         collections::BTreeMap,
         error::Error as _,
@@ -316,7 +315,10 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use dotcore_domain::clock::{Clock as _, ManualClock};
+    use dotcore_domain::{
+        clock::{Clock as _, ManualClock},
+        timing::Timing,
+    };
     use dotcore_observability::{
         InMemoryMetricStore, InMemoryStoreConfig, MetricDescriptor, MetricDimension, MetricKind,
         MetricProvenance, MetricQuery, MetricStore, MetricUnit, PointValue, QueryRange, Reduce,
@@ -450,8 +452,6 @@ mod tests {
             let store = Arc::new(
                 InMemoryMetricStore::start(
                     InMemoryStoreConfig::default(),
-                    &Timing::test().metrics,
-                    &Timing::test().watch,
                     vec![MetricDescriptor {
                         name: "node.memory.used".to_owned(),
                         kind: MetricKind::Gauge,
@@ -461,6 +461,8 @@ mod tests {
                         sample_interval: Some(Duration::from_secs(1)),
                         reporting_delay: None,
                     }],
+                    Timing::test().metrics,
+                    Timing::test().watch,
                     Arc::new(clock.clone()),
                 )
                 .expect("start store"),
@@ -469,8 +471,8 @@ mod tests {
             clock.advance(Duration::from_secs(60));
             let ingest = Arc::new(MetricBucketIngest::new(
                 store.ingestor(),
+                Timing::test().metrics,
                 Arc::new(clock.clone()),
-                &Timing::test().metrics,
             ));
             let manager_certificate = manager.0.clone();
             let server = crate::server::private::prepare(
@@ -481,13 +483,13 @@ mod tests {
                     manager,
                     [(WORKER_ID, PrivateNodeRole::Worker, worker.0.as_slice())],
                 ),
-                &Timing::test().private,
                 PrivateServiceAssembly::new(move |context, routes| {
                     routes.add_service(
                         MetricBucketStreamService::new(ingest, &context).into_server(),
                     );
                 })
                 .assemble(PrivateNodeRole::Manager, MANAGER_ID),
+                Timing::test().private,
                 std::future::pending(),
             )
             .await

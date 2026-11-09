@@ -508,7 +508,7 @@ fn site(
     let stale = |index: usize| index == 0 && first_stale;
     let reported_at = |index: usize| {
         if stale(index) {
-            now - 2 * Timing::production().node_control.capability_max_age
+            now - 2 * Timing::test().node_control.capability_max_age
         } else {
             now
         }
@@ -544,7 +544,7 @@ fn site(
         &targets,
         platforms,
         accelerators,
-        Timing::production().node_control.capability_max_age,
+        Timing::test().node_control.capability_max_age,
         now,
     );
     (targets, inventory, deployments)

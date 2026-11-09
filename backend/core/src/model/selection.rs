@@ -333,7 +333,6 @@ pub(crate) fn engine_artifact_kind(artifact: &EngineArtifact) -> Option<Workload
 #[cfg(test)]
 mod tests {
     use dotcore_domain::test_support::oci;
-    use dotcore_domain::timing::Timing;
     use dotcore_domain::{
         Accelerator, ExecutionPlatform, MemoryArchitecture, WorkloadArtifactKind, test_support::nix,
     };
@@ -477,7 +476,7 @@ mod tests {
             .expect("named machine")
             .render(&[], std::time::SystemTime::now())
             .expect("rendered snapshot");
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [&target],
             [RuntimePlatformObservation::available(
                 "target-a",
@@ -486,8 +485,6 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &mac, false,
             )],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         let capabilities =
             select_target_capabilities(&target, &inventory).expect("Apple target capabilities");
@@ -557,15 +554,13 @@ mod tests {
     #[test]
     fn selection_rejects_nix_on_docker_targets_and_oci_on_native_kind_sets() {
         let linux = ExecutionPlatform::linux_amd64();
-        let docker = TargetCapabilityReconciler::reconcile(
+        let docker = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
                 linux.clone(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         let docker = select_target_capabilities(&execution_target(&linux, &["target-a"]), &docker)
             .expect("Docker target capabilities");
@@ -609,15 +604,13 @@ mod tests {
     #[test]
     fn docker_delivered_nix_artifacts_fit_docker_targets_only() {
         let linux = ExecutionPlatform::linux_amd64();
-        let docker = TargetCapabilityReconciler::reconcile(
+        let docker = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
                 linux.clone(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         let docker = select_target_capabilities(&execution_target(&linux, &["target-a"]), &docker)
             .expect("Docker target capabilities");
@@ -694,15 +687,13 @@ mod tests {
             .expect("resolved retained snapshot");
 
         let arm64_target = execution_target(&ExecutionPlatform::linux_arm64(), &["target-a"]);
-        let arm64_inventory = TargetCapabilityReconciler::reconcile(
+        let arm64_inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
                 ExecutionPlatform::linux_arm64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         assert!(matches!(
             validate_retained_target_capabilities(&arm64_target, &arm64_inventory, &resolved),
@@ -710,15 +701,13 @@ mod tests {
         ));
 
         let amd64_target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
-        let downgraded_inventory = TargetCapabilityReconciler::reconcile(
+        let downgraded_inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "579")],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         assert_eq!(
             validate_retained_target_capabilities(&amd64_target, &downgraded_inventory, &resolved),
@@ -735,7 +724,7 @@ mod tests {
         let resolved = crate::model::resolved::ResolvedModelLaunch::from_snapshot(&snapshot)
             .expect("resolved retained snapshot");
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
@@ -745,8 +734,6 @@ mod tests {
                 NodeAcceleratorObservation::available("node-a", NodeAcceleratorFacts::apple())
                     .with_memory_architecture(Some(MemoryArchitecture::Dedicated)),
             ],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
 
         assert_eq!(
@@ -764,15 +751,13 @@ mod tests {
         let mut resolved = crate::model::resolved::ResolvedModelLaunch::from_snapshot(&snapshot)
             .expect("resolved retained snapshot");
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         assert_eq!(
             validate_retained_target_capabilities(&target, &inventory, &resolved),
@@ -852,7 +837,7 @@ mod tests {
         let resolved = crate::model::resolved::ResolvedModelLaunch::from_snapshot(&snapshot)
             .expect("resolved retained snapshot");
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
@@ -865,8 +850,6 @@ mod tests {
                     None,
                 ),
             ],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
 
         assert_eq!(
@@ -882,7 +865,7 @@ mod tests {
             .expect("resolved retained snapshot");
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
         let inventory = |memory_architecture| {
-            TargetCapabilityReconciler::reconcile(
+            TargetCapabilityReconciler::reconcile_now(
                 [("target-a", "node-a")],
                 [RuntimePlatformObservation::available(
                     "target-a",
@@ -890,8 +873,6 @@ mod tests {
                 )],
                 [NodeAcceleratorObservation::nvidia("node-a", "580")
                     .with_memory_architecture(Some(memory_architecture))],
-                Timing::test().node_control.capability_max_age,
-                std::time::SystemTime::now(),
             )
         };
 
@@ -920,7 +901,7 @@ mod tests {
     #[test]
     fn retained_selection_rejects_a_hardware_class_that_no_longer_matches_the_target() {
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
@@ -928,8 +909,6 @@ mod tests {
             )],
             [NodeAcceleratorObservation::nvidia("node-a", "580")
                 .with_memory_architecture(Some(MemoryArchitecture::Dedicated))],
-            Timing::test().node_control.capability_max_age,
-            std::time::SystemTime::now(),
         );
         let resolved_with_class_memory = |architecture| {
             let mut snapshot = local_model_snapshot("fixture-model");

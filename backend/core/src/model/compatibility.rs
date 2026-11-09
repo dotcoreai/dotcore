@@ -649,11 +649,10 @@ fn oci_platform(operating_system: &str, architecture: &str) -> OciPlatform {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{fs, path::Path, time::SystemTime};
 
     use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
-    use dotcore_domain::{ExecutionPlatform, MemoryArchitecture};
+    use dotcore_domain::{ExecutionPlatform, MemoryArchitecture, timing::Timing};
     use dotcore_proto::dotcore::{
         catalog::v1::{OciPlatform, Selector},
         deployment::v1::{ExactPlacement, MemoryFit},

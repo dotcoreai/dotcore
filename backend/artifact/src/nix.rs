@@ -8,8 +8,10 @@
 
 use std::{future::Future, path::PathBuf, pin::Pin, process::Stdio, time::Duration};
 
-use dotcore_domain::nix::{discover_nix, search_locations};
-use dotcore_domain::real_time;
+use dotcore_domain::{
+    nix::{discover_nix, search_locations},
+    real_time,
+};
 use tokio_util::sync::CancellationToken;
 
 /// Flags enabling the `nix` subcommands and flake references evaluation uses.

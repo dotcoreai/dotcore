@@ -741,11 +741,9 @@ impl std::error::Error for SharedPinError {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::sync::Mutex;
 
-    use dotcore_domain::ExecutionPlatform;
+    use dotcore_domain::{ExecutionPlatform, clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
         model::v1::{ModelDeploymentLifecycleTransition, ModelDeploymentState},
@@ -1695,7 +1693,7 @@ mod tests {
                     shutdown: self.shutdown.clone(),
                     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
                     timing: Timing::test().model,
-                    clock: std::sync::Arc::new(SystemClock),
+                    clock: Arc::new(SystemClock),
                     preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                         self._directory.path(),
                     ),

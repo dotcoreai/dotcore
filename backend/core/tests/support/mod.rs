@@ -4,7 +4,6 @@
     reason = "each integration-test crate includes this shared module but uses a different helper subset"
 )]
 
-use dotcore_domain::clock::SystemClock;
 use std::{
     fs,
     io::{BufRead, BufReader, Write},
@@ -27,9 +26,10 @@ use dotcore::{
     model::engine::declaration_validator,
     testing::{SimulatedInferenceTestSupport, Timing, relax_sync_for_tests},
 };
-use dotcore_domain::hardware_observation::HardwareSnapshotSource;
 use dotcore_domain::{
     APPLE_GPU_DEVICE_ID, ExecutionPlatform, SiteNodeHost,
+    clock::SystemClock,
+    hardware_observation::HardwareSnapshotSource,
     test_support::ports::{ReservedPort, reserve_port},
 };
 use dotcore_node_hardware::MachineDescription;
@@ -170,7 +170,7 @@ pub fn observed_node_nvidia(managed_node_id: &str) -> NodeAcceleratorObservation
 
     let snapshot = SystemHardwareSnapshotCollector::for_current_host(
         vec![Box::new(SystemNvidiaAcceleratorAdapter::for_current_host())],
-        std::sync::Arc::new(SystemClock),
+        Arc::new(SystemClock),
     )
     .collect_snapshot();
     NodeAcceleratorObservation::from_hardware_snapshot(managed_node_id, &snapshot, false)
@@ -2249,7 +2249,7 @@ where
                 let connection = JoinConnection::connect(
                     token.clone(),
                     manager_host,
-                    &dotcore::testing::Timing::test().join,
+                    dotcore::testing::Timing::test().join,
                 )
                 .await
                 .expect("connect to join host");

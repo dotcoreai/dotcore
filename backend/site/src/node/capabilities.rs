@@ -239,11 +239,14 @@ fn node_runtime_platform(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
-    use std::time::{Duration, SystemTime};
+    use std::{
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
-    use dotcore_domain::{Accelerator, ExecutionPlatform, MemoryArchitecture};
+    use dotcore_domain::{
+        Accelerator, ExecutionPlatform, MemoryArchitecture, clock::SystemClock, timing::Timing,
+    };
     use dotcore_node_hardware::{MachineDescription, MachineWorkload};
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
@@ -273,23 +276,21 @@ mod tests {
         },
     };
 
-    const TARGET_CAPABILITY_MAX_AGE: std::time::Duration =
-        Timing::test().node_control.capability_max_age;
-
     #[test]
     fn refreshed_collection_restores_capabilities_after_the_max_age() {
+        let max_age = Timing::test().node_control.capability_max_age;
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
         let source = NodeTargetCapabilitySource::new(
             &[target()],
             feed.clone(),
-            TARGET_CAPABILITY_MAX_AGE,
-            std::sync::Arc::new(SystemClock),
+            max_age,
+            Arc::new(SystemClock),
         );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
             1,
-            now - TARGET_CAPABILITY_MAX_AGE - Duration::from_secs(1),
+            now - max_age - Duration::from_secs(1),
         );
 
         assert_eq!(
@@ -571,13 +572,14 @@ mod tests {
 
     #[test]
     fn failed_collection_never_restamps_earlier_facts() {
+        let max_age = Timing::test().node_control.capability_max_age;
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
         let source = NodeTargetCapabilitySource::new(
             &[target()],
             feed.clone(),
-            TARGET_CAPABILITY_MAX_AGE,
-            std::sync::Arc::new(SystemClock),
+            max_age,
+            Arc::new(SystemClock),
         );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
@@ -612,7 +614,7 @@ mod tests {
             &[target()],
             feed.clone(),
             Duration::from_secs(1),
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
@@ -628,11 +630,12 @@ mod tests {
 
     #[test]
     fn missing_collection_is_an_observation_failure() {
+        let max_age = Timing::test().node_control.capability_max_age;
         let source = NodeTargetCapabilitySource::new(
             &[target()],
             NodeObservationFeed::default(),
-            TARGET_CAPABILITY_MAX_AGE,
-            std::sync::Arc::new(SystemClock),
+            max_age,
+            Arc::new(SystemClock),
         );
 
         assert!(source.inventory_at(SystemTime::now()).is_err());

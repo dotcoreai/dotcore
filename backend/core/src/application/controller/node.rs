@@ -13,9 +13,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use dotcore_domain::timing::ApplicationTiming;
 use dotcore_domain::{
-    SiteNodeId, deployment::launch_pin::LaunchPinResolver, inference_route::is_valid_route_name,
+    SiteNodeId, clock::Clock, deployment::launch_pin::LaunchPinResolver,
+    inference_route::is_valid_route_name, timing::ApplicationTiming,
 };
 use dotcore_proto::dotcore::{
     application::{
@@ -886,8 +886,6 @@ fn warn_status_not_built(source: &'static str, error: &impl std::fmt::Display) {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::{
         collections::{BTreeMap, BTreeSet},
         net::Ipv4Addr,
@@ -900,14 +898,17 @@ mod tests {
         LocalImageIdentityResolver, OciImagePreparer, OciPreparationError, OciPreparationFuture,
         OciPreparationRequest, PreparationStep,
     };
-    use dotcore_domain::ExecutionPlatform;
-    use dotcore_domain::SiteNodeId;
-    use dotcore_domain::hardware_observation::{
-        AcceleratorProcessObservation, AcceleratorVendorProcessObservation,
-        AcceleratorVendorProcessResult, NodeHardwareObservation, ObservedAcceleratorProcess,
+    use dotcore_domain::{
+        ExecutionPlatform, SiteNodeId,
+        clock::SystemClock,
+        hardware_observation::{
+            AcceleratorProcessObservation, AcceleratorVendorProcessObservation,
+            AcceleratorVendorProcessResult, NodeHardwareObservation, ObservedAcceleratorProcess,
+        },
+        host_process::HostProcessIdentity,
+        test_support::oci::ServiceArtifactOci as _,
+        timing::Timing,
     };
-    use dotcore_domain::host_process::HostProcessIdentity;
-    use dotcore_domain::test_support::oci::ServiceArtifactOci as _;
     use dotcore_proto::dotcore::{
         application::{
             private::v1::{

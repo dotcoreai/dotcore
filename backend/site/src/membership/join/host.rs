@@ -16,8 +16,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::real_time;
-use dotcore_domain::{HostResolver, SiteNodeHost, SystemHostResolver};
+use dotcore_domain::{HostResolver, SiteNodeHost, SystemHostResolver, real_time};
 use dotcore_proto::dotcore::{
     node::v1::{
         CommitRequest, CommitResponse, JoinRequest, JoinResponse, NodeObservationConfiguration,
@@ -150,7 +149,7 @@ impl JoinHost {
         // unrelated idle client can delay the result once the join has finished.
         let grace = async {
             shared.wait_finished().await;
-            real_time::deadline(tokio::time::Instant::now() + limits.shutdown_grace).await;
+            real_time::pause(limits.shutdown_grace).await;
         };
         tokio::select! {
             served = server => served.map_err(JoinHostError::Transport)?,

@@ -1,8 +1,7 @@
 //! Inference controller lifecycle state projection and error mapping.
 
 use dotcore_artifact::{ModelArtifactProgress, ModelArtifactStage};
-use dotcore_domain::real_time;
-use dotcore_domain::valid_id;
+use dotcore_domain::{real_time, valid_id};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivation, ModelDeploymentActivationPhase,
     ModelDeploymentDeclaration, ModelDeploymentDesiredState, ModelDeploymentFailure,

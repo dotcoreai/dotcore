@@ -81,9 +81,9 @@ impl InMemoryMetricStore {
     /// run inside a Tokio runtime, which hosts the store's ingest task until the store is dropped.
     pub fn start(
         config: InMemoryStoreConfig,
-        timing: &MetricsTiming,
-        watch: &WatchTiming,
         descriptors: Vec<MetricDescriptor>,
+        timing: MetricsTiming,
+        watch: WatchTiming,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, StoreStartError> {
         let InMemoryStoreConfig {
@@ -113,8 +113,8 @@ impl InMemoryMetricStore {
 
         let shared = Arc::new(Shared {
             clock,
-            timing: *timing,
-            watch: *watch,
+            timing,
+            watch,
             retention,
             descriptors: declared,
             incarnation,

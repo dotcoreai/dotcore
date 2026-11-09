@@ -274,7 +274,7 @@ async fn a_split_network_join_records_both_addresses() {
     let joined = JoinConnection::connect(
         harness.token.clone(),
         Some(ipv4_host(DIALED)),
-        &Timing::test().join,
+        Timing::test().join,
     )
     .await
     .expect("connect at the dialed manager address")
@@ -532,7 +532,7 @@ async fn wrong_secrets_are_rejected_without_writes_and_stop_the_host_at_the_limi
     let site_before = harness.site_bytes();
     let mut wrong = harness.token.clone();
     wrong.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    let mut connection = JoinConnection::connect(wrong, None, &Timing::test().join)
+    let mut connection = JoinConnection::connect(wrong, None, Timing::test().join)
         .await
         .expect("the host is authentic even with a wrong secret");
     let node_root = harness.node_root();
@@ -793,7 +793,7 @@ async fn a_lost_commit_reply_keeps_the_folder_and_it_authenticates_to_the_manage
     let node_root = harness.node_root();
     let key = NodeKey::generate().expect("key");
 
-    let error = JoinConnection::connect(token, None, &Timing::test().join)
+    let error = JoinConnection::connect(token, None, Timing::test().join)
         .await
         .expect("connect through the proxy")
         .join(&proposal("worker", WORKER_HOST), &key, &node_root)
@@ -979,7 +979,7 @@ async fn connections_beyond_the_limit_are_refused_until_one_closes() {
     .await;
     let held = harness.raw_client().await;
 
-    let error = JoinConnection::connect(harness.token.clone(), None, &Timing::test().join)
+    let error = JoinConnection::connect(harness.token.clone(), None, Timing::test().join)
         .await
         .err()
         .expect("a second connection is refused");
@@ -989,7 +989,7 @@ async fn connections_beyond_the_limit_are_refused_until_one_closes() {
     let mut connected = None;
     for _ in 0..200 {
         if let Ok(connection) =
-            JoinConnection::connect(harness.token.clone(), None, &Timing::test().join).await
+            JoinConnection::connect(harness.token.clone(), None, Timing::test().join).await
         {
             connected = Some(connection);
             break;
@@ -1018,7 +1018,7 @@ async fn a_commit_reply_that_does_not_arrive_in_time_keeps_the_folder() {
     let node_root = harness.node_root();
 
     let error = harness
-        .connect_with(&JoinTiming {
+        .connect_with(JoinTiming {
             commit_timeout: Duration::from_millis(200),
             ..Timing::test().join
         })
@@ -1610,7 +1610,7 @@ async fn an_unknown_rejoin_commit_outcome_keeps_the_folder_and_rejoining_again_c
     let manifest = fs::read(node_root.join(WORKER_MANIFEST_FILE)).expect("worker.yaml");
 
     let folder = RejoiningNodeFolder::open(&node_root, &token).expect("open folder");
-    let error = JoinConnection::connect(token, Some(host("localhost")), &Timing::test().join)
+    let error = JoinConnection::connect(token, Some(host("localhost")), Timing::test().join)
         .await
         .expect("connect through the proxy")
         .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
@@ -1998,7 +1998,7 @@ impl Harness {
     }
 
     /// Connects with `timing` instead of the production join bounds.
-    async fn connect_with(&self, timing: &JoinTiming) -> JoinConnection {
+    async fn connect_with(&self, timing: JoinTiming) -> JoinConnection {
         JoinConnection::connect(self.token.clone(), None, timing)
             .await
             .expect("connect to the join host")
@@ -2010,7 +2010,7 @@ impl Harness {
         JoinConnection::connect(
             self.token.clone(),
             manager_host.map(|value| SiteNodeHost::normalize(value).expect("manager host")),
-            &Timing::test().join,
+            Timing::test().join,
         )
         .await
         .expect("connect to the join host")
@@ -2457,7 +2457,7 @@ async fn authenticate_to_manager(
 }
 
 async fn assert_connect_refused(token: JoinToken, reason: &str) {
-    let error = JoinConnection::connect(token, None, &Timing::test().join)
+    let error = JoinConnection::connect(token, None, Timing::test().join)
         .await
         .err()
         .unwrap_or_else(|| panic!("{reason}: the host must not be accepted"));

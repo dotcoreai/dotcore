@@ -64,6 +64,7 @@ impl Timing {
                     initial: Duration::from_secs(10),
                     max: Duration::from_secs(15 * 60),
                 },
+                upstream_success_max_age: Duration::from_secs(5 * 60),
             },
             application: ApplicationTiming {
                 reconcile: ReconcileSchedule {
@@ -127,6 +128,9 @@ impl Timing {
             control.status_check_interval,
             control.status_coalesce_window,
             control.stream_retry.initial,
+            control.node_silence,
+            control.view_republish_interval,
+            control.action_lease,
         ];
         if schedule.iter().any(Duration::is_zero)
             || control.stream_retry.max < control.stream_retry.initial
@@ -143,7 +147,7 @@ impl Timing {
         }
         let reopen = control.view_republish_interval * MISSED_PUBLICATIONS_BEFORE_REOPEN
             + control.stream_retry.max;
-        if control.view_republish_interval.is_zero() || reopen >= control.action_lease {
+        if reopen >= control.action_lease {
             return Err(TimingError::ActionLease);
         }
         Ok(())
@@ -235,12 +239,6 @@ impl Timing {
     }
 }
 
-impl Default for Timing {
-    fn default() -> Self {
-        Self::production()
-    }
-}
-
 /// Environment variable through which a test hands a process it starts its timing policy.
 #[cfg(any(test, feature = "test-support"))]
 pub const TEST_TIMING_ENVIRONMENT: &str = "DOTCORE_TEST_TIMING";
@@ -249,8 +247,8 @@ pub const TEST_TIMING_ENVIRONMENT: &str = "DOTCORE_TEST_TIMING";
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum TimingError {
     #[error(
-        "every node control interval and silence must be nonzero, and the longest retry pause at \
-         least the first"
+        "every node control interval, silence and lease must be nonzero, and the longest retry \
+         pause at least the first"
     )]
     NodeControlSchedule,
 
@@ -344,6 +342,10 @@ pub struct ModelTiming {
 
     /// Pauses before a failed upstream verification runs again.
     pub upstream_retry: Backoff,
+
+    /// Age after which an upstream endpoint's last successful verification no longer keeps it
+    /// ready.
+    pub upstream_success_max_age: Duration,
 }
 
 /// Timing of the application controller and its node-side realizers.
@@ -377,7 +379,8 @@ pub struct ArtifactTiming {
 /// Timing of the native runtime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeTiming {
-    /// How long a native create watches a new workload for an early exit caused by a taken port.
+    /// How long a native create watches a new workload for an early exit caused by a taken port;
+    /// engines bind their service ports early in startup, so a later exit is an ordinary stop.
     pub port_settle_window: Duration,
 }
 
@@ -547,16 +550,16 @@ mod tests {
     #[test]
     fn production_wall_aligned_slots_are_whole_seconds() {
         let production = Timing::production();
-
-        assert_eq!(
+        let slots = [
             production.node_control.status_check_interval,
-            Duration::from_secs(1)
-        );
-        assert_eq!(
             production.node_control.status_coalesce_window,
-            Duration::from_secs(1)
-        );
-        assert_eq!(production.watch.tick_interval, Duration::from_secs(1));
+            production.watch.tick_interval,
+        ];
+
+        for slot in slots {
+            assert_eq!(slot.subsec_nanos(), 0, "{slot:?}");
+            assert_ne!(slot.as_secs(), 0, "{slot:?}");
+        }
     }
 
     #[test]
@@ -622,11 +625,6 @@ mod tests {
         for ((path, test), (_, production)) in test.into_iter().zip(production) {
             assert!(test <= production, "{path}: {test:?} > {production:?}");
         }
-    }
-
-    #[test]
-    fn the_default_policy_is_production() {
-        assert_eq!(Timing::default(), Timing::production());
     }
 
     #[test]

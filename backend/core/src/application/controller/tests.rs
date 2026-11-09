@@ -11,10 +11,14 @@ use std::{
 };
 
 use dotcore_catalog::{CatalogBuilder, OciArtifactPolicy};
-use dotcore_domain::clock::SystemClock;
-use dotcore_domain::test_support::oci::{ServiceArtifactOci as _, digest_artifact};
-use dotcore_domain::test_support::tracing::{Record, capture_records_async};
-use dotcore_domain::timing::{ReconcileCadence, ReconcileOutcome, Timing};
+use dotcore_domain::{
+    clock::SystemClock,
+    test_support::{
+        oci::{ServiceArtifactOci as _, digest_artifact},
+        tracing::{Record, capture_records_async},
+    },
+    timing::{ReconcileCadence, ReconcileOutcome, Timing},
+};
 use dotcore_proto::dotcore::application::v1::ApplicationConfigurationAttachment;
 use dotcore_proto::dotcore::{
     application::private::v1::{ApplicationLifecycleObservation, ApplicationStatusStage},
@@ -237,9 +241,10 @@ async fn observer_starts_once_and_each_desired_change_wakes_reconciliation() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
+async fn observer_wakeup_waits_for_the_settled_cadence() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new(Timing::production().application.reconcile);
+    let schedule = Timing::production().application.reconcile;
+    let mut cadence = ReconcileCadence::new(schedule);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
         &SystemClock,
@@ -248,7 +253,7 @@ async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
 
     assert_future_blocks(wakeup.as_mut()).await;
 
-    tokio::time::advance(Duration::from_secs(29)).await;
+    tokio::time::advance(schedule.settled - Duration::from_secs(1)).await;
     assert_future_blocks(wakeup.as_mut()).await;
 
     tokio::time::advance(Duration::from_secs(1)).await;
@@ -256,9 +261,10 @@ async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn observer_wakeup_retries_a_pending_endpoint_within_a_quarter_second() {
+async fn observer_wakeup_retries_a_pending_endpoint_after_the_first_pending_delay() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new(Timing::production().application.reconcile);
+    let schedule = Timing::production().application.reconcile;
+    let mut cadence = ReconcileCadence::new(schedule);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
         &SystemClock,
@@ -267,7 +273,7 @@ async fn observer_wakeup_retries_a_pending_endpoint_within_a_quarter_second() {
 
     assert_future_blocks(wakeup.as_mut()).await;
 
-    tokio::time::advance(Duration::from_millis(250)).await;
+    tokio::time::advance(schedule.pending_initial).await;
     assert!(!wakeup.await);
 }
 
@@ -6466,7 +6472,7 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
         ));
         site.execution_targets.extend([stale, unobserved, model]);
     });
-    let capabilities = TargetCapabilityReconciler::reconcile(
+    let capabilities = TargetCapabilityReconciler::reconcile_now(
         [
             ("manager-target", "manager-node"),
             ("application-target-one", "node-one"),
@@ -6487,8 +6493,6 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
             ),
         ],
         std::iter::empty(),
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
     );
     let controller = manager_controller(
         desired.clone(),
@@ -6938,38 +6942,29 @@ async fn unit_memory_is_read_from_current_node_status_and_unavailable_otherwise(
 
 #[tokio::test]
 async fn deployment_acceptance_distinguishes_target_observation_failures() {
-    let missing = TargetCapabilityInventory::empty(
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
-    );
-    let unavailable = TargetCapabilityReconciler::reconcile(
+    let missing = TargetCapabilityInventory::empty_now();
+    let unavailable = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::unavailable(
             "application-target-one",
         )],
         std::iter::empty(),
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
     );
-    let stale = TargetCapabilityReconciler::reconcile(
+    let stale = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::stale(
             "application-target-one",
             dotcore_domain::ExecutionPlatform::linux_amd64(),
         )],
         std::iter::empty(),
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
     );
-    let mismatched = TargetCapabilityReconciler::reconcile(
+    let mismatched = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::available(
             "application-target-one",
             dotcore_domain::ExecutionPlatform::linux_arm64(),
         )],
         std::iter::empty(),
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
     );
 
     for (inventory, expected) in [

@@ -4,8 +4,7 @@
 
 use std::sync::Arc;
 
-use dotcore_domain::clock::Clock;
-use dotcore_domain::timing::SimulatedTiming;
+use dotcore_domain::{clock::Clock, timing::SimulatedTiming};
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{application::v1::ApplicationDeployment, site::v1::ExecutionTarget};
 use dotcore_site::node::{
@@ -21,6 +20,7 @@ use crate::{
         capacity::NodeWorkloads,
         workloads::{SiteWorkloadSource, SiteWorkloadsError, join_lanes},
     },
+    inference::simulated::{SimulatedInferenceTestSupport, SimulatedNativeProvider},
     model::controller::DeploymentProjection,
 };
 
@@ -100,11 +100,11 @@ pub(super) fn system_collector(clock: Arc<dyn Clock>) -> SystemHardwareSnapshotC
 /// simulated native provider pacing on `timing` and `clock`, and a loopback transport for every
 /// local engine kind.
 pub(super) fn engine_integrations(
-    simulated_inference: Option<crate::inference::simulated::SimulatedInferenceTestSupport>,
-    timing: &SimulatedTiming,
+    simulated_inference: Option<SimulatedInferenceTestSupport>,
+    timing: SimulatedTiming,
     clock: Arc<dyn Clock>,
 ) -> Arc<crate::model::engine::EngineIntegrationRegistry> {
-    let provider = crate::inference::simulated::SimulatedNativeProvider::new(timing, clock);
+    let provider = SimulatedNativeProvider::new(timing, clock);
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
             Arc::new(match simulated_inference {
@@ -158,9 +158,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
+
     use super::*;
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
 
     #[test]
     fn manager_and_worker_engine_registry_binds_ninfer_loopback_services() {
@@ -178,7 +178,7 @@ mod tests {
             },
         );
 
-        engine_integrations(None, &Timing::test().simulated, Arc::new(SystemClock))
+        engine_integrations(None, Timing::test().simulated, Arc::new(SystemClock))
             .bind_workload(&launch, "deployment", &service)
             .expect("ninfer loopback binding");
         assert_eq!(

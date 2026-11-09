@@ -51,15 +51,11 @@ pub struct MetricBucketIngest {
 impl MetricBucketIngest {
     /// Creates an ingest writing into `store` that ends streams silent for the stream silence of
     /// `timing`, measured on `clock`.
-    pub fn new(
-        store: Arc<dyn MetricIngest>,
-        clock: Arc<dyn Clock>,
-        timing: &MetricsTiming,
-    ) -> Self {
+    pub fn new(store: Arc<dyn MetricIngest>, timing: MetricsTiming, clock: Arc<dyn Clock>) -> Self {
         Self {
             store,
             clock,
-            timing: *timing,
+            timing,
             nodes: Mutex::default(),
         }
     }
@@ -598,8 +594,6 @@ mod tests {
         let store = Arc::new(
             InMemoryMetricStore::start(
                 InMemoryStoreConfig::default(),
-                &Timing::test().metrics,
-                &Timing::test().watch,
                 vec![
                     MetricDescriptor {
                         name: "node.memory.used".to_owned(),
@@ -623,14 +617,16 @@ mod tests {
                         reporting_delay: None,
                     },
                 ],
+                Timing::test().metrics,
+                Timing::test().watch,
                 Arc::new(clock.clone()),
             )
             .expect("start store"),
         );
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
+            Timing::test().metrics,
             Arc::new(clock.clone()),
-            &Timing::test().metrics,
         ));
         // Leaves ten minutes of history after the store start for buckets to land in.
         clock.advance(Duration::from_secs(11 * 60));

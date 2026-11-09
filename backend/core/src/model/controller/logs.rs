@@ -552,8 +552,6 @@ fn per_source_result<T>(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::{
         future::ready,
         num::NonZeroU16,
@@ -561,6 +559,7 @@ mod tests {
     };
 
     use dotcore_artifact::PreparationStep;
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::deployment::private::v1::{
         DeploymentLogFollowOpened, DeploymentLogSource, DeploymentLogSourceOpening,
         DeploymentLogTarget, DeploymentLogUnavailableReason, FollowDeploymentLogsRequest,
@@ -1111,7 +1110,7 @@ mod tests {
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
             Timing::test().model,
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         )
         .expect("model owner");
         let id = ModelDeploymentId("private-upstream".to_owned());

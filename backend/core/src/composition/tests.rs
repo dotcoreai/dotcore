@@ -1,5 +1,3 @@
-use dotcore_domain::clock::{ManualClock, SystemClock};
-use dotcore_domain::timing::Timing;
 use std::{
     collections::BTreeMap,
     error::Error as _,
@@ -7,7 +5,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use dotcore_domain::test_support::tracing::{Record, capture_records_async};
+use dotcore_domain::{
+    clock::{ManualClock, SystemClock},
+    test_support::tracing::{Record, capture_records_async},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     catalog::v1::{
         UpstreamModelBoundary, UpstreamModelDataEgressClass, UpstreamModelLocality,
@@ -44,10 +46,10 @@ async fn the_metric_catalog_follows_the_naming_and_export_rules() {
     assert_eq!(
         InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
-            &Timing::test().metrics,
-            &Timing::test().watch,
             catalog,
-            Arc::new(SystemClock),
+            Timing::test().metrics,
+            Timing::test().watch,
+            Arc::new(SystemClock)
         )
         .err()
         .map(|error| error.to_string()),
@@ -438,13 +440,10 @@ async fn supplied_input_model_owner_composition_does_not_reload_site() {
     let composed = model_owner_for(
         &inputs,
         Arc::new(StaticTargetCapabilitySource::new(
-            dotcore_site::node::target_inventory::TargetCapabilityInventory::empty(
-                Timing::test().node_control.capability_max_age,
-                std::time::SystemTime::now(),
-            ),
+            dotcore_site::node::target_inventory::TargetCapabilityInventory::empty_now(),
         )),
         crate::management_logs::ManagementLogAdmission::new(),
-        Timing::test(),
+        Timing::test().model,
         Arc::new(SystemClock),
     )
     .await

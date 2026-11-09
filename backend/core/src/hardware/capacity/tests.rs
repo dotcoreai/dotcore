@@ -1,4 +1,3 @@
-use dotcore_domain::timing::Timing;
 use std::{collections::BTreeMap, time::SystemTime};
 
 use dotcore_domain::MemoryArchitecture::{self, Dedicated, Unified};
@@ -1696,12 +1695,10 @@ fn a_stale_observation_keeps_its_totals_without_measured_use() {
         .render(&[], SystemTime::now())
         .expect("rendered snapshot");
     let stale = NodeAcceleratorObservation::from_hardware_snapshot("node-a", &rendered, true);
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [("target-a", "node-a", [gpu.clone()])],
         [],
         [stale],
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
     );
     let capabilities = inventory.for_target("target-a").expect("target");
     assert!(matches!(
@@ -1802,14 +1799,12 @@ fn machine_capacity(machine: &str, gpu: usize, occupancy: &str) -> TargetCapacit
 /// Pools of one target holding the devices `selectors` name on a node that reported `snapshot`,
 /// through the site's reconciliation.
 fn snapshot_capacity(snapshot: &HardwareSnapshot, selectors: Vec<&str>) -> TargetCapacity {
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [("target-a", "node-a", selectors)],
         [],
         [NodeAcceleratorObservation::from_hardware_snapshot(
             "node-a", snapshot, false,
         )],
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
     );
     let capabilities = inventory.for_target("target-a").expect("target");
     let CapabilityObservation::Available(memory_architecture) = capabilities.accelerator_memory

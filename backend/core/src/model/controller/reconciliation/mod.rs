@@ -19,10 +19,10 @@ use dotcore_artifact::{
     ModelArtifactProgress, ModelArtifactProgressObserver, ModelArtifactStage,
     ModelArtifactStageObserver, PreparedModelArtifacts,
 };
-use dotcore_domain::real_time;
 use dotcore_domain::{
     clock::Clock,
     diagnostic::diagnostic_chain,
+    real_time,
     timing::{ReconcileCadence, ReconcileOutcome},
 };
 use dotcore_proto::dotcore::model::v1::{
@@ -2856,14 +2856,14 @@ struct DownloadProgressPublication {
     next_write_at: Option<Instant>,
 
     /// Least time between two stored progress updates.
-    write_interval: Duration,
+    download_progress_interval: Duration,
 }
 
 impl DownloadProgressPublication {
     fn new(
         ticket: PreparationTicket,
         kind: DownloadProgressKind,
-        write_interval: Duration,
+        download_progress_interval: Duration,
     ) -> Self {
         Self {
             ticket,
@@ -2875,7 +2875,7 @@ impl DownloadProgressPublication {
             persisted: None,
             quiet_revalidation: false,
             next_write_at: None,
-            write_interval,
+            download_progress_interval,
         }
     }
 
@@ -2981,7 +2981,7 @@ impl DownloadProgressPublication {
 
     fn mark_persisted(&mut self, progress: ObservedPreparationProgress, now: Instant) {
         self.persisted = Some(progress);
-        self.next_write_at = Some(now + self.write_interval);
+        self.next_write_at = Some(now + self.download_progress_interval);
     }
 }
 

@@ -2,8 +2,7 @@
 
 use std::sync::Arc;
 
-use dotcore_domain::SiteNodeId;
-use dotcore_domain::real_time;
+use dotcore_domain::{SiteNodeId, real_time};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,

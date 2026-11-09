@@ -23,6 +23,8 @@ use dotcore_domain::{
     Accelerator, ExecutionPlatform, MemoryArchitecture, NvidiaDriverVersion,
     SelectableAcceleratorDevice, selected_accelerator_facts,
 };
+#[cfg(any(test, feature = "test-support"))]
+use dotcore_domain::{real_time, timing::Timing};
 
 /// Availability and freshness of one target-attributed capability observation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,14 +62,11 @@ pub struct RuntimePlatformObservation {
 }
 
 impl RuntimePlatformObservation {
-    /// Creates a platform observation for one execution target, stamped now on the system clock.
+    /// Creates a platform observation for one execution target, stamped with the host's wall
+    /// time now.
     #[cfg(any(test, feature = "test-support"))]
     pub fn available(execution_target_id: impl Into<String>, platform: ExecutionPlatform) -> Self {
-        Self::available_at(
-            execution_target_id,
-            platform,
-            dotcore_domain::real_time::wall_now(),
-        )
+        Self::available_at(execution_target_id, platform, real_time::wall_now())
     }
 
     /// Creates a timestamped platform observation for one execution target.
@@ -298,8 +297,8 @@ impl NodeAcceleratorObservation {
         }
     }
 
-    /// Creates an NVIDIA observation with a raw driver version for one managed node, stamped now
-    /// on the system clock.
+    /// Creates an NVIDIA observation with a raw driver version for one managed node, stamped with
+    /// the host's wall time now.
     #[cfg(any(test, feature = "test-support"))]
     pub fn nvidia(managed_node_id: impl Into<String>, driver_version: impl Into<String>) -> Self {
         Self::available(
@@ -308,14 +307,11 @@ impl NodeAcceleratorObservation {
         )
     }
 
-    /// Creates an accelerator observation for one managed node, stamped now on the system clock.
+    /// Creates an accelerator observation for one managed node, stamped with the host's wall
+    /// time now.
     #[cfg(any(test, feature = "test-support"))]
     pub fn available(managed_node_id: impl Into<String>, facts: NodeAcceleratorFacts) -> Self {
-        Self::available_at(
-            managed_node_id,
-            facts,
-            dotcore_domain::real_time::wall_now(),
-        )
+        Self::available_at(managed_node_id, facts, real_time::wall_now())
     }
 
     /// Creates a timestamped accelerator observation for one managed node.
@@ -631,6 +627,16 @@ impl TargetCapabilityInventory {
     pub fn targets(&self) -> impl Iterator<Item = &TargetCapabilities> {
         self.targets.values()
     }
+
+    /// Creates an inventory without targets, read at the host's wall time now, whose
+    /// observations stay fresh for the capability age of the test timing.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn empty_now() -> Self {
+        Self::empty(
+            Timing::test().node_control.capability_max_age,
+            real_time::wall_now(),
+        )
+    }
 }
 /// Refreshes site-manager-owned target capability observations on demand.
 pub trait TargetCapabilitySource: Send + Sync {
@@ -768,6 +774,29 @@ impl TargetCapabilityReconciler {
             as_of,
         }
     }
+
+    /// Reconciles like [`Self::reconcile`] into an inventory read at the host's wall time now,
+    /// whose observations stay fresh for the capability age of the test timing.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn reconcile_now<T, R, N>(
+        targets: T,
+        runtime_platforms: R,
+        node_accelerators: N,
+    ) -> TargetCapabilityInventory
+    where
+        T: IntoIterator,
+        T::Item: TargetIdentity,
+        R: IntoIterator<Item = RuntimePlatformObservation>,
+        N: IntoIterator<Item = NodeAcceleratorObservation>,
+    {
+        Self::reconcile(
+            targets,
+            runtime_platforms,
+            node_accelerators,
+            Timing::test().node_control.capability_max_age,
+            real_time::wall_now(),
+        )
+    }
 }
 
 /// Reads one device's reported memory and memory architecture.
@@ -888,8 +917,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
-    use std::{str::FromStr, time::SystemTime};
+    use std::str::FromStr;
 
     use dotcore_domain::{MemoryArchitecture, NvidiaDriverVersion};
     use dotcore_proto::dotcore::observation::v1::{
@@ -906,15 +934,13 @@ mod tests {
 
     #[test]
     fn reconciliation_never_combines_observations_from_different_targets() {
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a"), ("target-b", "node-b")],
             [RuntimePlatformObservation::available(
                 "target-a",
                 ExecutionPlatform::linux_arm64(),
             )],
             [NodeAcceleratorObservation::nvidia("node-b", "580.173.02")],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
 
         assert_eq!(
@@ -945,15 +971,13 @@ mod tests {
 
     #[test]
     fn stale_and_unavailable_observations_remain_explicit() {
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::stale(
                 "target-a",
                 ExecutionPlatform::linux_amd64(),
             )],
             [NodeAcceleratorObservation::unavailable("node-a")],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
         let target = inventory.for_target("target-a").expect("target a");
 
@@ -985,7 +1009,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
@@ -994,8 +1018,6 @@ mod tests {
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, true,
             )],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
 
         assert_eq!(
@@ -1020,7 +1042,7 @@ mod tests {
             ("node-unspecified", vec![Unspecified], false),
             ("node-stale", vec![Unified], true),
         ];
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             nodes
                 .iter()
                 .map(|(node, _, _)| (format!("target-{node}"), *node)),
@@ -1032,8 +1054,6 @@ mod tests {
                     *stale,
                 )
             }),
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
         let memory = |node: &str| {
             inventory
@@ -1088,14 +1108,12 @@ mod tests {
         set.facts[0].device_id = "GPU-a".to_owned();
         set.facts[0].used_memory_bytes = Some(GIB);
         set.facts[1].device_id = "GPU-b".to_owned();
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             std::iter::empty(),
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, false,
             )],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
 
         assert_eq!(
@@ -1130,7 +1148,7 @@ mod tests {
         let node = NodeAcceleratorFacts::nvidia("580.173.02")
             .with_device_memory("GPU-a", Some(24), Some(1))
             .with_device_memory("GPU-b", Some(16), Some(1));
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [
                 ("by-index", "node-a", ["nvidia.com/gpu=1"]),
                 ("by-device-id", "node-a", ["GPU-a"]),
@@ -1142,22 +1160,16 @@ mod tests {
                 NodeAcceleratorObservation::available("node-a", node.clone()),
                 NodeAcceleratorObservation::unavailable("node-b"),
             ],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
-        let mut both = TargetCapabilityReconciler::reconcile(
+        let mut both = TargetCapabilityReconciler::reconcile_now(
             [("both", "node-a", ["GPU-b", "nvidia.com/gpu=0"])],
             std::iter::empty(),
             [NodeAcceleratorObservation::stale("node-a", node.clone())],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
-        both.extend(TargetCapabilityReconciler::reconcile(
+        both.extend(TargetCapabilityReconciler::reconcile_now(
             [("none", "node-a")],
             std::iter::empty(),
             [NodeAcceleratorObservation::available("node-a", node)],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         ));
         let devices = |inventory: &super::TargetCapabilityInventory, target: &str| {
             inventory
@@ -1193,14 +1205,12 @@ mod tests {
             AcceleratorVendor::Apple,
             AcceleratorMemoryArchitecture::Unified,
         )];
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             std::iter::empty(),
             [NodeAcceleratorObservation::from_hardware_snapshot(
                 "node-a", &snapshot, false,
             )],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
         let target = inventory.for_target("target-a").expect("target a");
 
@@ -1243,15 +1253,13 @@ mod tests {
         with_apple
             .accelerators
             .push(vendor_observation(AcceleratorVendor::Apple, Unified));
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-amd", "node-amd"), ("target-both", "node-both")],
             std::iter::empty(),
             [
                 NodeAcceleratorObservation::from_hardware_snapshot("node-amd", &with_amd, false),
                 NodeAcceleratorObservation::from_hardware_snapshot("node-both", &with_apple, false),
             ],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
         let accelerator = |target: &str| {
             inventory
@@ -1296,7 +1304,7 @@ mod tests {
             accelerators: Vec::new(),
             ..host_only
         };
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-mixed", "node-mixed")],
             std::iter::empty(),
             [NodeAcceleratorObservation::from_hardware_snapshot(
@@ -1304,8 +1312,6 @@ mod tests {
                 &mixed,
                 false,
             )],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
         let devices = |observation: &NodeMemoryObservation| {
             let CapabilityObservation::Available(reading) = &observation.reading else {
@@ -1359,7 +1365,7 @@ mod tests {
 
     #[test]
     fn explicit_node_observations_default_to_dedicated_memory() {
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a"), ("target-b", "node-b")],
             std::iter::empty(),
             [
@@ -1367,8 +1373,6 @@ mod tests {
                 NodeAcceleratorObservation::nvidia("node-b", "580")
                     .with_memory_architecture(Some(MemoryArchitecture::Unified)),
             ],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
 
         assert_eq!(
@@ -1389,12 +1393,10 @@ mod tests {
 
     #[test]
     fn malformed_or_missing_driver_facts_remain_unavailable() {
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a"), ("target-b", "node-b")],
             std::iter::empty(),
             [NodeAcceleratorObservation::nvidia("node-a", "driver-580")],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
 
         assert_eq!(

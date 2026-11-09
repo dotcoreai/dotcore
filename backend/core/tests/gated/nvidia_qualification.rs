@@ -13,13 +13,13 @@
 //! process it ran is gone, whatever else runs on the device. A suite whose engine release approves
 //! no artifact for the native platform skips instead of failing.
 
-use dotcore_domain::clock::SystemClock;
 use std::{
     collections::{BTreeSet, HashMap},
     fmt,
     fs::{self, File, OpenOptions},
     io,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -33,6 +33,7 @@ use dotcore::composition::DEV_SOURCE_FLAKE_ENV;
 use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
 use dotcore_domain::{
     ExecutionPlatform, ExecutionPlatformError, SitePaths,
+    clock::SystemClock,
     hardware_observation::{
         AcceleratorProcessObservation, AcceleratorVendorProcessResult, HardwareSnapshotSource,
         NodeHardwareObservation,
@@ -259,7 +260,7 @@ impl GpuObservation {
     pub fn collect() -> anyhow::Result<Self> {
         let collector = SystemHardwareSnapshotCollector::for_current_host(
             vec![Box::new(SystemNvidiaAcceleratorAdapter::for_current_host())],
-            std::sync::Arc::new(SystemClock),
+            Arc::new(SystemClock),
         );
         Self::from_hardware(&collector.collect_observation())
     }

@@ -747,8 +747,7 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
                     () = cancellation.cancelled() => {
                         return Err(RuntimeBackendError::preparation_cancelled());
                     }
-                    () = self.config.clock.sleep(startup.step_duration
-                    ) => {}
+                    () = self.config.clock.sleep(startup.step_duration) => {}
                 }
             }
             Ok(())

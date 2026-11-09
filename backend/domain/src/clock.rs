@@ -4,10 +4,12 @@
 //! Production reads system time. Backend tests can compose a manual clock instead, which follows
 //! real time plus an offset they advance, so a lease expires without waiting for it in real time;
 //! any wait on that clock wakes as soon as an advance reaches its deadline. Unit tests that must
-//! decide exactly when each wait wakes use a virtual clock, whose time moves only when advanced. Code that reads this
-//! clock waits through it too, never through a separate timer, so both stay on one timeline.
+//! decide exactly when each wait wakes use a virtual clock, whose time moves only when advanced.
+//! Code that reads this clock waits through it too, never through a separate timer, so both stay
+//! on one timeline.
 
 use std::{
+    fmt::Debug,
     future::Future,
     pin::Pin,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -20,7 +22,7 @@ pub type ClockSleep = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
 /// Time source of one composed backend, so every decision it compares against the same time
 /// reads one timeline.
-pub trait Clock: Send + Sync + std::fmt::Debug {
+pub trait Clock: Send + Sync + Debug {
     /// Monotonic time, for leases, ages and expiries.
     fn now(&self) -> Instant;
 
@@ -243,7 +245,8 @@ mod virtual_time {
 
     /// Test clock whose monotonic and wall time move only when the test advances them, and which
     /// tells the test when its next wait is due, so code under test wakes exactly at its deadlines
-    /// whatever real time passes. Wall time can also step back or forward alone, like a corrected host clock.
+    /// whatever real time passes. Wall time can also step back or forward alone, like a corrected
+    /// host clock.
     ///
     /// Clones share one timeline.
     #[derive(Clone, Debug)]

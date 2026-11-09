@@ -23,11 +23,12 @@ use std::{net::Ipv4Addr, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
 use dotcore_catalog::{Catalog, service::CatalogService};
-use dotcore_domain::SitePaths;
-use dotcore_domain::clock::Clock;
-use dotcore_domain::clock::SystemClock;
-use dotcore_domain::hardware_observation::HardwareSnapshotSource;
-use dotcore_domain::timing::Timing;
+use dotcore_domain::{
+    SitePaths,
+    clock::{Clock, SystemClock},
+    hardware_observation::HardwareSnapshotSource,
+    timing::{ModelTiming, Timing},
+};
 use dotcore_observability::{
     InMemoryMetricStore, InMemoryStoreConfig, InProcessBucketTransport, MetricBucketIngest,
     MetricDescriptor, forwarder_metric_descriptors,
@@ -277,10 +278,10 @@ where
                 error,
             )
         })?;
-        let timing = test_support.timing;
+        let timing = checked_timing(&test_support)?;
         let manager_node_control = ManagerNodeControlCoordinator::new(
             manager_session,
-            &timing.node_control,
+            timing.node_control,
             backend_clock(&test_support),
         );
         // Site-wide metric history lives with the site manager for this process's lifetime.
@@ -288,11 +289,11 @@ where
         let metric_store = Arc::new(
             InMemoryMetricStore::start(
                 InMemoryStoreConfig::default(),
-                &timing.metrics,
-                &timing.watch,
                 metric_catalog(dotcore_site::validation::hardware_refresh_interval(
                     &inputs.site,
                 )),
+                timing.metrics,
+                timing.watch,
                 Arc::clone(&clock),
             )
             .map_err(|error| {
@@ -301,8 +302,8 @@ where
         );
         let metric_buckets = Arc::new(MetricBucketIngest::new(
             metric_store.ingestor(),
+            timing.metrics,
             Arc::clone(&clock),
-            &timing.metrics,
         ));
         #[cfg(feature = "test-support")]
         if let Some(slot) = &test_support.metric_recorder {
@@ -341,7 +342,7 @@ where
             &inputs,
             Arc::clone(&target_capabilities),
             log_admission.clone(),
-            timing,
+            timing.model,
             Arc::clone(&clock),
         )
         .await?;
@@ -405,7 +406,7 @@ where
         let node_control_streams = ManagerNodeControlStreams::new(
             manager_node_registry.clone(),
             desired_view_publisher,
-            node_control_stream_configuration(&test_support)?,
+            NodeControlStreamConfiguration::default(),
         );
         let manager_node = node::compose_node(
             node::NodeInputs {
@@ -470,7 +471,7 @@ where
                 Arc::clone(&node_memory),
             ),
             clock,
-            crate::resource_watch::ResourceWatchConfig::new(&timing.watch),
+            crate::resource_watch::ResourceWatchConfig::new(timing.watch),
         );
         let manager = ManagerBackendServices {
             catalog_service: CatalogService::new(Arc::clone(&inputs.catalog)),
@@ -561,19 +562,6 @@ fn metric_catalog(refresh_interval: Duration) -> Vec<MetricDescriptor> {
     descriptors
 }
 
-/// Timing of the manager's node control streams, from the backend's timing.
-fn node_control_stream_configuration(
-    test_support: &BackendTestSupport,
-) -> CompositionResult<NodeControlStreamConfiguration> {
-    NodeControlStreamConfiguration::new(
-        &test_support.timing.node_control,
-        dotcore_site::node::stream::DEFAULT_OUTBOUND_REPLIES,
-    )
-    .map_err(|error| {
-        CompositionError::composition_with_source("configure node control streams", error)
-    })
-}
-
 /// The backend's timing policy, once its relations hold, so a policy that would let a live node
 /// lapse fails composition instead of misbehaving at run time.
 fn checked_timing(test_support: &BackendTestSupport) -> CompositionResult<Timing> {
@@ -601,7 +589,7 @@ async fn model_owner_for(
     inputs: &CompleteCompositionInputs,
     target_capabilities: Arc<dyn TargetCapabilitySource>,
     log_admission: crate::management_logs::ManagementLogAdmission,
-    timing: Timing,
+    timing: ModelTiming,
     clock: Arc<dyn Clock>,
 ) -> CompositionResult<SelectedModelService> {
     let inventory = target_capabilities.observe().await.map_err(|error| {
@@ -617,7 +605,7 @@ async fn model_owner_for(
         desired,
         inputs.current.clone(),
         target_capabilities,
-        timing.model,
+        timing,
         clock,
     )?;
     Ok(ModelDeploymentService::new(controller, log_admission))

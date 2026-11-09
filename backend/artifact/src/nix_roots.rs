@@ -52,7 +52,7 @@ impl NixRootKeeper {
     pub fn new(
         roots: PathBuf,
         pins: Arc<dyn PinnedStorePaths>,
-        timing: &ArtifactTiming,
+        timing: ArtifactTiming,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
@@ -60,7 +60,7 @@ impl NixRootKeeper {
             pins,
             command: NixCommand::Discover,
             clock,
-            timing: *timing,
+            timing,
             passes: watch::channel(0).0,
         }
     }
@@ -268,12 +268,14 @@ async fn link_target(link: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{
         collections::VecDeque, os::unix::fs::PermissionsExt as _, sync::Mutex, time::Duration,
     };
 
-    use dotcore_domain::clock::{ManualClock, SystemClock};
+    use dotcore_domain::{
+        clock::{ManualClock, SystemClock},
+        timing::Timing,
+    };
 
     use super::*;
     use crate::nix_build::LOCK_DIRECTORY;
@@ -407,7 +409,7 @@ mod tests {
         };
         let start = |roots: PathBuf, pins: Arc<FakePins>| {
             let keeper =
-                NixRootKeeper::new(roots, pins, &Timing::test().artifact, Arc::new(SystemClock))
+                NixRootKeeper::new(roots, pins, Timing::test().artifact, Arc::new(SystemClock))
                     .with_executable(nix.clone());
             Running {
                 passes: keeper.passes(),
@@ -547,7 +549,7 @@ mod tests {
             let keeper = NixRootKeeper::new(
                 self.roots(),
                 pins.clone(),
-                &ArtifactTiming {
+                ArtifactTiming {
                     nix_root_retry_interval: RETRY,
                 },
                 Arc::new(clock.clone()),

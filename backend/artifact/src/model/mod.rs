@@ -19,7 +19,7 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Instant, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use anyhow::anyhow;
@@ -1384,11 +1384,7 @@ impl PointerRewriteGate {
             ArtifactCacheError::context("test pointer rewrite removal failed", error)
         })?;
         self.opened.notify_one();
-        let _ = real_time::bound(
-            std::time::Duration::from_secs(2),
-            self.probe_contended.notified(),
-        )
-        .await;
+        let _ = real_time::bound(Duration::from_secs(2), self.probe_contended.notified()).await;
         std::os::unix::fs::symlink(target, pointer).map_err(|error| {
             ArtifactCacheError::context("test pointer rewrite restore failed", error)
         })
@@ -2571,7 +2567,7 @@ async fn acquire_lock_as(
                 tokio::select! {
                     biased;
                     () = cancellation.cancelled() => return Err(ArtifactCacheError::Cancelled),
-                    () = real_time::poll_pause(std::time::Duration::from_millis(10)) => {},
+                    () = real_time::pause(Duration::from_millis(10)) => {},
                 }
             }
             Err(error) => {

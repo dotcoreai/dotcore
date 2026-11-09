@@ -52,7 +52,7 @@ pub(super) fn runtime_adapter_registry_for_site_id(
     site_id: &str,
     node_id: &SiteNodeId,
     native_launcher: Option<&Path>,
-    native_timing: &NativeTiming,
+    native_timing: NativeTiming,
     simulated: SimulatedRuntimeInputs,
 ) -> Result<RuntimeAdapterRegistry, CompositionError> {
     let mut registry = runtime_adapter_registry_with_docker_factory(
@@ -293,7 +293,7 @@ struct NativeRuntimeAdapterFactory {
     /// Launcher binary resolved when the registry was built, or why none is usable.
     launcher: Result<PathBuf, Arc<NativeLauncherError>>,
 
-    /// How long each backend's creates watch a new workload's ports.
+    /// Native runtime timing every backend it opens follows.
     timing: NativeTiming,
 }
 
@@ -303,7 +303,7 @@ impl NativeRuntimeAdapterFactory {
         site_id: &str,
         node_id: SiteNodeId,
         launcher: Option<&Path>,
-        timing: &NativeTiming,
+        timing: NativeTiming,
     ) -> Self {
         Self {
             state_root: NativeStateRoot::for_site(&configuration.root),
@@ -312,7 +312,7 @@ impl NativeRuntimeAdapterFactory {
             node_id,
             launcher: dotcore_runtime_backends::native::resolve_launcher(launcher)
                 .map_err(Arc::new),
-            timing: *timing,
+            timing,
         }
     }
 
@@ -369,7 +369,7 @@ impl NativeRuntimeAdapterFactory {
             execution_target_id: target.execution_target_id.clone(),
             lifetime,
         };
-        let backend = NativeRuntimeBackend::new(config, launcher, &self.timing)
+        let backend = NativeRuntimeBackend::new(config, launcher, self.timing)
             .map_err(|error| {
                 CompositionError::Composition(anyhow::Error::new(error).context(format!(
                     "native execution target {:?} cannot open its workload state under {}; make the site directory writable by the server user",
@@ -589,10 +589,9 @@ fn simulated_runtime(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::Timing;
     use std::sync::Arc;
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_launcher::workload::Lifetime;
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
@@ -639,7 +638,7 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&launcher),
-            &Timing::test().native,
+            Timing::test().native,
             simulated_inputs(None),
         )
         .expect("registry");
@@ -667,7 +666,7 @@ mod tests {
             "site-one",
             node_id(),
             Some(&launcher),
-            &Timing::test().native,
+            Timing::test().native,
         );
         let persistent = factory
             .native_backend(&targets[0])
@@ -697,7 +696,7 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&missing),
-            &Timing::test().native,
+            Timing::test().native,
             simulated_inputs(Some(rtx_5090_desktop())),
         )
         .expect("registry without a launcher");
@@ -779,7 +778,7 @@ mod tests {
             "site-one",
             node_id(),
             Some(&dotcore_runtime_backends::native::test_support::launcher_binary()),
-            &Timing::test().native,
+            Timing::test().native,
         );
 
         let error = match factory.native_backend(&native_target(

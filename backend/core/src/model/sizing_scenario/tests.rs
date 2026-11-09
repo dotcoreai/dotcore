@@ -1,8 +1,7 @@
-use dotcore_domain::timing::Timing;
 use std::time::{Duration, SystemTime};
 
 use dotcore_catalog::{Catalog, CatalogLocalModelDeclarations, CatalogModelId, OciArtifactPolicy};
-use dotcore_domain::{ExecutionPlatform, MemoryArchitecture};
+use dotcore_domain::{ExecutionPlatform, MemoryArchitecture, timing::Timing};
 use dotcore_proto::dotcore::{
     catalog::v1::Model,
     deployment::v1::{ExactPlacement, MemoryFit},
@@ -1112,10 +1111,7 @@ fn profiles(
         model_id,
         scenario,
         &[],
-        &TargetCapabilityInventory::empty(
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
-        ),
+        &TargetCapabilityInventory::empty_now(),
     )
     .profiles
 }

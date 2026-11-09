@@ -100,7 +100,6 @@ fn unsized_in(pool: &Pool, workloads: &[Workload]) -> Vec<WorkloadKey> {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{collections::BTreeMap, time::SystemTime};
 
     use dotcore_domain::MemoryArchitecture::{self, Dedicated};
@@ -358,7 +357,7 @@ mod tests {
                 (PoolKind::Host, Some(32 * GIB)),
             ]
         );
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a", ["GPU-a"])],
             [],
             [NodeAcceleratorObservation::from_hardware_snapshot(
@@ -368,8 +367,6 @@ mod tests {
                     .expect("rendered snapshot"),
                 false,
             )],
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         );
         assert_eq!(
             inventory.for_target("target-a").expect("target").memory,
@@ -588,14 +585,12 @@ mod tests {
                 let snapshot = description
                     .render(&running, SystemTime::now())
                     .expect("rendered snapshot");
-                let inventory = TargetCapabilityReconciler::reconcile(
+                let inventory = TargetCapabilityReconciler::reconcile_now(
                     [("target-a", "node-a", [gpu.clone()])],
                     [],
                     [NodeAcceleratorObservation::from_hardware_snapshot(
                         "node-a", &snapshot, false,
                     )],
-                    Timing::test().node_control.capability_max_age,
-                    SystemTime::now(),
                 );
                 let capabilities = inventory.for_target("target-a").expect("target");
                 let target = TargetCapacity::for_target(

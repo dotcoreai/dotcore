@@ -32,6 +32,7 @@ use crate::{
             NodeObservationConfigurationDigest, NodeObservationConfigurationError,
             node_observation_configuration,
         },
+        target_inventory::{TargetCapabilityInventory, observation_is_fresh},
     },
     repository::SiteRepositoryError,
     service::SiteConfigurationSource,
@@ -155,10 +156,9 @@ impl NodeRegistry {
                 anyhow::Error::new(source).context("read site topology for node admission"),
             )
         })?;
-        let max_age = self.coordinator.capability_max_age();
+        let max_age = self.coordinator.timing().capability_max_age;
         let now = self.coordinator.clock().wall_now();
-        let mut inventory =
-            crate::node::target_inventory::TargetCapabilityInventory::empty(max_age, now);
+        let mut inventory = TargetCapabilityInventory::empty(max_age, now);
         for node in &site.nodes {
             let node_id = SiteNodeId::parse(&node.node_id).map_err(|source| {
                 crate::node::target_inventory::TargetCapabilitySourceError::Observation(
@@ -224,10 +224,10 @@ impl NodeRegistry {
                     &observation.received_at,
                 );
                 let stale = observation.connection_state != NodeConnectionState::Connected
-                    || !crate::node::target_inventory::observation_is_fresh(
+                    || !observation_is_fresh(
                         observed_at,
                         now,
-                        self.coordinator.capability_max_age(),
+                        self.coordinator.timing().capability_max_age,
                     );
                 Ok(crate::node::capabilities::node_memory_observation(
                     &node.node_id,
@@ -577,13 +577,15 @@ fn validate_unavailable(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::{Clock, ClockSleep};
-    use dotcore_domain::timing::Timing;
     use std::{
         sync::Arc,
         time::{Duration, SystemTime},
     };
 
+    use dotcore_domain::{
+        clock::{Clock, ClockSleep},
+        timing::Timing,
+    };
     use dotcore_proto::{
         dotcore::{
             catalog::v1::OciPlatform,
@@ -1342,7 +1344,7 @@ mod tests {
             Arc::new(site),
             ManagerNodeControlCoordinator::new(
                 crate::view::fencing::ManagerSession::generate().expect("manager test session"),
-                &Timing::test().node_control,
+                Timing::test().node_control,
                 Arc::new(FixedWallClock),
             ),
         )

@@ -24,8 +24,7 @@ use dotcore::{
     telemetry::FileTelemetrySink,
 };
 use dotcore_catalog::CatalogModelId;
-use dotcore_domain::SiteNodeId;
-use dotcore_domain::real_time;
+use dotcore_domain::{SiteNodeId, real_time};
 use dotcore_node_hardware::vram::{
     VramAccounting, VramAvailability, VramCancellation, VramGpuMemory, VramObservation,
     sample_process,

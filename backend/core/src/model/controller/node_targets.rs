@@ -349,10 +349,9 @@ fn declared_present_on(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{sync::Barrier, time::Duration};
 
-    use dotcore_domain::clock::ManualClock;
+    use dotcore_domain::{clock::ManualClock, timing::Timing};
     use dotcore_proto::{
         dotcore::{
             deployment::v1::ExactPlacement,
@@ -978,7 +977,7 @@ mod tests {
                 deployments,
                 ManagerNodeControlCoordinator::new(
                     session(),
-                    &Timing::test().node_control,
+                    Timing::test().node_control,
                     Arc::new(clock),
                 ),
             )

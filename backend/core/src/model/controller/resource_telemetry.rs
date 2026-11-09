@@ -456,13 +456,12 @@ fn system_time(timestamp: &Timestamp) -> Option<SystemTime> {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
     use std::sync::{
         Condvar,
         atomic::{AtomicUsize, Ordering},
     };
 
-    use dotcore_domain::hardware_observation::NodeHardwareObservation;
+    use dotcore_domain::{clock::SystemClock, hardware_observation::NodeHardwareObservation};
     use dotcore_proto::dotcore::{
         observation::v1::{
             AcceleratorFactsSet, AcceleratorMemoryArchitecture, AcceleratorObservation,

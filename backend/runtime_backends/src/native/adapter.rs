@@ -17,8 +17,9 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::real_time;
-use dotcore_domain::{ExecutionPlatform, host_process::HostProcessIdentity, timing::NativeTiming};
+use dotcore_domain::{
+    ExecutionPlatform, host_process::HostProcessIdentity, real_time, timing::NativeTiming,
+};
 use dotcore_launcher::{
     supervisor::{ScannedWorkload, Supervisor, SupervisorError, WorkloadState},
     workload::{ExitStatus, LaunchSpec, Lifetime, PROCESS_FILE, ProcessRecord, StoredRecord},
@@ -58,9 +59,7 @@ pub struct NativeRuntimeBackend {
     pub(super) supervisor: Supervisor,
     /// Owned workloads found by discovery or created here, by workload id.
     known: Mutex<BTreeMap<String, KnownWorkload>>,
-    /// How long a create watches a new workload for an early exit caused by a taken port;
-    /// engines bind their service ports early in startup, and a later exit is reported as an
-    /// ordinary stop.
+    /// Native runtime timing this backend's creates follow.
     timing: NativeTiming,
 }
 
@@ -70,7 +69,7 @@ impl NativeRuntimeBackend {
     pub fn new(
         config: NativeRuntimeConfig,
         launcher: PathBuf,
-        timing: &NativeTiming,
+        timing: NativeTiming,
     ) -> Result<Self, RuntimeBackendError> {
         let state_root = config
             .state_root
@@ -87,7 +86,7 @@ impl NativeRuntimeBackend {
             state_root,
             supervisor,
             known: Mutex::new(BTreeMap::new()),
-            timing: *timing,
+            timing,
         })
     }
 
@@ -418,7 +417,7 @@ impl NativeRuntimeBackend {
             if tokio::time::Instant::now() >= deadline {
                 return Ok(());
             }
-            real_time::poll_pause(PORT_SETTLE_POLL).await;
+            real_time::pause(PORT_SETTLE_POLL).await;
         }
     }
 
@@ -914,14 +913,13 @@ fn unknown_workload(id: &str) -> RuntimeBackendError {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::{
         fs,
         os::unix::fs::PermissionsExt,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
-    use dotcore_domain::test_support::ports::reserve_port;
+    use dotcore_domain::{test_support::ports::reserve_port, timing::Timing};
     use dotcore_launcher::workload::{
         LAUNCH_FILE, LAUNCHER_FILE, LauncherRecord, PROCESS_FILE, ProcessRecord, StoredRecord,
     };
@@ -1362,7 +1360,7 @@ mod tests {
                 ..original.config()
             },
             launcher_binary(),
-            &Timing::test().native,
+            Timing::test().native,
         )
         .expect("copied backend");
 
@@ -2250,7 +2248,7 @@ mod tests {
                 ..fixture.config.clone()
             },
             launcher_binary(),
-            &Timing::test().native,
+            Timing::test().native,
         )
         .expect("native backend")
     }

@@ -44,13 +44,14 @@ pub struct WorkerChannels {
     identity: Arc<ManagerClientIdentity>,
     channels: Arc<Mutex<BTreeMap<(String, WorkerChannelPurpose), WorkerChannel>>>,
 
-    /// HTTP/2 pings that detect a lost worker connection, including while idle.
-    keepalive: PrivateTiming,
+    /// Keepalive of the channels: HTTP/2 pings that detect a lost worker connection, including
+    /// while idle.
+    timing: PrivateTiming,
 }
 
 impl WorkerChannels {
     /// Projects the manager's private listener identity and its worker pins.
-    pub fn new(configuration: &PrivateServerConfiguration, timing: &PrivateTiming) -> Self {
+    pub fn new(configuration: &PrivateServerConfiguration, timing: PrivateTiming) -> Self {
         Self {
             identity: Arc::new(ManagerClientIdentity {
                 site_id: configuration.site_id.clone(),
@@ -65,7 +66,7 @@ impl WorkerChannels {
                     .collect(),
             }),
             channels: Arc::default(),
-            keepalive: *timing,
+            timing,
         }
     }
 
@@ -173,8 +174,8 @@ impl WorkerChannels {
             .context("build the worker endpoint")
             .map_err(WorkerChannelError::Endpoint)?
             .connect_timeout(WORKER_CONNECT_TIMEOUT)
-            .http2_keep_alive_interval(self.keepalive.keepalive_interval)
-            .keep_alive_timeout(self.keepalive.keepalive_timeout)
+            .http2_keep_alive_interval(self.timing.keepalive_interval)
+            .keep_alive_timeout(self.timing.keepalive_timeout)
             .keep_alive_while_idle(true)
             .tls_config_with_verifier(
                 // No verifier checks the server name; the worker is authenticated by its pin.
@@ -293,9 +294,9 @@ impl From<std::net::SocketAddr> for WorkerAddress {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::timing::Timing;
     use std::time::Duration;
 
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::{dotcore::site::private::v1::NodeObservation, google::protobuf::Timestamp};
 
     use super::*;
@@ -410,7 +411,7 @@ mod tests {
                         worker_certificate.as_slice(),
                     )],
                 ),
-                &Timing::test().private,
+                Timing::test().private,
             );
             Self {
                 site: SiteRepository::load(

@@ -1,7 +1,9 @@
-use dotcore_domain::timing::Timing;
 use std::time::{Duration, SystemTime};
 
-use dotcore_domain::clock::{ManualClock, VirtualClock};
+use dotcore_domain::{
+    clock::{ManualClock, VirtualClock},
+    timing::Timing,
+};
 use futures_util::StreamExt;
 
 use super::*;
@@ -1359,8 +1361,6 @@ fn start_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore, Manual
 fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemoryMetricStore {
     InMemoryMetricStore::start(
         config,
-        &Timing::test().metrics,
-        &Timing::test().watch,
         vec![
             MetricDescriptor {
                 name: "node.memory.used".to_owned(),
@@ -1399,6 +1399,8 @@ fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemor
                 reporting_delay: None,
             },
         ],
+        Timing::test().metrics,
+        Timing::test().watch,
         clock,
     )
     .expect("start store")
@@ -1415,8 +1417,6 @@ fn start_virtual_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore
     );
     let store = InMemoryMetricStore::start(
         config,
-        &Timing::test().metrics,
-        &Timing::test().watch,
         vec![MetricDescriptor {
             name: "router.requests".to_owned(),
             kind: MetricKind::Counter,
@@ -1426,6 +1426,8 @@ fn start_virtual_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore
             sample_interval: None,
             reporting_delay: None,
         }],
+        Timing::test().metrics,
+        Timing::test().watch,
         Arc::new(clock.clone()),
     )
     .expect("start store");

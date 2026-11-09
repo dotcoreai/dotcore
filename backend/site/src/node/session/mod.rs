@@ -105,7 +105,7 @@ impl NodeControlSession {
         state: FileNodeState,
         model: Arc<dyn NodeModelStatusOwner>,
         application: Option<Arc<dyn NodeApplicationStatusOwner>>,
-        timing: &NodeControlTiming,
+        timing: NodeControlTiming,
         clock: Arc<dyn Clock>,
     ) -> Self {
         let open = NodeControlOpen {
@@ -124,7 +124,7 @@ impl NodeControlSession {
             state,
             model,
             application,
-            timing: *timing,
+            timing,
             clock,
         }
     }
@@ -165,12 +165,12 @@ impl NodeControlSession {
             acknowledgement_sequence: 1,
             status_rejected: false,
         };
-        let mut backoff = RetryBackoff::new(&self.timing.stream_retry);
+        let mut backoff = RetryBackoff::new(self.timing.stream_retry);
         loop {
             match self.serve_stream(&mut cursors, &mut triggers).await {
                 StreamOutcome::NotOpened => {}
                 StreamOutcome::Ended => {
-                    backoff = RetryBackoff::new(&self.timing.stream_retry);
+                    backoff = RetryBackoff::new(self.timing.stream_retry);
                 }
                 StreamOutcome::Stopped => return,
             }
@@ -1010,7 +1010,7 @@ struct RetryBackoff {
 }
 
 impl RetryBackoff {
-    fn new(backoff: &Backoff) -> Self {
+    fn new(backoff: Backoff) -> Self {
         Self {
             next: backoff.initial,
             max: backoff.max,

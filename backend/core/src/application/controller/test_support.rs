@@ -1,7 +1,5 @@
 //! Fakes and fixtures for the application controller tests.
 
-use dotcore_domain::clock::SystemClock;
-use dotcore_domain::timing::Timing;
 use std::{
     collections::{BTreeSet, VecDeque},
     fs,
@@ -18,7 +16,11 @@ use std::{
 
 use anyhow::anyhow;
 use dotcore_catalog::{Catalog, CatalogBuilder, OciArtifactPolicy};
-use dotcore_domain::test_support::oci::{ServiceArtifactOci as _, digest_artifact};
+use dotcore_domain::{
+    clock::SystemClock,
+    test_support::oci::{ServiceArtifactOci as _, digest_artifact},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     application::private::v1::{
         ApplicationDeploymentStatus, ApplicationLifecycleObservation, ApplicationStatusStage,
@@ -827,15 +829,13 @@ pub(super) fn manager_controller(
 
 pub(super) fn node_target_capabilities() -> Arc<dyn TargetCapabilitySource> {
     Arc::new(StaticTargetCapabilitySource::new(
-        TargetCapabilityReconciler::reconcile(
+        TargetCapabilityReconciler::reconcile_now(
             [("application-target-one", "node-one")],
             [RuntimePlatformObservation::available(
                 "application-target-one",
                 dotcore_domain::ExecutionPlatform::linux_amd64(),
             )],
             std::iter::empty(),
-            Timing::test().node_control.capability_max_age,
-            SystemTime::now(),
         ),
     ))
 }
@@ -2669,15 +2669,13 @@ impl InferenceRouteResolver for TestInferenceRouteResolver {
 }
 
 pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource> {
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::available(
             "application-target-one",
             dotcore_domain::ExecutionPlatform::linux_amd64(),
         )],
         std::iter::empty(),
-        Timing::test().node_control.capability_max_age,
-        SystemTime::now(),
     );
     Arc::new(StaticTargetCapabilitySource::new(inventory))
 }

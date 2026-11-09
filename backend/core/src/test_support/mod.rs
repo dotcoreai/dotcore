@@ -1,6 +1,5 @@
 //! Shared support for backend unit tests.
 
-use dotcore_domain::timing::Timing;
 use dotcore_proto::dotcore::{
     deployment::v1::ArtifactPreparationPolicy,
     model::v1::{ModelDeploymentSnapshot, model_deployment_snapshot},
@@ -104,12 +103,10 @@ pub(crate) fn execution_target_capabilities_with_memory(
             accelerator.with_host_memory(34_190_917_632, 34_190_917_632)
         }
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(target_id, platform)],
         [accelerator],
-        Timing::test().node_control.capability_max_age,
-        std::time::SystemTime::now(),
     );
     (target, inventory)
 }

@@ -1,4 +1,3 @@
-use dotcore_domain::timing::Timing;
 use std::{
     collections::{BTreeMap, VecDeque},
     net::SocketAddr,
@@ -7,7 +6,10 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use dotcore_domain::test_support::ports::{ReservedPort, reserve_port};
+use dotcore_domain::{
+    test_support::ports::{ReservedPort, reserve_port},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     deployment::{
         private::v1::{
@@ -1535,7 +1537,6 @@ impl Worker {
                     manager.0.as_slice(),
                 )],
             ),
-            &Timing::test().private,
             PrivateServiceAssembly::new(move |context, routes| {
                 routes.add_service(
                     DeploymentLogService::new(
@@ -1552,6 +1553,7 @@ impl Worker {
                 );
             })
             .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
+            Timing::test().private,
             std::future::pending(),
         )
         .await
@@ -1572,7 +1574,7 @@ impl Worker {
                         worker_certificate.as_slice(),
                     )],
                 ),
-                &Timing::test().private,
+                Timing::test().private,
             ),
         }
     }

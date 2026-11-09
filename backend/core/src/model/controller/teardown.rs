@@ -7,8 +7,7 @@
 //! state with a retryable failure message instead of deleting state, so a
 //! later unload can retry.
 
-use dotcore_domain::diagnostic::diagnostic_chain;
-use dotcore_domain::timing::ReconcileOutcome;
+use dotcore_domain::{diagnostic::diagnostic_chain, timing::ReconcileOutcome};
 use dotcore_proto::dotcore::{
     model::v1::{
         CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentFailure,
@@ -487,8 +486,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use dotcore_domain::clock::SystemClock;
-    use dotcore_domain::timing::{ReconcileOutcome, Timing};
     use std::{
         error::Error as _,
         future::ready,
@@ -497,7 +494,12 @@ mod tests {
     };
 
     use dotcore_artifact::{ArtifactManager, PreparationStep};
-    use dotcore_domain::{SiteNodeId, host_process::HostProcessIdentity};
+    use dotcore_domain::{
+        SiteNodeId,
+        clock::SystemClock,
+        host_process::HostProcessIdentity,
+        timing::{ReconcileOutcome, Timing},
+    };
     use dotcore_proto::dotcore::{
         deployment::v1::accelerator_memory_observation,
         model::v1::{
@@ -1118,7 +1120,7 @@ mod tests {
                 preparation_logs: PreparationLogs::on_system_clock(directory),
                 workload_lifecycle: workload_lifecycle.clone(),
                 timing: Timing::test().model,
-                clock: std::sync::Arc::new(SystemClock),
+                clock: Arc::new(SystemClock),
             },
             current.clone(),
             builder.build().expect("Runtime map"),
@@ -1387,7 +1389,7 @@ mod tests {
             accelerator_attribution: None,
             shutdown: tokio_util::sync::CancellationToken::new(),
             timing: Timing::test().model,
-            clock: std::sync::Arc::new(SystemClock),
+            clock: Arc::new(SystemClock),
         }
     }
 }

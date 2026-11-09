@@ -13,8 +13,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::SiteNodeHost;
-use dotcore_domain::real_time;
+use dotcore_domain::{SiteNodeHost, real_time};
 use serde_json::Value;
 
 /// Longest wait for the tailnet client to report its status.
