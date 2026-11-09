@@ -2,8 +2,8 @@ import { act, render, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import type { ReadState } from "@/lib/read-state";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { useSessionRead } from "./use-session-read";

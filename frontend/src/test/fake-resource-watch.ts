@@ -2,7 +2,6 @@ import { create } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
 
 import type { ResourceWatchClient } from "@/api/resource-watch-client";
-import type { ResourceKind, ResourcePayload } from "@/app/resource-watch";
 import {
   ListHardwareSnapshotsResponseSchema,
   type MachineHardwareSnapshot,
@@ -15,6 +14,7 @@ import {
   type WatchResourcesResponse,
   WatchResourcesResponseSchema,
 } from "@/gen/dotcore/watch/v1/service_pb";
+import type { ResourceKind, ResourcePayload } from "@/resource-watch/resource-watch";
 
 /** Reads answering a watched kind, like the owner reads the manager makes each tick. */
 export type ResourceSources = {

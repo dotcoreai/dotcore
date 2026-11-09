@@ -1,6 +1,5 @@
 import { type ReactNode, useId, useRef, useState } from "react";
 
-import { useResourceColors } from "@/app/resource-color-context";
 import {
   MetricRow,
   MetricSpans,
@@ -11,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatBytes, formatGib, formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useResourceColors } from "@/theme/resource-color-context";
 
 import {
   type MemoryKind,

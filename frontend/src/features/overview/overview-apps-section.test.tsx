@@ -5,7 +5,6 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 import {
   gaugePoint,
@@ -18,6 +17,7 @@ import { type MetricCards, useMetricCards } from "@/features/metrics/use-metric-
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/application/v1/service_pb";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import type { MachineFacts } from "./machine-site-values";

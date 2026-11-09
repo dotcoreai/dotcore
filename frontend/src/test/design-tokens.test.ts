@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { compile } from "@tailwindcss/node";
 import { describe, expect, it } from "vitest";
 
-import { contrastRatio } from "@/lib/color-contrast";
 import { DENSITY_SIZE_NAMES } from "@/lib/utils";
 import {
   extractDeclaredProperties,
@@ -13,6 +12,7 @@ import {
   extractTopLevelBlock,
   readIndexCss,
 } from "@/test/css-tokens";
+import { contrastRatio } from "@/theme/color-contrast";
 
 // The frontend package root, so @tailwindcss/node can resolve index.css's node_modules imports
 // (shadcn/tailwind.css, tw-animate-css). Vitest's working directory is already the package root.

@@ -4,6 +4,7 @@ import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { DataTable } from "@/components/data-table/data-table";
+import { buildDataTable } from "@/components/data-table/data-table-model";
 import {
   ApplicationDeploymentDesiredState,
   ApplicationDeploymentSchema,
@@ -15,7 +16,6 @@ import {
 } from "@/gen/dotcore/application/v1/state_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import { ApplicationSchema } from "@/gen/dotcore/catalog/v1/application_pb";
-import { buildDataTable } from "@/lib/data-table-model";
 
 import { projectApplicationDeploymentRows } from "./application-deployment-row";
 import {

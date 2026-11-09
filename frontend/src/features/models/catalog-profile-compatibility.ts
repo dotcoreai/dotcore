@@ -1,10 +1,10 @@
+import type { DataTableField } from "@/components/data-table/data-table-model";
 import {
   executionTargetKey,
   executionTargetPresentation,
   placedExecutionTargetName,
 } from "@/features/deployments/execution-target";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
-import type { DataTableField } from "@/lib/data-table-model";
 import { formatCount } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";
 

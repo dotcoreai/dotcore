@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { DataTablePredicate } from "@/components/data-table/data-table-view";
 import { Detail } from "@/components/ui/detail-list";
 import { FieldError } from "@/components/ui/field-error";
 import { Notice } from "@/components/ui/notice";
@@ -46,7 +47,6 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import type { DataTablePredicate } from "@/lib/data-table-view";
 import { validateDeploymentName } from "@/lib/deployment-name";
 import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
 import { formatBytes, formatCompactCount, formatCount } from "@/lib/format";

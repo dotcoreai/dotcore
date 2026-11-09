@@ -5,7 +5,7 @@ import type {
   DataTableViewColumn,
   DataTableViewDefinition,
   DataTableViewField,
-} from "@/lib/data-table-view";
+} from "@/components/data-table/data-table-view";
 
 /**
  * A data table: rows, their optional children, the columns that show and sort them, and the fields

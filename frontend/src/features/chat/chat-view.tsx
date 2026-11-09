@@ -2,7 +2,6 @@ import { Eraser } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
 import { Link } from "react-router-dom";
 
-import type { ChatMode } from "@/app/chat-opener";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { Notice } from "@/components/ui/notice";
@@ -10,6 +9,7 @@ import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/s
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChatComposer } from "@/features/chat/chat-composer";
 import { ChatConversation } from "@/features/chat/chat-conversation";
+import type { ChatMode } from "@/features/chat/chat-opener";
 import {
   useChatConversation,
   useChatDecisions,

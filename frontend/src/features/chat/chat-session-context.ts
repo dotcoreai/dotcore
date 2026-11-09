@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
-import type { ChatMode } from "@/app/chat-opener";
 import type { ComboboxOption } from "@/components/ui/combobox";
+import type { ChatMode } from "@/features/chat/chat-opener";
 import type { Decisions } from "@/features/chat/decisions/use-decisions";
 import type { Chat } from "@/features/chat/use-chat";
 

@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 
 import type { MetricsClient } from "@/api/metrics-client";
-import { useWatchedModelDeployments, useWatchedRoutes } from "@/app/resource-watch";
 import { dimensionNames } from "@/features/metrics/metric-names";
 import { requestCardIds } from "@/features/metrics/request-card-specs";
 import { type MetricCards, useMetricCards } from "@/features/metrics/use-metric-cards";
+import { useWatchedModelDeployments, useWatchedRoutes } from "@/resource-watch/resource-watch";
 
 import {
   inferenceCardSpecs,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { albumCodec, albumTable, syntheticAlbums } from "../test/data-table-test-support";
+import { albumCodec, albumTable, syntheticAlbums } from "@/test/data-table-test-support";
+
 import {
   buildDataTable,
   type DataTableDefinition,

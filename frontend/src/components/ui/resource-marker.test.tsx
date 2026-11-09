@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ResourceMarker, ResourceTitle } from "@/components/ui/resource-marker";
-import { getResourceColor } from "@/lib/resource-color";
+import { getResourceColor } from "@/theme/resource-color";
 
 describe("ResourceMarker", () => {
   it("renders a decorative marker filled with the key's color", () => {

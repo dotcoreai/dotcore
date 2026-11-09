@@ -2,7 +2,6 @@ import { create } from "@bufbuild/protobuf";
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import {
   gaugePoint,
   metricsClientWith,
@@ -15,6 +14,7 @@ import {
   ListMachinesResponseSchema,
   MachineSchema,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { overviewSplitIds } from "./overview-card-specs";

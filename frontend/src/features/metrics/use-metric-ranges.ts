@@ -1,8 +1,8 @@
 import { useEffect, useSyncExternalStore } from "react";
 
 import type { MetricsClient } from "@/api/metrics-client";
-import { useOptionalManagerSession } from "@/app/resource-watch";
 import type { ReadState } from "@/lib/read-state";
+import { useOptionalManagerSession } from "@/resource-watch/resource-watch";
 
 import { metricDescriptorsFor } from "./metric-descriptors";
 import type { MetricRange } from "./metric-ranges";

@@ -3,8 +3,8 @@ import "uplot/dist/uPlot.min.css";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import type uPlot from "uplot";
 
-import { useResourceColors } from "@/app/resource-color-context";
 import { cn } from "@/lib/utils";
+import { useResourceColors } from "@/theme/resource-color-context";
 
 import {
   buildChartData,

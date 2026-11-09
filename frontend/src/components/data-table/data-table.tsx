@@ -15,6 +15,18 @@ import {
   useState,
 } from "react";
 
+import type {
+  DataTableDefinition,
+  DataTableResult,
+  DataTableRow,
+  FacetValue,
+} from "@/components/data-table/data-table-model";
+import type {
+  DataTableSort,
+  DataTableSortDirection,
+  DataTableView,
+  DataTableViewCodec,
+} from "@/components/data-table/data-table-view";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -31,18 +43,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type {
-  DataTableDefinition,
-  DataTableResult,
-  DataTableRow,
-  FacetValue,
-} from "@/lib/data-table-model";
-import type {
-  DataTableSort,
-  DataTableSortDirection,
-  DataTableView,
-  DataTableViewCodec,
-} from "@/lib/data-table-view";
 import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePanelNavigationPending } from "@/panels/panel-navigation-pending";

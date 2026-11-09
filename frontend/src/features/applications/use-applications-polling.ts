@@ -2,12 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ApplicationClient } from "@/api/application-client";
 import {
-  type ResourceWatchRead,
-  useWatchedApplicationDeployments,
-  useWatchedExecutionTargets,
-  useWatchedMachines,
-} from "@/app/resource-watch";
-import {
   type ApplicationSnapshot,
   projectApplicationSnapshot,
 } from "@/features/applications/application-projection";
@@ -23,8 +17,14 @@ import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
 } from "@/gen/dotcore/application/v1/deployment_pb";
-import { useSessionRead } from "@/hooks/use-session-read";
 import type { DeploymentMetadata } from "@/lib/deployment-metadata";
+import {
+  type ResourceWatchRead,
+  useWatchedApplicationDeployments,
+  useWatchedExecutionTargets,
+  useWatchedMachines,
+} from "@/resource-watch/resource-watch";
+import { useSessionRead } from "@/resource-watch/use-session-read";
 
 export interface ApplicationSliceStatus {
   error?: string;

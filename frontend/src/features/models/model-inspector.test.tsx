@@ -5,7 +5,7 @@ import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DeploymentLogOperations } from "@/api/deployment-log-client";
-import { ChatOpenerContext } from "@/app/chat-opener";
+import { ChatOpenerContext } from "@/features/chat/chat-opener";
 import { EngineParameterValuesSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelSchema, SpeculativeDecodingMethod } from "@/gen/dotcore/catalog/v1/model_pb";
 import {

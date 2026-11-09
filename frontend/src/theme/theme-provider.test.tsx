@@ -2,10 +2,10 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { useTheme } from "@/app/theme-context";
-import { ThemeProvider } from "@/app/theme-provider";
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
 import { writeColorScheme } from "@/lib/console-preferences";
+import { useTheme } from "@/theme/theme-context";
+import { ThemeProvider } from "@/theme/theme-provider";
 
 class FakeStorage {
   values = new Map<string, string>();

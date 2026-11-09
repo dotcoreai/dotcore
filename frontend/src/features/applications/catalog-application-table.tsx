@@ -3,10 +3,10 @@ import type { ReactNode } from "react";
 
 import type { DataTableUiDefinition } from "@/components/data-table/data-table";
 import { Tags } from "@/components/data-table/data-table-cells";
+import type { DataTableDefinition } from "@/components/data-table/data-table-model";
+import { createDataTableViewCodec } from "@/components/data-table/data-table-view";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
-import type { DataTableDefinition } from "@/lib/data-table-model";
-import { createDataTableViewCodec } from "@/lib/data-table-view";
 
 import { applicationInspectorPanelId } from "./application-inspector-panel";
 import {

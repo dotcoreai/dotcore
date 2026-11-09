@@ -4,11 +4,6 @@ import { useLocation } from "react-router-dom";
 
 import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
 import { type ModelClient, modelClient } from "@/api/model-client";
-import {
-  useWatchedExecutionTargets,
-  useWatchedMachines,
-  useWatchedRoutes,
-} from "@/app/resource-watch";
 import { InspectorPlaceholder } from "@/components/ui/inspector-placeholder";
 import { deploymentChatTarget } from "@/features/chat/chattable-route";
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
@@ -35,6 +30,11 @@ import {
 } from "@/panels/panel-stack";
 import { panelTitle } from "@/panels/panel-titles";
 import { usePublishPanelTitles } from "@/panels/panel-titles-context";
+import {
+  useWatchedExecutionTargets,
+  useWatchedMachines,
+  useWatchedRoutes,
+} from "@/resource-watch/resource-watch";
 
 import {
   DeploymentMemoryRows,

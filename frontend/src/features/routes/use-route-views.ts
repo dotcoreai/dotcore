@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useWatchedModelDeployments, useWatchedRoutes } from "@/app/resource-watch";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
+import { useWatchedModelDeployments, useWatchedRoutes } from "@/resource-watch/resource-watch";
 
 /**
  * An accepted route mutation shown over the streamed routes until the stream shows it. A `put`

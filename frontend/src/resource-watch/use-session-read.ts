@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-import { useManagerSession } from "@/app/resource-watch";
 import { createPollTimer, DEFAULT_POLL_RETRY_DELAYS_MS } from "@/lib/poll-timer";
 import type { ReadState } from "@/lib/read-state";
+import { useManagerSession } from "@/resource-watch/resource-watch";
 
 export interface SessionReadOptions {
   /**

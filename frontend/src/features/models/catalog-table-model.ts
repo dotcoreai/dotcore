@@ -6,7 +6,7 @@ import {
   formatRange,
   type ValueRange,
   valueRange,
-} from "@/lib/data-table-model";
+} from "@/components/data-table/data-table-model";
 import { formatByteRange, formatCompactCount } from "@/lib/format";
 
 import type {

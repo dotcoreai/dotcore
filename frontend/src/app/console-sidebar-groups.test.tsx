@@ -3,14 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ConsoleSidebar, PEEK_ENTER_DELAY_MS } from "@/app/console-sidebar";
+import { useSidebarPreference } from "@/app/sidebar-preference-context";
+import { SidebarPreferenceProvider } from "@/app/sidebar-preference-provider";
 import {
   MachinesSectionIcon,
   ModelsSectionIcon,
   RoutesSectionIcon,
-} from "@/app/console-section-icons";
-import { ConsoleSidebar, PEEK_ENTER_DELAY_MS } from "@/app/console-sidebar";
-import { useSidebarPreference } from "@/app/sidebar-preference-context";
-import { SidebarPreferenceProvider } from "@/app/sidebar-preference-provider";
+} from "@/components/ui/section-icons";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/console-preferences";
 

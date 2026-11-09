@@ -5,7 +5,6 @@ import { useRef } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { hardwareSnapshot, listedMachine } from "@/features/memory/machine-test-support";
 import {
@@ -32,6 +31,7 @@ import {
   MachineHardwareSnapshotSchema,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
 
 import { MachineSidebarHost } from "./machine-sidebar-host";

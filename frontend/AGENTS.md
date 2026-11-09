@@ -20,6 +20,8 @@ frontend/src/
 ├── gen/              generated Protobuf-ES code
 ├── hooks/            shared React hooks
 ├── panels/           inspector panel state and navigation
+├── resource-watch/   live resource data streamed from the server
+├── theme/            color scheme and resource colors
 ├── lib/              shared utilities with no UI
 └── test/             shared Vitest and Testing Library setup, and repository-wide checks
 ```
@@ -27,9 +29,9 @@ frontend/src/
 - Routes compose features and don't reach into feature internals.
 - A one-off treatment stays at its call site, not in `components/ui/`.
 - A folder imports only from folders before it in this order: `gen`, `lib`, `api`, `hooks`,
-  `panels`, `components`, `features`, `routes`, `app`. `components/` also never imports `gen/`.
-  Lint enforces this from the layer list in [`eslint.config.mjs`](eslint.config.mjs); folders
-  marked `pending` there are not enforced yet.
+  `panels`, `resource-watch`, `theme`, `components`, `features`, `routes`, `app`. `components/`
+  also never imports `gen/`. Lint enforces this from the layer list in
+  [`eslint.config.mjs`](eslint.config.mjs); folders marked `pending` there are not enforced yet.
 - Files and feature folders never import each other in a loop, tests included.
   [`src/test/import-cycles.test.ts`](src/test/import-cycles.test.ts) enforces it, and its
   allowlists only shrink: fix a loop by moving the shared code down, never by adding an entry.

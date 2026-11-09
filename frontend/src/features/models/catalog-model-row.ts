@@ -1,3 +1,4 @@
+import { type ValueRange, valueRange } from "@/components/data-table/data-table-model";
 import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
 import {
@@ -14,7 +15,6 @@ import type {
 import { EngineKind } from "@/gen/dotcore/engine/v1/engine_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { SizingScenarioUnsupportedReason } from "@/gen/dotcore/model/v1/service_pb";
-import { type ValueRange, valueRange } from "@/lib/data-table-model";
 import { mergeRequestKinds } from "@/lib/request-kinds";
 import type { StatusProjection } from "@/lib/status-projection";
 

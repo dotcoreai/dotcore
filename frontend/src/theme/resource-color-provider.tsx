@@ -1,13 +1,13 @@
 import { type ReactNode, useMemo } from "react";
 
-import { ResourceColorContext, type ResourceColors } from "@/app/resource-color-context";
 import {
   useWatchedApplicationDeployments,
   useWatchedMachines,
   useWatchedModelDeployments,
   useWatchedRoutes,
-} from "@/app/resource-watch";
-import { assignResourceColors, getResourceColor } from "@/lib/resource-color";
+} from "@/resource-watch/resource-watch";
+import { assignResourceColors, getResourceColor } from "@/theme/resource-color";
+import { ResourceColorContext, type ResourceColors } from "@/theme/resource-color-context";
 
 /**
  * Assigns marker colors to the site's live machines, routes, model deployments and application

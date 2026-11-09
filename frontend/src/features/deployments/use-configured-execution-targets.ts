@@ -1,10 +1,10 @@
 import { useCallback, useState } from "react";
 
-import { useWatchedExecutionTargets } from "@/app/resource-watch";
 import type {
   ConfiguredExecutionTarget,
   ListConfiguredExecutionTargetsResponse,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { useWatchedExecutionTargets } from "@/resource-watch/resource-watch";
 
 export type ConfiguredExecutionTargetLoader = () => Promise<{
   executionTargets: ConfiguredExecutionTarget[];

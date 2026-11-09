@@ -2,18 +2,18 @@ import { create } from "@bufbuild/protobuf";
 import { Code } from "@connectrpc/connect";
 
 import type { ResourceWatchClient } from "@/api/resource-watch-client";
-import type {
-  ManagerSession,
-  ResourceKind,
-  ResourcePayload,
-  ResourceWatchRead,
-} from "@/app/resource-watch";
 import {
   type ResourceSubscription,
   ResourceSubscriptionSchema,
   type WatchResourcesResponse,
 } from "@/gen/dotcore/watch/v1/service_pb";
 import { runStreamLoop } from "@/lib/stream-loop";
+import type {
+  ManagerSession,
+  ResourceKind,
+  ResourcePayload,
+  ResourceWatchRead,
+} from "@/resource-watch/resource-watch";
 
 /**
  * Default wait before reopening the stream after kinds are only removed, so a kind released and

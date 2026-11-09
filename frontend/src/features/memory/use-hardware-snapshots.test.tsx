@@ -4,7 +4,6 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { MachineDetailContent } from "@/features/machines/machine-details";
 import { idleMetricsClient } from "@/features/metrics/metric-test-support";
 import {
@@ -20,6 +19,7 @@ import {
   MachineHardwareSnapshotSchema,
   MachineSchema,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import { listedMachine } from "./machine-test-support";

@@ -10,9 +10,7 @@ import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
 import type { SiteClient } from "@/api/site-client";
-import type { ResourcePayload } from "@/app/resource-watch";
 import { createRoutes } from "@/app/routes";
-import { ThemeProvider } from "@/app/theme-provider";
 import { nodeMemoryPayload } from "@/features/memory/node-memory-test-support";
 import {
   metricsClientWith,
@@ -25,6 +23,7 @@ import {
   modelTarget,
   readableMachine,
 } from "@/features/models/models-section-test-support";
+import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   CreateApplicationDeploymentResponseSchema,
   GetApplicationDeploymentResponseSchema,
@@ -62,11 +61,13 @@ import {
   MachineHardwareSnapshotSchema,
   MachineSchema,
 } from "@/gen/dotcore/site/v1/service_pb";
+import type { ResourcePayload } from "@/resource-watch/resource-watch";
 import {
   FakeResourceWatch,
   hardwareSnapshotsPayload,
   type ResourceSources,
 } from "@/test/fake-resource-watch";
+import { ThemeProvider } from "@/theme/theme-provider";
 
 const deterministicModelClient: ModelClient = {
   catalog: {
@@ -271,6 +272,32 @@ describe("application router", () => {
     ).toEqual([]);
   });
 
+  it("shows the simulated latency indicator in the header while the developer setting is on", async () => {
+    const user = userEvent.setup();
+    window.localStorage.clear();
+    renderAt("/preferences");
+
+    const latencySwitch = await screen.findByRole("switch", { name: "Simulate API latency" });
+    expect(screen.queryByRole("link", { name: /Simulated latency/ })).not.toBeInTheDocument();
+
+    await user.click(latencySwitch);
+    expect(
+      screen.getByRole("link", { name: "Simulated latency 500–2000 ms. Open preferences" }),
+    ).toHaveAttribute("href", "/preferences");
+
+    const maximum = screen.getByRole("spinbutton", { name: "Maximum delay (ms)" });
+    await user.clear(maximum);
+    await user.type(maximum, "3000");
+    await user.tab();
+    expect(
+      screen.getByRole("link", { name: "Simulated latency 500–3000 ms. Open preferences" }),
+    ).toBeVisible();
+
+    await user.click(latencySwitch);
+    expect(screen.queryByRole("link", { name: /Simulated latency/ })).not.toBeInTheDocument();
+    window.localStorage.clear();
+  });
+
   it("opens Preferences from the profile menu and keeps its dark mode switch in sync", async () => {
     const user = userEvent.setup();
     const { router } = renderAt("/machines");
@@ -361,6 +388,66 @@ describe("application router", () => {
     expect(inspector).not.toHaveTextContent("production");
     expect(screen.getByRole("button", { name: "Connect" })).toBeVisible();
     expect(screen.getByRole("button", { name: "More actions" })).toBeVisible();
+  });
+
+  it("names a Routes panel's application deployment parent and returns to it", async () => {
+    const user = userEvent.setup();
+    const deployment = create(ApplicationDeploymentSchema, {
+      applicationDeploymentId: "app-deployment-1",
+      applicationDeploymentName: "Team chat",
+    });
+    const getApplicationDeployment = vi.fn(() =>
+      Promise.resolve(create(GetApplicationDeploymentResponseSchema, { deployment })),
+    );
+    const applicationClient: ApplicationClient = {
+      ...deterministicApplicationClient,
+      application: {
+        ...deterministicApplicationClient.application,
+        getApplicationDeployment,
+        // The Apps page keeps a deployment panel only for a deployment it lists.
+        listApplicationDeployments: () =>
+          Promise.resolve(
+            create(ListApplicationDeploymentsResponseSchema, { deployments: [deployment] }),
+          ),
+      },
+    };
+    const routeClient: RouteClient = {
+      route: {
+        ...deterministicRouteClient.route,
+        listRoutes: () =>
+          Promise.resolve(
+            create(ListRoutesResponseSchema, {
+              routes: [
+                create(InferenceRouteViewSchema, {
+                  route: create(InferenceRouteSchema, {
+                    inferenceRouteId: "route-a",
+                    name: "selected",
+                    enabled: true,
+                  }),
+                }),
+              ],
+            }),
+          ),
+      },
+    };
+    const { router } = renderAt(
+      "/routes?panel=apps%2Fdeployment%3Aapp-deployment-1&panel=routes%2Froute%3Aroute-a",
+      applicationClient,
+      deterministicSiteClient,
+      routeClient,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Back to Team chat" }));
+
+    await waitFor(() =>
+      expect(router.state.location.pathname + router.state.location.search).toBe(
+        "/apps?panel=apps%2Fdeployment%3Aapp-deployment-1",
+      ),
+    );
+    expect(getApplicationDeployment).toHaveBeenCalledWith(
+      { applicationDeploymentId: "app-deployment-1" },
+      expect.anything(),
+    );
   });
 
   it("renders the Apps route with active navigation and the installed empty state", async () => {

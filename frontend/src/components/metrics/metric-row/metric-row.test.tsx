@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { getResourceColor } from "@/lib/resource-color";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { getResourceColor } from "@/theme/resource-color";
 
 import { MetricBar, MetricRow, MetricRows, MetricSpans } from "./metric-row";
 

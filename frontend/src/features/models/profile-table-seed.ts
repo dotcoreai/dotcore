@@ -1,5 +1,5 @@
-import { type DataTableField, matchesField } from "@/lib/data-table-model";
-import type { DataTablePredicate } from "@/lib/data-table-view";
+import { type DataTableField, matchesField } from "@/components/data-table/data-table-model";
+import type { DataTablePredicate } from "@/components/data-table/data-table-view";
 
 import type { ProfileRow } from "./catalog-model-row";
 import { profileFields, type RunsOnField } from "./catalog-profile-fields";

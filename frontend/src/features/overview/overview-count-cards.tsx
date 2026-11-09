@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
-import {
-  useWatchedApplicationDeployments,
-  useWatchedModelDeployments,
-  useWatchedRoutes,
-} from "@/app/resource-watch";
 import { MetricCard, MetricCardGrid } from "@/components/metrics/metric-card/metric-card";
 import { Notice } from "@/components/ui/notice";
 import { PageSectionHeading } from "@/components/ui/page-header";
@@ -14,6 +9,11 @@ import { CardChartDetail, ReadingCard, ReadingsStoppedNote } from "@/features/me
 import type { MetricCards } from "@/features/metrics/use-metric-cards";
 import { deploymentStatus } from "@/features/models/model-projection";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+import {
+  useWatchedApplicationDeployments,
+  useWatchedModelDeployments,
+  useWatchedRoutes,
+} from "@/resource-watch/resource-watch";
 
 import { appCardIds, appSplitId } from "./overview-app-specs";
 

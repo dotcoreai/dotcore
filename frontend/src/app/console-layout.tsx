@@ -8,16 +8,14 @@ import {
 } from "@/api/decision-client";
 import type { ModelClient } from "@/api/model-client";
 import type { ResourceWatchClient } from "@/api/resource-watch-client";
-import { type ChatMode, ChatOpenerContext } from "@/app/chat-opener";
 import { ConsoleHeader } from "@/app/console-header";
 import { ConsoleSidebar } from "@/app/console-sidebar";
-import { ResourceColorProvider } from "@/app/resource-color-provider";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { useSidebarPreference } from "@/app/sidebar-preference-context";
 import { SidebarPreferenceProvider } from "@/app/sidebar-preference-provider";
 import { narrowInspectorMaxWidth } from "@/components/ui/inspector-breakpoint";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { type ChatMode, ChatOpenerContext } from "@/features/chat/chat-opener";
 import { ChatPanel } from "@/features/chat/chat-panel";
 import { ChatSessionProvider } from "@/features/chat/chat-session-provider";
 import { ModelsPollingProvider } from "@/features/models/models-polling-provider";
@@ -25,6 +23,8 @@ import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
 import type { StorageLike } from "@/lib/browser-storage";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import type { PanelTitleLookup } from "@/panels/panel-titles-context";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
+import { ResourceColorProvider } from "@/theme/resource-color-provider";
 
 export interface ConsoleLayoutProps {
   chatClient?: ChatClient;

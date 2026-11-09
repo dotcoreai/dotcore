@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleLayout } from "@/app/console-layout";
 import { PEEK_ENTER_DELAY_MS, PEEK_LEAVE_DELAY_MS } from "@/app/console-sidebar";
-import { ThemeProvider } from "@/app/theme-provider";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/console-preferences";
 import { PanelLink } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { ThemeProvider } from "@/theme/theme-provider";
 
 // Isolates each test's sidebar preference from real jsdom localStorage (and from each other),
 // the same way ThemeProvider is given an explicit storage below.

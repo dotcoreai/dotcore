@@ -1,6 +1,8 @@
 import { ActivityIcon, ServerIcon } from "lucide-react";
 
 import type { DataTableUiDefinition } from "@/components/data-table/data-table";
+import type { DataTableDefinition } from "@/components/data-table/data-table-model";
+import { createDataTableViewCodec } from "@/components/data-table/data-table-view";
 import { formatChartValue } from "@/components/metrics/time-series-chart/chart-data";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -8,8 +10,6 @@ import { machineName, placementMachine } from "@/features/deployments/placement"
 import type { InferenceRowValues } from "@/features/inference/use-inference-metrics";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";
-import type { DataTableDefinition } from "@/lib/data-table-model";
-import { createDataTableViewCodec } from "@/lib/data-table-view";
 import { formatBytes } from "@/lib/format";
 import type { StatusProjection } from "@/lib/status-projection";
 import { upstreamLocalityLabel } from "@/lib/upstream-presentation";

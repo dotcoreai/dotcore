@@ -13,13 +13,10 @@ import { type ReactNode, useState } from "react";
 import { createMemoryRouter, MemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { ApplicationClient } from "@/api/application-client";
 import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
 import type { SiteClient } from "@/api/site-client";
-import { createPanelTitleLookup } from "@/app/panel-title-lookup";
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import {
   counterPoint,
@@ -32,8 +29,6 @@ import {
 import { ModelsPage } from "@/features/models/models-page";
 import { ModelsPollingProvider } from "@/features/models/models-polling-provider";
 import { modelsResourceWatch } from "@/features/models/models-section-test-support";
-import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
-import { GetApplicationDeploymentResponseSchema } from "@/gen/dotcore/application/v1/service_pb";
 import { ModelInputModality } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
 import {
   ListEngineReleasesResponseSchema,
@@ -77,7 +72,7 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { ListConfiguredExecutionTargetsResponseSchema } from "@/gen/dotcore/site/v1/service_pb";
 import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
 import { PanelLink } from "@/panels/panel-navigation";
-import { PanelTitlesProvider } from "@/panels/panel-titles-provider";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
@@ -909,56 +904,6 @@ describe("RoutesPage", () => {
       expect(router.state.location.search).toBe("?panel=models%2Fdeployment%3Adeployment-a");
     });
     expect(await screen.findByRole("complementary", { name: "Local model" })).toBeVisible();
-  });
-
-  it("returns to the application deployment it was pushed from", async () => {
-    const user = userEvent.setup();
-    const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
-    const getApplicationDeployment = vi.fn(() =>
-      Promise.resolve(
-        create(GetApplicationDeploymentResponseSchema, {
-          deployment: create(ApplicationDeploymentSchema, {
-            applicationDeploymentId: "app-deployment-1",
-            applicationDeploymentName: "Team chat",
-          }),
-        }),
-      ),
-    );
-    const applicationClient = {
-      application: { getApplicationDeployment },
-    } as unknown as ApplicationClient;
-    const router = createMemoryRouter(
-      [
-        {
-          path: "*",
-          element: (
-            <PanelNavigationProvider>
-              <PanelTitlesProvider lookup={createPanelTitleLookup(route, applicationClient)}>
-                <RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />
-              </PanelTitlesProvider>
-            </PanelNavigationProvider>
-          ),
-        },
-      ],
-      {
-        initialEntries: [
-          "/routes?panel=apps%2Fdeployment%3Aapp-deployment-1&panel=routes%2Froute%3Aroute-a",
-        ],
-      },
-    );
-    rtlRender(<RouterProvider router={router} />);
-
-    await user.click(await screen.findByRole("button", { name: "Back to Team chat" }));
-
-    await waitFor(() =>
-      expect(router.state.location.pathname + router.state.location.search).toBe(
-        "/apps?panel=apps%2Fdeployment%3Aapp-deployment-1",
-      ),
-    );
-    expect(getApplicationDeployment).toHaveBeenCalledWith(
-      { applicationDeploymentId: "app-deployment-1" },
-      expect.anything(),
-    );
   });
 
   it("restores direct cross-page ancestry and closes to the Routes base", async () => {

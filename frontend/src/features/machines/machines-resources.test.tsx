@@ -34,9 +34,9 @@ import {
   MachineHardwareSnapshotSchema,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
-import { getResourceColor } from "@/lib/resource-color";
 import { hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { getResourceColor } from "@/theme/resource-color";
 
 import { MachinesPage, type MachinesSite } from "./machines-page-test-support";
 

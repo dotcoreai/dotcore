@@ -14,7 +14,7 @@ import {
   OverviewSectionIcon,
   RoutesSectionIcon,
   SettingsSectionIcon,
-} from "@/app/console-section-icons";
+} from "@/components/ui/section-icons";
 import {
   Sidebar,
   SidebarContent,

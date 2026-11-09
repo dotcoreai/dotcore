@@ -1,7 +1,7 @@
 import { CpuIcon, FastForwardIcon, LayersIcon, ServerIcon, SparklesIcon } from "lucide-react";
 
 import type { DataTableFieldUi } from "@/components/data-table/data-table";
-import type { DataTableColumn, DataTableField } from "@/lib/data-table-model";
+import type { DataTableColumn, DataTableField } from "@/components/data-table/data-table-model";
 
 import { engineKindLabel, type ProfileRow } from "./catalog-model-row";
 import { type RunsOnScope, runsOnScopeKey } from "./profile-compatibility";

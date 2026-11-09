@@ -4,8 +4,8 @@ import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { MetricRows } from "@/components/metrics/metric-row/metric-row";
-import { getResourceColor } from "@/lib/resource-color";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { getResourceColor } from "@/theme/resource-color";
 
 import { MemoryMetricRows, type MemoryRowCapacity, MemoryRows } from "./memory-rows";
 import type { MemoryRow, MemorySegment, MemorySpan } from "./site-memory";

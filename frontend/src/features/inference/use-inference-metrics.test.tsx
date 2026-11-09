@@ -2,7 +2,6 @@ import type { MessageInitShape } from "@bufbuild/protobuf";
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ResourceWatchProvider } from "@/app/resource-watch-provider";
 import {
   counterPoint,
   distributionPoint,
@@ -12,6 +11,7 @@ import {
   staticWatch,
 } from "@/features/metrics/metric-test-support";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
+import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import type { InferenceScope } from "./inference-card-specs";
