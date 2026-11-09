@@ -20,6 +20,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::{Duration, SystemTime},
 };
 
 use dotcore_artifact::{
@@ -27,9 +28,11 @@ use dotcore_artifact::{
 };
 use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_domain::{
+    clock::SystemClock,
     deployment::launch_pin::{LaunchPinResolver as _, RetainedArtifact, pin_source},
     hardware_observation::HardwareSnapshotSource,
-    names_every_cdi_device,
+    names_every_cdi_device, real_time,
+    timing::{NativeTiming, Timing},
 };
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{
@@ -85,6 +88,9 @@ pub struct DirectWorkloadFacade {
     artifacts: ArtifactManager,
     runtime: Arc<dyn DevelopmentRuntime>,
     namespace: DevelopmentRuntimeNamespace,
+
+    /// Timing of this process, read once when the facade connects.
+    timing: Timing,
     #[cfg(test)]
     test_target_capabilities: Option<(
         dotcore_domain::ExecutionPlatform,
@@ -98,6 +104,7 @@ impl DirectWorkloadFacade {
     pub async fn connect(
         config: DirectWorkloadFacadeConfig,
     ) -> Result<Self, DirectWorkloadLaunchError> {
+        let timing = Timing::for_process();
         let namespace = DevelopmentRuntimeNamespace::derive(&config.runtime_scope)?;
         validate_operation_path(&config.master_catalog_root)?;
         if let Some(development_catalog_root) = &config.development_catalog_root {
@@ -163,6 +170,7 @@ impl DirectWorkloadFacade {
                 &config.cache_root,
                 model_artifacts,
                 launcher.as_deref(),
+                timing.native,
             )?),
         };
         Ok(Self {
@@ -170,6 +178,7 @@ impl DirectWorkloadFacade {
             artifacts,
             runtime,
             namespace,
+            timing,
             #[cfg(test)]
             test_target_capabilities: None,
         })
@@ -187,6 +196,7 @@ impl DirectWorkloadFacade {
             artifacts,
             runtime,
             namespace,
+            timing: Timing::test(),
             test_target_capabilities: Some((
                 dotcore_domain::ExecutionPlatform::linux_amd64(),
                 "580".parse().expect("valid test NVIDIA driver"),
@@ -237,20 +247,26 @@ impl DirectWorkloadFacade {
         .map_err(DirectWorkloadLaunchError::resolution)
     }
 
+    /// Observes the direct launch target's capabilities, read at the system wall time.
     async fn observe_direct_target_capabilities(
         &self,
         target: &ExecutionTarget,
     ) -> Result<(SiteExecutionTarget, TargetCapabilityInventory), DirectWorkloadLaunchError> {
+        // Direct launches run outside a composed backend: the real hardware collection and its
+        // stamps follow real wall time.
         #[cfg(test)]
         if let Some((platform, driver)) = &self.test_target_capabilities {
+            let accelerator = NodeAcceleratorObservation::nvidia(
+                target.managed_node_id.to_string(),
+                driver.major().to_string(),
+            );
             return Ok(direct_target_capabilities(
                 target,
                 self.runtime_adapter(),
                 platform.clone(),
-                NodeAcceleratorObservation::nvidia(
-                    target.managed_node_id.to_string(),
-                    driver.major().to_string(),
-                ),
+                accelerator,
+                self.timing.node_control.capability_max_age,
+                real_time::wall_now(),
             ));
         }
 
@@ -260,10 +276,8 @@ impl DirectWorkloadFacade {
             .await
             .map_err(DirectWorkloadLaunchError::resolution)?;
         let snapshot = tokio::task::spawn_blocking(|| {
-            SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(
-                dotcore_domain::clock::SystemClock,
-            ))
-            .collect_snapshot()
+            SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(SystemClock))
+                .collect_snapshot()
         })
         .await
         .map_err(DirectWorkloadLaunchError::resolution)?;
@@ -276,6 +290,8 @@ impl DirectWorkloadFacade {
                 &snapshot,
                 false,
             ),
+            self.timing.node_control.capability_max_age,
+            real_time::wall_now(),
         ))
     }
 
@@ -1149,6 +1165,8 @@ fn direct_target_capabilities(
     adapter: model_runtime_binding::Adapter,
     platform: dotcore_domain::ExecutionPlatform,
     accelerator: NodeAcceleratorObservation,
+    capability_max_age: Duration,
+    observed_at: SystemTime,
 ) -> (SiteExecutionTarget, TargetCapabilityInventory) {
     let execution_target_id = "development-target";
     let development_target = SiteExecutionTarget {
@@ -1163,11 +1181,14 @@ fn direct_target_capabilities(
     };
     let inventory = TargetCapabilityReconciler::reconcile(
         [(execution_target_id, target.managed_node_id.as_str())],
-        [RuntimePlatformObservation::available(
+        [RuntimePlatformObservation::available_at(
             execution_target_id,
             platform,
+            observed_at,
         )],
         [accelerator],
+        capability_max_age,
+        observed_at,
     );
     (development_target, inventory)
 }
@@ -1271,6 +1292,7 @@ fn native_development_runtime(
     cache_root: &Path,
     model_artifacts: PathBuf,
     launcher: Option<&Path>,
+    timing: NativeTiming,
 ) -> Result<dotcore_runtime_backends::native::NativeRuntimeBackend, DirectWorkloadLaunchError> {
     let launcher =
         dotcore_runtime_backends::native::resolve_launcher(launcher).map_err(|error| {
@@ -1292,7 +1314,7 @@ fn native_development_runtime(
         lifetime: dotcore_runtime_backends::native::NativeWorkloadLifetime::Persistent,
     };
     Ok(dotcore_runtime_backends::native::NativeRuntimeBackend::new(
-        config, launcher,
+        config, launcher, timing,
     )?)
 }
 

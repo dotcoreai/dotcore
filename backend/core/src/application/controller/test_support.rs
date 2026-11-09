@@ -16,7 +16,11 @@ use std::{
 
 use anyhow::anyhow;
 use dotcore_catalog::{Catalog, CatalogBuilder, OciArtifactPolicy};
-use dotcore_domain::test_support::oci::{ServiceArtifactOci as _, digest_artifact};
+use dotcore_domain::{
+    clock::SystemClock,
+    test_support::oci::{ServiceArtifactOci as _, digest_artifact},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     application::private::v1::{
         ApplicationDeploymentStatus, ApplicationLifecycleObservation, ApplicationStatusStage,
@@ -825,7 +829,7 @@ pub(super) fn manager_controller(
 
 pub(super) fn node_target_capabilities() -> Arc<dyn TargetCapabilitySource> {
     Arc::new(StaticTargetCapabilitySource::new(
-        TargetCapabilityReconciler::reconcile(
+        TargetCapabilityReconciler::reconcile_now(
             [("application-target-one", "node-one")],
             [RuntimePlatformObservation::available(
                 "application-target-one",
@@ -884,7 +888,7 @@ pub(super) struct ConnectedWorker {
 impl ConnectedWorker {
     pub(super) fn new(desired: SiteRepository, current: FileCurrentState) -> Self {
         Self {
-            coordinator: ManagerNodeControlCoordinator::new(
+            coordinator: ManagerNodeControlCoordinator::on_system_clock(
                 ManagerSession::generate().expect("manager session"),
             ),
             section: super::ApplicationNodeViewSection::new(
@@ -1271,6 +1275,8 @@ where
                 inference_route_resolver,
                 accelerator_attribution: None,
                 resource_attribution: None,
+                timing: Timing::test().application,
+                clock: Arc::new(SystemClock),
                 node: super::realizer::NodeRealization {
                     records,
                     reconciled: ReconciledAssignments::default(),
@@ -2663,7 +2669,7 @@ impl InferenceRouteResolver for TestInferenceRouteResolver {
 }
 
 pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource> {
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::available(
             "application-target-one",

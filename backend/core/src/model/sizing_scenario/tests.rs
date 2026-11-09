@@ -1,7 +1,7 @@
 use std::time::{Duration, SystemTime};
 
 use dotcore_catalog::{Catalog, CatalogLocalModelDeclarations, CatalogModelId, OciArtifactPolicy};
-use dotcore_domain::{ExecutionPlatform, MemoryArchitecture};
+use dotcore_domain::{ExecutionPlatform, MemoryArchitecture, timing::Timing};
 use dotcore_proto::dotcore::{
     catalog::v1::Model,
     deployment::v1::{ExactPlacement, MemoryFit},
@@ -240,14 +240,13 @@ fn unsupported_scenarios_report_the_first_reason_on_profiles_and_running_targets
     ];
 
     for (model_id, total_context, context_per_request, expected) in cases {
-        let without_scenario = evaluate(&catalog, model_id, None, &[&target], &inventory, now);
+        let without_scenario = evaluate(&catalog, model_id, None, &[&target], &inventory);
         let response = evaluate(
             &catalog,
             model_id,
             Some(scenario(total_context, context_per_request)),
             &[&target],
             &inventory,
-            now,
         );
 
         let label = format!("{model_id} at {total_context} with {context_per_request:?}");
@@ -334,7 +333,6 @@ fn a_derived_value_out_of_range_on_one_class_marks_only_that_class() {
         Some(scenario(786_432, Some(131_072))),
         &[&dedicated, &unified],
         &inventory,
-        now,
     );
 
     assert_eq!(
@@ -438,7 +436,6 @@ fn memory_fit_compares_the_class_estimate_with_the_target_total_memory() {
                 scenario,
                 &[&target],
                 &inventory,
-                now,
             ))
         };
 
@@ -499,19 +496,11 @@ fn the_largest_fitting_total_context_matches_the_largest_total_whose_read_fits()
                 Some(scenario(16_384, context_per_request)),
                 &[&target],
                 &inventory,
-                now,
             ));
 
             assert_eq!(
                 solved,
-                brute_force_largest(
-                    &catalog,
-                    model_id,
-                    &target,
-                    &inventory,
-                    now,
-                    context_per_request
-                ),
+                brute_force_largest(&catalog, model_id, &target, &inventory, context_per_request),
                 "{label}"
             );
             assert_eq!(
@@ -525,14 +514,7 @@ fn the_largest_fitting_total_context_matches_the_largest_total_whose_read_fits()
         }
         // Without a scenario, the context per request floats with the total context too.
         assert_eq!(
-            largest(&evaluate(
-                &catalog,
-                model_id,
-                None,
-                &[&target],
-                &inventory,
-                now
-            )),
+            largest(&evaluate(&catalog, model_id, None, &[&target], &inventory)),
             expected
                 .iter()
                 .map(|value| Some(*value))
@@ -567,19 +549,11 @@ fn the_largest_fitting_total_context_is_clamped_to_engine_and_derived_bounds() {
             Some(scenario(16_384, context_per_request)),
             &[&target],
             inventory,
-            now,
         ));
 
         assert_eq!(
             solved,
-            brute_force_largest(
-                &catalog,
-                model_id,
-                &target,
-                inventory,
-                now,
-                context_per_request
-            ),
+            brute_force_largest(&catalog, model_id, &target, inventory, context_per_request),
             "{label}"
         );
         assert!(
@@ -601,8 +575,7 @@ fn the_largest_fitting_total_context_is_clamped_to_engine_and_derived_bounds() {
             LLAMA_FLAT_MODEL,
             None,
             &[&target],
-            &flat,
-            now
+            &flat
         )),
         [Some(16_777_216)]
     );
@@ -615,7 +588,7 @@ fn the_largest_fitting_total_context_is_absent_when_unknown_or_nothing_fits() {
     let target = target("dedicated", "node-a");
     let read = |pool, scenario| {
         let inventory = observed(&target, MemoryArchitecture::Dedicated, pool, now);
-        let response = evaluate(&catalog, LLAMA_MODEL, scenario, &[&target], &inventory, now);
+        let response = evaluate(&catalog, LLAMA_MODEL, scenario, &[&target], &inventory);
         (
             fits(&response)
                 .into_iter()
@@ -667,8 +640,9 @@ fn the_largest_fitting_total_context_uses_free_memory_less_a_headroom() {
             Some(total),
             free,
             now,
+            now,
         );
-        let response = evaluate(&catalog, VLLM_MODEL, scenario, &[&target], &inventory, now);
+        let response = evaluate(&catalog, VLLM_MODEL, scenario, &[&target], &inventory);
         (
             fits(&response)
                 .into_iter()
@@ -714,8 +688,9 @@ fn the_free_memory_fit_judges_the_same_estimate_against_the_largest_fit_line() {
             Some(total),
             free,
             now,
+            now,
         );
-        let response = evaluate(&catalog, VLLM_MODEL, scenario, &[&target], &inventory, now);
+        let response = evaluate(&catalog, VLLM_MODEL, scenario, &[&target], &inventory);
         response
             .entries
             .iter()
@@ -758,9 +733,10 @@ fn a_stale_target_is_unknown_with_no_largest_fit() {
         Some(32_607 * MIB),
         Some(32_102 * MIB),
         now - Duration::from_secs(3600),
+        now,
     );
 
-    let response = evaluate(&catalog, LLAMA_MODEL, None, &[&target], &inventory, now);
+    let response = evaluate(&catalog, LLAMA_MODEL, None, &[&target], &inventory);
 
     assert_eq!(
         response
@@ -824,22 +800,14 @@ fn a_single_micro_batch_profile_sizes_and_fits_within_its_configuration_maximum(
                     LLAMA_MICRO_BATCH_MODEL,
                     scenario,
                     &[&target],
-                    &inventory,
-                    now,
+                    &inventory
                 )),
                 [Some(expected)],
                 "{pool} bytes with {scenario:?}"
             );
         }
         assert_eq!(
-            brute_force_largest(
-                &catalog,
-                LLAMA_MICRO_BATCH_MODEL,
-                &target,
-                &inventory,
-                now,
-                None
-            ),
+            brute_force_largest(&catalog, LLAMA_MICRO_BATCH_MODEL, &target, &inventory, None),
             [Some(expected)],
             "{pool} bytes"
         );
@@ -870,7 +838,6 @@ fn profiles_without_an_estimate_have_unknown_fit_and_profiles_that_cant_run_have
             scenario,
             &[&target, &two_devices],
             &inventory,
-            now,
         );
 
         assert_eq!(
@@ -923,14 +890,15 @@ fn profiles_keep_their_class_estimates_when_no_target_reports() {
     let catalog = scenario_catalog();
     let observed_at = SystemTime::now();
     let target = target("dedicated", "node-a");
-    let inventory = observed(
+    // Observations expire after 60 seconds.
+    let inventory = observed_with_free(
         &target,
         MemoryArchitecture::Dedicated,
         Some(1 << 40),
+        Some(1 << 40),
         observed_at,
+        observed_at + Duration::from_secs(61),
     );
-    // Observations expire after 60 seconds.
-    let now = observed_at + Duration::from_secs(61);
 
     let response = evaluate(
         &catalog,
@@ -938,7 +906,6 @@ fn profiles_keep_their_class_estimates_when_no_target_reports() {
         Some(scenario(16_384, None)),
         &[&target],
         &inventory,
-        now,
     );
 
     assert_eq!(
@@ -1027,13 +994,14 @@ fn memory_fit_judges_target_freshness_at_the_evaluation_time() {
     let catalog = scenario_catalog();
     // Stale by the wall clock but fresh at the evaluation time.
     let observed_at = SystemTime::now() - Duration::from_secs(300);
-    let now = observed_at + Duration::from_secs(1);
     let target = target("dedicated", "node-a");
-    let inventory = observed(
+    let inventory = observed_with_free(
         &target,
         MemoryArchitecture::Dedicated,
         Some(1_300_000_000),
+        Some(1_300_000_000),
         observed_at,
+        observed_at + Duration::from_secs(1),
     );
 
     let response = evaluate(
@@ -1042,7 +1010,6 @@ fn memory_fit_judges_target_freshness_at_the_evaluation_time() {
         Some(scenario(16_384, None)),
         &[&target],
         &inventory,
-        now,
     );
 
     assert_eq!(
@@ -1144,8 +1111,7 @@ fn profiles(
         model_id,
         scenario,
         &[],
-        &TargetCapabilityInventory::default(),
-        SystemTime::now(),
+        &TargetCapabilityInventory::empty_now(),
     )
     .profiles
 }
@@ -1157,7 +1123,6 @@ fn evaluate(
     scenario: Option<SizingScenario>,
     targets: &[&ExecutionTarget],
     inventory: &TargetCapabilityInventory,
-    now: SystemTime,
 ) -> ListModelProfileCompatibilityResponse {
     let models = catalog
         .list_model_releases()
@@ -1175,7 +1140,6 @@ fn evaluate(
         scenario.as_ref(),
         Some(inventory),
         &Default::default(),
-        now,
     )
 }
 
@@ -1219,7 +1183,6 @@ fn brute_force_largest(
     model_id: &str,
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
-    now: SystemTime,
     context_per_request: Option<u32>,
 ) -> Vec<Option<u32>> {
     let fit_per_profile = |total_context: u32| {
@@ -1229,7 +1192,6 @@ fn brute_force_largest(
             Some(scenario(total_context, context_per_request)),
             &[target],
             inventory,
-            now,
         )
         .entries
         .iter()
@@ -1325,7 +1287,7 @@ fn target(target_id: &str, node_id: &str) -> ExecutionTarget {
     }
 }
 
-/// Inventory for one linux/amd64 NVIDIA target observed at `now`, with nothing in use.
+/// Inventory for one linux/amd64 NVIDIA target observed and read at `now`, with nothing in use.
 fn observed(
     target: &ExecutionTarget,
     memory_architecture: MemoryArchitecture,
@@ -1338,23 +1300,26 @@ fn observed(
         memory_pool_total_bytes,
         memory_pool_total_bytes,
         now,
+        now,
     )
 }
 
-/// Inventory for one linux/amd64 NVIDIA target observed at `now`, with an explicit free memory.
+/// Inventory for one linux/amd64 NVIDIA target observed at `observed_at` and read at `as_of`,
+/// with an explicit free memory.
 fn observed_with_free(
     target: &ExecutionTarget,
     memory_architecture: MemoryArchitecture,
     memory_pool_total_bytes: Option<u64>,
     memory_pool_free_bytes: Option<u64>,
-    now: SystemTime,
+    observed_at: SystemTime,
+    as_of: SystemTime,
 ) -> TargetCapabilityInventory {
     TargetCapabilityReconciler::reconcile(
         [target],
         [RuntimePlatformObservation::available_at(
             &target.execution_target_id,
             ExecutionPlatform::linux_amd64(),
-            now,
+            observed_at,
         )],
         [NodeAcceleratorObservation::available_at(
             &target.site_node_id,
@@ -1363,9 +1328,11 @@ fn observed_with_free(
                 memory_pool_total_bytes,
                 memory_pool_free_bytes,
             ),
-            now,
+            observed_at,
         )
         .with_memory_architecture(Some(memory_architecture))],
+        Timing::test().node_control.capability_max_age,
+        as_of,
     )
 }
 

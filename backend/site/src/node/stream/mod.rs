@@ -12,7 +12,6 @@
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use dotcore_domain::clock::Clock;
@@ -42,29 +41,13 @@ use crate::{
     },
     view::{
         contract::validate_stream_open,
-        desired::{
-            DesiredViewDistributionError, FRESHNESS_WINDOW_SECONDS, MAXIMUM_RETRY_BACKOFF_MILLIS,
-            ManagerNodeViewPublisher, rejected_exchange,
-        },
+        desired::{DesiredViewDistributionError, ManagerNodeViewPublisher, rejected_exchange},
         fencing::{IncarnationFenceError, NodeIncarnation},
     },
 };
 
-/// Default pause between publications of an unchanged view.
-const DEFAULT_REPUBLISH_INTERVAL: Duration = Duration::from_secs(20);
-
 /// Default number of replies a stream queues before its node is considered not to read them.
 const DEFAULT_OUTBOUND_REPLIES: usize = 32;
-
-/// Publications a node misses before it reopens its stream, by default; the action lease must
-/// outlast them plus one reconnect.
-const MISSED_PUBLICATIONS_BEFORE_REOPEN: u32 = 3;
-
-const _: () = assert!(
-    DEFAULT_REPUBLISH_INTERVAL.as_millis() * MISSED_PUBLICATIONS_BEFORE_REOPEN as u128
-        + (MAXIMUM_RETRY_BACKOFF_MILLIS as u128)
-        < (FRESHNESS_WINDOW_SECONDS as u128) * 1_000
-);
 
 /// The site manager's node control streams, one per node process, each message served through
 /// its owner's commit section.
@@ -139,60 +122,26 @@ impl ManagerNodeControlStreams {
     }
 }
 
-/// Timing and queue bounds of the manager's node control streams. The silence bound is the
-/// coordinator's, so a silent stream ends exactly when its node stops being live.
+/// Queue bounds of the manager's node control streams. Their timing is the coordinator's, so a
+/// silent stream ends exactly when its node stops being live.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NodeControlStreamConfiguration {
-    republish_interval: Duration,
     outbound_replies: usize,
 }
 
 impl NodeControlStreamConfiguration {
-    /// Republishes an unchanged view every `republish_interval` and queues at most
-    /// `outbound_replies` unsent replies per stream.
-    ///
-    /// The interval must let a node that misses three publications, then reconnects after the
-    /// longest retry pause, receive a new view before its action lease expires.
-    pub fn new(
-        republish_interval: Duration,
-        outbound_replies: usize,
-    ) -> Result<Self, NodeControlConfigurationError> {
-        let reopen_bound = republish_interval
-            .checked_mul(MISSED_PUBLICATIONS_BEFORE_REOPEN)
-            .and_then(|missed| {
-                missed.checked_add(Duration::from_millis(u64::from(
-                    MAXIMUM_RETRY_BACKOFF_MILLIS,
-                )))
-            });
-        if republish_interval.is_zero()
-            || reopen_bound
-                .is_none_or(|bound| bound >= Duration::from_secs(FRESHNESS_WINDOW_SECONDS.into()))
-        {
-            return Err(NodeControlConfigurationError::RepublishInterval);
-        }
+    /// Queues at most `outbound_replies` unsent replies per stream.
+    pub fn new(outbound_replies: usize) -> Result<Self, NodeControlConfigurationError> {
         if outbound_replies == 0 {
             return Err(NodeControlConfigurationError::OutboundReplies);
         }
-        Ok(Self {
-            republish_interval,
-            outbound_replies,
-        })
-    }
-
-    /// Keeps this configuration's reply bound and republishes every `republish_interval` instead,
-    /// under the same rule as [`Self::new`].
-    pub fn with_republish_interval(
-        self,
-        republish_interval: Duration,
-    ) -> Result<Self, NodeControlConfigurationError> {
-        Self::new(republish_interval, self.outbound_replies)
+        Ok(Self { outbound_replies })
     }
 }
 
 impl Default for NodeControlStreamConfiguration {
     fn default() -> Self {
         Self {
-            republish_interval: DEFAULT_REPUBLISH_INTERVAL,
             outbound_replies: DEFAULT_OUTBOUND_REPLIES,
         }
     }
@@ -201,9 +150,6 @@ impl Default for NodeControlStreamConfiguration {
 /// An invalid node control stream configuration.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum NodeControlConfigurationError {
-    #[error("the view republish interval must be nonzero and keep nodes inside their action lease")]
-    RepublishInterval,
-
     #[error("node control streams must queue at least one reply")]
     OutboundReplies,
 }
@@ -300,7 +246,7 @@ impl StreamSession {
         &self,
         inbound: &mut BoxStream<'static, Result<StreamNodeControlRequest, Status>>,
     ) -> Result<OpenedStream, StreamEnd> {
-        let deadline = self.streams.clock.now() + self.streams.coordinator.silence_bound();
+        let deadline = self.streams.clock.now() + self.streams.coordinator.timing().node_silence;
         let message = tokio::select! {
             biased;
             () = self.disconnected.cancelled() => return Err(StreamEnd::Disconnected),
@@ -368,7 +314,8 @@ impl StreamSession {
             site_changed,
             next_publication: 2,
             published_revision: revision,
-            republish_at: self.streams.clock.now() + self.streams.configuration.republish_interval,
+            republish_at: self.streams.clock.now()
+                + self.streams.coordinator.timing().view_republish_interval,
         };
         self.reply(stream_node_control_response::Message::Opened(
             NodeControlOpened {
@@ -390,8 +337,8 @@ impl StreamSession {
         stream: &mut OpenedStream,
         inbound: &mut BoxStream<'static, Result<StreamNodeControlRequest, Status>>,
     ) -> StreamEnd {
-        let silence_bound = self.streams.coordinator.silence_bound();
-        let mut silent_after = self.streams.clock.now() + silence_bound;
+        let node_silence = self.streams.coordinator.timing().node_silence;
+        let mut silent_after = self.streams.clock.now() + node_silence;
         loop {
             let epoch = stream.epoch;
             let event = tokio::select! {
@@ -414,7 +361,7 @@ impl StreamSession {
                 ))),
                 Event::NodeClosed => Err(StreamEnd::NodeClosed),
                 Event::Message(message) => {
-                    silent_after = self.streams.clock.now() + silence_bound;
+                    silent_after = self.streams.clock.now() + node_silence;
                     self.answer(stream, *message).await
                 }
                 Event::SiteChanged => self.publish(stream, false).await,
@@ -640,14 +587,14 @@ impl StreamSession {
             ))) => return Err(replaced()),
             Ok(Err(error)) => {
                 warn!(event_kind = "node_control_view_publication", outcome = "failed", node_id = self.node_id, error = %error, "Manager could not publish a node view; it retries at the next republish");
-                stream.republish_at =
-                    self.streams.clock.now() + self.streams.configuration.republish_interval;
+                stream.republish_at = self.streams.clock.now()
+                    + self.streams.coordinator.timing().view_republish_interval;
                 return Ok(());
             }
             Err(status) => {
                 warn!(event_kind = "node_control_view_publication", outcome = "failed", node_id = self.node_id, error = %status, "Manager could not publish a node view; it retries at the next republish");
-                stream.republish_at =
-                    self.streams.clock.now() + self.streams.configuration.republish_interval;
+                stream.republish_at = self.streams.clock.now()
+                    + self.streams.coordinator.timing().view_republish_interval;
                 return Ok(());
             }
         };
@@ -670,7 +617,7 @@ impl StreamSession {
             .expect("node view publication sequence exhausted");
         stream.published_revision = revision;
         stream.republish_at =
-            self.streams.clock.now() + self.streams.configuration.republish_interval;
+            self.streams.clock.now() + self.streams.coordinator.timing().view_republish_interval;
         self.outbound.publish(view);
         Ok(())
     }

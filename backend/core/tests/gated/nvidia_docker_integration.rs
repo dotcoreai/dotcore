@@ -411,7 +411,7 @@ fn qualification_case(
             ),
         ),
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "qualification-target",

@@ -16,7 +16,8 @@ use std::{
 };
 
 use dotcore::{
-    application::repository::CurrentApplicationRepository, composition::catalog_service_for,
+    application::repository::CurrentApplicationRepository,
+    composition::{BackendTestSupport, catalog_service_for},
 };
 use dotcore_proto::dotcore::{
     application::v1::{
@@ -73,9 +74,13 @@ async fn simulated_download_progress_precedes_runtime_loading_through_management
 
     let root = support::temporary_fast_fixture();
     let runtime = support::simulated_model_transition_test_support();
-    let backend = support::RunningBackend::start_with_simulated_runtime_test_support(
+    let backend = support::RunningBackend::start_with_test_support(
         support::configuration(&root),
-        runtime.clone(),
+        BackendTestSupport {
+            simulated_runtime: Some(runtime.clone()),
+            timing: support::instant_startup_timing(),
+            ..BackendTestSupport::test()
+        },
     )
     .await;
     let mut client = backend.model_client();
@@ -562,6 +567,7 @@ async fn application_retains_its_creation_base_url_across_inference_listener_cha
     assert_eq!(first_port, reserved_inference_port.port());
     assert_ne!(restarted.inference_address().port(), first_port);
     let mut restarted_client = restarted.application_client();
+    wait_for_group_launches(&second_runtime, 1).await;
     let second_ready = wait_for_application_lifecycle(
         &mut restarted_client,
         &created.application_deployment_id,
@@ -2287,6 +2293,8 @@ async fn wait_for_application_route_name(
     .unwrap_or_else(|_| panic!("application route launch projection; last deployment: {last:?}"))
 }
 
+/// Waits for a lifecycle state the hosting node reported since the backend started; after a
+/// restart, the previous run's record stays projected, marked stale, until then.
 async fn wait_for_application_lifecycle(
     client: &mut ApplicationClient,
     deployment_id: &str,
@@ -2296,11 +2304,9 @@ async fn wait_for_application_lifecycle(
     tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
         loop {
             let deployment = application_from_client(client, deployment_id).await;
-            if deployment
-                .state
-                .as_ref()
-                .is_some_and(|state| state.lifecycle_state == lifecycle as i32)
-            {
+            if deployment.state.as_ref().is_some_and(|state| {
+                state.lifecycle_state == lifecycle as i32 && !state.observation_stale
+            }) {
                 return deployment;
             }
             last_state = deployment.state;
@@ -2309,8 +2315,28 @@ async fn wait_for_application_lifecycle(
     })
     .await
     .unwrap_or_else(|_| {
-        panic!("expected application lifecycle state {lifecycle:?}; last state: {last_state:?}")
+        panic!(
+            "expected a fresh application lifecycle state {lifecycle:?}; last state: {last_state:?}"
+        )
     })
+}
+
+async fn wait_for_group_launches(runtime: &SimulatedRuntimeTestSupport, count: usize) {
+    tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
+        loop {
+            if runtime.group_launches().len() >= count {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "expected {count} simulated application group launches, observed {:?}",
+            runtime.group_launches()
+        )
+    });
 }
 
 /// Renames the deployment, which republishes its node assignment and so wakes the hosting

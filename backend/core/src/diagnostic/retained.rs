@@ -11,6 +11,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::{
     dotcore::diagnostic::{
         private::v1::{
@@ -509,7 +510,10 @@ impl FileIdentity {
     }
 }
 async fn wait(cancellation: &CancellationToken) {
-    tokio::select! { () = cancellation.cancelled() => {}, () = tokio::time::sleep(POLL_INTERVAL) => {} }
+    tokio::select! {
+        () = cancellation.cancelled() => {}
+        () = real_time::pause(POLL_INTERVAL) => {}
+    }
 }
 
 async fn send_event(

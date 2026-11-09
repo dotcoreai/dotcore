@@ -1,9 +1,16 @@
 //! Sole whole-backend preparation and serving lifecycle.
 
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, future::Future, sync::Arc, time::Duration};
 
-use dotcore_domain::hardware_observation::HardwareSnapshotSource;
-use dotcore_domain::{BindAddress, HostResolver, SiteNodeHost, SystemHostResolver};
+use dotcore_domain::{
+    BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, clock::Clock,
+    hardware_observation::HardwareSnapshotSource, timing::Timing,
+};
+#[cfg(feature = "test-support")]
+use dotcore_domain::{
+    clock::{ManualClock, slot_start},
+    real_time,
+};
 #[cfg(feature = "test-support")]
 use dotcore_site::node::control::NodeLivenessAges;
 use dotcore_site::{
@@ -30,6 +37,7 @@ use super::{
     },
     routes, system_collector,
 };
+use crate::server::private::PrivateListener;
 
 /// Longest time startup waits for a site writer to release the site input lock.
 const SITE_INPUT_LOCK_WAIT: Duration = Duration::from_secs(30);
@@ -48,7 +56,8 @@ pub struct Backend {
 }
 
 impl Backend {
-    /// Completes fallible composition and transport preparation without starting observers or reconciliation tasks.
+    /// Completes fallible composition and transport preparation without starting observers or
+    /// reconciliation tasks. The backend runs this process's timing policy.
     pub async fn prepare<F>(
         configuration: BackendConfiguration,
         shutdown: F,
@@ -59,7 +68,7 @@ impl Backend {
         Self::prepare_with_snapshot_collector_factory(
             configuration,
             shutdown,
-            BackendTestSupport::development(),
+            BackendTestSupport::development_on(Timing::for_process()),
             |_, _, clock| Ok(system_collector(clock)),
             || {},
             crate::server::private::PrivateServiceAssembly::empty(),
@@ -177,7 +186,7 @@ impl Backend {
         B: FnOnce(
             &dotcore_proto::dotcore::site::v1::Site,
             &std::path::Path,
-            Arc<dyn dotcore_domain::clock::Clock>,
+            Arc<dyn Clock>,
         ) -> CompositionResult<C>,
         A: FnOnce(),
     {
@@ -265,16 +274,20 @@ impl Backend {
                     "the manager's inference listener is not bound",
                 )
             })?;
+        let timing = super::checked_timing(&test_support)?;
         // One holder of worker pins and channels serves both forwarded inference and logs.
-        let worker_channels = private_configuration.as_ref().map(WorkerChannels::new);
+        let worker_channels = private_configuration
+            .as_ref()
+            .map(|configuration| WorkerChannels::new(configuration, timing.private));
         let capabilities = compose_capabilities_with_current(
             &configuration.site_paths,
-            super::ManagerNodeProcessInputs {
+            super::ManagerProcessInputs {
                 telemetry_sink: configuration.telemetry_directory.clone().map(|directory| {
                     Arc::new(crate::telemetry::FileTelemetrySink::new(directory))
                         as Arc<dyn crate::telemetry::TelemetrySink>
                 }),
                 dotcore_sources: configuration.dotcore_sources.clone(),
+                timing,
             },
             inference_port,
             test_support,
@@ -291,19 +304,18 @@ impl Backend {
             resource_watch.shutdown();
         };
         let private_services = private_services.combine(manager_private_services);
-        let private_routes = match &private_configuration {
-            Some(configuration) => {
-                private_services.assemble(configuration.local_role, &configuration.local_node_id)
-            }
-            None => tonic::service::Routes::default(),
-        };
+        let private_listener = private_configuration.map(|configuration| PrivateListener {
+            routes: private_services
+                .assemble(configuration.local_role, &configuration.local_node_id),
+            configuration,
+            timing: timing.private,
+        });
         let server = crate::server::Server::prepare(
             transports,
             server.allowed_origins,
             routes,
             Some(router),
-            private_configuration,
-            private_routes,
+            private_listener,
             shutdown,
         )
         .await
@@ -426,6 +438,7 @@ where
         )
     })?;
     let clock = super::backend_clock(&test_support);
+    let timing = super::checked_timing(&test_support)?;
     let declared_machine = folder.declared_machine().map(|machine| {
         dotcore_runtime_backends::simulated::DeclaredMachine::new(machine, Arc::clone(&clock))
     });
@@ -474,6 +487,7 @@ where
         }),
         dotcore_sources: configuration.dotcore_sources.clone(),
         declared_machine,
+        timing,
         test_support,
     };
     let manager_endpoint = private_client.endpoint().map_err(|error| {
@@ -501,8 +515,11 @@ where
         Vec::new(),
         tonic::service::Routes::default(),
         None,
-        Some(private_configuration),
-        private_routes,
+        Some(PrivateListener {
+            configuration: private_configuration,
+            routes: private_routes,
+            timing: timing.private,
+        }),
         shutdown,
     )
     .await?;
@@ -597,47 +614,26 @@ pub(super) struct ObserverTasks {
 
 /// Explicit concrete simulation controls used by backend integration fixtures.
 #[doc(hidden)]
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct BackendTestSupport {
     pub simulated_runtime: Option<dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport>,
     pub simulated_inference: Option<crate::inference::simulated::SimulatedInferenceTestSupport>,
 
-    /// Age after which a node treats its latest infrastructure collection as stale; `None` keeps
-    /// the production maximum age.
-    pub target_capability_max_age: Option<Duration>,
+    /// Every behavior duration of the composed backend; production unless a test compresses it.
+    pub timing: Timing,
 
     /// Store paths by engine package that a node pins for development-source Nix engines
     /// instead of evaluating its development source; empty keeps the production resolver.
-    pub local_development_store_paths: std::collections::BTreeMap<String, String>,
+    pub local_development_store_paths: BTreeMap<String, String>,
 
     /// Launcher binary native execution targets start their workloads with; `None` keeps the
     /// production `dotcore-launcher` beside the server executable.
     pub native_launcher: Option<std::path::PathBuf>,
 
-    /// Silence after which the site manager treats a node as no longer live; `None` keeps the
-    /// production silence bound.
-    pub liveness_silence_bound: Option<Duration>,
-
-    /// Pause between the manager's publications of a node's unchanged view; `None` keeps the
-    /// production interval.
-    pub view_republish_interval: Option<Duration>,
-
-    /// Pause after a node's last control message before it sends a heartbeat; `None` keeps the
-    /// production interval.
-    pub node_heartbeat_interval: Option<Duration>,
-
-    /// Manager silence after which a node reopens its control stream; `None` keeps the
-    /// production bound.
-    pub manager_silence_bound: Option<Duration>,
-
-    /// Time a node's accepted view keeps permitting runtime actions after the view's latest
-    /// publication; `None` keeps the production action lease.
-    pub node_action_lease: Option<Duration>,
-
-    /// Manual clock the composed backend reads instead of system time; the test keeps a clone to
-    /// advance it. `None` keeps system time.
+    /// Clock the composed backend reads instead of system time, such as a manual or virtual test
+    /// clock; the test keeps a clone to advance it. `None` keeps system time.
     #[cfg(feature = "test-support")]
-    pub clock: Option<dotcore_domain::clock::ManualClock>,
+    pub clock: Option<Arc<dyn Clock>>,
 
     /// Receives the site manager's metric recorder, so a test records metrics into the served
     /// history as in-process writers do. `None` keeps the recorder private.
@@ -646,16 +642,66 @@ pub struct BackendTestSupport {
 }
 
 impl BackendTestSupport {
-    /// Controls used by an ordinary development backend: representative simulated startup.
+    /// Controls used by an ordinary development backend: representative simulated startup on
+    /// the production timing.
     pub fn development() -> Self {
+        Self::development_on(Timing::production())
+    }
+
+    /// Representative simulated startup on `timing`.
+    fn development_on(timing: Timing) -> Self {
         Self {
             simulated_runtime: Some(
                 dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport::with_stop_failures(0)
-                    .with_representative_startup(std::time::Duration::from_millis(1_200)),
+                    .with_representative_startup(),
             ),
+            timing,
             ..Self::default()
         }
     }
+
+    /// Controls of a backend test: the test timing on a manual clock whose wall time starts on a
+    /// whole second, so wall-aligned schedules start at a known phase.
+    #[cfg(feature = "test-support")]
+    pub fn test() -> Self {
+        Self {
+            timing: Timing::test(),
+            clock: Some(Arc::new(test_clock())),
+            ..Self::default()
+        }
+    }
+
+    /// Like [`Self::test`], with the development backend's representative simulated startup.
+    #[cfg(feature = "test-support")]
+    pub fn test_development() -> Self {
+        Self {
+            clock: Some(Arc::new(test_clock())),
+            ..Self::development_on(Timing::test())
+        }
+    }
+}
+
+impl Default for BackendTestSupport {
+    /// No simulation controls, on the production timing and system time.
+    fn default() -> Self {
+        Self {
+            simulated_runtime: None,
+            simulated_inference: None,
+            timing: Timing::production(),
+            local_development_store_paths: BTreeMap::new(),
+            native_launcher: None,
+            #[cfg(feature = "test-support")]
+            clock: None,
+            #[cfg(feature = "test-support")]
+            metric_recorder: None,
+        }
+    }
+}
+
+/// Manual clock of a backend test, starting at the current wall second.
+#[cfg(feature = "test-support")]
+fn test_clock() -> ManualClock {
+    ManualClock::starting_at(slot_start(real_time::wall_now(), Duration::from_secs(1)))
 }
 
 /// Shared slot a composed site manager fills with its metric recorder; clones share the slot.
@@ -675,23 +721,6 @@ impl MetricRecorderSlot {
 
     pub(super) fn fill(&self, recorder: Arc<dyn dotcore_observability::MetricRecorder>) {
         let _ = self.0.set(recorder);
-    }
-}
-
-#[cfg(feature = "test-support")]
-impl PartialEq for MetricRecorderSlot {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-#[cfg(feature = "test-support")]
-impl Eq for MetricRecorderSlot {}
-
-#[cfg(feature = "test-support")]
-impl std::fmt::Debug for MetricRecorderSlot {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("MetricRecorderSlot")
     }
 }
 

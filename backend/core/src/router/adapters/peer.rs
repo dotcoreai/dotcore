@@ -480,6 +480,7 @@ mod tests {
         time::Duration,
     };
 
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::inference::private::v1::RequestErrorCategory;
     use dotcore_proto::dotcore::inference::v1::{
         ChatContentPart, ChatImageContent, ChatImageMediaType, ChatMessage, ChatMessageRole,
@@ -875,17 +876,20 @@ mod tests {
     async fn a_manager_certificate_the_worker_does_not_pin_is_refused_before_dispatch() {
         let peer = PeerFixture::start(Script::Complete).await;
         let unpinned_manager = PeerInferenceClient::new(
-            Some(WorkerChannels::new(&peer.authority.private_configuration(
-                SITE_ID,
-                MANAGER_NODE_ID,
-                PrivateNodeRole::Manager,
-                peer.authority.issue(SITE_ID, MANAGER_NODE_ID, false),
-                [(
-                    WORKER_NODE_ID,
-                    PrivateNodeRole::Worker,
-                    peer.worker_certificate.as_slice(),
-                )],
-            ))),
+            Some(WorkerChannels::new(
+                &peer.authority.private_configuration(
+                    SITE_ID,
+                    MANAGER_NODE_ID,
+                    PrivateNodeRole::Manager,
+                    peer.authority.issue(SITE_ID, MANAGER_NODE_ID, false),
+                    [(
+                        WORKER_NODE_ID,
+                        PrivateNodeRole::Worker,
+                        peer.worker_certificate.as_slice(),
+                    )],
+                ),
+                Timing::test().private,
+            )),
             Fixture::installed(Script::Complete).admission(),
         );
 
@@ -1223,6 +1227,7 @@ mod tests {
                 worker
                     .private_services()
                     .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
+                Timing::test().private,
                 std::future::pending(),
             )
             .await
@@ -1247,17 +1252,20 @@ mod tests {
                     },
                 ),
                 client: PeerInferenceClient::new(
-                    Some(WorkerChannels::new(&authority.private_configuration(
-                        SITE_ID,
-                        MANAGER_NODE_ID,
-                        PrivateNodeRole::Manager,
-                        (manager_certificate.clone(), manager_key.clone()),
-                        [(
-                            WORKER_NODE_ID,
-                            PrivateNodeRole::Worker,
-                            worker_certificate.as_slice(),
-                        )],
-                    ))),
+                    Some(WorkerChannels::new(
+                        &authority.private_configuration(
+                            SITE_ID,
+                            MANAGER_NODE_ID,
+                            PrivateNodeRole::Manager,
+                            (manager_certificate.clone(), manager_key.clone()),
+                            [(
+                                WORKER_NODE_ID,
+                                PrivateNodeRole::Worker,
+                                worker_certificate.as_slice(),
+                            )],
+                        ),
+                        Timing::test().private,
+                    )),
                     Fixture::installed(Script::Complete).admission(),
                 ),
                 worker,
@@ -1272,13 +1280,16 @@ mod tests {
         /// A manager client that pins `worker_certificate` as the worker's exact certificate.
         fn client_pinning(&self, worker_certificate: &[u8]) -> PeerInferenceClient {
             PeerInferenceClient::new(
-                Some(WorkerChannels::new(&self.authority.private_configuration(
-                    SITE_ID,
-                    MANAGER_NODE_ID,
-                    PrivateNodeRole::Manager,
-                    (self.manager_certificate.clone(), self.manager_key.clone()),
-                    [(WORKER_NODE_ID, PrivateNodeRole::Worker, worker_certificate)],
-                ))),
+                Some(WorkerChannels::new(
+                    &self.authority.private_configuration(
+                        SITE_ID,
+                        MANAGER_NODE_ID,
+                        PrivateNodeRole::Manager,
+                        (self.manager_certificate.clone(), self.manager_key.clone()),
+                        [(WORKER_NODE_ID, PrivateNodeRole::Worker, worker_certificate)],
+                    ),
+                    Timing::test().private,
+                )),
                 Fixture::installed(Script::Complete).admission(),
             )
         }

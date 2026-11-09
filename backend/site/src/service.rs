@@ -482,7 +482,7 @@ impl SiteServiceContract for SiteService {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use dotcore_domain::SiteNodeId;
+    use dotcore_domain::{SiteNodeId, timing::Timing};
     use dotcore_proto::{
         dotcore::{
             catalog::v1::OciPlatform,
@@ -757,7 +757,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn the_manager_node_turns_stale_then_disconnected_like_any_node() {
         let site = manager_site();
-        let coordinator = ManagerNodeControlCoordinator::new(
+        let coordinator = ManagerNodeControlCoordinator::on_system_clock(
             ManagerSession::generate().expect("manager session"),
         );
         let registry = NodeRegistry::with_coordinator(Arc::new(site.clone()), coordinator.clone());
@@ -793,9 +793,9 @@ mod tests {
 
         // Publications keep the manager node live while its observation ages past the capability age.
         let mut elapsed = Duration::ZERO;
-        while elapsed <= crate::node::target_inventory::TARGET_CAPABILITY_MAX_AGE {
-            advance(crate::node::control::LIVENESS_TTL / 2).await;
-            elapsed += crate::node::control::LIVENESS_TTL / 2;
+        while elapsed <= Timing::test().node_control.capability_max_age {
+            advance(Timing::test().node_control.node_silence / 2).await;
+            elapsed += Timing::test().node_control.node_silence / 2;
             publish_as(&coordinator, &site, "node-a");
         }
         let stale_targets = configured_target_response(&service).await;
@@ -819,7 +819,7 @@ mod tests {
             Some(NodeObservationState::Stale as i32)
         );
 
-        advance(crate::node::control::LIVENESS_TTL + Duration::from_millis(1)).await;
+        advance(Timing::test().node_control.node_silence + Duration::from_millis(1)).await;
         assert_eq!(
             target_connection_states(&configured_target_response(&service).await),
             [NodeObservationState::Disconnected as i32; 2]
@@ -920,7 +920,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn remote_projection_preserves_outcomes_across_freshness_states() {
         let site = node_site();
-        let coordinator = ManagerNodeControlCoordinator::new(
+        let coordinator = ManagerNodeControlCoordinator::on_system_clock(
             ManagerSession::generate().expect("manager session"),
         );
         let registry = NodeRegistry::with_coordinator(Arc::new(site.clone()), coordinator.clone());
@@ -1001,9 +1001,9 @@ mod tests {
 
         // Publications keep the node live while its observation ages past the capability age.
         let mut elapsed = Duration::ZERO;
-        while elapsed <= crate::node::target_inventory::TARGET_CAPABILITY_MAX_AGE {
-            advance(crate::node::control::LIVENESS_TTL / 2).await;
-            elapsed += crate::node::control::LIVENESS_TTL / 2;
+        while elapsed <= Timing::test().node_control.capability_max_age {
+            advance(Timing::test().node_control.node_silence / 2).await;
+            elapsed += Timing::test().node_control.node_silence / 2;
             publish_as(&coordinator, &site, "worker-node");
         }
         let stale_targets = configured_target_response(&service).await;
@@ -1042,7 +1042,7 @@ mod tests {
             }
         );
 
-        advance(crate::node::control::LIVENESS_TTL + Duration::from_millis(1)).await;
+        advance(Timing::test().node_control.node_silence + Duration::from_millis(1)).await;
         let disconnected_targets = configured_target_response(&service).await;
         assert!(
             disconnected_targets

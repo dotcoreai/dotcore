@@ -20,6 +20,7 @@ mod scripted;
 
 use std::{collections::BTreeSet, fs::File, io};
 
+use dotcore_domain::timing::Timing;
 use line::LineTerminal;
 pub use scripted::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
 
@@ -53,8 +54,8 @@ pub trait Terminal {
 /// prompts for a dumb or unset `TERM` or a terminal that does not answer cursor-position
 /// queries, and a non-interactive terminal without `/dev/tty`.
 ///
-/// Checking cursor reports sends one invisible query and may wait up to two seconds on a
-/// silent terminal; use [`controlling_terminal_condition`] when only availability matters.
+/// Checking cursor reports sends one invisible query and may wait out its timeout on a silent
+/// terminal; use [`controlling_terminal_condition`] when only availability matters.
 pub fn open_terminal() -> Box<dyn Terminal> {
     let tty = open_controlling_terminal();
 
@@ -62,7 +63,7 @@ pub fn open_terminal() -> Box<dyn Terminal> {
         && supports_rich_prompts(std::env::var_os("TERM").as_deref())
         && let Ok(tty) = tty.try_clone()
         // Any failure to prove cursor reports leaves the line prompts, which need none.
-        && let Ok(rich) = rich::RichTerminal::open(tty)
+        && let Ok(rich) = rich::RichTerminal::open(tty, Timing::for_process().terminal)
     {
         return Box::new(rich);
     }

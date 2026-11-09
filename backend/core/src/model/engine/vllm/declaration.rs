@@ -428,6 +428,7 @@ fn parameter_has_type(
 mod tests {
     use dotcore_catalog::{CatalogModelId, test_support::vendor_hardware_class};
     use dotcore_domain::ExecutionPlatform;
+
     use dotcore_proto::dotcore::{
         catalog::v1::{
             BooleanEngineParameterSchema, EngineParameterDefinition, EngineParameterSchema,
@@ -838,7 +839,7 @@ mod tests {
                 ExecutionPlatform::linux_amd64(),
             );
             target.accelerator_device_ids = devices.iter().map(|id| (*id).to_owned()).collect();
-            let inventory = TargetCapabilityReconciler::reconcile(
+            let inventory = TargetCapabilityReconciler::reconcile_now(
                 [&target],
                 [RuntimePlatformObservation::available(
                     &target.execution_target_id,

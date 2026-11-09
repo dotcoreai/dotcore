@@ -233,6 +233,7 @@ fn record_rejection(operation: &'static str, reason: NodeDiagnosticRejectionReas
 mod tests {
     use std::{fs, path::PathBuf, time::Duration};
 
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::diagnostic::{
         private::v1::{
             FollowNodeDiagnosticsRequest, NodeDiagnosticRejectionReason, NodeDiagnosticTarget,
@@ -448,23 +449,27 @@ mod tests {
                 routes.add_service(NodeDiagnosticService::new(reader, &context).into_server());
             })
             .assemble(PrivateNodeRole::Worker, NODE_ID),
+            Timing::test().private,
             std::future::pending(),
         )
         .await
         .expect("worker private listener");
         let address = server.address;
         tokio::spawn(server.serve());
-        let channels = WorkerChannels::new(&authority.private_configuration(
-            SITE_ID,
-            MANAGER_ID,
-            PrivateNodeRole::Manager,
-            manager,
-            [(
-                NODE_ID,
-                PrivateNodeRole::Worker,
-                worker_certificate.as_slice(),
-            )],
-        ));
+        let channels = WorkerChannels::new(
+            &authority.private_configuration(
+                SITE_ID,
+                MANAGER_ID,
+                PrivateNodeRole::Manager,
+                manager,
+                [(
+                    NODE_ID,
+                    PrivateNodeRole::Worker,
+                    worker_certificate.as_slice(),
+                )],
+            ),
+            Timing::test().private,
+        );
         let channel = channels
             .channel(NODE_ID, WorkerChannelPurpose::Diagnostics, address.into())
             .expect("worker channel");

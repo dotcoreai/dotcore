@@ -7,7 +7,10 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::{ExecutionPlatform, SiteNodeId};
+use dotcore_domain::{
+    ExecutionPlatform, SiteNodeId,
+    clock::{Clock, SystemClock},
+};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -43,6 +46,9 @@ pub struct SimulatedRuntimeConfig {
 
     /// Startup progress reported during a first activation, when simulated.
     pub startup: Option<SimulatedStartupConfig>,
+
+    /// Backend clock the workloads time their transitions and startup steps on.
+    pub clock: Arc<dyn Clock>,
 }
 
 impl Default for SimulatedRuntimeConfig {
@@ -57,6 +63,7 @@ impl Default for SimulatedRuntimeConfig {
             deployment_stop_delays: BTreeMap::new(),
             test_support: None,
             startup: None,
+            clock: Arc::new(SystemClock),
         }
     }
 }
@@ -103,7 +110,7 @@ impl SimulatedStartupConfig {
 #[derive(Clone, Debug)]
 pub struct SimulatedRuntimeTestSupport {
     pub(super) state: Arc<Mutex<SimulatedRuntimeTestState>>,
-    startup: Option<SimulatedStartupConfig>,
+    representative_startup: bool,
     lifecycle_delays: Option<(Duration, Duration)>,
     preparation_gate: Option<Arc<RetainedGate>>,
     readiness_gate: Option<Arc<RetainedGate>>,
@@ -229,9 +236,10 @@ impl SimulatedRuntimeTestSupport {
             .map(|retained| Arc::clone(retained.entry(execution_target_id.to_owned()).or_default()))
     }
 
-    /// Enables the representative model startup sequence with a caller-selected step duration.
-    pub fn with_representative_startup(mut self, step_duration: Duration) -> Self {
-        self.startup = Some(SimulatedStartupConfig::development_default(step_duration));
+    /// Enables the representative model startup sequence, whose steps follow the simulated
+    /// timing.
+    pub fn with_representative_startup(mut self) -> Self {
+        self.representative_startup = true;
         self
     }
 
@@ -305,9 +313,9 @@ impl SimulatedRuntimeTestSupport {
             .release();
     }
 
-    /// Returns the startup sequence workloads of this test support report, if any.
-    pub fn startup(&self) -> Option<SimulatedStartupConfig> {
-        self.startup.clone()
+    /// Whether workloads of this test support report the representative startup sequence.
+    pub fn representative_startup(&self) -> bool {
+        self.representative_startup
     }
 
     /// Returns the ready and stop delays this test support imposes, if any.
@@ -395,7 +403,7 @@ impl SimulatedRuntimeTestSupport {
     fn new(state: SimulatedRuntimeTestState) -> Self {
         Self {
             state: Arc::new(Mutex::new(state)),
-            startup: None,
+            representative_startup: false,
             lifecycle_delays: None,
             preparation_gate: None,
             readiness_gate: None,

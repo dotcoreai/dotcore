@@ -5,9 +5,8 @@
 //! can also be named with its hardware class, so a machine's hardware reads the way Dotcore sees
 //! it. Nothing here reads the local host or a site: the description is the only input.
 
-use std::time::SystemTime;
-
 use dotcore_catalog::{Catalog, SupportedHardwareClass};
+use dotcore_domain::{real_time, timing::NodeControlTiming};
 use dotcore_node_hardware::{MachineDescription, MachineError};
 use dotcore_proto::dotcore::{
     catalog::v1::{HardwareClass, UseCase},
@@ -34,17 +33,20 @@ use crate::{
 pub struct IdleMachine {
     targets: Vec<ExecutionTarget>,
     inventory: TargetCapabilityInventory,
-    observed_at: SystemTime,
 }
 
 impl IdleMachine {
-    /// Declares the targets of `machine`'s hardware and observes them idle now. The machine stands
+    /// Declares the targets of `machine`'s hardware and observes them idle now, under the node
+    /// control timing that bounds how long capability observations stay fresh. The machine stands
     /// for a node named after it.
-    pub fn new(machine: &MachineDescription) -> Result<Self, IdleMachineError> {
+    pub fn new(
+        machine: &MachineDescription,
+        timing: NodeControlTiming,
+    ) -> Result<Self, IdleMachineError> {
         let node_id = machine.name();
         let targets =
             described_execution_targets(node_id, machine).map_err(IdleMachineError::Targets)?;
-        let observed_at = SystemTime::now();
+        let observed_at = real_time::wall_now();
         let snapshot = machine
             .render(&[], observed_at)
             .map_err(IdleMachineError::Hardware)?;
@@ -62,12 +64,14 @@ impl IdleMachine {
                 ))
             })
             .collect::<Vec<_>>();
-        let inventory = TargetCapabilityReconciler::reconcile(&targets, platforms, [accelerators]);
-        Ok(Self {
-            targets,
-            inventory,
+        let inventory = TargetCapabilityReconciler::reconcile(
+            &targets,
+            platforms,
+            [accelerators],
+            timing.capability_max_age,
             observed_at,
-        })
+        );
+        Ok(Self { targets, inventory })
     }
 
     /// Returns the machine's execution targets: its model targets, then its application targets.
@@ -95,7 +99,6 @@ impl IdleMachine {
             &model_targets,
             Some(&self.inventory),
             &workloads,
-            self.observed_at,
             StaleTargets::Fail,
         );
         self.targets
@@ -136,7 +139,6 @@ impl IdleMachine {
             Some(&self.inventory),
             &[],
             use_cases,
-            self.observed_at,
         )
     }
 
@@ -168,6 +170,7 @@ pub enum IdleMachineError {
 #[cfg(test)]
 mod tests {
     use dotcore_catalog::Catalog;
+    use dotcore_domain::timing::Timing;
     use dotcore_node_hardware::MachineDescription;
     use dotcore_proto::dotcore::catalog::v1::UseCase;
 
@@ -236,7 +239,7 @@ mod tests {
 
     fn idle(name: &str, yaml: &str) -> IdleMachine {
         let machine = MachineDescription::from_yaml(name, yaml).expect("described machine");
-        IdleMachine::new(&machine).expect("idle machine")
+        IdleMachine::new(&machine, Timing::test().node_control).expect("idle machine")
     }
 
     /// Each target as `name: class`.

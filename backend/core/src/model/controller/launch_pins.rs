@@ -743,7 +743,7 @@ impl std::error::Error for SharedPinError {
 mod tests {
     use std::sync::Mutex;
 
-    use dotcore_domain::ExecutionPlatform;
+    use dotcore_domain::{ExecutionPlatform, clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
         model::v1::{ModelDeploymentLifecycleTransition, ModelDeploymentState},
@@ -762,7 +762,6 @@ mod tests {
         model::controller::{
             ArtifactDependencies, ModelControllerDependencies, ModelRealizer,
             NodeModelRealizerDependencies,
-            reconciliation::RECONCILE_SAFETY_SCAN_CADENCE,
             serving_targets::ServingTargetsPublisher,
             test_support::{
                 ProjectedTestInput, test_desired_deployment, test_engine_integrations, test_site,
@@ -1214,7 +1213,7 @@ mod tests {
 
             while node.retained().len() < 2 {
                 assert!(
-                    declared.elapsed() < RECONCILE_SAFETY_SCAN_CADENCE,
+                    declared.elapsed() < Timing::test().model.reconcile.settled_interval,
                     "round {round}: both deployments were not pinned before the safety scan: {:?}",
                     node.retained()
                 );
@@ -1693,6 +1692,8 @@ mod tests {
                     serving_targets: ServingTargetsPublisher::new().0,
                     shutdown: self.shutdown.clone(),
                     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+                    timing: Timing::test().model,
+                    clock: Arc::new(SystemClock),
                     preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                         self._directory.path(),
                     ),

@@ -17,6 +17,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use serde::Deserialize;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, BufReader};
 use tokio_util::sync::CancellationToken;
@@ -241,12 +242,11 @@ impl DockerImageLoader {
         let (output, errors, status) = tokio::select! {
             biased;
             () = cancellation.cancelled() => return Err(DockerImagePreparationError::Cancelled),
-            () = tokio::time::sleep(self.time_limit) => {
-                return Err(DockerImagePreparationError::TimedOut {
+            result = real_time::bound(self.time_limit, run) => result.map_err(|_| {
+                DockerImagePreparationError::TimedOut {
                     time_limit: self.time_limit,
-                });
-            }
-            result = run => result?,
+                }
+            })??,
         };
         group.disarm();
         if !status.success() {

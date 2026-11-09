@@ -7,15 +7,13 @@
 //! reads about machines that stopped reporting may accept the last observations instead. The
 //! selected class is unique because catalog validation keeps supported classes disjoint or nested.
 
-use std::time::SystemTime;
-
 use dotcore_catalog::{SelectorRelation, SupportedHardwareClass, selector_relation};
 use dotcore_domain::{
     Accelerator, ExecutionPlatform, MemoryArchitecture, NvidiaDriverVersion, WorkloadArtifactKind,
 };
 use dotcore_proto::dotcore::{catalog::v1::Selector, site::v1::ExecutionTarget};
 use dotcore_site::node::target_inventory::{
-    CapabilityObservation, NodeMemoryFacts, TargetCapabilityInventory, observation_is_fresh,
+    CapabilityObservation, NodeMemoryFacts, TargetCapabilityInventory,
 };
 
 use crate::hardware::capacity::{NodeHardware, TargetCapacity};
@@ -71,16 +69,7 @@ pub(crate) fn select_target_capabilities(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    select_target_capabilities_at(target, inventory, SystemTime::now())
-}
-
-/// Validates an execution target against its capability observation, judging freshness at `now`.
-pub(crate) fn select_target_capabilities_at(
-    target: &ExecutionTarget,
-    inventory: &TargetCapabilityInventory,
-    now: SystemTime,
-) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    select_observed_capabilities(target, inventory, Some(now))
+    select_observed_capabilities(target, inventory, true)
 }
 
 /// Validates an execution target against its last capability observation, however old. Only
@@ -90,17 +79,17 @@ pub(crate) fn select_last_observed_target_capabilities(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    select_observed_capabilities(target, inventory, None)
+    select_observed_capabilities(target, inventory, false)
 }
 
 /// Validates an execution target against its capability observation, requiring the platform and
-/// accelerator observations to be fresh at `fresh_at` when given.
+/// accelerator observations to have been fresh when the inventory was read when `require_fresh`.
 fn select_observed_capabilities(
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
-    fresh_at: Option<SystemTime>,
+    require_fresh: bool,
 ) -> Result<SelectedTargetCapabilities, TargetCapabilitySelectionError> {
-    let accepted = |observed_at| fresh_at.is_none_or(|now| observation_is_fresh(observed_at, now));
+    let accepted = |observed_at| !require_fresh || inventory.is_fresh(observed_at);
     let pinned = target
         .platform
         .as_ref()
@@ -120,7 +109,7 @@ fn select_observed_capabilities(
         {
             platform
         }
-        CapabilityObservation::Stale(platform) if fresh_at.is_none() => platform,
+        CapabilityObservation::Stale(platform) if !require_fresh => platform,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: target.execution_target_id.clone(),
@@ -147,7 +136,7 @@ fn select_observed_capabilities(
         {
             vendor
         }
-        CapabilityObservation::Stale(vendor) if fresh_at.is_none() => vendor,
+        CapabilityObservation::Stale(vendor) if !require_fresh => vendor,
         CapabilityObservation::Available(_) | CapabilityObservation::Stale(_) => {
             return Err(TargetCapabilitySelectionError::StaleAccelerator {
                 execution_target_id: target.execution_target_id.clone(),
@@ -377,6 +366,7 @@ pub(crate) mod tests {
     use dotcore_catalog::{SupportedHardwareClass, test_support::vendor_hardware_class};
     use dotcore_domain::{
         ExecutionPlatform, MemoryArchitecture, NvidiaDriverVersion, WorkloadArtifactKind,
+        timing::Timing,
     };
     use dotcore_node_hardware::MachineDescription;
     use dotcore_proto::dotcore::{
@@ -388,14 +378,13 @@ pub(crate) mod tests {
     };
     use dotcore_site::node::target_inventory::{
         NodeAcceleratorFacts, NodeAcceleratorObservation, RuntimePlatformObservation,
-        TARGET_CAPABILITY_MAX_AGE, TargetCapabilityInventory, TargetCapabilityReconciler,
+        TargetCapabilityInventory, TargetCapabilityReconciler,
     };
 
     use super::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetAccelerator,
         TargetCapabilitySelectionError, select_hardware_class,
         select_last_observed_target_capabilities, select_target_capabilities,
-        select_target_capabilities_at,
     };
     use crate::hardware::capacity::TargetCapacity;
 
@@ -436,7 +425,7 @@ pub(crate) mod tests {
         let class_for = |target: ExecutionTarget, accelerator: NodeAcceleratorObservation| {
             let platform = ExecutionPlatform::try_from(target.platform.as_ref().expect("platform"))
                 .expect("execution platform");
-            let inventory = TargetCapabilityReconciler::reconcile(
+            let inventory = TargetCapabilityReconciler::reconcile_now(
                 [("target-a", "node-a")],
                 [RuntimePlatformObservation::available("target-a", platform)],
                 [accelerator],
@@ -510,7 +499,7 @@ pub(crate) mod tests {
                 .render(&[], SystemTime::now())
                 .expect("rendered snapshot");
             let target = simulated_target(&platform);
-            let inventory = TargetCapabilityReconciler::reconcile(
+            let inventory = TargetCapabilityReconciler::reconcile_now(
                 [&target],
                 [RuntimePlatformObservation::available("target-a", platform)],
                 [NodeAcceleratorObservation::from_hardware_snapshot(
@@ -565,7 +554,7 @@ pub(crate) mod tests {
                 accelerator_device_ids: devices.iter().map(|&device| device.to_owned()).collect(),
                 ..simulated_target(&platform)
             };
-            let inventory = TargetCapabilityReconciler::reconcile(
+            let inventory = TargetCapabilityReconciler::reconcile_now(
                 [&target],
                 [RuntimePlatformObservation::available("target-a", platform)],
                 [NodeAcceleratorObservation::from_hardware_snapshot(
@@ -740,7 +729,7 @@ pub(crate) mod tests {
     #[test]
     fn target_capabilities_carry_the_kinds_their_runtime_binding_realizes() {
         let platform = ExecutionPlatform::linux_amd64();
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
@@ -774,7 +763,7 @@ pub(crate) mod tests {
             ExecutionPlatform::linux_arm64(),
         ] {
             let target = execution_target(&platform, &["target-a"]);
-            let inventory = TargetCapabilityReconciler::reconcile(
+            let inventory = TargetCapabilityReconciler::reconcile_now(
                 [("target-a", "node-a"), ("target-b", "node-b")],
                 [
                     RuntimePlatformObservation::available("target-a", platform.clone()),
@@ -802,13 +791,13 @@ pub(crate) mod tests {
     fn target_capabilities_reject_missing_stale_and_mismatched_observations_distinctly() {
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
         assert_eq!(
-            select_target_capabilities(&target, &TargetCapabilityInventory::default()),
+            select_target_capabilities(&target, &TargetCapabilityInventory::empty_now()),
             Err(TargetCapabilitySelectionError::MissingObservation {
                 execution_target_id: "target-a".to_owned(),
             })
         );
 
-        let missing = TargetCapabilityReconciler::reconcile(
+        let missing = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             std::iter::empty(),
             std::iter::empty(),
@@ -820,7 +809,7 @@ pub(crate) mod tests {
             })
         );
 
-        let stale = TargetCapabilityReconciler::reconcile(
+        let stale = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::stale(
                 "target-a",
@@ -838,7 +827,7 @@ pub(crate) mod tests {
             })
         );
 
-        let mismatched = TargetCapabilityReconciler::reconcile(
+        let mismatched = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available(
                 "target-a",
@@ -865,7 +854,7 @@ pub(crate) mod tests {
             driver: driver("580"),
         };
 
-        let stale = TargetCapabilityReconciler::reconcile(
+        let stale = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::stale(
                 "target-a",
@@ -882,7 +871,7 @@ pub(crate) mod tests {
         assert_eq!(selected.accelerator, nvidia);
 
         let observed_at = SystemTime::UNIX_EPOCH;
-        let overdue = TargetCapabilityReconciler::reconcile(
+        let overdue = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::available_at(
                 "target-a",
@@ -901,7 +890,7 @@ pub(crate) mod tests {
             Ok(nvidia)
         );
 
-        let missing = TargetCapabilityReconciler::reconcile(
+        let missing = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             std::iter::empty(),
             std::iter::empty(),
@@ -913,7 +902,7 @@ pub(crate) mod tests {
             })
         );
 
-        let mismatched = TargetCapabilityReconciler::reconcile(
+        let mismatched = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a")],
             [RuntimePlatformObservation::stale(
                 "target-a",
@@ -941,7 +930,7 @@ pub(crate) mod tests {
         let platform = ExecutionPlatform::linux_amd64();
         let target = execution_target(&platform, &["target-a"]);
         let inventory = |accelerator| {
-            TargetCapabilityReconciler::reconcile(
+            TargetCapabilityReconciler::reconcile_now(
                 [("target-a", "node-a")],
                 [RuntimePlatformObservation::available(
                     "target-a",
@@ -984,8 +973,9 @@ pub(crate) mod tests {
 
     #[test]
     fn timestamped_capabilities_expire_for_admission() {
+        let max_age = Timing::test().node_control.capability_max_age;
         let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
-        let observed_at = now - TARGET_CAPABILITY_MAX_AGE - Duration::from_secs(1);
+        let observed_at = now - max_age - Duration::from_secs(1);
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
         let inventory = TargetCapabilityReconciler::reconcile(
             [("target-a", "node-a")],
@@ -999,10 +989,12 @@ pub(crate) mod tests {
                 NodeAcceleratorFacts::nvidia("580"),
                 observed_at,
             )],
+            max_age,
+            now,
         );
 
         assert_eq!(
-            select_target_capabilities_at(&target, &inventory, now),
+            select_target_capabilities(&target, &inventory),
             Err(TargetCapabilitySelectionError::StalePlatform {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -1020,9 +1012,11 @@ pub(crate) mod tests {
                 NodeAcceleratorFacts::nvidia("580"),
                 observed_at,
             )],
+            max_age,
+            now,
         );
         assert_eq!(
-            select_target_capabilities_at(&target, &stale_accelerator, now),
+            select_target_capabilities(&target, &stale_accelerator),
             Err(TargetCapabilitySelectionError::StaleAccelerator {
                 execution_target_id: "target-a".to_owned(),
             })
@@ -1034,7 +1028,7 @@ pub(crate) mod tests {
         const TOTAL: u64 = 34_190_917_632;
         let target = execution_target(&ExecutionPlatform::linux_amd64(), &["target-a"]);
         let total = |total: Option<u64>| {
-            let inventory = TargetCapabilityReconciler::reconcile(
+            let inventory = TargetCapabilityReconciler::reconcile_now(
                 [&target],
                 [RuntimePlatformObservation::available(
                     "target-a",

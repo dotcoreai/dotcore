@@ -11,8 +11,6 @@ mod node;
 mod retained;
 mod site;
 
-use std::time::Duration;
-
 pub(crate) use node::{NodeDiagnosticReader, NodeDiagnosticService};
 pub(crate) use retained::redact_filesystem_paths;
 pub(crate) use site::{NodeDiagnostics, SiteDiagnosticService};
@@ -26,10 +24,6 @@ const MESSAGE_LIMIT_BYTES: usize = MAX_RESPONSE_BYTES + 64 * 1024;
 
 /// Largest number of events one history page returns.
 const MAX_PAGE_SIZE: u32 = 200;
-
-/// Longest a manager waits for a node's history, or for the first frame of a follow, so a hung
-/// node cannot hold a management request.
-const NODE_DIAGNOSTIC_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Resolves a requested page size; 0 selects the default and sizes above 200 are invalid.
 fn resolve_page_size(page_size: u32) -> Option<usize> {

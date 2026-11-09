@@ -5,7 +5,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use dotcore_domain::test_support::tracing::{Record, capture_records_async};
+use dotcore_domain::{
+    clock::{ManualClock, SystemClock},
+    test_support::tracing::{Record, capture_records_async},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     catalog::v1::{
         UpstreamModelBoundary, UpstreamModelDataEgressClass, UpstreamModelLocality,
@@ -18,7 +22,7 @@ use dotcore_proto::dotcore::{
         UpstreamModelDesiredConfiguration, UpstreamModelInputCapabilities,
         model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
     },
-    site::v1::{Site, SiteNode},
+    site::v1::{HardwareObservationConfiguration, Site, SiteNode},
 };
 use dotcore_site::{
     NODE_FILE,
@@ -43,7 +47,9 @@ async fn the_metric_catalog_follows_the_naming_and_export_rules() {
         InMemoryMetricStore::start(
             InMemoryStoreConfig::default(),
             catalog,
-            Arc::new(dotcore_domain::clock::SystemClock),
+            Timing::test().metrics,
+            Timing::test().watch,
+            Arc::new(SystemClock)
         )
         .err()
         .map(|error| error.to_string()),
@@ -54,11 +60,9 @@ async fn the_metric_catalog_follows_the_naming_and_export_rules() {
 #[test]
 fn per_collection_metrics_follow_the_sites_hardware_refresh_interval() {
     let site = Site {
-        hardware_observation: Some(
-            dotcore_proto::dotcore::site::v1::HardwareObservationConfiguration {
-                refresh_interval_seconds: Some(7),
-            },
-        ),
+        hardware_observation: Some(HardwareObservationConfiguration {
+            refresh_interval_seconds: Some(7),
+        }),
         ..Default::default()
     };
 
@@ -91,9 +95,9 @@ fn per_collection_metrics_follow_the_sites_hardware_refresh_interval() {
 
 #[tokio::test(start_paused = true)]
 async fn a_backend_reads_its_test_manual_clock_or_else_system_time() {
-    let manual = dotcore_domain::clock::ManualClock::new();
+    let manual = ManualClock::new();
     let manual_choice = backend_clock(&BackendTestSupport {
-        clock: Some(manual.clone()),
+        clock: Some(Arc::new(manual.clone())),
         ..BackendTestSupport::default()
     });
     let system_choice = backend_clock(&BackendTestSupport::default());
@@ -372,7 +376,7 @@ async fn backend_composition_loads_catalog_once_for_all_capabilities() {
             &configuration,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await
@@ -409,7 +413,7 @@ async fn complete_composition_loads_site_once_and_retains_its_repository() {
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -435,8 +439,12 @@ async fn supplied_input_model_owner_composition_does_not_reload_site() {
 
     let composed = model_owner_for(
         &inputs,
-        Arc::new(StaticTargetCapabilitySource::default()),
+        Arc::new(StaticTargetCapabilitySource::new(
+            dotcore_site::node::target_inventory::TargetCapabilityInventory::empty_now(),
+        )),
         crate::management_logs::ManagementLogAdmission::new(),
+        Timing::test().model,
+        Arc::new(SystemClock),
     )
     .await
     .expect("model owner composition");
@@ -454,7 +462,7 @@ async fn composed_model_and_application_services_share_log_admission() {
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -565,7 +573,7 @@ async fn upstream_only_model_declarations_skip_failing_runtime_discovery_at_star
         50052,
         BackendTestSupport {
             simulated_runtime: Some(runtime.clone()),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
         default_collector(),
     )
@@ -921,7 +929,7 @@ async fn complete_composition_shares_catalog_site_current_state_and_route_manage
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -960,7 +968,7 @@ async fn composition_rejects_a_non_manager_node() {
         &configuration.site_paths,
         None,
         50052,
-        BackendTestSupport::default(),
+        BackendTestSupport::test(),
         default_collector(),
     )
     .await
@@ -1015,7 +1023,7 @@ async fn composed_route_manager_changes_are_shared_by_route_application_and_rout
         50052,
         BackendTestSupport {
             simulated_runtime: Some(runtime),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
         default_collector(),
     )
@@ -1342,7 +1350,7 @@ async fn late_current_state_failure_preserves_typed_error_and_failure_telemetry(
             &configuration.site_paths,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await
@@ -1381,7 +1389,7 @@ async fn backend_composition_records_exact_success_and_early_failure_fields() {
             &configuration.site_paths,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await
@@ -1406,7 +1414,7 @@ async fn backend_composition_records_exact_success_and_early_failure_fields() {
             &failure_configuration.site_paths,
             None,
             50052,
-            BackendTestSupport::default(),
+            BackendTestSupport::test(),
             default_collector(),
         )
         .await

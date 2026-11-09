@@ -24,10 +24,7 @@ mod tests;
 mod token;
 mod verifier;
 
-pub use client::{
-    DEFAULT_JOIN_COMMIT_TIMEOUT, DEFAULT_JOIN_CONNECT_TIMEOUT, JoinConnection, JoinedNodeFolder,
-    NodeJoinError, default_join_host,
-};
+pub use client::{JoinConnection, JoinedNodeFolder, NodeJoinError, default_join_host};
 pub use host::{
     JoinApproval, JoinDecision, JoinHost, JoinHostError, JoinHostIdentity, JoinHostLimits,
     JoinHostSettings, JoinHostSource, JoinReview, JoinSiteError, JoinSiteWriter, JoinedNode,

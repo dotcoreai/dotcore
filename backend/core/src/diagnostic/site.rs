@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::diagnostic::{
     private::v1::{
         FollowNodeDiagnosticsRequest, NodeDiagnosticHistory, NodeDiagnosticTarget,
@@ -43,9 +44,10 @@ use tonic::{Request, Response, Status, transport::Channel};
 use tracing::debug;
 
 use super::{
-    MAX_RESPONSE_BYTES, MESSAGE_LIMIT_BYTES, NODE_DIAGNOSTIC_DEADLINE, NodeDiagnosticReader,
-    node::NodeFollowFrames, resolve_page_size, retained::CancellableDiagnosticStream,
+    MAX_RESPONSE_BYTES, MESSAGE_LIMIT_BYTES, NodeDiagnosticReader, node::NodeFollowFrames,
+    resolve_page_size, retained::CancellableDiagnosticStream,
 };
+use crate::management_logs::NODE_LOG_DEADLINE;
 
 /// Concurrent site history reads; each fans out to every selected machine.
 const MAX_HISTORY_READS: usize = 4;
@@ -246,7 +248,7 @@ impl NodeDiagnostics {
             site,
             coordinator,
             local: None,
-            deadline: NODE_DIAGNOSTIC_DEADLINE,
+            deadline: NODE_LOG_DEADLINE,
         }
     }
 
@@ -323,8 +325,7 @@ impl MachineDiagnostics for NodeDiagnostics {
                 page_size,
                 before_position: before,
             };
-            let response = match tokio::time::timeout(self.deadline, connection.read(request)).await
-            {
+            let response = match real_time::bound(self.deadline, connection.read(request)).await {
                 Ok(Ok(response)) => response,
                 Ok(Err(status)) => {
                     record_unavailable(machine_id, "read_history", status_reason(&status));
@@ -365,7 +366,7 @@ impl MachineDiagnostics for NodeDiagnostics {
                 let first = frames.next().await.transpose()?;
                 Ok::<_, Status>((frames, first))
             };
-            let (frames, first) = match tokio::time::timeout(self.deadline, opening).await {
+            let (frames, first) = match real_time::bound(self.deadline, opening).await {
                 Ok(Ok(opened)) => opened,
                 Ok(Err(status)) => {
                     record_unavailable(machine_id, "follow", status_reason(&status));

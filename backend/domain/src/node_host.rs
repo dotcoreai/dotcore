@@ -14,6 +14,8 @@ use std::{
 use futures_util::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 
+use crate::real_time;
+
 /// Longest DNS host name, without a trailing dot.
 const MAX_NAME_LENGTH: usize = 253;
 
@@ -316,15 +318,14 @@ pub struct SystemHostResolver;
 impl HostResolver for SystemHostResolver {
     fn lookup_ipv4<'a>(&'a self, name: &'a str) -> BoxFuture<'a, std::io::Result<Vec<Ipv4Addr>>> {
         Box::pin(async move {
-            let addresses =
-                tokio::time::timeout(LOOKUP_TIMEOUT, tokio::net::lookup_host((name, 0)))
-                    .await
-                    .map_err(|_| {
-                        std::io::Error::new(
-                            std::io::ErrorKind::TimedOut,
-                            format!("the lookup did not answer within {LOOKUP_TIMEOUT:?}"),
-                        )
-                    })??;
+            let addresses = real_time::bound(LOOKUP_TIMEOUT, tokio::net::lookup_host((name, 0)))
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        format!("the lookup did not answer within {LOOKUP_TIMEOUT:?}"),
+                    )
+                })??;
             let mut ipv4 = Vec::new();
             for address in addresses {
                 if let SocketAddr::V4(address) = address

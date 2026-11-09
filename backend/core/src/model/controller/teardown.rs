@@ -7,7 +7,7 @@
 //! state with a retryable failure message instead of deleting state, so a
 //! later unload can retry.
 
-use dotcore_domain::diagnostic::diagnostic_chain;
+use dotcore_domain::{diagnostic::diagnostic_chain, timing::ReconcileOutcome};
 use dotcore_proto::dotcore::{
     model::v1::{
         CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentFailure,
@@ -111,7 +111,7 @@ where
         site: &Site,
         desired: &ModelDeploymentDeclaration,
         observation: Option<TargetObservation>,
-    ) -> Result<super::reconciliation::ReconciliationState, ModelLifecycleError> {
+    ) -> Result<ReconcileOutcome, ModelLifecycleError> {
         let span = info_span!(
             "model_teardown",
             operation = "model_teardown",
@@ -179,14 +179,10 @@ enum TeardownOutcome {
 }
 
 impl TeardownOutcome {
-    fn into_result(
-        self,
-    ) -> Result<super::reconciliation::ReconciliationState, ModelLifecycleError> {
+    fn into_result(self) -> Result<ReconcileOutcome, ModelLifecycleError> {
         match self {
-            Self::Settled => Ok(super::reconciliation::ReconciliationState::Settled),
-            Self::Pending | Self::RuntimeFailure(_) => {
-                Ok(super::reconciliation::ReconciliationState::Pending)
-            }
+            Self::Settled => Ok(ReconcileOutcome::Settled),
+            Self::Pending | Self::RuntimeFailure(_) => Ok(ReconcileOutcome::Pending),
             Self::StateError(error) => Err(error),
         }
     }
@@ -498,7 +494,12 @@ mod tests {
     };
 
     use dotcore_artifact::{ArtifactManager, PreparationStep};
-    use dotcore_domain::{SiteNodeId, host_process::HostProcessIdentity};
+    use dotcore_domain::{
+        SiteNodeId,
+        clock::SystemClock,
+        host_process::HostProcessIdentity,
+        timing::{ReconcileOutcome, Timing},
+    };
     use dotcore_proto::dotcore::{
         deployment::v1::accelerator_memory_observation,
         model::v1::{
@@ -950,7 +951,7 @@ mod tests {
                     }),
                 )
                 .await,
-            Ok(super::super::reconciliation::ReconciliationState::Settled)
+            Ok(ReconcileOutcome::Settled)
         ));
         let evidence = current
             .node_model_cleanup_evidence()
@@ -1118,6 +1119,8 @@ mod tests {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs: PreparationLogs::on_system_clock(directory),
                 workload_lifecycle: workload_lifecycle.clone(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             },
             current.clone(),
             builder.build().expect("Runtime map"),
@@ -1385,6 +1388,8 @@ mod tests {
             serving_targets_source,
             accelerator_attribution: None,
             shutdown: tokio_util::sync::CancellationToken::new(),
+            timing: Timing::test().model,
+            clock: Arc::new(SystemClock),
         }
     }
 }

@@ -11,8 +11,14 @@ use std::{
 };
 
 use dotcore_catalog::{CatalogBuilder, OciArtifactPolicy};
-use dotcore_domain::test_support::oci::{ServiceArtifactOci as _, digest_artifact};
-use dotcore_domain::test_support::tracing::{Record, capture_records_async};
+use dotcore_domain::{
+    clock::SystemClock,
+    test_support::{
+        oci::{ServiceArtifactOci as _, digest_artifact},
+        tracing::{Record, capture_records_async},
+    },
+    timing::{ReconcileCadence, ReconcileOutcome, Timing},
+};
 use dotcore_proto::dotcore::application::v1::ApplicationConfigurationAttachment;
 use dotcore_proto::dotcore::{
     application::private::v1::{ApplicationLifecycleObservation, ApplicationStatusStage},
@@ -67,7 +73,7 @@ use super::readiness::{
     ENDPOINT_NOT_ASSIGNED_STAGE, ENDPOINT_NOT_READY_STAGE, GROUP_NOT_RUNNING_STAGE,
     awaits_readiness, primary_endpoint_ready,
 };
-use super::realizer::{ReconcileCadence, ReconciliationState, wait_for_observer_wakeup};
+use super::realizer::wait_for_observer_wakeup;
 use super::test_support::*;
 use super::*;
 use crate::dispatch::application::{ApplicationRuntimeError, TargetWorkloadGroupObservation};
@@ -235,17 +241,19 @@ async fn observer_starts_once_and_each_desired_change_wakes_reconciliation() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
+async fn observer_wakeup_waits_for_the_settled_cadence() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new();
+    let schedule = Timing::production().application.reconcile;
+    let mut cadence = ReconcileCadence::new(schedule);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
-        cadence.next_delay(ReconciliationState::Settled),
+        &SystemClock,
+        cadence.next_delay(ReconcileOutcome::Settled),
     ));
 
     assert_future_blocks(wakeup.as_mut()).await;
 
-    tokio::time::advance(Duration::from_secs(29)).await;
+    tokio::time::advance(schedule.settled_interval - Duration::from_secs(1)).await;
     assert_future_blocks(wakeup.as_mut()).await;
 
     tokio::time::advance(Duration::from_secs(1)).await;
@@ -253,17 +261,19 @@ async fn observer_wakeup_waits_for_the_thirty_second_cadence() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn observer_wakeup_retries_a_pending_endpoint_within_a_quarter_second() {
+async fn observer_wakeup_retries_a_pending_endpoint_after_the_first_pending_delay() {
     let desired = Notify::new();
-    let mut cadence = ReconcileCadence::new();
+    let schedule = Timing::production().application.reconcile;
+    let mut cadence = ReconcileCadence::new(schedule);
     let mut wakeup = Box::pin(wait_for_observer_wakeup(
         &desired,
-        cadence.next_delay(ReconciliationState::Pending),
+        &SystemClock,
+        cadence.next_delay(ReconcileOutcome::Pending),
     ));
 
     assert_future_blocks(wakeup.as_mut()).await;
 
-    tokio::time::advance(Duration::from_millis(250)).await;
+    tokio::time::advance(schedule.pending.initial).await;
     assert!(!wakeup.await);
 }
 
@@ -272,34 +282,7 @@ async fn observer_wakeup_reports_an_intent_change() {
     let desired = Notify::new();
     desired.notify_one();
 
-    assert!(wait_for_observer_wakeup(&desired, Duration::from_secs(30)).await);
-}
-
-#[test]
-fn pending_cadence_backs_off_to_two_seconds_and_resets_when_settled_or_reset() {
-    let mut cadence = ReconcileCadence::new();
-    let pending = (0..5)
-        .map(|_| cadence.next_delay(ReconciliationState::Pending))
-        .collect::<Vec<_>>();
-
-    assert_eq!(
-        pending,
-        [250, 500, 1000, 2000, 2000].map(Duration::from_millis)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Settled),
-        Duration::from_secs(30)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(250)
-    );
-    cadence.next_delay(ReconciliationState::Pending);
-    cadence.reset();
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(250)
-    );
+    assert!(wait_for_observer_wakeup(&desired, &SystemClock, Duration::from_secs(30)).await);
 }
 
 #[test]
@@ -6170,7 +6153,7 @@ async fn booting_group_starts_until_ready_and_becomes_unavailable_when_it_stops_
 
     // Booting: the endpoint does not answer yet, so the deployment starts and is probed soon.
     let booting = controller.realizer.reconcile().await.expect("booting pass");
-    assert_eq!(booting, ReconciliationState::Pending);
+    assert_eq!(booting, ReconcileOutcome::Pending);
     let starting = state();
     assert_eq!(
         starting.lifecycle_state,
@@ -6185,7 +6168,7 @@ async fn booting_group_starts_until_ready_and_becomes_unavailable_when_it_stops_
 
     // Ready once the endpoint answers.
     let ready = controller.realizer.reconcile().await.expect("ready pass");
-    assert_eq!(ready, ReconciliationState::Settled);
+    assert_eq!(ready, ReconcileOutcome::Settled);
     let endpoint = Some(ApplicationEndpoint {
         url: format!("http://{address}"),
     });
@@ -6197,7 +6180,7 @@ async fn booting_group_starts_until_ready_and_becomes_unavailable_when_it_stops_
 
     // Lost readiness after being ready in this start is a fault.
     let lost = controller.realizer.reconcile().await.expect("lost pass");
-    assert_eq!(lost, ReconciliationState::Pending);
+    assert_eq!(lost, ReconcileOutcome::Pending);
     let unavailable = state();
     assert_eq!(
         unavailable.lifecycle_state,
@@ -6489,7 +6472,7 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
         ));
         site.execution_targets.extend([stale, unobserved, model]);
     });
-    let capabilities = TargetCapabilityReconciler::reconcile(
+    let capabilities = TargetCapabilityReconciler::reconcile_now(
         [
             ("manager-target", "manager-node"),
             ("application-target-one", "node-one"),
@@ -6959,15 +6942,15 @@ async fn unit_memory_is_read_from_current_node_status_and_unavailable_otherwise(
 
 #[tokio::test]
 async fn deployment_acceptance_distinguishes_target_observation_failures() {
-    let missing = TargetCapabilityInventory::default();
-    let unavailable = TargetCapabilityReconciler::reconcile(
+    let missing = TargetCapabilityInventory::empty_now();
+    let unavailable = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::unavailable(
             "application-target-one",
         )],
         std::iter::empty(),
     );
-    let stale = TargetCapabilityReconciler::reconcile(
+    let stale = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::stale(
             "application-target-one",
@@ -6975,7 +6958,7 @@ async fn deployment_acceptance_distinguishes_target_observation_failures() {
         )],
         std::iter::empty(),
     );
-    let mismatched = TargetCapabilityReconciler::reconcile(
+    let mismatched = TargetCapabilityReconciler::reconcile_now(
         [("application-target-one", "node-one")],
         [RuntimePlatformObservation::available(
             "application-target-one",

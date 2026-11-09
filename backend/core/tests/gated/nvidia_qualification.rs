@@ -19,6 +19,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -32,6 +33,7 @@ use dotcore::composition::DEV_SOURCE_FLAKE_ENV;
 use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
 use dotcore_domain::{
     ExecutionPlatform, ExecutionPlatformError, SitePaths,
+    clock::SystemClock,
     hardware_observation::{
         AcceleratorProcessObservation, AcceleratorVendorProcessResult, HardwareSnapshotSource,
         NodeHardwareObservation,
@@ -258,7 +260,7 @@ impl GpuObservation {
     pub fn collect() -> anyhow::Result<Self> {
         let collector = SystemHardwareSnapshotCollector::for_current_host(
             vec![Box::new(SystemNvidiaAcceleratorAdapter::for_current_host())],
-            std::sync::Arc::new(dotcore_domain::clock::SystemClock),
+            Arc::new(SystemClock),
         );
         Self::from_hardware(&collector.collect_observation())
     }

@@ -92,12 +92,8 @@ use realizer::ApplicationRealizer;
 pub use serving::{InferenceRouteResolutionError, InferenceRouteResolver, ResolvedInferenceRoute};
 use state::*;
 
-const RECONCILE_CADENCE: Duration = Duration::from_secs(30);
+/// Longest one readiness probe of an application deployment may take.
 const READINESS_TIMEOUT: Duration = Duration::from_secs(3);
-
-/// How long a deployment may boot in one start before it reports `Unavailable` instead of
-/// `Starting`.
-const STARTUP_GRACE: Duration = Duration::from_secs(5 * 60);
 
 /// Name catalog applications resolve for the OpenAI-compatible base URL of the site inference
 /// listener.

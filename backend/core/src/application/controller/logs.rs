@@ -613,6 +613,7 @@ fn map_lifecycle_error(error: ApplicationLifecycleError) -> DeploymentLogError {
 mod tests {
     use std::{num::NonZeroU16, path::Path};
 
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::application::v1::ApplicationDeploymentDesiredState;
     use dotcore_runtime::RuntimeBackendError;
     use dotcore_site::{
@@ -715,20 +716,23 @@ mod tests {
         let authority = crate::test_support::private_tls::TestAuthority::new();
         let (worker_certificate, _) = authority.issue("site-one", "node-two", true);
         NodeDeploymentLogs::new(
-            Some(WorkerChannels::new(&authority.private_configuration(
-                "site-one",
-                "node-one",
-                PrivateNodeRole::Manager,
-                authority.issue("site-one", "node-one", false),
-                [(
-                    "node-two",
-                    PrivateNodeRole::Worker,
-                    worker_certificate.as_slice(),
-                )],
-            ))),
+            Some(WorkerChannels::new(
+                &authority.private_configuration(
+                    "site-one",
+                    "node-one",
+                    PrivateNodeRole::Manager,
+                    authority.issue("site-one", "node-one", false),
+                    [(
+                        "node-two",
+                        PrivateNodeRole::Worker,
+                        worker_certificate.as_slice(),
+                    )],
+                ),
+                Timing::test().private,
+            )),
             SiteRepository::load(&path, crate::test_support::site_declaration_rules())
                 .expect("Site repository"),
-            ManagerNodeControlCoordinator::new(
+            ManagerNodeControlCoordinator::on_system_clock(
                 ManagerSession::parse("a".repeat(32)).expect("session"),
             ),
         )

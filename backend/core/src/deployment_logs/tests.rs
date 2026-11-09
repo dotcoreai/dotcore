@@ -6,7 +6,10 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use dotcore_domain::test_support::ports::{ReservedPort, reserve_port};
+use dotcore_domain::{
+    test_support::ports::{ReservedPort, reserve_port},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     deployment::{
         private::v1::{
@@ -1550,6 +1553,7 @@ impl Worker {
                 );
             })
             .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
+            Timing::test().private,
             std::future::pending(),
         )
         .await
@@ -1558,17 +1562,20 @@ impl Worker {
         tokio::spawn(server.serve());
         Listener {
             address,
-            channels: WorkerChannels::new(&authority.private_configuration(
-                SITE_ID,
-                MANAGER_NODE_ID,
-                PrivateNodeRole::Manager,
-                manager,
-                [(
-                    WORKER_NODE_ID,
-                    PrivateNodeRole::Worker,
-                    worker_certificate.as_slice(),
-                )],
-            )),
+            channels: WorkerChannels::new(
+                &authority.private_configuration(
+                    SITE_ID,
+                    MANAGER_NODE_ID,
+                    PrivateNodeRole::Manager,
+                    manager,
+                    [(
+                        WORKER_NODE_ID,
+                        PrivateNodeRole::Worker,
+                        worker_certificate.as_slice(),
+                    )],
+                ),
+                Timing::test().private,
+            ),
         }
     }
 }

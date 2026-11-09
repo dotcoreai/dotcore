@@ -24,6 +24,7 @@ use sha2::{Digest, Sha256};
 use tokio::io::{Interest, unix::AsyncFd};
 
 pub use self::logs::LogFollower;
+
 use crate::workload::{
     ExitReason, ExitRecord, LAUNCH_CHECKSUM_FILE, LAUNCH_FILE, LaunchSpec, LauncherRecord,
     Lifetime, LogRecord, ProcessRecord, RecordError, SCHEMA_VERSION, StoredRecord, WORK_DIRECTORY,

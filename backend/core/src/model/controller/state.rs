@@ -1,9 +1,7 @@
 //! Inference controller lifecycle state projection and error mapping.
 
-use std::time::SystemTime;
-
 use dotcore_artifact::{ModelArtifactProgress, ModelArtifactStage};
-use dotcore_domain::valid_id;
+use dotcore_domain::{real_time, valid_id};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivation, ModelDeploymentActivationPhase,
     ModelDeploymentDeclaration, ModelDeploymentDesiredState, ModelDeploymentFailure,
@@ -800,7 +798,7 @@ pub(super) fn validate_id(value: &str) -> Result<(), ModelLifecycleError> {
 }
 
 pub(super) fn now() -> Timestamp {
-    let duration = SystemTime::now()
+    let duration = real_time::wall_now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     Timestamp {

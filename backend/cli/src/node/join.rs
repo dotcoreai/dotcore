@@ -16,7 +16,10 @@ use std::{
 use anyhow::Context;
 use clap::Args;
 use dotcore::composition::DEFAULT_PRIVATE_PORT;
-use dotcore_domain::{SiteNodeHost, SystemHostResolver};
+use dotcore_domain::{
+    SiteNodeHost, SystemHostResolver,
+    timing::{JoinTiming, Timing},
+};
 use dotcore_site::{
     initial::{
         inputs::NodeTargetChoices,
@@ -27,8 +30,8 @@ use dotcore_site::{
         },
     },
     membership::join::{
-        DEFAULT_JOIN_CONNECT_TIMEOUT, JoinConnection, JoinProposal, JoinToken, JoinedNodeFolder,
-        NodeJoinError, NodeKey, RejoinProposal, RejoiningNodeFolder,
+        JoinConnection, JoinProposal, JoinToken, JoinedNodeFolder, NodeJoinError, NodeKey,
+        RejoinProposal, RejoiningNodeFolder,
     },
     node::{folder::WORKER_MANIFEST_FILE, hostname::local_node_name},
 };
@@ -172,16 +175,18 @@ pub(crate) async fn node_join(paths: &RootPathArgs, arguments: NodeJoinArgs) -> 
         );
     };
     let prober = system_initial_site_prober();
-    join_site(paths, arguments, boxed(&mut terminal), &prober).await
+    let timing = Timing::for_process().join;
+    join_site(paths, arguments, boxed(&mut terminal), &prober, timing).await
 }
 
 /// Joins as a new node, or joins again when `--site-dir` holds the intact folder of a node of the
-/// token's site.
+/// token's site, within the real-time bounds of `timing`.
 async fn join_site(
     paths: &RootPathArgs,
     arguments: NodeJoinArgs,
     mut terminal: Option<&mut dyn Terminal>,
     prober: &InitialSiteProber,
+    timing: JoinTiming,
 ) -> anyhow::Result<()> {
     let site_dir = paths.site_dir()?;
     let explicit_folder = paths.command_line_site_dir().is_some();
@@ -194,7 +199,7 @@ async fn join_site(
     let token = read_token(&arguments, lend(&mut terminal))?;
     if std::fs::symlink_metadata(&site_dir).is_ok() {
         let folder = open_rejoining_folder(&site_dir, &token, arguments.name.as_deref())?;
-        return rejoin_site(arguments, token, folder, explicit_folder, terminal).await;
+        return rejoin_site(arguments, token, folder, explicit_folder, terminal, timing).await;
     }
     join_new_site(
         arguments,
@@ -203,6 +208,7 @@ async fn join_site(
         explicit_folder,
         terminal,
         prober,
+        timing,
     )
     .await
 }
@@ -214,8 +220,9 @@ async fn join_new_site(
     explicit_folder: bool,
     mut terminal: Option<&mut dyn Terminal>,
     prober: &InitialSiteProber,
+    timing: JoinTiming,
 ) -> anyhow::Result<()> {
-    let mut connection = connect_to_manager(&token, arguments.manager_host.clone()).await?;
+    let mut connection = connect_to_manager(&token, arguments.manager_host.clone(), timing).await?;
     announce_connection(&connection, lend(&mut terminal))?;
 
     let (inference, applications) =
@@ -268,8 +275,9 @@ async fn rejoin_site(
     folder: RejoiningNodeFolder,
     explicit_folder: bool,
     mut terminal: Option<&mut dyn Terminal>,
+    timing: JoinTiming,
 ) -> anyhow::Result<()> {
-    let mut connection = connect_to_manager(&token, arguments.manager_host.clone()).await?;
+    let mut connection = connect_to_manager(&token, arguments.manager_host.clone(), timing).await?;
     announce_connection(&connection, lend(&mut terminal))?;
     if let Some(ignored) = ignored_rejoin_flags(&arguments) {
         Notices::new(lend(&mut terminal)).warn(&format!(
@@ -564,17 +572,19 @@ async fn probe_targets(
         .context("select this machine's execution targets")
 }
 
-/// Connects once to the join host at the token's host, or at `manager_host` when given. A
-/// failure names the address tried, plus the flag to use when the manager was not reachable.
+/// Connects once to the join host at the token's host, or at `manager_host` when given, within
+/// the bounds of `timing`. A failure names the address tried, plus the flag to use when the
+/// manager was not reachable.
 async fn connect_to_manager(
     token: &JoinToken,
     manager_host: Option<SiteNodeHost>,
+    timing: JoinTiming,
 ) -> anyhow::Result<JoinConnection> {
     let mut tried = token.endpoint.clone();
     if let Some(host) = &manager_host {
         let _ = tried.set_host(Some(&host.to_string()));
     }
-    JoinConnection::connect(token.clone(), manager_host, DEFAULT_JOIN_CONNECT_TIMEOUT)
+    JoinConnection::connect(token.clone(), manager_host, timing)
         .await
         .map_err(|error| {
             join_failure(error).context(format!("cannot reach the manager at {tried}"))
@@ -733,7 +743,10 @@ mod tests {
     use dotcore_site::node::folder::CertificateFingerprint;
     use url::Url;
 
-    use dotcore_domain::ExecutionPlatform;
+    use dotcore_domain::{
+        ExecutionPlatform,
+        timing::{JoinTiming, Timing},
+    };
     use dotcore_proto::dotcore::{node::v1::DeclaredMachine, site::v1::NativeWorkloadLifetime};
     use dotcore_site::initial::inputs::{ApplicationTargetChoice, ModelTargetChoice};
 
@@ -834,7 +847,7 @@ mod tests {
         let port = closed.port();
         let token = token_at(port);
 
-        let error = block_on(connect_to_manager(&token, None))
+        let error = block_on(connect_to_manager(&token, None, Timing::test().join))
             .err()
             .expect("unreachable manager");
 
@@ -858,6 +871,7 @@ mod tests {
         let error = block_on(connect_to_manager(
             &token,
             Some(SiteNodeHost::parse("127.0.0.2").expect("manager host")),
+            Timing::test().join,
         ))
         .err()
         .expect("unreachable manager");
@@ -970,7 +984,10 @@ mod tests {
         let error = block_on(JoinConnection::connect(
             token,
             None,
-            std::time::Duration::from_millis(300),
+            JoinTiming {
+                connect_timeout: std::time::Duration::from_millis(300),
+                ..Timing::test().join
+            },
         ))
         .err()
         .expect("connect timeout");
@@ -992,7 +1009,7 @@ mod tests {
             let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\n\r\n");
         });
 
-        let error = block_on(connect_to_manager(&token, None))
+        let error = block_on(connect_to_manager(&token, None, Timing::test().join))
             .err()
             .expect("tls failure");
         server.join().expect("server");

@@ -15,6 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use dotcore::testing::{MISSED_PUBLICATIONS_BEFORE_REOPEN, Timing};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeployment, ApplicationDeploymentDesiredState, ApplicationLifecycleState,
@@ -62,8 +63,8 @@ const NIX_APPLICATION_PACKAGE: &str = "apps.remote-nix-fixture.docker";
 const SERVICE_NAME: &str = "web";
 const ROUTE_NAME: &str = "worker-application-route";
 const RENAMED_ROUTE_NAME: &str = "worker-application-route-renamed";
-/// Manager silence bound long enough that only a closed stream explains a prompt disconnect.
-const LONG_SILENCE_BOUND: Duration = Duration::from_secs(60);
+/// Node silence long enough that only a closed stream explains a prompt disconnect.
+const LONG_NODE_SILENCE: Duration = Duration::from_secs(60);
 /// Republish interval near the longest a manager accepts, leaving the processes time to start
 /// and the test time to change the worker's view before any republication.
 const LONG_REPUBLISH_INTERVAL: Duration = Duration::from_secs(25);
@@ -623,15 +624,29 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     // instant plus the republish interval: the first publication answers the worker's stream
     // open, and each republication follows the previous publication by a whole interval.
     let started = Instant::now();
+    // Both processes run one policy with a long republish interval and relations that pass the
+    // timing check: the worker neither reopens its stream nor loses its action lease between
+    // republications.
+    let timing = {
+        let mut timing = Timing::test();
+        timing.node_control.node_silence = LONG_NODE_SILENCE;
+        timing.node_control.view_republish_interval = LONG_REPUBLISH_INTERVAL;
+        timing.node_control.manager_silence =
+            LONG_REPUBLISH_INTERVAL * MISSED_PUBLICATIONS_BEFORE_REOPEN;
+        timing.node_control.action_lease =
+            LONG_REPUBLISH_INTERVAL * (MISSED_PUBLICATIONS_BEFORE_REOPEN + 1);
+        timing.check().expect("a valid long-republish policy");
+        timing
+    };
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
             site_catalog: APPLICATION_CATALOG,
-            liveness_silence_bound: Some(LONG_SILENCE_BOUND),
-            view_republish_interval: Some(LONG_REPUBLISH_INTERVAL),
+            timing,
             ..ProcessTestControls::default()
         },
         ProcessTestControls {
             application_endpoint_port: Some(health.address.port()),
+            timing,
             ..ProcessTestControls::default()
         },
     ) else {
@@ -696,7 +711,7 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     support::wait_for_worker_observation(manager_address, NodeObservationState::Disconnected).await;
     let disconnected_after = killed.elapsed();
     assert!(
-        disconnected_after < LONG_SILENCE_BOUND / 2,
+        disconnected_after < LONG_NODE_SILENCE / 2,
         "the killed worker disconnected {disconnected_after:?} after it stopped"
     );
 
@@ -714,7 +729,7 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
     assert_ready(&after_restart, &placement, &health);
     let admitted_after = killed.elapsed();
     assert!(
-        admitted_after < LONG_SILENCE_BOUND,
+        admitted_after < LONG_NODE_SILENCE,
         "the restarted worker was admitted {admitted_after:?} after the old one stopped"
     );
 }
@@ -727,7 +742,11 @@ async fn the_resource_watch_shows_a_worker_deployment_status_and_its_closed_stre
     let Some(mut harness) = TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
             site_catalog: APPLICATION_CATALOG,
-            liveness_silence_bound: Some(LONG_SILENCE_BOUND),
+            timing: {
+                let mut timing = Timing::test();
+                timing.node_control.node_silence = LONG_NODE_SILENCE;
+                timing
+            },
             ..ProcessTestControls::default()
         },
         ProcessTestControls {
@@ -863,7 +882,7 @@ async fn the_resource_watch_shows_a_worker_deployment_status_and_its_closed_stre
     }
     let disconnected_after = killed.elapsed();
     assert!(
-        disconnected_after < LONG_SILENCE_BOUND / 2,
+        disconnected_after < LONG_NODE_SILENCE / 2,
         "the watch showed the disconnection {disconnected_after:?} after the worker stopped"
     );
 }

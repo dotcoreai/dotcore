@@ -20,7 +20,7 @@ use dotcore::{
     },
     model::engine::declaration_validator,
 };
-use dotcore_domain::{BindAddress, SiteNodeHost, SystemHostResolver};
+use dotcore_domain::{BindAddress, SiteNodeHost, SystemHostResolver, timing::Timing};
 use dotcore_proto::dotcore::site::v1::{Site, SiteNode};
 use dotcore_site::{
     initial::validation::SiteInputBundleValidator,
@@ -164,6 +164,7 @@ pub(crate) async fn node_add(paths: &RootPathArgs, arguments: NodeAddArgs) -> an
         },
         Arc::new(site),
         Arc::new(CliApproval { yes: arguments.yes }),
+        Timing::for_process().join,
     );
     let joined = tokio::select! {
         served = host.serve(listener) => served.map_err(|error| host_failure(error, &site_dir))?,

@@ -393,6 +393,13 @@ App user --> Application access --> Identity-aware proxy --> Ready app workload
 - Secret custody must not transfer product authority or introduce a cloud dependency for local serving.
 - Local entitlement decisions and durable usage accounting continue during cloud outages; synchronization and settlement are separate concerns.
 
+### Time
+
+- Each backend process composes one clock and one timing policy. Components read time and wait only through that clock, and every behavior duration (cadences, coalescing windows, liveness windows, retry back-offs, keepalives) comes from that policy, which has a production and a test preset. Composition checks the policy's cross-duration relations, such as heartbeats within the silence bound, so an invalid policy fails at startup.
+- Real time appears only at I/O boundaries: bounds on network calls, processes, files and devices wait in real time. The few such bounds that tests must shorten sit in the timing policy; fixed ones stay with the code that owns the I/O.
+- Wall time comes from the clock. Only records of what really happened (persisted timestamps, identifiers, readings of real processes) read real wall time. A capability observation carries the time its source read it on its own clock, so freshness is judged against that and not against the reader's clock.
+- Wall-aligned schedules, such as node status slots and metric buckets, keep their alignment under every preset.
+
 ### Data boundaries
 
 - Catalog declarations: Artifact-manager-owned immutable metadata, distinct from artifact bytes and caches.

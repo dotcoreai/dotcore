@@ -9,8 +9,7 @@
 
 use std::{num::NonZeroU16, pin::Pin, sync::Arc, time::SystemTime};
 
-use dotcore_domain::ExecutionPlatform;
-use dotcore_domain::SiteNodeId;
+use dotcore_domain::{ExecutionPlatform, SiteNodeId, real_time};
 use futures_util::Stream;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
@@ -73,7 +72,7 @@ pub trait RuntimeBackend: Send + Sync {
         _: &'a WorkloadId,
     ) -> RuntimeFuture<'a, ProcessMemoryObservation> {
         Box::pin(std::future::ready(Ok(ProcessMemoryObservation {
-            observed_at: SystemTime::now(),
+            observed_at: real_time::wall_now(),
             memory: ProcessMemory::NotReported,
             process: None,
         })))

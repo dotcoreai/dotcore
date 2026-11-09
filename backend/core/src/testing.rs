@@ -2,26 +2,28 @@
 //! production build carries none of them.
 //!
 //! Integration and command-line tests reach every test-only control through this one module: the
-//! manual clock a composed backend reads, the view of a site manager's node liveness, the node
-//! liveness timing constants, the relaxed file flush, a fake host-name resolver, simulated
+//! manual and virtual clocks a composed backend reads, its timing policy, the view of a site
+//! manager's node liveness, the relaxed file flush, a fake host-name resolver, simulated
 //! inference holds, the profile compatibility read, and the preparation output a node retains.
-//! Each item stays defined beside the
-//! code it controls.
+//! Each item stays defined beside the code it controls.
 
 pub use dotcore_domain::{
-    clock::ManualClock,
+    clock::{ManualClock, VirtualClock},
     fs_sync::relax_sync_for_tests,
     test_support::{
         host_resolver::FakeHostResolver,
         ports::{ReservedPort, reserve_port},
     },
+    timing::{
+        MISSED_PUBLICATIONS_BEFORE_REOPEN, NodeControlTiming, TEST_TIMING_ENVIRONMENT, Timing,
+    },
 };
-pub use dotcore_site::node::control::{LIVENESS_TTL, NodeLivenessAges};
+pub use dotcore_site::node::control::NodeLivenessAges;
 
 pub use crate::{composition::NodeLiveness, inference::simulated::SimulatedInferenceTestSupport};
 
 /// Evaluates every profile of `models` on `targets` through the profile compatibility read, with
-/// an optional sizing scenario, at the current time.
+/// an optional sizing scenario.
 pub fn profile_compatibility(
     catalog: &dotcore_catalog::Catalog,
     models: &[dotcore_proto::dotcore::catalog::v1::Model],
@@ -36,7 +38,6 @@ pub fn profile_compatibility(
         scenario,
         Some(inventory),
         &Default::default(),
-        std::time::SystemTime::now(),
     )
 }
 

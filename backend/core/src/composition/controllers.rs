@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use dotcore_domain::{clock::Clock, timing::SimulatedTiming};
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{application::v1::ApplicationDeployment, site::v1::ExecutionTarget};
 use dotcore_site::node::{
@@ -19,6 +20,7 @@ use crate::{
         capacity::NodeWorkloads,
         workloads::{SiteWorkloadSource, SiteWorkloadsError, join_lanes},
     },
+    inference::simulated::{SimulatedInferenceTestSupport, SimulatedNativeProvider},
     model::controller::DeploymentProjection,
 };
 
@@ -90,23 +92,24 @@ impl SiteWorkloadSource for ControllerWorkloads {
 }
 
 /// The host's hardware collector, stamping snapshots with `clock`.
-pub(super) fn system_collector(
-    clock: Arc<dyn dotcore_domain::clock::Clock>,
-) -> SystemHardwareSnapshotCollector {
+pub(super) fn system_collector(clock: Arc<dyn Clock>) -> SystemHardwareSnapshotCollector {
     SystemHardwareSnapshotCollector::with_platform_accelerators(clock)
 }
 
 /// Builds the engine integration registry of a manager or worker model controller, with the
 /// simulated native provider and a loopback transport for every local engine kind.
 pub(super) fn engine_integrations(
-    simulated_inference: Option<crate::inference::simulated::SimulatedInferenceTestSupport>,
+    simulated_inference: Option<SimulatedInferenceTestSupport>,
+    timing: SimulatedTiming,
+    clock: Arc<dyn Clock>,
 ) -> Arc<crate::model::engine::EngineIntegrationRegistry> {
+    let provider = SimulatedNativeProvider::new(timing, clock);
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
-            Arc::new(simulated_inference.map_or_else(
-                crate::inference::simulated::SimulatedNativeProvider::default,
-                crate::inference::simulated::SimulatedNativeProvider::with_test_support,
-            )),
+            Arc::new(match simulated_inference {
+                Some(test_support) => provider.with_test_support(test_support),
+                None => provider,
+            }),
             crate::model::engine::EngineTransportFactories::local_engines(),
         ),
     )
@@ -114,7 +117,9 @@ pub(super) fn engine_integrations(
 
 #[cfg(test)]
 pub(super) fn default_collector() -> SystemHardwareSnapshotCollector {
-    system_collector(Arc::new(dotcore_domain::clock::SystemClock))
+    use dotcore_domain::clock::SystemClock;
+
+    system_collector(Arc::new(SystemClock))
 }
 
 pub(super) async fn oci_preparer_for<C>(
@@ -152,6 +157,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
+
     use super::*;
 
     #[test]
@@ -170,7 +177,7 @@ mod tests {
             },
         );
 
-        engine_integrations(None)
+        engine_integrations(None, Timing::test().simulated, Arc::new(SystemClock))
             .bind_workload(&launch, "deployment", &service)
             .expect("ninfer loopback binding");
         assert_eq!(

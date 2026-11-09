@@ -17,7 +17,7 @@ use std::{
 
 use dotcore_artifact::ArtifactManager;
 use dotcore_catalog::CatalogModelId;
-use dotcore_domain::diagnostic::truncate_utf8_with_ellipsis;
+use dotcore_domain::{clock::Clock, diagnostic::truncate_utf8_with_ellipsis, timing::ModelTiming};
 use dotcore_proto::dotcore::model::v1::{
     CreateLocalModelDeploymentRequest, CreateUpstreamModelDeploymentRequest,
     EstimateLocalModelResourcesResponse, ListModelDeploymentsResponse,
@@ -203,7 +203,6 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         _scenario: Option<&SizingScenario>,
         _inventory: Option<&TargetCapabilityInventory>,
         _workloads: &crate::hardware::capacity::NodeWorkloads,
-        _now: std::time::SystemTime,
     ) -> Result<ListModelProfileCompatibilityResponse, ModelDeclarationRepositoryError> {
         Err(ModelDeclarationRepositoryError::InvalidState(
             "model profile compatibility is unavailable",
@@ -215,7 +214,6 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
         _use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
         _inventory: Option<&TargetCapabilityInventory>,
         _deployments: &[ModelDeployment],
-        _now: std::time::SystemTime,
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
         Err(ModelDeclarationRepositoryError::InvalidState(
             "model recommendations are unavailable",
@@ -479,9 +477,8 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
         scenario: Option<&SizingScenario>,
         inventory: Option<&TargetCapabilityInventory>,
         workloads: &crate::hardware::capacity::NodeWorkloads,
-        now: std::time::SystemTime,
     ) -> Result<ListModelProfileCompatibilityResponse, ModelDeclarationRepositoryError> {
-        self.profile_compatibility(model_id, target, scenario, inventory, workloads, now)
+        self.profile_compatibility(model_id, target, scenario, inventory, workloads)
     }
 
     fn model_recommendations(
@@ -489,9 +486,8 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
         use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
         inventory: Option<&TargetCapabilityInventory>,
         deployments: &[ModelDeployment],
-        now: std::time::SystemTime,
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
-        self.model_recommendations(use_cases, inventory, deployments, now)
+        self.model_recommendations(use_cases, inventory, deployments)
     }
 
     fn load_upstream_model(
@@ -620,6 +616,13 @@ pub(super) struct ManagerInferenceControllerInner<D, S> {
     /// What every lane's deployments hold of each node's memory, once composition installs it;
     /// until then estimates count only this controller's deployments.
     site_workloads: std::sync::RwLock<Option<Arc<dyn SiteWorkloadSource>>>,
+
+    /// Timing of the stored records of node-hosted models.
+    timing: ModelTiming,
+
+    /// Backend clock whose wall time stamps node-hosted records and judges target observations
+    /// fresh.
+    clock: Arc<dyn Clock>,
 }
 
 impl<D, S> ManagerInferenceControllerInner<D, S>
@@ -662,6 +665,12 @@ pub(super) struct InferenceControllerInner<D, S, R> {
     /// Cancelled when the realizer's owner shuts it down, cancelling node-local work in flight
     /// such as a development engine evaluation.
     shutdown: tokio_util::sync::CancellationToken,
+
+    /// Timing of the observer's passes and of stored download progress.
+    timing: ModelTiming,
+
+    /// Backend clock the observer and download progress writes wait through.
+    clock: Arc<dyn Clock>,
 }
 
 impl<D, S> InferenceController<D, S> {

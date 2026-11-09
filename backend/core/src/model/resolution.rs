@@ -177,7 +177,7 @@ pub fn resolve_local_launch(
 }
 
 /// Resolves one local catalog selection into its launch snapshot like [`resolve_local_launch`],
-/// on target capabilities the caller already selected, so it judges freshness at its own time.
+/// on target capabilities the caller already selected.
 pub(crate) fn resolve_local_launch_on_selected_target(
     catalog: &Catalog,
     model_id: &CatalogModelId,
@@ -1232,20 +1232,18 @@ mod tests {
         let (target, _) = crate::test_support::execution_target_capabilities(
             dotcore_domain::ExecutionPlatform::linux_arm64(),
         );
-        let resolve = |free_bytes: u64| {
-            let inventory =
-                dotcore_site::node::target_inventory::TargetCapabilityReconciler::reconcile(
-                    [(
+        let resolve =
+            |free_bytes: u64| {
+                let inventory =
+                dotcore_site::node::target_inventory::TargetCapabilityReconciler::reconcile_now([(
                         target.execution_target_id.as_str(),
                         target.site_node_id.as_str(),
-                    )],
-                    [
+                    )], [
                         dotcore_site::node::target_inventory::RuntimePlatformObservation::available(
                             &target.execution_target_id,
                             dotcore_domain::ExecutionPlatform::linux_arm64(),
                         ),
-                    ],
-                    [
+                    ], [
                         dotcore_site::node::target_inventory::NodeAcceleratorObservation::nvidia(
                             &target.site_node_id,
                             "580.173.02",
@@ -1255,29 +1253,28 @@ mod tests {
                             Some(34_190_917_632),
                             Some(34_190_917_632 - free_bytes),
                         ),
-                    ],
-                );
-            resolve_local_launch(
-                &catalog,
-                &CatalogModelId("fixture-model".to_owned()),
-                "fixture-profile",
-                &LocalModelDeploymentConfiguration {
-                    model_artifact_binding_id: "fixture-artifact".to_owned(),
-                    engine_parameter_values: Some(EngineParameterValues {
-                        values: [prompt_cache_value(30_000)]
-                            .into_iter()
-                            .chain(context_and_request_values())
-                            .collect(),
-                    }),
-                    custom_argument_tokens: Vec::new(),
-                    option_overrides: Vec::new(),
-                },
-                &target,
-                &inventory,
-                None,
-            )
-            .expect("snapshot")
-        };
+                    ]);
+                resolve_local_launch(
+                    &catalog,
+                    &CatalogModelId("fixture-model".to_owned()),
+                    "fixture-profile",
+                    &LocalModelDeploymentConfiguration {
+                        model_artifact_binding_id: "fixture-artifact".to_owned(),
+                        engine_parameter_values: Some(EngineParameterValues {
+                            values: [prompt_cache_value(30_000)]
+                                .into_iter()
+                                .chain(context_and_request_values())
+                                .collect(),
+                        }),
+                        custom_argument_tokens: Vec::new(),
+                        option_overrides: Vec::new(),
+                    },
+                    &target,
+                    &inventory,
+                    None,
+                )
+                .expect("snapshot")
+            };
 
         assert_eq!(resolve(1_000_000_000), resolve(30_000_000_000));
     }

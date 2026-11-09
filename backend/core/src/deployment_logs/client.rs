@@ -11,6 +11,7 @@
 
 use std::{collections::BTreeMap, pin::Pin, sync::Arc, time::Duration};
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::{
     application::v1::ApplicationDeploymentDesiredState,
     deployment::private::v1::{
@@ -40,13 +41,10 @@ use tokio_util::sync::CancellationToken;
 use tonic::{Status, transport::Channel};
 use tracing::{debug, warn};
 
-use super::{
-    DeploymentLogReader, MESSAGE_LIMIT_BYTES, WORKER_LOG_DEADLINE, runtime_entry, runtime_error,
-    timestamp,
-};
+use super::{DeploymentLogReader, MESSAGE_LIMIT_BYTES, runtime_entry, runtime_error, timestamp};
 use crate::management_logs::{
     DeploymentLogError, DeploymentLogFollowFailure, DeploymentLogFollowQuery,
-    DeploymentLogReadQuery, DeploymentLogStreams,
+    DeploymentLogReadQuery, DeploymentLogStreams, NODE_LOG_DEADLINE,
 };
 
 /// Events buffered per followed source before the node stream waits for the reader.
@@ -111,7 +109,7 @@ impl NodeDeploymentLogs {
         query: &DeploymentLogReadQuery,
     ) -> Result<Vec<RuntimeLogSourceHistory>, DeploymentLogError> {
         match self.connect(&request) {
-            Some(connection) => read_from(connection, request, query, WORKER_LOG_DEADLINE).await,
+            Some(connection) => read_from(connection, request, query, NODE_LOG_DEADLINE).await,
             None => Ok(unavailable_histories(request.fallback_sources())),
         }
     }
@@ -128,7 +126,7 @@ impl NodeDeploymentLogs {
         match self.connect(&request) {
             Some(connection) => {
                 let present = self.still_present(&request);
-                follow_from(connection, request, query, present, WORKER_LOG_DEADLINE).await
+                follow_from(connection, request, query, present, NODE_LOG_DEADLINE).await
             }
             None => Err(DeploymentLogError::NodeUnavailable),
         }
@@ -376,7 +374,7 @@ pub(super) async fn read_from(
         maximum_entries: u32::from(query.history().maximum_entries().get()),
         before_timestamp: query.history().before_timestamp().map(timestamp),
     };
-    let call = tokio::time::timeout(deadline, connection.read(message)).await;
+    let call = real_time::bound(deadline, connection.read(message)).await;
     let outcome = match call {
         Ok(Ok(response)) => response.outcome,
         Ok(Err(status)) => {
@@ -452,7 +450,7 @@ pub(super) async fn follow_from(
             request.record_unavailable("follow", "cancelled");
             return Err(DeploymentLogError::NodeUnavailable);
         }
-        opened = tokio::time::timeout(deadline, opening) => opened,
+        opened = real_time::bound(deadline, opening) => opened,
     };
     let (frames, first) = match opened {
         Ok(Ok(opened)) => opened,

@@ -1,8 +1,8 @@
 //! Shared domain and platform primitives that every backend layer needs: the stable identifier
 //! grammar of catalog and site records, OCI and Nix references, SiteNode identities, hosts and site
 //! directory paths, host process identity, deployment values, inference route rules, execution
-//! platforms, accelerator facts and node hardware observations, the backend clock, durable file
-//! flushes, and background loop failure logging.
+//! platforms, accelerator facts and node hardware observations, the backend clock and timing
+//! policy, durable file flushes, and background loop failure logging.
 //!
 //! This is the lowest backend layer: it knows no owner, controller, site, catalog, or runtime
 //! module, so any of them can depend on it without creating a cycle. Only protocol bindings, raw
@@ -27,9 +27,11 @@ mod node_host;
 pub mod oci;
 mod paths;
 mod platform;
+pub mod real_time;
 mod site_node_id;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
+pub mod timing;
 
 pub use accelerator::{
     APPLE_GPU_DEVICE_ID, Accelerator, AcceleratorDeviceSelector, AcceleratorResolution,

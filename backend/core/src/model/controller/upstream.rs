@@ -13,7 +13,11 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::diagnostic::diagnostic_chain;
+use dotcore_domain::{
+    clock::Clock,
+    diagnostic::diagnostic_chain,
+    timing::{ModelTiming, ReconcileCadence, ReconcileOutcome, ReconcileSchedule},
+};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentStatus,
 };
@@ -25,7 +29,6 @@ use tracing::{Instrument, debug, error, field, info};
 
 use super::{
     DesiredDeploymentRepository, ModelLifecycleError, is_upstream_deployment,
-    reconciliation::{ReconcileCadence, ReconciliationState},
     serving_targets::{ServingTarget, ServingTargetsPublisher, upstream_serving_targets},
     state::{
         current_error, deployment_status_state, desired_error, is_absent, loading_state,
@@ -36,8 +39,8 @@ use crate::model::{
     domain::ModelDeploymentId,
     state::{CurrentStateError, CurrentStateRepository},
     upstream::{
-        HealthClock, HealthDependencies, HealthJitter, HealthSchedule, ProbeClassification,
-        VerificationHttp, VerificationObservation, VerificationRequest, VerificationTransportError,
+        HealthDependencies, HealthJitter, HealthSchedule, ProbeClassification, VerificationHttp,
+        VerificationObservation, VerificationRequest, VerificationTransportError,
     },
 };
 
@@ -52,8 +55,9 @@ pub(super) struct UpstreamReconciler<D, S> {
     operation: Arc<AsyncMutex<()>>,
     serving_targets_publisher: ServingTargetsPublisher,
     verification_http: Arc<dyn VerificationHttp>,
-    health_clock: Arc<dyn HealthClock>,
     health_jitter: Arc<dyn HealthJitter>,
+    timing: ModelTiming,
+    clock: Arc<dyn Clock>,
     health_shutdown: CancellationToken,
     upstream_health: AsyncMutex<BTreeMap<String, UpstreamHealthEntry>>,
     wakeup: Arc<Notify>,
@@ -72,6 +76,8 @@ where
         operation: Arc<AsyncMutex<()>>,
         serving_targets_publisher: ServingTargetsPublisher,
         health: HealthDependencies,
+        timing: ModelTiming,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let wakeup = desired.register_change_listener();
         let reconciler = Self {
@@ -80,8 +86,9 @@ where
             operation,
             serving_targets_publisher,
             verification_http: health.verification_http,
-            health_clock: health.clock,
             health_jitter: health.jitter,
+            timing,
+            clock,
             health_shutdown: CancellationToken::new(),
             upstream_health: AsyncMutex::new(BTreeMap::new()),
             wakeup,
@@ -215,12 +222,17 @@ where
     }
 
     async fn next_upstream_probe_delay(&self) -> Option<Duration> {
-        let now = self.health_clock.now();
+        let now = self.clock.now();
         self.upstream_health
             .lock()
             .await
             .values()
-            .map(|entry| entry.schedule.next_probe_at().saturating_sub(now))
+            .map(|entry| {
+                entry
+                    .schedule
+                    .next_probe_at()
+                    .saturating_duration_since(now)
+            })
             .min()
     }
 
@@ -228,7 +240,7 @@ where
         &self,
         upstreams: &[ModelDeploymentDeclaration],
     ) -> Result<(), ModelLifecycleError> {
-        let now = self.health_clock.now();
+        let now = self.clock.now();
         let present = upstreams
             .iter()
             .filter(|deployment| !is_absent(deployment))
@@ -251,14 +263,14 @@ where
                     .entry(deployment.model_deployment_id.clone())
                     .or_insert_with(|| UpstreamHealthEntry {
                         declaration: deployment.clone(),
-                        schedule: HealthSchedule::new(now),
+                        schedule: HealthSchedule::new(now, self.timing),
                         cancellation: self.health_shutdown.child_token(),
                     });
                 if entry.declaration != *deployment {
                     entry.cancellation.cancel();
                     *entry = UpstreamHealthEntry {
                         declaration: deployment.clone(),
-                        schedule: HealthSchedule::new(now),
+                        schedule: HealthSchedule::new(now, self.timing),
                         cancellation: self.health_shutdown.child_token(),
                     };
                 }
@@ -533,13 +545,17 @@ where
     /// Starts the loop that reconciles after each owner mutation or site change and otherwise
     /// wakes for the next due probe. The loop stops once the reconciler is dropped.
     pub(super) fn start(self: &Arc<Self>) {
-        let reconciler = Arc::downgrade(self);
-        let wakeup = Arc::clone(&self.wakeup);
+        let observer = run_observer(
+            Arc::downgrade(self),
+            Arc::clone(&self.wakeup),
+            self.timing.reconcile,
+            Arc::clone(&self.clock),
+        );
         let task_span = tracing::info_span!(
             "model_upstream_observer",
             operation = "model_upstream_observer"
         );
-        tokio::spawn(run_observer(reconciler, wakeup).instrument(task_span));
+        tokio::spawn(observer.instrument(task_span));
     }
 }
 
@@ -555,12 +571,17 @@ struct UpstreamHealthEntry {
     cancellation: CancellationToken,
 }
 
-async fn run_observer<D, S>(reconciler: Weak<UpstreamReconciler<D, S>>, wakeup: Arc<Notify>)
-where
+/// Reconciles on `schedule` and after each `wakeup`, never keeping the reconciler alive.
+async fn run_observer<D, S>(
+    reconciler: Weak<UpstreamReconciler<D, S>>,
+    wakeup: Arc<Notify>,
+    schedule: ReconcileSchedule,
+    clock: Arc<dyn Clock>,
+) where
     D: DesiredDeploymentRepository,
     S: CurrentStateRepository,
 {
-    let mut cadence = ReconcileCadence::new();
+    let mut cadence = ReconcileCadence::new(schedule);
     loop {
         let Some(reconciler) = reconciler.upgrade() else {
             info!(
@@ -572,8 +593,8 @@ where
             return;
         };
         let state = match reconciler.reconcile().await {
-            Ok(()) => ReconciliationState::Settled,
-            Err(_) => ReconciliationState::Pending,
+            Ok(()) => ReconcileOutcome::Settled,
+            Err(_) => ReconcileOutcome::Pending,
         };
         let delay = cadence.next_delay(state).min(
             reconciler
@@ -584,7 +605,7 @@ where
         drop(reconciler);
         tokio::select! {
             _ = wakeup.notified() => cadence.reset(),
-            _ = tokio::time::sleep(delay) => {},
+            () = clock.sleep(delay) => {},
         }
     }
 }
@@ -593,6 +614,7 @@ where
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::model::v1::{
         ModelDeploymentDesiredState, ModelDeploymentSnapshot, ModelDeploymentStatus,
         UpstreamModelDesiredConfiguration,
@@ -618,7 +640,7 @@ mod tests {
         domain::ModelDeploymentId,
         state::CurrentStateRepository,
         upstream::{
-            HealthDependencies, ScriptedVerificationHttp, StableHealthJitter, SystemHealthClock,
+            HealthDependencies, ScriptedVerificationHttp, StableHealthJitter,
             VerificationObservation, VerificationTransportError,
         },
     };
@@ -1081,9 +1103,10 @@ mod tests {
             ServingTargetsPublisher::new().0,
             HealthDependencies {
                 verification_http: Arc::new(ScriptedVerificationHttp::new([])),
-                clock: Arc::new(SystemHealthClock::new()),
                 jitter: Arc::new(StableHealthJitter),
             },
+            Timing::test().model,
+            Arc::new(SystemClock),
         )
         .expect("upstream reconciler")
     }

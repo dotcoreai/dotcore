@@ -19,11 +19,12 @@ use std::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use anyhow::anyhow;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use dotcore_domain::real_time;
 use fs4::fs_std::FileExt;
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use hf_hub::{
@@ -1383,11 +1384,7 @@ impl PointerRewriteGate {
             ArtifactCacheError::context("test pointer rewrite removal failed", error)
         })?;
         self.opened.notify_one();
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(2),
-            self.probe_contended.notified(),
-        )
-        .await;
+        let _ = real_time::bound(Duration::from_secs(2), self.probe_contended.notified()).await;
         std::os::unix::fs::symlink(target, pointer).map_err(|error| {
             ArtifactCacheError::context("test pointer rewrite restore failed", error)
         })
@@ -1734,7 +1731,7 @@ impl SnapshotRepairState {
 }
 
 fn snapshot_repair_now() -> Result<u64, ArtifactCacheError> {
-    SystemTime::now()
+    real_time::wall_now()
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs())
         .map_err(|error| ArtifactCacheError::context("snapshot repair clock failed", error))
@@ -2570,7 +2567,7 @@ async fn acquire_lock_as(
                 tokio::select! {
                     biased;
                     () = cancellation.cancelled() => return Err(ArtifactCacheError::Cancelled),
-                    () = tokio::time::sleep(std::time::Duration::from_millis(10)) => {},
+                    () = real_time::pause(Duration::from_millis(10)) => {},
                 }
             }
             Err(error) => {

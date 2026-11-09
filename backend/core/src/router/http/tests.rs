@@ -1957,7 +1957,7 @@ impl UpstreamCall {
 }
 
 /// Clock that stands still until advanced, so measured durations equal the advances exactly.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct FrozenClock {
     started: tokio::time::Instant,
     offset: Arc<watch::Sender<Duration>>,

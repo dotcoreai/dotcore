@@ -12,7 +12,10 @@
 use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
-use dotcore_domain::clock::{Clock, next_boundary};
+use dotcore_domain::{
+    clock::{Clock, next_boundary},
+    timing::{Backoff, NodeControlTiming},
+};
 use dotcore_proto::dotcore::{
     application::private::v1::ApplicationCleanupDisposition,
     model::private::v1::ModelCleanupDisposition,
@@ -45,32 +48,15 @@ use crate::{
     view::{
         contract::{APPLICATION_SECTION_SCHEMA_VERSION, MODEL_SECTION_SCHEMA_VERSION},
         desired::{
-            DesiredViewDistributionError, MAXIMUM_RETRY_BACKOFF_MILLIS, NodeApplicationStatusOwner,
-            NodeModelStatusOwner, NodeViewInstaller, rejection_code,
+            DesiredViewDistributionError, NodeApplicationStatusOwner, NodeModelStatusOwner,
+            NodeViewInstaller, rejection_code,
         },
         fencing::{AcceptedNodeViewAuthority, ManagerSession, NodeViewStream, ViewAcceptance},
     },
 };
 
-/// Default pause after the node's last message before it sends a heartbeat.
-const DEFAULT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
-
-/// Default manager silence after which the node reopens its stream: three missed publications at
-/// the manager's default republish interval.
-const DEFAULT_MANAGER_SILENCE_BOUND: Duration = Duration::from_secs(60);
-
-/// Default pause between the node's checks for a changed status that no change signal announced,
-/// such as a new memory reading.
-const DEFAULT_STATUS_CHECK_INTERVAL: Duration = Duration::from_secs(1);
-
-/// Window in which status triggers share one message, ending at a wall-second boundary.
-const STATUS_COALESCE_INTERVAL: Duration = Duration::from_secs(1);
-
 /// Messages the node queues toward its stream before it waits for the transport.
 const OUTBOUND_MESSAGES: usize = 16;
-
-/// First pause before the node reopens a stream that failed or ended.
-const INITIAL_RETRY_BACKOFF: Duration = Duration::from_millis(250);
 
 /// One node process's control exchange with the site manager, reopened for as long as it runs.
 ///
@@ -89,7 +75,8 @@ pub struct NodeControlSession {
     state: FileNodeState,
     model: Arc<dyn NodeModelStatusOwner>,
     application: Option<Arc<dyn NodeApplicationStatusOwner>>,
-    configuration: NodeControlSessionConfiguration,
+    /// Heartbeat, manager silence, status slots and retry pauses of the stream.
+    timing: NodeControlTiming,
     clock: Arc<dyn Clock>,
 }
 
@@ -98,6 +85,11 @@ impl NodeControlSession {
     /// install through `installer` into `authority`, status is built from the owners with
     /// accelerator memory attributed from one collection of `inventory`, and the latest
     /// observation comes from `observations`.
+    ///
+    /// The node sends a heartbeat after an idle heartbeat interval, and reopens the stream after
+    /// the manager stays silent past its silence, which also bounds the wait for the manager's
+    /// answer to an open. A changed status is looked for at every wall-aligned check slot, and
+    /// triggered statuses go out at the end of the current wall-aligned coalesce window.
     #[expect(
         clippy::too_many_arguments,
         reason = "each argument is a distinct node-lifetime dependency injected by composition"
@@ -113,7 +105,7 @@ impl NodeControlSession {
         state: FileNodeState,
         model: Arc<dyn NodeModelStatusOwner>,
         application: Option<Arc<dyn NodeApplicationStatusOwner>>,
-        configuration: NodeControlSessionConfiguration,
+        timing: NodeControlTiming,
         clock: Arc<dyn Clock>,
     ) -> Self {
         let open = NodeControlOpen {
@@ -132,7 +124,7 @@ impl NodeControlSession {
             state,
             model,
             application,
-            configuration,
+            timing,
             clock,
         }
     }
@@ -173,11 +165,13 @@ impl NodeControlSession {
             acknowledgement_sequence: 1,
             status_rejected: false,
         };
-        let mut backoff = RetryBackoff::default();
+        let mut backoff = RetryBackoff::new(self.timing.stream_retry);
         loop {
             match self.serve_stream(&mut cursors, &mut triggers).await {
                 StreamOutcome::NotOpened => {}
-                StreamOutcome::Ended => backoff = RetryBackoff::default(),
+                StreamOutcome::Ended => {
+                    backoff = RetryBackoff::new(self.timing.stream_retry);
+                }
                 StreamOutcome::Stopped => return,
             }
             backoff.wait(self.clock.as_ref()).await;
@@ -198,7 +192,7 @@ impl NodeControlSession {
             .expect("a new outbound queue has room for the open");
         let opened = within(
             self.clock.as_ref(),
-            self.configuration.manager_silence_bound,
+            self.timing.manager_silence,
             self.open_stream(receiver),
         )
         .await
@@ -239,7 +233,7 @@ impl NodeControlSession {
             stream,
             last_sent: now,
             last_received: now,
-            next_status_check: self.aligned_deadline(self.configuration.status_check_interval),
+            next_status_check: self.aligned_deadline(self.timing.status_check_interval),
             status_due: None,
             status_in_flight: None,
             status_wanted: false,
@@ -321,8 +315,8 @@ impl NodeControlSession {
             return end;
         }
         loop {
-            let heartbeat_at = link.last_sent + self.configuration.heartbeat_interval;
-            let silent_at = link.last_received + self.configuration.manager_silence_bound;
+            let heartbeat_at = link.last_sent + self.timing.heartbeat_interval;
+            let silent_at = link.last_received + self.timing.manager_silence;
             let event = tokio::select! {
                 biased;
                 message = inbound.next() => match message {
@@ -371,7 +365,7 @@ impl NodeControlSession {
                 Event::StatusCheck => {
                     // The check runs at a wall boundary, so a change it finds goes out at once.
                     link.next_status_check =
-                        self.aligned_deadline(self.configuration.status_check_interval);
+                        self.aligned_deadline(self.timing.status_check_interval);
                     if self.status_changed(link) {
                         self.send_status(link, cursors).await
                     } else {
@@ -571,7 +565,7 @@ impl NodeControlSession {
     fn request_status(&self, link: &mut StreamLink) {
         link.status_wanted = true;
         if link.status_due.is_none() {
-            link.status_due = Some(self.aligned_deadline(STATUS_COALESCE_INTERVAL));
+            link.status_due = Some(self.aligned_deadline(self.timing.status_coalesce_window));
         }
     }
 
@@ -767,66 +761,6 @@ impl Drop for NodeControlSessionTask {
         self.task.abort();
     }
 }
-
-/// Timing of a node's control stream.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct NodeControlSessionConfiguration {
-    heartbeat_interval: Duration,
-    manager_silence_bound: Duration,
-    status_check_interval: Duration,
-}
-
-impl NodeControlSessionConfiguration {
-    /// Sends a heartbeat after `heartbeat_interval` without any other message, and reopens the
-    /// stream after `manager_silence_bound` without any manager message, which also bounds the
-    /// wait for the manager's answer to an open. A changed status is looked for at every wall-second
-    /// boundary, and triggered statuses go out at the next one.
-    pub fn new(
-        heartbeat_interval: Duration,
-        manager_silence_bound: Duration,
-    ) -> Result<Self, NodeControlSessionConfigurationError> {
-        if heartbeat_interval.is_zero() || manager_silence_bound.is_zero() {
-            return Err(NodeControlSessionConfigurationError);
-        }
-        Ok(Self {
-            heartbeat_interval,
-            manager_silence_bound,
-            status_check_interval: DEFAULT_STATUS_CHECK_INTERVAL,
-        })
-    }
-
-    /// Pause after the node's last message before it sends a heartbeat.
-    pub fn heartbeat_interval(&self) -> Duration {
-        self.heartbeat_interval
-    }
-
-    /// Manager silence after which the node reopens its stream.
-    pub fn manager_silence_bound(&self) -> Duration {
-        self.manager_silence_bound
-    }
-
-    /// Checks for an unannounced status change every `interval` instead of every second.
-    #[cfg(test)]
-    fn with_status_check_interval(mut self, interval: Duration) -> Self {
-        self.status_check_interval = interval;
-        self
-    }
-}
-
-impl Default for NodeControlSessionConfiguration {
-    fn default() -> Self {
-        Self {
-            heartbeat_interval: DEFAULT_HEARTBEAT_INTERVAL,
-            manager_silence_bound: DEFAULT_MANAGER_SILENCE_BOUND,
-            status_check_interval: DEFAULT_STATUS_CHECK_INTERVAL,
-        }
-    }
-}
-
-/// An invalid node control stream timing.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-#[error("the node heartbeat interval and manager silence bound must be nonzero")]
-pub struct NodeControlSessionConfigurationError;
 
 /// The node's latest observation, shared between its reporter and its control stream: the stream
 /// sends each new one and re-sends the latest on every open.
@@ -1069,25 +1003,23 @@ enum StreamOutcome {
     Stopped,
 }
 
-/// Exponential pause between failed opens, bounded by the manager's longest retry backoff.
+/// Exponential pause between failed opens, bounded by the longest retry pause.
 struct RetryBackoff {
     next: Duration,
-}
-
-impl Default for RetryBackoff {
-    fn default() -> Self {
-        Self {
-            next: INITIAL_RETRY_BACKOFF,
-        }
-    }
+    max: Duration,
 }
 
 impl RetryBackoff {
+    fn new(backoff: Backoff) -> Self {
+        Self {
+            next: backoff.initial,
+            max: backoff.max,
+        }
+    }
+
     async fn wait(&mut self, clock: &dyn Clock) {
-        clock.sleep_until(clock.now() + self.next).await;
-        self.next = (self.next * 2).min(Duration::from_millis(u64::from(
-            MAXIMUM_RETRY_BACKOFF_MILLIS,
-        )));
+        clock.sleep(self.next).await;
+        self.next = (self.next * 2).min(self.max);
     }
 }
 

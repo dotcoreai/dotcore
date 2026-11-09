@@ -822,7 +822,7 @@ fn qualification_target_capabilities(
             ),
         ),
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             EXECUTION_TARGET_ID,

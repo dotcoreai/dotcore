@@ -587,6 +587,7 @@ fn request_requires_image(request: &InferenceRequest) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::inference::v1::{
         ChatContentPart, ChatImageContent, ChatImageMediaType, ChatMessage, ChatRequest,
         DecisionRequest, FallbackGroup, chat_content_part,
@@ -1141,17 +1142,20 @@ mod tests {
         let authority = TestAuthority::new();
         let (worker_certificate, _) = authority.issue("site-one", "worker-one", true);
         PeerInferenceClient::new(
-            Some(WorkerChannels::new(&authority.private_configuration(
-                "site-one",
-                "manager-one",
-                PrivateNodeRole::Manager,
-                authority.issue("site-one", "manager-one", false),
-                [(
-                    "worker-one",
-                    PrivateNodeRole::Worker,
-                    worker_certificate.as_slice(),
-                )],
-            ))),
+            Some(WorkerChannels::new(
+                &authority.private_configuration(
+                    "site-one",
+                    "manager-one",
+                    PrivateNodeRole::Manager,
+                    authority.issue("site-one", "manager-one", false),
+                    [(
+                        "worker-one",
+                        PrivateNodeRole::Worker,
+                        worker_certificate.as_slice(),
+                    )],
+                ),
+                Timing::test().private,
+            )),
             crate::router::peer_service::test_support::Fixture::installed(
                 crate::router::peer_service::test_support::Script::Complete,
             )

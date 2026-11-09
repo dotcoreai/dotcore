@@ -10,8 +10,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::SiteNodeId;
-use dotcore_domain::clock::Clock;
+use dotcore_domain::{SiteNodeId, clock::Clock, timing::NodeControlTiming};
 use dotcore_proto::{
     dotcore::{
         application::v1::ApplicationServiceAcceleratorMemory,
@@ -38,12 +37,6 @@ use crate::{
 };
 
 const MAX_OFFERED_VIEWS: usize = 32;
-const CONTROLLER_STATUS_FRESHNESS: Duration = Duration::from_secs(90);
-
-/// Default silence bound: the longest silence after which a node incarnation is no longer live.
-/// Every message of the incarnation's open node control stream renews it, so it is independent of
-/// the site's observation interval and of how long hardware collection takes.
-pub const LIVENESS_TTL: Duration = Duration::from_secs(10);
 
 /// Manager-side owner of node incarnations, protocol cursors, observations, and published views.
 ///
@@ -56,9 +49,9 @@ pub struct ManagerNodeControlCoordinator {
     manager_session: ManagerSession,
     /// Coordinator lock: outermost in the node-control lock order.
     state: Arc<Mutex<CoordinatorState>>,
-    status_freshness: Duration,
-    /// Longest silence after which an incarnation is no longer live, also the end of its serving.
-    silence_bound: Duration,
+    /// Node silence ending liveness and serving, and the ages after which statuses and
+    /// observations count as stale.
+    timing: Arc<NodeControlTiming>,
     /// Source of every contact, status, and serving instant, so they share one timeline.
     clock: Arc<dyn Clock>,
     /// Leaf signal for changed serving evidence, raised only after the coordinator lock drops.
@@ -66,38 +59,31 @@ pub struct ManagerNodeControlCoordinator {
 }
 
 impl ManagerNodeControlCoordinator {
-    /// Creates a coordinator on system time, for unit tests that do not control time.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn new(manager_session: ManagerSession) -> Self {
-        Self::with_clock(
-            manager_session,
-            Arc::new(dotcore_domain::clock::SystemClock),
-        )
-    }
-
     /// Creates a coordinator that reads contact, status and serving time from `clock`, the
     /// clock of the backend it is composed in.
-    pub fn with_clock(manager_session: ManagerSession, clock: Arc<dyn Clock>) -> Self {
+    ///
+    /// Liveness ends after the node silence without contact, and a controller status stays fresh
+    /// for its maximum age. Every message of the incarnation's open node control stream renews
+    /// liveness, so it is independent of the site's observation interval and of how long hardware
+    /// collection takes.
+    pub fn new(
+        manager_session: ManagerSession,
+        timing: NodeControlTiming,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         Self {
             manager_session,
             state: Arc::new(Mutex::new(CoordinatorState::default())),
-            status_freshness: CONTROLLER_STATUS_FRESHNESS,
-            silence_bound: LIVENESS_TTL,
+            timing: Arc::new(timing),
             clock,
             serving_evidence_changed: Arc::new(Notify::new()),
         }
     }
 
-    /// Ends liveness after `silence_bound` without contact instead of [`LIVENESS_TTL`].
-    pub fn with_silence_bound(mut self, silence_bound: Duration) -> Self {
-        self.silence_bound = silence_bound;
-        self
-    }
-
-    /// Longest silence after which a node incarnation is no longer live; a node control stream
-    /// silent this long is ended.
-    pub fn silence_bound(&self) -> Duration {
-        self.silence_bound
+    /// Timing this coordinator judges liveness and freshness by, which the node control streams
+    /// and the node registry follow too.
+    pub fn timing(&self) -> &NodeControlTiming {
+        &self.timing
     }
 
     pub fn manager_session(&self) -> &ManagerSession {
@@ -156,7 +142,7 @@ impl ManagerNodeControlCoordinator {
                     node_id: node_id.clone(),
                     incarnation: incarnation.clone(),
                     private_port: observation.private_port,
-                    connected_until: incarnation_state.live_until(self.silence_bound)?,
+                    connected_until: incarnation_state.live_until(self.timing.node_silence)?,
                     status: incarnation_state.accepted_status.as_ref().map(|status| {
                         ServingStatusEvidence {
                             received: status.received_monotonic,
@@ -285,7 +271,7 @@ impl ManagerNodeControlCoordinator {
                 let replaceable = node
                     .incarnations
                     .get(current)
-                    .is_none_or(|state| !state.connected_at(now, self.silence_bound));
+                    .is_none_or(|state| !state.connected_at(now, self.timing.node_silence));
                 if !replaceable {
                     return Err(IncarnationFenceError::CurrentIncarnationActive);
                 }
@@ -401,7 +387,7 @@ impl ManagerNodeControlCoordinator {
             && node
                 .incarnations
                 .get(current)
-                .is_some_and(|state| state.connected_at(now, self.silence_bound))
+                .is_some_and(|state| state.connected_at(now, self.timing.node_silence))
         {
             return Err(IncarnationFenceError::CurrentIncarnationActive);
         }
@@ -663,9 +649,11 @@ impl ManagerNodeControlCoordinator {
         deployments
             .iter()
             .map(|deployment| {
-                let Some(status) = state.nodes.get(deployment.node_id).and_then(|node| {
-                    node.public_status(now, self.status_freshness, self.silence_bound)
-                }) else {
+                let Some(status) = state
+                    .nodes
+                    .get(deployment.node_id)
+                    .and_then(|node| node.public_status(now, *self.timing))
+                else {
                     return (DeploymentStatusEvidence::Unavailable, None);
                 };
                 // The status's view revision is not compared: a status accepted against an
@@ -706,12 +694,7 @@ impl ManagerNodeControlCoordinator {
         incarnation: &IncarnationState,
         observation: &AcceptedNodeObservation,
     ) -> CoordinatorConnectionState {
-        connection_state(
-            incarnation,
-            observation,
-            self.clock.now(),
-            self.silence_bound,
-        )
+        connection_state(incarnation, observation, self.clock.now(), *self.timing)
     }
 
     /// Opens a node control stream of `incarnation` for `node_id`, publishes `input` as its first
@@ -743,6 +726,19 @@ impl ManagerNodeControlCoordinator {
                 view_revision: identity.view_revision,
                 content_sha256: identity.content_sha256,
             },
+        )
+    }
+
+    /// Creates a coordinator on system time and the test timing, for unit tests that do not
+    /// control time.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn on_system_clock(manager_session: ManagerSession) -> Self {
+        use dotcore_domain::{clock::SystemClock, timing::Timing};
+
+        Self::new(
+            manager_session,
+            Timing::test().node_control,
+            Arc::new(SystemClock),
         )
     }
 }
@@ -926,17 +922,17 @@ impl CoordinatorNode {
     }
 
     /// Returns the current incarnation's accepted status while it is public evidence: the
-    /// node is live and the status is within `freshness`. Observation age plays no part.
+    /// node is live and the status is within its maximum age. Observation age plays no part.
     fn public_status(
         &self,
         now: Instant,
-        freshness: Duration,
-        silence_bound: Duration,
+        timing: NodeControlTiming,
     ) -> Option<&AcceptedControllerStatus> {
         let incarnation = self.incarnations.get(self.current_incarnation.as_ref()?)?;
         incarnation.accepted_status.as_ref().filter(|status| {
-            incarnation.live_at(now, silence_bound)
-                && now.saturating_duration_since(status.received_monotonic) <= freshness
+            incarnation.live_at(now, timing.node_silence)
+                && now.saturating_duration_since(status.received_monotonic)
+                    <= timing.controller_status_max_age
         })
     }
 
@@ -1069,20 +1065,20 @@ impl IncarnationState {
         self.last_contact = Some(now);
     }
 
-    /// Whether this incarnation was in contact within `silence_bound` of `now`.
-    fn live_at(&self, now: Instant, silence_bound: Duration) -> bool {
-        self.live_until(silence_bound)
+    /// Whether this incarnation was in contact within `node_silence` of `now`.
+    fn live_at(&self, now: Instant, node_silence: Duration) -> bool {
+        self.live_until(node_silence)
             .is_some_and(|until| now <= until)
     }
 
-    fn live_until(&self, silence_bound: Duration) -> Option<Instant> {
-        self.last_contact.map(|contact| contact + silence_bound)
+    fn live_until(&self, node_silence: Duration) -> Option<Instant> {
+        self.last_contact.map(|contact| contact + node_silence)
     }
 
     /// Whether this incarnation is connected: live, and its control stream, if it ever opened
     /// one, not closed. Serving evidence follows liveness alone.
-    fn connected_at(&self, now: Instant, silence_bound: Duration) -> bool {
-        self.live_at(now, silence_bound) && self.stream != StreamPresence::Closed
+    fn connected_at(&self, now: Instant, node_silence: Duration) -> bool {
+        self.live_at(now, node_silence) && self.stream != StreamPresence::Closed
     }
 
     /// Whether an exchange of this incarnation still renews its liveness: never after its stream
@@ -1136,18 +1132,18 @@ struct AcceptedNodeObservation {
 }
 
 /// Classifies one incarnation: Disconnected once its stream closed or without contact within the
-/// silence bound, otherwise Connected while its latest observation is within the shared
-/// capability age and Stale once that observation is overdue.
+/// node silence, otherwise Connected while its latest observation is within the capability age
+/// and Stale once that observation is overdue.
 fn connection_state(
     incarnation: &IncarnationState,
     observation: &AcceptedNodeObservation,
     now: Instant,
-    silence_bound: Duration,
+    timing: NodeControlTiming,
 ) -> CoordinatorConnectionState {
-    if !incarnation.connected_at(now, silence_bound) {
+    if !incarnation.connected_at(now, timing.node_silence) {
         CoordinatorConnectionState::Disconnected
     } else if now.saturating_duration_since(observation.received_monotonic)
-        <= crate::node::target_inventory::TARGET_CAPABILITY_MAX_AGE
+        <= timing.capability_max_age
     {
         CoordinatorConnectionState::Connected
     } else {
@@ -1289,7 +1285,10 @@ mod tests {
         time::Duration,
     };
 
-    use dotcore_domain::clock::ManualClock;
+    use dotcore_domain::{
+        clock::{ManualClock, SystemClock},
+        timing::Timing,
+    };
     use dotcore_proto::{
         dotcore::{
             application::private::v1::{
@@ -1347,7 +1346,7 @@ mod tests {
             })
             .expect("first status");
 
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
+        clock.advance(Timing::production().node_control.node_silence + Duration::from_secs(1));
         coordinator
             .register_observation(
                 &observation_request(&replacement, 1),
@@ -1396,7 +1395,7 @@ mod tests {
             })
             .expect("first status");
 
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
+        clock.advance(Timing::production().node_control.node_silence + Duration::from_secs(1));
         coordinator
             .register_observation(
                 &observation_request(&replacement, 1),
@@ -1588,7 +1587,7 @@ mod tests {
         stay_in_contact(
             &coordinator,
             &incarnation,
-            CONTROLLER_STATUS_FRESHNESS + Duration::from_secs(1),
+            Timing::production().node_control.controller_status_max_age + Duration::from_secs(1),
         )
         .await;
         assert_eq!(
@@ -1712,7 +1711,12 @@ mod tests {
         let old = publish(&coordinator, &incarnation, "old").expect("publication");
         accept_model_status(&coordinator, &incarnation, &old, 1, "model-one", 7);
         publish(&coordinator, &incarnation, "new").expect("newer publication");
-        stay_in_contact(&coordinator, &incarnation, CONTROLLER_STATUS_FRESHNESS).await;
+        stay_in_contact(
+            &coordinator,
+            &incarnation,
+            Timing::production().node_control.controller_status_max_age,
+        )
+        .await;
         assert_eq!(
             evidence(&coordinator, "model-one", 8),
             DeploymentStatusEvidence::AcknowledgementPending
@@ -1869,12 +1873,16 @@ mod tests {
         );
         let serving = coordinator.serving_evidence();
         assert_eq!(serving.len(), 1);
-        assert_eq!(serving[0].connected_until, Instant::now() + LIVENESS_TTL);
+        assert_eq!(
+            serving[0].connected_until,
+            Instant::now() + Timing::production().node_control.node_silence
+        );
         assert!(serving[0].status.is_some());
     }
 
     #[tokio::test(start_paused = true)]
     async fn fenced_requests_never_renew_liveness() {
+        let timing = Timing::production().node_control;
         let coordinator = coordinator();
         let first = incarnation('1');
         coordinator
@@ -1883,7 +1891,7 @@ mod tests {
                 observation_input(&first, 1),
             )
             .expect("first observation");
-        tokio::time::advance(LIVENESS_TTL + Duration::from_secs(1)).await;
+        tokio::time::advance(timing.node_silence + Duration::from_secs(1)).await;
         let replacement = incarnation('2');
         coordinator
             .register_observation(
@@ -1896,7 +1904,7 @@ mod tests {
 
         // For the whole window, the replaced process keeps reopening its stream and the current
         // one sends only statuses for a view it was never offered; neither counts as contact.
-        for sequence in 2..=(LIVENESS_TTL.as_secs() + 1) {
+        for sequence in 2..=(timing.node_silence.as_secs() + 1) {
             tokio::time::advance(Duration::from_secs(1)).await;
             assert!(matches!(
                 publish(&coordinator, &first, "replaced"),
@@ -1942,7 +1950,7 @@ mod tests {
             )
             .expect("first observation");
 
-        clock.advance(LIVENESS_TTL);
+        clock.advance(Timing::production().node_control.node_silence);
         assert!(matches!(
             coordinator.register_observation(
                 &observation_request(&replacement, 1),
@@ -2009,7 +2017,8 @@ mod tests {
     }
 
     #[test]
-    fn a_closed_stream_disconnects_at_once_while_serving_keeps_the_silence_bound() {
+    fn a_closed_stream_disconnects_at_once_while_serving_keeps_the_node_silence() {
+        let timing = Timing::production().node_control;
         let clock = ManualClock::new();
         let coordinator = controlled_coordinator(&clock);
         let node = incarnation('1');
@@ -2044,9 +2053,9 @@ mod tests {
         let (_, connected_until, _) = before.expect("serving evidence");
         assert_eq!(
             connected_until,
-            coordinator_contact(&coordinator) + LIVENESS_TTL
+            coordinator_contact(&coordinator) + timing.node_silence
         );
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
+        clock.advance(timing.node_silence + Duration::from_secs(1));
         assert!(
             serving_snapshot(&coordinator)
                 .is_some_and(|(_, until, _)| until < coordinator.clock().now()),
@@ -2245,24 +2254,35 @@ mod tests {
     }
 
     #[test]
-    fn a_configured_silence_bound_sets_liveness_and_serving() {
+    fn a_configured_node_silence_sets_liveness_and_serving() {
+        let timing = Timing::production().node_control;
         let clock = ManualClock::new();
-        let bound = Duration::from_secs(60);
-        let coordinator = controlled_coordinator(&clock).with_silence_bound(bound);
+        let node_silence = Duration::from_secs(60);
+        let coordinator = ManagerNodeControlCoordinator::new(
+            manager_session(),
+            NodeControlTiming {
+                node_silence,
+                ..timing
+            },
+            Arc::new(clock.clone()),
+        );
         let node = incarnation('1');
         coordinator
             .register_observation(&observation_request(&node, 1), observation_input(&node, 1))
             .expect("observation");
 
-        clock.advance(LIVENESS_TTL + Duration::from_secs(1));
-        assert_eq!(coordinator.silence_bound(), bound);
+        clock.advance(timing.node_silence + Duration::from_secs(1));
+        assert_eq!(coordinator.timing().node_silence, node_silence);
         assert_eq!(
             connection(&coordinator),
             CoordinatorConnectionState::Connected
         );
         let (_, connected_until, _) = serving_snapshot(&coordinator).expect("serving");
-        assert_eq!(connected_until, coordinator_contact(&coordinator) + bound);
-        clock.advance(bound);
+        assert_eq!(
+            connected_until,
+            coordinator_contact(&coordinator) + node_silence
+        );
+        clock.advance(node_silence);
         assert_eq!(
             connection(&coordinator),
             CoordinatorConnectionState::Disconnected
@@ -2270,7 +2290,11 @@ mod tests {
     }
 
     fn coordinator() -> ManagerNodeControlCoordinator {
-        ManagerNodeControlCoordinator::new(manager_session())
+        ManagerNodeControlCoordinator::new(
+            manager_session(),
+            Timing::production().node_control,
+            Arc::new(SystemClock),
+        )
     }
 
     /// Publishes worker-one's view on its stream of `epoch` under `sequence`.
@@ -2351,7 +2375,11 @@ mod tests {
     }
 
     fn controlled_coordinator(clock: &ManualClock) -> ManagerNodeControlCoordinator {
-        ManagerNodeControlCoordinator::with_clock(manager_session(), Arc::new(clock.clone()))
+        ManagerNodeControlCoordinator::new(
+            manager_session(),
+            Timing::production().node_control,
+            Arc::new(clock.clone()),
+        )
     }
 
     fn manager_session() -> ManagerSession {
@@ -2384,7 +2412,7 @@ mod tests {
         let attachment = coordinator
             .open_stream("worker-one", incarnation)
             .expect("open stream");
-        let step = LIVENESS_TTL / 2;
+        let step = Timing::production().node_control.node_silence / 2;
         let mut remaining = duration;
         while !remaining.is_zero() {
             let advanced = remaining.min(step);

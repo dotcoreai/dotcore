@@ -57,7 +57,7 @@ use crate::{
 #[tokio::test]
 async fn manager_node_runtime_actions_run_under_leased_authority() {
     let site = LocalNodeSite::new();
-    let harness = LocalNodeHarness::start(&site, BackendTestSupport::default()).await;
+    let harness = LocalNodeHarness::start(&site, BackendTestSupport::test()).await;
     let deployment_id = harness.create(None).await;
     harness
         .wait_for_status(&deployment_id, ModelDeploymentStatus::Ready)
@@ -97,7 +97,7 @@ async fn manager_node_runtime_actions_run_under_leased_authority() {
 #[tokio::test]
 async fn manager_node_inference_and_logs_go_in_process_without_a_private_listener() {
     let site = LocalNodeSite::new();
-    let harness = LocalNodeHarness::start(&site, BackendTestSupport::default()).await;
+    let harness = LocalNodeHarness::start(&site, BackendTestSupport::test()).await;
     let deployment_id = harness.create(Some("manager-route")).await;
     harness
         .wait_for_status(&deployment_id, ModelDeploymentStatus::Ready)
@@ -166,7 +166,7 @@ async fn manager_node_teardown_completes_through_cleanup_evidence_and_a_receipt_
         .with_retained_workloads();
     let test_support = BackendTestSupport {
         simulated_runtime: Some(runtime),
-        ..BackendTestSupport::default()
+        ..BackendTestSupport::test()
     };
     let harness = LocalNodeHarness::start(&site, test_support.clone()).await;
     let deployment_id = harness.create(None).await;
@@ -222,7 +222,7 @@ async fn a_manager_restart_finds_running_manager_node_workloads_without_relaunch
         .with_retained_workloads();
     let test_support = BackendTestSupport {
         simulated_runtime: Some(runtime.clone()),
-        ..BackendTestSupport::default()
+        ..BackendTestSupport::test()
     };
     let harness = LocalNodeHarness::start(&site, test_support.clone()).await;
     let deployment_id = harness.create(Some("restart-route")).await;
@@ -256,7 +256,7 @@ async fn a_manager_restart_finds_running_manager_node_workloads_without_relaunch
 async fn the_manager_node_pins_a_synthetic_local_development_image_and_the_site_records_it() {
     // A simulated target pins without the node's image store, which holds no image here.
     let site = LocalNodeSite::new().with_tag_only_engine();
-    let harness = LocalNodeHarness::start(&site, BackendTestSupport::default()).await;
+    let harness = LocalNodeHarness::start(&site, BackendTestSupport::test()).await;
 
     let deployment_id = harness.create(None).await;
     harness
@@ -277,7 +277,7 @@ async fn the_manager_node_pins_a_synthetic_local_development_image_and_the_site_
 #[tokio::test]
 async fn the_manager_node_pins_a_development_source_engine_once_and_keeps_it_across_a_restart() {
     let site = LocalNodeSite::new().with_development_source_engine();
-    let harness = LocalNodeHarness::start(&site, BackendTestSupport::default()).await;
+    let harness = LocalNodeHarness::start(&site, BackendTestSupport::test()).await;
     let deployment_id = harness.create(None).await;
     harness
         .wait_for_status(&deployment_id, ModelDeploymentStatus::Ready)
@@ -317,7 +317,7 @@ async fn the_manager_node_pins_a_development_source_engine_once_and_keeps_it_acr
 
     // A restarted manager keeps the store path its node pinned first.
     site.wait_for_release().await;
-    let restarted = LocalNodeHarness::start(&site, BackendTestSupport::default()).await;
+    let restarted = LocalNodeHarness::start(&site, BackendTestSupport::test()).await;
     restarted
         .wait_for_status(&deployment_id, ModelDeploymentStatus::Ready)
         .await;
@@ -338,7 +338,7 @@ async fn exactly_one_node_realizer_acts_on_a_manager_node_application_and_report
         &site,
         BackendTestSupport {
             simulated_runtime: Some(runtime.clone()),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
     )
     .await;
@@ -399,7 +399,7 @@ async fn a_manager_node_application_relaunches_when_its_linked_route_is_renamed(
         &site,
         BackendTestSupport {
             simulated_runtime: Some(runtime.clone()),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
     )
     .await;
@@ -458,7 +458,7 @@ async fn manager_node_application_teardown_completes_through_cleanup_evidence_an
         &site,
         BackendTestSupport {
             simulated_runtime: Some(runtime.clone()),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
     )
     .await;
@@ -523,7 +523,7 @@ async fn a_manager_restart_finds_a_running_manager_node_application_without_rela
         .with_retained_workloads();
     let test_support = BackendTestSupport {
         simulated_runtime: Some(runtime.clone()),
-        ..BackendTestSupport::default()
+        ..BackendTestSupport::test()
     };
     let harness = LocalNodeHarness::start(&site, test_support.clone()).await;
     let deployment_id = harness.create_application(None).await;
@@ -577,7 +577,7 @@ async fn manager_node_application_logs_read_in_process_without_a_private_listene
             simulated_runtime: Some(SimulatedRuntimeTestSupport::with_application_endpoint(
                 health.port(),
             )),
-            ..BackendTestSupport::default()
+            ..BackendTestSupport::test()
         },
     )
     .await;

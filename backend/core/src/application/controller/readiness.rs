@@ -11,6 +11,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr},
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentState, ApplicationEndpoint,
@@ -163,7 +164,7 @@ pub(super) async fn primary_endpoint_ready(
         .ok_or_else(|| configuration("Application endpoint has invalid protocol"))?
         .parse::<SocketAddr>()
         .map_err(|source| configuration_with_source("Application endpoint is invalid", source))?;
-    let result = tokio::time::timeout(READINESS_TIMEOUT, async {
+    let result = real_time::bound(READINESS_TIMEOUT, async {
         let mut stream = tokio::net::TcpStream::connect(address).await?;
         stream
             .write_all(

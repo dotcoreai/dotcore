@@ -1,5 +1,6 @@
 //! Inference request timeout and client-disconnect watchers.
 
+use dotcore_domain::real_time;
 use tokio::{io::AsyncReadExt, sync::watch};
 use tracing::{Instrument, Span};
 
@@ -54,7 +55,7 @@ impl RequestWatchers {
         let sender = self.sender.clone();
         self.timeout = Some(tokio::spawn(
             async move {
-                tokio::time::sleep_until(deadline).await;
+                real_time::deadline(deadline).await;
                 signal(&sender, RequestCancellationReason::RequestTimedOut);
             }
             .instrument(Span::current()),

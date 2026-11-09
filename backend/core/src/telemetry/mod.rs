@@ -15,6 +15,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::{
     dotcore::telemetry::v1::{WorkloadResourceRecord, WorkloadResourceSource},
     google::protobuf::Timestamp,
@@ -159,7 +160,7 @@ fn new_record_id() -> String {
     let mut bytes = [0_u8; 16];
     // A clock-derived id still dedupes correctly when entropy is unavailable.
     if getrandom::fill(&mut bytes).is_err() {
-        let nanos = SystemTime::now()
+        let nanos = real_time::wall_now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();

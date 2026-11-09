@@ -16,7 +16,9 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::{HostResolver, SiteNodeHost, SystemHostResolver};
+use dotcore_domain::{
+    HostResolver, SiteNodeHost, SystemHostResolver, real_time, timing::JoinTiming,
+};
 use dotcore_proto::dotcore::{
     node::v1::{
         CommitRequest, CommitResponse, JoinRequest, JoinResponse, NodeObservationConfiguration,
@@ -68,11 +70,13 @@ impl JoinHost {
         settings: JoinHostSettings,
         site: Arc<dyn JoinSiteWriter>,
         approval: Arc<dyn JoinApproval>,
+        timing: JoinTiming,
     ) -> Self {
         let (finished, _) = watch::channel(false);
         Self {
             shared: HostShared {
                 settings,
+                timing,
                 site,
                 approval,
                 resolver: Arc::new(SystemHostResolver),
@@ -97,6 +101,7 @@ impl JoinHost {
         let shared = Arc::new(self.shared);
         shared.validate_settings().await?;
         let limits = shared.settings.limits.clone();
+        let timing = shared.timing;
         let identity = &shared.settings.identity;
         let tls = ServerTlsConfig::new()
             .identity(Identity::from_pem(
@@ -107,7 +112,7 @@ impl JoinHost {
                 ),
                 pem("PRIVATE KEY", &identity.private_key_pkcs8),
             ))
-            .timeout(limits.handshake_timeout);
+            .timeout(HANDSHAKE_TIMEOUT);
         if let Ok(address) = listener.local_addr() {
             info!(%address, site_id = %identity.site_id, "node join host listening");
         }
@@ -115,7 +120,7 @@ impl JoinHost {
         let closed = Arc::clone(&shared);
         let connections = Arc::new(JoinConnections::new(
             limits.max_connections,
-            limits.idle_timeout,
+            timing.idle_timeout,
             move |connection| closed.connection_closed(connection),
         ));
         // The server ignores its own TCP options for a supplied stream, so each accepted socket
@@ -128,12 +133,13 @@ impl JoinHost {
         });
         let shutdown_shared = Arc::clone(&shared);
         let shutdown = async move {
-            tokio::select! {
-                () = shutdown_shared.wait_finished() => {}
-                () = tokio::time::sleep(limits.overall_timeout) => {
-                    shutdown_shared.stop(JoinHostError::Expired);
-                    shutdown_shared.wait_finished().await;
-                }
+            let finished = shutdown_shared.wait_finished();
+            if real_time::bound(limits.overall_timeout, finished)
+                .await
+                .is_err()
+            {
+                shutdown_shared.stop(JoinHostError::Expired);
+                shutdown_shared.wait_finished().await;
             }
         };
         let server = tonic::transport::Server::builder()
@@ -148,7 +154,7 @@ impl JoinHost {
         // unrelated idle client can delay the result once the join has finished.
         let grace = async {
             shared.wait_finished().await;
-            tokio::time::sleep(limits.shutdown_grace).await;
+            real_time::pause(timing.shutdown_timeout).await;
         };
         tokio::select! {
             served = server => served.map_err(JoinHostError::Transport)?,
@@ -175,7 +181,7 @@ pub struct JoinHostSettings {
     /// joining node's own address behind loopback, so this stays off outside same-machine tests.
     pub allow_observed_loopback: bool,
 
-    /// Timeouts and attempt limits.
+    /// Token lifetime and attempt limits.
     pub limits: JoinHostLimits,
 }
 
@@ -236,41 +242,31 @@ impl fmt::Debug for JoinHostIdentity {
     }
 }
 
-/// Timeouts and attempt limits of a join host.
+/// Token lifetime and attempt limits of a join host.
 #[derive(Clone, Debug)]
 pub struct JoinHostLimits {
     /// Lifetime of the token; the host stops when it ends without a committed node.
     pub overall_timeout: Duration,
-
-    /// Longest TLS handshake one connection may take.
-    pub handshake_timeout: Duration,
-
-    /// Longest silence of a connection with no request in progress, including between an offer
-    /// and its commit.
-    pub idle_timeout: Duration,
 
     /// Connections open at once; further connections are refused until one closes.
     pub max_connections: usize,
 
     /// Wrong secrets accepted across all connections before the host stops.
     pub max_failed_attempts: u32,
-
-    /// Longest wait for open connections to close once the join has finished.
-    pub shutdown_grace: Duration,
 }
 
 impl Default for JoinHostLimits {
     fn default() -> Self {
         Self {
             overall_timeout: Duration::from_secs(15 * 60),
-            handshake_timeout: Duration::from_secs(10),
-            idle_timeout: Duration::from_secs(60),
             max_connections: 16,
             max_failed_attempts: 5,
-            shutdown_grace: Duration::from_secs(5),
         }
     }
 }
+
+/// Longest TLS handshake one join connection may take.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// The site authority a join host reads, signs with, and records into. The offline
 /// implementation holds the exclusive site lock; a running manager supplies its own.
@@ -519,6 +515,7 @@ pub enum JoinHostError {
 
 struct HostShared {
     settings: JoinHostSettings,
+    timing: JoinTiming,
     site: Arc<dyn JoinSiteWriter>,
     approval: Arc<dyn JoinApproval>,
     resolver: Arc<dyn HostResolver>,

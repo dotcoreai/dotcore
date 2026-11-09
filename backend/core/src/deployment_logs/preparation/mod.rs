@@ -1176,6 +1176,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 mod tests {
     use std::num::NonZeroU16;
 
+    use dotcore_domain::clock::SystemClock;
     use tokio_util::sync::CancellationToken;
 
     use super::*;
@@ -1394,11 +1395,7 @@ mod tests {
     async fn a_decision_outlives_the_rotation_that_drops_its_line() {
         let directory = tempfile::tempdir().unwrap();
         // Each record is 29 bytes, so each file holds two of them.
-        let logs = PreparationLogs::with_cap(
-            directory.path(),
-            Arc::new(dotcore_domain::clock::SystemClock),
-            58,
-        );
+        let logs = PreparationLogs::with_cap(directory.path(), Arc::new(SystemClock), 58);
         let writer = logs.writer(DEPLOYMENT, PreparationStep::EngineImage);
         let found = PreparationEventKind::AlreadyPrepared {
             artifact: "image".to_owned(),
@@ -1518,11 +1515,7 @@ mod tests {
     async fn rotation_drops_the_oldest_output_and_says_so() {
         let directory = tempfile::tempdir().unwrap();
         // Each record is 29 bytes, so each file holds two of them.
-        let logs = PreparationLogs::with_cap(
-            directory.path(),
-            Arc::new(dotcore_domain::clock::SystemClock),
-            58,
-        );
+        let logs = PreparationLogs::with_cap(directory.path(), Arc::new(SystemClock), 58);
         let writer = logs.writer(DEPLOYMENT, PreparationStep::EngineBuild);
         for second in 1..=4 {
             writer.append(

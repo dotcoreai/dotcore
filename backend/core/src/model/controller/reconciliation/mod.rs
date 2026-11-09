@@ -19,7 +19,12 @@ use dotcore_artifact::{
     ModelArtifactProgress, ModelArtifactProgressObserver, ModelArtifactStage,
     ModelArtifactStageObserver, PreparedModelArtifacts,
 };
-use dotcore_domain::diagnostic::diagnostic_chain;
+use dotcore_domain::{
+    clock::Clock,
+    diagnostic::diagnostic_chain,
+    real_time,
+    timing::{ModelTiming, ReconcileCadence, ReconcileOutcome},
+};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivationPhase, ModelDeploymentFailure,
     ModelDeploymentStatus,
@@ -70,7 +75,7 @@ where
     S: CurrentStateRepository,
     R: super::ModelRealizationResults,
 {
-    pub(super) async fn reconcile(&self) -> Result<ReconciliationState, ModelLifecycleError> {
+    pub(super) async fn reconcile(&self) -> Result<ReconcileOutcome, ModelLifecycleError> {
         let span = tracing::debug_span!(
             "model_reconcile",
             operation = "model_reconcile",
@@ -119,13 +124,13 @@ where
         result
     }
 
-    async fn reconcile_operation(&self) -> Result<ReconciliationState, ModelLifecycleError> {
+    async fn reconcile_operation(&self) -> Result<ReconcileOutcome, ModelLifecycleError> {
         let _reconciliation = self.reconciliation.lock().await;
         let result = async {
             self.pin_withheld_engines().await?;
             // A shut-down realizer starts no further work, such as a build or a workload.
             if self.shutdown.is_cancelled() {
-                return Ok(ReconciliationState::Settled);
+                return Ok(ReconcileOutcome::Settled);
             }
             self.initialize_missing_current_records().await?;
             let previously_realized_deployments = self
@@ -305,6 +310,7 @@ where
                 let mut publication = DownloadProgressPublication::new(
                     ticket.clone(),
                     download_progress_kind(requirements),
+                    self.timing,
                 );
                 publication.quiet_revalidation = quiet_revalidation;
                 let artifact_progress = publication.observer(progress_notification.clone());
@@ -366,14 +372,15 @@ where
             if model_tasks.is_empty() {
                 break;
             }
+            let now = self.clock.now();
             let next_progress_write = progress_publications
                 .values()
-                .filter_map(DownloadProgressPublication::next_due_write)
+                .filter_map(|publication| publication.next_due_write(now))
                 .min();
             let joined = tokio::select! {
                 biased;
                 joined = model_tasks.join_next() => joined,
-                () = wait_for_progress_write(next_progress_write) => {
+                () = wait_for_progress_write(self.clock.as_ref(), next_progress_write) => {
                     collect_observed_download_progress(&mut progress_publications);
                     self.flush_due_download_progress(
                         &mut progress_publications,
@@ -822,7 +829,7 @@ where
         publications: &mut BTreeMap<String, DownloadProgressPublication>,
         operations: &BTreeMap<String, LifecycleOperationToken>,
     ) -> Result<(), ModelLifecycleError> {
-        let now = Instant::now();
+        let now = self.clock.now();
         let due = publications
             .iter()
             .filter(|(_, publication)| publication.write_is_due(now))
@@ -934,7 +941,7 @@ where
         operation: &LifecycleOperationToken,
         force: bool,
     ) -> Result<(), ModelLifecycleError> {
-        let now = Instant::now();
+        let now = self.clock.now();
         let Some((ticket, observed, kind, first)) =
             publications.get(deployment_id).and_then(|publication| {
                 publication
@@ -1281,7 +1288,7 @@ where
         &self,
         preparations: &BTreeMap<String, PreparedDeployment>,
         previously_realized_deployments: &BTreeSet<String>,
-    ) -> Result<ReconciliationState, ModelLifecycleError> {
+    ) -> Result<ReconcileOutcome, ModelLifecycleError> {
         let site = site_with_deployments(&self.desired, &self.runtimes).map_err(desired_error)?;
         let observations = self.runtimes.discover_workloads().await?;
         validate_observations(&site, &self.runtimes, &observations)?;
@@ -1339,7 +1346,7 @@ where
             if is_absent(desired) {
                 pending |= matches!(
                     self.reconcile_absent(&site, desired, observation).await?,
-                    ReconciliationState::Pending
+                    ReconcileOutcome::Pending
                 );
                 continue;
             }
@@ -1351,7 +1358,7 @@ where
                     .withdraw_deployment(&ModelDeploymentId(desired.model_deployment_id.clone()));
                 pending |= matches!(
                     self.reconcile_paused(&site, desired, observation).await?,
-                    ReconciliationState::Pending
+                    ReconcileOutcome::Pending
                 );
                 continue;
             }
@@ -1601,9 +1608,9 @@ where
             }
         }
         Ok(if pending {
-            ReconciliationState::Pending
+            ReconcileOutcome::Pending
         } else {
-            ReconciliationState::Settled
+            ReconcileOutcome::Settled
         })
     }
 
@@ -2023,7 +2030,7 @@ where
         site: &dotcore_proto::dotcore::site::v1::Site,
         desired: &dotcore_proto::dotcore::model::v1::ModelDeploymentDeclaration,
         observation: Option<TargetObservation>,
-    ) -> Result<ReconciliationState, ModelLifecycleError> {
+    ) -> Result<ReconcileOutcome, ModelLifecycleError> {
         let reconcile_generation = observation
             .as_ref()
             .and_then(|target| observation_identity(&target.observation))
@@ -2044,7 +2051,7 @@ where
                     }
                     self.record_paused_state(desired, ModelDeploymentStatus::Unavailable)
                 })??;
-                Ok(ReconciliationState::Settled)
+                Ok(ReconcileOutcome::Settled)
             }
             PausedObservation::Exact(TargetObservation {
                 execution_target_id,
@@ -2063,7 +2070,7 @@ where
                 self.commit_operation(&operation, || {
                     self.record_paused_state(desired, ModelDeploymentStatus::Pausing)
                 })??;
-                Ok(ReconciliationState::Pending)
+                Ok(ReconcileOutcome::Pending)
             }
             PausedObservation::Exact(TargetObservation {
                 observation: WorkloadObservation::Stopping(_),
@@ -2072,7 +2079,7 @@ where
                 self.commit_operation(&operation, || {
                     self.record_paused_state(desired, ModelDeploymentStatus::Pausing)
                 })??;
-                Ok(ReconciliationState::Pending)
+                Ok(ReconcileOutcome::Pending)
             }
             PausedObservation::Exact(TargetObservation {
                 observation: WorkloadObservation::Stopped { .. },
@@ -2095,7 +2102,7 @@ where
                     reason = "workload_stopped",
                     "inactive model engine bindings retired"
                 );
-                Ok(ReconciliationState::Settled)
+                Ok(ReconcileOutcome::Settled)
             }
             PausedObservation::Exact(TargetObservation {
                 observation: WorkloadObservation::Absent(_),
@@ -2107,7 +2114,7 @@ where
                     }
                     self.record_paused_state(desired, ModelDeploymentStatus::Unavailable)
                 })??;
-                Ok(ReconciliationState::Settled)
+                Ok(ReconcileOutcome::Settled)
             }
             PausedObservation::Exact(TargetObservation {
                 observation: WorkloadObservation::Unknown { .. },
@@ -2132,13 +2139,13 @@ where
                 self.commit_operation(&operation, || {
                     self.record_paused_state(desired, ModelDeploymentStatus::Unavailable)
                 })??;
-                Ok(ReconciliationState::Settled)
+                Ok(ReconcileOutcome::Settled)
             }
             PausedObservation::Stale(_) => {
                 self.commit_operation(&operation, || {
                     self.record_paused_state(desired, ModelDeploymentStatus::Unavailable)
                 })??;
-                Ok(ReconciliationState::Settled)
+                Ok(ReconcileOutcome::Settled)
             }
         }
     }
@@ -2715,7 +2722,7 @@ where
                     target: target.clone(),
                     generation: workload.correlation.reconcile_generation,
                     inputs: launch.telemetry_inputs(),
-                    ready_at: std::time::SystemTime::now(),
+                    ready_at: self.clock.wall_now(),
                     first_ready,
                     interval: hardware_refresh_interval(site),
                     engine_facts: super::resource_telemetry::engine_facts_future(
@@ -2725,6 +2732,7 @@ where
                         target.execution_target_id.clone(),
                         workload.workload_id.clone(),
                     ),
+                    clock: Arc::clone(&self.clock),
                 })
             },
         );
@@ -2747,7 +2755,7 @@ where
         .expect("startup log limit is within runtime bounds");
         let query = dotcore_runtime::RuntimeWorkloadLogQuery::new(source, history);
         let protected = protected_startup_values(&launch.spec.environment);
-        match tokio::time::timeout(
+        match real_time::bound(
             Duration::from_secs(2),
             self.runtimes.read_workload_logs(
                 &target.execution_target_id,
@@ -2846,10 +2854,11 @@ struct DownloadProgressPublication {
     persisted: Option<ObservedPreparationProgress>,
     quiet_revalidation: bool,
     next_write_at: Option<Instant>,
+    timing: ModelTiming,
 }
 
 impl DownloadProgressPublication {
-    fn new(ticket: PreparationTicket, kind: DownloadProgressKind) -> Self {
+    fn new(ticket: PreparationTicket, kind: DownloadProgressKind, timing: ModelTiming) -> Self {
         Self {
             ticket,
             kind,
@@ -2860,6 +2869,7 @@ impl DownloadProgressPublication {
             persisted: None,
             quiet_revalidation: false,
             next_write_at: None,
+            timing,
         }
     }
 
@@ -2927,9 +2937,9 @@ impl DownloadProgressPublication {
         }
     }
 
-    fn next_due_write(&self) -> Option<Instant> {
+    fn next_due_write(&self, now: Instant) -> Option<Instant> {
         if !self.pending_stages.is_empty() {
-            return Some(Instant::now());
+            return Some(now);
         }
         (self.latest != self.persisted)
             .then_some(self.next_write_at)
@@ -2965,11 +2975,9 @@ impl DownloadProgressPublication {
 
     fn mark_persisted(&mut self, progress: ObservedPreparationProgress, now: Instant) {
         self.persisted = Some(progress);
-        self.next_write_at = Some(now + DOWNLOAD_PROGRESS_WRITE_INTERVAL);
+        self.next_write_at = Some(now + self.timing.download_progress_interval);
     }
 }
-
-const DOWNLOAD_PROGRESS_WRITE_INTERVAL: Duration = Duration::from_secs(1);
 
 fn collect_observed_download_progress(
     publications: &mut BTreeMap<String, DownloadProgressPublication>,
@@ -2979,9 +2987,9 @@ fn collect_observed_download_progress(
     }
 }
 
-async fn wait_for_progress_write(deadline: Option<Instant>) {
+async fn wait_for_progress_write(clock: &dyn Clock, deadline: Option<Instant>) {
     if let Some(deadline) = deadline {
-        tokio::time::sleep_until(deadline).await;
+        clock.sleep_until(deadline).await;
     } else {
         std::future::pending::<()>().await;
     }
@@ -3112,11 +3120,13 @@ where
         drop(started);
         let inner = Arc::downgrade(&self.inner);
         let wakeup = Arc::clone(&self.inner.wakeup);
+        let schedule = self.inner.timing.reconcile;
+        let clock = Arc::clone(&self.inner.clock);
         let task_span = info_span!("model_observer", operation = "model_observer");
         let observer_span = task_span.clone();
         tokio::spawn(
             async move {
-                let mut cadence = ReconcileCadence::new();
+                let mut cadence = ReconcileCadence::new(schedule);
                 let mut awaiting_view = false;
                 loop {
                     let Some(inner) = inner.upgrade() else {
@@ -3138,7 +3148,7 @@ where
                         awaiting_view = awaits_view;
                     }
                     let state = match result {
-                        Err(_) if awaits_view => ReconciliationState::Pending,
+                        Err(_) if awaits_view => ReconcileOutcome::Pending,
                         Ok(state) => {
                             debug!(
                                 parent: &observer_span,
@@ -3151,14 +3161,14 @@ where
                         }
                         Err(error) => {
                             emit_observer_failure(&observer_span, &error);
-                            ReconciliationState::Pending
+                            ReconcileOutcome::Pending
                         }
                     };
                     let delay = cadence.next_delay(state);
                     drop(inner);
                     tokio::select! {
                         _ = wakeup.notified() => cadence.reset(),
-                        _ = tokio::time::sleep(delay) => {},
+                        () = clock.sleep(delay) => {},
                     }
                 }
             }
@@ -3249,56 +3259,6 @@ fn realization_failure_reason(error: &ModelLifecycleError) -> String {
         source.to_string()
     } else {
         error.to_string()
-    }
-}
-
-/// Reconcile pending lifecycle work quickly, then back off to this upper bound.
-pub(super) const RECONCILE_PENDING_INITIAL_DELAY: Duration = Duration::from_millis(25);
-pub(super) const RECONCILE_PENDING_MAX_DELAY: Duration = Duration::from_millis(250);
-
-/// Scan settled runtime state every 30 seconds for missing workloads and owned orphans.
-///
-/// Mutations notify the observer and do not wait for this safety scan.
-pub(super) const RECONCILE_SAFETY_SCAN_CADENCE: Duration = Duration::from_secs(30);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ReconciliationState {
-    Pending,
-
-    Settled,
-}
-
-#[derive(Debug)]
-pub(super) struct ReconcileCadence {
-    pending_delay: Duration,
-}
-
-impl ReconcileCadence {
-    pub(super) fn new() -> Self {
-        Self {
-            pending_delay: RECONCILE_PENDING_INITIAL_DELAY,
-        }
-    }
-
-    pub(super) fn next_delay(&mut self, state: ReconciliationState) -> Duration {
-        match state {
-            ReconciliationState::Pending => {
-                let delay = self.pending_delay;
-                self.pending_delay = self
-                    .pending_delay
-                    .saturating_mul(2)
-                    .min(RECONCILE_PENDING_MAX_DELAY);
-                delay
-            }
-            ReconciliationState::Settled => {
-                self.pending_delay = RECONCILE_PENDING_INITIAL_DELAY;
-                RECONCILE_SAFETY_SCAN_CADENCE
-            }
-        }
-    }
-
-    pub(super) fn reset(&mut self) {
-        self.pending_delay = RECONCILE_PENDING_INITIAL_DELAY;
     }
 }
 

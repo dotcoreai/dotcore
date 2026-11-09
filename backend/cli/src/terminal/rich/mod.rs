@@ -19,6 +19,7 @@ use std::{
 };
 
 use crossterm::{event, style::PrintStyledContent};
+use dotcore_domain::timing::TerminalTiming;
 use ratatui::{
     TerminalOptions, Viewport,
     backend::{Backend, IntoCrossterm},
@@ -47,13 +48,16 @@ pub(super) struct RichTerminal {
 
     /// What was printed last, which decides the blank line before the next output.
     last: LastOutput,
+
+    /// Real-time bounds of the terminal's answers.
+    timing: TerminalTiming,
 }
 
 impl RichTerminal {
-    /// Opens prompts on `tty` once it has answered a cursor-position query, deciding colors
-    /// from that handle and the environment.
-    pub(super) fn open(tty: File) -> io::Result<Self> {
-        probe_cursor_reports(&tty)?;
+    /// Opens prompts on `tty` once it has answered a cursor-position query within the bound of
+    /// `timing`, deciding colors from that handle and the environment.
+    pub(super) fn open(tty: File, timing: TerminalTiming) -> io::Result<Self> {
+        probe_cursor_reports(&tty, timing)?;
         let colors = colors_enabled(
             tty.is_terminal(),
             std::env::var_os("NO_COLOR").as_deref(),
@@ -64,6 +68,7 @@ impl RichTerminal {
             theme: Theme::new(colors),
             symbols: Symbols::detect(),
             last: LastOutput::Nothing,
+            timing,
         })
     }
 
@@ -108,7 +113,7 @@ impl RichTerminal {
         guard: &RawModeGuard,
         view: &mut V,
     ) -> io::Result<Result<V::Output, PromptError>> {
-        let backend = TtyBackend::new(self.tty.try_clone()?)?;
+        let backend = TtyBackend::new(self.tty.try_clone()?, self.timing)?;
         let rows = backend.size()?.height.max(1);
         let height = view.height(rows).clamp(1, rows);
         let mut terminal = ratatui::Terminal::with_options(

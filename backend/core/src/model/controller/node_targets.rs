@@ -351,7 +351,7 @@ fn declared_present_on(
 mod tests {
     use std::{sync::Barrier, time::Duration};
 
-    use dotcore_domain::clock::ManualClock;
+    use dotcore_domain::{clock::ManualClock, timing::Timing};
     use dotcore_proto::{
         dotcore::{
             deployment::v1::ExactPlacement,
@@ -369,8 +369,8 @@ mod tests {
     use dotcore_site::{
         node::{
             control::{
-                AcceptedNodeObservationInput, CoordinatorConnectionState, LIVENESS_TTL,
-                PublishedViewInput, ServingStatusEvidence,
+                AcceptedNodeObservationInput, CoordinatorConnectionState, PublishedViewInput,
+                ServingStatusEvidence,
             },
             observation_configuration::NodeObservationConfigurationDigest,
         },
@@ -570,7 +570,7 @@ mod tests {
             private_port: Some(47_123),
             connected_until: live_until,
             status: Some(ServingStatusEvidence {
-                received: now - LIVENESS_TTL * 3,
+                received: now - Timing::test().node_control.node_silence * 3,
                 manager_session_id: manager_session.as_str().to_owned(),
                 deployments: vec![ready("model-one", "worker-one", 1, 'b')],
             }),
@@ -631,10 +631,13 @@ mod tests {
             .projector
             .project()
             .expect("published targets expire");
-        assert_eq!(expiry, Instant::now() + LIVENESS_TTL);
+        assert_eq!(
+            expiry,
+            Instant::now() + Timing::test().node_control.node_silence
+        );
         let leases = manager.leases();
 
-        tokio::time::advance(LIVENESS_TTL).await;
+        tokio::time::advance(Timing::test().node_control.node_silence).await;
         manager.report(
             "worker-two",
             '1',
@@ -673,7 +676,7 @@ mod tests {
         );
         let node_leases = manager.leases();
 
-        tokio::time::advance(LIVENESS_TTL).await;
+        tokio::time::advance(Timing::test().node_control.node_silence).await;
         manager.projector.project();
         assert_eq!(manager.published_ids(), ["upstream-deployment"]);
         assert_eq!(manager.revoked(&node_leases), ["model-one"]);
@@ -755,14 +758,17 @@ mod tests {
         let leases = manager.leases();
 
         // Node-one falls silent past the liveness window while worker-two keeps reporting.
-        tokio::time::advance(LIVENESS_TTL / 2).await;
+        tokio::time::advance(Timing::test().node_control.node_silence / 2).await;
         manager.report(
             "worker-two",
             '1',
             2,
             vec![ready("model-other", "worker-two", 1, 'b')],
         );
-        tokio::time::advance(LIVENESS_TTL / 2 + Duration::from_secs(1)).await;
+        tokio::time::advance(
+            Timing::test().node_control.node_silence / 2 + Duration::from_millis(1),
+        )
+        .await;
         manager.register("worker-one", '2', 1, Some(47_123));
         manager.report(
             "worker-one",
@@ -880,7 +886,8 @@ mod tests {
         manager.transition("model-two", ModelDeploymentDesiredState::Paused);
         manager.settle(|ids| ids == ["model-one"]).await;
 
-        tokio::time::sleep(LIVENESS_TTL + Duration::from_millis(1)).await;
+        tokio::time::sleep(Timing::test().node_control.node_silence + Duration::from_millis(1))
+            .await;
         manager.settle(|ids| ids.is_empty()).await;
         assert!(!routes.availability(&route).available);
     }
@@ -903,13 +910,13 @@ mod tests {
         manager.settle(|ids| ids == ["model-one"]).await;
         let start = Instant::now();
 
-        clock.advance(LIVENESS_TTL / 2);
+        clock.advance(Timing::test().node_control.node_silence / 2);
         for _ in 0..100 {
             tokio::task::yield_now().await;
         }
         assert_eq!(manager.published_ids(), ["model-one"]);
 
-        clock.advance(LIVENESS_TTL / 2);
+        clock.advance(Timing::test().node_control.node_silence / 2);
         manager.settle(|ids| ids.is_empty()).await;
         assert_eq!(Instant::now(), start, "only the manual clock moved");
     }
@@ -959,13 +966,20 @@ mod tests {
 
     impl Manager {
         fn new(deployments: Vec<ModelDeploymentDeclaration>) -> Self {
-            Self::with_coordinator(deployments, ManagerNodeControlCoordinator::new(session()))
+            Self::with_coordinator(
+                deployments,
+                ManagerNodeControlCoordinator::on_system_clock(session()),
+            )
         }
 
         fn with_clock(deployments: Vec<ModelDeploymentDeclaration>, clock: ManualClock) -> Self {
             Self::with_coordinator(
                 deployments,
-                ManagerNodeControlCoordinator::with_clock(session(), Arc::new(clock)),
+                ManagerNodeControlCoordinator::new(
+                    session(),
+                    Timing::test().node_control,
+                    Arc::new(clock),
+                ),
             )
         }
 

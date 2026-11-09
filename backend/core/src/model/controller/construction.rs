@@ -14,6 +14,9 @@ use std::{
 };
 
 use dotcore_artifact::{ArtifactManager, OciImagePreparer};
+use dotcore_domain::{clock::Clock, timing::ModelTiming};
+#[cfg(test)]
+use dotcore_domain::{clock::SystemClock, timing::Timing};
 use dotcore_proto::dotcore::{
     model::v1::{CurrentModelDeployment, ModelDeploymentLifecycleTransition},
     site::v1::Site,
@@ -55,6 +58,8 @@ where
         desired: D,
         state: S,
         target_capabilities: Arc<dyn TargetCapabilitySource>,
+        timing: ModelTiming,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let verification_http = Arc::new(
             crate::model::upstream::ReqwestVerificationHttp::new().map_err(|source| {
@@ -65,7 +70,9 @@ where
             desired,
             state,
             target_capabilities,
-            system_health(verification_http),
+            health(verification_http),
+            timing,
+            clock,
         )
     }
 
@@ -79,7 +86,9 @@ where
             desired,
             state,
             crate::model::controller::test_support::test_target_capability_source(),
-            system_health(verification_http),
+            health(verification_http),
+            Timing::test().model,
+            Arc::new(SystemClock),
         )
     }
 
@@ -88,6 +97,8 @@ where
         state: S,
         target_capabilities: Arc<dyn TargetCapabilitySource>,
         health: crate::model::upstream::HealthDependencies,
+        timing: ModelTiming,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, ModelLifecycleError> {
         let declared_site_id = desired
             .declaration_snapshot()
@@ -106,6 +117,8 @@ where
             Arc::clone(&operation),
             serving_targets_publisher.clone(),
             health,
+            timing,
+            Arc::clone(&clock),
         )?;
         Ok(InferenceController {
             inner: Arc::new(super::ManagerInferenceControllerInner {
@@ -120,6 +133,8 @@ where
                 remote_status: std::sync::RwLock::new(None),
                 node_logs: std::sync::RwLock::new(None),
                 site_workloads: std::sync::RwLock::new(None),
+                timing,
+                clock,
             }),
         })
     }
@@ -200,6 +215,8 @@ where
             serving_targets_source,
             accelerator_attribution,
             shutdown: dependencies.shutdown,
+            timing: dependencies.timing,
+            clock: dependencies.clock,
         }),
     };
     Ok(realizer)
@@ -335,6 +352,8 @@ where
                 shutdown: node.shutdown,
                 preparation_logs: node.preparation_logs,
                 workload_lifecycle: node.workload_lifecycle,
+                timing: node.timing,
+                clock: node.clock,
             },
         )
     }
@@ -406,6 +425,8 @@ where
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 preparation_logs,
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             },
         )
     }
@@ -439,6 +460,12 @@ pub(crate) struct NodeModelRealizerDependencies<D: super::ModelRealizationInput>
     /// Tells the node's deployment-log follows when a deployment's engine workload starts or is
     /// removed.
     pub(crate) workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
+
+    /// Timing of the realizer's observer passes and of its stored download progress.
+    pub(crate) timing: ModelTiming,
+
+    /// Backend clock the realizer waits through.
+    pub(crate) clock: Arc<dyn Clock>,
 }
 
 #[derive(Clone)]
@@ -460,15 +487,16 @@ struct ControllerDependencies {
     shutdown: tokio_util::sync::CancellationToken,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
+    timing: ModelTiming,
+    clock: Arc<dyn Clock>,
 }
 
-/// Upstream health dependencies on the process clock and stable per-deployment jitter.
-fn system_health(
+/// Upstream health dependencies over `verification_http`, with stable per-deployment jitter.
+fn health(
     verification_http: Arc<dyn crate::model::upstream::VerificationHttp>,
 ) -> crate::model::upstream::HealthDependencies {
     crate::model::upstream::HealthDependencies {
         verification_http,
-        clock: Arc::new(crate::model::upstream::SystemHealthClock::new()),
         jitter: Arc::new(crate::model::upstream::StableHealthJitter),
     }
 }
@@ -528,6 +556,7 @@ pub(super) fn validate_runtime_inputs(
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::model::v1::{
         ModelDeploymentActivation, ModelDeploymentActivationPhase, ModelDeploymentDesiredState,
         ModelDeploymentLifecycleTransition, ModelDeploymentStatus,
@@ -565,6 +594,8 @@ mod tests {
             desired,
             TestCurrent::new(calls),
             crate::model::controller::test_support::test_target_capability_source(),
+            Timing::test().model,
+            Arc::new(SystemClock),
         )
         .err()
         .expect("mismatched owner state");
@@ -986,6 +1017,8 @@ mod tests {
                 crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
             shutdown: tokio_util::sync::CancellationToken::new(),
             workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+            timing: Timing::test().model,
+            clock: Arc::new(SystemClock),
             preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(directory),
         }
     }

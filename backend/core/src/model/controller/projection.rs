@@ -295,6 +295,7 @@ fn sanitize_state(
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::{
         deployment::v1::{AcceleratorMemoryObservation, NodeResolvedLaunchIdentity},
         model::{
@@ -394,6 +395,8 @@ mod tests {
             desired,
             current,
             crate::model::controller::test_support::test_target_capability_source(),
+            Timing::test().model,
+            Arc::new(SystemClock),
         )
         .expect("model owner");
 
@@ -692,7 +695,7 @@ mod tests {
     fn node_coordinator(reported: Option<&[(&str, u64)]>) -> ManagerNodeControlCoordinator {
         let session = ManagerSession::parse("a".repeat(32)).expect("manager session");
         let incarnation = NodeIncarnation::parse("1".repeat(32)).expect("incarnation");
-        let coordinator = ManagerNodeControlCoordinator::new(session.clone());
+        let coordinator = ManagerNodeControlCoordinator::on_system_clock(session.clone());
         coordinator
             .register_observation(
                 &NodeObservation {

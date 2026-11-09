@@ -1695,8 +1695,11 @@ fn a_stale_observation_keeps_its_totals_without_measured_use() {
         .render(&[], SystemTime::now())
         .expect("rendered snapshot");
     let stale = NodeAcceleratorObservation::from_hardware_snapshot("node-a", &rendered, true);
-    let inventory =
-        TargetCapabilityReconciler::reconcile([("target-a", "node-a", [gpu.clone()])], [], [stale]);
+    let inventory = TargetCapabilityReconciler::reconcile_now(
+        [("target-a", "node-a", [gpu.clone()])],
+        [],
+        [stale],
+    );
     let capabilities = inventory.for_target("target-a").expect("target");
     assert!(matches!(
         capabilities.memory,
@@ -1796,7 +1799,7 @@ fn machine_capacity(machine: &str, gpu: usize, occupancy: &str) -> TargetCapacit
 /// Pools of one target holding the devices `selectors` name on a node that reported `snapshot`,
 /// through the site's reconciliation.
 fn snapshot_capacity(snapshot: &HardwareSnapshot, selectors: Vec<&str>) -> TargetCapacity {
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [("target-a", "node-a", selectors)],
         [],
         [NodeAcceleratorObservation::from_hardware_snapshot(

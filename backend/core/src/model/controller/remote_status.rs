@@ -10,7 +10,11 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use dotcore_domain::deployment::{DeploymentOwner, artifact::LaunchIdentityResolution};
+use dotcore_domain::{
+    clock::Clock,
+    deployment::{DeploymentOwner, artifact::LaunchIdentityResolution},
+    timing::ModelTiming,
+};
 use dotcore_proto::dotcore::{
     model::{
         private::v1::{
@@ -40,11 +44,11 @@ use dotcore_site::{
 use tracing::{debug, info, warn};
 
 use super::{
-    CurrentStateRepository, InferenceController, ModelLifecycleError,
-    state::{now, status_message},
+    CurrentStateRepository, InferenceController, ModelLifecycleError, state::status_message,
 };
 use crate::model::{
     engine_pin::{validate_local_declaration, with_node_pins},
+    service::timestamp_from,
     state::CurrentStateError,
 };
 
@@ -53,9 +57,6 @@ const PROGRESS_STEPS: u64 = 20;
 
 /// Stored node byte progress of an unknown total moves in steps of this many bytes.
 const UNKNOWN_TOTAL_PROGRESS_STEP_BYTES: u64 = 64 * 1024 * 1024;
-
-/// Minimum time between two stored node records that differ only in their progress.
-const PROGRESS_MIN_WRITE_INTERVAL: Duration = Duration::from_secs(2);
 
 impl ModelStatusOwner
     for InferenceController<crate::model::repository::ModelDeclarationRepository, FileCurrentState>
@@ -80,6 +81,8 @@ impl ModelStatusOwner
                 node_incarnation,
                 status_sequence,
             },
+            self.inner.timing,
+            self.inner.clock.as_ref(),
         )
         .map_err(ControllerStatusError::from)
     }
@@ -102,11 +105,15 @@ pub(crate) struct NodeStatusReport<'a> {
 /// interleave. Records are written only for deployments still declared, at the reported
 /// generation, after this report's removals, so a report for an earlier view never replaces the
 /// record of a newer accepted generation. Each acknowledged deployment's lifecycle record is
-/// pruned once its removal is durable.
+/// pruned once its removal is durable. A record that differs from the retained one only in
+/// progress waits for the node progress interval of `timing`; `clock`'s wall time ages and stamps
+/// the records.
 pub(crate) fn accept_node_status(
     site: &SiteRepository,
     state: &FileCurrentState,
     report: &NodeStatusReport<'_>,
+    timing: ModelTiming,
+    clock: &dyn Clock,
 ) -> Result<Vec<ControllerStatusReceipt>, RemoteStatusError> {
     validate_complete_status(report.projection, report.model)
         .map_err(RemoteStatusError::rejected)?;
@@ -162,7 +169,7 @@ pub(crate) fn accept_node_status(
             })
             .map(|(_, record)| record)
             .collect();
-        commit_changed_records(state, declared)?;
+        commit_changed_records(state, declared, timing, clock)?;
         let pinned = report
             .model
             .deployments
@@ -451,37 +458,42 @@ fn stored_progress(progress: &ModelPreparationProgress) -> ModelDeploymentProgre
 
 /// Writes only records whose observation differs from the retained record, so an unchanged
 /// report leaves `state.pb` untouched. A change of stored progress alone waits until the retained
-/// record is `PROGRESS_MIN_WRITE_INTERVAL` old. Written records keep the retained `started_at`
-/// (else now) and get a fresh `updated_at`; timestamps never take part in the comparison.
+/// record is as old as the node progress interval of `timing`. Written records keep the retained
+/// `started_at` (else the current wall time of `clock`) and get that wall time as `updated_at`;
+/// timestamps never take part in the comparison.
 fn commit_changed_records(
     state: &impl CurrentStateRepository,
     records: Vec<CurrentModelDeployment>,
+    timing: ModelTiming,
+    clock: &dyn Clock,
 ) -> Result<(), RemoteStatusError> {
+    let now = clock.wall_now();
     let snapshot = state.snapshot().map_err(state_error)?;
     let retained = snapshot
         .model_deployments
         .iter()
         .map(|record| (record.model_deployment_id.as_str(), record))
         .collect::<BTreeMap<_, _>>();
-    let clock = SystemTime::now();
+    let stamp = timestamp_from(now);
     let changed = records
         .into_iter()
         .filter_map(|mut record| {
             let current = retained.get(record.model_deployment_id.as_str());
             if current.is_some_and(|current| {
                 comparable(current, true) == comparable(&record, true)
-                    || progress_write_not_due(current, &record, clock)
+                    || (only_progress_differs(current, &record)
+                        && record_age(current, now)
+                            .is_some_and(|age| age < timing.node_progress_interval))
             }) {
                 return None;
             }
-            let now = now();
             let started_at = current
                 .and_then(|current| current.state.as_ref())
                 .and_then(|state| state.started_at)
-                .unwrap_or(now);
+                .unwrap_or(stamp);
             if let Some(state) = record.state.as_mut() {
                 state.started_at = Some(started_at);
-                state.updated_at = Some(now);
+                state.updated_at = Some(stamp);
             }
             Some(record)
         })
@@ -495,12 +507,10 @@ fn commit_changed_records(
     Ok(())
 }
 
-/// Reports whether `record` differs from the retained `current` only in progress while the
-/// retained record is younger than the minimum progress write interval.
-fn progress_write_not_due(
+/// Reports whether `record` differs from the retained `current` only in progress.
+fn only_progress_differs(
     current: &CurrentModelDeployment,
     record: &CurrentModelDeployment,
-    clock: SystemTime,
 ) -> bool {
     let has_progress = |record: &CurrentModelDeployment| {
         record
@@ -511,13 +521,16 @@ fn progress_write_not_due(
     has_progress(current)
         && has_progress(record)
         && comparable(current, false) == comparable(record, false)
-        && current
-            .state
-            .as_ref()
-            .and_then(|state| state.updated_at.as_ref())
-            .and_then(timestamp_to_system_time)
-            .and_then(|updated_at| clock.duration_since(updated_at).ok())
-            .is_some_and(|age| age < PROGRESS_MIN_WRITE_INTERVAL)
+}
+
+/// Age of a stored record at wall time `now`, when it carries an update time not after `now`.
+fn record_age(record: &CurrentModelDeployment, now: SystemTime) -> Option<Duration> {
+    record
+        .state
+        .as_ref()
+        .and_then(|state| state.updated_at.as_ref())
+        .and_then(timestamp_to_system_time)
+        .and_then(|updated_at| now.duration_since(updated_at).ok())
 }
 
 /// The observed content of a record: no timestamps or record revision, and progress only when
@@ -549,6 +562,10 @@ fn state_error(error: impl Into<CurrentStateError>) -> RemoteStatusError {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_domain::{
+        clock::{SystemClock, VirtualClock},
+        timing::Timing,
+    };
     use dotcore_proto::dotcore::{
         deployment::v1::ExactPlacement,
         model::{
@@ -647,17 +664,17 @@ mod tests {
         let current = FileCurrentState::open(directory.path().join("site.yaml"), "site-one")
             .expect("manager current state");
         let ready = current_record(&status("model-one", 7)).expect("ready record");
-        commit_changed_records(&current, vec![ready.clone()]).expect("first status");
+        commit(&current, vec![ready.clone()]).expect("first status");
         let written_inode = std::fs::metadata(&state_path).expect("state.pb").ino();
         let written_revision = current.snapshot().expect("state").storage_revision;
 
-        commit_changed_records(&current, vec![ready]).expect("unchanged status");
+        commit(&current, vec![ready]).expect("unchanged status");
         let unchanged_inode = std::fs::metadata(&state_path).expect("state.pb").ino();
         let unchanged_revision = current.snapshot().expect("state").storage_revision;
         let mut paused = status("model-one", 7);
         paused.lifecycle = ModelLifecycleObservation::Paused as i32;
         paused.binding_readiness = ModelBindingReadiness::NotReady as i32;
-        commit_changed_records(
+        commit(
             &current,
             vec![current_record(&paused).expect("paused record")],
         )
@@ -685,12 +702,12 @@ mod tests {
             .expect("manager current state");
         let ready = current_record(&status("model-one", 7)).expect("ready record");
 
-        commit_changed_records(&current, vec![ready.clone()]).expect("first status");
+        commit(&current, vec![ready.clone()]).expect("first status");
         let first = retained_state(&current);
         let first_started = first.started_at.expect("started_at is set on first report");
         assert_eq!(first.updated_at, Some(first_started));
 
-        commit_changed_records(&current, vec![ready]).expect("unchanged status");
+        commit(&current, vec![ready]).expect("unchanged status");
         let unchanged = retained_state(&current);
         assert_eq!(unchanged.started_at, first.started_at);
         assert_eq!(unchanged.updated_at, first.updated_at);
@@ -700,7 +717,7 @@ mod tests {
         let mut paused = status("model-one", 7);
         paused.lifecycle = ModelLifecycleObservation::Paused as i32;
         paused.binding_readiness = ModelBindingReadiness::NotReady as i32;
-        commit_changed_records(
+        commit(
             &current,
             vec![current_record(&paused).expect("paused record")],
         )
@@ -738,7 +755,7 @@ mod tests {
             )
             .expect("intent record");
 
-        commit_changed_records(
+        commit(
             &current,
             vec![current_record(&status("model-one", 7)).expect("ready record")],
         )
@@ -755,7 +772,7 @@ mod tests {
         let directory = crate::test_support::canonical_tempdir().expect("manager state directory");
         let current = FileCurrentState::open(directory.path().join("site.yaml"), "site-one")
             .expect("manager current state");
-        commit_changed_records(
+        commit(
             &current,
             vec![current_record(&status("model-one", 1)).expect("ready record")],
         )
@@ -768,7 +785,7 @@ mod tests {
         reconciling.state_revision = 0;
         reconciling.observed_placements.clear();
 
-        commit_changed_records(
+        commit(
             &current,
             vec![current_record(&reconciling).expect("reconciling record")],
         )
@@ -1047,11 +1064,14 @@ mod tests {
             .expect("record")
         };
         let revision = || current.snapshot().expect("state").storage_revision;
+        // Frozen wall time keeps every report within the progress interval of the first.
+        let clock = VirtualClock::starting_at(SystemTime::now());
+        let commit =
+            |records| commit_changed_records(&current, records, Timing::test().model, &clock);
 
-        commit_changed_records(&current, vec![downloading(0)]).expect("first report");
+        commit(vec![downloading(0)]).expect("first report");
         for completed in 1..=1000 {
-            commit_changed_records(&current, vec![downloading(completed)])
-                .expect("progress report");
+            commit(vec![downloading(completed)]).expect("progress report");
         }
         assert_eq!(revision(), 1);
         let first = retained_state(&current);
@@ -1069,7 +1089,7 @@ mod tests {
         current
             .upsert(backdated, Some(expected_revision))
             .expect("backdated record");
-        commit_changed_records(&current, vec![downloading(437)]).expect("due progress");
+        commit(vec![downloading(437)]).expect("due progress");
         let stepped = retained_state(&current);
         assert_eq!(revision(), 3);
         assert_eq!(stepped.progress.expect("progress").completed, 400);
@@ -1082,7 +1102,7 @@ mod tests {
             None,
         ))
         .expect("record");
-        commit_changed_records(&current, vec![checking]).expect("phase change");
+        commit(vec![checking]).expect("phase change");
         assert_eq!(revision(), 4);
         assert_eq!(
             retained_state(&current).status_message,
@@ -1647,6 +1667,8 @@ mod tests {
                     node_incarnation: &NodeIncarnation::parse("1".repeat(32)).expect("incarnation"),
                     status_sequence: 1,
                 },
+                Timing::test().model,
+                &SystemClock,
             )?;
             Ok(receipts
                 .into_iter()
@@ -1904,5 +1926,13 @@ applicationDeployments: []
             resolved_launch_identities: Vec::new(),
             accelerator_memory: None,
         }
+    }
+
+    /// Commits `records` like a status report on the test timing and system time.
+    fn commit(
+        state: &impl CurrentStateRepository,
+        records: Vec<CurrentModelDeployment>,
+    ) -> Result<(), RemoteStatusError> {
+        commit_changed_records(state, records, Timing::test().model, &SystemClock)
     }
 }

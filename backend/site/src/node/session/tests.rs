@@ -1,6 +1,9 @@
 use std::time::SystemTime;
 
-use dotcore_domain::clock::VirtualClock;
+use dotcore_domain::{
+    clock::{VirtualClock, next_boundary},
+    timing::{NodeControlTiming, Timing},
+};
 use dotcore_proto::dotcore::{
     application::{
         private::v1::{
@@ -136,7 +139,10 @@ async fn a_dropped_stream_is_reopened_after_the_retry_pause() {
     stream.close().await;
 
     let woke_at = node.clock.advance_to_next_wake().await;
-    assert_eq!(woke_at, dropped_at + INITIAL_RETRY_BACKOFF);
+    assert_eq!(
+        woke_at,
+        dropped_at + Timing::production().node_control.stream_retry.initial
+    );
     let mut reopened = node.next_stream().await;
     assert_eq!(reopened.message().await, Message::Open(node_open()));
 }
@@ -275,6 +281,33 @@ async fn status_triggers_within_a_second_share_one_message_at_the_next_wall_seco
         heartbeat(),
         "the two triggers produced no second status"
     );
+}
+
+#[tokio::test]
+async fn under_the_test_policy_triggers_share_one_message_at_the_next_wall_aligned_window() {
+    let window = Timing::production().node_control.status_coalesce_window;
+    let mut node = Node::start_with_timing(vec![model_target()], {
+        let mut timing = node_timing();
+        timing.node_control.status_coalesce_window = window;
+        timing
+    });
+    node.observations.seed(observation(1));
+    let mut stream = node.opened_stream().await;
+    let opened_at = node.clock.now();
+    let wall = node.clock.wall_now();
+
+    node.clock.advance(window / 4);
+    node.model.changed();
+    node.clock.advance(window / 4);
+    node.model.changed();
+
+    let boundary = next_boundary(wall, window);
+    assert_eq!(
+        node.wake_at_status_boundary().await,
+        opened_at + boundary.duration_since(wall).expect("a later boundary"),
+        "the boundary is the next multiple of the window since the epoch"
+    );
+    assert_eq!(status_sequence(&stream.message().await), 2);
 }
 
 #[tokio::test]
@@ -637,6 +670,7 @@ struct Node {
     transport: Arc<FakeTransport>,
     streams: mpsc::UnboundedReceiver<FakeStream>,
     status_check_interval: Duration,
+    timing: Timing,
     _task: Option<NodeControlSessionTask>,
 }
 
@@ -650,6 +684,15 @@ impl Node {
     fn start_checking_status(installed: Vec<ExecutionTarget>, interval: Duration) -> Self {
         let mut node = Self::prepare(installed);
         node.status_check_interval = interval;
+        let session = node.session(None);
+        node._task = Some(session.start());
+        node
+    }
+
+    /// Starts a node whose stream runs on `timing`, with status checks off.
+    fn start_with_timing(installed: Vec<ExecutionTarget>, timing: Timing) -> Self {
+        let mut node = Self::prepare(installed);
+        node.timing = timing;
         let session = node.session(None);
         node._task = Some(session.start());
         node
@@ -686,6 +729,7 @@ impl Node {
             transport: Arc::new(FakeTransport { opens }),
             streams,
             status_check_interval: STATUS_CHECK_OFF,
+            timing: node_timing(),
             _task: None,
         }
     }
@@ -705,9 +749,10 @@ impl Node {
             self.state.clone(),
             Arc::clone(&self.model) as Arc<dyn NodeModelStatusOwner>,
             application,
-            NodeControlSessionConfiguration::new(HEARTBEAT, MANAGER_SILENCE)
-                .expect("session configuration")
-                .with_status_check_interval(self.status_check_interval),
+            NodeControlTiming {
+                status_check_interval: self.status_check_interval,
+                ..self.timing.node_control
+            },
             Arc::new(self.clock.clone()),
         )
     }
@@ -1198,4 +1243,14 @@ fn node_incarnation() -> NodeIncarnation {
 
 fn manager_session(character: char) -> ManagerSession {
     ManagerSession::parse(character.to_string().repeat(32)).expect("manager session")
+}
+
+/// Production stream timing with this module's heartbeat and manager silence.
+fn node_timing() -> Timing {
+    {
+        let mut timing = Timing::production();
+        timing.node_control.heartbeat_interval = HEARTBEAT;
+        timing.node_control.manager_silence = MANAGER_SILENCE;
+        timing
+    }
 }

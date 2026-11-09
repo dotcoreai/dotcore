@@ -1,6 +1,10 @@
 use std::{collections::VecDeque, time::Duration};
 
-use dotcore_domain::{SiteNodeId, clock::ManualClock};
+use dotcore_domain::{
+    SiteNodeId,
+    clock::ManualClock,
+    timing::{NodeControlTiming, Timing},
+};
 use dotcore_proto::{
     dotcore::{
         application::{
@@ -57,8 +61,8 @@ use crate::{
 /// Longest real wait for one stream message before a test fails; behavior never waits on it.
 const RESPONSE_DEADLINE: Duration = Duration::from_secs(10);
 
-/// Silence bound of the fixtures, long enough that real time never ends a stream on its own.
-const TEST_SILENCE_BOUND: Duration = Duration::from_secs(60);
+/// Node silence of the fixtures, long enough that real time never ends a stream on its own.
+const TEST_NODE_SILENCE: Duration = Duration::from_secs(60);
 
 #[tokio::test]
 async fn observation_and_status_answers_classify_each_registry_and_owner_outcome() {
@@ -350,7 +354,7 @@ async fn a_new_incarnation_is_refused_while_the_old_stream_is_live_and_accepted_
 }
 
 #[tokio::test]
-async fn a_closed_stream_disconnects_at_once_while_serving_keeps_the_silence_bound() {
+async fn a_closed_stream_disconnects_at_once_while_serving_keeps_the_node_silence() {
     let fixture = Fixture::new();
     let mut node = fixture.open("worker-one");
     let view = node.opened(&incarnation('1')).await.view.expect("view");
@@ -375,11 +379,11 @@ async fn a_closed_stream_disconnects_at_once_while_serving_keeps_the_silence_bou
         Some(before.clone()),
         "serving evidence, and so every serving target and in-flight request, outlives the close"
     );
-    fixture.clock.advance(TEST_SILENCE_BOUND / 2);
+    fixture.clock.advance(TEST_NODE_SILENCE / 2);
     assert!(before.connected_until > fixture.coordinator.clock().now());
     fixture
         .clock
-        .advance(TEST_SILENCE_BOUND / 2 + Duration::from_secs(1));
+        .advance(TEST_NODE_SILENCE / 2 + Duration::from_secs(1));
     assert!(
         before.connected_until < fixture.coordinator.clock().now(),
         "serving ends at the silence bound"
@@ -388,8 +392,8 @@ async fn a_closed_stream_disconnects_at_once_while_serving_keeps_the_silence_bou
 
 #[tokio::test]
 async fn a_streamed_status_stays_serving_evidence_for_as_long_as_heartbeats_keep_the_node_live() {
-    let silence_bound = Duration::from_secs(10);
-    let fixture = Fixture::with_silence_bound(silence_bound);
+    let node_silence = Duration::from_secs(10);
+    let fixture = Fixture::with_node_silence(node_silence);
     let mut node = fixture.open("worker-one");
     let view = node.opened(&incarnation('1')).await.view.expect("view");
     node.send(Message::Observation(fixture.observation(
@@ -426,7 +430,7 @@ async fn a_streamed_status_stays_serving_evidence_for_as_long_as_heartbeats_keep
         "no new status arrived"
     );
     assert!(
-        live.connected_until > now + silence_bound - Duration::from_secs(1),
+        live.connected_until > now + node_silence - Duration::from_secs(1),
         "heartbeats keep the node live past the status age: {:?}",
         live.connected_until - now
     );
@@ -440,7 +444,7 @@ async fn a_streamed_status_stays_serving_evidence_for_as_long_as_heartbeats_keep
 }
 
 #[tokio::test]
-async fn a_silent_stream_ends_at_the_silence_bound_and_heartbeats_keep_it_open() {
+async fn a_silent_stream_ends_at_the_node_silence_and_heartbeats_keep_it_open() {
     let fixture = Fixture::new();
     let mut node = fixture.open("worker-one");
     node.opened(&incarnation('1')).await;
@@ -451,7 +455,7 @@ async fn a_silent_stream_ends_at_the_silence_bound_and_heartbeats_keep_it_open()
     )));
     node.observation_accepted().await;
 
-    let quiet = TEST_SILENCE_BOUND * 2 / 3;
+    let quiet = TEST_NODE_SILENCE * 2 / 3;
     fixture.clock.advance(quiet);
     node.send(Message::Heartbeat(Empty {}));
     fixture
@@ -475,7 +479,7 @@ async fn a_silent_stream_ends_at_the_silence_bound_and_heartbeats_keep_it_open()
 
     fixture
         .clock
-        .advance(TEST_SILENCE_BOUND + Duration::from_secs(1));
+        .advance(TEST_NODE_SILENCE + Duration::from_secs(1));
     assert_eq!(node.ended().await.code(), tonic::Code::DeadlineExceeded);
     assert_eq!(
         fixture.connection("worker-one"),
@@ -543,7 +547,9 @@ async fn a_view_that_cannot_be_built_at_open_answers_with_the_last_published_vie
     ));
 
     fixture.applications.set_unbuildable(false);
-    fixture.clock.advance(DEFAULT_REPUBLISH_INTERVAL);
+    fixture
+        .clock
+        .advance(Timing::test().node_control.view_republish_interval);
     let recovered = reopened.publication().await;
     let identity = recovered.identity.as_ref().expect("identity");
     assert_eq!(
@@ -571,8 +577,11 @@ async fn an_open_without_any_published_view_is_unavailable_until_the_view_builds
 async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_stay_allowed() {
     // Paused Tokio time drives both the manager's clock and the node's lease, and auto-advances
     // only to the next republication, the earliest pending wait.
-    let fixture = Fixture::with_silence_bound(Duration::from_secs(3_600));
-    let lease = Duration::from_secs(FRESHNESS_WINDOW_SECONDS.into());
+    let fixture = Fixture::with_node_silence(Duration::from_secs(3_600));
+    let timing = Timing::test().node_control;
+    let lease = timing.action_lease;
+    // Republications that together outlast the lease.
+    let republications = lease.as_millis() / timing.view_republish_interval.as_millis() + 1;
     let (authority, installer) = node_view(&fixture, lease);
     let started = tokio::time::Instant::now();
     let mut node = fixture.open("worker-one");
@@ -590,7 +599,7 @@ async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_s
         ViewAcceptance::Installed
     );
 
-    for expected_sequence in 2..=6 {
+    for expected_sequence in 2..=(republications as u64 + 1) {
         let republished = node.publication().await;
         let identity = republished.identity.as_ref().expect("identity");
         assert_eq!(
@@ -622,8 +631,12 @@ async fn an_unchanged_view_is_republished_before_the_lease_expires_and_actions_s
 #[tokio::test]
 async fn replies_are_never_dropped_and_an_unread_stream_ends_resource_exhausted() {
     let fixture = Fixture::with_configuration(
-        TEST_SILENCE_BOUND,
-        NodeControlStreamConfiguration::new(Duration::from_secs(20), 2).expect("configuration"),
+        NodeControlTiming {
+            node_silence: TEST_NODE_SILENCE,
+            view_republish_interval: Duration::from_secs(20),
+            ..Timing::test().node_control
+        },
+        NodeControlStreamConfiguration::new(2).expect("configuration"),
     );
     let mut node = fixture.open("worker-one");
     node.opened(&incarnation('1')).await;
@@ -691,20 +704,9 @@ async fn outbound_keeps_every_reply_and_only_the_latest_view() {
 }
 
 #[test]
-fn a_republish_interval_must_keep_nodes_inside_their_action_lease() {
+fn a_stream_must_queue_at_least_one_reply() {
     assert_eq!(
-        NodeControlStreamConfiguration::new(DEFAULT_REPUBLISH_INTERVAL, DEFAULT_OUTBOUND_REPLIES),
-        Ok(NodeControlStreamConfiguration::default())
-    );
-    assert!(NodeControlStreamConfiguration::new(Duration::from_secs(28), 1).is_ok());
-    for interval in [Duration::ZERO, Duration::from_secs(29), Duration::MAX] {
-        assert_eq!(
-            NodeControlStreamConfiguration::new(interval, 1),
-            Err(NodeControlConfigurationError::RepublishInterval)
-        );
-    }
-    assert_eq!(
-        NodeControlStreamConfiguration::new(Duration::from_secs(20), 0),
+        NodeControlStreamConfiguration::new(0),
         Err(NodeControlConfigurationError::OutboundReplies)
     );
 }
@@ -726,15 +728,21 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        Self::with_silence_bound(TEST_SILENCE_BOUND)
+        Self::with_node_silence(TEST_NODE_SILENCE)
     }
 
-    fn with_silence_bound(silence_bound: Duration) -> Self {
-        Self::with_configuration(silence_bound, NodeControlStreamConfiguration::default())
+    fn with_node_silence(node_silence: Duration) -> Self {
+        Self::with_configuration(
+            NodeControlTiming {
+                node_silence,
+                ..Timing::test().node_control
+            },
+            NodeControlStreamConfiguration::default(),
+        )
     }
 
     fn with_configuration(
-        silence_bound: Duration,
+        timing: NodeControlTiming,
         configuration: NodeControlStreamConfiguration,
     ) -> Self {
         let directory =
@@ -744,11 +752,11 @@ impl Fixture {
         let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
             .expect("validated site");
         let clock = ManualClock::new();
-        let coordinator = ManagerNodeControlCoordinator::with_clock(
+        let coordinator = ManagerNodeControlCoordinator::new(
             ManagerSession::parse("a".repeat(32)).expect("manager session"),
+            timing,
             Arc::new(clock.clone()),
-        )
-        .with_silence_bound(silence_bound);
+        );
         let registry = NodeRegistry::with_coordinator(Arc::new(site.clone()), coordinator.clone());
         let status_owner = Arc::new(ScriptedModelStatus::default());
         let applications = Arc::new(TestApplications::default());

@@ -15,7 +15,11 @@ use anyhow::anyhow;
 use dotcore_artifact::{
     ArtifactManager, BlockingWorkGate, ModelArtifactCache, ModelArtifactProgress,
 };
-use dotcore_domain::test_support::tracing::{Record, capture_records, capture_records_async};
+use dotcore_domain::{
+    clock::SystemClock,
+    test_support::tracing::{Record, capture_records, capture_records_async},
+    timing::Timing,
+};
 use dotcore_proto::dotcore::{
     catalog::v1::{
         HuggingFaceSnapshotArtifact, HuggingFaceSnapshotFile,
@@ -53,11 +57,9 @@ use tokio::{
 use tracing::{debug, info, info_span};
 
 use super::{
-    DOWNLOAD_PROGRESS_WRITE_INTERVAL, DownloadProgressKind, DownloadProgressPublication,
-    ModelLifecycleError, ObservedPreparationProgress, RECONCILE_PENDING_INITIAL_DELAY,
-    RECONCILE_PENDING_MAX_DELAY, RECONCILE_SAFETY_SCAN_CADENCE, ReconcileCadence,
-    ReconciliationState, emit_observer_failure, paused_initial_state, replace_stale_workload,
-    runtime_startup_progress_state,
+    DownloadProgressKind, DownloadProgressPublication, ModelLifecycleError,
+    ObservedPreparationProgress, ReconcileOutcome, emit_observer_failure, paused_initial_state,
+    replace_stale_workload, runtime_startup_progress_state,
 };
 use crate::{
     dispatch::model::{RuntimeTargetMapBuilder, TargetObservation},
@@ -661,8 +663,11 @@ async fn download_progress_publication_writes_first_changed_interval_and_final_s
         .entry(&declaration.model_deployment_id)
         .register(declaration)
         .expect("preparation lease");
-    let mut publication =
-        DownloadProgressPublication::new(lease.ticket(), DownloadProgressKind::Artifact);
+    let mut publication = DownloadProgressPublication::new(
+        lease.ticket(),
+        DownloadProgressKind::Artifact,
+        Timing::test().model,
+    );
     let started = tokio::time::Instant::now();
     let first = ObservedPreparationProgress::artifact(ModelArtifactProgress {
         completed: 10,
@@ -684,7 +689,7 @@ async fn download_progress_publication_writes_first_changed_interval_and_final_s
         total: Some(100),
     });
     publication.latest = Some(changed.clone());
-    tokio::time::advance(DOWNLOAD_PROGRESS_WRITE_INTERVAL / 2).await;
+    tokio::time::advance(Timing::test().model.download_progress_interval / 2).await;
     assert!(publication.pending_write(Instant::now(), false).is_none());
     assert_eq!(
         publication
@@ -692,7 +697,7 @@ async fn download_progress_publication_writes_first_changed_interval_and_final_s
             .map(|(_, progress)| progress),
         Some(changed.clone())
     );
-    tokio::time::advance(DOWNLOAD_PROGRESS_WRITE_INTERVAL / 2).await;
+    tokio::time::advance(Timing::test().model.download_progress_interval / 2).await;
     assert_eq!(
         publication
             .pending_write(Instant::now(), false)
@@ -711,8 +716,11 @@ async fn download_progress_observer_coalesces_a_flood_to_one_latest_snapshot() {
         .entry(&declaration.model_deployment_id)
         .register(declaration)
         .expect("preparation lease");
-    let mut publication =
-        DownloadProgressPublication::new(lease.ticket(), DownloadProgressKind::Artifact);
+    let mut publication = DownloadProgressPublication::new(
+        lease.ticket(),
+        DownloadProgressKind::Artifact,
+        Timing::test().model,
+    );
     let notification = Arc::new(Notify::new());
     let observer = publication.observer(notification.clone());
 
@@ -752,8 +760,11 @@ async fn artifact_stage_observer_retains_transfer_order_across_transitions() {
         .entry(&declaration.model_deployment_id)
         .register(declaration)
         .expect("preparation lease");
-    let mut publication =
-        DownloadProgressPublication::new(lease.ticket(), DownloadProgressKind::Artifact);
+    let mut publication = DownloadProgressPublication::new(
+        lease.ticket(),
+        DownloadProgressKind::Artifact,
+        Timing::test().model,
+    );
     let notification = Arc::new(Notify::new());
     let progress = publication.observer(notification.clone());
     let stage = publication.stage_observer(notification);
@@ -924,8 +935,11 @@ impl crate::inference::NativeInferenceProvider for FirstReadinessGatedProvider {
         identity: crate::inference::EngineBindingIdentity,
         expected_model_id: String,
     ) -> Result<crate::inference::EngineBinding, crate::inference::EngineBindingError> {
-        let base = crate::inference::simulated::SimulatedNativeProvider::default()
-            .bind(identity.clone(), expected_model_id.clone())?;
+        let base = crate::inference::simulated::SimulatedNativeProvider::new(
+            Timing::test().simulated,
+            Arc::new(SystemClock),
+        )
+        .bind(identity.clone(), expected_model_id.clone())?;
         Ok(crate::inference::EngineBinding::new(
             identity,
             Arc::new(FirstReadinessGatedProbe {
@@ -1405,6 +1419,8 @@ async fn reconciliation_from(
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        timing: Timing::test().model,
+        clock: Arc::new(SystemClock),
     };
     calls.lock().expect("calls").clear();
     let mut reconciled = true;
@@ -1514,11 +1530,13 @@ async fn reconciliation_stops_and_removes_a_valid_owned_orphan() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        timing: Timing::test().model,
+        clock: Arc::new(SystemClock),
     };
 
     assert!(matches!(
         inner.reconcile().await,
-        Ok(ReconciliationState::Settled)
+        Ok(ReconcileOutcome::Settled)
     ));
     assert_eq!(calls.lock().expect("calls").as_slice(), ["stop", "remove"]);
 }
@@ -1595,6 +1613,8 @@ async fn node_pass_never_treats_changed_or_newly_declared_workloads_as_orphans()
                     crate::model::controller::serving_targets::ServingTargetsPublisher::new().0,
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
                 preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                     directory.path(),
                 ),
@@ -1693,6 +1713,8 @@ async fn paused_stopped_workload_projects_paused_without_runtime_mutation() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        timing: Timing::test().model,
+        clock: Arc::new(SystemClock),
     };
     calls.lock().expect("calls").clear();
 
@@ -1983,7 +2005,7 @@ async fn upstream_declarations_do_not_block_local_runtime_reconciliation() {
     .expect("controller construction");
 
     let (reconciliation, records, _) = capture_records_async(|| controller.inner.reconcile()).await;
-    assert!(matches!(reconciliation, Ok(ReconciliationState::Settled)));
+    assert!(matches!(reconciliation, Ok(ReconcileOutcome::Settled)));
     let ready_events = records
         .iter()
         .filter(|record| {
@@ -2663,6 +2685,8 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        timing: Timing::test().model,
+        clock: Arc::new(SystemClock),
     };
     let controller = manager_test_controller(
         desired.clone(),
@@ -3548,6 +3572,8 @@ async fn retained_docker_workload_restarts_after_pause_and_resume() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -3767,6 +3793,8 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -3942,6 +3970,8 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
         serving_targets_publisher,
         serving_targets_source,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        timing: Timing::test().model,
+        clock: Arc::new(SystemClock),
     };
 
     inner.reconcile().await.expect("replacement reconciliation");
@@ -4066,6 +4096,8 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -4154,6 +4186,8 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -4531,12 +4565,14 @@ async fn repaired_docker_artifact_recreates_a_stopped_workload_before_ready() {
         serving_targets_source,
         accelerator_attribution: None,
         shutdown: tokio_util::sync::CancellationToken::new(),
+        timing: Timing::test().model,
+        clock: Arc::new(SystemClock),
     };
     let mut changes = inner.workload_lifecycle.subscribe("deployment");
 
     assert!(matches!(
         inner.reconcile().await,
-        Ok(ReconciliationState::Settled)
+        Ok(ReconcileOutcome::Settled)
     ));
     let runtime_calls = calls
         .lock()
@@ -4677,6 +4713,8 @@ async fn preparation_failure_cancels_and_drains_other_deployments_before_returni
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -4828,6 +4866,8 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -4845,7 +4885,7 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
     assert!(reconciled.is_ok());
     assert!(matches!(
         controller.inner.reconcile().await,
-        Ok(ReconciliationState::Settled)
+        Ok(ReconcileOutcome::Settled)
     ));
     assert_eq!(
         current.snapshot().expect("current state").model_deployments[0]
@@ -4975,6 +5015,8 @@ async fn pause_intent_is_not_undone_by_stale_final_publication_and_other_deploym
                 serving_targets_source,
                 accelerator_attribution: None,
                 shutdown: tokio_util::sync::CancellationToken::new(),
+                timing: Timing::test().model,
+                clock: Arc::new(SystemClock),
             }),
         },
     );
@@ -5250,39 +5292,6 @@ async fn replacement_session_rejects_suspended_status_without_retiring_replaceme
     );
 }
 
-#[test]
-fn reconciliation_cadence_backs_off_within_its_bound_and_resets_when_settled() {
-    let mut cadence = ReconcileCadence::new();
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(25)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(50)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(100)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        Duration::from_millis(200)
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        RECONCILE_PENDING_MAX_DELAY
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Settled),
-        RECONCILE_SAFETY_SCAN_CADENCE
-    );
-    assert_eq!(
-        cadence.next_delay(ReconciliationState::Pending),
-        RECONCILE_PENDING_INITIAL_DELAY
-    );
-}
-
 fn leased_controller_for_runtime<R>(
     site: dotcore_proto::dotcore::site::v1::Site,
     runtime: R,
@@ -5392,8 +5401,8 @@ fn repeated_observer_outcomes_do_not_accumulate_span_fields() {
     let (_, records, output) = capture_records(|| {
         let span = info_span!("model_observer", operation = "model_observer");
         span.in_scope(|| {
-                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconciliationState::Settled, "model reconciliation completed");
-                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconciliationState::Pending, "model reconciliation completed");
+                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconcileOutcome::Settled, "model reconciliation completed");
+                debug!(parent: &span, operation = "model_reconcile", outcome = "success", state = ?ReconcileOutcome::Pending, "model reconciliation completed");
                 emit_observer_failure(
                     &span,
                     &ModelLifecycleError::outcome_uncertain_with_source("failure", anyhow!("failure")),

@@ -103,7 +103,7 @@ pub(crate) fn execution_target_capabilities_with_memory(
             accelerator.with_host_memory(34_190_917_632, 34_190_917_632)
         }
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(target_id, platform)],
         [accelerator],

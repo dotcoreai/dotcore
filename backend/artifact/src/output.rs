@@ -412,12 +412,14 @@ pub(crate) mod test_support {
         time::SystemTime,
     };
 
+    use dotcore_domain::clock::VirtualClock;
+
     use super::{PreparationEvent, PreparationEventKind, PreparationOutput, PreparationStep};
 
     /// Observer recording every event of the preparations it is given to, on a virtual clock that
     /// starts at [`RecordedOutput::START`].
     pub(crate) struct RecordedOutput {
-        pub(crate) clock: dotcore_domain::clock::VirtualClock,
+        pub(crate) clock: VirtualClock,
         events: Arc<Mutex<Vec<PreparationEvent>>>,
     }
 
@@ -426,7 +428,7 @@ pub(crate) mod test_support {
 
         pub(crate) fn new() -> Self {
             Self {
-                clock: dotcore_domain::clock::VirtualClock::starting_at(Self::START),
+                clock: VirtualClock::starting_at(Self::START),
                 events: Arc::new(Mutex::new(Vec::new())),
             }
         }

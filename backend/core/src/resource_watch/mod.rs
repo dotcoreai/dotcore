@@ -14,10 +14,9 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     pin::Pin,
     sync::Arc,
-    time::Duration,
 };
 
-use dotcore_domain::clock::Clock;
+use dotcore_domain::{clock::Clock, timing::WatchTiming};
 use dotcore_proto::{
     dotcore::watch::v1::{
         KeyedResource, WatchResourcesRequest, WatchResourcesResponse, resource_subscription,
@@ -43,9 +42,6 @@ const MAX_SUBSCRIPTIONS: usize = 16;
 
 /// Longest key naming a subscription, in bytes.
 const MAX_KEY_BYTES: usize = 64;
-
-/// Longest a stream stays silent before it sends a heartbeat.
-const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Public management `ResourceWatchService` over the process's watch hub.
 #[derive(Clone)]
@@ -100,6 +96,7 @@ impl ResourceWatchServiceContract for ResourceWatchService {
             completed: false,
             queued: VecDeque::new(),
             tick: 0,
+            timing: self.hub.timing(),
             sent_at: clock.now(),
             clock,
         };
@@ -150,6 +147,8 @@ struct ResourceStream {
     /// Latest tick sent on this stream.
     tick: u64,
 
+    timing: WatchTiming,
+
     /// When the latest event was sent.
     sent_at: Instant,
 }
@@ -169,7 +168,7 @@ impl ResourceStream {
                 continue;
             }
 
-            let heartbeat_at = self.sent_at + HEARTBEAT_INTERVAL;
+            let heartbeat_at = self.sent_at + self.timing.heartbeat_interval;
             tokio::select! {
                 biased;
                 publication = self.watch.next() => {
@@ -285,6 +284,7 @@ fn watch_status(error: HubWatchError) -> Status {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
+    use dotcore_domain::timing::Timing;
     use dotcore_proto::dotcore::{
         inference::v1::ListRoutesRequest,
         site::v1::ListMachinesRequest,
@@ -301,7 +301,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stream_sends_every_key_its_first_payload_at_once_then_completes_then_changes() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(Timing::test().watch));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut events = open(
             &service,
@@ -333,7 +333,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stream_opened_between_ticks_completes_from_the_cached_payloads() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(Timing::test().watch));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut first = open(&service, vec![machines("machines")])
             .await
@@ -353,8 +353,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_idle_stream_sends_a_heartbeat_fifteen_seconds_after_its_last_event() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+    async fn an_idle_stream_sends_a_heartbeat_one_heartbeat_interval_after_its_last_event() {
+        let harness = Harness::new(ResourceWatchConfig::new(Timing::production().watch));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut events = open(&service, vec![machines("machines")])
             .await
@@ -384,7 +384,7 @@ mod tests {
                 .wall_now()
                 .duration_since(completed_at)
                 .expect("later"),
-            HEARTBEAT_INTERVAL
+            Timing::production().watch.heartbeat_interval
         );
         assert_eq!(heartbeat.manager_session_id, "a".repeat(32));
         assert!(matches!(
@@ -401,7 +401,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_owner_read_failure_ends_the_stream_with_unavailable() {
-        let harness = Harness::new(ResourceWatchConfig::default());
+        let harness = Harness::new(ResourceWatchConfig::new(Timing::test().watch));
         let service = ResourceWatchService::new(harness.hub.clone());
         let mut events = open(&service, vec![machines("machines"), routes("routes")])
             .await
@@ -427,7 +427,7 @@ mod tests {
     async fn a_stream_past_the_process_cap_fails_and_a_closed_one_frees_its_place() {
         let harness = Harness::new(ResourceWatchConfig {
             max_watches: 1,
-            ..ResourceWatchConfig::default()
+            ..ResourceWatchConfig::new(Timing::test().watch)
         });
         let service = ResourceWatchService::new(harness.hub.clone());
         let held = open(&service, vec![machines("machines")])

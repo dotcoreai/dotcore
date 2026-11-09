@@ -25,7 +25,10 @@ use async_openai::{
 use dotcore::composition::CompositionError;
 use dotcore::composition::model_service_for;
 use dotcore::testing::writer_metric_descriptors;
-use dotcore_domain::hardware_observation::{HardwareSample, HardwareSnapshotSource};
+use dotcore_domain::{
+    clock::{Clock, ClockSleep},
+    hardware_observation::{HardwareSample, HardwareSnapshotSource},
+};
 use dotcore_node_hardware::hardware::{
     AcceleratorDiscovery, AcceleratorVendorDiscoverer, AcceleratorVendorObservation,
     AcceleratorVendorPoller, HardwareSnapshotCollector, HostFactsAdapter, UnavailableReason,
@@ -647,10 +650,17 @@ async fn manager_backend_server_exposes_site_inventory_and_current_snapshot_with
     let snapshot = local_snapshot();
     let (collector, probe) = CountingCollector::new(snapshot.clone());
     let (shutdown, shutdown_signal) = oneshot::channel();
-    let backend = support::prepare_backend_with_snapshot_collector(
+    // A frozen clock never reaches the next wall-aligned hardware refresh, so the collection
+    // count only moves when a request collects.
+    let clock = dotcore::testing::VirtualClock::starting_at(SystemTime::now());
+    let backend = support::prepare_backend_with_collector_and_support(
         configuration,
         async move {
             let _ = shutdown_signal.await;
+        },
+        dotcore::composition::BackendTestSupport {
+            clock: Some(Arc::new(clock)),
+            ..dotcore::composition::BackendTestSupport::test_development()
         },
         collector,
     )
@@ -1042,7 +1052,7 @@ async fn manager_backend_server_serves_distribution_percentiles() {
         },
         dotcore::composition::BackendTestSupport {
             metric_recorder: Some(recorder.clone()),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1190,7 +1200,7 @@ async fn manager_backend_server_serves_distribution_percentiles() {
 #[tokio::test]
 async fn manager_backend_server_streams_metric_watches() {
     let root = support::temporary_fast_fixture();
-    let clock = dotcore_domain::clock::ManualClock::new();
+    let clock = dotcore::testing::ManualClock::new();
     let recorder = dotcore::composition::MetricRecorderSlot::default();
     let (shutdown, shutdown_signal) = oneshot::channel();
     let backend = support::prepare_backend_with_test_support(
@@ -1199,9 +1209,9 @@ async fn manager_backend_server_streams_metric_watches() {
             let _ = shutdown_signal.await;
         },
         dotcore::composition::BackendTestSupport {
-            clock: Some(clock.clone()),
+            clock: Some(Arc::new(clock.clone())),
             metric_recorder: Some(recorder.clone()),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1215,7 +1225,7 @@ async fn manager_backend_server_streams_metric_watches() {
             seconds,
         )
     };
-    let backfilled_at = dotcore_domain::clock::Clock::wall_now(&clock);
+    let backfilled_at = clock.wall_now();
     recorder.record(vec![ttft(backfilled_at, 0.25), ttft(backfilled_at, 0.75)]);
     let address = backend.addresses().management.expect("management listener");
     let mut server = tokio::spawn(backend.serve());
@@ -1305,7 +1315,7 @@ async fn manager_backend_server_streams_metric_watches() {
     );
 
     clock.advance(Duration::from_secs(2));
-    let live_at = dotcore_domain::clock::Clock::wall_now(&clock);
+    let live_at = clock.wall_now();
     recorder.record(vec![ttft(live_at, 0.5)]);
     // Past the bucket's end and its closing grace, so the live point arrives closed.
     clock.advance(Duration::from_secs(2));
@@ -1363,7 +1373,7 @@ async fn manager_backend_server_streams_metric_watches() {
 #[tokio::test]
 async fn manager_backend_server_streams_resource_watches() {
     let root = support::temporary_fast_fixture();
-    let clock = dotcore_domain::clock::ManualClock::new();
+    let clock = dotcore::testing::ManualClock::new();
     let (shutdown, shutdown_signal) = oneshot::channel();
     let backend = support::prepare_backend_with_test_support(
         support::configuration(&root),
@@ -1371,9 +1381,9 @@ async fn manager_backend_server_streams_resource_watches() {
             let _ = shutdown_signal.await;
         },
         dotcore::composition::BackendTestSupport {
-            clock: Some(clock.clone()),
+            clock: Some(Arc::new(clock.clone())),
             simulated_runtime: Some(SimulatedRuntimeTestSupport::with_stop_failures(0)),
-            ..Default::default()
+            ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
@@ -1519,7 +1529,7 @@ async fn manager_backend_server_streams_resource_watches() {
 /// Next watch response, advancing the manual clock one second at a time until a tick publishes.
 async fn next_resource_event(
     watch: &mut GrpcWebStream,
-    clock: &dotcore_domain::clock::ManualClock,
+    clock: &dotcore::testing::ManualClock,
 ) -> WatchResourcesResponse {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     loop {
@@ -2152,9 +2162,10 @@ impl HostFactsAdapter for FixedHostFacts {
 }
 
 /// Tokio monotonic time with wall time fixed at [`fixed_observed_at`].
+#[derive(Debug)]
 struct FixedObservationClock;
 
-impl dotcore_domain::clock::Clock for FixedObservationClock {
+impl Clock for FixedObservationClock {
     fn now(&self) -> tokio::time::Instant {
         tokio::time::Instant::now()
     }
@@ -2163,7 +2174,7 @@ impl dotcore_domain::clock::Clock for FixedObservationClock {
         UNIX_EPOCH + Duration::new(1_725_000_000, 123)
     }
 
-    fn sleep_until(&self, deadline: tokio::time::Instant) -> dotcore_domain::clock::ClockSleep {
+    fn sleep_until(&self, deadline: tokio::time::Instant) -> ClockSleep {
         Box::pin(tokio::time::sleep_until(deadline))
     }
 }

@@ -357,7 +357,7 @@ mod tests {
                 (PoolKind::Host, Some(32 * GIB)),
             ]
         );
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [("target-a", "node-a", ["GPU-a"])],
             [],
             [NodeAcceleratorObservation::from_hardware_snapshot(
@@ -585,7 +585,7 @@ mod tests {
                 let snapshot = description
                     .render(&running, SystemTime::now())
                     .expect("rendered snapshot");
-                let inventory = TargetCapabilityReconciler::reconcile(
+                let inventory = TargetCapabilityReconciler::reconcile_now(
                     [("target-a", "node-a", [gpu.clone()])],
                     [],
                     [NodeAcceleratorObservation::from_hardware_snapshot(

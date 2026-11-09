@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dotcore_domain::SiteNodeId;
+use dotcore_domain::{SiteNodeId, real_time, timing::Timing};
 use dotcore_launcher::{
     supervisor::Supervisor,
     workload::{Lifetime, PROCESS_FILE, ProcessRecord, StoredRecord},
@@ -35,9 +35,6 @@ pub const TEST_SITE_NODE: &str = "node-a";
 
 /// Execution target every test workload runs on.
 pub const TEST_EXECUTION_TARGET: &str = "mac-gpu";
-
-/// How long a test create watches a new workload for an early exit on a taken port.
-const TEST_PORT_SETTLE_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Fake store and artifact roots for test workloads, plus the backend that created them.
 pub struct NativeTestHost {
@@ -80,9 +77,9 @@ impl NativeTestHost {
         };
         // The fake engine never exits on its own, so a create would otherwise watch it for the
         // whole production settle window.
-        let backend = NativeRuntimeBackend::new(config.clone(), launcher_binary())
-            .expect("native backend")
-            .with_port_settle_timeout(TEST_PORT_SETTLE_TIMEOUT);
+        let backend =
+            NativeRuntimeBackend::new(config.clone(), launcher_binary(), Timing::test().native)
+                .expect("native backend");
         Self {
             _roots: roots,
             store_path: store_path.to_str().expect("UTF-8 store path").to_owned(),
@@ -190,7 +187,7 @@ pub async fn wait_until(condition: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !condition() {
         assert!(Instant::now() < deadline, "condition not met in time");
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        real_time::pause(Duration::from_millis(20)).await;
     }
 }
 

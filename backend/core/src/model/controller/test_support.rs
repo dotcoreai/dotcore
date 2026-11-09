@@ -15,8 +15,12 @@ use std::{
 };
 
 use anyhow::anyhow;
-use dotcore_domain::SiteNodeId;
-use dotcore_domain::test_support::oci::digest_reference;
+use dotcore_domain::{
+    SiteNodeId,
+    clock::SystemClock,
+    test_support::oci::digest_reference,
+    timing::{ReconcileOutcome, Timing},
+};
 use dotcore_proto::dotcore::{
     catalog::v1::{
         ModelParallelShape, OciPlatform, UpstreamModelBoundary, UpstreamModelDataEgressClass,
@@ -72,7 +76,7 @@ use crate::{
 
 pub(super) fn test_target_capability_source() -> Arc<dyn TargetCapabilitySource> {
     let platform = dotcore_domain::ExecutionPlatform::linux_amd64();
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [("target-one", "node-one")],
         [RuntimePlatformObservation::available(
             "target-one",
@@ -1077,7 +1081,10 @@ pub(super) fn test_simulated_runtime_target() -> RuntimeTargetMap {
 pub(super) fn test_engine_integrations() -> Arc<crate::model::engine::EngineIntegrationRegistry> {
     Arc::new(
         crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
-            Arc::new(crate::inference::simulated::SimulatedNativeProvider::default()),
+            Arc::new(crate::inference::simulated::SimulatedNativeProvider::new(
+                Timing::test().simulated,
+                Arc::new(SystemClock),
+            )),
             crate::model::engine::EngineTransportFactories::local_engines(),
         ),
     )
@@ -1275,9 +1282,7 @@ impl AcquisitionControllerHarness {
 
     pub(super) fn start_reconciliation(
         &self,
-    ) -> tokio::task::JoinHandle<
-        Result<super::reconciliation::ReconciliationState, ModelLifecycleError>,
-    > {
+    ) -> tokio::task::JoinHandle<Result<ReconcileOutcome, ModelLifecycleError>> {
         for (deployment_id, blocked) in self
             .model_file_blocks
             .lock()
@@ -1304,7 +1309,7 @@ impl AcquisitionControllerHarness {
         for _ in 0..10 {
             if matches!(
                 self.controller.inner.reconcile().await?,
-                super::reconciliation::ReconciliationState::Settled
+                ReconcileOutcome::Settled
             ) {
                 return Ok(());
             }

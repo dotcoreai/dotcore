@@ -1,6 +1,9 @@
 use std::time::{Duration, SystemTime};
 
-use dotcore_domain::clock::{ManualClock, VirtualClock};
+use dotcore_domain::{
+    clock::{ManualClock, VirtualClock},
+    timing::Timing,
+};
 use futures_util::StreamExt;
 
 use super::*;
@@ -1125,7 +1128,7 @@ async fn an_idle_ended_watch_sends_heartbeats() {
     };
     assert_eq!(next_event(&mut watch).await, WatchEvent::BackfillComplete);
 
-    clock.advance(super::watch::HEARTBEAT_INTERVAL);
+    clock.advance(Timing::test().watch.heartbeat_interval);
 
     assert_eq!(
         next_event(&mut watch).await,
@@ -1282,7 +1285,7 @@ async fn the_sweep_records_rejected_and_late_records() {
         .expect("ingest");
     store.drain().await.expect("drain");
 
-    clock.advance(SWEEP_INTERVAL);
+    clock.advance(Timing::test().metrics.store_sweep_interval);
     wait_for_gauge(&store, health::STORE_SERIES, clock.wall_now()).await;
 
     assert_eq!(
@@ -1336,7 +1339,7 @@ async fn the_sweep_records_drops_of_a_full_queue() {
     }
     // Lets the ingest task start, and schedule its first sweep, before time moves.
     store.drain().await.expect("drain");
-    clock.advance(SWEEP_INTERVAL);
+    clock.advance(Timing::test().metrics.store_sweep_interval);
     wait_for_gauge(&store, health::STORE_SERIES, clock.wall_now()).await;
 
     assert_eq!(store.dropped_records(), 6);
@@ -1396,6 +1399,8 @@ fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemor
                 reporting_delay: None,
             },
         ],
+        Timing::test().metrics,
+        Timing::test().watch,
         clock,
     )
     .expect("start store")
@@ -1421,6 +1426,8 @@ fn start_virtual_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore
             sample_interval: None,
             reporting_delay: None,
         }],
+        Timing::test().metrics,
+        Timing::test().watch,
         Arc::new(clock.clone()),
     )
     .expect("start store");

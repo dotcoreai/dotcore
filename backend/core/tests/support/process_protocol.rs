@@ -10,15 +10,16 @@ use std::{
     io::{BufRead, Write},
     path::PathBuf,
     process::ChildStdin,
-    sync::mpsc,
+    sync::{Arc, mpsc},
     thread,
     time::{Duration, Instant},
 };
 
 use dotcore::{
     composition::BackendTestSupport,
-    testing::{ManualClock, SimulatedInferenceTestSupport},
+    testing::{ManualClock, SimulatedInferenceTestSupport, Timing},
 };
+use dotcore_domain::clock::Clock;
 use dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport;
 use serde::{Deserialize, Serialize};
 
@@ -53,9 +54,8 @@ pub enum ProcessCommand {
 }
 
 /// Static test settings of one backend subprocess, decided by the harness before it starts.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(super) struct ProcessSettings {
-    capability_max_age_millis: Option<u64>,
     held_inference_stream_events: Option<usize>,
     local_development_store_path: Option<(String, String)>,
     application_endpoint_port: Option<u16>,
@@ -63,9 +63,7 @@ pub(super) struct ProcessSettings {
     manual_clock: bool,
     native_launcher: Option<PathBuf>,
     manager_private_port: Option<u16>,
-    liveness_silence_bound_millis: Option<u64>,
-    view_republish_interval_millis: Option<u64>,
-    node_action_lease_millis: Option<u64>,
+    timing: Timing,
 }
 
 impl ProcessSettings {
@@ -79,7 +77,6 @@ impl ProcessSettings {
     ) -> Self {
         let owned = |(first, second): (&str, &str)| (first.to_owned(), second.to_owned());
         Self {
-            capability_max_age_millis: controls.capability_max_age.map(millis),
             held_inference_stream_events: controls.held_inference_stream_events,
             local_development_store_path: controls.local_development_store_path.map(owned),
             application_endpoint_port: controls.application_endpoint_port,
@@ -87,9 +84,7 @@ impl ProcessSettings {
             manual_clock: controls.manual_clock,
             native_launcher,
             manager_private_port,
-            liveness_silence_bound_millis: controls.liveness_silence_bound.map(millis),
-            view_republish_interval_millis: controls.view_republish_interval.map(millis),
-            node_action_lease_millis: controls.node_action_lease.map(millis),
+            timing: controls.timing,
         }
     }
 
@@ -110,16 +105,29 @@ impl ProcessSettings {
         self.manager_private_port
     }
 
-    /// Backend controls of a development backend adjusted by these settings.
+    /// Manual clock a manager subprocess composes its backend with, when these settings ask for
+    /// one; the subprocess keeps a clone to advance it on the harness's commands.
+    pub(super) fn manual_clock(&self) -> Option<ManualClock> {
+        self.manual_clock.then(ManualClock::new)
+    }
+
+    /// Timing the subprocess's backend runs.
+    pub(super) fn timing(&self) -> Timing {
+        self.timing
+    }
+
+    /// Backend controls of a development backend adjusted by these settings, reading
+    /// `manual_clock` when given and system time otherwise.
     ///
     /// Simulated models keep their representative acquisition activity with zero-duration steps
     /// and zero ready and stop delays, overriding the site scenario, so lifecycle tests wait on no
-    /// simulated time; tests observe intermediate transitions through the transition gates.
-    pub(super) fn test_support(&self) -> BackendTestSupport {
+    /// simulated time; tests observe intermediate transitions through the transition gates. The
+    /// backend runs these settings' timing.
+    pub(super) fn test_support(&self, manual_clock: Option<ManualClock>) -> BackendTestSupport {
         let mut runtime = BackendTestSupport::development()
             .simulated_runtime
             .expect("development simulated runtime")
-            .with_representative_startup(Duration::ZERO)
+            .with_representative_startup()
             .with_lifecycle_delays(Duration::ZERO, Duration::ZERO);
         if let Some(port) = self.application_endpoint_port {
             runtime = runtime.with_application_endpoint_port(port);
@@ -127,9 +135,11 @@ impl ProcessSettings {
         if self.model_transition_gates {
             runtime = runtime.with_model_transition_gates();
         }
+        let mut timing = self.timing;
+        timing.simulated.startup_step_interval = Duration::ZERO;
         BackendTestSupport {
             simulated_runtime: Some(runtime),
-            target_capability_max_age: self.capability_max_age_millis.map(Duration::from_millis),
+            timing,
             simulated_inference: self
                 .held_inference_stream_events
                 .map(SimulatedInferenceTestSupport::blocked_after_stream_events),
@@ -139,17 +149,8 @@ impl ProcessSettings {
                 .into_iter()
                 .collect(),
             native_launcher: self.native_launcher.clone(),
-            clock: self.manual_clock.then(ManualClock::new),
+            clock: manual_clock.map(|clock| Arc::new(clock) as Arc<dyn Clock>),
             metric_recorder: None,
-            liveness_silence_bound: self
-                .liveness_silence_bound_millis
-                .map(Duration::from_millis),
-            view_republish_interval: self
-                .view_republish_interval_millis
-                .map(Duration::from_millis),
-            node_heartbeat_interval: None,
-            manager_silence_bound: None,
-            node_action_lease: self.node_action_lease_millis.map(Duration::from_millis),
         }
     }
 
@@ -272,9 +273,4 @@ pub fn execute(
             .advance(by, &expiring, ADVANCE_DEADLINE)?,
     }
     Ok(())
-}
-
-/// Whole milliseconds of a harness duration, as the settings carry them.
-fn millis(duration: Duration) -> u64 {
-    u64::try_from(duration.as_millis()).expect("subprocess setting milliseconds")
 }

@@ -129,6 +129,8 @@ fn delete_failure(error: SiteResetTransactionError, site_dir: &Path) -> anyhow::
 mod tests {
     use std::{fs, path::PathBuf};
 
+    use dotcore_domain::timing::Timing;
+
     use super::*;
     use crate::{
         terminal::{
@@ -482,6 +484,7 @@ mod tests {
                     lifetime: NativeWorkloadLifetime::Ephemeral,
                 },
                 launcher,
+                Timing::test().native,
             )
             .expect("native backend");
             crate::build_runtime()

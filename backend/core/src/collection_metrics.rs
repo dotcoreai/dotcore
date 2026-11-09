@@ -32,8 +32,8 @@ impl CollectionMetricsWriter {
     /// `clock`'s wall time.
     pub(crate) fn new(
         observations: NodeObservationFeed,
-        clock: Arc<dyn Clock>,
         sources: Vec<CollectionMetricsSource>,
+        clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             observations,
@@ -99,7 +99,7 @@ mod tests {
         time::{Duration, UNIX_EPOCH},
     };
 
-    use dotcore_domain::clock::VirtualClock;
+    use dotcore_domain::{clock::VirtualClock, timing::Timing};
     use dotcore_observability::{
         ForwarderConfig, InMemoryMetricStore, InMemoryStoreConfig, InProcessBucketTransport,
         MetricBucketIngest, MetricForwarder, MetricQuery, MetricStore, PointValue, QueryRange,
@@ -188,25 +188,28 @@ mod tests {
                 deployment_metric_descriptors(Duration::from_secs(5)),
             ]
             .concat(),
+            Timing::test().metrics,
+            Timing::test().watch,
             Arc::new(clock.clone()),
         )
         .expect("start metric store");
         let ingest = Arc::new(MetricBucketIngest::new(
             store.ingestor(),
+            Timing::test().metrics,
             Arc::new(clock.clone()),
         ));
         let (forwarder, _forwarder_task) = MetricForwarder::start(
             "node-a",
             Arc::new(InProcessBucketTransport::new(ingest)),
-            Arc::new(clock.clone()),
             ForwarderConfig::default(),
+            Timing::test().metrics,
+            Arc::new(clock.clone()),
         )
         .expect("start metric forwarder");
         let feed = NodeObservationFeed::default();
         let _writer = tokio::spawn(
             CollectionMetricsWriter::new(
                 feed.clone(),
-                Arc::new(clock.clone()),
                 vec![CollectionMetricsSource::new(
                     |at| {
                         vec![MetricRecord::gauge(
@@ -218,6 +221,7 @@ mod tests {
                     },
                     forwarder.recorder("deployment_memory"),
                 )],
+                Arc::new(clock.clone()),
             )
             .run(),
         );
@@ -311,7 +315,6 @@ mod tests {
             let apps_hidden = Arc::clone(&self.apps_hidden);
             let writer = CollectionMetricsWriter::new(
                 self.feed.clone(),
-                Arc::new(self.clock.clone()),
                 vec![
                     CollectionMetricsSource::new(
                         move |at| vec![gauge("model-a", at, *model_value.lock().expect("value"))],
@@ -327,6 +330,7 @@ mod tests {
                         Arc::clone(&self.apps) as Arc<dyn MetricRecorder>,
                     ),
                 ],
+                Arc::new(self.clock.clone()),
             );
             AbortOnDrop(tokio::spawn(writer.run()))
         }

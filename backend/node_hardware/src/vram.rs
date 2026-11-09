@@ -15,10 +15,11 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
     thread,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, bail};
+use dotcore_domain::real_time;
 use dotcore_host_process::{HostProcessTable, ProcessLifetime, ProcessTable, process_ancestors};
 use serde::Serialize;
 
@@ -259,7 +260,7 @@ fn sample_process_from(
     unattributed_used_bytes(&initial, &mut others)?;
 
     let gpu = source.device_identity(device_index)?;
-    let started_unix_millis = SystemTime::now()
+    let started_unix_millis = real_time::wall_now()
         .duration_since(UNIX_EPOCH)
         .context("system clock is before Unix epoch")?
         .as_millis();

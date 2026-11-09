@@ -11,10 +11,9 @@ use std::{
     path::{Path, PathBuf},
     process::Stdio,
     sync::Arc,
-    time::Duration,
 };
 
-use dotcore_domain::clock::{Clock, SystemClock};
+use dotcore_domain::{clock::Clock, timing::ArtifactTiming};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -26,9 +25,6 @@ use super::{
 
 /// Directory of a node's garbage-collector roots, beside its node store.
 pub const NIX_ROOTS_DIRECTORY: &str = "nix-roots";
-
-/// Delay before a failed pass runs again when no pin change triggers one sooner.
-const RETRY_DELAY: Duration = Duration::from_secs(60);
 
 /// The Nix store paths a node pins, read from the node's durable records.
 pub trait PinnedStorePaths: Send + Sync {
@@ -45,27 +41,27 @@ pub struct NixRootKeeper {
     pins: Arc<dyn PinnedStorePaths>,
     command: NixCommand,
     clock: Arc<dyn Clock>,
-    retry_delay: Duration,
+    timing: ArtifactTiming,
     passes: watch::Sender<u64>,
 }
 
 impl NixRootKeeper {
-    /// Keeps the roots in `roots` for the store paths `pins` names.
-    pub fn new(roots: PathBuf, pins: Arc<dyn PinnedStorePaths>) -> Self {
+    /// Keeps the roots in `roots` for the store paths `pins` names. A failed pass runs again after
+    /// the retry interval of `timing` when no pin change triggers one sooner.
+    pub fn new(
+        roots: PathBuf,
+        pins: Arc<dyn PinnedStorePaths>,
+        timing: ArtifactTiming,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         Self {
             roots,
             pins,
             command: NixCommand::Discover,
-            clock: Arc::new(SystemClock),
-            retry_delay: RETRY_DELAY,
+            clock,
+            timing,
             passes: watch::channel(0).0,
         }
-    }
-
-    /// Waits through `clock`, the backend's time source.
-    pub fn with_clock(mut self, clock: Arc<dyn Clock>) -> Self {
-        self.clock = clock;
-        self
     }
 
     /// Runs a startup pass, then a release pass after each pin change, until the task is aborted.
@@ -89,7 +85,7 @@ impl NixRootKeeper {
                         error = %format!("{error:#}"),
                         "Nix root pass failed; retrying"
                     );
-                    Some(self.clock.now() + self.retry_delay)
+                    Some(self.clock.now() + self.timing.nix_root_retry_interval)
                 }
             };
             self.passes
@@ -227,13 +223,6 @@ impl NixRootKeeper {
         self
     }
 
-    /// Retries a failed pass after `delay` instead of the production delay.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn with_retry_delay(mut self, delay: Duration) -> Self {
-        self.retry_delay = delay;
-        self
-    }
-
     /// Returns a receiver whose value counts completed passes, failed ones included.
     #[cfg(any(test, feature = "test-support"))]
     pub fn passes(&self) -> watch::Receiver<u64> {
@@ -278,9 +267,14 @@ async fn link_target(link: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::VecDeque, os::unix::fs::PermissionsExt as _, sync::Mutex};
+    use std::{
+        collections::VecDeque, os::unix::fs::PermissionsExt as _, sync::Mutex, time::Duration,
+    };
 
-    use dotcore_domain::clock::ManualClock;
+    use dotcore_domain::{
+        clock::{ManualClock, SystemClock},
+        timing::Timing,
+    };
 
     use super::*;
     use crate::nix_build::LOCK_DIRECTORY;
@@ -413,7 +407,9 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let start = |roots: PathBuf, pins: Arc<FakePins>| {
-            let keeper = NixRootKeeper::new(roots, pins).with_executable(nix.clone());
+            let keeper =
+                NixRootKeeper::new(roots, pins, Timing::test().artifact, Arc::new(SystemClock))
+                    .with_executable(nix.clone());
             Running {
                 passes: keeper.passes(),
                 clock: ManualClock::new(),
@@ -549,10 +545,15 @@ mod tests {
 
         fn start(&self, pins: Arc<FakePins>) -> (Running, Arc<FakePins>) {
             let clock = ManualClock::new();
-            let keeper = NixRootKeeper::new(self.roots(), pins.clone())
-                .with_executable(self.root.path().join("nix"))
-                .with_clock(Arc::new(clock.clone()))
-                .with_retry_delay(RETRY);
+            let keeper = NixRootKeeper::new(
+                self.roots(),
+                pins.clone(),
+                ArtifactTiming {
+                    nix_root_retry_interval: RETRY,
+                },
+                Arc::new(clock.clone()),
+            )
+            .with_executable(self.root.path().join("nix"));
             let passes = keeper.passes();
             (
                 Running {

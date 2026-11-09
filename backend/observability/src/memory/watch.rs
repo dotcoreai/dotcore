@@ -33,10 +33,6 @@ use super::{
     health::STORE_UP,
 };
 
-/// Longest a watch stays silent: an idle watch then sends a point-less upsert, so a vanished
-/// watcher's broken connection is noticed and its watch closed.
-pub(super) const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
-
 /// Opens a watch of `query` whose backfill reads the store now and whose live part follows
 /// `changes`, holding `permit` for its whole life.
 pub(super) fn open(
@@ -176,10 +172,7 @@ impl Follower {
                 }
                 continue;
             }
-            let sleep = self
-                .shared
-                .clock
-                .sleep_until(self.shared.clock.now() + Duration::from_millis(wake - now));
+            let sleep = self.shared.clock.sleep(Duration::from_millis(wake - now));
             let upsert = tokio::select! {
                 // Revisions and a lag surface before the next deadline's points.
                 biased;
@@ -300,7 +293,7 @@ impl Follower {
             .retain(|(_, bucket), _| *bucket >= first_open && *bucket >= covered_start);
         self.open_from = self.open_from.max(first_open.min(self.range_end()));
         let announce = (covered_start, covered_end) != self.sent_range
-            || now >= self.sent_at + HEARTBEAT_INTERVAL.as_millis() as u64;
+            || now >= self.sent_at + self.heartbeat_millis();
         Ok(self.upsert(now, series, announce))
     }
 
@@ -327,7 +320,7 @@ impl Follower {
     /// When to evaluate open buckets or send a heartbeat next. Once every bucket of an explicit
     /// range closed, only the heartbeat remains.
     fn wake_at(&self) -> u64 {
-        let heartbeat = self.sent_at + HEARTBEAT_INTERVAL.as_millis() as u64;
+        let heartbeat = self.sent_at + self.heartbeat_millis();
         if self.open_from >= self.range_end() {
             heartbeat
         } else {
@@ -336,6 +329,11 @@ impl Follower {
     }
 
     /// Aligned end of an explicit range; a `last` range has none.
+    /// Longest silence of this watch, in milliseconds.
+    fn heartbeat_millis(&self) -> u64 {
+        self.shared.watch.heartbeat_interval.as_millis() as u64
+    }
+
     fn range_end(&self) -> u64 {
         match self.query.range {
             QueryRange::Last(_) => u64::MAX,

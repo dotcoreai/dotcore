@@ -10,7 +10,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::ExitCode,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, bail};
@@ -24,7 +24,7 @@ use dotcore::{
     telemetry::FileTelemetrySink,
 };
 use dotcore_catalog::CatalogModelId;
-use dotcore_domain::SiteNodeId;
+use dotcore_domain::{SiteNodeId, real_time};
 use dotcore_node_hardware::vram::{
     VramAccounting, VramAvailability, VramCancellation, VramGpuMemory, VramObservation,
     sample_process,
@@ -461,7 +461,7 @@ async fn vram(paths: &RootPathArgs, args: VramArgs) -> Result<()> {
                 json!({"error": format!("{:#}", anyhow::Error::new(error))}),
             ),
         };
-    let record = measurement_record(&identity, &observation, engine_facts, SystemTime::now());
+    let record = measurement_record(&identity, &observation, engine_facts, real_time::wall_now());
     let telemetry = record_measurement(paths.telemetry_dir(), &record, engine_facts_status);
     print_success(
         "vram",

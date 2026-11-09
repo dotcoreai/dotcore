@@ -15,9 +15,12 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::SitePaths;
 use dotcore_domain::{
-    background_loop::log_unexpected_loop_end, hardware_observation::HardwareSnapshotSource,
+    SitePaths,
+    background_loop::log_unexpected_loop_end,
+    clock::Clock,
+    hardware_observation::HardwareSnapshotSource,
+    timing::{ApplicationTiming, Timing},
 };
 use dotcore_node_hardware::LocalNodeCapability;
 use dotcore_observability::{
@@ -42,10 +45,10 @@ use dotcore_site::{
         },
         registry::NodeRegistry,
         session::{
-            NodeControlObservations, NodeControlSession, NodeControlSessionConfiguration,
-            NodeControlSessionTask, NodeControlTransport,
+            NodeControlObservations, NodeControlSession, NodeControlSessionTask,
+            NodeControlTransport,
         },
-        target_inventory::{TARGET_CAPABILITY_MAX_AGE, TargetCapabilitySource},
+        target_inventory::TargetCapabilitySource,
     },
     store::FileNodeState,
     view::{
@@ -92,6 +95,9 @@ pub(super) struct NodeInputs {
     /// Machine the node declares, which its observation reports and its simulated model workloads
     /// take memory on; `None` when the node reads its real hardware.
     pub(super) declared_machine: Option<DeclaredMachine>,
+
+    /// Timing policy the node runs, already checked.
+    pub(super) timing: Timing,
 
     pub(super) test_support: BackendTestSupport,
 }
@@ -240,16 +246,17 @@ pub(super) async fn compose_node(
         telemetry_sink,
         dotcore_sources,
         declared_machine,
+        timing,
         test_support,
     } = inputs;
     let clock = super::backend_clock(&test_support);
-    let control_configuration = node_control_configuration(&test_support)?;
     // Opens its stream to the manager once the node's hardware sampler records into it.
     let (metric_forwarder, metric_forwarder_task) = MetricForwarder::start(
         &node_id,
         transports.metrics,
-        Arc::clone(&clock),
         ForwarderConfig::default(),
+        timing.metrics,
+        Arc::clone(&clock),
     )
     .map_err(|error| {
         CompositionError::composition_with_source("start the node metric forwarder", error)
@@ -264,9 +271,7 @@ pub(super) async fn compose_node(
         node_id.clone(),
         incarnation.clone(),
         manager_session,
-        test_support
-            .node_action_lease
-            .unwrap_or(Duration::from_secs(90)),
+        timing.node_control.action_lease,
     )
     .map_err(|error| {
         CompositionError::composition_with_source("prepare accepted node view", error)
@@ -296,8 +301,13 @@ pub(super) async fn compose_node(
         &site_id,
         &site_node_id,
         test_support.native_launcher.as_deref(),
-        test_support.simulated_runtime.clone(),
-        declared_machine,
+        timing.native,
+        super::runtime::SimulatedRuntimeInputs {
+            test_support: test_support.simulated_runtime.clone(),
+            machine: declared_machine,
+            timing: timing.simulated,
+            clock: Arc::clone(&clock),
+        },
     )?;
     let runtimes = super::runtime::node_runtime_targets_for(
         &installed_targets,
@@ -318,9 +328,8 @@ pub(super) async fn compose_node(
         &installed_targets,
         &runtimes,
         observation.reporter.observations(),
-        test_support
-            .target_capability_max_age
-            .unwrap_or(TARGET_CAPABILITY_MAX_AGE),
+        timing.node_control.capability_max_age,
+        Arc::clone(&clock),
     )
     .await?;
     // One set of sources serves both pinning and building, so a node always builds the store
@@ -336,8 +345,9 @@ pub(super) async fn compose_node(
         Arc::new(NodeStorePins {
             state: state.clone(),
         }),
-    )
-    .with_clock(Arc::clone(&clock));
+        timing.artifact,
+        Arc::clone(&clock),
+    );
     let artifacts = crate::model::controller::ArtifactDependencies {
         oci_preparer: super::controllers::oci_preparer_for(
             &installed_targets,
@@ -351,6 +361,8 @@ pub(super) async fn compose_node(
         target_capabilities,
         engine_integrations: super::controllers::engine_integrations(
             test_support.simulated_inference,
+            timing.simulated,
+            Arc::clone(&clock),
         ),
         accelerator_attribution: Some(accelerator_attribution.clone()),
     };
@@ -405,6 +417,8 @@ pub(super) async fn compose_node(
     ));
     let model_construction = Arc::clone(&model_lifecycle.construction);
     let model_shutdown = model_lifecycle.shutdown.clone();
+    let model_timing = timing.model;
+    let model_clock = Arc::clone(&clock);
     let model_root_keeper = Arc::clone(&model_lifecycle.root_keeper);
     let model_preparation_logs = preparation_logs.clone();
     let model_start = Box::new(move || {
@@ -417,7 +431,8 @@ pub(super) async fn compose_node(
         let listener =
             crate::model::controller::ModelRealizationInput::register_change_listener(&model_input);
         let construction = tokio::spawn(async move {
-            let realizer = construct_with_retry(listener, MODEL_CONSTRUCTION_RETRY, || {
+            let retry = model_timing.construction_retry_interval;
+            let realizer = construct_with_retry(listener, Arc::clone(&model_clock), retry, || {
                 construct_model_realizer(
                     crate::model::controller::NodeModelRealizerDependencies {
                         input: pinned_model_input.clone(),
@@ -426,6 +441,8 @@ pub(super) async fn compose_node(
                         shutdown: model_shutdown.clone(),
                         preparation_logs: model_preparation_logs.clone(),
                         workload_lifecycle: model_workload_lifecycle.clone(),
+                        timing: model_timing,
+                        clock: Arc::clone(&model_clock),
                     },
                     model_state.clone(),
                     model_runtimes.clone(),
@@ -461,6 +478,8 @@ pub(super) async fn compose_node(
             },
             preparation_logs,
             inventory: observation.inventory(),
+            timing: timing.application,
+            clock: Arc::clone(&clock),
         },
         publication_host,
     )
@@ -511,7 +530,7 @@ pub(super) async fn compose_node(
         state,
         model_status,
         application_status,
-        control_configuration,
+        timing.node_control,
         clock,
     );
     let diagnostics =
@@ -593,7 +612,7 @@ fn collection_metrics_writer(
             forwarder.recorder(crate::application::APPLICATION_RESOURCES_SOURCE),
         ));
     }
-    CollectionMetricsWriter::new(observation.reporter.observations(), clock, sources)
+    CollectionMetricsWriter::new(observation.reporter.observations(), sources, clock)
 }
 
 /// Composes the observation part of the SiteNode that shares the manager process: the same
@@ -768,7 +787,7 @@ pub(super) struct NodeObservationInputs {
     pub(super) probes: RuntimeCapabilityProbes,
 
     /// Backend clock the reporter and sampler schedule, time out, and stamp on.
-    pub(super) clock: Arc<dyn dotcore_domain::clock::Clock>,
+    pub(super) clock: Arc<dyn Clock>,
 }
 
 /// Builds the node's runtime capability probes: the local Docker daemon, and the native host
@@ -812,15 +831,13 @@ type SiteNodeReporter = NodeReporter<
     Arc<dyn ObservationReportSink + Send + Sync>,
 >;
 
-/// Upper bound between retries of a failed model realizer construction. Accepted-view changes
-/// retry sooner, and an unchanged view still recovers from transient failures.
-const MODEL_CONSTRUCTION_RETRY: Duration = Duration::from_secs(5);
-
 /// Waits for the first accepted-view notification, then runs `attempt` until it succeeds. After
-/// a failure the next attempt starts on the next view change or after `retry`, whichever comes
-/// first, and only one attempt is ever in flight.
+/// a failure the next attempt starts on the next view change or after `retry` on `clock`,
+/// whichever comes first, and only one attempt is ever in flight. Retrying after `retry` even on
+/// an unchanged view recovers from transient failures.
 async fn construct_with_retry<T, F, A>(
     listener: Arc<tokio::sync::Notify>,
+    clock: Arc<dyn Clock>,
     retry: Duration,
     mut attempt: A,
 ) -> T
@@ -844,7 +861,7 @@ where
         }
         tokio::select! {
             () = listener.notified() => {}
-            () = tokio::time::sleep(retry) => {}
+            () = clock.sleep(retry) => {}
         }
     }
 }
@@ -872,12 +889,13 @@ async fn construct_model_realizer(
 
 /// Confirms every installed model target's runtime platform matches its installed configuration,
 /// then returns capabilities refreshed by each completed infrastructure collection and reported
-/// stale once the latest collection is older than `max_age`.
+/// stale once the latest collection is older than `max_age` on `clock`.
 async fn target_capability_source(
     targets: &[ExecutionTarget],
     runtimes: &crate::dispatch::model::RuntimeTargetMap,
     observations: NodeObservationFeed,
     max_age: Duration,
+    clock: Arc<dyn Clock>,
 ) -> Result<Arc<dyn TargetCapabilitySource>, CompositionError> {
     for target in targets.iter().filter(|target| {
         matches!(
@@ -915,6 +933,7 @@ async fn target_capability_source(
         targets,
         observations,
         max_age,
+        clock,
     )))
 }
 
@@ -928,6 +947,8 @@ struct ApplicationRealizerSources {
     fixed_pins: FixedLaunchPins,
     preparation_logs: crate::deployment_logs::PreparationLogs,
     inventory: Arc<dyn HardwareInventorySource>,
+    timing: ApplicationTiming,
+    clock: Arc<dyn Clock>,
 }
 
 async fn application_realizer_for(
@@ -944,6 +965,8 @@ async fn application_realizer_for(
         fixed_pins,
         preparation_logs,
         inventory,
+        timing,
+        clock,
     } = sources;
     let application_targets = targets
         .iter()
@@ -1008,6 +1031,8 @@ async fn application_realizer_for(
             publication_host,
             preparation_logs,
             inventory,
+            timing,
+            clock,
         },
     )
     .map(Some)
@@ -1158,28 +1183,6 @@ impl dotcore_artifact::PinnedStorePaths for NodeStorePins {
     }
 }
 
-fn node_control_configuration(
-    test_support: &BackendTestSupport,
-) -> Result<NodeControlSessionConfiguration, CompositionError> {
-    let defaults = NodeControlSessionConfiguration::default();
-    if test_support.node_heartbeat_interval.is_none()
-        && test_support.manager_silence_bound.is_none()
-    {
-        return Ok(defaults);
-    }
-    NodeControlSessionConfiguration::new(
-        test_support
-            .node_heartbeat_interval
-            .unwrap_or(defaults.heartbeat_interval()),
-        test_support
-            .manager_silence_bound
-            .unwrap_or(defaults.manager_silence_bound()),
-    )
-    .map_err(|error| {
-        CompositionError::composition_with_source("configure the node control stream", error)
-    })
-}
-
 /// The model and application rules the node installer applies to each accepted view.
 pub(super) fn node_view_owner_rules() -> NodeViewOwnerRules {
     NodeViewOwnerRules {
@@ -1198,7 +1201,7 @@ mod tests {
         time::Duration,
     };
 
-    use dotcore_domain::{ExecutionPlatform, SiteNodeId};
+    use dotcore_domain::{ExecutionPlatform, SiteNodeId, clock::SystemClock, timing::Timing};
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
         site::v1::{
@@ -1207,10 +1210,7 @@ mod tests {
         },
     };
     use dotcore_runtime_backends::simulated::InMemoryRuntimeBackend;
-    use dotcore_site::node::{
-        agent::{NodeCollection, NodeObservationFeed},
-        target_inventory::TARGET_CAPABILITY_MAX_AGE,
-    };
+    use dotcore_site::node::agent::{NodeCollection, NodeObservationFeed};
     use tokio::sync::Notify;
 
     use super::{NodeStorePins, construct_with_retry, target_capability_source};
@@ -1287,6 +1287,7 @@ mod tests {
         let attempts = Arc::new(AtomicUsize::new(0));
         let construction = tokio::spawn(construct_with_retry(
             Arc::clone(&listener),
+            Arc::new(SystemClock),
             Duration::from_secs(5),
             {
                 let attempts = Arc::clone(&attempts);
@@ -1331,7 +1332,8 @@ mod tests {
             std::slice::from_ref(&node_target),
             &builder.build().expect("node targets"),
             observations.clone(),
-            TARGET_CAPABILITY_MAX_AGE,
+            Timing::test().node_control.capability_max_age,
+            Arc::new(SystemClock),
         )
         .await
         .expect("node capability source");
@@ -1364,13 +1366,15 @@ mod tests {
         observations.publish(
             NodeCollection::without_processes(snapshot.clone()),
             1,
-            std::time::SystemTime::now() - TARGET_CAPABILITY_MAX_AGE - Duration::from_secs(1),
+            std::time::SystemTime::now()
+                - Timing::test().node_control.capability_max_age
+                - Duration::from_secs(1),
         );
 
         assert_eq!(
             crate::hardware::selection::select_target_capabilities(
                 &node_target,
-                &source.observe().await.expect("aged inventory"),
+                &source.observe().await.expect("aged inventory")
             ),
             Err(
                 crate::hardware::selection::TargetCapabilitySelectionError::StalePlatform {

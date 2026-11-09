@@ -130,9 +130,9 @@ in the same change that adds, removes or renames a folder it lists.
 - Grow the tests and end-to-end checks that already exist before adding a new one. Delete a
   throwaway script or fake once its experiment is done.
 - Make timing policies configurable or clock-controlled, so tests use the smallest meaningful
-  delays, retry intervals and expiry windows without changing production defaults. Prefer a
-  controlled clock when elapsed time is the behavior under test, but keep meaningful real-process
-  timing coverage.
+  delays, retry intervals and expiry windows without changing production defaults. Keep one timing
+  policy per area, not a knob per timer. Prefer a controlled clock when elapsed time is the
+  behavior under test, but keep meaningful real-process timing coverage.
 - Keep behavior timing separate from test deadlines: behavior stays fast, deadlines leave room for
   CPU, memory and resource contention. Correctness never depends on scheduling speed.
 - Wait on observable conditions, acknowledgments or explicit gates, never fixed sleeps. Prefer

@@ -4,10 +4,12 @@
 //! Production reads system time. Backend tests can compose a manual clock instead, which follows
 //! real time plus an offset they advance, so a lease expires without waiting for it in real time;
 //! any wait on that clock wakes as soon as an advance reaches its deadline. Unit tests that must
-//! decide exactly when each wait wakes use a virtual clock, whose time moves only when advanced. Code that reads this
-//! clock waits through it too, never through a separate timer, so both stay on one timeline.
+//! decide exactly when each wait wakes use a virtual clock, whose time moves only when advanced.
+//! Code that reads this clock waits through it too, never through a separate timer, so both stay
+//! on one timeline.
 
 use std::{
+    fmt::Debug,
     future::Future,
     pin::Pin,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -20,7 +22,7 @@ pub type ClockSleep = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
 /// Time source of one composed backend, so every decision it compares against the same time
 /// reads one timeline.
-pub trait Clock: Send + Sync {
+pub trait Clock: Send + Sync + Debug {
     /// Monotonic time, for leases, ages and expiries.
     fn now(&self) -> Instant;
 
@@ -30,6 +32,11 @@ pub trait Clock: Send + Sync {
 
     /// Completes once [`Self::now`] has reached `deadline`.
     fn sleep_until(&self, deadline: Instant) -> ClockSleep;
+
+    /// Completes once `delay` has passed on this clock.
+    fn sleep(&self, delay: Duration) -> ClockSleep {
+        self.sleep_until(self.now() + delay)
+    }
 }
 
 /// Returns the latest multiple of `interval` since the Unix epoch at or before `wall`, so every
@@ -56,6 +63,7 @@ fn nanos(nanos: u128) -> Duration {
 }
 
 /// Production clock: Tokio monotonic time, which also stops under Tokio's paused test time.
+#[derive(Debug)]
 pub struct SystemClock;
 
 impl Clock for SystemClock {
@@ -63,10 +71,18 @@ impl Clock for SystemClock {
         Instant::now()
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a clock's wall time is where its timeline meets the host's"
+    )]
     fn wall_now(&self) -> SystemTime {
         SystemTime::now()
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "a clock's wait is where its timeline meets real time"
+    )]
     fn sleep_until(&self, deadline: Instant) -> ClockSleep {
         Box::pin(tokio::time::sleep_until(deadline))
     }
@@ -89,12 +105,24 @@ mod manual {
     use super::{Clock, ClockSleep};
 
     /// Test clock: real time plus an offset that only grows, for both monotonic and wall time.
+    /// Its wall time starts at the host's, or at a fixed origin, so wall-aligned schedules start
+    /// at a known phase.
     ///
     /// Clones share one offset, so a test keeps a handle to the clock it composes a backend with
     /// and advances that backend's time through it.
     #[derive(Clone)]
     pub struct ManualClock {
         offset: Arc<watch::Sender<Duration>>,
+
+        /// Fixed wall time the clock started at, when it has one.
+        origin: Option<WallOrigin>,
+    }
+
+    /// Wall time a manual clock read at one real instant.
+    #[derive(Clone, Copy, Debug)]
+    struct WallOrigin {
+        wall: SystemTime,
+        at: Instant,
     }
 
     impl ManualClock {
@@ -102,6 +130,18 @@ mod manual {
         pub fn new() -> Self {
             Self {
                 offset: Arc::new(watch::Sender::new(Duration::ZERO)),
+                origin: None,
+            }
+        }
+
+        /// Creates a clock whose wall time starts at `wall` and then follows real time.
+        pub fn starting_at(wall: SystemTime) -> Self {
+            Self {
+                origin: Some(WallOrigin {
+                    wall,
+                    at: Instant::now(),
+                }),
+                ..Self::new()
             }
         }
 
@@ -127,10 +167,22 @@ mod manual {
             Instant::now() + self.offset()
         }
 
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a clock's wall time is where its timeline meets the host's"
+        )]
         fn wall_now(&self) -> SystemTime {
-            SystemTime::now() + self.offset()
+            let real = match self.origin {
+                Some(origin) => origin.wall + origin.at.elapsed(),
+                None => SystemTime::now(),
+            };
+            real + self.offset()
         }
 
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "a clock's wait is where its timeline meets real time"
+        )]
         fn sleep_until(&self, deadline: Instant) -> ClockSleep {
             // Subscribing before the first read means an advance made at any later point marks
             // the receiver changed, so it cannot be missed between the check and the wait.
@@ -193,16 +245,18 @@ mod virtual_time {
 
     /// Test clock whose monotonic and wall time move only when the test advances them, and which
     /// tells the test when its next wait is due, so code under test wakes exactly at its deadlines
-    /// whatever real time passes. Wall time can also step back or forward alone, like a corrected host clock.
+    /// whatever real time passes. Wall time can also step back or forward alone, like a corrected
+    /// host clock.
     ///
     /// Clones share one timeline.
-    #[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub struct VirtualClock {
         base: Instant,
         base_wall: SystemTime,
         state: Arc<watch::Sender<VirtualTime>>,
     }
 
+    #[derive(Debug)]
     struct VirtualTime {
         offset: Duration,
         wall_step_back: Duration,
@@ -401,6 +455,18 @@ mod tests {
         let wall = clock.wall_now();
         assert!(wall >= before + Duration::from_secs(60));
         assert!(wall <= SystemTime::now() + Duration::from_secs(60));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_fixed_origin_starts_wall_time_there_and_follows_real_time_and_advances() {
+        let origin = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let clock = ManualClock::starting_at(origin);
+        assert_eq!(clock.wall_now(), origin);
+
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        clock.advance(Duration::from_secs(3));
+
+        assert_eq!(clock.wall_now(), origin + Duration::from_secs(5));
     }
 
     #[test]

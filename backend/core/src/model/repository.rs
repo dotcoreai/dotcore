@@ -10,7 +10,6 @@
 use std::{
     collections::BTreeSet,
     sync::{Arc, RwLock},
-    time::SystemTime,
 };
 
 use dotcore_catalog::{Catalog, CatalogModelId};
@@ -247,7 +246,6 @@ impl ModelDeclarationRepository {
         scenario: Option<&SizingScenario>,
         inventory: Option<&TargetCapabilityInventory>,
         workloads: &crate::hardware::capacity::NodeWorkloads,
-        now: SystemTime,
     ) -> Result<ListModelProfileCompatibilityResponse, ModelDeclarationRepositoryError> {
         let site = self.site.model_snapshot()?;
         let models = self
@@ -287,7 +285,6 @@ impl ModelDeclarationRepository {
             scenario,
             inventory,
             workloads,
-            now,
         ))
     }
 
@@ -300,7 +297,6 @@ impl ModelDeclarationRepository {
         use_cases: &[UseCase],
         inventory: Option<&TargetCapabilityInventory>,
         deployments: &[ModelDeployment],
-        now: SystemTime,
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
         let targets = self
             .site
@@ -309,14 +305,8 @@ impl ModelDeclarationRepository {
             .into_iter()
             .filter(is_model_target)
             .collect::<Vec<_>>();
-        let recommendations = recommend_models(
-            &self.catalog,
-            &targets,
-            inventory,
-            deployments,
-            use_cases,
-            now,
-        );
+        let recommendations =
+            recommend_models(&self.catalog, &targets, inventory, deployments, use_cases);
 
         Ok(recommendations_response(recommendations))
     }
@@ -1318,7 +1308,7 @@ mod tests {
         let repository = ModelDeclarationRepository::new(
             site,
             Arc::new(development_source_darwin_catalog(directory.path())),
-            TargetCapabilityReconciler::reconcile(
+            TargetCapabilityReconciler::reconcile_now(
                 [("worker-target", "worker-node")],
                 [RuntimePlatformObservation::available(
                     "worker-target",
@@ -1683,7 +1673,7 @@ mod tests {
             .expect("fixture catalog"),
         );
         let repository =
-            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::default());
+            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::empty_now());
         let inventory = fixture_target_capabilities();
         let model_target = dotcore_proto::dotcore::deployment::v1::ExactPlacement {
             site_node_id: "fixture-node".to_owned(),
@@ -1696,7 +1686,6 @@ mod tests {
                 None,
                 Some(&inventory),
                 &Default::default(),
-                std::time::SystemTime::now(),
             )
         };
         let summary =
@@ -1773,18 +1762,11 @@ mod tests {
             .expect("fixture catalog"),
         );
         let repository =
-            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::default());
+            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::empty_now());
 
         assert_eq!(
             repository
-                .profile_compatibility(
-                    None,
-                    None,
-                    None,
-                    None,
-                    &Default::default(),
-                    std::time::SystemTime::now(),
-                )
+                .profile_compatibility(None, None, None, None, &Default::default())
                 .expect("empty site"),
             dotcore_proto::dotcore::model::v1::ListModelProfileCompatibilityResponse {
                 targets: Vec::new(),
@@ -2358,7 +2340,7 @@ mod tests {
                 },
                 &crate::test_support::local_model_configuration(),
                 &ModelDeploymentExposureIntent::Hidden,
-                None,
+                None
             ),
             Err(ModelDeclarationRepositoryError::ModelNotFound(_))
         ));
@@ -2795,14 +2777,7 @@ mod tests {
             )
             .expect("profile default estimate");
         let compatibility = repository
-            .profile_compatibility(
-                Some("fixture-model"),
-                None,
-                None,
-                None,
-                &Default::default(),
-                std::time::SystemTime::now(),
-            )
+            .profile_compatibility(Some("fixture-model"), None, None, None, &Default::default())
             .expect("profile compatibility");
 
         // The fixture sizes 100 + 3 × the default 32768-token total context on the accelerator and
@@ -3335,7 +3310,7 @@ selector:
     }
 
     fn two_node_target_capabilities() -> TargetCapabilityInventory {
-        TargetCapabilityReconciler::reconcile(
+        TargetCapabilityReconciler::reconcile_now(
             [
                 ("worker-target", "worker-node"),
                 ("manager-target", "manager-node"),

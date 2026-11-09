@@ -18,6 +18,7 @@ use std::{
     time::Duration,
 };
 
+use dotcore_domain::real_time;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     net::TcpStream,
@@ -76,7 +77,7 @@ impl JoinConnections {
             },
             stream,
             last_transfer: now,
-            idle: Box::pin(tokio::time::sleep_until(now + self.idle_timeout)),
+            idle: Box::pin(real_time::deadline(now + self.idle_timeout)),
             connections: Arc::clone(self),
         };
         peer_address

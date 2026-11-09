@@ -464,7 +464,7 @@ fn descriptor(descriptor: &MetricDescriptor) -> proto::MetricDescriptor {
 mod tests {
     use std::{collections::HashMap, sync::Mutex};
 
-    use dotcore_domain::clock::ManualClock;
+    use dotcore_domain::{clock::ManualClock, timing::Timing};
     use dotcore_observability::{
         InMemoryMetricStore, InMemoryStoreConfig, RetentionConfig, StoreIncarnation,
     };
@@ -1011,6 +1011,8 @@ mod tests {
                     descriptor("router.requests", MetricKind::Counter),
                     descriptor("router.request.ttft", MetricKind::Distribution { scale: 3 }),
                 ],
+                Timing::test().metrics,
+                Timing::test().watch,
                 Arc::new(ManualClock::new()),
             )
             .expect("start store"),

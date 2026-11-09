@@ -21,6 +21,7 @@
 
 use std::{fs, time::Duration};
 
+use dotcore::testing::{MISSED_PUBLICATIONS_BEFORE_REOPEN, Timing};
 use dotcore_proto::dotcore::{
     deployment::v1::{
         ExactPlacement, NodeResolvedLaunchIdentity,
@@ -88,7 +89,11 @@ async fn manager_created_model_is_realized_only_by_the_provisioned_worker_proces
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls::manual_clock(),
         ProcessTestControls {
-            capability_max_age: Some(WORKER_CAPABILITY_MAX_AGE),
+            timing: {
+                let mut timing = Timing::test();
+                timing.node_control.capability_max_age = WORKER_CAPABILITY_MAX_AGE;
+                timing
+            },
             model_transition_gates: true,
             ..ProcessTestControls::default()
         },
@@ -633,7 +638,11 @@ async fn one_follow_opened_before_preparation_receives_the_workload_and_its_end(
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls::manual_clock(),
         ProcessTestControls {
-            capability_max_age: Some(WORKER_CAPABILITY_MAX_AGE),
+            timing: {
+                let mut timing = Timing::test();
+                timing.node_control.capability_max_age = WORKER_CAPABILITY_MAX_AGE;
+                timing
+            },
             model_transition_gates: true,
             ..ProcessTestControls::default()
         },
@@ -785,14 +794,23 @@ async fn a_worker_deployment_stays_controllable_past_its_action_lease_with_an_un
     }
     // A short action lease and republish interval stand in for the production ones, keeping the
     // ratio that lets republications renew the lease.
+    let timing = {
+        let mut timing = Timing::test();
+        timing.node_control.view_republish_interval = SHORT_REPUBLISH_INTERVAL;
+        timing.node_control.manager_silence =
+            SHORT_REPUBLISH_INTERVAL * MISSED_PUBLICATIONS_BEFORE_REOPEN;
+        timing.node_control.action_lease = SHORT_ACTION_LEASE;
+        timing.check().expect("a valid short-lease policy");
+        timing
+    };
     let Some(mut harness) = support::TwoProcessObservationHarness::start_with_controls(
         ProcessTestControls {
-            view_republish_interval: Some(SHORT_REPUBLISH_INTERVAL),
+            timing,
             ..ProcessTestControls::default()
         },
         ProcessTestControls {
             model_transition_gates: true,
-            node_action_lease: Some(SHORT_ACTION_LEASE),
+            timing,
             ..ProcessTestControls::default()
         },
     ) else {

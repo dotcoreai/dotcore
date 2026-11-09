@@ -23,7 +23,7 @@ use dotcore_catalog::{
         write_sizing_model_with,
     },
 };
-use dotcore_domain::{ExecutionPlatform, MemoryArchitecture};
+use dotcore_domain::{ExecutionPlatform, MemoryArchitecture, timing::Timing};
 use dotcore_proto::dotcore::catalog::v1::catalog_service_server::CatalogService as CatalogServiceContract;
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -1494,7 +1494,7 @@ fn two_releases_of_one_engine_kind_validate_together_and_each_configuration_reso
                     profile_id,
                     &default_configuration(&catalog, profile_id),
                     target,
-                    inventory,
+                    inventory
                 ),
                 Err(ModelLaunchResolutionError::EngineArtifactSelection(_))
             ),
@@ -1609,7 +1609,7 @@ fn locked_nix_deployment_retains_its_catalog_store_paths_for_the_hosting_node_ac
             "metal",
             &default_configuration(&catalog, "metal"),
             &darwin,
-            &inventory,
+            &inventory
         )
         .expect("selection"),
         EngineArtifactSelection::Nix(dotcore::model::resolution::NixEngineSelection {
@@ -2071,7 +2071,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
             &invalid_configuration,
             &target,
             &inventory,
-            None,
+            None
         )
         .expect_err("out-of-range parameter")
         .to_string(),
@@ -2089,7 +2089,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
             },
             &target,
             &inventory,
-            None,
+            None
         )
         .expect_err("unsupported binding")
         .to_string(),
@@ -2441,7 +2441,7 @@ fn target_capabilities(
         NodeAcceleratorObservation::available("fixture-node", NodeAcceleratorFacts::apple())
             .with_host_memory(34_190_917_632, 34_190_917_632)
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "fixture-target",
@@ -2582,7 +2582,8 @@ fn recommendation_entry_failures(catalog: &Catalog) -> Vec<String> {
                 );
                 let runs = |machine: &SimulatedClassMachine, memory: Memory| {
                     let described = machine.resized(memory);
-                    let idle = IdleMachine::new(&described).expect("idle simulated machine");
+                    let idle = IdleMachine::new(&described, Timing::test().node_control)
+                        .expect("idle simulated machine");
                     idle.recommend(catalog, &[use_case])
                         .iter()
                         .flat_map(|recommendations| &recommendations.rows)
@@ -2721,7 +2722,8 @@ fn simulated_class_machines(catalog: &Catalog) -> Vec<SimulatedClassMachine> {
         .into_iter()
         .filter_map(|choice| {
             let described = simulated_alone(choice.name);
-            let idle = IdleMachine::new(&described).expect("idle simulated machine");
+            let idle = IdleMachine::new(&described, Timing::test().node_control)
+                .expect("idle simulated machine");
             let class = idle
                 .hardware_classes(catalog)
                 .into_iter()
@@ -2791,7 +2793,7 @@ fn simulated_target(machine: &str, gpu: usize) -> (ExecutionTarget, TargetCapabi
     let snapshot = description
         .render(&[], std::time::SystemTime::now())
         .expect("rendered snapshot");
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "machine-target",
@@ -2830,7 +2832,7 @@ fn accelerator_target(
     if memory_architecture.is_some() {
         accelerator = accelerator.with_memory_architecture(memory_architecture);
     }
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "facts-target",
@@ -2858,7 +2860,7 @@ fn macos_native_target_capabilities() -> (ExecutionTarget, TargetCapabilityInven
             adapter: Some(Adapter::NativeRuntime(Default::default())),
         })),
     };
-    let inventory = TargetCapabilityReconciler::reconcile(
+    let inventory = TargetCapabilityReconciler::reconcile_now(
         [&target],
         [RuntimePlatformObservation::available(
             "native-target",

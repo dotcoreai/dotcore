@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 use anyhow::{Context, Result};
 use dotcore::model::IdleMachine;
 use dotcore_catalog::Catalog;
+use dotcore_domain::timing::Timing;
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::dotcore::site::v1::execution_target::RuntimeBinding;
 
@@ -46,8 +47,8 @@ fn render(
 
     match catalog {
         Some(catalog) => {
-            let idle =
-                IdleMachine::new(machine).context("cannot work out the execution targets")?;
+            let idle = IdleMachine::new(machine, Timing::for_process().node_control)
+                .context("cannot work out the execution targets")?;
             for (target, class) in idle.hardware_classes(catalog) {
                 if !matches!(
                     target.runtime_binding,

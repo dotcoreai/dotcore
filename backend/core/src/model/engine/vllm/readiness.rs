@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::engine::vllm::v1::VllmReadinessMode;
 use dotcore_runtime::LoopbackEndpoint;
 use serde_json::Value;
@@ -184,14 +185,14 @@ async fn get_loopback_until(
     path: &str,
     deadline: Instant,
 ) -> Result<HttpResponse, EngineProbeError> {
-    let mut stream = tokio::time::timeout_at(deadline, TcpStream::connect(("127.0.0.1", port)))
+    let mut stream = real_time::bound_until(deadline, TcpStream::connect(("127.0.0.1", port)))
         .await
         .map_err(|_| EngineProbeError::Transient)?
         .map_err(|error| probe::io_error("vLLM loopback connection failed", error))?;
     let request = format!(
         "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
-    tokio::time::timeout_at(deadline, stream.write_all(request.as_bytes()))
+    real_time::bound_until(deadline, stream.write_all(request.as_bytes()))
         .await
         .map_err(|_| EngineProbeError::Transient)?
         .map_err(|error| probe::io_error("vLLM readiness request write failed", error))?;
@@ -206,7 +207,7 @@ async fn collect_response(
     let mut response = Vec::new();
     let mut buffer = [0_u8; 8192];
     loop {
-        let read = tokio::time::timeout_at(deadline, stream.read(&mut buffer))
+        let read = real_time::bound_until(deadline, stream.read(&mut buffer))
             .await
             .map_err(|_| EngineProbeError::Transient)?;
         let read = match read {

@@ -7,8 +7,11 @@
 
 use std::collections::BTreeSet;
 
-use dotcore_domain::deployment::launch_pin::{
-    LaunchPinError, LaunchPinResolver, SyntheticLaunchPins, UnpinnedSelection,
+use dotcore_domain::{
+    deployment::launch_pin::{
+        LaunchPinError, LaunchPinResolver, SyntheticLaunchPins, UnpinnedSelection,
+    },
+    timing::ReconcileOutcome,
 };
 use dotcore_proto::dotcore::{
     deployment::v1::NodeResolvedLaunchIdentity, site::store::v1::NodeApplicationRealization,
@@ -32,7 +35,6 @@ use super::observation::{
     group_is_all_stopped, observation_matches_group, observation_owner_id, stale_owned_group,
 };
 use super::readiness::{EndpointProbe, awaits_readiness};
-use super::realizer::ReconciliationState;
 use super::*;
 use crate::deployment_logs::PreparationOwner;
 use crate::dispatch::application::{ApplicationRuntimeError, TargetWorkloadGroupObservation};
@@ -40,7 +42,7 @@ use crate::dispatch::application::{ApplicationRuntimeError, TargetWorkloadGroupO
 impl ApplicationRealizer {
     /// Runs one serialized pass and reports whether any deployment still awaits its primary
     /// endpoint, so the observer probes again soon.
-    pub(super) async fn reconcile(&self) -> Result<ReconciliationState, ApplicationLifecycleError> {
+    pub(super) async fn reconcile(&self) -> Result<ReconcileOutcome, ApplicationLifecycleError> {
         let _operation = self.coordination.operation.lock().await;
         let cancellation = self.shutdown.child_token();
         *self
@@ -55,7 +57,7 @@ impl ApplicationRealizer {
         result
     }
 
-    async fn reconcile_active(&self) -> Result<ReconciliationState, ApplicationLifecycleError> {
+    async fn reconcile_active(&self) -> Result<ReconcileOutcome, ApplicationLifecycleError> {
         let ApplicationRealizationSnapshot {
             site:
                 ApplicationSiteSnapshot {
@@ -118,7 +120,7 @@ impl ApplicationRealizer {
             if let Some(resources) = &self.resource_attribution {
                 resources.retain(&BTreeSet::new());
             }
-            return Ok(ReconciliationState::Settled);
+            return Ok(ReconcileOutcome::Settled);
         }
 
         let observations = self
@@ -151,7 +153,7 @@ impl ApplicationRealizer {
                 }
             }
         }
-        let mut reconciliation = ReconciliationState::Settled;
+        let mut reconciliation = ReconcileOutcome::Settled;
         for (deployment, assignment) in retained {
             debug!(
                 event_kind = "application_reconciliation_decision",
@@ -175,7 +177,7 @@ impl ApplicationRealizer {
             if matches!(&pass, DeploymentPass::Reconciled(result)
                 if result.as_ref().as_ref().is_ok_and(awaits_readiness))
             {
-                reconciliation = ReconciliationState::Pending;
+                reconciliation = ReconcileOutcome::Pending;
             }
             self.publish_pass(&deployment, assignment, view.as_ref(), existing, pass)?;
         }

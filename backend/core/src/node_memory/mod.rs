@@ -457,7 +457,7 @@ mod tests {
         applications: Vec<ApplicationDeployment>,
     ) -> (NodeMemoryRead, Arc<FixedReadings>) {
         let snapshot = render(&[]);
-        let inventory = TargetCapabilityReconciler::reconcile(
+        let inventory = TargetCapabilityReconciler::reconcile_now(
             [
                 ("model-target", "worker-node", [GPU]),
                 ("app-target", "worker-node", [GPU]),

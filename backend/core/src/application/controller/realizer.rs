@@ -14,14 +14,17 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::deployment::launch_pin::LaunchPinResolver;
+use dotcore_domain::{
+    clock::Clock,
+    deployment::launch_pin::LaunchPinResolver,
+    timing::{ApplicationTiming, ReconcileCadence, ReconcileOutcome, ReconcileSchedule},
+};
 use tokio::sync::{Mutex as AsyncMutex, Notify};
 use tracing::{debug, info, warn};
 
 use super::{
     ApplicationLifecycleError, ApplicationRealizationInput, ApplicationRealizationResults,
-    InferenceRouteResolver, NodeRealizationRecords, RECONCILE_CADENCE, ReconciledAssignments,
-    STARTUP_GRACE, startup::StartupTracker,
+    InferenceRouteResolver, NodeRealizationRecords, ReconciledAssignments, startup::StartupTracker,
 };
 use crate::{
     application::repository::CurrentApplicationRepository,
@@ -54,6 +57,8 @@ pub(crate) struct ApplicationRealizer {
     pub(super) active_reconciliation: Mutex<Option<tokio_util::sync::CancellationToken>>,
     pub(super) shutdown: tokio_util::sync::CancellationToken,
     observer_started: Mutex<bool>,
+    reconcile: ReconcileSchedule,
+    clock: Arc<dyn Clock>,
 }
 
 /// Node realization state: durable node records and the view each deployment last reconciled.
@@ -88,6 +93,12 @@ pub(super) struct RealizerDependencies {
     /// Host resource attribution of the groups this node realizes, read with each hardware
     /// collection.
     pub(super) resource_attribution: Option<super::resources::GroupResourceAttribution>,
+
+    /// Timing of the observer's passes and of each deployment's startup.
+    pub(super) timing: ApplicationTiming,
+
+    /// Backend clock the observer waits through.
+    pub(super) clock: Arc<dyn Clock>,
 }
 
 /// Serialization of one realizer's reconciliation passes and the wakeup that schedules the next.
@@ -122,10 +133,12 @@ impl ApplicationRealizer {
             node: dependencies.node,
             accelerator_attribution: dependencies.accelerator_attribution,
             resource_attribution: dependencies.resource_attribution,
-            startup: StartupTracker::new(STARTUP_GRACE),
+            startup: StartupTracker::new(dependencies.timing.startup_window),
             active_reconciliation: Mutex::new(None),
             shutdown: tokio_util::sync::CancellationToken::new(),
             observer_started: Mutex::new(false),
+            reconcile: dependencies.timing.reconcile,
+            clock: dependencies.clock,
         }
     }
 
@@ -146,6 +159,8 @@ impl ApplicationRealizer {
         tokio::spawn(observer_loop(ObserverDependencies {
             realizer: Arc::downgrade(realizer),
             desired_wakeup: Arc::clone(&realizer.coordination.wakeup),
+            reconcile: realizer.reconcile,
+            clock: Arc::clone(&realizer.clock),
         }));
     }
 
@@ -170,10 +185,12 @@ impl ApplicationRealizer {
 struct ObserverDependencies {
     realizer: std::sync::Weak<ApplicationRealizer>,
     desired_wakeup: Arc<Notify>,
+    reconcile: ReconcileSchedule,
+    clock: Arc<dyn Clock>,
 }
 
 async fn observer_loop(observer: ObserverDependencies) {
-    let mut cadence = ReconcileCadence::new();
+    let mut cadence = ReconcileCadence::new(observer.reconcile);
     loop {
         let Some(realizer) = observer.realizer.upgrade() else {
             return;
@@ -181,69 +198,23 @@ async fn observer_loop(observer: ObserverDependencies) {
         let result = realizer.reconcile().await;
         let delay = cadence.next_delay(record_observer_reconciliation(result));
         drop(realizer);
-        if wait_for_observer_wakeup(&observer.desired_wakeup, delay).await {
+        if wait_for_observer_wakeup(&observer.desired_wakeup, observer.clock.as_ref(), delay).await
+        {
             cadence.reset();
         }
     }
 }
 
 /// Whether a reconciliation pass left a deployment waiting for its primary endpoint.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ReconciliationState {
-    Pending,
-
-    Settled,
-}
-
-/// First delay before probing a pending deployment again; it doubles up to the maximum.
-const READINESS_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(250);
-const READINESS_RETRY_MAX_DELAY: Duration = Duration::from_secs(2);
-
-/// Delay before the observer's next pass: short and growing while a deployment is pending, the
-/// fixed cadence once every deployment is settled.
-#[derive(Debug)]
-pub(super) struct ReconcileCadence {
-    pending_delay: Duration,
-}
-
-impl ReconcileCadence {
-    pub(super) fn new() -> Self {
-        Self {
-            pending_delay: READINESS_RETRY_INITIAL_DELAY,
-        }
-    }
-
-    pub(super) fn next_delay(&mut self, state: ReconciliationState) -> Duration {
-        match state {
-            ReconciliationState::Pending => {
-                let delay = self.pending_delay;
-                self.pending_delay = self
-                    .pending_delay
-                    .saturating_mul(2)
-                    .min(READINESS_RETRY_MAX_DELAY);
-                delay
-            }
-            ReconciliationState::Settled => {
-                self.reset();
-                RECONCILE_CADENCE
-            }
-        }
-    }
-
-    pub(super) fn reset(&mut self) {
-        self.pending_delay = READINESS_RETRY_INITIAL_DELAY;
-    }
-}
-
 /// Logs one observer pass outcome and returns its state; a failed pass is retried at the settled
 /// cadence.
 fn record_observer_reconciliation(
-    result: Result<ReconciliationState, ApplicationLifecycleError>,
-) -> ReconciliationState {
+    result: Result<ReconcileOutcome, ApplicationLifecycleError>,
+) -> ReconcileOutcome {
     match result {
         Err(source) => {
             warn!(event_kind = "application_observer_reconciliation_failed", error = ?source, "Application observer reconciliation failed");
-            ReconciliationState::Settled
+            ReconcileOutcome::Settled
         }
         Ok(state) => {
             debug!(
@@ -256,11 +227,15 @@ fn record_observer_reconciliation(
     }
 }
 
-/// Waits for the next intent change or `delay`, and returns whether intent changed.
-pub(super) async fn wait_for_observer_wakeup(desired_wakeup: &Notify, delay: Duration) -> bool {
+/// Waits for the next intent change or `delay` on `clock`, and returns whether intent changed.
+pub(super) async fn wait_for_observer_wakeup(
+    desired_wakeup: &Notify,
+    clock: &dyn Clock,
+    delay: Duration,
+) -> bool {
     let (reason, desired_change) = tokio::select! {
         _ = desired_wakeup.notified() => ("desired_change", true),
-        _ = tokio::time::sleep(delay) => ("cadence", false),
+        () = clock.sleep(delay) => ("cadence", false),
     };
     debug!(
         event_kind = "application_observer_wakeup",

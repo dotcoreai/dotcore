@@ -5,7 +5,11 @@ use std::{
     sync::Arc,
 };
 
-use dotcore_domain::{SiteNodeId, SitePaths};
+use dotcore_domain::{
+    SiteNodeId, SitePaths,
+    clock::Clock,
+    timing::{NativeTiming, SimulatedTiming},
+};
 use dotcore_proto::dotcore::site::v1::{
     ExecutionTarget, application_runtime_binding, execution_target, model_runtime_binding,
 };
@@ -20,7 +24,7 @@ use dotcore_runtime_backends::{
     },
     simulated::{
         DeclaredMachine, InMemoryRuntimeBackend, SimulatedRuntimeConfig,
-        SimulatedRuntimeTestSupport,
+        SimulatedRuntimeTestSupport, SimulatedStartupConfig,
     },
 };
 use dotcore_site::view::fencing::AcceptedNodeViewAuthority;
@@ -52,13 +56,12 @@ pub(super) fn runtime_adapter_registry_for_site_id(
     site_id: &str,
     node_id: &SiteNodeId,
     native_launcher: Option<&Path>,
-    simulated_runtime_test_support: Option<SimulatedRuntimeTestSupport>,
-    declared_machine: Option<DeclaredMachine>,
+    native_timing: NativeTiming,
+    simulated: SimulatedRuntimeInputs,
 ) -> Result<RuntimeAdapterRegistry, CompositionError> {
     let mut registry = runtime_adapter_registry_with_docker_factory(
         Arc::new(docker_factory(configuration, site_id)),
-        simulated_runtime_test_support,
-        declared_machine,
+        simulated,
     )?;
     registry
         .register_model(
@@ -68,6 +71,7 @@ pub(super) fn runtime_adapter_registry_for_site_id(
                 site_id,
                 node_id.clone(),
                 native_launcher,
+                native_timing,
             )),
         )
         .map_err(runtime_registration_error)?;
@@ -137,18 +141,32 @@ pub(super) async fn node_application_runtimes_for(
     Ok(builder.build())
 }
 
+/// What a node's simulated runtimes run with: their test controls, the machine the node
+/// declares, and their timing on the backend clock.
+pub(super) struct SimulatedRuntimeInputs {
+    /// Call evidence, failure injection and lifecycle controls the simulated workloads follow;
+    /// `None` runs them without controls.
+    pub(super) test_support: Option<SimulatedRuntimeTestSupport>,
+
+    /// Machine the node declares, on which its simulated model workloads and application units
+    /// take memory.
+    pub(super) machine: Option<DeclaredMachine>,
+
+    /// Pace of the simulated workloads' representative startup.
+    pub(super) timing: SimulatedTiming,
+
+    /// Backend clock simulated workloads time their transitions and startup steps on.
+    pub(super) clock: Arc<dyn Clock>,
+}
+
 pub(super) fn runtime_adapter_registry_with_docker_factory(
     docker_factory: Arc<dyn DockerBackendFactory>,
-    simulated_runtime_test_support: Option<SimulatedRuntimeTestSupport>,
-    declared_machine: Option<DeclaredMachine>,
+    simulated: SimulatedRuntimeInputs,
 ) -> Result<RuntimeAdapterRegistry, CompositionError> {
     let docker = Arc::new(DockerRuntimeAdapterFactory {
         factory: docker_factory,
     });
-    let simulated = Arc::new(SimulatedRuntimeAdapterFactory {
-        test_support: simulated_runtime_test_support,
-        machine: declared_machine,
-    });
+    let simulated = Arc::new(SimulatedRuntimeAdapterFactory { inputs: simulated });
     let mut registry = RuntimeAdapterRegistry::new();
     registry
         .register_model(DOCKER_ADAPTER_KEY, docker.clone())
@@ -283,6 +301,9 @@ struct NativeRuntimeAdapterFactory {
 
     /// Launcher binary resolved when the registry was built, or why none is usable.
     launcher: Result<PathBuf, Arc<NativeLauncherError>>,
+
+    /// Native runtime timing every backend it opens follows.
+    timing: NativeTiming,
 }
 
 impl NativeRuntimeAdapterFactory {
@@ -291,6 +312,7 @@ impl NativeRuntimeAdapterFactory {
         site_id: &str,
         node_id: SiteNodeId,
         launcher: Option<&Path>,
+        timing: NativeTiming,
     ) -> Self {
         Self {
             state_root: NativeStateRoot::for_site(&configuration.root),
@@ -299,6 +321,7 @@ impl NativeRuntimeAdapterFactory {
             node_id,
             launcher: dotcore_runtime_backends::native::resolve_launcher(launcher)
                 .map_err(Arc::new),
+            timing,
         }
     }
 
@@ -355,13 +378,14 @@ impl NativeRuntimeAdapterFactory {
             execution_target_id: target.execution_target_id.clone(),
             lifetime,
         };
-        let backend = NativeRuntimeBackend::new(config, launcher).map_err(|error| {
-            CompositionError::Composition(anyhow::Error::new(error).context(format!(
-                "native execution target {:?} cannot open its workload state under {}; make the site directory writable by the server user",
-                target.execution_target_id,
-                self.state_root.path().display()
-            )))
-        })?;
+        let backend = NativeRuntimeBackend::new(config, launcher, self.timing)
+            .map_err(|error| {
+                CompositionError::Composition(anyhow::Error::new(error).context(format!(
+                    "native execution target {:?} cannot open its workload state under {}; make the site directory writable by the server user",
+                    target.execution_target_id,
+                    self.state_root.path().display()
+                )))
+            })?;
         info!(
             event_kind = "native_runtime_composed",
             execution_target_id = %target.execution_target_id,
@@ -381,11 +405,7 @@ impl ModelRuntimeAdapterFactory for NativeRuntimeAdapterFactory {
 }
 
 struct SimulatedRuntimeAdapterFactory {
-    test_support: Option<SimulatedRuntimeTestSupport>,
-
-    /// Machine the node declares, on which its simulated model workloads and application units
-    /// take memory.
-    machine: Option<DeclaredMachine>,
+    inputs: SimulatedRuntimeInputs,
 }
 
 impl ModelRuntimeAdapterFactory for SimulatedRuntimeAdapterFactory {
@@ -409,12 +429,8 @@ impl ModelRuntimeAdapterFactory for SimulatedRuntimeAdapterFactory {
                     "simulated",
                 ));
             };
-            Ok(Box::new(simulated_runtime(
-                settings,
-                target,
-                self.test_support.clone(),
-                self.machine.clone(),
-            )?) as Box<dyn dotcore_runtime::RuntimeBackend>)
+            Ok(Box::new(simulated_runtime(settings, target, &self.inputs)?)
+                as Box<dyn dotcore_runtime::RuntimeBackend>)
         })
     }
 }
@@ -457,8 +473,9 @@ impl ApplicationRuntimeAdapterFactory for SimulatedRuntimeAdapterFactory {
                 SimulatedRuntimeConfig {
                     execution_platform,
                     managed_node_id: dotcore_domain::SiteNodeId::parse(&target.site_node_id).ok(),
-                    machine: self.machine.clone(),
-                    test_support: self.test_support.clone(),
+                    machine: self.inputs.machine.clone(),
+                    test_support: self.inputs.test_support.clone(),
+                    clock: Arc::clone(&self.inputs.clock),
                     ..Default::default()
                 },
                 &target.execution_target_id,
@@ -487,11 +504,10 @@ fn mismatched_adapter(owner: &str, location: &str, expected: &str) -> Compositio
 fn simulated_runtime(
     settings: &dotcore_proto::dotcore::site::v1::SimulatedRuntimeAdapter,
     target: &ExecutionTarget,
-    test_support: Option<SimulatedRuntimeTestSupport>,
-    machine: Option<DeclaredMachine>,
+    inputs: &SimulatedRuntimeInputs,
 ) -> Result<InMemoryRuntimeBackend, CompositionError> {
     // A simulated model target has no real hardware to fall back on.
-    let machine = machine.ok_or_else(|| {
+    let machine = inputs.machine.clone().ok_or_else(|| {
         CompositionError::composition(format!(
             "simulated execution target {:?} requires its node to declare a machine",
             target.execution_target_id
@@ -553,9 +569,11 @@ fn simulated_runtime(
             })
         })
         .unzip();
+    let test_support = inputs.test_support.clone();
     let startup = test_support
         .as_ref()
-        .and_then(SimulatedRuntimeTestSupport::startup);
+        .is_some_and(SimulatedRuntimeTestSupport::representative_startup)
+        .then(|| SimulatedStartupConfig::development_default(inputs.timing.startup_step_interval));
     Ok(InMemoryRuntimeBackend::for_target(
         SimulatedRuntimeConfig {
             execution_platform,
@@ -567,6 +585,7 @@ fn simulated_runtime(
             deployment_stop_delays,
             startup,
             test_support,
+            clock: Arc::clone(&inputs.clock),
         },
         &target.execution_target_id,
     ))
@@ -576,6 +595,7 @@ fn simulated_runtime(
 mod tests {
     use std::sync::Arc;
 
+    use dotcore_domain::{clock::SystemClock, timing::Timing};
     use dotcore_launcher::workload::Lifetime;
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
@@ -597,9 +617,11 @@ mod tests {
     #[tokio::test]
     async fn composes_only_the_application_targets_among_the_node_targets() {
         let site = site_with_targets();
-        let registry =
-            runtime_adapter_registry_with_docker_factory(Arc::new(PanicDockerFactory), None, None)
-                .expect("registry");
+        let registry = runtime_adapter_registry_with_docker_factory(
+            Arc::new(PanicDockerFactory),
+            simulated_inputs(None),
+        )
+        .expect("registry");
         let applications =
             node_application_runtimes_for(&site.execution_targets, &registry, view_authority())
                 .await
@@ -620,8 +642,8 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&launcher),
-            None,
-            None,
+            Timing::test().native,
+            simulated_inputs(None),
         )
         .expect("registry");
 
@@ -643,8 +665,13 @@ mod tests {
                 .is_dir()
         );
 
-        let factory =
-            NativeRuntimeAdapterFactory::new(&paths, "site-one", node_id(), Some(&launcher));
+        let factory = NativeRuntimeAdapterFactory::new(
+            &paths,
+            "site-one",
+            node_id(),
+            Some(&launcher),
+            Timing::test().native,
+        );
         let persistent = factory
             .native_backend(&targets[0])
             .expect("persistent backend");
@@ -673,8 +700,8 @@ mod tests {
             "site-one",
             &node_id(),
             Some(&missing),
-            None,
-            Some(rtx_5090_desktop()),
+            Timing::test().native,
+            simulated_inputs(Some(rtx_5090_desktop())),
         )
         .expect("registry without a launcher");
 
@@ -713,8 +740,7 @@ mod tests {
             async move {
                 let registry = runtime_adapter_registry_with_docker_factory(
                     Arc::new(PanicDockerFactory),
-                    None,
-                    machine,
+                    simulated_inputs(machine),
                 )
                 .expect("registry");
                 node_runtime_targets_for(&[target], &registry, view_authority())
@@ -756,6 +782,7 @@ mod tests {
             "site-one",
             node_id(),
             Some(&dotcore_runtime_backends::native::test_support::launcher_binary()),
+            Timing::test().native,
         );
 
         let error = match factory.native_backend(&native_target(
@@ -865,7 +892,7 @@ mod tests {
         DeclaredMachine::new(
             dotcore_node_hardware::MachineDescription::simulated(&["rtx-5090".to_owned()], "amd64")
                 .expect("named machine"),
-            Arc::new(dotcore_domain::clock::SystemClock),
+            Arc::new(SystemClock),
         )
     }
 
@@ -914,6 +941,17 @@ mod tests {
             _target: String,
         ) -> DockerBackendFuture<'_, Box<dyn WorkloadGroupBackend>> {
             Box::pin(async { panic!("Docker factory must not be called") })
+        }
+    }
+
+    /// Simulated runtime inputs of a test node on `machine`, without test controls, on system
+    /// time.
+    fn simulated_inputs(machine: Option<DeclaredMachine>) -> SimulatedRuntimeInputs {
+        SimulatedRuntimeInputs {
+            test_support: None,
+            machine,
+            timing: Timing::test().simulated,
+            clock: Arc::new(SystemClock),
         }
     }
 }

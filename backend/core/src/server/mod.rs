@@ -11,7 +11,6 @@ pub mod private;
 
 use std::{future::Future, io, pin::Pin};
 
-use dotcore_site::private_transport::PrivateServerConfiguration;
 use http::HeaderValue;
 use tracing::{Instrument, error, field, info, info_span};
 
@@ -34,8 +33,7 @@ impl Server {
         allowed_origins: Vec<HeaderValue>,
         routes: tonic::service::Routes,
         router: Option<InferenceRouter>,
-        private_configuration: Option<PrivateServerConfiguration>,
-        private_routes: tonic::service::Routes,
+        private: Option<private::PrivateListener>,
         shutdown: F,
     ) -> ServerResult<Self>
     where
@@ -63,11 +61,12 @@ impl Server {
             ),
             _ => return Err(ServerError::InconsistentTransports),
         };
-        let (private, private_address) = match private_configuration {
-            Some(configuration) => {
+        let (private, private_address) = match private {
+            Some(listener) => {
                 let prepared = private::prepare(
-                    configuration,
-                    private_routes,
+                    listener.configuration,
+                    listener.routes,
+                    listener.timing,
                     lifecycle::wait(receiver.clone()),
                 )
                 .await?;
@@ -219,7 +218,6 @@ mod tests {
             tonic::service::Routes::default(),
             None,
             None,
-            tonic::service::Routes::default(),
             std::future::pending::<()>(),
         )
         .await;

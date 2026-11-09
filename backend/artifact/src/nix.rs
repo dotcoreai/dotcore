@@ -8,7 +8,10 @@
 
 use std::{future::Future, path::PathBuf, pin::Pin, process::Stdio, time::Duration};
 
-use dotcore_domain::nix::{discover_nix, search_locations};
+use dotcore_domain::{
+    nix::{discover_nix, search_locations},
+    real_time,
+};
 use tokio_util::sync::CancellationToken;
 
 /// Flags enabling the `nix` subcommands and flake references evaluation uses.
@@ -99,7 +102,7 @@ impl NixEvaluator for CommandNixEvaluator {
                 .output();
             // Dropping the output future kills the child, on timeout and on cancellation alike.
             let output = tokio::select! {
-                output = tokio::time::timeout(self.timeout, output) => output,
+                output = real_time::bound(self.timeout, output) => output,
                 () = cancellation.cancelled() => return Err(NixEvaluationError::Cancelled),
             };
             let output = output

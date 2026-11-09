@@ -4,10 +4,9 @@
 //! core it authenticates with (roles, caller identities, peer policy and outbound verification) is
 //! owned by the site's private transport.
 
-use std::{
-    collections::BTreeMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc, time::Duration,
-};
+use std::{collections::BTreeMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
+use dotcore_domain::timing::PrivateTiming;
 use dotcore_site::{
     node::folder::CertificateFingerprint,
     private_transport::{
@@ -24,13 +23,6 @@ use tonic::{
         server::{TcpConnectInfo, TlsConnectInfo},
     },
 };
-
-/// Interval of HTTP/2 pings the listener sends on every connection, so a long-lived stream from a
-/// peer that vanished without closing its connection ends.
-const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
-
-/// Longest wait for a ping acknowledgement before the listener closes the connection.
-const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 type PrivateServiceAssembler =
     dyn FnOnce(PrivateServiceContext, &mut tonic::service::RoutesBuilder) + Send;
@@ -89,10 +81,21 @@ impl PreparedPrivateServer {
     }
 }
 
-/// Binds and prepares a native-tonic mTLS listener with exact ingress authentication.
+/// What a server's private listener serves: its mTLS identity, its routes, and the timing of
+/// its connections.
+pub(crate) struct PrivateListener {
+    pub(crate) configuration: PrivateServerConfiguration,
+    pub(crate) routes: tonic::service::Routes,
+    pub(crate) timing: PrivateTiming,
+}
+
+/// Binds and prepares a native-tonic mTLS listener with exact ingress authentication. It pings
+/// every connection at the keepalive interval of `timing`, so a long-lived stream from a peer
+/// that vanished without closing its connection ends.
 pub(crate) async fn prepare(
     configuration: PrivateServerConfiguration,
     routes: tonic::service::Routes,
+    timing: PrivateTiming,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<PreparedPrivateServer, super::ServerError> {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -119,8 +122,8 @@ pub(crate) async fn prepare(
     // here and small responses aren't held for the peer's acknowledgment.
     let incoming = tonic::transport::server::TcpIncoming::from(listener).with_nodelay(Some(true));
     let future = tonic::transport::Server::builder()
-        .http2_keepalive_interval(Some(KEEPALIVE_INTERVAL))
-        .http2_keepalive_timeout(Some(KEEPALIVE_TIMEOUT))
+        .http2_keepalive_interval(Some(timing.keepalive_interval))
+        .http2_keepalive_timeout(Some(timing.keepalive_timeout))
         .tls_config(tls)
         .map_err(|source| super::ServerError::Private(anyhow::Error::new(source)))?
         .layer(InterceptorLayer::new(ingress))

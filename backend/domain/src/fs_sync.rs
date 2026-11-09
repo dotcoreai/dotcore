@@ -97,19 +97,23 @@ mod tests {
         let (_reader, writer) = std::io::pipe().expect("pipe");
         let writer = File::from(std::os::fd::OwnedFd::from(writer));
 
-        // macOS refuses `F_FULLFSYNC` on a pipe as a bad descriptor and `fsync` as unsupported;
-        // Linux refuses `fsync` on a pipe as invalid.
-        let (full_error, relaxed_error) = if cfg!(target_os = "macos") {
-            (libc::EBADF, libc::ENOTSUP)
+        // macOS refuses `F_FULLFSYNC` on a pipe as a bad descriptor, and `fsync` as unsupported
+        // on macOS 15 but as invalid on macOS 26. Linux refuses `fsync` on a pipe as invalid.
+        let (full_errors, relaxed_errors): (&[i32], &[i32]) = if cfg!(target_os = "macos") {
+            (&[libc::EBADF], &[libc::ENOTSUP, libc::EINVAL])
         } else {
-            (libc::EINVAL, libc::EINVAL)
+            (&[libc::EINVAL], &[libc::EINVAL])
         };
         for (mode, expected) in [
-            (SyncMode::Full, full_error),
-            (SyncMode::Relaxed, relaxed_error),
+            (SyncMode::Full, full_errors),
+            (SyncMode::Relaxed, relaxed_errors),
         ] {
             let error = sync_with(mode, &writer).expect_err("a pipe cannot be flushed");
-            assert_eq!(error.raw_os_error(), Some(expected), "{mode:?}: {error:?}");
+            let code = error.raw_os_error().expect("an OS error");
+            assert!(
+                expected.contains(&code),
+                "{mode:?}: {error:?}, expected one of {expected:?}"
+            );
         }
     }
 

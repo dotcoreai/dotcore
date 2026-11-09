@@ -1,0 +1,13 @@
+# Library and binary code waits and reads wall time through the backend clock, so a test clock's
+# advance reaches it. Real I/O and real processes go through `dotcore_domain::real_time`; only that
+# module, the clocks and the launcher, which runs below the clock, call these directly. Test
+# targets may wait on real time.
+disallowed-methods = [
+  { path = "tokio::time::sleep", reason = "wait through the backend clock, or `real_time` for real I/O" },
+  { path = "tokio::time::sleep_until", reason = "wait through the backend clock, or `real_time` for real I/O" },
+  { path = "tokio::time::timeout", reason = "bound through the backend clock, or `real_time` for real I/O" },
+  { path = "tokio::time::timeout_at", reason = "bound through the backend clock, or `real_time` for real I/O" },
+  { path = "tokio::time::interval", reason = "tick through the backend clock" },
+  { path = "tokio::time::interval_at", reason = "tick through the backend clock" },
+  { path = "std::time::SystemTime::now", reason = "read wall time through the backend clock, or `real_time::wall_now` for a record of real wall time" },
+]

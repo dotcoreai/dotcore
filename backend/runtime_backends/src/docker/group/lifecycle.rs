@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use dotcore_domain::{docker::DOCKER_OPERATION_TIMEOUT, real_time};
 use dotcore_runtime::{
     ReadyLaunchGateOutcome, RuntimeBackend, RuntimeBackendError, RuntimeBackendId, RuntimeFuture,
     RuntimeGroupLogFollowQuery, RuntimeLogFuture, RuntimeLogSourceHistory,
@@ -110,7 +111,7 @@ impl<C: DockerClient> DockerAdapter<C> {
         sources: &RuntimeLogSourceSelection,
         query: &dotcore_runtime::RuntimeLogQuery,
     ) -> Result<Vec<RuntimeLogSourceHistory>, RuntimeBackendError> {
-        tokio::time::timeout(super::super::client::DOCKER_OPERATION_TIMEOUT, async {
+        real_time::bound(DOCKER_OPERATION_TIMEOUT, async {
             let Some(known) = self.exact_log_group(group, sources)? else {
                 return Ok(sources
                     .sources()

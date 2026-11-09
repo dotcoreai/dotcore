@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 
-use dotcore_domain::SiteNodeHost;
+use dotcore_domain::{SiteNodeHost, real_time};
 use serde_json::Value;
 
 /// Longest wait for the tailnet client to report its status.
@@ -61,7 +61,7 @@ async fn read_status(binary: &Path, deadline: Duration) -> Option<TailnetStatus>
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true);
-    let output = match tokio::time::timeout(deadline, command.output()).await {
+    let output = match real_time::bound(deadline, command.output()).await {
         Ok(Ok(output)) => output,
         Ok(Err(error)) => {
             tracing::debug!(binary = %binary.display(), %error, "no tailnet status: client did not run");

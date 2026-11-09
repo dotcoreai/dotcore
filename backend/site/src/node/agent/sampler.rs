@@ -16,12 +16,10 @@ use dotcore_domain::{
     hardware_observation::HardwareSnapshotSource,
 };
 use dotcore_node_hardware::LocalNodeCapability;
-use dotcore_observability::MetricRecorder;
+use dotcore_observability::{METRIC_BUCKET_WIDTH, MetricRecorder};
 use tracing::{debug, warn};
 
-use crate::node::metrics::{
-    HARDWARE_SAMPLE_INTERVAL, hardware_sample_records, hardware_sampling_skipped_record,
-};
+use crate::node::metrics::{hardware_sample_records, hardware_sampling_skipped_record};
 
 /// Longest a backward wall-clock step pauses sampling: beyond it, the node's metric forwarder has
 /// already let go of the seconds the clock went back to, so sampling starts over.
@@ -61,10 +59,10 @@ where
         let mut paused = false;
         loop {
             let wall = self.clock.wall_now();
-            let wait = next_boundary(wall, HARDWARE_SAMPLE_INTERVAL)
+            let wait = next_boundary(wall, METRIC_BUCKET_WIDTH)
                 .duration_since(wall)
                 .unwrap_or_default();
-            self.clock.sleep_until(self.clock.now() + wait).await;
+            self.clock.sleep(wait).await;
             let observed_at = self.clock.wall_now();
             let second = since_epoch(observed_at).as_secs();
             match last_second {

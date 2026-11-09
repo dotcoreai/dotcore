@@ -6,6 +6,7 @@ use std::{
 use dotcore_domain::{
     clock::{Clock, VirtualClock},
     hardware_observation::NodeHardwareObservation,
+    timing::Timing,
 };
 use dotcore_observability::{
     ForwarderConfig, InMemoryMetricStore, InMemoryStoreConfig, InProcessBucketTransport,
@@ -719,18 +720,22 @@ async fn native_runtime_memory_reaches_the_metric_store_as_deployment_history() 
             deployment_metric_descriptors(Duration::from_secs(5)),
         ]
         .concat(),
+        Timing::test().metrics,
+        Timing::test().watch,
         Arc::new(clock.clone()),
     )
     .expect("start metric store");
     let ingest = Arc::new(MetricBucketIngest::new(
         store.ingestor(),
+        Timing::test().metrics,
         Arc::new(clock.clone()),
     ));
     let (forwarder, _forwarder_task) = MetricForwarder::start(
         "worker-one",
         Arc::new(InProcessBucketTransport::new(ingest)),
-        Arc::new(clock.clone()),
         ForwarderConfig::default(),
+        Timing::test().metrics,
+        Arc::new(clock.clone()),
     )
     .expect("start metric forwarder");
     // The node records the status's attribution once for the published collection.

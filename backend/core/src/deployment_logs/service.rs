@@ -20,6 +20,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use dotcore_domain::real_time;
 use dotcore_proto::dotcore::deployment::private::v1::{
     DeploymentLogFollowOpened, DeploymentLogHistories, DeploymentLogHistory,
     DeploymentLogRejection, DeploymentLogRejectionReason, DeploymentLogResumePosition,
@@ -564,7 +565,7 @@ impl SourceForwarders {
         drop((reopens, running));
         tokio::select! {
             () = shared.cancellation.cancelled() => {}
-            _ = tokio::time::timeout(grace, stopped.recv()) => {}
+            _ = real_time::bound(grace, stopped.recv()) => {}
         }
     }
 

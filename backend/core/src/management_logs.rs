@@ -8,7 +8,7 @@ use std::{
     collections::BTreeMap,
     error::Error,
     sync::{Arc, OnceLock},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use std::{
     pin::Pin,
@@ -27,6 +27,10 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 use tracing::error;
+
+/// Longest a manager waits for a node's log or diagnostic history, or for the first frame of a
+/// follow, so a hung node cannot hold a management request.
+pub(crate) const NODE_LOG_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Page size of the log and diagnostic reads when the request leaves it unset.
 pub(crate) const DEFAULT_LOG_PAGE_SIZE: u32 = 100;

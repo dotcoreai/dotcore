@@ -315,7 +315,10 @@ mod tests {
         time::{Duration, SystemTime},
     };
 
-    use dotcore_domain::clock::{Clock as _, ManualClock};
+    use dotcore_domain::{
+        clock::{Clock as _, ManualClock},
+        timing::Timing,
+    };
     use dotcore_observability::{
         InMemoryMetricStore, InMemoryStoreConfig, MetricDescriptor, MetricDimension, MetricKind,
         MetricProvenance, MetricQuery, MetricStore, MetricUnit, PointValue, QueryRange, Reduce,
@@ -458,6 +461,8 @@ mod tests {
                         sample_interval: Some(Duration::from_secs(1)),
                         reporting_delay: None,
                     }],
+                    Timing::test().metrics,
+                    Timing::test().watch,
                     Arc::new(clock.clone()),
                 )
                 .expect("start store"),
@@ -466,6 +471,7 @@ mod tests {
             clock.advance(Duration::from_secs(60));
             let ingest = Arc::new(MetricBucketIngest::new(
                 store.ingestor(),
+                Timing::test().metrics,
                 Arc::new(clock.clone()),
             ));
             let manager_certificate = manager.0.clone();
@@ -483,6 +489,7 @@ mod tests {
                     );
                 })
                 .assemble(PrivateNodeRole::Manager, MANAGER_ID),
+                Timing::test().private,
                 std::future::pending(),
             )
             .await

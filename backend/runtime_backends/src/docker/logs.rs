@@ -2,6 +2,7 @@
 
 use std::{collections::VecDeque, time::SystemTime};
 
+use dotcore_domain::{docker::DOCKER_OPERATION_TIMEOUT, real_time};
 use dotcore_runtime::{
     MAX_RUNTIME_LOG_ENTRIES, RuntimeBackendError, RuntimeLogEntry, RuntimeLogEvent,
     RuntimeLogHistory, RuntimeLogSource, RuntimeLogStream, RuntimeLogStreamKind,
@@ -11,10 +12,7 @@ use futures_util::{StreamExt as _, stream};
 
 use super::{
     adapter::DockerAdapter,
-    client::{
-        DOCKER_OPERATION_TIMEOUT, DockerClient, DockerLogOutput, DockerLogRequest,
-        DockerLogStreamKind,
-    },
+    client::{DockerClient, DockerLogOutput, DockerLogRequest, DockerLogStreamKind},
 };
 
 pub(super) const MAX_LOG_LINE_BYTES: usize = 64 * 1024;
@@ -27,7 +25,7 @@ impl<C: DockerClient> DockerAdapter<C> {
         workload_id: &WorkloadId,
         query: &RuntimeWorkloadLogQuery,
     ) -> Result<RuntimeLogHistory, RuntimeBackendError> {
-        tokio::time::timeout(DOCKER_OPERATION_TIMEOUT, async {
+        real_time::bound(DOCKER_OPERATION_TIMEOUT, async {
             let known = self.live_known_workload(workload_id).await?;
             self.read_exact_logs(
                 known.container_id,

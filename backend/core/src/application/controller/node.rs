@@ -14,7 +14,8 @@ use std::{
 };
 
 use dotcore_domain::{
-    SiteNodeId, deployment::launch_pin::LaunchPinResolver, inference_route::is_valid_route_name,
+    SiteNodeId, clock::Clock, deployment::launch_pin::LaunchPinResolver,
+    inference_route::is_valid_route_name, timing::ApplicationTiming,
 };
 use dotcore_proto::dotcore::{
     application::{
@@ -99,6 +100,12 @@ pub(crate) struct NodeApplicationComposition {
 
     /// Hardware collections of this node, which its application resources are attributed from.
     pub(crate) inventory: Arc<dyn HardwareInventorySource>,
+
+    /// Timing of the realizer's observer passes and of each deployment's startup.
+    pub(crate) timing: ApplicationTiming,
+
+    /// Backend clock the realizer's observer waits through.
+    pub(crate) clock: Arc<dyn Clock>,
 }
 
 /// Composed node apps-controller realizer, the status owner reporting what it realized, and
@@ -125,6 +132,8 @@ impl NodeApplicationRealizer {
             publication_host,
             preparation_logs,
             inventory,
+            timing,
+            clock,
         } = composition;
         if publication_host.is_unspecified() {
             return Err(configuration(
@@ -170,6 +179,8 @@ impl NodeApplicationRealizer {
                 },
                 accelerator_attribution: Some(accelerator_attribution.clone()),
                 resource_attribution: Some(resource_attribution.clone()),
+                timing,
+                clock,
             },
         );
         Ok(Self {
@@ -887,14 +898,17 @@ mod tests {
         LocalImageIdentityResolver, OciImagePreparer, OciPreparationError, OciPreparationFuture,
         OciPreparationRequest, PreparationStep,
     };
-    use dotcore_domain::ExecutionPlatform;
-    use dotcore_domain::SiteNodeId;
-    use dotcore_domain::hardware_observation::{
-        AcceleratorProcessObservation, AcceleratorVendorProcessObservation,
-        AcceleratorVendorProcessResult, NodeHardwareObservation, ObservedAcceleratorProcess,
+    use dotcore_domain::{
+        ExecutionPlatform, SiteNodeId,
+        clock::SystemClock,
+        hardware_observation::{
+            AcceleratorProcessObservation, AcceleratorVendorProcessObservation,
+            AcceleratorVendorProcessResult, NodeHardwareObservation, ObservedAcceleratorProcess,
+        },
+        host_process::HostProcessIdentity,
+        test_support::oci::ServiceArtifactOci as _,
+        timing::Timing,
     };
-    use dotcore_domain::host_process::HostProcessIdentity;
-    use dotcore_domain::test_support::oci::ServiceArtifactOci as _;
     use dotcore_proto::dotcore::{
         application::{
             private::v1::{
@@ -2742,6 +2756,8 @@ mod tests {
                 publication_host: Ipv4Addr::LOCALHOST,
                 preparation_logs: self.preparation_logs(),
                 inventory: Arc::new(HardwareInventoryPublisher::new().1),
+                timing: Timing::test().application,
+                clock: Arc::new(SystemClock),
             })
             .expect("node realizer")
         }

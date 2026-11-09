@@ -8,6 +8,7 @@
 
 use std::time::Duration;
 
+use dotcore_domain::real_time;
 use dotcore_runtime::LoopbackEndpoint;
 use serde_json::Value;
 use tokio::{
@@ -169,14 +170,14 @@ async fn get_loopback_until(
     path: &str,
     deadline: Instant,
 ) -> Result<HttpResponse, EngineProbeError> {
-    let mut stream = tokio::time::timeout_at(deadline, TcpStream::connect(("127.0.0.1", port)))
+    let mut stream = real_time::bound_until(deadline, TcpStream::connect(("127.0.0.1", port)))
         .await
         .map_err(|_| EngineProbeError::Transient)?
         .map_err(|error| probe::io_error("ninfer loopback connection failed", error))?;
     let request = format!(
         "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
     );
-    tokio::time::timeout_at(deadline, stream.write_all(request.as_bytes()))
+    real_time::bound_until(deadline, stream.write_all(request.as_bytes()))
         .await
         .map_err(|_| EngineProbeError::Transient)?
         .map_err(|error| probe::io_error("ninfer readiness request write failed", error))?;
@@ -185,7 +186,7 @@ async fn get_loopback_until(
     let mut buffer = [0_u8; 8192];
     loop {
         // A load in progress accepts the connection and never answers, so the deadline expires.
-        let read = tokio::time::timeout_at(deadline, stream.read(&mut buffer))
+        let read = real_time::bound_until(deadline, stream.read(&mut buffer))
             .await
             .map_err(|_| EngineProbeError::Transient)?;
         let read = match read {

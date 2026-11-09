@@ -6,7 +6,12 @@
 //! simulated target's node reports its declared machine. It never re-stamps an older fact: a
 //! failed probe reads as unavailable, and a collection older than the maximum age reads as stale.
 
-use std::time::{Duration, SystemTime};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
+
+use dotcore_domain::clock::Clock;
 
 use dotcore_proto::dotcore::{
     observation::v1::runtime_observation,
@@ -28,15 +33,19 @@ pub struct NodeTargetCapabilitySource {
     targets: Vec<ExecutionTarget>,
     observations: NodeObservationFeed,
     max_age: Duration,
+
+    /// Backend clock whose wall time judges collections fresh, the clock that stamps them.
+    clock: Arc<dyn Clock>,
 }
 
 impl NodeTargetCapabilitySource {
     /// Creates a source for the node's model execution targets. Collections older than
-    /// `max_age` are reported stale.
+    /// `max_age` on `clock` are reported stale.
     pub fn new(
         targets: &[ExecutionTarget],
         observations: NodeObservationFeed,
         max_age: Duration,
+        clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
             targets: targets
@@ -51,6 +60,7 @@ impl NodeTargetCapabilitySource {
                 .collect(),
             observations,
             max_age,
+            clock,
         }
     }
 
@@ -67,13 +77,15 @@ impl NodeTargetCapabilitySource {
         let stale = now
             .duration_since(collected.collected_at)
             .map_or(true, |age| age > self.max_age);
-        let mut inventory = TargetCapabilityInventory::default();
+        let mut inventory = TargetCapabilityInventory::empty(self.max_age, now);
         for target in &self.targets {
             inventory.extend(node_target_capabilities(
                 target,
                 &collected.snapshot,
                 stale,
                 Some(collected.collected_at),
+                self.max_age,
+                now,
             )?);
         }
         Ok(inventory)
@@ -91,18 +103,22 @@ impl TargetCapabilitySource for NodeTargetCapabilitySource {
                 + '_,
         >,
     > {
-        Box::pin(std::future::ready(self.inventory_at(SystemTime::now())))
+        Box::pin(std::future::ready(self.inventory_at(self.clock.wall_now())))
     }
 }
 
 /// Projects one node collection into one target's capabilities: the target's reported runtime
 /// outcome joined with its node's accelerator facts. The manager's admission and the node's own
-/// admission share this projection; a missing `observed_at` reads as unavailable.
+/// admission share this projection; a missing `observed_at` reads as unavailable, and an
+/// available observation stays fresh for `max_age` past it, judged at `as_of`, when the
+/// collection is read.
 pub(crate) fn node_target_capabilities(
     target: &ExecutionTarget,
     snapshot: &NodeObservationSnapshot,
     stale: bool,
     observed_at: Option<SystemTime>,
+    max_age: Duration,
+    as_of: SystemTime,
 ) -> Result<TargetCapabilityInventory, TargetCapabilitySourceError> {
     let platform = node_runtime_platform(target, snapshot, stale, observed_at)?;
     let accelerator =
@@ -111,6 +127,8 @@ pub(crate) fn node_target_capabilities(
         [target],
         [platform],
         [accelerator],
+        max_age,
+        as_of,
     ))
 }
 
@@ -221,9 +239,14 @@ fn node_runtime_platform(
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, SystemTime};
+    use std::{
+        sync::Arc,
+        time::{Duration, SystemTime},
+    };
 
-    use dotcore_domain::{Accelerator, ExecutionPlatform, MemoryArchitecture};
+    use dotcore_domain::{
+        Accelerator, ExecutionPlatform, MemoryArchitecture, clock::SystemClock, timing::Timing,
+    };
     use dotcore_node_hardware::{MachineDescription, MachineWorkload};
     use dotcore_proto::dotcore::{
         catalog::v1::OciPlatform,
@@ -249,20 +272,25 @@ mod tests {
         agent::NodeObservationFeed,
         target_inventory::{
             CapabilityObservation, DeviceMemoryFacts, HostMemoryFacts, NodeMemoryFacts,
-            TARGET_CAPABILITY_MAX_AGE, TargetCapabilities,
+            TargetCapabilities,
         },
     };
 
     #[test]
     fn refreshed_collection_restores_capabilities_after_the_max_age() {
+        let max_age = Timing::test().node_control.capability_max_age;
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
-        let source =
-            NodeTargetCapabilitySource::new(&[target()], feed.clone(), TARGET_CAPABILITY_MAX_AGE);
+        let source = NodeTargetCapabilitySource::new(
+            &[target()],
+            feed.clone(),
+            max_age,
+            Arc::new(SystemClock),
+        );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
             1,
-            now - TARGET_CAPABILITY_MAX_AGE - Duration::from_secs(1),
+            now - max_age - Duration::from_secs(1),
         );
 
         assert_eq!(
@@ -318,11 +346,18 @@ mod tests {
                 }),
                 ..available_snapshot()
             };
-            super::node_target_capabilities(&simulated, &snapshot, false, Some(now))
-                .expect("inventory")
-                .for_target("target-one")
-                .expect("target capabilities")
-                .clone()
+            super::node_target_capabilities(
+                &simulated,
+                &snapshot,
+                false,
+                Some(now),
+                Timing::test().node_control.capability_max_age,
+                now,
+            )
+            .expect("inventory")
+            .for_target("target-one")
+            .expect("target capabilities")
+            .clone()
         };
 
         let gb10 = project(
@@ -427,11 +462,18 @@ mod tests {
                 }),
                 ..available_snapshot()
             };
-            super::node_target_capabilities(&target(), &snapshot, false, Some(now))
-                .expect("inventory")
-                .for_target("target-one")
-                .expect("target capabilities")
-                .clone()
+            super::node_target_capabilities(
+                &target(),
+                &snapshot,
+                false,
+                Some(now),
+                Timing::test().node_control.capability_max_age,
+                now,
+            )
+            .expect("inventory")
+            .for_target("target-one")
+            .expect("target capabilities")
+            .clone()
         };
         let declared = |name: &str, workload: MachineWorkload| {
             MachineDescription::simulated(&[name.to_owned()], "amd64")
@@ -530,10 +572,15 @@ mod tests {
 
     #[test]
     fn failed_collection_never_restamps_earlier_facts() {
+        let max_age = Timing::test().node_control.capability_max_age;
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
-        let source =
-            NodeTargetCapabilitySource::new(&[target()], feed.clone(), TARGET_CAPABILITY_MAX_AGE);
+        let source = NodeTargetCapabilitySource::new(
+            &[target()],
+            feed.clone(),
+            max_age,
+            Arc::new(SystemClock),
+        );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
             1,
@@ -563,8 +610,12 @@ mod tests {
     fn injected_max_age_marks_an_older_collection_stale() {
         let now = SystemTime::now();
         let feed = NodeObservationFeed::default();
-        let source =
-            NodeTargetCapabilitySource::new(&[target()], feed.clone(), Duration::from_secs(1));
+        let source = NodeTargetCapabilitySource::new(
+            &[target()],
+            feed.clone(),
+            Duration::from_secs(1),
+            Arc::new(SystemClock),
+        );
         feed.publish(
             crate::node::agent::NodeCollection::without_processes(available_snapshot()),
             1,
@@ -579,10 +630,12 @@ mod tests {
 
     #[test]
     fn missing_collection_is_an_observation_failure() {
+        let max_age = Timing::test().node_control.capability_max_age;
         let source = NodeTargetCapabilitySource::new(
             &[target()],
             NodeObservationFeed::default(),
-            TARGET_CAPABILITY_MAX_AGE,
+            max_age,
+            Arc::new(SystemClock),
         );
 
         assert!(source.inventory_at(SystemTime::now()).is_err());
