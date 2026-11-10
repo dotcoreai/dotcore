@@ -114,18 +114,15 @@ async fn simulated_download_progress_precedes_runtime_loading_through_management
     )
     .await
     .expect("model preparation gate deadlock watchdog");
-    let downloading = wait_for_lifecycle_client(
+    let downloading = wait_for_lifecycle_message_client(
         &mut client,
         &deployment.model_deployment_id,
         ModelDeploymentStatus::Downloading,
+        "Simulating model artifact download",
     )
     .await
     .state
     .expect("downloading state");
-    assert_eq!(
-        downloading.status_message,
-        "Simulating model artifact download"
-    );
     let progress = downloading.progress.expect("download progress");
     assert_eq!(progress.completed, 0);
     assert_eq!(progress.total, Some(8 * GIBIBYTE));
@@ -141,15 +138,15 @@ async fn simulated_download_progress_precedes_runtime_loading_through_management
     )
     .await
     .expect("model readiness gate deadlock watchdog");
-    let loading = wait_for_lifecycle_client(
+    let loading = wait_for_lifecycle_message_client(
         &mut client,
         &deployment.model_deployment_id,
         ModelDeploymentStatus::Loading,
+        "Loading",
     )
     .await
     .state
     .expect("loading state");
-    assert_eq!(loading.status_message, "Loading");
     assert_eq!(loading.progress, None);
 
     runtime.release_readiness_gate();
@@ -2551,15 +2548,34 @@ async fn wait_for_lifecycle_client(
     deployment_id: &str,
     lifecycle: ModelDeploymentStatus,
 ) -> ModelDeployment {
+    wait_for_lifecycle_state_client(client, deployment_id, lifecycle, None).await
+}
+
+/// Waits until the deployment shows the given status together with the given status message,
+/// since several preparation stages share one status.
+async fn wait_for_lifecycle_message_client(
+    client: &mut ModelClient,
+    deployment_id: &str,
+    lifecycle: ModelDeploymentStatus,
+    status_message: &str,
+) -> ModelDeployment {
+    wait_for_lifecycle_state_client(client, deployment_id, lifecycle, Some(status_message)).await
+}
+
+async fn wait_for_lifecycle_state_client(
+    client: &mut ModelClient,
+    deployment_id: &str,
+    lifecycle: ModelDeploymentStatus,
+    status_message: Option<&str>,
+) -> ModelDeployment {
     let mut last_state = None;
     tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
         loop {
             let deployment = deployment_from_client(client, deployment_id).await;
-            if deployment
-                .state
-                .as_ref()
-                .is_some_and(|state| state.status == lifecycle as i32)
-            {
+            if deployment.state.as_ref().is_some_and(|state| {
+                state.status == lifecycle as i32
+                    && status_message.is_none_or(|message| state.status_message == message)
+            }) {
                 return deployment;
             }
             last_state = deployment.state;
@@ -2568,7 +2584,9 @@ async fn wait_for_lifecycle_client(
     })
     .await
     .unwrap_or_else(|_| {
-        panic!("expected model lifecycle state {lifecycle:?}; last state: {last_state:?}")
+        panic!(
+            "expected model lifecycle state {lifecycle:?} with message {status_message:?}; last state: {last_state:?}"
+        )
     })
 }
 
