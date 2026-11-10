@@ -19,7 +19,7 @@ import { useSiteMemory } from "@/features/memory/use-site-memory";
 import {
   DeploymentModelInspector,
   type DeploymentModelInspectorScreen,
-} from "@/features/models/inspector/model-inspector";
+} from "@/features/models/inspector/deployment-model-inspector";
 import { modelInspectorPanelId } from "@/features/models/inspector/model-inspector-panel";
 import {
   describeMutationError,
@@ -27,12 +27,12 @@ import {
 } from "@/features/models/model-mutation-errors";
 import { useSharedModelsPolling } from "@/features/models/polling/models-polling-context";
 import { matchesEndpoint } from "@/features/models/polling/use-models-polling";
+import { UpstreamEditInspector } from "@/features/models/upstream/upstream-edit-inspector";
 import {
   toUpstreamConfiguration,
-  UpstreamEditInspector,
   type UpstreamFormValues,
-  UpstreamInspector,
-} from "@/features/models/upstream/upstream-model";
+} from "@/features/models/upstream/upstream-form";
+import { UpstreamInspector } from "@/features/models/upstream/upstream-inspector";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import {
   type ModelDeployment,

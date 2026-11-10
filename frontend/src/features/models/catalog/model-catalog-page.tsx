@@ -11,11 +11,11 @@ import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page
 import { CatalogSectionIcon } from "@/components/ui/section-icons";
 import { modelDeploymentPresentationName } from "@/domain/model-projection";
 import { ModelDeployDialog } from "@/features/models/deploy/model-deploy-dialog";
-import { CatalogModelInspector } from "@/features/models/inspector/model-inspector";
+import { CatalogModelInspector } from "@/features/models/inspector/catalog-model-inspector";
 import { useSharedModelsPolling } from "@/features/models/polling/models-polling-context";
 import { catalogModelDeployments } from "@/features/models/profiles/model-row";
 import { sameSizingScenario } from "@/features/models/profiles/sizing-scenario";
-import { UpstreamDeployDialog } from "@/features/models/upstream/upstream-model";
+import { UpstreamDeployDialog } from "@/features/models/upstream/upstream-deploy-dialog";
 import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
 import type { UpstreamModelTemplate } from "@/gen/dotcore/catalog/v1/upstream_model_template_pb";

@@ -36,7 +36,7 @@ import {
   ExecutionTargetWorkloadKind,
 } from "@/gen/dotcore/site/v1/service_pb";
 
-import { CatalogModelInspector, type CatalogModelInspectorScreen } from "./model-inspector";
+import { CatalogModelInspector, type CatalogModelInspectorScreen } from "./catalog-model-inspector";
 
 const { engineReleases, hardwareClasses, models } = syntheticCatalog();
 const alpha = models[0];

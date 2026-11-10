@@ -35,7 +35,8 @@ import { PanelParentContext } from "@/panels/panel-titles-context";
 import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
-import { CatalogModelInspector, DeploymentModelInspector } from "./model-inspector";
+import { CatalogModelInspector } from "./catalog-model-inspector";
+import { DeploymentModelInspector } from "./deployment-model-inspector";
 
 const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
 beforeEach(() => {

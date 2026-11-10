@@ -8,7 +8,7 @@ import { syntheticCatalog } from "@/features/models/catalog/catalog-table-test-s
 import { projectModelRows } from "@/features/models/profiles/model-row";
 import { LicenseSchema, type Model, ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
 
-import { CatalogModelInspector } from "./model-inspector";
+import { CatalogModelInspector } from "./catalog-model-inspector";
 
 const { engineReleases, hardwareClasses, models } = syntheticCatalog();
 const [, bare] = models;
