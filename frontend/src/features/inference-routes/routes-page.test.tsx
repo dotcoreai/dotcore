@@ -76,7 +76,7 @@ import { PanelLink } from "@/panels/panel-navigation";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { expectHeadingOutline } from "@/test/heading-outline";
-import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
+import { chooseMoreAction, moreActionNames, waitForInspectorFocus } from "@/test/inspector-actions";
 import { clientsWrapper, testClients } from "@/test/render-with-clients";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
@@ -393,8 +393,14 @@ function clients(
   return { model, route };
 }
 
+/** Opens the Create inspector and waits for its opening focus, so typing can't lose keys to it. */
+async function openCreateRoute(user: UserEvent) {
+  await user.click(await screen.findByRole("button", { name: "Create route" }));
+  await waitForInspectorFocus(await screen.findByTestId("inspector-content"));
+}
+
 async function submitSingleMemberCreate(user: UserEvent, name: string) {
-  await user.click(screen.getByRole("button", { name: "Create route" }));
+  await openCreateRoute(user);
   await user.type(screen.getByRole("textbox", { name: "Name" }), name);
   await user.click(screen.getByRole("button", { name: "Show Primary deployments options" }));
   await user.click(await screen.findByRole("option", { name: "Local model Ready" }));
@@ -1126,7 +1132,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "chat");
     await user.click(screen.getByRole("button", { name: "Show Primary deployments options" }));
     await user.click(await screen.findByRole("option", { name: "Primary Ready" }));
@@ -1344,7 +1350,7 @@ describe("RoutesPage", () => {
       create(ReplaceRouteResponseSchema, { route: replaced }),
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Name" }), "chat-new");
     await user.click(
@@ -1484,7 +1490,7 @@ describe("RoutesPage", () => {
     const { model, route } = clients([]);
     const router = renderIntegratedAt(["/routes"], route, model);
 
-    await user.click(await screen.findByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "draft");
     const beforeUnload = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(beforeUnload);
@@ -1705,7 +1711,7 @@ describe("RoutesPage", () => {
     );
     const router = renderIntegratedAt(["/routes"], route, model);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "created");
     await user.click(screen.getByRole("button", { name: "Show Primary deployments options" }));
     await user.click(await screen.findByRole("option", { name: "Local model Ready" }));
@@ -1722,6 +1728,7 @@ describe("RoutesPage", () => {
     );
     expect(router.state.historyAction).toBe("REPLACE");
     const panel = await screen.findByRole("complementary", { name: "created" });
+    await waitForInspectorFocus(panel, "created");
     expect(within(panel).getByRole("heading", { name: "created" })).toHaveFocus();
     expect(within(panel).getByTestId("route-inspector")).toBeVisible();
     expect(screen.getByRole("row", { name: "created" })).toBeVisible();
@@ -1753,6 +1760,7 @@ describe("RoutesPage", () => {
     );
     const panel = await screen.findByRole("complementary", { name: "created" });
     expect(within(panel).getByRole("button", { name: "Back to Local model" })).toBeVisible();
+    await waitForInspectorFocus(panel, "created");
     expect(within(panel).getByRole("heading", { name: "created" })).toHaveFocus();
   });
 
@@ -1761,7 +1769,7 @@ describe("RoutesPage", () => {
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     const form = screen.getByRole("form", { name: "Create route" });
     expect(tierNames(form)).toEqual(["Primary"]);
     expect(screen.getByRole("combobox", { name: "Primary deployments" })).toHaveValue("");
@@ -1833,7 +1841,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "chat");
     await user.click(screen.getByRole("button", { name: "Show Primary deployments options" }));
     await user.click(await screen.findByRole("option", { name: "Gemma Ready" }));
@@ -1856,7 +1864,7 @@ describe("RoutesPage", () => {
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "chat");
     const picker = screen.getByRole("combobox", { name: "Primary deployments" });
     act(() => picker.focus());
@@ -1876,7 +1884,7 @@ describe("RoutesPage", () => {
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "chat");
     await user.click(screen.getByRole("button", { name: "Add fallback" }));
     await user.click(screen.getByRole("button", { name: "Save route" }));
@@ -1905,7 +1913,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "chat");
     const pick = async (tier: string, option: string) => {
       await user.click(screen.getByRole("button", { name: `Show ${tier} deployments options` }));
@@ -1944,7 +1952,7 @@ describe("RoutesPage", () => {
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     expect(screen.getByRole("button", { name: "Remove Primary" })).toBeDisabled();
     const add = screen.getByRole("button", { name: "Add fallback" });
     for (let count = 1; count < 8; count += 1) await user.click(add);
@@ -2003,7 +2011,7 @@ describe("RoutesPage", () => {
       .mockResolvedValueOnce(create(ListRoutesResponseSchema, { routes: [accepted] }));
     const router = renderIntegratedAt(["/routes"], route, model);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), " reconciled ");
     await user.click(screen.getByRole("button", { name: "Show Primary deployments options" }));
     await user.click(await screen.findByRole("option", { name: "Local model Ready" }));
@@ -2015,6 +2023,7 @@ describe("RoutesPage", () => {
     expect(route.route.listRoutes).toHaveBeenCalledTimes(2);
     expect(screen.getAllByRole("row", { name: "reconciled" })).toHaveLength(1);
     const panel = await screen.findByRole("complementary", { name: "reconciled" });
+    await waitForInspectorFocus(panel, "reconciled");
     expect(within(panel).getByRole("heading", { name: "reconciled" })).toHaveFocus();
   });
 
@@ -2029,7 +2038,7 @@ describe("RoutesPage", () => {
     );
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await user.click(screen.getByRole("button", { name: "Create route" }));
+    await openCreateRoute(user);
     await user.type(screen.getByRole("textbox", { name: "Name" }), "missing");
     await user.click(screen.getByRole("button", { name: "Show Primary deployments options" }));
     await user.click(await screen.findByRole("option", { name: "Local model Ready" }));

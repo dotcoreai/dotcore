@@ -114,18 +114,15 @@ async fn simulated_download_progress_precedes_runtime_loading_through_management
     )
     .await
     .expect("model preparation gate deadlock watchdog");
-    let downloading = wait_for_lifecycle_client(
+    let downloading = wait_for_lifecycle_message_client(
         &mut client,
         &deployment.model_deployment_id,
         ModelDeploymentStatus::Downloading,
+        "Simulating model artifact download",
     )
     .await
     .state
     .expect("downloading state");
-    assert_eq!(
-        downloading.status_message,
-        "Simulating model artifact download"
-    );
     let progress = downloading.progress.expect("download progress");
     assert_eq!(progress.completed, 0);
     assert_eq!(progress.total, Some(8 * GIBIBYTE));
@@ -141,15 +138,15 @@ async fn simulated_download_progress_precedes_runtime_loading_through_management
     )
     .await
     .expect("model readiness gate deadlock watchdog");
-    let loading = wait_for_lifecycle_client(
+    let loading = wait_for_lifecycle_message_client(
         &mut client,
         &deployment.model_deployment_id,
         ModelDeploymentStatus::Loading,
+        "Loading",
     )
     .await
     .state
     .expect("loading state");
-    assert_eq!(loading.status_message, "Loading");
     assert_eq!(loading.progress, None);
 
     runtime.release_readiness_gate();
@@ -442,16 +439,17 @@ async fn simulated_model_withdrawal_preserves_unrelated_model_discovery_and_infe
     )
     .await;
 
-    assert_eq!(
-        served_models(backend.inference_address()).await,
-        serde_json::json!({
+    wait_for_served_models(
+        backend.inference_address(),
+        &serde_json::json!({
             "object": "list",
             "data": [
                 {"id": "fixture-model", "object": "model", "created": 0, "owned_by": "dotcore"},
                 {"id": "fixture-model-b", "object": "model", "created": 0, "owned_by": "dotcore"}
             ]
-        })
-    );
+        }),
+    )
+    .await;
     assert_eq!(
         served_chat(backend.inference_address(), "fixture-model-b").await,
         serde_json::json!({
@@ -2551,15 +2549,34 @@ async fn wait_for_lifecycle_client(
     deployment_id: &str,
     lifecycle: ModelDeploymentStatus,
 ) -> ModelDeployment {
+    wait_for_lifecycle_state_client(client, deployment_id, lifecycle, None).await
+}
+
+/// Waits until the deployment shows the given status together with the given status message,
+/// since several preparation stages share one status.
+async fn wait_for_lifecycle_message_client(
+    client: &mut ModelClient,
+    deployment_id: &str,
+    lifecycle: ModelDeploymentStatus,
+    status_message: &str,
+) -> ModelDeployment {
+    wait_for_lifecycle_state_client(client, deployment_id, lifecycle, Some(status_message)).await
+}
+
+async fn wait_for_lifecycle_state_client(
+    client: &mut ModelClient,
+    deployment_id: &str,
+    lifecycle: ModelDeploymentStatus,
+    status_message: Option<&str>,
+) -> ModelDeployment {
     let mut last_state = None;
     tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
         loop {
             let deployment = deployment_from_client(client, deployment_id).await;
-            if deployment
-                .state
-                .as_ref()
-                .is_some_and(|state| state.status == lifecycle as i32)
-            {
+            if deployment.state.as_ref().is_some_and(|state| {
+                state.status == lifecycle as i32
+                    && status_message.is_none_or(|message| state.status_message == message)
+            }) {
                 return deployment;
             }
             last_state = deployment.state;
@@ -2568,7 +2585,9 @@ async fn wait_for_lifecycle_client(
     })
     .await
     .unwrap_or_else(|_| {
-        panic!("expected model lifecycle state {lifecycle:?}; last state: {last_state:?}")
+        panic!(
+            "expected model lifecycle state {lifecycle:?} with message {status_message:?}; last state: {last_state:?}"
+        )
     })
 }
 
@@ -2699,6 +2718,23 @@ fn local_snapshot_model_id(
     snapshot: &dotcore_proto::dotcore::model::v1::ModelDeploymentSnapshot,
 ) -> &str {
     &local_snapshot(snapshot).model_id
+}
+
+/// Waits until the router lists exactly the expected models, since it serves a ready deployment
+/// only once its serving target is published, after the deployment reports ready.
+async fn wait_for_served_models(address: SocketAddr, expected: &serde_json::Value) {
+    let mut listed = serde_json::Value::Null;
+    tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
+        loop {
+            listed = served_models(address).await;
+            if &listed == expected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("served models {expected}; last listed: {listed}"));
 }
 
 async fn served_models(address: SocketAddr) -> serde_json::Value {
