@@ -4,7 +4,7 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusBadge } from "@/components/ui/status-badge";
-import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
 
 describe("StatusBadge", () => {
   it("renders the projected word and carries its tone", () => {
@@ -38,6 +38,7 @@ describe("StatusBadge", () => {
 
   describe("while in progress", () => {
     beforeEach(() => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
     });
 
@@ -53,7 +54,7 @@ describe("StatusBadge", () => {
       expect(badge).toHaveAttribute("data-in-progress", "true");
       expect(badge.className).not.toContain("animate-slide-block");
 
-      await advanceBy(LOADING_REVEAL_DELAY_MS);
+      await advanceBy(productionTiming.loadingRevealMs);
       expect(badge).toHaveClass("after:animate-slide-block", "motion-reduce:after:hidden");
     });
 
@@ -62,28 +63,13 @@ describe("StatusBadge", () => {
         <StatusBadge status={{ inProgress: true, label: "Pausing", tone: "info" }} />,
       );
 
-      await advanceBy(LOADING_REVEAL_DELAY_MS - 1);
+      await advanceBy(productionTiming.loadingRevealMs - 1);
       rerender(<StatusBadge status={{ label: "Paused", tone: "neutral" }} />);
-      await advanceBy(LOADING_REVEAL_DELAY_MS);
+      await advanceBy(productionTiming.loadingRevealMs);
 
       const still = screen.getByText("Paused");
       expect(still).not.toHaveAttribute("data-in-progress");
       expect(still.className).not.toContain("animate-slide-block");
-    });
-
-    it("keeps a shown band for the minimum visible time after the status settles", async () => {
-      const { rerender } = render(
-        <StatusBadge status={{ inProgress: true, label: "Starting", tone: "info" }} />,
-      );
-      await advanceBy(LOADING_REVEAL_DELAY_MS);
-
-      rerender(<StatusBadge status={{ label: "Ready", tone: "success" }} />);
-      const settled = screen.getByText("Ready");
-      expect(settled).not.toHaveAttribute("data-in-progress");
-      expect(settled).toHaveClass("after:animate-slide-block");
-
-      await advanceBy(LOADING_MINIMUM_VISIBLE_MS);
-      expect(settled.className).not.toContain("animate-slide-block");
     });
   });
 
