@@ -59,8 +59,11 @@ export function pickMoreAction(name: string | RegExp, scope: HTMLElement = docum
 
 /**
  * Waits until an open inspector has moved focus to its heading. The inspector takes that focus a
- * frame after it opens, so typing into it any earlier can lose keys to the move.
+ * frame after it opens, so typing into it any earlier can lose keys to the move. `name` picks the
+ * heading when the inspector has several level 2 headings.
  */
-export async function waitForInspectorFocus(inspector: HTMLElement) {
-  await waitFor(() => expect(within(inspector).getByRole("heading", { level: 2 })).toHaveFocus());
+export async function waitForInspectorFocus(inspector: HTMLElement, name?: string | RegExp) {
+  await waitFor(() =>
+    expect(within(inspector).getByRole("heading", { level: 2, name })).toHaveFocus(),
+  );
 }
