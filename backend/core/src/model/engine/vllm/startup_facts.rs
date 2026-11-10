@@ -68,7 +68,8 @@ fn tokens(value: &str) -> Option<u64> {
     value.replace(',', "").parse().ok()
 }
 
-fn gib_bytes(value: &str) -> Option<u64> {
+/// Converts a GiB figure vLLM printed into bytes, or none when it is not a non-negative number.
+pub(super) fn gib_bytes(value: &str) -> Option<u64> {
     let gib = value.trim().parse::<f64>().ok()?;
     (gib.is_finite() && gib >= 0.0).then(|| (gib * BYTES_PER_GIB).round() as u64)
 }

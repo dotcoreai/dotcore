@@ -199,11 +199,11 @@ mod tests {
             ),
             [
                 vec![
-                    "big/q4 on Fixture Apple GPU: FitsNow from 434176",
-                    "mid/q4 on Fixture Apple GPU: FitsNow from 533504",
-                    "small/q4 on Fixture Apple GPU: FitsNow from 573440",
+                    "big/q4 on Fixture Apple GPU: FitsNow from 355328",
+                    "mid/q4 on Fixture Apple GPU: FitsNow from 454656",
+                    "small/q4 on Fixture Apple GPU: FitsNow from 494592",
                 ],
-                vec!["decider/q8 on Fixture Apple GPU: FitsNow from 583680"],
+                vec!["decider/q8 on Fixture Apple GPU: FitsNow from 504832"],
             ]
         );
     }

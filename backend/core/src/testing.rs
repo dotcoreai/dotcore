@@ -4,7 +4,8 @@
 //! Integration and command-line tests reach every test-only control through this one module: the
 //! manual and virtual clocks a composed backend reads, its timing policy, the view of a site
 //! manager's node liveness, the relaxed file flush, a fake host-name resolver, simulated
-//! inference holds, the profile compatibility read, and the preparation output a node retains.
+//! inference holds, the host memory reserve, the profile compatibility read, and the preparation
+//! output a node retains.
 //! Each item stays defined beside the code it controls.
 
 pub use dotcore_domain::{
@@ -21,6 +22,12 @@ pub use dotcore_domain::{
 pub use dotcore_site::node::control::NodeLivenessAges;
 
 pub use crate::{composition::NodeLiveness, inference::simulated::SimulatedInferenceTestSupport};
+
+/// Bytes a host pool of `total` bytes keeps free for the operating system and a starting
+/// workload's processes, so hardware tests load what the product would.
+pub fn host_reserve_bytes(total: u64) -> u64 {
+    crate::hardware::capacity::host_reserve_bytes(total)
+}
 
 /// Evaluates every profile of `models` on `targets` through the profile compatibility read, with
 /// an optional sizing scenario.

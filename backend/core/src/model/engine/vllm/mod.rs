@@ -1,6 +1,6 @@
 //! The vLLM engine: Catalog declaration validation, launch-plan translation, OCI workload
-//! materialization, loopback readiness probing, loopback inference binding, and startup memory
-//! facts.
+//! materialization, loopback readiness probing, loopback inference binding, startup memory
+//! facts, and startup memory refusals.
 //!
 //! vLLM launches require catalog sizing, and readiness follows the configuration's declared
 //! readiness policy. Callers reach the engine only through its engine definition.
@@ -11,6 +11,7 @@ mod plan;
 mod readiness;
 mod realization;
 mod startup_facts;
+mod startup_refusal;
 mod workload;
 
 use std::sync::Arc;
@@ -29,7 +30,7 @@ use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
 
 use super::{
     definition::EngineDefinition, realization::ResolvedEngineSelection,
-    startup_facts::StartupFactExtractor,
+    startup_facts::StartupFactExtractor, startup_refusal::StartupRefusal,
 };
 use crate::{
     inference::{EngineBindingError, EngineReadinessProbe, EngineTransportFactory},
@@ -162,6 +163,10 @@ impl EngineDefinition for Vllm {
 
     fn startup_fact_extractor(&self) -> Option<&dyn StartupFactExtractor> {
         Some(&startup_facts::VllmStartupFactExtractor)
+    }
+
+    fn startup_refusal(&self, output: &str) -> Option<StartupRefusal> {
+        startup_refusal::startup_refusal(output)
     }
 }
 

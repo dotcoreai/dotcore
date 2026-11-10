@@ -15,7 +15,7 @@ use dotcore_site::node::target_inventory::{
     CapabilityObservation, NodeAcceleratorObservation, TargetCapabilityReconciler,
 };
 
-use super::evaluation::Preview;
+use super::evaluation::{Preview, host_reserve_bytes};
 use super::{
     DeviceMemory, Estimate, HostMemory, NodeHardware, Occupancy, Policy, Pool, PoolDevice,
     PoolKind, PoolPreview, PoolView, Segment, SegmentSource,
@@ -28,9 +28,12 @@ const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
 const POOL: u64 = 24_000;
 
-/// Host memory beside a synthetic dedicated device, idle and large enough for every host estimate
-/// the synthetic cases make.
-const HOST: u64 = 8 * POOL;
+/// Total of a synthetic unified pool, large enough to leave room beyond the host reserve.
+const UNIFIED_POOL: u64 = 16 * GIB;
+
+/// Host memory beside a synthetic dedicated device, idle and large enough to leave room for every
+/// host estimate the synthetic cases make beyond the host reserve.
+const HOST: u64 = 16 * GIB;
 
 /// Driver-reserved memory of each named NVIDIA GPU at idle.
 const RESERVED: u64 = 497 * MIB;
@@ -158,7 +161,7 @@ fn named_machines_give_exact_pools_verdicts_and_largest_fits_under_each_occupanc
             "idle",
             vec![host(GB10_TOTAL, GB10_IDLE_USED)],
             [Fits, Fits],
-            [Some(885_905), Some(956_432)],
+            [Some(813_949), Some(956_432)],
         ),
         case(
             "gb10",
@@ -166,7 +169,7 @@ fn named_machines_give_exact_pools_verdicts_and_largest_fits_under_each_occupanc
             "one running model",
             vec![host(GB10_TOTAL, GB10_IDLE_USED + 10 * GIB)],
             [Fits, Fits],
-            [Some(803_985), Some(956_432)],
+            [Some(732_029), Some(956_432)],
         ),
         case(
             "gb10",
@@ -174,7 +177,7 @@ fn named_machines_give_exact_pools_verdicts_and_largest_fits_under_each_occupanc
             "busy desktop",
             vec![host(GB10_TOTAL, GB10_IDLE_USED + 20 * GIB)],
             [Fits, Fits],
-            [Some(722_065), Some(956_432)],
+            [Some(650_109), Some(956_432)],
         ),
         case(
             "mac-64g",
@@ -182,7 +185,7 @@ fn named_machines_give_exact_pools_verdicts_and_largest_fits_under_each_occupanc
             "idle",
             vec![host(MAC_TOTAL, 8 * GIB)],
             [Fits, Fits],
-            [Some(413_573), Some(484_352)],
+            [Some(353_280), Some(484_352)],
         ),
         case(
             "mac-64g",
@@ -190,7 +193,7 @@ fn named_machines_give_exact_pools_verdicts_and_largest_fits_under_each_occupanc
             "one running model",
             vec![host(MAC_TOTAL, 18 * GIB)],
             [Fits, Fits],
-            [Some(331_653), Some(484_352)],
+            [Some(271_360), Some(484_352)],
         ),
         case(
             "mac-64g",
@@ -198,7 +201,7 @@ fn named_machines_give_exact_pools_verdicts_and_largest_fits_under_each_occupanc
             "busy desktop",
             vec![host(MAC_TOTAL, 28 * GIB)],
             [Fits, Fits],
-            [Some(249_733), Some(484_352)],
+            [Some(189_440), Some(484_352)],
         ),
         // Two GPUs of different sizes: each target is judged on its own GPU, so what runs on the
         // 24 GiB GPU never moves the 16 GiB target's answers.
@@ -747,12 +750,13 @@ fn a_claim_counts_only_in_the_pools_it_shares_with_the_target() {
 #[test]
 fn a_preview_draws_each_pool_with_the_verdicts_the_evaluator_gives_on_named_machines() {
     const RTX_5090_TOTAL: u64 = 32_607 * MIB;
-    // The total less its 1% headroom, rounded down to whole bytes.
+    // A device pool's total less its 1% headroom, rounded down to whole bytes.
     const RTX_5090_LINE: u64 = 33_849_008_456;
-    const HOST_64G_LINE: u64 = 68_032_281_969;
+    // A host pool's total less its reserve: 8 GiB on 64 GiB, 10 GiB on GB10.
+    const HOST_64G_LINE: u64 = 64 * GIB - 8 * GIB;
     const GB10_TOTAL: u64 = 130_596_048_896;
     const GB10_IDLE_USED: u64 = 7_938_146_304;
-    const GB10_LINE: u64 = 129_290_088_408;
+    const GB10_LINE: u64 = GB10_TOTAL - 10 * GIB;
     let rtx_5090 = named_gpu("5090");
     let estimate = |accelerator_bytes, host_bytes| Estimate {
         accelerator_bytes: Some(accelerator_bytes),
@@ -1233,7 +1237,11 @@ fn the_largest_total_context_stays_within_the_highest_total_and_needs_a_growing_
 #[test]
 fn no_total_context_fits_a_target_below_a_catalog_minimum() {
     let largest = |memory_architecture, minimums: HardwareRequirements| {
-        let target = capacity(memory_architecture, Some(POOL), Some(POOL));
+        let pool = match memory_architecture {
+            Dedicated => POOL,
+            Unified => UNIFIED_POOL,
+        };
+        let target = capacity(memory_architecture, Some(pool), Some(pool));
         let demand_of = |bytes| {
             demand(
                 &Estimate {
@@ -1265,11 +1273,17 @@ fn no_total_context_fits_a_target_below_a_catalog_minimum() {
     assert_eq!(largest(Dedicated, minimums(POOL + 1, 0)), [None, None]);
     assert_eq!(largest(Dedicated, minimums(0, HOST + 1)), [None, None]);
     assert_eq!(
-        largest(Unified, minimums(POOL, POOL)),
+        largest(Unified, minimums(UNIFIED_POOL, UNIFIED_POOL)),
         [Some(4096), Some(4096)]
     );
-    assert_eq!(largest(Unified, minimums(POOL + 1, 0)), [None, None]);
-    assert_eq!(largest(Unified, minimums(0, POOL + 1)), [None, None]);
+    assert_eq!(
+        largest(Unified, minimums(UNIFIED_POOL + 1, 0)),
+        [None, None]
+    );
+    assert_eq!(
+        largest(Unified, minimums(0, UNIFIED_POOL + 1)),
+        [None, None]
+    );
 }
 
 #[test]
@@ -1472,14 +1486,101 @@ fn free_memory_fit_compares_with_free_memory_less_a_headroom_of_the_total() {
 }
 
 #[test]
+fn a_host_pool_leaves_a_fixed_reserve_where_a_device_pool_leaves_a_share_of_its_total() {
+    const DEVICE_TOTAL: u64 = 32_607 * MIB;
+    const HOST_TOTAL: u64 = 64 * GIB;
+    let node = NodeHardware {
+        devices: vec![DeviceMemory {
+            device: PoolDevice {
+                id: "GPU-a".to_owned(),
+                ..PoolDevice::default()
+            },
+            total_bytes: Some(DEVICE_TOTAL),
+            used_bytes: Some(0),
+        }],
+        host: Some(HostMemory {
+            total_bytes: HOST_TOTAL,
+            available_bytes: Some(HOST_TOTAL),
+        }),
+    };
+    let target = TargetCapacity::for_target(Dedicated, &node, Some(&["GPU-a".to_owned()]));
+    let estimate = Estimate {
+        accelerator_bytes: Some(GIB),
+        host_bytes: Some(GIB),
+    };
+    let demand = demand(&estimate, &target);
+
+    let lines = preview(demand.as_ref(), &target, None)
+        .pools
+        .iter()
+        .map(|pool| (pool.pool.kind, pool.fit_line_bytes))
+        .collect::<Vec<_>>();
+
+    // 1% of the device total, rounded down, against 8 GiB of the host total.
+    assert_eq!(
+        lines,
+        [
+            (PoolKind::Device, Some(33_849_008_456)),
+            (PoolKind::Host, Some(60_129_542_144)),
+        ]
+    );
+}
+
+#[test]
+fn a_host_reserve_is_capped_at_an_eighth_of_the_pool() {
+    let line = |total: u64| {
+        let target = capacity(Unified, Some(total), Some(total));
+        let demand = demand(
+            &Estimate {
+                accelerator_bytes: Some(GIB),
+                host_bytes: None,
+            },
+            &target,
+        );
+        preview(demand.as_ref(), &target, None).pools[0].fit_line_bytes
+    };
+
+    assert_eq!(line(16 * GIB), Some(14 * GIB), "16 GiB keeps 2 GiB");
+    assert_eq!(line(32 * GIB), Some(28 * GIB), "32 GiB keeps 4 GiB");
+    assert_eq!(line(128 * GIB), Some(118 * GIB), "128 GiB keeps 10 GiB");
+}
+
+#[test]
+fn unified_memory_exceeds_a_demand_that_fits_within_a_share_but_not_the_host_reserve() {
+    const GB10_TOTAL: u64 = 130_596_048_896;
+    let line = GB10_TOTAL - 10 * GIB;
+    assert_eq!(line, 119_858_630_656);
+    // The 1% share this reserve replaced would have admitted up to 129_290_088_408 bytes.
+    for (estimate, expected) in [
+        (line, Fits),
+        (line + 1, Exceeds),
+        (129_290_088_408, Exceeds),
+    ] {
+        assert_eq!(
+            on_free(
+                Unified,
+                Some(GB10_TOTAL),
+                Some(GB10_TOTAL),
+                Some(estimate),
+                None,
+                None
+            ),
+            expected,
+            "{estimate} bytes"
+        );
+    }
+}
+
+#[test]
 fn free_memory_fit_counts_the_host_estimate_on_unified_memory_only() {
-    let free = POOL / 2 + POOL / 100;
+    let free = UNIFIED_POOL / 2 + host_reserve_bytes(UNIFIED_POOL);
+    let accelerator = UNIFIED_POOL / 2 - 10;
     assert_eq!(
         on_free(
             Unified,
-            Some(POOL),
+            Some(UNIFIED_POOL),
             Some(free),
-            Some(POOL / 2 - 10),
+            Some(accelerator),
             Some(10),
             None
         ),
@@ -1488,9 +1589,9 @@ fn free_memory_fit_counts_the_host_estimate_on_unified_memory_only() {
     assert_eq!(
         on_free(
             Unified,
-            Some(POOL),
+            Some(UNIFIED_POOL),
             Some(free),
-            Some(POOL / 2 - 10),
+            Some(accelerator),
             Some(11),
             None
         ),
@@ -1500,7 +1601,7 @@ fn free_memory_fit_counts_the_host_estimate_on_unified_memory_only() {
         on_free(
             Dedicated,
             Some(POOL),
-            Some(free),
+            Some(POOL / 2 + POOL / 100),
             Some(POOL / 2),
             Some(POOL),
             None
@@ -1544,11 +1645,11 @@ fn free_memory_fit_compares_minimums_with_the_total() {
         assert_eq!(
             on_free(
                 Unified,
-                Some(POOL),
-                free,
+                Some(UNIFIED_POOL),
+                free.map(|_| UNIFIED_POOL),
                 Some(1),
                 None,
-                Some(&minimums(0, POOL + 1))
+                Some(&minimums(0, UNIFIED_POOL + 1))
             ),
             Exceeds,
             "{free:?}"
@@ -1570,11 +1671,11 @@ fn free_memory_fit_compares_minimums_with_the_total() {
     assert_eq!(
         on_free(
             Unified,
-            Some(POOL),
-            Some(POOL / 2),
+            Some(UNIFIED_POOL),
+            Some(UNIFIED_POOL * 3 / 4),
             Some(1),
             Some(1),
-            Some(&minimums(POOL, POOL))
+            Some(&minimums(UNIFIED_POOL, UNIFIED_POOL))
         ),
         Fits
     );

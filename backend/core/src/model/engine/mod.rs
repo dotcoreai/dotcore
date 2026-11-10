@@ -7,6 +7,7 @@ mod realization;
 mod registry;
 mod speculative_draft;
 pub(crate) mod startup_facts;
+pub(crate) mod startup_refusal;
 
 pub use declaration::EngineFacade;
 pub(crate) use definition::{unsigned_parameter_range, unsigned_parameter_value};

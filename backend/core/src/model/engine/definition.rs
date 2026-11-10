@@ -23,7 +23,7 @@ use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
 
 use super::{
     llama_cpp, ninfer, realization::ResolvedEngineSelection, startup_facts::StartupFactExtractor,
-    vllm,
+    startup_refusal::StartupRefusal, vllm,
 };
 use crate::{
     inference::{EngineBindingError, EngineReadinessProbe, EngineTransportFactory},
@@ -158,6 +158,12 @@ pub(crate) trait EngineDefinition: Send + Sync {
 
     /// Returns the parser for engine-reported startup memory facts, when the engine has one.
     fn startup_fact_extractor(&self) -> Option<&dyn StartupFactExtractor> {
+        None
+    }
+
+    /// Recognizes the engine's own reason for stopping during startup in its output, in
+    /// chronological order with one entry per line. Returns none when no known reason is found.
+    fn startup_refusal(&self, _output: &str) -> Option<StartupRefusal> {
         None
     }
 }

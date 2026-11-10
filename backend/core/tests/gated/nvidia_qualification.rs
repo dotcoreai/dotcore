@@ -29,7 +29,7 @@ use bollard::{
     models::SystemInfo,
     query_parameters::{ListContainersOptionsBuilder, RemoveContainerOptionsBuilder},
 };
-use dotcore::composition::DEV_SOURCE_FLAKE_ENV;
+use dotcore::{composition::DEV_SOURCE_FLAKE_ENV, testing::host_reserve_bytes};
 use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
 use dotcore_domain::{
     ExecutionPlatform, ExecutionPlatformError, SitePaths,
@@ -300,6 +300,7 @@ impl GpuObservation {
                     anyhow::bail!("host memory of the unified NVIDIA device is unavailable");
                 };
                 GpuMemory::Unified {
+                    host_total_bytes: host.total_memory_bytes,
                     host_available_bytes: host.available_memory_bytes,
                 }
             }
@@ -400,15 +401,18 @@ impl GpuObservation {
 /// still.
 const UNIFIED_STEADY_MARGIN_BYTES: u64 = 64 * 1024 * 1024;
 
-/// Free host memory a test load on a unified GPU leaves to the OS and the host's other processes.
-const UNIFIED_OS_RESERVE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
-
 /// The memory pool the qualification GPU allocates from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GpuMemory {
-    Dedicated { total_bytes: u64, used_bytes: u64 },
+    Dedicated {
+        total_bytes: u64,
+        used_bytes: u64,
+    },
 
-    Unified { host_available_bytes: u64 },
+    Unified {
+        host_total_bytes: u64,
+        host_available_bytes: u64,
+    },
 }
 
 impl GpuMemory {
@@ -421,6 +425,7 @@ impl GpuMemory {
             } => total_bytes.saturating_sub(*used_bytes),
             Self::Unified {
                 host_available_bytes,
+                ..
             } => *host_available_bytes,
         }
     }
@@ -456,10 +461,11 @@ impl fmt::Display for GpuMemory {
                 "dedicated used_bytes={used_bytes} total_bytes={total_bytes}"
             ),
             Self::Unified {
+                host_total_bytes,
                 host_available_bytes,
             } => write!(
                 formatter,
-                "unified host_available_bytes={host_available_bytes}"
+                "unified host_available_bytes={host_available_bytes} host_total_bytes={host_total_bytes}"
             ),
         }
     }
@@ -827,7 +833,7 @@ async fn load_at_largest_fit(
 /// Picks the total context the test loads, returning it with its configuration, estimate and
 /// previewed demand. A dedicated GPU loads the largest fit. A unified GPU shares its memory with
 /// the OS, so a load filling it can freeze the host: the context halves from the largest fit until
-/// the estimate leaves [`UNIFIED_OS_RESERVE_BYTES`] of the free host memory.
+/// the estimate leaves the host reserve of the free host memory.
 pub async fn host_safe_load(
     service: &mut ModelClient,
     catalog: &Catalog,
@@ -841,12 +847,13 @@ pub async fn host_safe_load(
     EstimateLocalModelResourcesResponse,
     u64,
 )> {
-    let budget = match idle {
+    let reserve = match idle {
         GpuMemory::Dedicated { .. } => None,
-        GpuMemory::Unified { .. } => {
-            Some(idle.free_bytes().saturating_sub(UNIFIED_OS_RESERVE_BYTES))
-        }
+        GpuMemory::Unified {
+            host_total_bytes, ..
+        } => Some(host_reserve_bytes(*host_total_bytes)),
     };
+    let budget = reserve.map(|reserve| idle.free_bytes().saturating_sub(reserve));
     let mut total_context = largest_fit;
     loop {
         let configuration = configuration_at(catalog, case, total_context)?;
@@ -868,7 +875,8 @@ pub async fn host_safe_load(
                 anyhow::ensure!(
                     total_context > 1,
                     "the model needs {demand} B, over the {budget} B a unified GPU may load \
-                     while leaving {UNIFIED_OS_RESERVE_BYTES} B to the host"
+                     while leaving {} B to the host",
+                    reserve.unwrap_or_default()
                 );
                 total_context /= 2;
             }
@@ -1272,6 +1280,7 @@ mod tests {
         assert_eq!(
             observation.memory,
             GpuMemory::Unified {
+                host_total_bytes: 128 * GIB,
                 host_available_bytes: 100 * GIB,
             }
         );

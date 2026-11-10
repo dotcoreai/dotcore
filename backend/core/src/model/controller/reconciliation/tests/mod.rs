@@ -631,14 +631,17 @@ fn startup_output_tail_masks_secrets_and_paths_before_bounding_the_last_bytes() 
             has_older_output: false,
             candidate_budget_truncated: false,
         };
-    let tail = super::startup_output_tail(
+    let output = super::startup_output(
         history,
         &ProtectedLogValues::new(["sk-test-private".to_owned()]),
-    )
-    .expect("startup output");
+        &|_| None,
+    );
     assert_eq!(
-        tail,
-        "booting\nFile \"[REDACTED]\" key=[REDACTED] FileNotFoundError"
+        output,
+        super::StartupOutput {
+            tail: Some("booting\nFile \"[REDACTED]\" key=[REDACTED] FileNotFoundError".to_owned()),
+            refusal: None,
+        }
     );
 
     let history = RuntimeLogHistory {
@@ -648,10 +651,65 @@ fn startup_output_tail_masks_secrets_and_paths_before_bounding_the_last_bytes() 
         has_older_output: true,
         candidate_budget_truncated: false,
     };
-    let tail = super::startup_output_tail(history, &ProtectedLogValues::default())
+    let tail = super::startup_output(history, &ProtectedLogValues::default(), &|_| None)
+        .tail
         .expect("bounded output");
     assert!(tail.len() <= 4096);
     assert!(tail.ends_with("last failure"));
+}
+
+#[test]
+fn startup_output_recognizes_an_engine_refusal_older_than_the_tail() {
+    use dotcore_proto::dotcore::engine::v1::EngineKind;
+    use dotcore_runtime::{
+        RuntimeLogEntry, RuntimeLogHistory, RuntimeLogSource, RuntimeLogStreamKind,
+    };
+
+    use crate::{
+        management_logs::ProtectedLogValues, model::engine::startup_refusal::StartupRefusal,
+    };
+    const REFUSAL: &str = "(EngineCore pid=212) ERROR 11-04 09:12:52 [core.py:1080] ValueError: Free memory on device cuda:0 (111.66/121.63 GiB) on startup is less than desired GPU memory utilization (0.97, 117.98 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.";
+    let later = (0..20)
+        .map(|frame| format!("(APIServer pid=1)   frame {frame}, in run_engine_core"))
+        .chain(["(APIServer pid=1) RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}".to_owned()])
+        .collect::<Vec<_>>();
+    let history = RuntimeLogHistory {
+        entries: std::iter::once(REFUSAL.to_owned())
+            .chain(later.iter().cloned())
+            .map(|line| RuntimeLogEntry {
+                source: RuntimeLogSource {
+                    name: "model".to_owned(),
+                    label: "Model".to_owned(),
+                },
+                timestamp: std::time::SystemTime::UNIX_EPOCH,
+                stream: RuntimeLogStreamKind::Stderr,
+                content: line.into_bytes(),
+                truncated: false,
+            })
+            .collect(),
+        has_older_output: false,
+        candidate_budget_truncated: false,
+    };
+    let integrations = crate::model::controller::test_support::test_engine_integrations();
+    let vllm = integrations
+        .integration(EngineKind::Vllm)
+        .expect("vLLM integration");
+
+    let output = super::startup_output(history, &ProtectedLogValues::default(), &|output| {
+        vllm.startup_refusal(output)
+    });
+
+    assert_eq!(
+        output,
+        super::StartupOutput {
+            tail: Some(later[later.len() - 16..].join("\n")),
+            refusal: Some(StartupRefusal::InsufficientFreeMemory {
+                needed_bytes: 126_680_060_396,
+                free_bytes: 119_894_012_068,
+                line: REFUSAL.to_owned(),
+            }),
+        }
+    );
 }
 #[tokio::test(start_paused = true)]
 async fn download_progress_publication_writes_first_changed_interval_and_final_snapshots() {

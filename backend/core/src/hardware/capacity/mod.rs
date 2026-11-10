@@ -16,6 +16,8 @@ use dotcore_domain::MemoryArchitecture;
 use dotcore_site::node::target_inventory::{CapabilityObservation, NodeMemoryFacts};
 
 use evaluation::device_share;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use evaluation::host_reserve_bytes;
 pub(crate) use evaluation::{
     Estimate, Policy, PoolPreview, StartingTotalContext, below_device_minimum, combined_minimums,
     demand, fit, largest_total_context, preview, starting_total_context,
