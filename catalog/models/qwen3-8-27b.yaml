@@ -414,7 +414,7 @@ configurations:
               unsignedInteger: "3"
   - configurationId: "ninfer-nvidia-gb202"
     engineArtifacts:
-      - engineReleaseId: "ninfer-a754fcf"
+      - engineReleaseId: "ninfer-13ebb92"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "ninfer-nvfp4"
