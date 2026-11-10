@@ -469,18 +469,19 @@ fn the_largest_fitting_total_context_matches_the_largest_total_whose_read_fits()
     // on unified memory only. llama.cpp: 1200000000 + 1000 × T accelerator bytes and 1 GiB of
     // host prompt cache; vLLM: 4500000000 + 65536 or 131072 × T bytes; ninfer: 1900 + 12 × T
     // bytes with MTP, 1400 + 10 × T without, and 20 GiB of host context. Each idle pool is the
-    // smallest whose free memory less the 1% headroom is a round 2000000000, 3000000000,
+    // smallest whose free memory less its headroom is a round 2000000000, 3000000000,
     // 20000000000, 40000000000 or 300000 bytes, or 20 GiB + 300000 for ninfer on unified memory.
+    // A device pool's headroom is 1% of its total and a unified pool's is an eighth of it, below 64 GiB.
     let cases: [(&str, MemoryArchitecture, u64, &[u32]); 6] = [
         (LLAMA_MODEL, Dedicated, 2_020_202_020, &[800_000]),
-        (LLAMA_MODEL, Unified, 3_030_303_030, &[726_258]),
+        (LLAMA_MODEL, Unified, 3_428_571_428, &[726_258]),
         (VLLM_MODEL, Dedicated, 20_202_020_202, &[236_511]),
-        (VLLM_MODEL, Unified, 40_404_040_404, &[270_843]),
+        (VLLM_MODEL, Unified, 45_714_285_714, &[270_843]),
         (NINFER_MODEL, Dedicated, 303_030, &[24_841, 29_860]),
         (
             NINFER_UNIFIED_MODEL,
             Unified,
-            21_692_057_050,
+            24_543_013_119,
             &[24_841, 29_860],
         ),
     ];

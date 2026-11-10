@@ -264,6 +264,7 @@ async fn hw_apple_llama_cpp_loads_at_the_largest_fit() {
             .expect("the largest fit on the idle Mac");
     // The Mac shares its memory with the OS, so the load leaves it room like any unified GPU.
     let idle_memory = nvidia_qualification::GpuMemory::Unified {
+        host_total_bytes: host_total_bytes(),
         host_available_bytes: idle_available,
     };
     let (total_context, configuration, _, demand) = nvidia_qualification::host_safe_load(
@@ -783,6 +784,20 @@ async fn load_without_measured_memory(
     .await
     .unwrap_or_else(|_| panic!("deployment did not turn Ready within {DEPLOYMENT_TIMEOUT:?}"));
     unmeasured
+}
+
+/// Host total memory as the node's collector reads it.
+fn host_total_bytes() -> u64 {
+    let collector =
+        SystemHardwareSnapshotCollector::with_platform_accelerators(Arc::new(SystemClock));
+    match collector
+        .collect_snapshot()
+        .host
+        .and_then(|host| host.result)
+    {
+        Some(host_observation::Result::Facts(host)) => host.total_memory_bytes,
+        other => panic!("host memory is observed: {other:?}"),
+    }
 }
 
 /// Host available memory as the node's collector reads it.

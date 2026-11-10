@@ -138,27 +138,27 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             machines: &["mac16"],
             occupancy: Occupancy::Idle,
             use_case: CodingAndAgents,
-            rows: vec![("small/q4", vec![("mac16", FitsNow, false, 106_496)])],
+            rows: vec![("small/q4", vec![("mac16", FitsNow, false, 87_040)])],
         },
         Case {
             machines: &["mac16"],
             occupancy: Occupancy::Idle,
             use_case: Translation,
-            rows: vec![("small/q4", vec![("mac16", FitsNow, false, 106_496)])],
+            rows: vec![("small/q4", vec![("mac16", FitsNow, false, 87_040)])],
         },
         Case {
             machines: &["mac16"],
             occupancy: Occupancy::Idle,
             use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("mac16", FitsNow, false, 116_736)])],
+            rows: vec![("decider/q8", vec![("mac16", FitsNow, false, 97_280)])],
         },
         Case {
             machines: &["mac32"],
             occupancy: Occupancy::Idle,
             use_case: CodingAndAgents,
             rows: vec![
-                ("mid/q4", vec![("mac32", FitsNow, false, 215_040)]),
-                ("small/q4", vec![("mac32", FitsNow, false, 254_976)]),
+                ("mid/q4", vec![("mac32", FitsNow, false, 176_128)]),
+                ("small/q4", vec![("mac32", FitsNow, false, 216_064)]),
             ],
         },
         Case {
@@ -166,8 +166,8 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::Idle,
             use_case: Translation,
             rows: vec![
-                ("mid/q4", vec![("mac32", FitsNow, false, 215_040)]),
-                ("small/q4", vec![("mac32", FitsNow, false, 254_976)]),
+                ("mid/q4", vec![("mac32", FitsNow, false, 176_128)]),
+                ("small/q4", vec![("mac32", FitsNow, false, 216_064)]),
             ],
         },
         Case {
@@ -175,9 +175,9 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::Idle,
             use_case: CodingAndAgents,
             rows: vec![
-                ("big/q4", vec![("mac64", FitsNow, false, 434_176)]),
-                ("mid/q4", vec![("mac64", FitsNow, false, 533_504)]),
-                ("small/q4", vec![("mac64", FitsNow, false, 573_440)]),
+                ("big/q4", vec![("mac64", FitsNow, false, 355_328)]),
+                ("mid/q4", vec![("mac64", FitsNow, false, 454_656)]),
+                ("small/q4", vec![("mac64", FitsNow, false, 494_592)]),
             ],
         },
         Case {
@@ -185,16 +185,16 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::Running("mid", "q4"),
             use_case: CodingAndAgents,
             rows: vec![
-                ("big/q4", vec![("mac64", FitsNow, false, 340_992)]),
-                ("mid/q4", vec![("mac64", FitsNow, true, 441_344)]),
-                ("small/q4", vec![("mac64", FitsNow, false, 481_280)]),
+                ("big/q4", vec![("mac64", FitsNow, false, 262_144)]),
+                ("mid/q4", vec![("mac64", FitsNow, true, 362_496)]),
+                ("small/q4", vec![("mac64", FitsNow, false, 402_432)]),
             ],
         },
         Case {
             machines: &["mac64"],
             occupancy: Occupancy::Idle,
             use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("mac64", FitsNow, false, 583_680)])],
+            rows: vec![("decider/q8", vec![("mac64", FitsNow, false, 504_832)])],
         },
         // Unified 128 GiB: its own coding list, the vendor class's translation list.
         Case {
@@ -202,8 +202,8 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::Idle,
             use_case: CodingAndAgents,
             rows: vec![
-                ("big/q4", vec![("uni128", FitsNow, false, 1_114_112)]),
-                ("mid/q4", vec![("uni128", FitsNow, false, 1_214_464)]),
+                ("big/q4", vec![("uni128", FitsNow, false, 1_020_928)]),
+                ("mid/q4", vec![("uni128", FitsNow, false, 1_120_256)]),
             ],
         },
         Case {
@@ -211,15 +211,15 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::Idle,
             use_case: Translation,
             rows: vec![
-                ("mid/q4", vec![("uni128", FitsNow, false, 1_214_464)]),
-                ("small/q4", vec![("uni128", FitsNow, false, 1_254_400)]),
+                ("mid/q4", vec![("uni128", FitsNow, false, 1_120_256)]),
+                ("small/q4", vec![("uni128", FitsNow, false, 1_160_192)]),
             ],
         },
         Case {
             machines: &["uni128"],
             occupancy: Occupancy::Idle,
             use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("uni128", FitsNow, false, 1_264_640)])],
+            rows: vec![("decider/q8", vec![("uni128", FitsNow, false, 1_170_432)])],
         },
         // A deployment of unknown size still starting leaves free memory unknown, while the
         // total memory still decides what is kept.
@@ -243,21 +243,21 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
                 (
                     "big/q4",
                     vec![
-                        ("mac64", FitsNow, false, 434_176),
+                        ("mac64", FitsNow, false, 355_328),
                         ("x32", FitsNow, false, 174_080),
                     ],
                 ),
                 (
                     "mid/q4",
                     vec![
-                        ("mac64", FitsNow, false, 533_504),
+                        ("mac64", FitsNow, false, 454_656),
                         ("x32", FitsNow, false, 274_432),
                     ],
                 ),
                 (
                     "small/q4",
                     vec![
-                        ("mac64", FitsNow, false, 573_440),
+                        ("mac64", FitsNow, false, 494_592),
                         ("x32", FitsNow, false, 314_368),
                     ],
                 ),
@@ -271,14 +271,14 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
                 (
                     "mid/q4",
                     vec![
-                        ("mac64", FitsNow, false, 533_504),
+                        ("mac64", FitsNow, false, 454_656),
                         ("x32", FitsNow, false, 274_432),
                     ],
                 ),
                 (
                     "small/q4",
                     vec![
-                        ("mac64", FitsNow, false, 573_440),
+                        ("mac64", FitsNow, false, 494_592),
                         ("x32", FitsNow, false, 314_368),
                     ],
                 ),

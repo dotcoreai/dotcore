@@ -20,7 +20,7 @@ use std::{
     time::{Duration, UNIX_EPOCH},
 };
 
-use dotcore::composition::BackendTestSupport;
+use dotcore::{composition::BackendTestSupport, testing::host_reserve_bytes};
 use dotcore_domain::{
     ExecutionPlatform,
     hardware_observation::{HardwareSample, HardwareSnapshotSource, NodeHardwareObservation},
@@ -299,31 +299,31 @@ async fn each_gpu_of_a_mixed_machine_launches_vllm_against_its_own_total() {
 async fn a_starting_deployment_counts_once_on_a_dedicated_gpu() {
     // The probe: 8192 bytes per token of the GPU's free memory less its 1% headroom, 32607 MiB
     // less the driver's 497 MiB, then less the 2 GiB the deployment takes. The host probe: 8192
-    // bytes per token of the host's free memory less its 1% headroom, 64 GiB less 4 GiB at idle,
+    // bytes per token of the host's free memory less the 8 GiB host reserve, 64 GiB less 4 GiB at idle,
     // less the deployment's 256 MiB of host memory while it starts, and twice that while it
     // loads, since its host estimate stays claimed beside the host memory it already uses.
     claims_count_a_starting_deployment_once(
         "rtx-5090",
         [4_068_343, 3_806_199, 3_806_199, 3_806_199],
-        [7_780_433, 7_747_665, 7_714_897, 7_747_665],
+        [6_815_744, 6_782_976, 6_750_208, 6_782_976],
     )
     .await;
 }
 
 #[tokio::test]
 async fn a_starting_deployment_counts_once_on_gb10_unified_memory() {
-    // 8192 bytes per token of the host's free memory less its 1% headroom and the probe's 256 MiB
+    // 8192 bytes per token of the host's free memory less the 10 GiB host reserve and the probe's 256 MiB
     // of host memory: 130596048896 bytes less 7938146304 bytes at idle, then less the deployment's
     // 2 GiB and 256 MiB, and 256 MiB more while it loads, since its host estimate stays claimed
     // beside the host memory it already uses. Both probes draw on the one host pool.
-    let largest_fits = [14_780_701, 14_485_789, 14_453_021, 14_485_789];
+    let largest_fits = [13_629_400, 13_334_488, 13_301_720, 13_334_488];
     claims_count_a_starting_deployment_once("gb10", largest_fits, largest_fits).await;
 }
 
 #[tokio::test]
 async fn a_starting_deployment_counts_once_on_a_mac() {
     // As on GB10, from 64 GiB less 8 GiB at idle.
-    let largest_fits = [7_223_377, 6_928_465, 6_895_697, 6_928_465];
+    let largest_fits = [6_258_688, 5_963_776, 5_931_008, 5_963_776];
     claims_count_a_starting_deployment_once("mac-64g", largest_fits, largest_fits).await;
 }
 
@@ -1503,7 +1503,7 @@ fn expected_preview(
 }
 
 /// One pool of an expected preview holding `occupied` bytes drawn as `segments`, with `demand`
-/// added on top and judged against its total less the 1% headroom.
+/// added on top and judged against its total less the headroom: 1% of a device pool, the host reserve of a host pool.
 fn pool(
     kind: MemoryPoolKind,
     device: &AcceleratorFacts,
@@ -1512,7 +1512,10 @@ fn pool(
     occupied: u64,
     demand: u64,
 ) -> MemoryPoolPreview {
-    let line = total - total / 100;
+    let line = match kind {
+        MemoryPoolKind::Host => total - host_reserve_bytes(total),
+        _ => total - total / 100,
+    };
     let drawn = occupied + demand;
     let (over_by_bytes, beyond_total) = match drawn {
         drawn if drawn > total => (drawn - total, true),

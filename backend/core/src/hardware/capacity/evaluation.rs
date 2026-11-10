@@ -12,28 +12,40 @@ use dotcore_proto::dotcore::{catalog::v1::HardwareRequirements, deployment::v1::
 
 use super::{Pool, PoolKind, PoolView, TargetCapacity};
 
-/// Share of a pool's total, in percent, left out of its free memory before anything is judged to
-/// fit there, so normal variation in use doesn't tip a pool filled to the line over capacity.
-const FREE_MEMORY_HEADROOM_PERCENT: u64 = 1;
+/// Share of a device pool's total, in percent, left out of its free memory before anything is
+/// judged to fit there, so normal variation in use doesn't tip a pool filled to the line over
+/// capacity.
+const DEVICE_HEADROOM_PERCENT: u64 = 1;
+
+/// Bytes of a host pool left out of its free memory before anything is judged to fit there. The
+/// operating system, the node's other processes and each engine's own host processes live in host
+/// memory and draw from it as a workload starts, whatever the pool's size, so the reserve is a
+/// fixed amount rather than a share of the total. On unified devices, accelerator memory comes
+/// from this pool too and can't be paged out, so running short stalls the whole host.
+const HOST_RESERVE_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+
+/// Largest share of a host pool's total the reserve takes, as a divisor, so a small host keeps
+/// most of its memory for workloads.
+const HOST_RESERVE_MAXIMUM_DIVISOR: u64 = 8;
 
 /// What a demand is compared with in each pool.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Policy {
     basis: Basis,
-    headroom_percent: u64,
+    headroom: bool,
 }
 
 impl Policy {
-    /// Compares with what is free now, less a headroom of the total: does it fit beside what runs?
+    /// Compares with what is free now, less a headroom: does it fit beside what runs?
     pub(crate) const FREE_NOW: Self = Self {
         basis: Basis::Free,
-        headroom_percent: FREE_MEMORY_HEADROOM_PERCENT,
+        headroom: true,
     };
 
     /// Compares with the whole total: can this hardware run it at all?
     pub(crate) const TOTAL: Self = Self {
         basis: Basis::Total,
-        headroom_percent: 0,
+        headroom: false,
     };
 
     /// Bytes a demand may take from the pool, absent when a fact it needs is unknown.
@@ -43,20 +55,33 @@ impl Policy {
             Basis::Free => pool.free_bytes()?,
             Basis::Total => total,
         };
-        Some(basis.saturating_sub(self.headroom_bytes(total)))
+        Some(basis.saturating_sub(self.headroom_bytes(pool.kind, total)))
     }
 
     /// The pool's use at or below which a demand fits: its total less the headroom, absent when
     /// the total is unknown.
     fn fit_line_bytes(self, pool: &Pool) -> Option<u64> {
         pool.total_bytes
-            .map(|total| total - self.headroom_bytes(total))
+            .map(|total| total.saturating_sub(self.headroom_bytes(pool.kind, total)))
     }
 
-    /// Bytes of a pool's `total` left out before anything is judged to fit.
-    fn headroom_bytes(self, total: u64) -> u64 {
-        total * self.headroom_percent / 100
+    /// Bytes of a pool's `total` left out before anything is judged to fit: a share of a device
+    /// pool, the reserve of a host pool.
+    fn headroom_bytes(self, kind: PoolKind, total: u64) -> u64 {
+        if !self.headroom {
+            return 0;
+        }
+        match kind {
+            PoolKind::Device => total * DEVICE_HEADROOM_PERCENT / 100,
+            PoolKind::Host => host_reserve_bytes(total),
+        }
     }
+}
+
+/// Bytes a host pool of `total` bytes keeps free for the operating system and a starting
+/// workload's processes: the fixed reserve, at most an eighth of the total.
+pub(crate) fn host_reserve_bytes(total: u64) -> u64 {
+    HOST_RESERVE_BYTES.min(total / HOST_RESERVE_MAXIMUM_DIVISOR)
 }
 
 /// The pool measure a policy compares with.
