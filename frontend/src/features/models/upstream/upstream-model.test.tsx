@@ -41,15 +41,15 @@ import {
 } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 
+import { UpstreamDeployDialog } from "./upstream-deploy-dialog";
+import { UpstreamEditInspector } from "./upstream-edit-inspector";
 import {
   defaultUpstreamForm,
   toUpstreamConfiguration,
-  UpstreamDeployDialog,
-  UpstreamEditInspector,
   type UpstreamFormValues,
-  UpstreamInspector,
   validateModelId,
-} from "./upstream-model";
+} from "./upstream-form";
+import { UpstreamInspector } from "./upstream-inspector";
 
 expectTypeOf<ComponentProps<typeof UpstreamEditInspector>>().toMatchTypeOf<{
   metadata: DeploymentMetadata;

@@ -19,7 +19,7 @@ import type { SizingScenario } from "@/features/models/profiles/sizing-scenario"
 import {
   toUpstreamConfiguration,
   type UpstreamFormValues,
-} from "@/features/models/upstream/upstream-model";
+} from "@/features/models/upstream/upstream-form";
 import { type Model } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { UpstreamModelTemplate } from "@/gen/dotcore/catalog/v1/upstream_model_template_pb";
 import type { ResolvedLocalModelDeploymentSnapshot } from "@/gen/dotcore/model/v1/deployment_pb";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveUpstreamDeploymentName, validateUpstreamBaseUrl } from "./upstream-model";
+import { deriveUpstreamDeploymentName, validateUpstreamBaseUrl } from "./upstream-form";
 
 describe("upstream deployment value derivation", () => {
   it("limits a derived deployment name to 128 Unicode characters", () => {
