@@ -65,7 +65,10 @@ export interface ProfileTableInput {
   /** The availability of a profile, or undefined when nothing is known about it. */
   availability?: (profile: ProfileRow) => ProfileAvailability | undefined;
   definition: ProfileTableDefinition;
-  /** Whether profile memory estimates are still loading. Memory then sorts by name. */
+  /**
+   * Whether profile memory estimates are still loading. Memory then sorts by the values the rows
+   * hold, or by name when none has one.
+   */
   estimatesPending: boolean;
   profiles: readonly ProfileRow[];
   /** The Runs on filter whose field the definition holds, for counting what its memory fit hides. */
@@ -165,13 +168,15 @@ export function withRunsOn(
 
 /**
  * Filters and orders the profiles for a view. Selectable profiles come before the others, and the
- * view's sort orders each group. While estimates load, a memory sort orders by name, and the header
- * keeps showing the view's sort.
+ * view's sort orders each group. While estimates load, a memory sort keeps the order of the values
+ * the rows still hold, so rows don't move under the placeholders; with none, it orders by name. The
+ * header keeps showing the view's sort.
  */
 export function buildProfileTable(input: ProfileTableInput): ProfileTableModel {
   const { availability, definition, estimatesPending, profiles, view } = input;
+  const memoryUnknown = profiles.every(({ memory }) => memory === undefined);
   const ordered =
-    estimatesPending && view.sort.column === "memory"
+    estimatesPending && memoryUnknown && view.sort.column === "memory"
       ? { ...view, sort: { column: "profile" as const, direction: "asc" as const } }
       : view;
   const table = buildDataTable(definition, profiles, ordered);

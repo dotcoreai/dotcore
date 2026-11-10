@@ -141,6 +141,17 @@ describe("ProfileTable", () => {
     expect(bodyRows()).toEqual(["Sized", "cpu", "Quality", "Fast", "Orphan"]);
   });
 
+  it("keeps the memory order while estimates load, and orders by name when none is known", () => {
+    const { rerender } = renderTableWithRerender({ estimatesPending: true });
+    expect(bodyRows()).toEqual(["Sized", "cpu", "Quality", "Fast", "Orphan"]);
+
+    rerender({
+      estimatesPending: true,
+      profiles: alphaProfiles().map((profile) => ({ ...profile, memory: undefined })),
+    });
+    expect(bodyRows()).toEqual(["cpu", "Fast", "Orphan", "Quality", "Sized"]);
+  });
+
   it("searches profile names and ids", async () => {
     const { user } = renderTable();
 
