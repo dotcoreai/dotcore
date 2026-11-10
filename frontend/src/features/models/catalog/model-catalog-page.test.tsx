@@ -1,7 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ModelDeployDialogProps } from "@/features/models/deploy/model-deploy-dialog";
@@ -36,6 +35,7 @@ import {
 } from "@/gen/dotcore/model/v1/service_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { isPanelHistoryState } from "@/panels/panel-stack";
+import { setupUser } from "@/test/user";
 
 // Records the props of each model deploy dialog render, still rendering the real dialog.
 const deployDialogRender = vi.fn<(props: ModelDeployDialogProps) => void>();
@@ -50,7 +50,7 @@ beforeEach(() => {
 
 describe("ModelCatalogPage panels", () => {
   it("opens a profile from the catalog model and returns to the model", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderModelsSection({
       initialEntry: "/models/catalog",
       models: [catalogModel("double", "Double", ["default", "large"])],
@@ -68,7 +68,7 @@ describe("ModelCatalogPage panels", () => {
   });
 
   it("shares one catalog-wide compatibility read between the catalog model and its profiles", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const compatibility = vi.fn(() =>
       Promise.resolve(
         compatibilityResponse(
@@ -129,7 +129,7 @@ describe("ModelCatalogPage Connect upstream", () => {
   });
 
   it("opens the only UpstreamModelTemplate's deploy dialog without a panel", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderModelsSection({
       initialEntry: "/models/catalog",
       templates: [upstreamTemplate()],
@@ -145,7 +145,7 @@ describe("ModelCatalogPage Connect upstream", () => {
   });
 
   it("lists several UpstreamModelTemplates and deploys the chosen one", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { client, router } = renderModelsSection({
       initialEntry: "/models/catalog",
       templates: [upstreamTemplate(), upstreamTemplate("anthropic", "Anthropic Messages")],
@@ -177,7 +177,7 @@ describe("ModelCatalogPage Connect upstream", () => {
 
 describe("ModelCatalogPage deploy", () => {
   it("lands on the accepted local deployment on /models before the next read, and Back returns to the Catalog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const model = deployableModel();
     const { client, router } = renderModelsSection({
       engineReleases: [llamaRelease()],
@@ -245,7 +245,7 @@ describe("ModelCatalogPage deploy", () => {
   });
 
   it("leaves the Catalog view parameters behind when the accepted deployment opens on /models", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const model = deployableModel();
     const { client, router } = renderModelsSection({
       engineReleases: [llamaRelease()],
@@ -286,7 +286,7 @@ describe("ModelCatalogPage deploy", () => {
   });
 
   it("connects an UpstreamModelTemplate from the header action, lands on /models, and closes to /models", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const template = upstreamTemplate();
     const { client, router } = renderModelsSection({
       initialEntry: "/models/catalog",
@@ -328,7 +328,7 @@ describe("ModelCatalogPage deploy", () => {
   });
 
   it("points an uncertain deploy outcome to Running on the Models page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { client, router } = renderModelsSection({
       engineReleases: [llamaRelease()],
       initialEntry: "/models/catalog",
@@ -360,7 +360,7 @@ describe("ModelCatalogPage deploy", () => {
   });
 
   it("shows the service's reason when it rejects the total context", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const release = llamaRelease();
     release.parameterSchema!.parameters[0].exposed = true;
     const { client } = renderModelsSection({
@@ -404,7 +404,7 @@ describe("ModelCatalogPage deploy", () => {
   });
 
   it("stays where the operator went when a local deploy is accepted after leaving the Catalog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const model = deployableModel();
     const { client, router } = renderModelsSection({
       engineReleases: [llamaRelease()],
@@ -447,7 +447,7 @@ describe("ModelCatalogPage deploy", () => {
   });
 
   it("stays where the operator went when an upstream deploy is accepted after leaving the Catalog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const template = upstreamTemplate();
     const { client, router } = renderModelsSection({
       initialEntry: "/models/catalog",
@@ -482,7 +482,7 @@ describe("ModelCatalogPage deploy", () => {
 
   describe("route name conflict from the backend", () => {
     async function openLocalDialog(rejection: ConnectError) {
-      const user = userEvent.setup();
+      const user = setupUser();
       const { client } = renderModelsSection({
         engineReleases: [llamaRelease()],
         initialEntry: "/models/catalog",
@@ -506,7 +506,7 @@ describe("ModelCatalogPage deploy", () => {
     }
 
     async function openUpstreamDialog(rejection: ConnectError) {
-      const user = userEvent.setup();
+      const user = setupUser();
       const { client } = renderModelsSection({
         initialEntry: "/models/catalog",
         templates: [upstreamTemplate()],
@@ -605,7 +605,7 @@ describe("ModelCatalogPage deploy", () => {
 
 describe("ModelCatalogPage deploy memory", () => {
   it("hands the deploy dialog the site's model deployments without watching machine memory", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { watch } = renderModelsSection({
       engineReleases: [llamaRelease()],
       initialEntry: "/models/catalog",
@@ -663,7 +663,7 @@ describe("ModelCatalogPage deployments", () => {
   }
 
   it("lists the catalog model's deployments with their profile, placement and status", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderGemmaDeployments();
 
     const row = await screen.findByRole("row", { name: "Gemma" });
@@ -684,7 +684,7 @@ describe("ModelCatalogPage deployments", () => {
   });
 
   it("opens a listed deployment above the catalog model, and Back returns to the model", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderGemmaDeployments();
 
     await user.click(await screen.findByRole("row", { name: "Gemma" }));
@@ -708,7 +708,7 @@ describe("ModelCatalogPage deployments", () => {
   });
 
   it("shows no deployments section for an undeployed catalog model", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderGemmaDeployments();
 
     await user.click(await screen.findByRole("row", { name: "Idle" }));
@@ -730,7 +730,7 @@ describe("ModelCatalogPage from a deployment", () => {
     "/models/catalog?panel=models%2Fdeployment%3Adeployment-a&panel=model-catalog%2Fcatalog%3Agemma";
 
   async function openCatalogFromDeployment(models = [gemma]) {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderModelsSection({
       deployments: [deployment],
       initialEntry: "/models",

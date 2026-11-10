@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { Button } from "@/components/ui/button";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
+import { setupUser } from "@/test/user";
 
 describe("InspectorSectionHeader", () => {
   it("renders a level-2 heading carrying the given id", () => {
@@ -48,7 +48,7 @@ describe("InspectorSectionHeader", () => {
   });
 
   it("fires its action on click and on keyboard activation from tab focus", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSelect = vi.fn();
     render(
       <InspectorSectionHeader

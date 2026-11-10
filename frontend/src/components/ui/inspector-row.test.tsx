@@ -1,10 +1,10 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { Badge } from "@/components/ui/badge";
 import { InspectorRow, InspectorRowList } from "@/components/ui/inspector-row";
 import { ResourceMarker } from "@/components/ui/resource-marker";
+import { setupUser } from "@/test/user";
 
 describe("InspectorRow", () => {
   it("shows its label and trailing content inside the labeled list", () => {
@@ -94,7 +94,7 @@ describe("InspectorRow", () => {
   });
 
   it("fires on click and on keyboard activation from tab focus", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSelect = vi.fn();
     render(
       <InspectorRowList ariaLabel="Sub-screens">

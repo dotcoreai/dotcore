@@ -52,7 +52,7 @@ describe("metric descriptors", () => {
     const { client, listMetricDescriptors } = descriptorsClient();
     const watch = new FakeResourceWatch();
     render(
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <Machines />
         <Ranges id="a" client={client} />
         <Ranges id="b" client={client} />
@@ -93,6 +93,8 @@ describe("metric descriptors", () => {
         await gate;
         yield upsert("incarnation-b");
         yield upsert("incarnation-b");
+        // The watch stays open, so no reopen replays the first incarnation.
+        await new Promise<never>(() => {});
       })();
     render(<Panel client={client} />);
 

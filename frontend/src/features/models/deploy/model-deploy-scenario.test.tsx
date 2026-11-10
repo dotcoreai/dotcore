@@ -1,6 +1,6 @@
 import { clone, create } from "@bufbuild/protobuf";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { type ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,7 +23,6 @@ import {
   targetCompatibility,
 } from "@/features/models/profiles/profile-compatibility-test-support";
 import type { SizingScenario } from "@/features/models/profiles/sizing-scenario";
-import { PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS } from "@/features/models/profiles/use-profile-compatibility";
 import {
   runtimeSchemaModel,
   runtimeSchemaReleases,
@@ -44,6 +43,8 @@ import {
   ExecutionTargetWorkloadKind,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { productionTiming, setTiming } from "@/lib/timing";
+import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
 import { type ResourceEstimateLoader } from "./use-resource-estimate";
@@ -85,7 +86,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   it.each(Object.entries(scenarioValues))(
     "launches %s with the scenario's values, hidden ones included, and no option overrides",
     async (profileId, expected) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
       const onEstimate = vi.fn().mockResolvedValue({});
       const listProfileCompatibility = scenarioLoader({}, [
@@ -117,7 +118,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   );
 
   it("shows why a deploy would be rejected, keeps the estimate and blocks until fixed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const reason = "total context is above what 4 parallel requests use";
     const placementPreview = dedicatedPreview({ accelerator: 8n * gib });
@@ -163,7 +164,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("leaves the context per request empty and unsubmitted when the scenario sets only a total", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const totalOnly: SizingScenario = { totalContextTokens: 524288 };
     renderDialog({
@@ -259,7 +260,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("hides a profile that exceeds memory behind Runs on, and keeps its advisory once picked", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onEstimate = vi.fn().mockResolvedValue({});
     renderDialog({
       listProfileCompatibility: scenarioLoader({}, [
@@ -318,7 +319,7 @@ describe("ModelDeployDialog scenario prefill", () => {
         ? fitRead(id, requested)
         : new Promise<never>((_resolve, reject) => reads.push({ reject })),
     );
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({ listProfileCompatibility, scenario });
     await waitFor(() => expect(profilesFooter()).toBe("1 of 4 profiles · 1 hidden"));
 
@@ -414,7 +415,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("moves a profile picked before the read when the arriving Runs on chip hides it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let release = () => undefined as void;
     const held = new Promise<void>((resolve) => {
       release = resolve;
@@ -447,7 +448,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("opens on the second running target when the first exceeds memory and the second fits", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const onEstimate = vi.fn().mockResolvedValue({});
     renderDialog({
@@ -483,7 +484,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("hides a profile that fits the total but not free memory on free now, and shows it on Total", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       listProfileCompatibility: scenarioLoader({}, [
         targetCompatibility(poolPlacement, {
@@ -571,7 +572,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it('re-sizes the launch from a "Sized for" changed in the dialog', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const listProfileCompatibility = scenarioLoader({}, [
       targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
@@ -599,7 +600,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("opens a profile with an engine-owned total context at the read's value and submits it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const listProfileCompatibility = vi.fn(() =>
       Promise.resolve(
@@ -627,7 +628,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("starts the other values from the read without a scenario when the scenario's read has none for the profile", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const targets = [targetCompatibility(poolPlacement, { "q4-xl": {} })];
     const listProfileCompatibility = vi.fn((_id: string, requested?: SizingScenario) =>
@@ -663,7 +664,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("keeps the release default for a profile whose read carries no values", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
       initialProfileId: "q4-xl",
@@ -682,7 +683,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it('shows Reset once "Sized for" leaves the opener\'s, and restores it', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const listProfileCompatibility = scenarioLoader({}, [
       targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
     ]);
@@ -702,7 +703,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it('drops "Sized for" with the Runs on chip, and Reset restores both', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const listProfileCompatibility = scenarioLoader({}, [
       targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
@@ -741,7 +742,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it('restores the chip and its "Sized for" in one Reset after the chip is removed', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const listProfileCompatibility = scenarioLoader({}, [
       targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
     ]);
@@ -760,7 +761,7 @@ describe("ModelDeployDialog scenario prefill", () => {
   });
 
   it("launches the profile defaults without a scenario", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const listProfileCompatibility = scenarioLoader({}, [
       targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
@@ -783,7 +784,7 @@ describe("ModelDeployDialog scenario prefill", () => {
 
 describe("ModelDeployDialog largest fitting total context", () => {
   it("shows the selected target's largest fitting total context and follows a target change", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       initialProfileId: "ninfer-nvfp4",
       listConfiguredExecutionTargets: () =>
@@ -819,7 +820,7 @@ describe("ModelDeployDialog largest fitting total context", () => {
 
 describe("ModelDeployDialog largest fit under a new scenario", () => {
   it('picks up the fit of a new "Sized for" from its own read', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       initialProfileId: "ninfer-nvfp4",
       listProfileCompatibility: vi.fn((_modelId: string, requested?: SizingScenario) =>
@@ -855,7 +856,7 @@ describe("ModelDeployDialog largest fit under a new scenario", () => {
 
 describe("ModelDeployDialog shared context", () => {
   it("starts total context at the largest fit rounded down to 1024 tokens, as the table shows", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
       initialProfileId: "q4-xl",
@@ -900,7 +901,7 @@ describe("ModelDeployDialog shared context", () => {
       total: 32768n,
     },
   ])("starts total context at $total with $case", async ({ hint, source, starting, total }) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
       initialProfileId: "q4-xl",
@@ -930,7 +931,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it("starts total context at the engine default when the read fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
       initialProfileId: "q4-xl",
@@ -945,7 +946,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it("keeps the default total context when parallel requests change on the Runtime step", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
       initialProfileId: "q4-xl",
@@ -989,7 +990,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it("labels where the total context comes from, and returns an edited one to the largest fit", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
@@ -1026,7 +1027,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it("labels the total context custom only when its value leaves the largest fit", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
@@ -1066,7 +1067,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it('drops a stale total context error when "Sized for" chooses the context', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
@@ -1093,7 +1094,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it("keeps the operator's parallel requests when using the largest fit", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
@@ -1132,7 +1133,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it('keeps the operator\'s parallel requests and their error when "Sized for" returns to defaults', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
@@ -1175,7 +1176,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it('shares the context between the Context step and "Sized for", with the fit verdicts following', async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const listProfileCompatibility = vi.fn((_id: string, requested?: SizingScenario) =>
       Promise.resolve(
         scenarioResponse([
@@ -1221,7 +1222,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it("keeps an edited total context across profile and target changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
       initialProfileId: "q4-xl",
@@ -1273,7 +1274,7 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it("opens a catalog 128k scenario on the Context step and submits it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const catalogScenario: SizingScenario = { totalContextTokens: 131072 };
     renderDialog({
@@ -1309,6 +1310,7 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 
   it("keeps the first scenario values across polls and refreshes only the placement preview", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let estimates = 0;
     const onEstimate = vi.fn<ResourceEstimateLoader>(() =>
@@ -1356,8 +1358,8 @@ describe("ModelDeployDialog scenario polling", () => {
       "VRAM on node: 20 GiB used of 32 GiB; deployments: Qwen3.8 27B 8 GiB",
     );
 
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility).toHaveBeenCalledTimes(3);
     expect(onEstimate).toHaveBeenCalledTimes(3);
     expect(onPreviewMemory).toHaveBeenCalledOnce();
@@ -1373,6 +1375,7 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 
   it("keeps the first fitting target when a later read ranks targets differently", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const onEstimate = vi.fn().mockResolvedValue({});
     let reads = 0;
@@ -1403,7 +1406,7 @@ describe("ModelDeployDialog scenario polling", () => {
 
     await advance();
     expect(onEstimate).toHaveBeenCalledOnce();
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     // The poll refreshes the estimate on the same target.
     expect(onEstimate.mock.calls.map(([call]) => (call as EstimateCall).placement)).toEqual([
@@ -1413,6 +1416,7 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 
   it("keeps the first read's starting total context when later reads report another", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let reads = 0;
     const listProfileCompatibility = vi.fn(() => {
@@ -1435,13 +1439,14 @@ describe("ModelDeployDialog scenario polling", () => {
     };
     expectFirstFit();
 
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     expectFirstFit();
   });
 
   it("shows the selected profile's frozen starting total context in the table, and other rows live", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let reads = 0;
     const listProfileCompatibility = vi.fn(() => {
@@ -1460,7 +1465,7 @@ describe("ModelDeployDialog scenario polling", () => {
     expect(totalContextCell("NVFP4 ninfer")).toBe("124k");
     expect(totalContextCell("NVFP4 text")).toBe("64k");
 
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     expect(totalContextCell("NVFP4 ninfer")).toBe("124k");
@@ -1470,6 +1475,7 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 
   it("applies the live starting total context on Use largest fit, and keeps it from then on", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     // What every read reports from now on, as free memory changes.
     let live = 126976;
@@ -1491,7 +1497,7 @@ describe("ModelDeployDialog scenario polling", () => {
     // A later read lowers the starting value; the unedited default stays frozen.
     live = 98304;
     const reads = listProfileCompatibility.mock.calls.length;
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility.mock.calls.length).toBeGreaterThan(reads);
     expect(total()).toHaveValue("126976");
 
@@ -1510,12 +1516,13 @@ describe("ModelDeployDialog scenario polling", () => {
 
     // The corrected value is frozen in turn.
     live = 65536;
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(total()).toHaveValue("98304");
     expect(screen.getByText(/^Up to 96k on /)).toBeVisible();
   });
 
   it("stays on the engine default when the first read has no fit and a later one does", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let reads = 0;
     const listProfileCompatibility = vi.fn(() => {
@@ -1539,7 +1546,7 @@ describe("ModelDeployDialog scenario polling", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
 
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
@@ -1547,6 +1554,7 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 
   it("keeps the operator's Runs on chip, place and selection across a refresh", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const listProfileCompatibility = scenarioLoader({}, twoTargetContexts);
     renderDialog({
@@ -1563,7 +1571,7 @@ describe("ModelDeployDialog scenario polling", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove Runs on filter" }));
     expect(ninferTotalContext()).toBe("96k");
 
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole("button", { name: /^Runs on filter/ })).not.toBeInTheDocument();
     expect(ninferTotalContext()).toBe("96k");
@@ -1571,6 +1579,7 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 
   it("follows the starting chip again when a read without targets drops it", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let reads = 0;
     const listProfileCompatibility = vi.fn(() =>
@@ -1587,8 +1596,8 @@ describe("ModelDeployDialog scenario polling", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove Runs on filter" }));
     expect(ninferTotalContext()).toBe("96k");
 
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
-    await advance(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
+    await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility).toHaveBeenCalledTimes(3);
     // The table puts its starting chip back, and the dialog's place follows it.
     expect(screen.getByRole("button", { name: "Runs on filter: Worker" })).toBeVisible();
@@ -1696,7 +1705,7 @@ function scenarioResponse(
 }
 
 /** Moves from the Profile step to the Target step and picks the target the pattern names. */
-async function pickTarget(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+async function pickTarget(user: UserEvent, name: RegExp) {
   if (!screen.queryByText(/— Target$/))
     await user.click(screen.getByRole("button", { name: "Next" }));
   await user.click(screen.getByRole("combobox", { name: "Execution target" }));

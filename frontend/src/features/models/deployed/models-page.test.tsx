@@ -1,7 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
@@ -40,9 +39,10 @@ import {
   ModelDeploymentStateSchema,
   ModelDeploymentStatus,
 } from "@/gen/dotcore/model/v1/state_pb";
-import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction } from "@/test/inspector-actions";
+import { setupUser } from "@/test/user";
 
 import {
   catalogModel,
@@ -115,6 +115,7 @@ describe("ModelsPage table", () => {
   });
 
   it("delays initial feedback and holds completed Models content for the minimum", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let resolveModels!: (
       response: Awaited<ReturnType<ModelClient["catalog"]["listModels"]>>,
@@ -130,7 +131,7 @@ describe("ModelsPage table", () => {
     expect(client.catalog.listModels).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(client.model.listModelDeployments).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("status")).toHaveTextContent("Loading models…");
@@ -143,7 +144,7 @@ describe("ModelsPage table", () => {
     expect(screen.queryByText("No models running")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
     });
     expect(screen.queryByText("Loading models…")).not.toBeInTheDocument();
     expect(screen.getByText("No models running")).toBeVisible();
@@ -201,7 +202,7 @@ describe("ModelsPage table", () => {
   });
 
   it("offers generated tokens, token generation and time to first token in the View menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     renderModelsSection({
       deployments: [
@@ -237,7 +238,7 @@ describe("ModelsPage table", () => {
   });
 
   it("opens a row's panel on click, Enter or Space, marks it selected, and returns focus on close", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const { router } = renderModelsSection({
       deployments: [
@@ -268,7 +269,7 @@ describe("ModelsPage table", () => {
   });
 
   it("names a transitioning state the same way in the row and in its inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     renderModelsSection({
       models: [gemma],
@@ -301,7 +302,7 @@ describe("ModelsPage table", () => {
   });
 
   it("keeps generic teardown failures in the retryable dialog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const deployment = localDeployment("deployment-a", gemma, {
       status: ModelDeploymentStatus.READY,
@@ -325,7 +326,7 @@ describe("ModelsPage table", () => {
   });
 
   it("passes blocked teardown feedback to the upstream dialog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const template = upstreamTemplate();
     const deployment = create(ModelDeploymentSchema, {
       modelDeploymentId: "upstream-deployment",
@@ -363,7 +364,7 @@ describe("ModelsPage table", () => {
   });
 
   it("keeps a blocked teardown actionable until retry is accepted", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const deployment = localDeployment("deployment-a", gemma, {
       status: ModelDeploymentStatus.READY,
@@ -429,6 +430,7 @@ describe("ModelsPage table", () => {
 
 describe("ModelsPage deployment inspector", () => {
   it("enables Chat once the launching deployment comes online and its route becomes available", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const deployments = [
@@ -460,7 +462,7 @@ describe("ModelsPage deployment inspector", () => {
       models: [gemma],
     });
 
-    await act(() => vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS));
+    await act(() => vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs));
     expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-disabled", "true");
 
     // The routes arrive with the same tick that brings the deployment online.
@@ -476,7 +478,7 @@ describe("ModelsPage deployment inspector", () => {
 
 describe("ModelsPage deployment panel", () => {
   it("names the inspected deployment's placement by its machine and target display names", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const deployment = localDeployment("deployment-a", gemma, {
       observedPlacements: [{ acceleratorDeviceIds: ["GB10"], managedNodeId: "spark-01" }],
@@ -543,7 +545,7 @@ describe("ModelsPage deployment panel", () => {
   });
 
   it("shows the site's inference and opens a deployment on the page's range", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const streams = countedWatch();
     renderModelsSection({
@@ -573,7 +575,7 @@ describe("ModelsPage deployment panel", () => {
   });
 
   it("holds one metric stream for the page and one for the deployment inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = catalogModel("gemma", "Gemma", ["default"]);
     const streams = countedWatch();
     renderModelsSection({

@@ -1,9 +1,9 @@
 import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
 import { writeColorScheme } from "@/lib/console-preferences";
+import { setupUser } from "@/test/user";
 import { useTheme } from "@/theme/theme-context";
 import { ThemeProvider } from "@/theme/theme-provider";
 
@@ -35,7 +35,7 @@ function ThemeControl() {
 
 describe("ThemeProvider", () => {
   it("applies runtime changes to document state and persistence", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const storage = new FakeStorage();
     writeColorScheme(storage, ColorScheme.LIGHT);
     const documentElement = document.documentElement;
@@ -96,7 +96,7 @@ describe("ThemeProvider", () => {
   });
 
   it("retains the selected theme when persistence fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const storage = new FakeStorage();
     writeColorScheme(storage, ColorScheme.LIGHT);
     vi.spyOn(storage, "setItem").mockImplementation(() => {

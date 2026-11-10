@@ -1,6 +1,6 @@
 import { clone, create } from "@bufbuild/protobuf";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { type ComponentProps, StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -38,7 +38,6 @@ import {
   notReporting,
   targetCompatibility,
 } from "@/features/models/profiles/profile-compatibility-test-support";
-import { PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS } from "@/features/models/profiles/use-profile-compatibility";
 import {
   runtimeSchemaModel,
   runtimeSchemaReleases,
@@ -68,9 +67,10 @@ import {
   ExecutionTargetWorkloadKind,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
-import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
 import type { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
 import { type LocalResourceEstimate } from "./use-resource-estimate";
@@ -105,7 +105,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("asks for the target after the profile when more than one target is deployable", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()) });
 
       await waitFor(() =>
@@ -134,7 +134,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows every advanced step and never a review step", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -157,7 +157,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("opens with Advanced off every time", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const { rerender } = renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -174,7 +174,7 @@ describe("ModelDeployDialog", () => {
 
   describe("Advanced toggle", () => {
     it("keeps entered values and the current step when toggled", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await openAdvancedRuntime(user);
@@ -214,7 +214,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("falls forward to Context when the target step vanishes", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -227,7 +227,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("falls back to Deploy when the runtime step vanishes", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await openAdvancedRuntime(user);
@@ -240,7 +240,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("reveals invalid parallel requests with Advanced instead of deploying", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({
         engineReleases: runtimeSchemaReleases,
@@ -255,10 +255,14 @@ describe("ModelDeployDialog", () => {
       await user.type(parallel, "0");
       await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
+      // The new step takes focus in an effect after it renders; acting earlier loses that move.
+      await waitFor(() =>
+        expect(document.activeElement).toHaveAttribute("data-deployment-step-heading"),
+      );
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
+      expect(await screen.findByText("Step 4 of 5 — Runtime")).toBeVisible();
       expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
-      expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
       const revealed = screen.getByRole("textbox", { name: "Parallel requests" });
       await waitFor(() => expect(revealed).toHaveFocus());
       expect(revealed).toHaveAttribute("aria-invalid", "true");
@@ -271,7 +275,7 @@ describe("ModelDeployDialog", () => {
 
   describe("Deploy pane", () => {
     it("names the deployment and summarizes the untouched defaults", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await openContext(user);
@@ -286,7 +290,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("flags the deployment name on blur only after it changes", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await openContext(user);
@@ -307,7 +311,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows the name error and focuses it when Deploy finds the name empty", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ onSubmit });
 
@@ -323,7 +327,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("lists only customized runtime values", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ engineReleases: multiParameterReleases, model: multiParameterModel });
 
       await openAdvancedRuntime(user);
@@ -343,7 +347,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps changed parallel requests across a profile change without the reset hint", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         engineReleases: runtimeSchemaReleases,
         initialProfileId: "q4-xl",
@@ -373,7 +377,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("hints that a profile change resets customized runtime settings and keeps the context", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -440,7 +444,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows Intelligence from the View menu, and Reset hides it again", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -485,7 +489,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("preselects the requested profile and deploys it", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
       renderDialog({ initialProfileId: "large", onSubmit });
 
@@ -503,7 +507,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("selects a profile from its row and keeps the selection across steps", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -533,7 +537,7 @@ describe("ModelDeployDialog", () => {
 
   describe("runs on", () => {
     it("shows only the profiles that run on the site behind a removable chip", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const loader = compatibilityLoader(
         targetCompatibility(poolPlacement, {
           default: { advisories: [LocalModelDeploymentAdvisory.HOST_KV_OFFLOAD_SHARES_MEMORY] },
@@ -610,7 +614,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("deploys to the only target that runs the profile without asking", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
       renderDialog({
         initialProfileId: "large",
@@ -635,7 +639,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("asks for the target among those that run the profile", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget(), labTarget()),
         listProfileCompatibility: compatibilityLoader(
@@ -670,7 +674,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps a chosen target that runs a newly selected profile and clears one that doesn't", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget(), labTarget()),
         listProfileCompatibility: compatibilityLoader(
@@ -701,7 +705,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("narrows Runs on to one machine and moves a selection that can't run there", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         initialProfileId: "large",
         listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()),
@@ -723,7 +727,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("asks among one machine's targets when the chip names a machine with several", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(
           poolTarget({ id: "pool-a", name: "NVIDIA GeForce RTX 5090 · GPU 0" }),
@@ -755,7 +759,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("lists a machine's targets in GPU order, whatever their IDs' order", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(
           poolTarget({ id: "pool-a", name: "NVIDIA GeForce RTX 5090 · GPU 1" }),
@@ -776,6 +780,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps the steps ahead when a refresh changes which targets run the profile", async () => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
       const loader = vi
         .fn((modelId: string) =>
@@ -807,7 +812,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
       });
       expect(loader).toHaveBeenCalledTimes(2);
       expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
@@ -842,7 +847,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("clears a selection a search hides and waits for the operator to pick one", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listProfileCompatibility: compatibilityLoader(
           targetCompatibility(poolPlacement, { default: {}, large: {} }),
@@ -866,7 +871,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("never preselects a profile the search hides when the chip changes", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()),
         listProfileCompatibility: compatibilityLoader(
@@ -886,7 +891,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("places the remaining target after a chosen one turns ineligible", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
       // The watched targets still show the worker online when the fresh read before Deploy finds it
       // offline.
@@ -928,6 +933,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps the automatic target when a refresh adds another that runs the profile", async () => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
       const loader = vi
@@ -960,7 +966,7 @@ describe("ModelDeployDialog", () => {
       expect(summaryRows()[0]).toEqual(["Target", "node / NVIDIA GeForce RTX 5090"]);
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
       });
       expect(loader).toHaveBeenCalledTimes(2);
       expect(summaryRows()[0]).toEqual(["Target", "node / NVIDIA GeForce RTX 5090"]);
@@ -971,7 +977,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("says why no profile runs on the site and offers to show all", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ listProfileCompatibility: compatibilityLoader(notReporting(poolPlacement)) });
 
       const profiles = await screen.findByRole("table", { name: "Model profiles" });
@@ -988,6 +994,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps a selection that stops running on refresh and blocks with the reason", async () => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
       const loader = vi
         .fn((modelId: string) =>
@@ -1011,7 +1018,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("radio", { name: "Large context" })).toBeChecked();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
       });
       expect(loader).toHaveBeenCalledTimes(2);
       expect(profileRows()).toEqual(["Fast start"]);
@@ -1026,6 +1033,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("preselects once a later read reports a profile that runs", async () => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
       const loader = vi
         .fn((modelId: string) =>
@@ -1044,12 +1052,13 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("No profile runs here")).toBeVisible();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
       });
       expect(screen.getByRole("radio", { name: "Fast start" })).toBeChecked();
     });
 
     it("holds Deploy on the profile step with the reason once the selection can't run", async () => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
       const onSubmit = vi.fn();
       const loader = vi
@@ -1071,7 +1080,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
       });
       fireEvent.click(screen.getByRole("button", { name: "Deploy" }));
       await settle();
@@ -1092,7 +1101,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("lists every profile and still deploys when the read fails", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
       renderDialog({
         initialProfileId: "large",
@@ -1118,7 +1127,7 @@ describe("ModelDeployDialog", () => {
 
   describe("execution targets", () => {
     it("preselects the default target and names targets by host", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(
           poolTarget({ id: "pool-a", name: "NVIDIA GeForce RTX 5090 · GPU 0", siteManager: false }),
@@ -1148,7 +1157,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("tells apart targets with the same ID on different nodes", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(
           poolTarget({ id: "pool" }),
@@ -1177,7 +1186,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("filters the target list only from eight targets up", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const targets = (count: number) =>
         Array.from({ length: count }, (_, index) =>
           poolTarget({
@@ -1206,7 +1215,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows the only target as a line without target facts in advanced mode", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -1227,6 +1236,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("delays execution-target feedback while disabling the control immediately", async () => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
       let resolvePools!: (value: { executionTargets: ConfiguredExecutionTarget[] }) => void;
       const listTargets = vi.fn(
@@ -1249,7 +1259,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.queryByText("Loading configured execution targets…")).not.toBeInTheDocument();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
       });
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
 
@@ -1261,7 +1271,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
       });
       expect(screen.queryByText("Loading configured execution targets…")).not.toBeInTheDocument();
       expect(
@@ -1317,7 +1327,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("revalidates the selected exact target immediately before model submission", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       // The watched targets still show the target online when the fresh read finds it offline.
       const listTargets = vi
@@ -1352,7 +1362,7 @@ describe("ModelDeployDialog", () => {
 
     it("submits a connected worker target and keeps a stale worker target disabled", async () => {
       const onSubmit = vi.fn();
-      const user = userEvent.setup();
+      const user = setupUser();
       const worker = (siteNodeId: string, connectionState: NodeObservationState) =>
         create(ConfiguredExecutionTargetSchema, {
           displayName: "NVIDIA GB10",
@@ -1408,7 +1418,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("updates execution-target guidance after the selected value is cleared", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()) });
 
       await nextToTarget(user);
@@ -1432,7 +1442,7 @@ describe("ModelDeployDialog", () => {
 
   describe("notices", () => {
     it("blocks Deploy when no execution targets are configured", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ listConfiguredExecutionTargets: targetsLoader() });
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -1445,7 +1455,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("blocks Deploy and lists the reason when no target is deployable", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         listConfiguredExecutionTargets: targetsLoader(poolTarget({ available: false })),
       });
@@ -1469,7 +1479,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows a taken derived route on the route field as the step opens and clears it on rename", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ existingRouteNames: ["test-model"] });
 
       await openContext(user);
@@ -1487,7 +1497,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("clears a taken derived route when the route is edited", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ existingRouteNames: ["test-model"] });
 
       await openContext(user);
@@ -1501,7 +1511,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows a taken custom route on the route field and blocks Deploy", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ existingRouteNames: ["taken"] });
 
       await openContext(user);
@@ -1516,7 +1526,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows a backend route conflict on the route field until the route changes", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ routeConflict: { routeName: "test-model" } });
 
       await openContext(user);
@@ -1534,7 +1544,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows a submission error on the Deploy step only", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ error: "Deploy was rejected (Internal): the model service is unavailable." });
 
       await screen.findByText("Step 1 of 3 — Profile");
@@ -1547,7 +1557,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps Deploy available while the estimate is loading or failed", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({
         onEstimate: vi.fn().mockRejectedValue(new Error("estimate failed")),
@@ -1569,7 +1579,7 @@ describe("ModelDeployDialog", () => {
 
   describe("route name", () => {
     async function openDeploy(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog(props);
       await openContext(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1663,7 +1673,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows the exposure choice above the route name in advanced mode", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
       await screen.findByText("Step 1 of 3 — Profile");
       await enableAdvanced(user);
@@ -1678,7 +1688,7 @@ describe("ModelDeployDialog", () => {
 
     it("disables the route name and clears its error while the deployment is hidden", async () => {
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ onSubmit });
       await screen.findByText("Step 1 of 3 — Profile");
       await enableAdvanced(user);
@@ -1718,7 +1728,7 @@ describe("ModelDeployDialog", () => {
 
     it("submits the renamed route name", async () => {
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ onSubmit });
 
       await openContext(user);
@@ -1736,7 +1746,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("explains a deployment name without a valid route slug", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await openContext(user);
@@ -1756,7 +1766,7 @@ describe("ModelDeployDialog", () => {
 
   describe("runtime", () => {
     it("replaces defaults on profile change and submits valid inputs without preview", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       const onPreview = vi.fn().mockResolvedValue(snapshot);
       renderDialog({ onPreview, onSubmit });
@@ -1801,7 +1811,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("submits every declared engine parameter with the edited total context overlaid", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       const onPreview = vi.fn().mockResolvedValue(snapshot);
       const onEstimate = vi
@@ -1881,7 +1891,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("sends the edited KV offload size with the complete value set", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       const onPreview = vi.fn().mockResolvedValue(snapshot);
       const onEstimate = vi
@@ -1953,7 +1963,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("edits exact ordered custom tokens and sends them unchanged to preview and deployment", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const customSnapshot = create(ResolvedLocalModelDeploymentSnapshotSchema, {
         ...snapshot,
         customArgumentTokens: ["--flag=value", "  spaced  ", ""],
@@ -2039,7 +2049,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps an untouched total context quiet on blur and flags it after a change", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await openContext(user);
@@ -2060,7 +2070,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("holds an invalid context on the Context step with its exact range", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       await openContext(user);
@@ -2070,7 +2080,7 @@ describe("ModelDeployDialog", () => {
       await user.tab();
 
       expect(
-        screen.getByText("Total context must be an integer from 1024 to 32768 tokens."),
+        await screen.findByText("Total context must be an integer from 1024 to 32768 tokens."),
       ).toBeVisible();
       expect(context).toHaveAttribute("aria-invalid", "true");
       expect(context).toHaveAccessibleDescription(
@@ -2085,7 +2095,7 @@ describe("ModelDeployDialog", () => {
 
   describe("estimates", () => {
     it("estimates the exact current configuration and ignores stale responses", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const resolvers: Array<(value: LocalResourceEstimate) => void> = [];
       const onEstimate = vi.fn(
         () =>
@@ -2122,7 +2132,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("fences stale estimates after artifact and profile changes", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const resolvers: Array<(value: LocalResourceEstimate) => void> = [];
       const onEstimate = vi.fn(
         () =>
@@ -2173,7 +2183,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("deduplicates the StrictMode resource-estimate effect", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onEstimate = vi
         .fn()
         .mockResolvedValue({ placementPreview: dedicatedPreview({ accelerator: 3n * gib }) });
@@ -2190,7 +2200,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("removes an estimate when custom arguments make the result absent", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onEstimate = vi
         .fn()
         .mockResolvedValueOnce({
@@ -2230,7 +2240,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps preview and deployment available when estimation fails", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         onEstimate: vi.fn().mockRejectedValue(new Error("estimate failed")),
         deployments: [],
@@ -2248,7 +2258,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("warns on host KV offload for a unified target", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onPreviewMemory = vi.fn().mockResolvedValue({
         acceleratorMemoryArchitecture: AcceleratorMemoryArchitecture.UNIFIED,
         advisories: [LocalModelDeploymentAdvisory.HOST_KV_OFFLOAD_SHARES_MEMORY],
@@ -2271,7 +2281,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("warns on the Deploy step when a unified target's memory pool is below the profile minimum", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onPreviewMemory = vi.fn().mockResolvedValue({
         acceleratorMemoryArchitecture: AcceleratorMemoryArchitecture.UNIFIED,
         advisories: [LocalModelDeploymentAdvisory.UNIFIED_MEMORY_POOL_BELOW_DEVICE_MINIMUM],
@@ -2298,7 +2308,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows no warning without advisories", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onPreviewMemory = vi.fn().mockResolvedValue({
         acceleratorMemoryArchitecture: AcceleratorMemoryArchitecture.DEDICATED,
         advisories: [],
@@ -2316,7 +2326,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("updates the KV offload warning when the previewed values change", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onPreviewMemory = vi
         .fn()
         .mockResolvedValueOnce({
@@ -2346,7 +2356,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("keeps deployment available when the memory preview fails", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onPreviewMemory = vi
         .fn()
         .mockRejectedValue(new Error("Execution target is unavailable."));
@@ -2368,6 +2378,7 @@ describe("ModelDeployDialog", () => {
 
   describe("command preview", () => {
     it("keeps Previewing immediate while delaying command-resolution feedback", async () => {
+      setTiming(productionTiming);
       vi.useFakeTimers();
       let resolvePreview!: (value: typeof snapshot) => void;
       const onPreview = vi.fn(
@@ -2388,7 +2399,7 @@ describe("ModelDeployDialog", () => {
       expect(within(previewDialog).queryByText("No command is available.")).not.toBeInTheDocument();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
       });
       expect(within(previewDialog).getByRole("status")).toHaveTextContent("Resolving command…");
 
@@ -2402,7 +2413,7 @@ describe("ModelDeployDialog", () => {
       ).not.toBeInTheDocument();
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+        await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
       });
       expect(within(previewDialog).queryByText("Resolving command…")).not.toBeInTheDocument();
       expect(
@@ -2411,7 +2422,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows preview errors in the command modal and keeps valid deployment available", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onPreview = vi
         .fn()
         .mockRejectedValueOnce(new Error("Execution target is unavailable."))
@@ -2436,7 +2447,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("does not render a stale preview after its form values change", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       let resolvePreview: ((value: typeof snapshot) => void) | undefined;
       const onPreview = vi.fn(
         () =>
@@ -2466,7 +2477,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows the fresh backend-resolved command in a bounded details-style modal", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ onPreview: vi.fn().mockResolvedValue(snapshot) });
 
       await openAdvancedRuntime(user);
@@ -2498,7 +2509,7 @@ describe("ModelDeployDialog", () => {
 
   describe("memory strip", () => {
     it("follows the selected profile's estimate on every step", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         onEstimate: profileEstimates({ default: 8n * gib, large: 14n * gib }),
         deployments: [],
@@ -2543,7 +2554,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("follows the selected target's machine", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         deployments: [],
         listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()),
@@ -2571,7 +2582,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("shows the selected GPU target's own preview on a machine with several", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const gpuTarget = (id: string, name: string, device: string) =>
         create(ConfiguredExecutionTargetSchema, {
           ...poolTarget({ id, name }),
@@ -2611,7 +2622,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("warns about over capacity on the Deploy pane without blocking Deploy", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({
         deployments: [],
@@ -2646,7 +2657,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("draws a dedicated target's preview, hints its starting value, and warns within the headroom", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         deployments: [runningDeployment("d-gemma", "Gemma")],
         listProfileCompatibility: compatibilityLoader(
@@ -2698,7 +2709,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("draws a unified target's preview beyond its total with the marker and warning", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         deployments: [runningDeployment("d-qwen", "Qwen")],
         listConfiguredExecutionTargets: targetsLoader(workerTarget()),
@@ -2749,7 +2760,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("lists a pool of unknown size as unreadable and warns about nothing", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({
         deployments: [runningDeployment("d-gemma", "Gemma")],
         onEstimate: () =>
@@ -2792,7 +2803,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("never blocks Deploy while the estimate is loading or failed", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({
         onEstimate: () => Promise.reject(new Error("sizing failed")),
@@ -2824,7 +2835,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("uses a bounded modal shell and groups runtime fields by responsibility", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog();
 
       const modal = screen.getByRole("dialog", { name: "Test Model — Deploy model" });
@@ -2854,7 +2865,7 @@ describe("ModelDeployDialog", () => {
     });
 
     it("lists every approved engine release until the target's preview selects one", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const twoReleases = clone(ModelSchema, model);
       twoReleases.configurations[0].engineArtifacts.push(
         create(EngineArtifactReferenceSchema, {
@@ -2990,7 +3001,7 @@ async function settle() {
 }
 
 /** Narrows the Runs on chip from this site to one machine. */
-async function narrowRunsOn(user: ReturnType<typeof userEvent.setup>, machine: RegExp) {
+async function narrowRunsOn(user: UserEvent, machine: RegExp) {
   await user.click(await screen.findByRole("button", { name: "Runs on filter: this site" }));
   const menu = await screen.findByRole("menu");
   await user.click(within(menu).getByRole("menuitemcheckbox", { name: machine }));
@@ -2998,13 +3009,13 @@ async function narrowRunsOn(user: ReturnType<typeof userEvent.setup>, machine: R
 }
 
 /** Waits for the Profile step to offer a Target step, then goes to it. */
-async function nextToTarget(user: ReturnType<typeof userEvent.setup>) {
+async function nextToTarget(user: UserEvent) {
   await waitFor(() => expect(stepLabels()).toContain("2. Target"));
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText(/^Step 2 of \d — Target$/)).toBeVisible();
 }
 
-async function pickTarget(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+async function pickTarget(user: UserEvent, name: RegExp) {
   await user.click(screen.getByRole("combobox", { name: "Execution target" }));
   await user.click(screen.getByRole("option", { name }));
 }
@@ -3046,23 +3057,23 @@ function estimateRequest(profileId: string, bindingId: string, contextSize: bigi
   };
 }
 
-async function enableAdvanced(user: ReturnType<typeof userEvent.setup>) {
+async function enableAdvanced(user: UserEvent) {
   await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
 }
 
 /** Expands one collapsed Runtime section, such as "Custom arguments and command". */
-async function expandSection(user: ReturnType<typeof userEvent.setup>, name: string) {
+async function expandSection(user: UserEvent, name: string) {
   await user.click(screen.getByRole("button", { name, expanded: false }));
 }
 
 /** Moves from the Profile step to the basic Context step. */
-async function openContext(user: ReturnType<typeof userEvent.setup>) {
+async function openContext(user: UserEvent) {
   await screen.findByText("Step 1 of 3 — Profile");
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
 }
 
-async function openAdvancedRuntime(user: ReturnType<typeof userEvent.setup>) {
+async function openAdvancedRuntime(user: UserEvent) {
   await screen.findByText("Step 1 of 3 — Profile");
   await enableAdvanced(user);
   await user.click(screen.getByRole("button", { name: "Next" }));
@@ -3087,7 +3098,7 @@ async function openAdvancedRuntimeWithFakeTimers() {
   expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
 }
 
-async function goToDeploy(user: ReturnType<typeof userEvent.setup>) {
+async function goToDeploy(user: UserEvent) {
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 5 of 5 — Deploy")).toBeVisible();
 }

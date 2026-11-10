@@ -1,11 +1,12 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
 import { ProfileMenu } from "@/app/profile-menu";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 class FakeStorage {
@@ -51,7 +52,7 @@ function emptyDiagnostics(): DiagnosticLogOperations {
 
 describe("ProfileMenu", () => {
   it("identifies the static operator through an accessible trigger and menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderProfileMenu();
 
     const trigger = screen.getByRole("button", { name: "Open profile menu" });
@@ -94,14 +95,14 @@ describe("ProfileMenu", () => {
   it.each([
     [
       "pointer",
-      async (user: ReturnType<typeof userEvent.setup>, trigger: HTMLElement) => {
+      async (user: UserEvent, trigger: HTMLElement) => {
         await user.click(trigger);
         await user.click(screen.getByRole("menuitem", { name: "Site logs" }));
       },
     ],
     [
       "keyboard",
-      async (user: ReturnType<typeof userEvent.setup>, trigger: HTMLElement) => {
+      async (user: UserEvent, trigger: HTMLElement) => {
         trigger.focus();
         await user.keyboard("{Enter}");
         await waitFor(() =>
@@ -117,7 +118,7 @@ describe("ProfileMenu", () => {
   ])(
     "opens Site logs locally with the %s and restores trigger focus after Escape",
     async (_method, openLogs) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const initialUrl = window.location.href;
       renderProfileMenu(emptyDiagnostics());
 
@@ -142,7 +143,7 @@ describe("ProfileMenu", () => {
   );
 
   it("toggles Dark mode with pointer, Enter, and Space", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderProfileMenu();
 
     const trigger = screen.getByRole("button", { name: "Open profile menu" });
@@ -161,7 +162,7 @@ describe("ProfileMenu", () => {
   });
 
   it("returns focus to the trigger when Escape closes the menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderProfileMenu();
 
     const trigger = screen.getByRole("button", { name: "Open profile menu" });

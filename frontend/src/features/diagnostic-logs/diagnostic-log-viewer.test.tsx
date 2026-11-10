@@ -1,9 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
-import { LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
+import { setupUser } from "@/test/user";
 
 import { DiagnosticLogViewer } from "./diagnostic-log-viewer";
 
@@ -43,6 +43,7 @@ describe("DiagnosticLogViewer", () => {
   });
 
   it("delays diagnostic retained-history feedback in the toolbar and viewport", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const read = vi.fn(
       () => new Promise<Awaited<ReturnType<DiagnosticLogOperations["read"]>>>(() => undefined),
@@ -60,7 +61,7 @@ describe("DiagnosticLogViewer", () => {
     expect(toolbarStatus).toHaveTextContent("");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(screen.getByRole("status", { name: "Log output status" })).toHaveTextContent(
       "Loading retained output…",
@@ -100,7 +101,7 @@ describe("DiagnosticLogViewer", () => {
         await new Promise(() => undefined);
       }),
     };
-    const user = userEvent.setup();
+    const user = setupUser();
 
     render(<DiagnosticLogViewer onOpenChange={() => undefined} open operations={operations} />);
 
@@ -277,7 +278,7 @@ describe("DiagnosticLogViewer", () => {
         yield { event: { kind: "entry" as const, entry: entry("live", 2n) } };
       }),
     };
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<DiagnosticLogViewer onOpenChange={() => undefined} open operations={operations} />);
 
     const log = await screen.findByRole("log", { name: "Site log output" });

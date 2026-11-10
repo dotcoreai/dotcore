@@ -3,8 +3,10 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ReadState } from "@/lib/read-state";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { useFakeTimersWithWaits } from "@/test/fake-timers";
 
 import { useSessionRead } from "./use-session-read";
 
@@ -22,6 +24,8 @@ describe("useSessionRead", () => {
   });
 
   it("reads again on enable after a failed read", async () => {
+    setTiming(productionTiming);
+    useFakeTimersWithWaits();
     const read = vi
       .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new Error("down"))
@@ -53,7 +57,7 @@ function renderRead(read: () => Promise<string>) {
   }
   act(() => {
     render(
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <Host />
       </ResourceWatchProvider>,
     );

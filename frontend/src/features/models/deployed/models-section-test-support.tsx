@@ -185,7 +185,7 @@ export function renderModelsSection({
     [
       {
         element: (
-          <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+          <ResourceWatchProvider client={watch.client()}>
             <ModelsPollingProvider client={client}>
               <PanelNavigationProvider>
                 <Outlet />

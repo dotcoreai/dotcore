@@ -1,9 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ConsoleSidebar, PEEK_ENTER_DELAY_MS } from "@/app/console-sidebar";
+import { ConsoleSidebar } from "@/app/console-sidebar";
 import { useSidebarPreference } from "@/app/sidebar-preference-context";
 import { SidebarPreferenceProvider } from "@/app/sidebar-preference-provider";
 import {
@@ -13,6 +12,8 @@ import {
 } from "@/components/ui/section-icons";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/console-preferences";
+import { productionTiming, setTiming } from "@/lib/timing";
+import { setupUser } from "@/test/user";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -56,7 +57,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("highlights the parent once its open branch is closed by hand, on both branch locations", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
 
     for (const location of ["/models", "/routes"]) {
       const { unmount } = renderGroups(location);
@@ -75,7 +76,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("highlights the parent in the collapsed icon rail even though its branch is open", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderGroups("/models");
 
     const trigger = screen.getByRole("button", { name: "Workspace" });
@@ -101,7 +102,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("leaves the navigation group expanded when navigating to /machines from inside it, unlike a fresh load there", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderGroups("/models");
 
     expect(screen.getByRole("button", { name: "Workspace" })).toHaveAttribute(
@@ -134,7 +135,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("toggles the navigation group by click without navigating", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderGroups("/machines");
 
     const trigger = screen.getByRole("button", { name: "Workspace" });
@@ -156,7 +157,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("toggles the navigation group with both Enter and Space", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderGroups("/machines");
 
     const trigger = screen.getByRole("button", { name: "Workspace" });
@@ -173,7 +174,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("reopens a manually closed group when navigation enters a child", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderGroups("/models");
     const trigger = screen.getByRole("button", { name: "Workspace" });
 
@@ -187,7 +188,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("keeps a manual collapse of the navigation group across an unrelated re-render", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderGroups("/models");
 
     const trigger = screen.getByRole("button", { name: "Workspace" });
@@ -206,7 +207,7 @@ describe("ConsoleSidebar optional groups", () => {
   });
 
   it("wires the chevron's rotation to the trigger's own named group, not a same-element attribute", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderGroups("/machines");
 
     const trigger = screen.getByRole("button", { name: "Workspace" });
@@ -268,6 +269,7 @@ describe("ConsoleSidebar optional group peek", () => {
   });
 
   it("reveals an open branch's children once the rail is actually peeked, by hover (R5.C, R5.E)", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const { storage } = renderGroups("/models");
     fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
@@ -277,7 +279,7 @@ describe("ConsoleSidebar optional group peek", () => {
     const container = document.querySelector('[data-slot="sidebar-container"]')!;
     fireEvent.pointerEnter(container);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PEEK_ENTER_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.sidebarPeekEnterMs);
     });
 
     expect(sidebar).toHaveAttribute("data-peek", "true");

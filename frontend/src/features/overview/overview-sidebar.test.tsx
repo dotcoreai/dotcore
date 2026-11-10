@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
-import userEvent, { type UserEvent } from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { DeploymentLogOperations } from "@/api/deployment-log-client";
@@ -21,6 +21,7 @@ import {
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { inspectorActionList } from "@/test/inspector-actions";
+import { setupUser } from "@/test/user";
 
 import { OverviewPage } from "./overview-page";
 
@@ -39,7 +40,7 @@ const upstreamPanel = "panel=models%2Fdeployment%3Aupstream-new";
 
 describe("OverviewSidebar deployments", () => {
   it("opens a local deployment with the sections and actions of the models page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const deployments = [
       localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
     ];
@@ -54,7 +55,7 @@ describe("OverviewSidebar deployments", () => {
   });
 
   it("opens an upstream deployment with the sections and actions of the models page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const deployments = [upstreamDeployment(upstreamTemplate(), ModelDeploymentStatus.READY)];
 
     const onModels = await sidebarShape(
@@ -77,7 +78,7 @@ describe("OverviewSidebar deployments", () => {
   });
 
   it("opens a deployment's logs over its sidebar on the overview, and back to the sidebar", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const logs: DeploymentLogOperations = {
       follow: vi.fn(async function* () {}),
       read: vi.fn().mockResolvedValue({
@@ -111,7 +112,7 @@ describe("OverviewSidebar deployments", () => {
   });
 
   it("returns to the overview when the deployment sidebar closes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderOverviewSection({
       deployments: [
         localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
@@ -131,7 +132,7 @@ describe("OverviewSidebar deployments", () => {
 
 describe("OverviewSidebar routes and machines", () => {
   it("opens a route with its sections and actions, and closes to the overview", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderOverviewSection({
       deployments: [
         localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
@@ -180,7 +181,7 @@ describe("OverviewSidebar routes and machines", () => {
   });
 
   it("opens a machine and closes to the overview", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderOverviewSection({
       initialEntry: "/overview?panel=machines%2Fmachine%3Anode",
       machines: [listedMachine("node", "Machine one")],

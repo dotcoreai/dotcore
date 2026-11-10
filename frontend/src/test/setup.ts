@@ -4,6 +4,8 @@ import { configure } from "@testing-library/dom";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
+import { productionTiming, setTiming, type Timing } from "@/lib/timing";
+
 // testing-library's default async-utility timeout (asyncUtilTimeout, 1s) is too tight for async
 // UI callbacks when the suite runs under parallel-worker load in CI; a callback that lands just
 // over 1s flakes the test even though it is correct. Raise the default so these waits tolerate
@@ -11,11 +13,31 @@ import { afterEach, beforeEach, vi } from "vitest";
 // fires still fails.
 configure({ asyncUtilTimeout: 4000 });
 
+// Tests run without UI delays, and retries and reconnects come quickly without spinning. A test
+// whose behavior depends on a delay sets the production timing for itself.
+const testTiming: Timing = Object.freeze({
+  loadingRevealMs: 0,
+  loadingMinimumVisibleMs: 0,
+  sidebarPeekEnterMs: 0,
+  sidebarPeekLeaveMs: 0,
+  scenarioInputMs: 0,
+  tooltipOpenMs: 0,
+  copyFeedbackMs: 0,
+  pollRetryMs: Object.freeze([10]),
+  logReconnectMs: Object.freeze([10]),
+  resourceWatchReopenMs: 10,
+  // A steady refresh keeps its production cadence; a fast one would re-read through every test.
+  profileCompatibilityRefreshMs: productionTiming.profileCompatibilityRefreshMs,
+});
+
+setTiming(testTiming);
+
 // jsdom's viewport width, which puts responsive components on their desktop layout.
 const JSDOM_DEFAULT_WIDTH = 1024;
 
 afterEach(() => {
   cleanup();
+  setTiming(testTiming);
   // Files share one environment, so state a test leaves on the window reaches the next file.
   delete window.__DOTCORE_CONFIG__;
   Object.defineProperty(window, "innerWidth", {

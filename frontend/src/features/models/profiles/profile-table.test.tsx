@@ -1,5 +1,4 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +6,7 @@ import {
   nvidiaEstimates,
   syntheticCatalog,
 } from "@/features/models/catalog/catalog-table-test-support";
+import { setupUser } from "@/test/user";
 
 import { type ProfileRow, projectProfileRows } from "./model-row";
 import { ProfileNameCell } from "./profile-cells";
@@ -35,7 +35,7 @@ function renderTable(props: Partial<ComponentProps<typeof ProfileTable>> = {}) {
       {...props}
     />,
   );
-  return { onSelect, user: userEvent.setup() };
+  return { onSelect, user: setupUser() };
 }
 
 function renderTableWithRerender(props: Partial<ComponentProps<typeof ProfileTable>> = {}) {
@@ -52,7 +52,7 @@ function renderTableWithRerender(props: Partial<ComponentProps<typeof ProfileTab
   return {
     rerender: (overrides: Partial<ComponentProps<typeof ProfileTable>>) =>
       rerender(element(overrides)),
-    user: userEvent.setup(),
+    user: setupUser(),
   };
 }
 

@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +11,7 @@ import {
   type ListModelProfileCompatibilityResponse,
   ListModelProfileCompatibilityResponseSchema,
 } from "@/gen/dotcore/model/v1/service_pb";
+import { setupUser } from "@/test/user";
 
 import { syntheticCatalog } from "./catalog-table-test-support";
 
@@ -37,7 +37,7 @@ function siteRead(): ListModelProfileCompatibilityResponse {
 }
 
 function renderCatalog(initialEntry = "/models/catalog") {
-  const user = userEvent.setup();
+  const user = setupUser();
   const { engineReleases, hardwareClasses, models } = syntheticCatalog();
   const rendered = renderModelsSection({
     compatibility: vi.fn(() => Promise.resolve(siteRead())),
@@ -123,7 +123,7 @@ describe("ModelCatalogPage table", () => {
     const read = new Promise<ListModelProfileCompatibilityResponse>((resolve) => {
       finish = () => resolve(siteRead());
     });
-    const user = userEvent.setup();
+    const user = setupUser();
     const { engineReleases, hardwareClasses, models } = syntheticCatalog();
     const { client } = renderModelsSection({
       compatibility: vi.fn(() => read),

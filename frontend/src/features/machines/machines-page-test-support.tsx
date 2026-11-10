@@ -81,7 +81,7 @@ export function MachinesPage({
 
   return (
     <ClientsProvider clients={clients}>
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <RealMachinesPage />
       </ResourceWatchProvider>
     </ClientsProvider>

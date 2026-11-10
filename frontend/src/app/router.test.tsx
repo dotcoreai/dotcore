@@ -1,7 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, matchRoutes, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -68,6 +67,7 @@ import {
   type ResourceSources,
 } from "@/test/fake-resource-watch";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 const deterministicModelClient: ModelClient = {
@@ -272,7 +272,7 @@ describe("application router", () => {
   });
 
   it("shows the simulated latency indicator in the header while the developer setting is on", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     window.localStorage.clear();
     renderAt("/preferences");
 
@@ -298,7 +298,7 @@ describe("application router", () => {
   });
 
   it("opens Preferences from the profile menu and keeps its dark mode switch in sync", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderAt("/machines");
 
     await user.click(screen.getByRole("button", { name: "Open profile menu" }));
@@ -348,7 +348,7 @@ describe("application router", () => {
   });
 
   it("integrates Routes route management with the configured clients and inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const routeClient: RouteClient = {
       route: {
         ...deterministicRouteClient.route,
@@ -389,7 +389,7 @@ describe("application router", () => {
   });
 
   it("names a Routes panel's application deployment parent and returns to it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const deployment = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "app-deployment-1",
       applicationDeploymentName: "Team chat",
@@ -507,7 +507,7 @@ describe("application router", () => {
   });
 
   it("renders the Machines route with active navigation and configured-machine empty state", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderAt("/machines");
 
     expect(screen.getByRole("link", { name: "Machines" })).toHaveAttribute("aria-current", "page");

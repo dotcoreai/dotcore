@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -8,6 +7,7 @@ import { InspectorOpenerCard } from "@/components/ui/inspector-opener-card";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
 import { PanelLink, usePanelDirtyGuard, usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { setupUser } from "@/test/user";
 
 function NavigationHarness() {
   const navigation = usePanelNavigation();
@@ -187,7 +187,7 @@ function renderPanelNavigationProvider(
 
 describe("PanelNavigationProvider", () => {
   it("lets a view-only change through while a panel is dirty", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderPanelNavigationProvider(
       "/routes?tab=traffic",
       false,
@@ -211,7 +211,7 @@ describe("PanelNavigationProvider", () => {
   });
 
   it("keeps the current view parameters through a panel Back", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderPanelNavigationProvider(
       "/routes?tab=traffic",
       false,
@@ -234,7 +234,7 @@ describe("PanelNavigationProvider", () => {
   it.each(["Keep editing", "Escape"] as const)(
     "abandons cancelled session Close via %s without replacing later Back/Forward entries",
     async (cancellation) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const { router } = renderPanelNavigationProvider(
         "/routes?tab=traffic",
         false,
@@ -271,7 +271,7 @@ describe("PanelNavigationProvider", () => {
   );
 
   it("keeps confirmed session Close after repeated cancellation and isolates an unmounted blocker", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const first = renderPanelNavigationProvider(
       "/routes?tab=traffic",
       false,
@@ -313,7 +313,7 @@ describe("PanelNavigationProvider", () => {
   });
 
   it("locks Back, Close, panel navigation, PanelLink, and lateral openers while pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const initialEntry =
       "/models?panel=models%2Fdeployment%3Adeployment-a&panel=models%2Fedit%3Adeployment-a";
     const { router } = renderPanelNavigationProvider(initialEntry, true);
@@ -331,7 +331,7 @@ describe("PanelNavigationProvider", () => {
   });
 
   it("creates isolated panel history when crypto.randomUUID is unavailable", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const cryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
     const cryptoWithoutRandomUuid = {
       getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
@@ -383,7 +383,7 @@ describe("PanelNavigationProvider inspector presentation", () => {
   });
 
   it("classifies base open, root replacement, nested push/pop, and first-entry Back", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderPanelNavigationProvider("/models", false, <PresentationHarness />);
     const presentation = screen.getByRole("status", { name: "Inspector presentation" });
 
@@ -401,7 +401,7 @@ describe("PanelNavigationProvider inspector presentation", () => {
   });
 
   it("classifies an explicit same-page Close from a root panel as idle", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderPanelNavigationProvider(
       "/models?panel=models%2Fdeployment%3Adeployment-a",
       false,
@@ -416,7 +416,7 @@ describe("PanelNavigationProvider inspector presentation", () => {
   });
 
   it("classifies cross-page and non-empty browser history navigation as continue", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderPanelNavigationProvider(
       "/models?panel=models%2Fdeployment%3Adeployment-a",
       false,

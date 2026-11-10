@@ -1,11 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LogViewerOperations } from "@/api/log-types";
 import { LogViewerModal } from "@/components/log-viewer/log-viewer-modal";
 import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
+import { setupUser } from "@/test/user";
 
 import {
   gaugePoint,
@@ -22,7 +22,7 @@ const groups = [
 
 describe("WatchPauseProvider", () => {
   it("closes metric streams while a log viewer is open and keeps the values read", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(
       staticWatch(() =>
         queryResult({

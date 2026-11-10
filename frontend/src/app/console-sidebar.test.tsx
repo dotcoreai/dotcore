@@ -1,12 +1,14 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleLayout } from "@/app/console-layout";
-import { PEEK_ENTER_DELAY_MS } from "@/app/console-sidebar";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { useFakeTimersWithWaits } from "@/test/fake-timers";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 class TestStorage {
@@ -83,11 +85,11 @@ function isPeeking() {
   return document.querySelector('[data-peek="true"]') !== null;
 }
 
-function waitPastPeekEnterDelay() {
-  return act(() => new Promise((resolve) => setTimeout(resolve, PEEK_ENTER_DELAY_MS + 50)));
+function advancePastPeekEnterDelay() {
+  return act(() => vi.advanceTimersByTimeAsync(productionTiming.sidebarPeekEnterMs));
 }
 
-async function openMobileNavigation(user: ReturnType<typeof userEvent.setup>) {
+async function openMobileNavigation(user: UserEvent) {
   await user.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
   return waitFor(() => {
     const sidebar = document.querySelector('[data-mobile="true"]');
@@ -195,7 +197,7 @@ describe("ConsoleSidebar mobile navigation", () => {
     ["/models", "Catalog", "/models/catalog", "Catalog page"],
   ])("closes after navigation from %s to %s", async (initialEntry, label, destination, page) => {
     setViewportWidth(390);
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderNavigation(initialEntry);
     const sidebar = await openMobileNavigation(user);
 
@@ -212,7 +214,7 @@ describe("ConsoleSidebar mobile navigation", () => {
     "keeps the drawer open when %s navigation is pending",
     async (label) => {
       setViewportWidth(390);
-      const user = userEvent.setup();
+      const user = setupUser();
       const initialEntry = "/models?panel=models%2Fdeployment%3Adeployment-a";
       const router = renderNavigation(initialEntry, true);
       const sidebar = await openMobileNavigation(user);
@@ -226,7 +228,7 @@ describe("ConsoleSidebar mobile navigation", () => {
 
   it.each(["Models", "Routes"])("keeps the drawer open for a modified %s click", async (label) => {
     setViewportWidth(390);
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderNavigation();
     const sidebar = await openMobileNavigation(user);
 
@@ -238,7 +240,7 @@ describe("ConsoleSidebar mobile navigation", () => {
 
   it("closes after cross-branch navigation and does not reopen on browser Back", async () => {
     setViewportWidth(390);
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderNavigation();
     const sidebar = await openMobileNavigation(user);
 
@@ -257,7 +259,7 @@ describe("ConsoleSidebar mobile navigation", () => {
 
   it("keeps desktop navigation behavior unchanged", async () => {
     setViewportWidth(1024);
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderNavigation();
 
     expect(document.querySelector('[data-mobile="true"]')).toBeNull();
@@ -270,19 +272,24 @@ describe("ConsoleSidebar mobile navigation", () => {
 });
 
 describe("ConsoleSidebar collapse peek", () => {
+  beforeEach(() => {
+    setTiming(productionTiming);
+    useFakeTimersWithWaits();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
   it("does not peek after Collapse while the pointer stays over the sidebar", async () => {
     setViewportWidth(1280);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderNavigation();
 
     await user.hover(screen.getByRole("link", { name: "Machines" }));
-    await waitPastPeekEnterDelay();
+    await advancePastPeekEnterDelay();
     await user.click(screen.getByRole("button", { name: "Collapse" }));
-    await waitPastPeekEnterDelay();
+    await advancePastPeekEnterDelay();
 
     expect(isCollapsed()).toBe(true);
     expect(isPeeking()).toBe(false);
@@ -290,16 +297,17 @@ describe("ConsoleSidebar collapse peek", () => {
 
   it("peeks again when the pointer leaves and re-enters the collapsed rail", async () => {
     setViewportWidth(1280);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderNavigation();
 
     await user.hover(screen.getByRole("link", { name: "Machines" }));
-    await waitPastPeekEnterDelay();
+    await advancePastPeekEnterDelay();
     await user.click(screen.getByRole("button", { name: "Collapse" }));
     await user.unhover(screen.getByRole("button", { name: "Expand" }));
     await user.hover(screen.getByRole("link", { name: "Machines" }));
+    await advancePastPeekEnterDelay();
 
-    await waitFor(() => expect(isPeeking()).toBe(true));
+    expect(isPeeking()).toBe(true);
     expect(isCollapsed()).toBe(true);
   });
 
@@ -314,12 +322,12 @@ describe("ConsoleSidebar collapse peek", () => {
         : Element.prototype.matches.call(this, selector);
     });
     setViewportWidth(1280);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderNavigation();
 
     act(() => screen.getByRole("button", { name: "Collapse" }).focus());
     await user.keyboard("{Enter}");
-    await waitPastPeekEnterDelay();
+    await advancePastPeekEnterDelay();
 
     expect(isCollapsed()).toBe(true);
     expect(isPeeking()).toBe(false);
@@ -332,13 +340,13 @@ describe("ConsoleSidebar collapse peek", () => {
 
   it("does not peek after the keyboard shortcut collapses a hovered sidebar", async () => {
     setViewportWidth(1280);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderNavigation();
 
     await user.hover(screen.getByRole("link", { name: "Machines" }));
-    await waitPastPeekEnterDelay();
+    await advancePastPeekEnterDelay();
     await user.keyboard("{Control>}b{/Control}");
-    await waitPastPeekEnterDelay();
+    await advancePastPeekEnterDelay();
 
     expect(isCollapsed()).toBe(true);
     expect(isPeeking()).toBe(false);
@@ -350,7 +358,7 @@ describe("ConsoleSidebar chat item", () => {
 
   it("sits above Settings as a pressed-state button rather than a link", async () => {
     setViewportWidth(1280);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderNavigation();
 
     const footer = document.querySelector('[data-slot="sidebar-footer"]') as HTMLElement;
@@ -373,7 +381,7 @@ describe("ConsoleSidebar chat item", () => {
 
   it("opens the panel and closes the drawer on mobile", async () => {
     setViewportWidth(390);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderNavigation();
     const sidebar = await openMobileNavigation(user);
 

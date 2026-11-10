@@ -75,7 +75,7 @@ export function renderAppsSection({
     [
       {
         element: (
-          <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+          <ResourceWatchProvider client={watch.client()}>
             <PanelNavigationProvider>
               <Outlet />
             </PanelNavigationProvider>

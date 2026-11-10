@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ModelClient } from "@/api/model-client";
@@ -22,6 +22,9 @@ import {
   ModelProfileSizingSchema,
   SizingScenarioUnsupportedReason,
 } from "@/gen/dotcore/model/v1/service_pb";
+import { productionTiming, setTiming } from "@/lib/timing";
+import { useFakeTimersWithWaits } from "@/test/fake-timers";
+import { setupUser } from "@/test/user";
 
 import { syntheticCatalog } from "./catalog-table-test-support";
 
@@ -118,7 +121,7 @@ function renderCatalog(
       models,
     }),
     compatibility,
-    user: userEvent.setup(),
+    user: setupUser(),
   };
 }
 
@@ -139,7 +142,7 @@ function modelRows(): string[] {
     .map((row) => row.getAttribute("aria-label") ?? row.textContent);
 }
 
-async function expandAlpha(user: ReturnType<typeof userEvent.setup>) {
+async function expandAlpha(user: UserEvent) {
   await user.click(await screen.findByRole("button", { name: "Show profiles for Alpha 7B" }));
   await waitFor(() => expect(screen.queryByText("Loading estimate")).not.toBeInTheDocument());
 }
@@ -148,7 +151,7 @@ function footer(): string | null {
   return screen.getByText(/^\d+ of \d+ models/).textContent;
 }
 
-async function openRunsOn(user: ReturnType<typeof userEvent.setup>) {
+async function openRunsOn(user: UserEvent) {
   const toolbar = screen.getByRole("region", { name: "Catalog models" });
   await user.click(within(toolbar).getAllByRole("button", { name: /^Runs on filter/ })[0]);
   return screen.findByRole("menu");
@@ -523,22 +526,25 @@ describe("ModelCatalogPage Runs on sized for", () => {
     ).toBeVisible();
     expect(total).toHaveAttribute("aria-invalid", "true");
     expect(perRequest).toHaveValue("65536");
-    await new Promise((resolve) => setTimeout(resolve, 600));
     // Leaving the context per request applied it; the invalid total never applies.
-    expect(currentLocation(router)).toBe(
-      "/models/catalog?f=runs&runs=node%3Amac&ctx=131072&req=65536",
-    );
-    expect(
-      new Set(
-        compatibility.mock.calls.flatMap(([request]) =>
-          request.scenario ? [JSON.stringify(request.scenario)] : [],
-        ),
+    await waitFor(() =>
+      expect(currentLocation(router)).toBe(
+        "/models/catalog?f=runs&runs=node%3Amac&ctx=131072&req=65536",
       ),
-    ).toEqual(
-      new Set([
-        JSON.stringify({ totalContextTokens: 131072 }),
-        JSON.stringify({ contextTokensPerRequest: 65536, totalContextTokens: 131072 }),
-      ]),
+    );
+    await waitFor(() =>
+      expect(
+        new Set(
+          compatibility.mock.calls.flatMap(([request]) =>
+            request.scenario ? [JSON.stringify(request.scenario)] : [],
+          ),
+        ),
+      ).toEqual(
+        new Set([
+          JSON.stringify({ totalContextTokens: 131072 }),
+          JSON.stringify({ contextTokensPerRequest: 65536, totalContextTokens: 131072 }),
+        ]),
+      ),
     );
   });
 
@@ -574,6 +580,8 @@ describe("ModelCatalogPage Runs on sized for", () => {
   });
 
   it("removes the chip and its scenario when Remove filter follows typing at once", async () => {
+    setTiming(productionTiming);
+    useFakeTimersWithWaits();
     const { router, user } = renderCatalog("/models/catalog?f=runs&runs=node%3Amac");
     await waitFor(() => expect(modelRows()).toEqual(["Alpha 7B"]));
 
@@ -583,7 +591,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     await user.click(within(menu).getByRole("menuitem", { name: "Remove filter" }));
 
     await waitFor(() => expect(currentLocation(router)).toBe("/models/catalog?f="));
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await act(() => vi.advanceTimersByTimeAsync(productionTiming.scenarioInputMs * 2));
     expect(currentLocation(router)).toBe("/models/catalog?f=");
     expect(screen.queryByRole("button", { name: /^Runs on filter/ })).not.toBeInTheDocument();
   });
@@ -701,6 +709,8 @@ describe("ModelCatalogPage model panel Runs on", () => {
   }
 
   it("applies the catalog's rule under its own Sized for, keeping the shown verdicts while that read is pending", async () => {
+    setTiming(productionTiming);
+    useFakeTimersWithWaits();
     const { held, read } = heldScenarioRead();
     const search =
       "/models/catalog?f=runs&runs=node%3Agpu-box&panel=model-catalog%2Fcatalog%3Aalpha-7b";

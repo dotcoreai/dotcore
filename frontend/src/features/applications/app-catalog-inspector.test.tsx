@@ -1,6 +1,6 @@
 import { clone, create } from "@bufbuild/protobuf";
 import { act, render as renderUi, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { createRef, type ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -38,6 +38,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import type { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { ApplicationDeployDialog, CatalogApplicationInspector } from "./app-catalog-inspector";
 
@@ -48,16 +49,13 @@ const application = create(ApplicationSchema, {
 });
 
 // Turns Advanced on and moves from the first step to Target.
-async function openAdvanced(
-  user: ReturnType<typeof userEvent.setup>,
-  scope: Pick<typeof screen, "getByRole"> = screen,
-) {
+async function openAdvanced(user: UserEvent, scope: Pick<typeof screen, "getByRole"> = screen) {
   await user.click(scope.getByRole("checkbox", { name: "Advanced" }));
   await user.click(scope.getByRole("button", { name: "Next" }));
 }
 
 // Moves from the first step to Deploy in basic mode.
-async function openDeploy(user: ReturnType<typeof userEvent.setup>) {
+async function openDeploy(user: UserEvent) {
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 2 of 2 — Deploy")).toBeVisible();
 }
@@ -223,7 +221,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("keeps catalog details separate and opens the exact deployment dialog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onDeploy = vi.fn();
     render(
       <CatalogApplicationInspector
@@ -293,7 +291,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("lists every route with its health and deploys unlinked on stable defaults", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     const primary = servingRoute("route-a", "primary", 3n);
     render(
@@ -365,7 +363,7 @@ describe("Application deployment dialog", () => {
   ])(
     "links a $routeState route and says its requests fail until it serves",
     async ({ expected, view }) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       render(
         <ApplicationDeployDialog
@@ -429,7 +427,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("states no serving caveat for a serving route", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <ApplicationDeployDialog
         application={appWithOptionalRoute}
@@ -451,7 +449,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("focuses an invalid default deployment name on Deploy without turning on Advanced", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <ApplicationDeployDialog
@@ -477,7 +475,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("keeps a linked route across polling and blocks deploy when its ID disappears", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     const alpha = applicationTarget("machine-a");
     const beta = applicationTarget("machine-b");
@@ -576,7 +574,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("waits for current execution-target data before applying the machine default", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     const staleMachine = applicationTarget("stale");
     const currentMachine = applicationTarget("current");
@@ -624,7 +622,7 @@ describe("Application deployment dialog", () => {
     const listTargets = vi
       .fn()
       .mockResolvedValue({ executionTargets: [applicationTarget("local", false)] });
-    const user = userEvent.setup();
+    const user = setupUser();
 
     render(
       <ApplicationDeployDialog
@@ -660,7 +658,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("offers an eligible remote target with its node and platform beside the manager default", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     const local = create(ConfiguredExecutionTargetSchema, {
       displayName: "Docker applications",
@@ -737,7 +735,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("names a node's targets by their display names, without their IDs", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <ApplicationDeployDialog
         application={application}
@@ -774,7 +772,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("defaults to a deployable remote target when the manager target is unavailable", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <ApplicationDeployDialog
@@ -800,7 +798,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("keeps the inference route unlinked by default", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <ApplicationDeployDialog
@@ -885,7 +883,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("orders the advanced steps with Target before Deploy", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <ApplicationDeployDialog
         application={appWithOptionalRoute}
@@ -918,7 +916,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("associates target and name errors with their controls", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <ApplicationDeployDialog
@@ -957,7 +955,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("flags the deployment name on blur only after it changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <ApplicationDeployDialog
         application={appWithOptionalRoute}
@@ -987,7 +985,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("flags a cleared execution target on blur", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <ApplicationDeployDialog
         application={appWithOptionalRoute}
@@ -1015,7 +1013,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("opens Target and turns on Advanced when Deploy finds no eligible target", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     const view = render(
       <ApplicationDeployDialog
@@ -1057,7 +1055,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("keeps the steps fixed after the first step while the deployable targets change", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     const dialog = (executionTargets: ReturnType<typeof applicationTarget>[]) => (
       <ApplicationDeployDialog
@@ -1093,7 +1091,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("summarizes resolved values and keeps advanced values when Back returns to the first step", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const route = servingRoute("route-a", "Primary", 7n);
     const remoteMachine = applicationTarget("remote");
     render(
@@ -1138,7 +1136,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("navigates visited steps from their headers and keeps values at the first step", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const remoteMachine = applicationTarget("remote");
     render(
       <ApplicationDeployDialog
@@ -1175,7 +1173,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("summarizes an unlinked route input as None", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <ApplicationDeployDialog
         application={appWithOptionalRoute}
@@ -1197,7 +1195,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("surfaces execution-target and route invalidation while Deploy is open", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const route = servingRoute("route-a", "Primary", 7n);
     const view = render(
       <ApplicationDeployDialog
@@ -1286,7 +1284,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("deploys a route-less application without inventing route input", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <ApplicationDeployDialog
@@ -1327,7 +1325,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("submits once when Enter is pressed in the deployment name", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <ApplicationDeployDialog
@@ -1348,7 +1346,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("blocks dismissal and duplicate submission while pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onOpenChange = vi.fn();
     const onSubmit = vi.fn();
     const view = render(
@@ -1412,7 +1410,7 @@ describe("Application deployment dialog GPU devices", () => {
   }
 
   async function summaryRows() {
-    const user = userEvent.setup();
+    const user = setupUser();
     await user.click(screen.getByRole("button", { name: "Next" }));
     return detailTexts(screen.getByRole("dialog"));
   }
@@ -1502,7 +1500,7 @@ describe("Application deployment dialog parameters", () => {
   }
 
   it("shows advanced parameters only in Advanced and submits only changed values", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = renderDialog();
 
     const parameters = screen.getByRole("region", { name: "Parameters" });
@@ -1545,8 +1543,10 @@ describe("Application deployment dialog parameters", () => {
   });
 
   it("blocks Next on an out-of-range value and focuses its field", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog();
+    // The dialog moves focus to its current step a frame after it opens.
+    await waitFor(() => expect(screen.getByRole("button", { current: "step" })).toHaveFocus());
 
     const workers = screen.getByRole("textbox", { name: "Workers" });
     await user.clear(workers);

@@ -1,9 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Button } from "@/components/ui/button";
+import { setupUser } from "@/test/user";
 
 import { DeploymentFormSection } from "./deployment-form-layout";
 import { DeploymentWizardShell } from "./deployment-wizard-shell";
@@ -11,7 +11,7 @@ import { useWizardSteps } from "./use-wizard-steps";
 
 describe("DeploymentWizardShell", () => {
   it("renders a single-step page without progress, with the left slot and Cancel in the right group", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onCustomize = vi.fn();
     const onOpenChange = vi.fn();
     const onPrimary = vi.fn();
@@ -72,7 +72,7 @@ describe("DeploymentWizardShell", () => {
   });
 
   it("renders step headers by visit state and delegates header and Back navigation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onStepChange = vi.fn();
     const onPrimary = vi.fn();
 
@@ -162,7 +162,7 @@ describe("DeploymentWizardShell", () => {
   });
 
   it("keeps the current step and visited steps by name when the step list changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
 
     function Harness() {
       const [advanced, setAdvanced] = useState(false);
@@ -250,7 +250,7 @@ describe("DeploymentWizardShell", () => {
   });
 
   it("falls back to the first step when the dialog's fallback is not in the new step list", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
 
     function Harness() {
       const [short, setShort] = useState(false);
@@ -290,7 +290,7 @@ describe("DeploymentWizardShell", () => {
   });
 
   it("focuses the destination heading only after navigation and announces dialog messages", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
 
     function Harness() {
       const steps = ["Profile", "Deployment"];
@@ -386,7 +386,7 @@ describe("DeploymentWizardShell", () => {
   });
 
   it("keeps persistent content fixed above the footer on every step while the body scrolls", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
 
     function Harness() {
       const steps = ["Profile", "Deploy"];
@@ -457,7 +457,7 @@ describe("DeploymentWizardShell", () => {
   });
 
   it("protects a pending deployment from dismissal, navigation, and duplicate submission", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onOpenChange = vi.fn();
     const onPrimary = vi.fn();
     const onStepChange = vi.fn();

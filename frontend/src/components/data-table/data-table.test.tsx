@@ -1,5 +1,4 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ListMusicIcon } from "lucide-react";
 import { createRef, type RefObject, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -10,6 +9,7 @@ import {
   type DataTableView,
 } from "@/components/data-table/data-table-view";
 import { type Album, syntheticAlbums } from "@/test/data-table-test-support";
+import { setupUser } from "@/test/user";
 
 import { DataTable, type DataTableUiDefinition } from "./data-table";
 import { Metric } from "./data-table-cells";
@@ -98,7 +98,7 @@ function renderTable({
       onOpenRow={onOpenRow}
     />,
   );
-  return { onOpenRow, user: userEvent.setup() };
+  return { onOpenRow, user: setupUser() };
 }
 
 function headers(): string[] {
@@ -269,7 +269,7 @@ describe("DataTable selection", () => {
   });
 
   it("offers neither the View menu nor column hiding for fixed columns", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const ui = { ...flatUi, fixedColumns: true };
     render(
       <DataTableToolbar
@@ -319,7 +319,7 @@ describe("DataTableToolbar chip settings", () => {
         view={genreView}
       />,
     );
-    return { onViewChange, user: userEvent.setup() };
+    return { onViewChange, user: setupUser() };
   }
 
   it("hides Reset while the view and its chip settings are at their defaults", () => {
@@ -369,7 +369,7 @@ describe("DataTableToolbar chip value menu", () => {
   }
 
   async function openGenreMenu(replaceOnSelect: boolean) {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<StatefulToolbar replaceOnSelect={replaceOnSelect} />);
     await user.click(screen.getByRole("button", { name: /^Genre filter/ }));
     return user;
@@ -463,7 +463,7 @@ function SelectableTable({
 function renderSelectable(props: { disabledIds?: string[]; selectedId?: string } = {}) {
   const onSelect = vi.fn<(albumId: string) => void>();
   render(<SelectableTable {...props} onSelect={onSelect} />);
-  return { onSelect, user: userEvent.setup() };
+  return { onSelect, user: setupUser() };
 }
 
 function checkedRadios(): string[] {

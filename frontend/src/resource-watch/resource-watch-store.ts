@@ -8,18 +8,13 @@ import {
   type WatchResourcesResponse,
 } from "@/gen/dotcore/watch/v1/service_pb";
 import { runStreamLoop } from "@/lib/stream-loop";
+import { timing } from "@/lib/timing";
 import type {
   ManagerSession,
   ResourceKind,
   ResourcePayload,
   ResourceWatchRead,
 } from "@/resource-watch/resource-watch";
-
-/**
- * Default wait before reopening the stream after kinds are only removed, so a kind released and
- * registered again in quick succession keeps the open stream.
- */
-export const DEFAULT_REOPEN_DELAY_MS = 100;
 
 /**
  * Owns the console's one resource watch stream. Components register the kinds they need; the
@@ -30,7 +25,6 @@ export const DEFAULT_REOPEN_DELAY_MS = 100;
  */
 export class ResourceWatchStore {
   private readonly client: ResourceWatchClient;
-  private readonly reopenDelayMs: number;
   private readonly registrations = new Map<ResourceKind, Set<symbol>>();
   private readonly reads = new Map<ResourceKind, ResourceWatchRead<unknown>>();
   private readonly listeners = new Set<() => void>();
@@ -39,9 +33,8 @@ export class ResourceWatchStore {
   private reopenTimer: ReturnType<typeof setTimeout> | undefined;
   private openQueued = false;
 
-  constructor(client: ResourceWatchClient, reopenDelayMs = DEFAULT_REOPEN_DELAY_MS) {
+  constructor(client: ResourceWatchClient) {
     this.client = client;
-    this.reopenDelayMs = reopenDelayMs;
   }
 
   /** Watches `kind` until the returned function is called. */
@@ -98,7 +91,7 @@ export class ResourceWatchStore {
     this.reopenTimer = setTimeout(() => {
       this.reopenTimer = undefined;
       this.reopen();
-    }, this.reopenDelayMs);
+    }, timing().resourceWatchReopenMs);
   }
 
   private reopen() {

@@ -1,6 +1,6 @@
 import type { MetricsClient } from "@/api/metrics-client";
-import { DEFAULT_POLL_RETRY_DELAYS_MS } from "@/lib/poll-timer";
 import type { ReadState } from "@/lib/read-state";
+import { timing } from "@/lib/timing";
 
 import { type MetricRange, metricRangesFromResolutions } from "./metric-ranges";
 
@@ -92,7 +92,7 @@ export class MetricDescriptorsStore {
       if (controller.signal.aborted) return;
 
       this.current = { failed: true, value: this.current?.value };
-      const delays = DEFAULT_POLL_RETRY_DELAYS_MS;
+      const delays = timing().pollRetryMs;
       const delay = delays[Math.min(this.failureCount, delays.length - 1)];
       this.failureCount += 1;
       this.retryTimer = setTimeout(() => {

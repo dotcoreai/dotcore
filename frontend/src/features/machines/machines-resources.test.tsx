@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +35,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 import { getResourceColor } from "@/theme/resource-color";
 
 import { MachinesPage, type MachinesSite } from "./machines-page-test-support";
@@ -136,7 +136,7 @@ describe("MachinesResources", () => {
   });
 
   it("keeps each machine's share By machine, named with its marker", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderPage(metricsClientWith(staticWatch(answer())));
     const resources = await screen.findByRole("region", { name: "Resources" });
     await waitFor(() => expect(rows(resources)).toHaveLength(5));
@@ -162,7 +162,7 @@ describe("MachinesResources", () => {
   });
 
   it("shows a single machine without the view choice, and draws rows it cannot fill empty", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderPage(metricsClientWith(staticWatch(answer())), [
       [listedMachine("mbp", "mbp"), macSnapshot()],
     ]);
@@ -186,7 +186,7 @@ describe("MachinesResources", () => {
   });
 
   it("expands a row to per-machine history on one history stream, closed once collapsed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(answer()));
     renderPage(metricsClientWith(watchMetrics));
     const resources = await screen.findByRole("region", { name: "Resources" });
@@ -216,7 +216,7 @@ describe("MachinesResources", () => {
   });
 
   it("draws memory history by machine only, with no line per model", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(
       staticWatch(
         answer({

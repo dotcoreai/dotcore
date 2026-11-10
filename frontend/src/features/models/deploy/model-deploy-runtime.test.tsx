@@ -1,6 +1,6 @@
 import { clone, create } from "@bufbuild/protobuf";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { UserEvent } from "@testing-library/user-event";
 import { type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -26,12 +26,13 @@ import {
   ExecutionTargetWorkloadKind,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
 
 describe("ModelDeployDialog Context step", () => {
   it("shows total context and context per request in both modes, with short help", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
     await screen.findByText("Step 1 of 3 — Profile");
@@ -68,7 +69,7 @@ describe("ModelDeployDialog Context step", () => {
   });
 
   it("edits the llama.cpp context with a log slider, an input and presets in the schema range", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
     await openAdvancedContext(user);
@@ -95,7 +96,7 @@ describe("ModelDeployDialog Context step", () => {
     await user.type(input, "20000000");
     await user.tab();
     const error = "Total context must be an integer from 1024 to 16777216 tokens.";
-    expect(screen.getByText(error)).toBeVisible();
+    expect(await screen.findByText(error)).toBeVisible();
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription(
       `Memory the model holds for all requests at once. ${error}`,
@@ -103,7 +104,7 @@ describe("ModelDeployDialog Context step", () => {
   });
 
   it("groups the vLLM KV offload size as host memory and submits it with the hidden defaults", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     renderDialog({ initialProfileId: "nvfp4-text", onSubmit });
 
@@ -123,7 +124,9 @@ describe("ModelDeployDialog Context step", () => {
     await user.type(kvOffload, "2048");
     await user.tab();
     expect(
-      within(hostMemory).getByText("KV offloading size must be an integer from 0 to 1024 GiB."),
+      await within(hostMemory).findByText(
+        "KV offloading size must be an integer from 0 to 1024 GiB.",
+      ),
     ).toBeVisible();
     expect(kvOffload).toHaveAttribute("aria-invalid", "true");
 
@@ -177,7 +180,7 @@ describe("ModelDeployDialog Context step", () => {
     },
   ])("$engine context group", ({ defaults, profileId }) => {
     it("shows the shared context inputs at the engine defaults and submits them", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: profileId, onSubmit });
 
@@ -206,7 +209,7 @@ describe("ModelDeployDialog Context step", () => {
     });
 
     it("moves the total context and the context per request together so the total covers it", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: profileId, onSubmit });
 
@@ -242,7 +245,7 @@ describe("ModelDeployDialog Context step", () => {
   });
 
   it("draws the ninfer context sliders on one scale, stopping context per request at its maximum", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
     await openAdvancedContext(user);
@@ -263,7 +266,7 @@ describe("ModelDeployDialog Context step", () => {
   });
 
   it("stands an empty context per request for the maximum context when below the total", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const model = clone(ModelSchema, runtimeSchemaModel);
     model.maximumContextTokens = 262144;
     model.configurations[0].maximumContextTokens = 16384;
@@ -280,7 +283,7 @@ describe("ModelDeployDialog Context step", () => {
 
 describe("ModelDeployDialog Runtime step", () => {
   it("leads with parallel requests and groups the ninfer host context as host memory", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
     await openAdvancedRuntime(user);
@@ -303,7 +306,7 @@ describe("ModelDeployDialog Runtime step", () => {
   });
 
   it("keeps the llama.cpp prompt cache, artifact and custom arguments in collapsed sections", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
     await openAdvancedRuntime(user);
@@ -323,7 +326,7 @@ describe("ModelDeployDialog Runtime step", () => {
   });
 
   it("expands and focuses an invalid value hidden in a collapsed section", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     renderDialog({ initialProfileId: "q4-xl", onSubmit });
     const error = "Prompt cache memory must be an integer from 0 to 65536 MiB.";
@@ -341,20 +344,29 @@ describe("ModelDeployDialog Runtime step", () => {
     );
 
     // Leaving Runtime re-opens the section and focuses the field.
+    // No rendered state marks it, but the collapse's effects must settle first: a stale effect
+    // otherwise runs Next's re-open and focus against the previous section state.
+    await act(async () => {});
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
     expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveFocus(),
+    );
     expect(screen.getByText(error)).toBeVisible();
 
     // With Advanced off, Deploy turns it back on and reveals the same field.
     await user.click(sectionToggle("Other parameters (1)"));
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
+    // The new step takes focus in an effect after it renders; acting earlier loses that move.
+    await waitFor(() =>
+      expect(document.activeElement).toHaveAttribute("data-deployment-step-heading"),
+    );
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
+    expect(await screen.findByText("Step 4 of 5 — Runtime")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
-    expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
     expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "true");
     const revealed = screen.getByRole("textbox", { name: "Prompt cache memory" });
     await waitFor(() => expect(revealed).toHaveFocus());
@@ -365,7 +377,7 @@ describe("ModelDeployDialog Runtime step", () => {
 
   describe("KV cache precision", () => {
     it("is hidden when the configuration does not declare the option", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ initialProfileId: "q4-xl" });
 
       await openAdvancedRuntime(user);
@@ -373,7 +385,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("starts from the configuration default and sends no overrides when untouched", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", model: modelWithKvCachePrecision(), onSubmit });
 
@@ -390,7 +402,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("starts from the profile default and sends the other choice as an override", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({
         initialProfileId: "q4-xl",
@@ -411,7 +423,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("refreshes the estimate with the chosen precision beside speculative overrides", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onEstimate = vi.fn(() => Promise.resolve({}));
       renderDialog({
         initialProfileId: "q4-xl",
@@ -436,7 +448,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("sends the chosen precision with the command preview", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onPreview = vi.fn(() => new Promise<never>(() => undefined));
       renderDialog({ initialProfileId: "q4-xl", model: modelWithKvCachePrecision(), onPreview });
 
@@ -454,7 +466,7 @@ describe("ModelDeployDialog Runtime step", () => {
 
   describe("speculative decoding", () => {
     it("starts from the profile default and sends no option overrides when untouched", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", onSubmit });
 
@@ -474,14 +486,13 @@ describe("ModelDeployDialog Runtime step", () => {
 
     it.each([
       {
-        choose: async (user: ReturnType<typeof userEvent.setup>) =>
-          user.selectOptions(speculativeMethod(), "Off"),
+        choose: async (user: UserEvent) => user.selectOptions(speculativeMethod(), "Off"),
         customized: "Customized: Speculative decoding off",
         expected: [["mtp", "token-count", 0n]],
         label: "Off",
       },
       {
-        choose: async (user: ReturnType<typeof userEvent.setup>) => {
+        choose: async (user: UserEvent) => {
           await user.clear(speculativeCount());
           await user.type(speculativeCount(), "5");
         },
@@ -490,7 +501,7 @@ describe("ModelDeployDialog Runtime step", () => {
         label: "5 tokens",
       },
     ])("sends the token count override for $label", async ({ choose, customized, expected }) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", onSubmit });
 
@@ -505,7 +516,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("refreshes the estimate with the chosen overrides", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onEstimate = vi.fn(() => Promise.resolve({}));
       renderDialog({ initialProfileId: "q4-xl", onEstimate });
 
@@ -527,7 +538,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("estimates on the selected target", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onEstimate = vi.fn(() => Promise.resolve({}));
       renderDialog({ initialProfileId: "q4-xl", onEstimate });
 
@@ -540,7 +551,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("prefills the configuration default when a profile defaulting off picks MTP", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl-no-mtp", onSubmit });
 
@@ -560,7 +571,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("prefills a cleared count from the profile when picking a method again", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", model: modelWithProfileMtpCount(), onSubmit });
 
@@ -580,7 +591,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("validates a kept count against the range of the newly picked method", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       renderDialog({ initialProfileId: "q4-xl", model: modelWithDflash() });
       const mtpError = "Speculative token count must be an integer from 1 to 5 tokens.";
 
@@ -601,7 +612,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("falls back to the profile default when a catalog refresh drops the chosen option", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       const { rerender } = renderDialog({
         initialProfileId: "q4-xl",
@@ -624,7 +635,7 @@ describe("ModelDeployDialog Runtime step", () => {
     });
 
     it("validates the count on blur once changed and hides the control without the option", async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", onSubmit });
       const error = "Speculative token count must be an integer from 1 to 5 tokens.";
@@ -639,7 +650,7 @@ describe("ModelDeployDialog Runtime step", () => {
       await user.type(speculativeCount(), "6");
       expect(screen.queryByText(error)).not.toBeInTheDocument();
       await user.tab();
-      expect(screen.getByText(error)).toBeVisible();
+      expect(await screen.findByText(error)).toBeVisible();
       expect(speculativeCount()).toHaveAttribute("aria-invalid", "true");
 
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -746,7 +757,7 @@ function poolTarget() {
   });
 }
 
-async function openAdvancedContext(user: ReturnType<typeof userEvent.setup>) {
+async function openAdvancedContext(user: UserEvent) {
   await screen.findByText("Step 1 of 3 — Profile");
   await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
   await user.click(screen.getByRole("button", { name: "Next" }));
@@ -755,7 +766,7 @@ async function openAdvancedContext(user: ReturnType<typeof userEvent.setup>) {
   expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
 }
 
-async function openAdvancedRuntime(user: ReturnType<typeof userEvent.setup>) {
+async function openAdvancedRuntime(user: UserEvent) {
   await openAdvancedContext(user);
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
@@ -788,12 +799,12 @@ function sectionToggle(name: string) {
   return screen.getByRole("button", { name });
 }
 
-async function deployFromContext(user: ReturnType<typeof userEvent.setup>) {
+async function deployFromContext(user: UserEvent) {
   await user.click(screen.getByRole("button", { name: "Next" }));
   await deployFromRuntime(user);
 }
 
-async function deployFromRuntime(user: ReturnType<typeof userEvent.setup>) {
+async function deployFromRuntime(user: UserEvent) {
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 5 of 5 — Deploy")).toBeVisible();
 }

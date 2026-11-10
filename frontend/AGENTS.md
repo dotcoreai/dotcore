@@ -81,6 +81,16 @@ frontend/src/
   `vi.mock`: another file may already hold the real module. Mock a package from `node_modules`
   only with `vi.resetModules()` and a dynamic `import()` of the module under test.
 - Wait for an inspector's opening focus (`waitForInspectorFocus`) before typing into it.
+- Create user-event through `setupUser()` ([`src/test/user.ts`](src/test/user.ts)), never
+  `userEvent.setup()`; it removes the pause between keystrokes. Wait for results on observable
+  state.
+- Every UI delay and every retry, poll and reconnect cadence comes from the timing module
+  ([`src/lib/timing.ts`](src/lib/timing.ts)), read through `timing()`; never a module or
+  component constant. Tests run with its test preset, set in the shared setup. A test whose
+  behavior depends on a delay calls `setTiming(productionTiming)` and drives the delay with fake
+  timers; the shared setup restores the test preset after each test. A fake-timer test that waits
+  with `waitFor` or `findBy*` installs its timers with `useFakeTimersWithWaits`
+  ([`src/test/fake-timers.ts`](src/test/fake-timers.ts)).
 
 ## Dependencies
 

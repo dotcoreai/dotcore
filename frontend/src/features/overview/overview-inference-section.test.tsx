@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
@@ -19,6 +18,7 @@ import { type MetricCards, useMetricCards } from "@/features/metrics/use-metric-
 import { InferenceRouteViewSchema } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
+import { setupUser } from "@/test/user";
 
 import { overviewCardSpecs, overviewSplitIds, overviewSplits } from "./overview-card-specs";
 
@@ -72,7 +72,7 @@ describe("OverviewInferenceSection", () => {
   });
 
   it("opens one stream for every card and split, and never reopens it for a card or split", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(busyAnswer));
     const { metrics } = renderSection(metricsClientWith(watchMetrics));
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
@@ -95,7 +95,7 @@ describe("OverviewInferenceSection", () => {
   });
 
   it("charts requests by model as attempts per deployment name, the default split", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(metricsClientWith(staticWatch(busyAnswer)));
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
 
@@ -119,7 +119,7 @@ describe("OverviewInferenceSection", () => {
   });
 
   it("names a group the console no longer lists by its id", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(metricsClientWith(staticWatch(busyAnswer)), {
       deployments: [],
     });

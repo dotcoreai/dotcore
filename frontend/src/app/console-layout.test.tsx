@@ -1,16 +1,16 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { type ReactNode, useRef, useState } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleLayout } from "@/app/console-layout";
-import { PEEK_ENTER_DELAY_MS, PEEK_LEAVE_DELAY_MS } from "@/app/console-sidebar";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/console-preferences";
+import { productionTiming, setTiming, timing } from "@/lib/timing";
 import { PanelLink } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 // Isolates each test's sidebar preference from real jsdom localStorage (and from each other),
@@ -164,7 +164,7 @@ function renderLayout(
 
 describe("ConsoleLayout visual inspector session", () => {
   it("shows a cross-page destination immediately at rest without restoring the outgoing opener", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderFeaturePanelLayout([
       "/models?panel=models%2Fdeployment%3Adeployment-a",
     ]);
@@ -182,7 +182,7 @@ describe("ConsoleLayout visual inspector session", () => {
   });
 
   it("clears a pathname-changing panel navigation immediately without retaining an exiting inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderFeaturePanelLayout([
       "/models?panel=models%2Fdeployment%3Adeployment-a",
     ]);
@@ -201,7 +201,7 @@ describe("ConsoleLayout", () => {
     ["Routes", "/routes"],
     ["Machines", "/machines"],
   ])("locks %s navigation while a panel operation is pending", async (label, destination) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const initialEntry = "/models?panel=models%2Fdeployment%3Adeployment-a";
     const { router } = renderLayout(initialEntry, new FakeStorage(), <PendingRouteContent />);
 
@@ -258,7 +258,7 @@ describe("ConsoleLayout", () => {
   it.each([false, true])(
     "keeps primary links in order and disabled sections out of the tab order (collapsed: %s)",
     async (collapsed) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const storage = new FakeStorage();
       writeSidebarCollapsed(storage, collapsed);
       renderLayout("/models", storage);
@@ -295,7 +295,7 @@ describe("ConsoleLayout", () => {
   );
 
   it("survives navigation instead of remounting the sidebar provider", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = createMemoryRouter(
       [
         {
@@ -333,7 +333,7 @@ describe("ConsoleLayout", () => {
   });
 
   it("drives the sidebar from the stored preference and writes back through the inversion", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const storage = new FakeStorage();
     const router = createMemoryRouter(
       [
@@ -367,7 +367,7 @@ describe("ConsoleLayout", () => {
 
   it("flips the footer toggle's label and icon with the sidebar state on desktop", async () => {
     setViewportWidth(1024);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderLayout();
 
     const collapseToggle = screen.getByRole("button", { name: "Collapse" });
@@ -381,7 +381,7 @@ describe("ConsoleLayout", () => {
 
   it("labels the footer toggle as a close affordance inside the mobile drawer", async () => {
     setViewportWidth(390);
-    const user = userEvent.setup();
+    const user = setupUser();
     renderLayout();
 
     await user.click(screen.getByRole("button", { name: "Toggle Sidebar" }));
@@ -434,6 +434,7 @@ describe("ConsoleLayout app shell (R8.A)", () => {
 // ever sees a write, and whether the classes the reveal depends on are present on the DOM.
 describe("ConsoleLayout hover peek (R5)", () => {
   it("marks the rail data-peek after a sustained hover and clears it after leaving, touching neither data-collapsible nor the stored preference (R5.A, R5.B, R5.D)", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const { storage } = renderLayout("/machines");
 
@@ -450,7 +451,7 @@ describe("ConsoleLayout hover peek (R5)", () => {
 
     // Still within the enter delay: no peek yet.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PEEK_ENTER_DELAY_MS - 1);
+      await vi.advanceTimersByTimeAsync(productionTiming.sidebarPeekEnterMs - 1);
     });
     expect(sidebar).not.toHaveAttribute("data-peek");
 
@@ -466,7 +467,7 @@ describe("ConsoleLayout hover peek (R5)", () => {
 
     fireEvent.pointerLeave(container);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PEEK_LEAVE_DELAY_MS - 1);
+      await vi.advanceTimersByTimeAsync(productionTiming.sidebarPeekLeaveMs - 1);
     });
     expect(sidebar).toHaveAttribute("data-peek", "true");
 
@@ -479,6 +480,7 @@ describe("ConsoleLayout hover peek (R5)", () => {
   });
 
   it("does not peek on a brief graze that leaves before the enter delay elapses", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     renderLayout("/machines");
     fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
@@ -494,7 +496,9 @@ describe("ConsoleLayout hover peek (R5)", () => {
     // The leave handler must cancel the pending enter timer, not just race it: advancing well past
     // the enter delay after leaving must never flip data-peek on.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PEEK_ENTER_DELAY_MS + PEEK_LEAVE_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(
+        productionTiming.sidebarPeekEnterMs + productionTiming.sidebarPeekLeaveMs,
+      );
     });
     expect(sidebar).not.toHaveAttribute("data-peek");
   });
@@ -508,7 +512,7 @@ describe("ConsoleLayout hover peek (R5)", () => {
     const container = document.querySelector('[data-slot="sidebar-container"]')!;
     fireEvent.pointerEnter(container);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PEEK_ENTER_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(timing().sidebarPeekEnterMs);
     });
 
     expect(sidebar).not.toHaveAttribute("data-peek");
@@ -557,7 +561,7 @@ describe("ConsoleLayout hover peek (R5)", () => {
   });
 
   it("does not leave the peek stuck open after a click: clicking a row focuses it without triggering :focus-visible, so the peek closes once the pointer leaves (regression)", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const storage = new FakeStorage();
     writeSidebarCollapsed(storage, true);
     renderLayout("/models", storage);
@@ -592,7 +596,7 @@ describe("ConsoleLayout hover peek (R5)", () => {
 
     fireEvent.pointerEnter(container);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PEEK_ENTER_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(timing().sidebarPeekEnterMs);
     });
     fireEvent.pointerDown(link);
     fireEvent.click(link);
@@ -603,7 +607,7 @@ describe("ConsoleLayout hover peek (R5)", () => {
 
     fireEvent.pointerLeave(container);
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PEEK_LEAVE_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(timing().sidebarPeekLeaveMs);
     });
     expect(sidebar).not.toHaveAttribute("data-peek");
     expect(document.activeElement).toBe(link);

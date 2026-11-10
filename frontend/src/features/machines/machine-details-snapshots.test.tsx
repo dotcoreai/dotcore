@@ -176,11 +176,7 @@ function SnapshotProbe({
 }
 
 function Console({ children, watch }: { children: ReactNode; watch: FakeResourceWatch }) {
-  return (
-    <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
-      {children}
-    </ResourceWatchProvider>
-  );
+  return <ResourceWatchProvider client={watch.client()}>{children}</ResourceWatchProvider>;
 }
 
 async function flush() {

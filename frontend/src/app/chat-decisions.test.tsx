@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
@@ -21,6 +21,7 @@ import type { StorageLike } from "@/lib/browser-storage";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { FailingStorage, MemoryStorage } from "@/test/memory-storage";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 /** A decision client whose answers the test releases one by one, in order. */
@@ -89,7 +90,7 @@ function renderConsole(decisionClient: DecisionClient, storage: StorageLike, ent
     </ThemeProvider>,
     { decisionClient, resourceWatchClient: watch.client() },
   );
-  return userEvent.setup();
+  return setupUser();
 }
 
 const panel = () => {
@@ -386,12 +387,12 @@ const pageAsk = () => within(page()).getByRole("button", { name: /^Ask/ });
 
 const requestBody = () => within(page()).getByRole("textbox", { name: "POST /v1/systemone" });
 
-async function switchEditor(user: ReturnType<typeof userEvent.setup>, view: "Form" | "JSON") {
+async function switchEditor(user: UserEvent, view: "Form" | "JSON") {
   const editor = within(page()).getByRole("radiogroup", { name: "Editor" });
   await user.click(within(editor).getByRole("radio", { name: view }));
 }
 
-async function replaceBody(user: ReturnType<typeof userEvent.setup>, text: string) {
+async function replaceBody(user: UserEvent, text: string) {
   await user.clear(requestBody());
   await user.click(requestBody());
   await user.paste(text);
@@ -595,7 +596,7 @@ describe("Chat page decisions", () => {
 });
 
 /** The Saved sets menu, opened from the Chat page's toolbar. */
-async function openSets(user: ReturnType<typeof userEvent.setup>) {
+async function openSets(user: UserEvent) {
   await user.click(within(page()).getByRole("button", { name: /^Saved sets/ }));
   return screen.findByRole("dialog", { name: "Saved sets" });
 }

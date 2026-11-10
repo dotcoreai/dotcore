@@ -1,10 +1,10 @@
 import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 const options: ComboboxOption[] = [
   { id: "alpha-01", label: "Alpha" },
@@ -91,7 +91,7 @@ function MultipleCombobox({
 
 describe("Combobox", () => {
   it("filters options by label and stable ID", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<SingleCombobox />);
 
     const input = screen.getByRole("combobox", { name: "Deployment" });
@@ -105,7 +105,7 @@ describe("Combobox", () => {
   });
 
   it("shows an option's detail instead of its composite ID and filters by it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <SingleCombobox
         options={[
@@ -130,7 +130,7 @@ describe("Combobox", () => {
   });
 
   it("acts as a plain pick list when not searchable", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<SingleCombobox searchable={false} />);
 
     const input = screen.getByRole("combobox", { name: "Deployment" });
@@ -150,7 +150,7 @@ describe("Combobox", () => {
   });
 
   it("lists every option on first open when the selected value's label changed after it was set", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const props = {
       label: "Execution target",
       onValueChange: () => {},
@@ -178,7 +178,7 @@ describe("Combobox", () => {
   });
 
   it("selects a single controlled value with keyboard and clears it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<SingleCombobox />);
 
     const input = screen.getByRole("combobox", { name: "Deployment" });
@@ -191,7 +191,7 @@ describe("Combobox", () => {
   });
 
   it("selects with the pointer and does not select disabled options", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<SingleCombobox />);
 
     await user.click(screen.getByRole("combobox", { name: "Deployment" }));
@@ -210,7 +210,7 @@ describe("Combobox", () => {
   });
 
   it("marks only the selected option as selected, not the active keyboard option", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<SingleCombobox />);
 
     const input = screen.getByRole("combobox", { name: "Deployment" });
@@ -228,7 +228,7 @@ describe("Combobox", () => {
   });
 
   it("wires invalid state and the described error to the input ref", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<InvalidCombobox />);
 
     const input = screen.getByRole("combobox", { name: "Deployment" });
@@ -240,7 +240,7 @@ describe("Combobox", () => {
   });
 
   it("preserves multiple value order and removes selected values through their chips", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<MultipleCombobox />);
 
     expect(screen.getByTestId("value")).toHaveTextContent("bravo-02,alpha-01");
@@ -250,7 +250,7 @@ describe("Combobox", () => {
   });
 
   it("keeps the multiple popup open after a pick by default", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<MultipleCombobox initial={["bravo-02"]} />);
 
     await user.click(screen.getByRole("button", { name: "Show Deployments options" }));
@@ -260,7 +260,7 @@ describe("Combobox", () => {
   });
 
   it("closes the multiple popup after a pointer pick when asked", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<MultipleCombobox closeOnSelect initial={["bravo-02"]} />);
 
     await user.click(screen.getByRole("button", { name: "Show Deployments options" }));
@@ -270,7 +270,7 @@ describe("Combobox", () => {
   });
 
   it("closes the multiple popup after a keyboard pick when asked", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<MultipleCombobox closeOnSelect initial={[]} />);
 
     await user.click(screen.getByRole("button", { name: "Show Deployments options" }));
@@ -281,7 +281,7 @@ describe("Combobox", () => {
   });
 
   it("keeps the multiple popup closed when a chip is removed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<MultipleCombobox closeOnSelect initial={["bravo-02", "alpha-01"]} />);
 
     await user.click(screen.getByRole("button", { name: "Remove Bravo" }));
@@ -290,7 +290,7 @@ describe("Combobox", () => {
   });
 
   it("keeps multiple selected values when Escape is pressed with the popup closed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onKeyDown = vi.fn<(key: string) => void>();
     render(
       // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- observes propagation only
@@ -311,7 +311,7 @@ describe("Combobox", () => {
   });
 
   it("renders decorative option and chip markers without changing names or filtering", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const markedOptions: ComboboxOption[] = [
       { id: "alpha-01", label: "Alpha", markerColorKey: "model-alpha" },
       { id: "bravo-02", label: "Bravo" },
@@ -348,7 +348,7 @@ describe("Combobox", () => {
   });
 
   it("shows each option's status beside it and as a dot on its selected chip", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <Combobox
         multiple
@@ -373,7 +373,7 @@ describe("Combobox", () => {
   });
 
   it("keeps a hidden label as the input's name, including while the popup is open", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <Combobox
         hideLabel
@@ -395,7 +395,7 @@ describe("Combobox", () => {
   });
 
   it("announces loading, filtered empty, and no-options states", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { rerender } = render(<SingleCombobox loading />);
     const input = screen.getByRole("combobox", { name: "Deployment" });
     await user.click(input);

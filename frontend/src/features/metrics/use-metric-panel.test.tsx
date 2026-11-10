@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
+import { setupUser } from "@/test/user";
 
 import {
   gaugePoint,
@@ -32,7 +32,7 @@ const groups: MetricQueryGroup[] = [
 
 describe("useMetricPanel", () => {
   it("watches current values only until a row expands, then every group's history at the finest range", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(answer));
     render(<Harness client={metricsClientWith(watchMetrics)} />);
 
@@ -64,7 +64,7 @@ describe("useMetricPanel", () => {
   });
 
   it("re-reads history at the range picked for the whole panel", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(answer));
     render(<Harness client={metricsClientWith(watchMetrics)} />);
 
@@ -79,7 +79,7 @@ describe("useMetricPanel", () => {
   });
 
   it("shows no history from an earlier expansion while a reopened stream backfills", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let historyOpens = 0;
     const answered = staticWatch(answer);
     const watchMetrics = vi.fn<MetricsClient["metrics"]["watchMetrics"]>((request, options) => {

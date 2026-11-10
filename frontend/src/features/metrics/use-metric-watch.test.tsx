@@ -11,6 +11,7 @@ import {
   type WatchMetricsResponse,
   WatchMetricsResponseSchema,
 } from "@/gen/dotcore/metrics/v1/service_pb";
+import { productionTiming, setTiming } from "@/lib/timing";
 
 import type { MetricRange } from "./metric-ranges";
 import { gaugePoint, metricSeries, queryResult } from "./metric-test-support";
@@ -26,6 +27,7 @@ const twoQueries: MetricHistoryQuery[] = [
 ];
 
 beforeEach(() => {
+  setTiming(productionTiming);
   vi.useFakeTimers();
 });
 

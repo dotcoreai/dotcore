@@ -85,7 +85,7 @@ function renderHook(watchMetrics: Parameters<typeof metricsClientWith>[0]) {
   }
   act(() => {
     render(
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <Probe />
       </ResourceWatchProvider>,
     );

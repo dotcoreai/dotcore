@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RouteClient } from "@/api/route-client";
@@ -39,6 +39,7 @@ import {
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import { ListConfiguredExecutionTargetsResponseSchema } from "@/gen/dotcore/site/v1/service_pb";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { applicationInspectorPanelId } from "./application-inspector-panel";
 import {
@@ -57,10 +58,7 @@ afterEach(() => {
 });
 
 // Turns Advanced on and moves from the first step to Target.
-async function openAdvanced(
-  user: ReturnType<typeof userEvent.setup>,
-  scope: Pick<typeof screen, "getByRole"> = screen,
-) {
+async function openAdvanced(user: UserEvent, scope: Pick<typeof screen, "getByRole"> = screen) {
   await user.click(scope.getByRole("checkbox", { name: "Advanced" }));
   await user.click(scope.getByRole("button", { name: "Next" }));
 }
@@ -91,7 +89,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("opens deployment controls without changing the selected inspector and supports repeat opens", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = clientFor([app("open-webui", "OpenWebUI")], []);
 
     renderAppsSection({ client, initialEntry: "/apps/catalog" });
@@ -119,7 +117,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("resets the deployment draft after an idle dialog is dismissed and reopened", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = create(ApplicationSchema, {
       ...routeInputApp(),
       graph: create(ApplicationGraphSchema, {
@@ -194,7 +192,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("sends the selected machine and lands on the accepted deployment on /apps, where Back returns to the Catalog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     const accepted = deployment(
       catalogApplication,
@@ -239,7 +237,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("closes the accepted deployment panel onto /apps", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     const accepted = deployment(
       catalogApplication,
@@ -277,7 +275,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("stays where the operator went when a deploy is accepted after leaving the Catalog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     const client = clientFor([catalogApplication], []);
     const accepted = deferred<ReturnType<typeof createCreateResponse>>();
@@ -316,7 +314,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("keeps the accepted deployment on /apps through a stale deployment read", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     const accepted = deployment(
       catalogApplication,
@@ -357,7 +355,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("supports keyboard row selection and accessible inspector close", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     renderAppsSection({
       client: clientFor([catalogApplication], []),
@@ -398,7 +396,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("keeps the catalog visible but disables create when deployments fail", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     const client = clientFor([catalogApplication], []);
     client.application.listApplicationDeployments = vi.fn(() =>
@@ -531,7 +529,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("offers every chat route as a choice labelled with its health", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = routeInputApp();
     const routes = [
       create(InferenceRouteViewSchema, {
@@ -612,7 +610,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("sends the selected stable route ID and exact generation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = routeInputApp();
     const client = clientFor([catalogApplication], []);
     client.application.createApplicationDeployment = vi.fn(() =>
@@ -681,7 +679,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("offers the streamed routes in the deploy dialog and follows route changes while it is open", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const chat = routeNamed("route-chat", "chat");
     let routes = [chat];
     const routeClient = routeClientFor([]);
@@ -715,7 +713,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("keeps the route choice disabled but deploys unlinked while RouteService is loading", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     let resolveRoutes!: (
       response: ReturnType<typeof create<typeof ListRoutesResponseSchema>>,
     ) => void;
@@ -806,7 +804,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("fences duplicate creates while the accepted request is pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     const accepted = deployment(
       catalogApplication,
@@ -843,7 +841,7 @@ describe("AppCatalogPage", () => {
     [Code.FailedPrecondition, "Create was rejected (FailedPrecondition)"],
     [Code.Unavailable, "Create outcome is uncertain (Unavailable)"],
   ])("presents create error code %s", async (code, expectedMessage) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const catalogApplication = app("open-webui", "OpenWebUI");
     const client = clientFor([catalogApplication], []);
     client.application.createApplicationDeployment = vi.fn(() =>
@@ -943,7 +941,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("inspects a catalog application through its row and URL", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderAppsSection({
       client: clientFor([app("open-webui", "OpenWebUI")], []),
       initialEntry: "/apps/catalog",
@@ -971,7 +969,7 @@ describe("AppCatalogPage", () => {
   });
 
   it("closes an inspected application back to the bare Catalog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderAppsSection({
       client: clientFor([app("open-webui", "OpenWebUI")], []),
       initialEntry: "/apps/catalog?panel=app-catalog%2Fcatalog%3Aopen-webui",
@@ -1023,7 +1021,7 @@ describe("AppCatalogPage deployments", () => {
   }
 
   it("lists the catalog application's deployments with their placement and status", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWebuiDeployments();
 
     const row = await screen.findByRole("row", { name: "OpenWebUI" });
@@ -1042,7 +1040,7 @@ describe("AppCatalogPage deployments", () => {
   });
 
   it("opens a listed deployment above the catalog application, and Back returns to it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderWebuiDeployments();
 
     await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
@@ -1068,7 +1066,7 @@ describe("AppCatalogPage deployments", () => {
   });
 
   it("shows no deployments section for an undeployed catalog application", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderWebuiDeployments();
 
     await user.click(await screen.findByRole("row", { name: "Idle" }));
@@ -1078,7 +1076,7 @@ describe("AppCatalogPage deployments", () => {
   });
 
   it("shows the deployments as unreachable when the site's deployments cannot be read", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = clientFor([webui], []);
     client.application.listApplicationDeployments = vi.fn(() =>
       Promise.reject(new Error("deployments offline")),
@@ -1103,7 +1101,7 @@ describe("Deployment to catalog application link", () => {
   );
 
   it("opens the Catalog panel above the deployment, and its back label returns to the deployment", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderAppsSection({
       client: clientFor([application], [installed]),
       initialEntry: "/apps?panel=apps%2Fdeployment%3Adeployment-1",
@@ -1128,7 +1126,7 @@ describe("Deployment to catalog application link", () => {
   });
 
   it("returns to the deployment from another catalog application opened from the table", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderAppsSection({
       client: clientFor([application, app("hermes-app", "Hermes")], [installed]),
       initialEntry: "/apps?panel=apps%2Fdeployment%3Adeployment-1",
@@ -1152,7 +1150,7 @@ describe("Deployment to catalog application link", () => {
   });
 
   it("returns to the deployment the catalog application was opened from when it is selected in the list", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderAppsSection({
       client: clientFor([application], [installed]),
       initialEntry: "/apps?panel=apps%2Fdeployment%3Adeployment-1",

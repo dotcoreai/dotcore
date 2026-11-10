@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resolveInferenceOrigin } from "@/api/inference-origin";
@@ -33,6 +32,7 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import * as clipboard from "@/lib/clipboard";
 import { moreActionNames } from "@/test/inspector-actions";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { buildModelConnectionExamples } from "./model-connection";
 import { RouteConnectionView, RouteDetails, RouteInspectorActions } from "./route-inspector";
@@ -61,7 +61,7 @@ function view() {
 
 describe("RouteDetails requests", () => {
   it("places six request cards between routing and details, reading the route's requests", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const counter = (delta: number) => [metricSeries({}, [counterPoint(0, 0, false, delta)])];
     const answers: Record<string, MetricSeries[]> = {
       "router.request.ttft": [
@@ -141,7 +141,7 @@ describe("RouteDetails requests", () => {
 
 describe("RouteInspector", () => {
   it("keeps route details and Connect content as distinct stack screen bodies", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockResolvedValue(undefined);
     const onConnect = vi.fn();
     render(
@@ -352,7 +352,7 @@ describe("RouteInspector", () => {
   });
 
   it("offers Enable for a disabled route and shows a pending toggle on the menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const actions = (props: { enabled: boolean; togglePending?: boolean }) => (
       <RouteInspectorActions
         onConnect={vi.fn()}
