@@ -10,8 +10,7 @@ import tseslint from "typescript-eslint";
 
 const typeScriptFiles = ["src/**/*.{ts,tsx}", "vite.config.ts"];
 
-// Folders under src/, lowest layer first: a folder imports only from the ones before it. A folder
-// marked `pending` still imports later layers; its rule is off until the named phase cleans it.
+// Folders under src/, lowest layer first: a folder imports only from the ones before it.
 const layers = [
   { name: "gen" },
   { name: "lib" },
@@ -22,8 +21,7 @@ const layers = [
   { name: "resource-watch" },
   { name: "theme" },
   { name: "components" },
-  { name: "features", pending: "phase 06 routes cleanup" },
-  { name: "routes" },
+  { name: "features" },
   { name: "app" },
 ];
 
@@ -33,9 +31,9 @@ const transportPath = {
 };
 
 // Blocks don't merge, so each repeats the transport path.
-const layerBlocks = layers.flatMap(({ name, pending }, i) => {
+const layerBlocks = layers.flatMap(({ name }, i) => {
   const names = layers.map((layer) => layer.name);
-  if (pending || i === names.length - 1) {
+  if (i === names.length - 1) {
     return [];
   }
 

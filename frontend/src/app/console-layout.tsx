@@ -1,15 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Outlet, useLocation, useMatch, useNavigate } from "react-router-dom";
 
-import { type ChatClient, chatClient as defaultChatClient } from "@/api/chat-client";
-import {
-  type DecisionClient,
-  decisionClient as defaultDecisionClient,
-} from "@/api/decision-client";
-import type { ModelClient } from "@/api/model-client";
-import type { ResourceWatchClient } from "@/api/resource-watch-client";
+import { useClients } from "@/api/clients";
 import { ConsoleHeader } from "@/app/console-header";
 import { ConsoleSidebar } from "@/app/console-sidebar";
+import { createPanelTitleLookup } from "@/app/panel-title-lookup";
 import { useSidebarPreference } from "@/app/sidebar-preference-context";
 import { SidebarPreferenceProvider } from "@/app/sidebar-preference-provider";
 import { narrowInspectorMaxWidth } from "@/components/ui/inspector-breakpoint";
@@ -18,49 +13,32 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { type ChatMode, ChatOpenerContext } from "@/features/chat/chat-opener";
 import { ChatPanel } from "@/features/chat/chat-panel";
 import { ChatSessionProvider } from "@/features/chat/chat-session-provider";
-import { ModelsPollingProvider } from "@/features/models/models-polling-provider";
+import { ModelsPollingProvider } from "@/features/models/polling/models-polling-provider";
 import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
 import type { StorageLike } from "@/lib/browser-storage";
 import { usePanelNavigation } from "@/panels/panel-navigation";
-import type { PanelTitleLookup } from "@/panels/panel-titles-context";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { ResourceColorProvider } from "@/theme/resource-color-provider";
 
 export interface ConsoleLayoutProps {
-  chatClient?: ChatClient;
-  decisionClient?: DecisionClient;
-  /** Source of the catalog models every page reading the shared models polling sees. */
-  modelClient?: ModelClient;
-  /** Names a panel's parent resource that no page has published yet. */
-  panelTitleLookup?: PanelTitleLookup;
-  /** Source of the resource watch every console page reads its live resources from. */
-  resourceWatchClient?: ResourceWatchClient;
   eventTarget?: EventTarget;
   storage?: StorageLike;
 }
 
-/** Layout route rendering the persistent console shell around routed page content. */
-export function ConsoleLayout({
-  chatClient = defaultChatClient,
-  decisionClient = defaultDecisionClient,
-  eventTarget,
-  modelClient,
-  panelTitleLookup,
-  resourceWatchClient,
-  storage,
-}: ConsoleLayoutProps) {
+/**
+ * Layout route rendering the persistent console shell around routed page content. It mounts the
+ * console-wide resource watch and models polling, which every page reads.
+ */
+export function ConsoleLayout({ eventTarget, storage }: ConsoleLayoutProps) {
+  const { modelClient, resourceWatchClient } = useClients();
+
   return (
     <SidebarPreferenceProvider eventTarget={eventTarget} storage={storage}>
       <ResourceWatchProvider client={resourceWatchClient}>
         <ResourceColorProvider>
           <ModelsPollingProvider client={modelClient}>
             <WatchPauseProvider>
-              <ConsoleLayoutShell
-                chatClient={chatClient}
-                decisionClient={decisionClient}
-                panelTitleLookup={panelTitleLookup}
-                storage={storage}
-              />
+              <ConsoleLayoutShell storage={storage} />
             </WatchPauseProvider>
           </ModelsPollingProvider>
         </ResourceColorProvider>
@@ -69,18 +47,14 @@ export function ConsoleLayout({
   );
 }
 
-function ConsoleLayoutShell({
-  chatClient,
-  decisionClient,
-  panelTitleLookup,
-  storage,
-}: {
-  chatClient: ChatClient;
-  decisionClient: DecisionClient;
-  panelTitleLookup?: PanelTitleLookup;
-  storage?: StorageLike;
-}) {
+function ConsoleLayoutShell({ storage }: { storage?: StorageLike }) {
+  const { applicationClient, routeClient } = useClients();
   const { collapsed, setCollapsed } = useSidebarPreference();
+  // Names a panel's parent resource that no page has published yet.
+  const panelTitleLookup = useMemo(
+    () => createPanelTitleLookup(routeClient, applicationClient),
+    [applicationClient, routeClient],
+  );
 
   return (
     <SidebarProvider
@@ -89,7 +63,7 @@ function ConsoleLayoutShell({
       open={!collapsed}
     >
       <PanelNavigationProvider titleLookup={panelTitleLookup}>
-        <ConsoleChrome chatClient={chatClient} decisionClient={decisionClient} storage={storage} />
+        <ConsoleChrome storage={storage} />
       </PanelNavigationProvider>
     </SidebarProvider>
   );
@@ -100,15 +74,8 @@ function ConsoleLayoutShell({
  * panel and the Chat page. The panel is hidden on the Chat page and stays closed after leaving it,
  * unless the operator asks to show the chat as a panel.
  */
-function ConsoleChrome({
-  chatClient,
-  decisionClient,
-  storage,
-}: {
-  chatClient: ChatClient;
-  decisionClient: DecisionClient;
-  storage?: StorageLike;
-}) {
+function ConsoleChrome({ storage }: { storage?: StorageLike }) {
+  const { chatClient, decisionClient } = useClients();
   const location = useLocation();
   const navigate = useNavigate();
   const onChatPage = useMatch("/chat") !== null;

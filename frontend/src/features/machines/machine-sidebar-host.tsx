@@ -1,7 +1,7 @@
 import { type RefObject, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
+import { useClients } from "@/api/clients";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
@@ -40,7 +40,6 @@ import { inspectedMachineId, machineInspectorPanelId } from "./machine-panels";
 export interface MachineSidebarHostProps {
   /** The range label the resource history charts start at, such as the hosting page's range. */
   initialRange?: string;
-  metricsClient?: MetricsClient;
   /** The element focus returns to when the sidebar closes; set it before opening the sidebar. */
   openerRef: RefObject<HTMLElement | null>;
 }
@@ -52,11 +51,8 @@ export interface MachineSidebarHostProps {
  * Navigation keeps the hosting page, so the sidebar opens over the machines page or the overview
  * alike.
  */
-export function MachineSidebarHost({
-  initialRange,
-  metricsClient = defaultMetricsClient,
-  openerRef,
-}: MachineSidebarHostProps) {
+export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHostProps) {
+  const { metricsClient } = useClients();
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();

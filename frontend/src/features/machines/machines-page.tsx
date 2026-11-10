@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
-import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
+import { useClients } from "@/api/clients";
 import { DataTable } from "@/components/data-table/data-table";
 import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -43,11 +43,8 @@ import { useMachineFleet } from "./use-machine-fleet";
 import { useMachineResources } from "./use-machine-resources";
 import { useMachinesNow } from "./use-machines-now";
 
-export interface MachinesPageProps {
-  metricsClient?: MetricsClient;
-}
-
-export function MachinesPage({ metricsClient = defaultMetricsClient }: MachinesPageProps) {
+export function MachinesPage() {
+  const { metricsClient } = useClients();
   const location = useLocation();
   const panelNavigation = usePanelNavigation();
   const [addMachineOpen, setAddMachineOpen] = useState(false);
@@ -182,7 +179,7 @@ export function MachinesPage({ metricsClient = defaultMetricsClient }: MachinesP
             </div>
           ) : null}
         </section>
-        <MachineSidebarHost metricsClient={metricsClient} openerRef={openerRef} />
+        <MachineSidebarHost openerRef={openerRef} />
       </div>
     </div>
   );

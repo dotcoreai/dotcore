@@ -1,12 +1,9 @@
 import { useRef } from "react";
 
-import type { MetricsClient } from "@/api/metrics-client";
-import { metricsClient as defaultMetricsClient } from "@/api/metrics-client";
-import type { ModelClient } from "@/api/model-client";
-import type { RouteClient } from "@/api/route-client";
+import { useClients } from "@/api/clients";
 import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
 import { OverviewSectionIcon } from "@/components/ui/section-icons";
-import { InferenceSection } from "@/features/inference/inference-section";
+import { InferenceSection } from "@/features/metrics/inference/inference-section";
 import { MetricRangeControl } from "@/features/metrics/metric-range-control";
 
 import { InferenceCountCards, OverviewAppsSection } from "./overview-count-cards";
@@ -14,18 +11,9 @@ import { OverviewMachinesSection } from "./overview-machines-section";
 import { OverviewSidebar } from "./overview-sidebar";
 import { useOverviewMetrics } from "./use-overview-metrics";
 
-export interface OverviewPageProps {
-  metricsClient?: MetricsClient;
-  modelClient?: ModelClient;
-  routeClient?: RouteClient;
-}
-
 /** The site overview page: an at-a-glance view of the site's inference, models, routes, apps and machines. */
-export function OverviewPage({
-  metricsClient = defaultMetricsClient,
-  modelClient,
-  routeClient,
-}: OverviewPageProps) {
+export function OverviewPage() {
+  const { metricsClient } = useClients();
   const openerRef = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const metrics = useOverviewMetrics(metricsClient);
@@ -53,10 +41,7 @@ export function OverviewPage({
         <OverviewSidebar
           fallbackFocusRef={headingRef}
           initialRange={metrics.range?.label}
-          metricsClient={metricsClient}
-          modelClient={modelClient}
           openerRef={openerRef}
-          routeClient={routeClient}
         />
       </div>
     </div>

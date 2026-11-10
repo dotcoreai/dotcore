@@ -2,8 +2,7 @@ import { ConnectError } from "@connectrpc/connect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { type ApplicationClient, applicationClient } from "@/api/application-client";
-import { type MetricsClient, metricsClient as defaultMetricsClient } from "@/api/metrics-client";
+import { useClients } from "@/api/clients";
 import { DataTable } from "@/components/data-table/data-table";
 import { buildDataTable } from "@/components/data-table/data-table-model";
 import { DataTableToolbar } from "@/components/data-table/data-table-toolbar";
@@ -60,11 +59,6 @@ import {
 import { useSharedApplicationsPolling } from "./applications-polling-context";
 import { useApplicationResources } from "./use-application-resources";
 
-export interface ApplicationsPageProps {
-  client?: ApplicationClient;
-  metricsClient?: MetricsClient;
-}
-
 export interface ApplicationInspectorSelection {
   applicationDeploymentId: string;
 }
@@ -112,10 +106,8 @@ function isDeploymentPending(
   );
 }
 
-export function ApplicationsPage({
-  client = applicationClient,
-  metricsClient = defaultMetricsClient,
-}: ApplicationsPageProps) {
+export function ApplicationsPage() {
+  const { applicationClient: client, metricsClient } = useClients();
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();

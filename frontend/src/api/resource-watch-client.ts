@@ -19,5 +19,3 @@ export function createResourceWatchClient(baseUrl = resourceWatchServerUrl): Res
 
   return { watchResources: generatedClient.watchResources };
 }
-
-export const resourceWatchClient = createResourceWatchClient();

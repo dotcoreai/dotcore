@@ -32,5 +32,3 @@ export function createRouteClient(baseUrl = routeServerUrl): RouteClient {
     },
   };
 }
-
-export const routeClient = createRouteClient();

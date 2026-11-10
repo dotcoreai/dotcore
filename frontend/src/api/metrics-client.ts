@@ -29,5 +29,3 @@ export function createMetricsClient(baseUrl = metricsServerUrl): MetricsClient {
     },
   };
 }
-
-export const metricsClient = createMetricsClient();

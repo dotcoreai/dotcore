@@ -125,8 +125,6 @@ export function createDecisionClient(
   return { ask };
 }
 
-export const decisionClient = createDecisionClient();
-
 /**
  * The request text sent for a body, a JSON object without `model`: `model` written as its first
  * field, and the rest as written.

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConsoleLayout } from "@/app/console-layout";
 import { PEEK_ENTER_DELAY_MS } from "@/app/console-sidebar";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { renderWithClients } from "@/test/render-with-clients";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 class TestStorage {
@@ -56,7 +57,7 @@ function renderNavigation(initialEntry = "/models", pending = false) {
     { initialEntries: [initialEntry] },
   );
 
-  render(
+  renderWithClients(
     <ThemeProvider
       document={document}
       eventTarget={new EventTarget()}

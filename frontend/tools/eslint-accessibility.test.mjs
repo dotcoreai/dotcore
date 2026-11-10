@@ -15,7 +15,7 @@ test(
   async () => {
     const eslint = new ESLint();
     const [result] = await eslint.lintText(invalidImageSource, {
-      filePath: "src/features/models/models-page.tsx",
+      filePath: "src/features/models/deployed/models-page.tsx",
     });
 
     assert.ok(

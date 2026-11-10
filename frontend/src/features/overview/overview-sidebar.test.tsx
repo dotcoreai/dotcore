@@ -12,7 +12,7 @@ import {
   renderModelsSection,
   upstreamDeployment,
   upstreamTemplate,
-} from "@/features/models/models-section-test-support";
+} from "@/features/models/deployed/models-section-test-support";
 import {
   FallbackGroupSelection,
   InferenceRouteViewSchema,
@@ -221,8 +221,6 @@ async function sidebarShape(
 function renderOverviewSection(options: Parameters<typeof renderModelsSection>[0]) {
   return renderModelsSection({
     ...options,
-    overview: ({ metricsClient, modelClient }) => (
-      <OverviewPage metricsClient={metricsClient} modelClient={modelClient} />
-    ),
+    overview: <OverviewPage />,
   });
 }

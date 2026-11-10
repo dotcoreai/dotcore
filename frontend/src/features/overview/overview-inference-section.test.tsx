@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
-import { inferenceCardIds } from "@/features/inference/inference-card-specs";
-import { InferenceSection } from "@/features/inference/inference-section";
+import { inferenceCardIds } from "@/features/metrics/inference/inference-card-specs";
+import { InferenceSection } from "@/features/metrics/inference/inference-section";
 import {
   counterPoint,
   distributionPoint,

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useRef, useState } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -10,6 +10,7 @@ import { InspectorShell } from "@/components/ui/inspector-shell";
 import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/console-preferences";
 import { PanelLink } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { renderWithClients } from "@/test/render-with-clients";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 // Isolates each test's sidebar preference from real jsdom localStorage (and from each other),
@@ -115,7 +116,7 @@ function renderFeaturePanelLayout(initialEntries: string[]) {
     ],
     { initialEntries },
   );
-  const view = render(
+  const view = renderWithClients(
     <ThemeProvider
       document={document}
       eventTarget={new EventTarget()}
@@ -148,7 +149,7 @@ function renderLayout(
     { initialEntries: [initialEntry] },
   );
 
-  const view = render(
+  const view = renderWithClients(
     <ThemeProvider
       document={document}
       eventTarget={new EventTarget()}
@@ -308,7 +309,7 @@ describe("ConsoleLayout", () => {
       { initialEntries: ["/models"] },
     );
 
-    render(
+    renderWithClients(
       <ThemeProvider
         document={document}
         eventTarget={new EventTarget()}
@@ -344,7 +345,7 @@ describe("ConsoleLayout", () => {
       { initialEntries: ["/"] },
     );
 
-    render(
+    renderWithClients(
       <ThemeProvider
         document={document}
         eventTarget={new EventTarget()}

@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, matchRoutes, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { RouteClient } from "@/api/route-client";
 import type { SiteClient } from "@/api/site-client";
-import { createRoutes } from "@/app/routes";
+import { routes } from "@/app/routes";
 import { nodeMemoryPayload } from "@/features/memory/node-memory-test-support";
 import {
   metricsClientWith,
@@ -22,7 +22,7 @@ import {
   localDeployment,
   modelTarget,
   readableMachine,
-} from "@/features/models/models-section-test-support";
+} from "@/features/models/deployed/models-section-test-support";
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   CreateApplicationDeploymentResponseSchema,
@@ -67,6 +67,7 @@ import {
   hardwareSnapshotsPayload,
   type ResourceSources,
 } from "@/test/fake-resource-watch";
+import { renderWithClients } from "@/test/render-with-clients";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 const deterministicModelClient: ModelClient = {
@@ -167,22 +168,20 @@ function renderAt(
       routes: () => routeClient.route.listRoutes({}),
     },
   });
-  const router = createMemoryRouter(
-    createRoutes({
+  const router = createMemoryRouter(routes, { initialEntries: [initialEntry] });
+
+  renderWithClients(
+    <ThemeProvider>
+      <RouterProvider router={router} />
+    </ThemeProvider>,
+    {
       applicationClient,
       metricsClient,
       modelClient,
       resourceWatchClient: watch.client(),
       routeClient,
       siteClient,
-    }),
-    { initialEntries: [initialEntry] },
-  );
-
-  render(
-    <ThemeProvider>
-      <RouterProvider router={router} />
-    </ThemeProvider>,
+    },
   );
 
   return { router, watch };
@@ -321,7 +320,6 @@ describe("application router", () => {
   });
 
   it("does not register the unsupported route-management pathname", () => {
-    const routes = createRoutes();
     expect(matchRoutes(routes, "/models/router")).toBeNull();
   });
 

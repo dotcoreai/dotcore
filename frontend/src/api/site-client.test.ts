@@ -42,7 +42,8 @@ describe("Site client endpoint resolution", () => {
   it("uses the loopback test fallback when no test management origin is configured", async () => {
     delete process.env.VITE_DOTCORE_MANAGEMENT_ORIGIN;
 
-    const { siteClient } = await import("./site-client");
+    const { createSiteClient } = await import("./site-client");
+    const siteClient = createSiteClient();
 
     expect(siteClient).toBeDefined();
     expect(createGrpcWebTransport).toHaveBeenCalledWith({
@@ -69,13 +70,15 @@ describe("Site client endpoint resolution", () => {
   it("exposes only public site management methods to browser callers", async () => {
     expectTypeOf<keyof SiteClient>().toEqualTypeOf<"listConfiguredExecutionTargets">();
 
-    const { siteClient } = await import("./site-client");
+    const { createSiteClient } = await import("./site-client");
+    const siteClient = createSiteClient();
 
     expect(siteClient).not.toHaveProperty("getMachine");
   });
 
   it("forwards configured-pool discovery without model context", async () => {
-    const { siteClient } = await import("./site-client");
+    const { createSiteClient } = await import("./site-client");
+    const siteClient = createSiteClient();
     await siteClient.listConfiguredExecutionTargets({});
     expect(generatedListConfiguredExecutionTargets).toHaveBeenCalledWith({}, undefined);
   });

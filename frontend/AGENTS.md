@@ -10,9 +10,17 @@ agents get wrong.
 ```
 frontend/src/
 ├── app/              app composition and providers; routes in routes.ts, router in router.tsx
-├── routes/           route-level composition of features
 ├── features/         product capabilities and their behavior tests
-│   └── chat/decisions/  the console chat's decision draft, controls and answers
+│   ├── chat/decisions/  the console chat's decision draft, controls and answers
+│   └── models/       model deployment errors and exposure shared by the subfolders below
+│       ├── polling/     the shared view of catalog models and live deployments
+│       ├── profiles/    model and profile rows, compatibility, sizing scenarios, profile tables
+│       ├── runtime/     engine parameters, context size, speculative decoding, launch arguments
+│       ├── inspector/   the catalog model panel and its sections
+│       ├── catalog/     the model catalog page and its table
+│       ├── deploy/      the deploy dialog and its steps; memory/ holds its memory preview
+│       ├── upstream/    upstream model deployments
+│       └── deployed/    the models page and a deployment's sidebar and metrics
 ├── components/
 │   ├── ui/           primitives, from shadcn/ui or shared by several callers
 │   └── <name>/       composites shared by several features
@@ -27,17 +35,19 @@ frontend/src/
 └── test/             shared Vitest and Testing Library setup, and repository-wide checks
 ```
 
-- Routes compose features and don't reach into feature internals.
+- `app/routes.ts` mounts feature pages directly; a feature owns its section's layout route.
 - A one-off treatment stays at its call site, not in `components/ui/`.
 - A folder imports only from folders before it in this order: `gen`, `lib`, `domain`, `api`,
-  `hooks`, `panels`, `resource-watch`, `theme`, `components`, `features`, `routes`, `app`.
-  `components/` also never imports `gen/`. Lint enforces this from the layer list in
-  [`eslint.config.mjs`](eslint.config.mjs); folders marked `pending` there are not enforced yet.
+  `hooks`, `panels`, `resource-watch`, `theme`, `components`, `features`, `app`. `components/` also
+  never imports `gen/`. Lint enforces this from the layer list in
+  [`eslint.config.mjs`](eslint.config.mjs).
 - Logic over protobuf types that several features use goes in `domain/`, not in one of them.
 - Files and feature folders never import each other in a loop, tests included.
   [`src/test/import-cycles.test.ts`](src/test/import-cycles.test.ts) enforces it, and its
   allowlist only shrinks: fix a loop by moving the shared code down, never by adding an entry.
-- Routes, features and components call `api/` and own no transport or protocol details.
+- Features and components call `api/` and own no transport or protocol details. Pages, sidebar
+  hosts and the console layout get API clients from `useClients()`; hooks and child components take
+  them as parameters; tests provide them with [`src/test/render-with-clients.tsx`](src/test/render-with-clients.tsx).
 - [`proto/AGENTS.md`](../proto/AGENTS.md) owns regenerating `gen/`.
 
 ## Running and checks

@@ -1,11 +1,12 @@
 import { create } from "@bufbuild/protobuf";
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
 import type { DecisionClient, DecisionRequest, DecisionResult } from "@/api/decision-client";
 import { ConsoleLayout } from "@/app/console-layout";
+import { ChatPage } from "@/features/chat/chat-page";
 import { type DecisionForm, formToBody } from "@/features/chat/decisions/decision-draft";
 import { decisionExamples } from "@/features/chat/decisions/decision-examples";
 import { createDecisionStore } from "@/features/chat/decisions/decision-store";
@@ -17,9 +18,9 @@ import {
   ListRoutesResponseSchema,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import type { StorageLike } from "@/lib/browser-storage";
-import { ChatRoute } from "@/routes/chat";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { FailingStorage, MemoryStorage } from "@/test/memory-storage";
+import { renderWithClients } from "@/test/render-with-clients";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 /** A decision client whose answers the test releases one by one, in order. */
@@ -72,27 +73,21 @@ function renderConsole(decisionClient: DecisionClient, storage: StorageLike, ent
   const router = createMemoryRouter(
     [
       {
-        element: (
-          <ConsoleLayout
-            decisionClient={decisionClient}
-            eventTarget={new EventTarget()}
-            resourceWatchClient={watch.client()}
-            storage={storage}
-          />
-        ),
+        element: <ConsoleLayout eventTarget={new EventTarget()} storage={storage} />,
         children: [
           { path: "/models", element: <p>Models page</p> },
           { path: "/routes", element: <p>Routes page</p> },
-          { path: "/chat", element: <ChatRoute /> },
+          { path: "/chat", element: <ChatPage /> },
         ],
       },
     ],
     { initialEntries: [entry] },
   );
-  render(
+  renderWithClients(
     <ThemeProvider document={document} eventTarget={new EventTarget()} storage={storage}>
       <RouterProvider router={router} />
     </ThemeProvider>,
+    { decisionClient, resourceWatchClient: watch.client() },
   );
   return userEvent.setup();
 }

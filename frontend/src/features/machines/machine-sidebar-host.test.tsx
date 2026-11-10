@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
@@ -33,6 +33,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
+import { renderWithClients } from "@/test/render-with-clients";
 
 import { MachineSidebarHost } from "./machine-sidebar-host";
 
@@ -187,7 +188,7 @@ function renderOnOverview(panels: string) {
     ],
     { initialEntries: ["/overview", `/overview?${panels}`] },
   );
-  render(<RouterProvider router={router} />);
+  renderWithClients(<RouterProvider router={router} />, { metricsClient });
 
   return router;
 }
@@ -195,9 +196,7 @@ function renderOnOverview(panels: string) {
 function OverviewMachineHost() {
   const openerRef = useRef<HTMLElement>(null);
 
-  return (
-    <MachineSidebarHost initialRange="6h" metricsClient={metricsClient} openerRef={openerRef} />
-  );
+  return <MachineSidebarHost initialRange="6h" openerRef={openerRef} />;
 }
 
 /** A store serving 15m and 6h ranges with no samples. */

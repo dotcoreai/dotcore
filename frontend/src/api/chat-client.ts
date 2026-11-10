@@ -86,8 +86,6 @@ export function createChatClient(
   return { streamChat };
 }
 
-export const chatClient = createChatClient();
-
 async function* readCompletionStream(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<ChatStreamEvent, void> {

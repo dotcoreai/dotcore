@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { type ReactNode, useRef } from "react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom";
@@ -10,6 +10,7 @@ import type { RouteClient } from "@/api/route-client";
 import { ConsoleLayout } from "@/app/console-layout";
 import { InspectorActions } from "@/components/inspector-actions/inspector-actions";
 import { InspectorShell } from "@/components/ui/inspector-shell";
+import { ChatPage } from "@/features/chat/chat-page";
 import type { ChatTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
 import { InferenceRequestKind } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
@@ -20,8 +21,8 @@ import {
   ListRoutesResponseSchema,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 import { usePanelNavigation } from "@/panels/panel-navigation";
-import { ChatRoute } from "@/routes/chat";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { renderWithClients } from "@/test/render-with-clients";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 function routeView(
@@ -68,18 +69,11 @@ function renderConsole(
   const router = createMemoryRouter(
     [
       {
-        element: (
-          <ConsoleLayout
-            chatClient={chatClient}
-            eventTarget={new EventTarget()}
-            resourceWatchClient={watch.client()}
-            storage={window.localStorage}
-          />
-        ),
+        element: <ConsoleLayout eventTarget={new EventTarget()} storage={window.localStorage} />,
         children: [
           { path: "/models", element: <p>Models page</p> },
           { path: "/routes", element: options.routesPage ?? <p>Routes page</p> },
-          { path: "/chat", element: <ChatRoute /> },
+          { path: "/chat", element: <ChatPage /> },
         ],
       },
     ],
@@ -89,7 +83,7 @@ function renderConsole(
     },
   );
 
-  render(
+  renderWithClients(
     <ThemeProvider
       document={document}
       eventTarget={new EventTarget()}
@@ -97,6 +91,7 @@ function renderConsole(
     >
       <RouterProvider router={router} />
     </ThemeProvider>,
+    { chatClient, resourceWatchClient: watch.client() },
   );
 
   return router;
