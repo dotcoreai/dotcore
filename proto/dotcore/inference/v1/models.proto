@@ -12,4 +12,7 @@ message AvailableModels {
 message AvailableModel {
   // Current OpenAI-callable inference route name.
   string model_id = 1;
+
+  // Largest context per request in tokens: the smallest its members declare; absent if none does.
+  optional uint64 context_per_request = 2;
 }
