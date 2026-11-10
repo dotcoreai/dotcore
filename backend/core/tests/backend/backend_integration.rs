@@ -439,16 +439,17 @@ async fn simulated_model_withdrawal_preserves_unrelated_model_discovery_and_infe
     )
     .await;
 
-    assert_eq!(
-        served_models(backend.inference_address()).await,
-        serde_json::json!({
+    wait_for_served_models(
+        backend.inference_address(),
+        &serde_json::json!({
             "object": "list",
             "data": [
                 {"id": "fixture-model", "object": "model", "created": 0, "owned_by": "dotcore"},
                 {"id": "fixture-model-b", "object": "model", "created": 0, "owned_by": "dotcore"}
             ]
-        })
-    );
+        }),
+    )
+    .await;
     assert_eq!(
         served_chat(backend.inference_address(), "fixture-model-b").await,
         serde_json::json!({
@@ -2717,6 +2718,23 @@ fn local_snapshot_model_id(
     snapshot: &dotcore_proto::dotcore::model::v1::ModelDeploymentSnapshot,
 ) -> &str {
     &local_snapshot(snapshot).model_id
+}
+
+/// Waits until the router lists exactly the expected models, since it serves a ready deployment
+/// only once its serving target is published, after the deployment reports ready.
+async fn wait_for_served_models(address: SocketAddr, expected: &serde_json::Value) {
+    let mut listed = serde_json::Value::Null;
+    tokio::time::timeout(support::CONVERGENCE_DEADLINE, async {
+        loop {
+            listed = served_models(address).await;
+            if &listed == expected {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("served models {expected}; last listed: {listed}"));
 }
 
 async fn served_models(address: SocketAddr) -> serde_json::Value {

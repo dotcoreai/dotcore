@@ -21,7 +21,7 @@ use dotcore_proto::dotcore::{
     catalog::v1::{UpstreamModelBoundary, UpstreamModelDataEgressClass, UpstreamModelLocality},
     inference::v1::{
         CreateRouteRequest, FallbackGroup, FallbackGroupSelection, InferenceRoute,
-        ListRoutesRequest, ReplaceRouteRequest,
+        InferenceRouteView, ListRoutesRequest, ReplaceRouteRequest,
     },
     model::v1::{
         CreateModelDeploymentRequest, CreateUpstreamModelDeploymentRequest, DirectRouteExposure,
@@ -468,18 +468,13 @@ async fn direct_site_mixed_custom_route_projects_like_a_management_created_route
         ModelDeploymentStatus::Ready,
     )
     .await;
-    let mut routes = backend.route_client();
-    let direct_routes = routes
-        .list_routes(ListRoutesRequest {})
-        .await
-        .expect("list direct site route")
-        .into_inner()
-        .routes;
+    let direct_routes = wait_for_eligible_route_members(&backend, &direct_route.name).await;
     assert_eq!(direct_routes.len(), 1);
     let direct = direct_routes.into_iter().next().expect("direct site route");
     assert_eq!(direct.route.as_ref(), Some(&direct_route));
 
-    let managed = routes
+    let managed = backend
+        .route_client()
         .create_route(CreateRouteRequest {
             name: "managed-mixed-route".to_owned(),
             enabled: true,
@@ -632,6 +627,7 @@ async fn mixed_custom_route_selects_controller_targets_by_declared_round_robin_p
         created.fallback_groups[0].selection,
         FallbackGroupSelection::RoundRobin as i32
     );
+    wait_for_eligible_route_members(&backend, &created.name).await;
 
     let upstream_attempts = upstream.inference_attempt_count();
     let simulated_response = request(
@@ -2362,6 +2358,49 @@ async fn wait_for_model_ids(backend: &support::RunningBackend, expected: &[&str]
     })
     .await
     .expect("served model publication timeout");
+}
+
+/// Waits until the named route shows every member eligible and returns that route listing. Route
+/// availability follows serving targets, which are published after a deployment reports ready.
+async fn wait_for_eligible_route_members(
+    backend: &support::RunningBackend,
+    route_name: &str,
+) -> Vec<InferenceRouteView> {
+    let mut routes = backend.route_client();
+    let mut listed = Vec::new();
+    tokio::time::timeout(READY_TIMEOUT, async {
+        loop {
+            listed = routes
+                .list_routes(ListRoutesRequest {})
+                .await
+                .expect("route list")
+                .into_inner()
+                .routes;
+            let all_eligible = listed
+                .iter()
+                .find(|view| {
+                    view.route
+                        .as_ref()
+                        .is_some_and(|route| route.name == route_name)
+                })
+                .and_then(|view| view.availability.as_ref())
+                .is_some_and(|availability| {
+                    availability
+                        .fallback_groups
+                        .iter()
+                        .flat_map(|group| &group.members)
+                        .all(|member| member.eligible)
+                });
+            if all_eligible {
+                return listed.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!("route {route_name} with every member eligible; last routes: {listed:?}")
+    })
 }
 
 async fn wait_for_removed(client: &mut ModelClient) {
