@@ -8,50 +8,32 @@ import {
 } from "@/components/metrics/metric-row/metric-row";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatBytes, formatGib, formatRelativeTime } from "@/lib/format";
+import { formatGib } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { useResourceColors } from "@/theme/resource-color-context";
 
+import { MemoryBar } from "./memory-bar";
+import { DetailLines, RowBreakdown } from "./memory-row-detail";
+import {
+  capacityText,
+  describeLines,
+  focusDetailLine,
+  focusMissingReason,
+  kindLabels,
+  type MemoryFocusStatus,
+  type MemoryRowCapacity,
+  type MemorySegmentBy,
+  rowDetailLines,
+} from "./memory-text";
 import {
   type MemoryKind,
   type MemoryRow,
-  type MemorySegment,
   type MemorySpan,
   type UnavailableMemory,
-  type UnmeasuredUsage,
 } from "./site-memory";
 
+export type { MemoryFocusStatus, MemoryRowCapacity, MemorySegmentBy };
+
 export type MemoryRowsMode = "merged" | "spans";
-
-/**
- * What a bar's segments stand for: each deployment in its card color, with hatched use outside any
- * deployment, or each machine's whole use in its marker color.
- */
-export type MemorySegmentBy = "deployment" | "machine";
-
-/**
- * What the rows say about the focused deployment on one row while its size can't be drawn, such as
- * a pending estimate: `detail` is its line in the row's detail, and `readout` replaces the readout.
- */
-export interface MemoryFocusStatus {
-  detail: string;
-  readout?: string;
-}
-
-/**
- * Where a row's use stands against the line its fit verdict judges, as the capacity component
- * states it: beyond the row's total, or past the fit line into the headroom kept free under it.
- */
-export interface MemoryRowCapacity {
-  /** Whether use is beyond the row's total, not only past its fit line. */
-  beyondTotal: boolean;
-  /** Share of the total, in whole percent, that the fit line keeps free. */
-  headroomPercent: number;
-  /** The line the bar marks: the total beyond it, the fit line within the headroom. */
-  lineBytes: bigint;
-  /** Use past that line. */
-  overBytes: bigint;
-}
 
 /**
  * Memory rows as `label | bar | readout` lines: deployment segments in their card colors, hatched
@@ -338,12 +320,16 @@ function MemoryRowLine({
             unavailable={unavailable}
           />
         ) : (
-          <Bar
-            ariaLabel={barLabel(row.kind, row.spans, unavailable, capacity, deviceLabel)}
+          <MemoryBar
             capacity={capacity}
-            parts={barParts("deployment", row.spans, highlighted)}
+            deviceLabel={deviceLabel}
+            highlighted={highlighted}
+            kind={row.kind}
+            segmentBy="deployment"
+            spans={row.spans}
             surface={surface}
             totalBytes={row.totalBytes}
+            unavailable={unavailable}
           />
         )}
         {/* The tooltip mounts only while open, so this copy of its detail describes the readout.
@@ -462,12 +448,16 @@ function MemoryMetricRow({
               unavailable={unavailable}
             />
           ) : (
-            <Bar
-              ariaLabel={barLabel(row.kind, row.spans, unavailable, capacity, deviceLabel)}
+            <MemoryBar
               capacity={capacity}
-              parts={barParts(segmentBy, row.spans, highlighted)}
+              deviceLabel={deviceLabel}
+              highlighted={highlighted}
+              kind={row.kind}
+              segmentBy={segmentBy}
+              spans={row.spans}
               surface={surface}
               totalBytes={row.totalBytes}
+              unavailable={unavailable}
             />
           )}
           {/* The tooltip mounts only while open, so this copy of its detail describes the readout. */}
@@ -544,12 +534,16 @@ function MemorySpans({
     <MetricSpans
       spans={row.spans.map((span) => ({
         bar: (
-          <Bar
-            ariaLabel={barLabel(row.kind, [span], unavailable, spanCapacity(span), deviceLabel)}
+          <MemoryBar
             capacity={spanCapacity(span)}
-            parts={barParts(segmentBy, [span], highlighted)}
+            deviceLabel={deviceLabel}
+            highlighted={highlighted}
+            kind={row.kind}
+            segmentBy={segmentBy}
+            spans={[span]}
             surface={surface}
             totalBytes={span.totalBytes}
+            unavailable={unavailable}
           />
         ),
         colorKey: span.machine.machineId,
@@ -606,496 +600,4 @@ function rowPresentation({
   const readoutLabel = `${kindLabels[row.kind]} ${readout}${missingReason ? `, this model: ${missingReason}` : ""}${flagged ? `, ${capacityText(flagged)}` : ""}`;
 
   return { detail, flagged, readout, readoutLabel };
-}
-
-/** A row's breakdown for a click or tap: the row detail, then every drawn part of its bar. */
-function RowBreakdown({ detail, row }: { detail: readonly DetailLine[]; row: MemoryRow }) {
-  const segments = row.spans
-    .flatMap((span) => span.segments)
-    .filter((segment) => segment.bytes > 0n);
-  const otherBytes = sum(row.spans.map((span) => span.otherBytes));
-  const { colorOf } = useResourceColors();
-
-  return (
-    <>
-      <div className="flex flex-col gap-0.5">
-        <DetailLines lines={detail} />
-      </div>
-      {segments.map((segment) => (
-        <div
-          className={breakdownEntryClass}
-          key={`${segment.machineId}:${segment.owner ?? "model"}:${segment.deploymentId}`}
-        >
-          <span
-            aria-hidden="true"
-            className="mt-1 size-2 rounded-xs"
-            style={{ backgroundColor: colorOf(segment.colorKey) }}
-          />
-          <SegmentDetail parts={row.spans} segment={segment} />
-        </div>
-      ))}
-      {otherBytes > 0n ? (
-        <div className={breakdownEntryClass}>
-          <span aria-hidden="true" className={cn("mt-1 size-2 rounded-xs", otherClass)} />
-          <OtherDetail parts={row.spans} />
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-function DetailLines({ lines }: { lines: readonly DetailLine[] }) {
-  return lines.map((line) => (
-    <span className={cn(line.indent && "pl-3", line.strong && "font-semibold")} key={line.key}>
-      {line.text}
-    </span>
-  ));
-}
-
-/**
- * One bar: its parts in order over a free-memory track, each giving its detail on hover. It scales
- * to its contents when drawn use exceeds the total, such as a claim past it, so it never overflows.
- * With a `capacity` verdict, a line shows where the total ends or where the fit line sits.
- */
-function Bar({
-  ariaLabel,
-  capacity,
-  parts,
-  surface,
-  totalBytes,
-}: {
-  ariaLabel: string;
-  capacity?: MemoryRowCapacity;
-  parts: readonly BarPart[];
-  surface: "page" | "panel";
-  totalBytes: bigint;
-}) {
-  const { colorOf } = useResourceColors();
-  const drawn = sum(parts.map((part) => part.bytes));
-  const scale = Number(drawn > totalBytes ? drawn : totalBytes) || 1;
-  const width = (bytes: bigint) => `${(Number(bytes) / scale) * 100}%`;
-
-  return (
-    <div className="relative">
-      <div
-        aria-label={ariaLabel}
-        className={cn(
-          // Separators are borders inside each segment's width, so they never push segments out.
-          "flex h-2.5 overflow-hidden rounded-full bg-foreground/10 [&>*+*]:border-l-2",
-          surface === "page" ? "[&>*+*]:border-background" : "[&>*+*]:border-card",
-        )}
-        role="img"
-      >
-        {/* A zero-byte part would still draw its separator, so it stays in the text only. */}
-        {parts
-          .filter((part) => part.bytes > 0n)
-          .map((part) => (
-            <Tooltip key={part.key}>
-              <TooltipTrigger
-                className={cn(
-                  "h-full shrink-0 transition-[filter,opacity]",
-                  part.colorKey === undefined && otherClass,
-                  part.dimmed && "opacity-45 grayscale",
-                )}
-                data-deployment-id={part.deploymentId}
-                render={<span />}
-                style={{
-                  backgroundColor: part.colorKey === undefined ? undefined : colorOf(part.colorKey),
-                  width: width(part.bytes),
-                }}
-              />
-              <TooltipContent className="flex-col items-start gap-0.5 text-left">
-                {part.detail}
-              </TooltipContent>
-            </Tooltip>
-          ))}
-      </div>
-      {capacity ? (
-        // A tick taller than the bar, so the crossed line reads by shape and not only by the
-        // readout color.
-        <span
-          aria-hidden="true"
-          className={cn(
-            "pointer-events-none absolute -inset-y-0.5 w-0.5 -translate-x-1/2 rounded-full ring-1",
-            capacity.beyondTotal ? "bg-foreground" : "bg-warning-foreground",
-            surface === "page" ? "ring-background" : "ring-card",
-          )}
-          data-line={capacity.beyondTotal ? "total" : "fit"}
-          data-slot="memory-capacity-marker"
-          style={{ left: width(capacity.lineBytes) }}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-/** One drawn part of a bar: its size, fill and hover detail. */
-interface BarPart {
-  bytes: bigint;
-  /** The part's marker color; a part without one draws hatched, as use outside any deployment. */
-  colorKey?: string;
-  deploymentId?: string;
-  detail: ReactNode;
-  /** Grays the part out while another deployment is highlighted. */
-  dimmed?: boolean;
-  key: string;
-}
-
-/**
- * The parts of a bar over `spans`: each deployment segment, then hatched use outside any
- * deployment, or by machine, each machine's whole use.
- */
-function barParts(
-  segmentBy: MemorySegmentBy,
-  spans: readonly MemorySpan[],
-  highlighted?: string,
-): BarPart[] {
-  if (segmentBy === "machine") {
-    return spans.map((span) => ({
-      bytes: span.usedBytes,
-      colorKey: span.machine.machineId,
-      detail: <MachineDetail span={span} />,
-      key: span.machine.machineId,
-    }));
-  }
-
-  const segments: BarPart[] = spans
-    .flatMap((span) => span.segments)
-    .map((segment) => ({
-      bytes: segment.bytes,
-      colorKey: segment.colorKey,
-      deploymentId: segment.deploymentId,
-      detail: <SegmentDetail parts={spans} segment={segment} />,
-      dimmed: highlighted !== undefined && highlighted !== segment.deploymentId,
-      key: `${segment.machineId}:${segment.owner ?? "model"}:${segment.deploymentId}`,
-    }));
-  const otherBytes = sum(spans.map((span) => span.otherBytes));
-
-  return [...segments, { bytes: otherBytes, detail: <OtherDetail parts={spans} />, key: "other" }];
-}
-
-/** A machine's part of a bar: its use, then each deployment and other use within it. */
-function MachineDetail({ span }: { span: MemorySpan }) {
-  return (
-    <>
-      <span className="font-semibold">{span.machine.name}</span>
-      <span>
-        {formatBytes(span.usedBytes)} / {formatBytes(span.totalBytes)}
-      </span>
-      {span.segments
-        .filter((segment) => segment.bytes > 0n)
-        .map((segment) => (
-          <span key={`${segment.owner ?? "model"}:${segment.deploymentId}`}>
-            {segment.name} · {formatBytes(segment.bytes)}
-            {sourceSuffix(segment)}
-          </span>
-        ))}
-      {span.otherBytes > 0n ? (
-        <span>
-          {span.otherLabel} · {formatBytes(span.otherBytes)}
-        </span>
-      ) : null}
-    </>
-  );
-}
-
-function SegmentDetail({
-  parts,
-  segment,
-}: {
-  parts: readonly MemorySpan[];
-  segment: MemorySegment;
-}) {
-  const machine = parts.find((span) => span.machine.machineId === segment.machineId)?.machine;
-
-  return (
-    <>
-      <span className="font-semibold">{segment.name}</span>
-      {segment.profileId ? <span>{segment.profileId}</span> : null}
-      <span>
-        {machine ? `${machine.name} · ` : ""}
-        {formatBytes(segment.bytes)}
-        {sourceSuffix(segment)}
-      </span>
-    </>
-  );
-}
-
-function OtherDetail({ parts }: { parts: readonly MemorySpan[] }) {
-  const counted = parts.filter((span) => span.otherBytes > 0n);
-  if (counted.length === 1) {
-    const [span] = counted;
-    return (
-      <>
-        <span className="font-semibold">{span.otherLabel}</span>
-        <span>
-          {span.machine.name} · {formatBytes(span.otherBytes)}
-        </span>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <span className="font-semibold">{counted[0]?.otherLabel ?? "Other"}</span>
-      {counted.map((span) => (
-        <span key={span.machine.machineId}>
-          {span.machine.name} · {formatBytes(span.otherBytes)}
-        </span>
-      ))}
-    </>
-  );
-}
-
-/** One line of a row's detail, shown in its tooltip and describing its readout. */
-interface DetailLine {
-  indent?: boolean;
-  key: string;
-  strong?: boolean;
-  text: string;
-}
-
-/** The focused deployment's line: its status, its drawn size, or why it has none. */
-function focusDetailLine(
-  focused: MemorySegment | undefined,
-  missingReason: string | undefined,
-  status: MemoryFocusStatus | undefined,
-): DetailLine {
-  const line = { key: "focus", strong: true };
-  if (status) return { ...line, text: status.detail };
-  if (focused) {
-    const subject = focused.source === "predicted" ? "This deployment" : "This model";
-    return {
-      ...line,
-      text: `${subject}: ${formatBytes(focused.bytes)}${sourceSuffix(focused)}`,
-    };
-  }
-
-  return { ...line, text: `This model: ${missingReason}` };
-}
-
-/**
- * Row totals, after deploy when a prediction is drawn, the per-machine and per-GPU split,
- * freshness, and what the bar can't draw.
- */
-function rowDetailLines({
-  capacity,
-  freeByMachine,
-  row,
-  stale,
-  unavailable,
-  unmeasured,
-}: {
-  capacity?: MemoryRowCapacity;
-  freeByMachine: boolean;
-  row: MemoryRow;
-  stale: boolean;
-  unavailable: readonly UnavailableMemory[];
-  unmeasured: readonly UnmeasuredUsage[];
-}): DetailLine[] {
-  const drawn = row.usedBytes;
-  const segments = row.spans.flatMap((span) => span.segments);
-  const estimated = segments.filter((segment) => segment.source === "estimated");
-  const predicted = segments.some(
-    (segment) => segment.source === "predicted" && segment.bytes > 0n,
-  );
-  const observedAt = row.spans
-    .map((span) => span.observedAt)
-    .filter((value) => value !== undefined)
-    .sort((left, right) => Number(left.seconds - right.seconds))[0];
-  // Free memory spread over machines is not room for one workload, so it is stated per machine.
-  const freePerMachine = freeByMachine && row.spans.length > 1;
-  const lines: DetailLine[] = [
-    { key: "title", strong: true, text: rowDescription(row) },
-    {
-      key: "totals",
-      text: `${formatBytes(drawn)} used${predicted ? " after deploy" : ""}${
-        capacity
-          ? capacity.beyondTotal
-            ? ` · ${formatBytes(capacity.overBytes)} over capacity`
-            : ` · less than ${capacity.headroomPercent}% free`
-          : freePerMachine
-            ? ""
-            : ` · ${formatBytes(freeBytes(drawn, row.totalBytes))} free`
-      }`,
-    },
-  ];
-  if (row.spans.length > 1 || row.spans.some((span) => span.devices.length > 1)) {
-    for (const span of row.spans) {
-      lines.push({
-        key: `span:${span.machine.machineId}`,
-        text: `${span.machine.name}: ${formatBytes(span.usedBytes)} / ${formatBytes(span.totalBytes)}${
-          freePerMachine ? ` · ${formatBytes(freeBytes(span.usedBytes, span.totalBytes))} free` : ""
-        }`,
-      });
-      if (span.devices.length > 1) {
-        for (const device of span.devices) {
-          lines.push({
-            indent: true,
-            key: `device:${span.machine.machineId}:${device.label}`,
-            text: `${device.label}: ${formatBytes(device.usedBytes)} / ${formatBytes(device.totalBytes)}`,
-          });
-        }
-      }
-    }
-  }
-  if (estimated.length) {
-    lines.push({
-      key: "estimated",
-      text: `Estimated: ${estimated.map((segment) => segment.name).join(", ")}`,
-    });
-  }
-  for (const usage of unmeasured) {
-    lines.push({
-      key: `unmeasured:${usage.owner ?? "model"}:${usage.deploymentId}`,
-      text: `Not measured: ${usage.name} (${reasonText(usage)})`,
-    });
-  }
-  for (const entry of unavailable) {
-    lines.push({
-      key: `unavailable:${entry.machine.machineId}:${entry.kind ?? "machine"}`,
-      text: `Unreadable: ${entry.machine.name}${entry.kind ? ` ${kindLabels[entry.kind]}` : ""}${
-        entry.deployments.length ? ` (${entry.deployments.map((ref) => ref.name).join(", ")})` : ""
-      }`,
-    });
-  }
-  if (observedAt) {
-    lines.push({ key: "observed", text: `Observed ${formatRelativeTime(observedAt).text}` });
-  }
-  if (stale) lines.push({ key: "stale", text: "Latest update failed; values may be outdated." });
-
-  return lines;
-}
-
-/** Detail lines as one description, each closed as a sentence. */
-function describeLines(lines: readonly DetailLine[]): string {
-  return lines.map((line) => (/[.!?…]$/.test(line.text) ? line.text : `${line.text}.`)).join(" ");
-}
-
-/**
- * Names a drawn size that is a catalog estimate, a starting deployment's expected use or a
- * prediction rather than memory observed for the model.
- */
-function sourceSuffix(segment: MemorySegment): string {
-  switch (segment.source) {
-    case "claimed":
-      return " (starting)";
-    case "estimated":
-      return " (estimated)";
-    case "predicted":
-      return " (predicted)";
-    case "observed":
-      return "";
-  }
-}
-
-/** Accessible bar summary, naming estimates, what the bar can't draw, and any marked overrun. */
-function barLabel(
-  kind: MemoryKind,
-  spans: readonly MemorySpan[],
-  unavailable: readonly UnavailableMemory[],
-  capacity: MemoryRowCapacity | undefined,
-  deviceLabel?: string,
-): string {
-  const used = sum(spans.map((span) => span.usedBytes));
-  const total = sum(spans.map((span) => span.totalBytes));
-  const machines =
-    spans.length === 1
-      ? ` on ${spans[0].machine.name}${deviceLabel ? ` (${deviceLabel})` : ""}`
-      : "";
-  const parts = [
-    `${kindLabels[kind]}${machines}: ${formatBytes(used)} used of ${formatBytes(total)}`,
-  ];
-  const segments = spans.flatMap((span) => span.segments);
-  const estimated = segments.filter((segment) => segment.source === "estimated");
-  const unmeasured = spans.flatMap((span) => span.unmeasured);
-
-  if (segments.length) {
-    parts.push(
-      `deployments: ${segments
-        .map((segment) => `${segment.name} ${formatBytes(segment.bytes)}`)
-        .join(", ")}`,
-    );
-  }
-  if (estimated.length)
-    parts.push(`estimated: ${estimated.map((segment) => segment.name).join(", ")}`);
-  if (unmeasured.length) {
-    parts.push(
-      `not measured: ${unmeasured.map((usage) => `${usage.name} (${reasonText(usage)})`).join(", ")}`,
-    );
-  }
-  if (unavailable.length) {
-    parts.push(
-      `unreadable: ${unavailable
-        .map(
-          (entry) =>
-            `${entry.machine.name}${entry.kind ? ` ${kindLabels[entry.kind]}` : ""}${
-              entry.deployments.length
-                ? ` (${entry.deployments.map((ref) => ref.name).join(", ")})`
-                : ""
-            }`,
-        )
-        .join(", ")}`,
-    );
-  }
-  if (capacity) parts.push(capacityText(capacity));
-
-  return parts.join("; ");
-}
-
-/** A capacity verdict in a few words, such as "over capacity by 5 GiB". */
-function capacityText(capacity: MemoryRowCapacity): string {
-  const bytes = formatBytes(capacity.overBytes);
-  return capacity.beyondTotal
-    ? `over capacity by ${bytes}`
-    : `less than ${capacity.headroomPercent}% free by ${bytes}`;
-}
-
-const kindLabels: Record<MemoryKind, string> = { ram: "RAM", vram: "VRAM" };
-
-/** What a row's memory is. Unified machines' GPUs allocate from system memory, so it reads as RAM. */
-function rowDescription(row: MemoryRow): string {
-  return row.kind === "vram" ? "VRAM: dedicated GPU memory" : "RAM: system memory";
-}
-
-// Hatched neutral fill for memory no listed deployment accounts for, distinct from every deployment colour.
-const otherClass =
-  "bg-[repeating-linear-gradient(135deg,var(--muted-foreground)_0_3px,transparent_3px_6px)] opacity-60";
-
-// One drawn part in a row's breakdown: its swatch, then its detail lines beside it.
-const breakdownEntryClass =
-  "grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 border-t border-border pt-2 [&>:not(:first-child)]:col-start-2";
-
-/**
- * Why the focused deployment has no readout on a row. A dedicated machine's host RAM leaves out
- * models that hold no host memory beyond the system's, so they aren't listed as unsized there.
- */
-function focusMissingReason(kind: MemoryKind, unmeasured?: UnmeasuredUsage): string {
-  if (unmeasured) return `not measured, ${reasonText(unmeasured)}`;
-  return kind === "ram" ? "host memory isn't estimated or measured" : "not measured here";
-}
-
-function reasonText(usage: UnmeasuredUsage): string {
-  switch (usage.reason) {
-    case "noEstimate":
-      return "no catalog sizing";
-    case "notReady":
-      return "not ready yet";
-    case "notRunning":
-      return "process not running";
-    case "pending":
-      return "waiting for the first reading";
-    case "unavailable":
-      return "measurement unavailable";
-    case "stale":
-      return "no current reading";
-  }
-}
-
-function freeBytes(used: bigint, total: bigint): bigint {
-  return total > used ? total - used : 0n;
-}
-
-function sum(values: readonly bigint[]): bigint {
-  return values.reduce((total, value) => total + value, 0n);
 }
