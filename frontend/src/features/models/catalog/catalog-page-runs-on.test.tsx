@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -18,6 +17,7 @@ import {
   type ListModelProfileCompatibilityResponse,
   ListModelProfileCompatibilityResponseSchema,
 } from "@/gen/dotcore/model/v1/service_pb";
+import { setupUser } from "@/test/user";
 
 import { syntheticCatalog } from "./catalog-table-test-support";
 
@@ -64,7 +64,7 @@ function renderCatalog(
       initialEntry,
       models,
     }),
-    user: userEvent.setup(),
+    user: setupUser(),
   };
 }
 

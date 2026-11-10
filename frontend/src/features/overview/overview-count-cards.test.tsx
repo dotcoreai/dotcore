@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 
@@ -20,6 +19,7 @@ import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/servi
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { setupUser } from "@/test/user";
 
 import { InferenceCountCards, OverviewAppsSection } from "./overview-count-cards";
 
@@ -92,7 +92,7 @@ describe("overview count cards", () => {
     ["Routes", "/routes"],
     ["Apps", "/apps"],
   ])("opens the %s list page from its card", async (name, path) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderCards();
     await waitFor(() => expect(cardTexts()).toHaveLength(3));
 
@@ -125,7 +125,7 @@ function renderCards(data = { appDeployments, modelDeployments, routes }) {
 
   render(
     <MemoryRouter initialEntries={["/overview"]}>
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <div data-testid="cards">
           <InferenceCountCards />
         </div>

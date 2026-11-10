@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-import { createPollTimer, DEFAULT_POLL_RETRY_DELAYS_MS } from "@/lib/poll-timer";
+import { createPollTimer } from "@/lib/poll-timer";
 import type { ReadState } from "@/lib/read-state";
+import { timing } from "@/lib/timing";
 import { useManagerSession } from "@/resource-watch/resource-watch";
 
 export interface SessionReadOptions {
@@ -75,11 +76,8 @@ export function useSessionRead<T>(
             value: previous?.read === read ? previous.value.value : undefined,
           },
         }));
-        timer.arm(
-          DEFAULT_POLL_RETRY_DELAYS_MS[
-            Math.min(failureCount - 1, DEFAULT_POLL_RETRY_DELAYS_MS.length - 1)
-          ],
-        );
+        const delays = timing().pollRetryMs;
+        timer.arm(delays[Math.min(failureCount - 1, delays.length - 1)]);
       }
     };
 

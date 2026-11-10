@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,6 +19,7 @@ import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/applicat
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { setupUser } from "@/test/user";
 
 import { overviewCardSpecs, overviewSplitIds, overviewSplits } from "./overview-card-specs";
 import { OverviewAppsSection } from "./overview-count-cards";
@@ -73,7 +73,7 @@ describe("OverviewAppsSection", () => {
   });
 
   it("opens one stream for the page and never reopens it for a card or split", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(streams.client);
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
 
@@ -96,7 +96,7 @@ describe("OverviewAppsSection", () => {
   });
 
   it("charts each app's share of the hosting machines' CPUs, by app name", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(streams.client);
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
 
@@ -115,7 +115,7 @@ describe("OverviewAppsSection", () => {
   });
 
   it("charts RAM and VRAM by app, summing the services of an app", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(streams.client);
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
 
@@ -132,7 +132,7 @@ describe("OverviewAppsSection", () => {
   });
 
   it("reads the new range after a range change", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(streams.client);
     const section = screen.getByRole("region", { name: "Apps" });
     await waitFor(() => expect(cardTexts(section)[1]).toBe("RAM | 3 GiB"));
@@ -178,7 +178,7 @@ function renderSection(client: MetricsClient): { metrics: { current: MetricCards
   act(() => {
     render(
       <MemoryRouter>
-        <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+        <ResourceWatchProvider client={watch.client()}>
           <Page />
         </ResourceWatchProvider>
       </MemoryRouter>,

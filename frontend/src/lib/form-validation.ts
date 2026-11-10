@@ -19,15 +19,17 @@ export function toFieldErrors(
 }
 
 /**
- * Moves focus to the first invalid registered field, preserving validation declaration order.
- * Form-local callers invoke this after storing errors; transport and backend errors do not use it.
+ * Moves focus to the first invalid registered field, preserving validation declaration order, and
+ * reports whether one took focus. Form-local callers invoke this after storing errors; transport
+ * and backend errors do not use it.
  */
-export function focusFirstInvalidField(errors: FieldErrors, controls: FieldControls): void {
+export function focusFirstInvalidField(errors: FieldErrors, controls: FieldControls): boolean {
   for (const field of errors.keys()) {
     const control = controls.get(field);
     if (control) {
       control.focus();
-      return;
+      return true;
     }
   }
+  return false;
 }

@@ -2,7 +2,6 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ApplicationClient } from "@/api/application-client";
@@ -40,10 +39,11 @@ import {
   ListConfiguredExecutionTargetsResponseSchema,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
-import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction, inspectorActionList, pickMoreAction } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import {
   app,
@@ -147,6 +147,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("delays initial feedback and holds completed Apps content for the minimum", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let resolveCatalog!: (
       response: Awaited<ReturnType<ApplicationClient["catalog"]["listApplications"]>>,
@@ -167,7 +168,7 @@ describe("ApplicationsPage", () => {
     expect(client.catalog.listApplications).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(client.site.listConfiguredExecutionTargets).toHaveBeenCalledTimes(1);
     expect(client.application.listApplicationDeployments).toHaveBeenCalledTimes(1);
@@ -181,7 +182,7 @@ describe("ApplicationsPage", () => {
     expect(screen.queryByText("No applications deployed")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS - 1);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs - 1);
     });
     expect(screen.getByRole("status")).toHaveTextContent("Loading apps…");
 
@@ -192,7 +193,7 @@ describe("ApplicationsPage", () => {
     expect(screen.getByText("No applications deployed")).toBeVisible();
   });
   it("restores an application deployment and its log modal from a direct log URL", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("open-webui", "OpenWebUI");
     const client = clientFor(
       [application],
@@ -334,7 +335,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("does not call remove when cancellation uses Cancel or Escape", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("open-webui", "OpenWebUI");
     const client = clientFor(
       [],
@@ -353,7 +354,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("applies an accepted Pause immediately, disables conflicts, suppresses endpoint access, and restores row focus", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("pause-app", "Pause App");
     const ready = deployment(
       application,
@@ -415,7 +416,7 @@ describe("ApplicationsPage", () => {
   ] as const)(
     "accepts Pause from the %s state without exposing a stale endpoint",
     async (_label, lifecycleState) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const application = app(`pause-${_label}`, `Pause ${_label}`);
       const baseline = deployment(
         application,
@@ -466,7 +467,7 @@ describe("ApplicationsPage", () => {
   );
 
   it("applies an accepted Resume immediately in a startup state and keeps Remove separate", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("resume-app", "Resume App");
     const paused = create(ApplicationDeploymentSchema, {
       ...deployment(
@@ -517,7 +518,7 @@ describe("ApplicationsPage", () => {
     ["Pause", Code.FailedPrecondition, "pause was rejected", "Pause was rejected"],
     ["Resume", Code.Unavailable, "resume write is uncertain", "Resume outcome is uncertain"],
   ])("reports exact accessible %s errors", async (action, code, detail, message) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app(`${action.toLowerCase()}-error-app`, `${action} Error App`);
     const desiredState =
       action === "Pause"
@@ -583,7 +584,7 @@ describe("ApplicationsPage", () => {
       "Teardown response protocol error: accepted deployment is not TEARDOWN.",
     ],
   ])("rejects %s removal response without false success", async (_case, response, message) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("open-webui", "OpenWebUI");
     const present = deployment(
       application,
@@ -616,7 +617,7 @@ describe("ApplicationsPage", () => {
   ])(
     "distinguishes removal failure code %s and keeps the listed deployment",
     async (code, message) => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const application = app("open-webui", "OpenWebUI");
       const present = deployment(
         application,
@@ -641,7 +642,7 @@ describe("ApplicationsPage", () => {
   );
 
   it("prevents duplicate removal while the accepted request is pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("open-webui", "OpenWebUI");
     const present = deployment(
       application,
@@ -669,7 +670,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("keeps the accepted teardown overlay over a stale poll", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("open-webui", "OpenWebUI");
     const present = deployment(
       application,
@@ -740,7 +741,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("opens an assigned endpoint without waiting for readiness", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("open-webui", "OpenWebUI");
     const assigned = create(ApplicationDeploymentSchema, {
       ...deployment(
@@ -1081,7 +1082,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("keeps Installed healthy and removable when catalog loading fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("historic", "Historic App");
     const installed = deployment(
       application,
@@ -1117,7 +1118,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("selects exactly the deployment row whose inspector is open", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const first = deployment(
       app("first-app", "First App"),
       ApplicationLifecycleState.READY,
@@ -1149,7 +1150,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("marks the deployment row and its inspector with the deployment's own color", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("installed-app", "Installed App");
     const installed = deployment(
       application,
@@ -1175,7 +1176,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("saves a Name through the application metadata request", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("editable-app", "Editable App");
     const installed = deployment(
       application,
@@ -1211,7 +1212,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("does not accept an uncertain Name update from duplicate immutable-ID records", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("editable-app", "Editable App");
     const installed = deployment(
       application,
@@ -1254,7 +1255,7 @@ describe("ApplicationsPage", () => {
   });
 
   it("characterizes application Edit navigation, lifecycle gating, and Name-only section behavior", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const application = app("editable-app", "Editable App");
     const installed = deployment(
       application,
@@ -1478,7 +1479,7 @@ describe("Apps table", () => {
   });
 
   it("offers Route in the View menu, hidden by default, and keeps it in the URL", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderTable();
 
     const table = await screen.findByRole("table", { name: "Installed applications" });

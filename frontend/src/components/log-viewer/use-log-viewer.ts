@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { LogEntry, LogViewerOperations } from "@/api/log-types";
+import { timing } from "@/lib/timing";
 
 import { createLogViewerState, logViewerReducer, MAX_DISPLAYED_LOG_ROWS } from "./state";
 
-const reconnectDelays = [250, 500, 1_000, 2_000, 4_000, 8_000];
 export const MAX_PENDING_LOG_ENTRIES = MAX_DISPLAYED_LOG_ROWS;
 
 export interface UseLogViewerOptions<Position> {
@@ -89,7 +89,8 @@ export function useLogViewer<Position>({
       for (const sourceFollow of sourceFollows.values()) sourceFollow.abort();
       sourceFollows.clear();
       dispatch({ type: "reconnecting", continuityWarning: perSourceReconnect });
-      const delay = reconnectDelays[Math.min(wholeStreamRetryAttempt, reconnectDelays.length - 1)];
+      const delays = timing().logReconnectMs;
+      const delay = delays[Math.min(wholeStreamRetryAttempt, delays.length - 1)];
       wholeStreamRetryAttempt += 1;
       retryRef.current = window.setTimeout(() => {
         if (!disposed) void startFollow(true);
@@ -100,7 +101,8 @@ export function useLogViewer<Position>({
       if (sourceRetriesRef.current.has(sourceName)) return;
       if (liveSources.has(sourceName)) dispatch({ type: "reconnecting", continuityWarning: true });
       const retryAttempt = sourceRetryAttemptsRef.current.get(sourceName) ?? 0;
-      const delay = reconnectDelays[Math.min(retryAttempt, reconnectDelays.length - 1)];
+      const delays = timing().logReconnectMs;
+      const delay = delays[Math.min(retryAttempt, delays.length - 1)];
       sourceRetryAttemptsRef.current.set(sourceName, retryAttempt + 1);
       const retry = window.setTimeout(() => {
         sourceRetriesRef.current.delete(sourceName);

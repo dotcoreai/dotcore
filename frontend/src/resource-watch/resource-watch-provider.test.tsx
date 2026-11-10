@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ListRoutesResponseSchema } from "@/gen/dotcore/inference/v1/routes_pb";
 import { ListMachinesResponseSchema } from "@/gen/dotcore/site/v1/service_pb";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
 import {
@@ -16,9 +17,8 @@ import {
 } from "./resource-watch";
 import { ResourceWatchProvider } from "./resource-watch-provider";
 
-const reopenDelayMs = 50;
-
 beforeEach(() => {
+  setTiming(productionTiming);
   vi.useFakeTimers();
 });
 
@@ -163,7 +163,7 @@ describe("ResourceWatchProvider", () => {
 
     watch.close(new ConnectError("manager stopped", Code.Unavailable));
     await flush();
-    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    await act(() => vi.advanceTimersByTimeAsync(productionTiming.pollRetryMs[0]));
     expect(watch.requests).toHaveLength(2);
 
     watch.sessionId = "session-b";
@@ -190,7 +190,7 @@ describe("ResourceWatchProvider", () => {
     await flush();
     expect(screen.getByTestId("machines")).toHaveTextContent("failed node-a");
 
-    await act(() => vi.advanceTimersByTimeAsync(1_000));
+    await act(() => vi.advanceTimersByTimeAsync(productionTiming.pollRetryMs[0]));
     expect(watch.requests).toHaveLength(2);
     watch.payload("machines", machines("node-a", "node-b"));
     await flush();
@@ -208,7 +208,10 @@ describe("ResourceWatchProvider", () => {
 
     watch.close(new ConnectError("too many subscriptions", Code.InvalidArgument));
     await flush();
-    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    // Long enough for every retry of the backoff.
+    await act(() =>
+      vi.advanceTimersByTimeAsync(productionTiming.pollRetryMs.reduce((sum, ms) => sum + ms)),
+    );
 
     expect(watch.requests).toHaveLength(1);
     expect(screen.getByTestId("machines")).toHaveTextContent("failed none");
@@ -217,11 +220,7 @@ describe("ResourceWatchProvider", () => {
 
 // The provider reads its client once at mount, so a rerender's new client is ignored.
 function Console({ children, watch }: { children: ReactNode; watch: FakeResourceWatch }) {
-  return (
-    <ResourceWatchProvider client={watch.client()} reopenDelayMs={reopenDelayMs}>
-      {children}
-    </ResourceWatchProvider>
-  );
+  return <ResourceWatchProvider client={watch.client()}>{children}</ResourceWatchProvider>;
 }
 
 function MachinesProbe({ enabled, id }: { enabled?: boolean; id: string }) {
@@ -257,7 +256,7 @@ function machines(...ids: string[]) {
 
 /** Lets the debounced reopen run and the opened stream start. */
 async function settle() {
-  await act(() => vi.advanceTimersByTimeAsync(reopenDelayMs));
+  await act(() => vi.advanceTimersByTimeAsync(productionTiming.resourceWatchReopenMs));
 }
 
 async function flush() {

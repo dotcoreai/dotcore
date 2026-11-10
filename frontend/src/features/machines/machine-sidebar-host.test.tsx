@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useRef } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -34,6 +33,7 @@ import {
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 
 import { MachineSidebarHost } from "./machine-sidebar-host";
 
@@ -48,7 +48,7 @@ vi.mock("uplot", () => ({
 
 describe("MachineSidebarHost", () => {
   it("opens a machine on the overview with its sections and the page range", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderOnOverview(machinePanel);
 
     const panel = await screen.findByRole("complementary", { name: "Machine one" });
@@ -76,7 +76,7 @@ describe("MachineSidebarHost", () => {
   });
 
   it("opens an execution target and its deployment on the overview, and returns to the machine", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderOnOverview(machinePanel);
 
     const machine = await screen.findByRole("complementary", { name: "Machine one" });
@@ -178,7 +178,7 @@ function renderOnOverview(panels: string) {
       {
         path: "/overview",
         element: (
-          <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+          <ResourceWatchProvider client={watch.client()}>
             <PanelNavigationProvider>
               <OverviewMachineHost />
             </PanelNavigationProvider>

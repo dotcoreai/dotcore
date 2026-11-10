@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { type ReactNode, useRef } from "react";
 import { createMemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +23,7 @@ import {
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 function routeView(
@@ -164,7 +165,7 @@ const panel = () => {
 
 describe("Chat", () => {
   it("toggles from the menu item, reflecting the open state", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(fakeRouteClient().client);
 
     const item = screen.getByRole("button", { name: "Chat" });
@@ -181,7 +182,7 @@ describe("Chat", () => {
   });
 
   it("lists only enabled, available routes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { client, listRoutes } = fakeRouteClient([
       routeView("alpha"),
       routeView("disabled", { enabled: false }),
@@ -202,7 +203,7 @@ describe("Chat", () => {
   });
 
   it("shows no route available with a link to Routes when none qualifies", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(fakeRouteClient([routeView("down", { available: false })]).client);
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -214,7 +215,7 @@ describe("Chat", () => {
   });
 
   it("streams a reply to the selected route and keeps it across close and navigation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const chat = fakeChatClient();
     const router = renderConsole(fakeRouteClient().client, chat.client);
 
@@ -244,7 +245,7 @@ describe("Chat", () => {
   });
 
   it("drops focus from the message box after sending on a touch device", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const baseMatchMedia = window.matchMedia.bind(window);
     window.matchMedia = vi.fn((query: string) => ({
       ...baseMatchMedia(query),
@@ -266,7 +267,7 @@ describe("Chat", () => {
   });
 
   it("shows the error reason with Retry", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client: ChatClient = {
       // eslint-disable-next-line @typescript-eslint/require-await
       async *streamChat() {
@@ -287,7 +288,7 @@ describe("Chat", () => {
   });
 
   it("closes on Escape from inside the panel, not from elsewhere on the page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(fakeRouteClient().client);
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -301,7 +302,7 @@ describe("Chat", () => {
   });
 
   it("leaves Escape to an open route list", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(fakeRouteClient().client);
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -323,7 +324,7 @@ describe("Chat", () => {
   });
 
   it("opens the chat on the inspector's route beside a wide inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     renderRouteInspector(betaTarget);
 
@@ -343,7 +344,7 @@ describe("Chat", () => {
   });
 
   it("closes a wide inspector the opened chat would overlap", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1024);
     // jsdom has no layout: place the chat at 268-668px and the inspector from 564px.
     vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
@@ -365,7 +366,7 @@ describe("Chat", () => {
   });
 
   it("closes a narrow inspector before opening the full-screen chat", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(500);
     renderRouteInspector(betaTarget);
 
@@ -386,7 +387,7 @@ describe("Chat", () => {
   });
 
   it("keeps the conversation and selects the requested route again after a picker change", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const chat = fakeChatClient();
     renderRouteInspector(betaTarget, undefined, chat.client);
 
@@ -414,7 +415,7 @@ describe("Chat", () => {
   });
 
   it("shows a requested route that is no longer available instead of another route", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderRouteInspector(betaTarget, [routeView("alpha"), routeView("beta", { available: false })]);
 
     await user.click(inspectorChat());
@@ -439,7 +440,7 @@ describe("Chat page", () => {
   const twoRoutes = () => fakeRouteClient([routeView("alpha"), routeView("beta")]).client;
 
   it("keeps the conversation across expanding the panel and showing the page as a panel", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const chat = fakeChatClient();
     const router = renderConsole(twoRoutes(), chat.client);
 
@@ -474,7 +475,7 @@ describe("Chat page", () => {
   });
 
   it("selects the route named in the URL", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const chat = fakeChatClient();
     renderConsole(twoRoutes(), chat.client, { initialEntry: "/chat?route=beta" });
 
@@ -487,7 +488,7 @@ describe("Chat page", () => {
   });
 
   it("replaces the URL's route when the page's picker changes, so Back leaves the page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderConsole(twoRoutes(), undefined, {
       initialEntries: ["/models", "/chat?route=alpha"],
     });
@@ -520,7 +521,7 @@ describe("Chat page", () => {
   });
 
   it("hides the panel on the page, marks Chat current there, and leaves the panel closed after Back", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderConsole(twoRoutes());
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -539,7 +540,7 @@ describe("Chat page", () => {
   });
 
   it("shows as a panel on the page's route over Routes when the page has no previous page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderConsole(twoRoutes(), undefined, { initialEntry: "/chat?route=beta" });
     await waitFor(() =>
       expect(within(chatPage()).getByRole("combobox", { name: "Route" })).toHaveValue("beta"),
@@ -553,7 +554,7 @@ describe("Chat page", () => {
   });
 
   it("shows as a panel from the sidebar's Chat item on the page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderConsole(twoRoutes(), undefined, {
       initialEntries: ["/models", "/chat?route=beta"],
     });
@@ -580,13 +581,13 @@ describe("Chat request kinds", () => {
     ]).client;
   const modeSwitch = () => within(panel()).queryByRole("radiogroup", { name: "Request kind" });
 
-  async function pickRoute(user: ReturnType<typeof userEvent.setup>, name: RegExp) {
+  async function pickRoute(user: UserEvent, name: RegExp) {
     await user.click(within(panel()).getByRole("button", { name: "Show Route options" }));
     await user.click(await screen.findByRole("option", { name }));
   }
 
   it("lists every available route with the kinds it serves", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(kindRoutes());
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -604,7 +605,7 @@ describe("Chat request kinds", () => {
   });
 
   it("shows the conversation on a chat-only route and decisions on a decision-only one", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(kindRoutes());
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -621,7 +622,7 @@ describe("Chat request kinds", () => {
   });
 
   it("starts a mixed route on Chat and remembers its switch for the session", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(kindRoutes());
 
     await user.click(screen.getByRole("button", { name: "Chat" }));
@@ -642,7 +643,7 @@ describe("Chat request kinds", () => {
   });
 
   it("opens the chat in decision mode from an Ask action, on a mixed route too", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     renderRouteInspector({ label: "Ask", mode: "decision", route: "mixed" }, [
       routeView("gemma", { kinds: [CHAT] }),
@@ -662,7 +663,7 @@ describe("Chat request kinds", () => {
   });
 
   it("keeps the mode across expanding to the Chat page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderConsole(kindRoutes());
 
     await user.click(screen.getByRole("button", { name: "Chat" }));

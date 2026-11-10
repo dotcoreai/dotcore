@@ -1,6 +1,5 @@
 import { clone, create } from "@bufbuild/protobuf";
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -35,6 +34,7 @@ import {
   ConfiguredExecutionTargetSchema,
   ExecutionTargetWorkloadKind,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { setupUser } from "@/test/user";
 
 import { CatalogModelInspector, type CatalogModelInspectorScreen } from "./catalog-model-inspector";
 
@@ -145,7 +145,7 @@ function renderInspector({
     onSelectProfile,
     /** Shows a later compatibility read, as a refresh does. */
     refresh: (next: CatalogProfileCompatibility) => rerender(inspector(next)),
-    user: userEvent.setup(),
+    user: setupUser(),
   };
 }
 

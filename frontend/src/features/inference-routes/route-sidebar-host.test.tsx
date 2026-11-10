@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useRef } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
@@ -28,12 +27,13 @@ import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider"
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
 import { renderWithClients } from "@/test/render-with-clients";
+import { setupUser } from "@/test/user";
 
 import { RouteSidebarHost } from "./route-sidebar-host";
 
 describe("RouteSidebarHost", () => {
   it("opens a route on the overview with its sections, actions and the page range", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderOnOverview(routeClient(), [routePanel]);
 
     const panel = await screen.findByRole("complementary", { name: "chat" });
@@ -60,7 +60,7 @@ describe("RouteSidebarHost", () => {
   });
 
   it("edits a route on the overview behind the dirty guard, then returns to its details", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = routeClient();
     const { router } = renderOnOverview(client, [routePanel]);
 
@@ -94,7 +94,7 @@ describe("RouteSidebarHost", () => {
   });
 
   it("deletes a route on the overview and closes to the overview", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = routeClient();
     const { router } = renderOnOverview(client, [routePanel]);
 
@@ -145,7 +145,7 @@ function renderOnOverview(client: RouteClient, panels: string[]) {
       {
         path: "/overview",
         element: (
-          <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+          <ResourceWatchProvider client={watch.client()}>
             <PanelNavigationProvider>
               <OverviewRouteHost />
             </PanelNavigationProvider>

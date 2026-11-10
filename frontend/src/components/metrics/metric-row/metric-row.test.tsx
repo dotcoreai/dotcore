@@ -1,16 +1,16 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { expectResourceMarker } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 import { getResourceColor } from "@/theme/resource-color";
 
 import { MetricBar, MetricRow, MetricRows, MetricSpans } from "./metric-row";
 
 describe("MetricRow", () => {
   it("toggles its body from the button with pointer, Enter and Space", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<Row />);
 
     const toggle = screen.getByRole("button", { name: "CPU" });
@@ -31,7 +31,7 @@ describe("MetricRow", () => {
   });
 
   it("toggles from a click on the bar, beside the button", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<Row />);
 
     await user.click(document.querySelector('[data-slot="metric-bar"]')!);
@@ -47,7 +47,7 @@ describe("MetricRow", () => {
   });
 
   it("is a plain line without an expanded body", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onExpandedChange = vi.fn();
     render(
       <MetricRows>

@@ -2,13 +2,11 @@ import { act, renderHook } from "@testing-library/react";
 import { type ReactNode, StrictMode, Suspense, use, useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  LOADING_MINIMUM_VISIBLE_MS,
-  LOADING_REVEAL_DELAY_MS,
-  useDelayedLoading,
-} from "@/hooks/use-delayed-loading";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
 
 beforeEach(() => {
+  setTiming(productionTiming);
   vi.useFakeTimers();
 });
 
@@ -23,7 +21,7 @@ describe("useDelayedLoading", () => {
 
     expect(result.current).toBe(false);
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS - 1);
+    await advanceBy(productionTiming.loadingRevealMs - 1);
     expect(result.current).toBe(false);
 
     await advanceBy(1);
@@ -36,9 +34,9 @@ describe("useDelayedLoading", () => {
       { initialProps: { loading: true } },
     );
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS - 1);
+    await advanceBy(productionTiming.loadingRevealMs - 1);
     rerender({ loading: false });
-    await advanceBy(LOADING_REVEAL_DELAY_MS);
+    await advanceBy(productionTiming.loadingRevealMs);
 
     expect(result.current).toBe(false);
     expect(vi.getTimerCount()).toBe(0);
@@ -51,7 +49,7 @@ describe("useDelayedLoading", () => {
         const visible = useDelayedLoading(loading);
         useLayoutEffect(() => {
           commits.push([loading, visible]);
-          if (!loading) vi.advanceTimersByTime(LOADING_REVEAL_DELAY_MS);
+          if (!loading) vi.advanceTimersByTime(productionTiming.loadingRevealMs);
         }, [loading, visible]);
         return visible;
       },
@@ -75,13 +73,13 @@ describe("useDelayedLoading", () => {
         const visible = useDelayedLoading(loading);
         useLayoutEffect(() => {
           commits.push([loading, visible]);
-          if (resume) vi.advanceTimersByTime(LOADING_MINIMUM_VISIBLE_MS);
+          if (resume) vi.advanceTimersByTime(productionTiming.loadingMinimumVisibleMs);
         }, [loading, resume, visible]);
         return visible;
       },
       { initialProps: { loading: true, resume: false } },
     );
-    await advanceBy(LOADING_REVEAL_DELAY_MS);
+    await advanceBy(productionTiming.loadingRevealMs);
     rerender({ loading: false, resume: false });
     rerender({ loading: true, resume: true });
 
@@ -101,11 +99,11 @@ describe("useDelayedLoading", () => {
       { initialProps: { loading: true } },
     );
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS);
+    await advanceBy(productionTiming.loadingRevealMs);
     await advanceBy(50);
     rerender({ loading: false });
 
-    await advanceBy(LOADING_MINIMUM_VISIBLE_MS - 51);
+    await advanceBy(productionTiming.loadingMinimumVisibleMs - 51);
     expect(result.current).toBe(true);
 
     await advanceBy(1);
@@ -129,14 +127,14 @@ describe("useDelayedLoading", () => {
       { initialProps: { blockCommit: true, loading: true }, wrapper },
     );
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS);
+    await advanceBy(productionTiming.loadingRevealMs);
     expect(result.current).toBe(false);
 
     await advanceBy(150);
     rerender({ blockCommit: false, loading: false });
     expect(result.current).toBe(true);
 
-    await advanceBy(LOADING_MINIMUM_VISIBLE_MS - 1);
+    await advanceBy(productionTiming.loadingMinimumVisibleMs - 1);
     expect(result.current).toBe(true);
 
     await advanceBy(1);
@@ -149,8 +147,8 @@ describe("useDelayedLoading", () => {
       { initialProps: { loading: true } },
     );
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS);
-    await advanceBy(LOADING_MINIMUM_VISIBLE_MS);
+    await advanceBy(productionTiming.loadingRevealMs);
+    await advanceBy(productionTiming.loadingMinimumVisibleMs);
     expect(result.current).toBe(true);
 
     rerender({ loading: false });
@@ -166,7 +164,7 @@ describe("useDelayedLoading", () => {
       { initialProps: { loading: true, request: 1 } },
     );
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS - 1);
+    await advanceBy(productionTiming.loadingRevealMs - 1);
     rerender({ loading: true, request: 2 });
     await advanceBy(1);
 
@@ -179,11 +177,11 @@ describe("useDelayedLoading", () => {
       { initialProps: { loading: true } },
     );
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS + 50);
+    await advanceBy(productionTiming.loadingRevealMs + 50);
     rerender({ loading: false });
     await advanceBy(50);
     rerender({ loading: true });
-    await advanceBy(LOADING_MINIMUM_VISIBLE_MS);
+    await advanceBy(productionTiming.loadingMinimumVisibleMs);
 
     expect(result.current).toBe(true);
 
@@ -197,13 +195,13 @@ describe("useDelayedLoading", () => {
       { initialProps: { loading: true } },
     );
 
-    await advanceBy(LOADING_REVEAL_DELAY_MS);
-    await advanceBy(LOADING_MINIMUM_VISIBLE_MS);
+    await advanceBy(productionTiming.loadingRevealMs);
+    await advanceBy(productionTiming.loadingMinimumVisibleMs);
     rerender({ loading: false });
     expect(result.current).toBe(false);
 
     rerender({ loading: true });
-    await advanceBy(LOADING_REVEAL_DELAY_MS - 1);
+    await advanceBy(productionTiming.loadingRevealMs - 1);
     expect(result.current).toBe(false);
 
     await advanceBy(1);

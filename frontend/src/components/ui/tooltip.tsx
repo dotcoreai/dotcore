@@ -3,11 +3,8 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
 
 import { useInspectorFloatingLayerRegistration } from "@/components/ui/inspector-floating-layer";
+import { timing } from "@/lib/timing";
 import { cn } from "@/lib/utils";
-
-function TooltipProvider({ delay = 0, ...props }: TooltipPrimitive.Provider.Props) {
-  return <TooltipPrimitive.Provider data-slot="tooltip-provider" delay={delay} {...props} />;
-}
 
 function Tooltip({ defaultOpen, onOpenChange, open, ...props }: TooltipPrimitive.Root.Props) {
   const registerFloatingLayer = useInspectorFloatingLayerRegistration(open, defaultOpen);
@@ -26,8 +23,14 @@ function Tooltip({ defaultOpen, onOpenChange, open, ...props }: TooltipPrimitive
   );
 }
 
-function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+function TooltipTrigger({ delay, ...props }: TooltipPrimitive.Trigger.Props) {
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      delay={delay ?? timing().tooltipOpenMs}
+      {...props}
+    />
+  );
 }
 
 function TooltipContent({
@@ -65,4 +68,4 @@ function TooltipContent({
   );
 }
 
-export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger };
+export { Tooltip, TooltipContent, TooltipTrigger };

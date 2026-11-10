@@ -36,9 +36,7 @@ jobs:
           - runner: ubuntu-24.04
             task: { name: frontend lint, recipe: "frontend::ci-lint", npm: true }
           - runner: ubuntu-24.04
-            task: { name: frontend test 1/2, recipe: "frontend::ci-test", part: "1/2", npm: true }
-          - runner: ubuntu-24.04
-            task: { name: frontend test 2/2, recipe: "frontend::ci-test", part: "2/2", npm: true }
+            task: { name: frontend test, recipe: "frontend::ci-test", npm: true }
           - runner: ubuntu-24.04
             task: { name: installer, recipe: "installer::ci-check" }
           - runner: ubuntu-24.04

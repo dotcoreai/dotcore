@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { PreferencesPage } from "@/features/preferences/preferences-page";
 import { readDeveloperSettings, writeDeveloperSettings } from "@/lib/console-preferences";
+import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
 function renderPage() {
@@ -34,7 +34,7 @@ describe("Preferences developer section", () => {
   });
 
   it("enables with a suggested range and persists it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderPage();
 
     await user.click(screen.getByRole("switch", { name: "Simulate API latency" }));
@@ -57,7 +57,7 @@ describe("Preferences developer section", () => {
   });
 
   it("saves a valid edit and restores it after a fresh mount", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeDeveloperSettings(window.localStorage, {
       latencyEnabled: true,
       latencyMinMs: 100,

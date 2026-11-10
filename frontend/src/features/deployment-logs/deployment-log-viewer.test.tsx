@@ -1,6 +1,5 @@
 import { Code } from "@connectrpc/connect";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -10,8 +9,9 @@ import {
   type ReadDeploymentLogsResult,
 } from "@/api/deployment-log-client";
 import { InspectorShell } from "@/components/ui/inspector-shell";
-import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { DeploymentLogViewer } from "./deployment-log-viewer";
 
@@ -81,6 +81,7 @@ describe("DeploymentLogViewer", () => {
   });
 
   it("delays retained-history feedback and keeps toolbar and viewport timing aligned", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let resolveRead!: (value: ReadDeploymentLogsResult) => void;
     const read = vi.fn(
@@ -113,7 +114,7 @@ describe("DeploymentLogViewer", () => {
     expect(toolbarStatus).toHaveTextContent("");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(screen.getByRole("status", { name: "Log output status" })).toHaveTextContent(
       "Loading retained output…",
@@ -131,7 +132,7 @@ describe("DeploymentLogViewer", () => {
     expect(screen.queryByText("No retained output is available.")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
     });
     expect(screen.getByRole("status", { name: "Log output status" })).toHaveTextContent(
       "No retained output is available.",
@@ -173,6 +174,7 @@ describe("DeploymentLogViewer", () => {
       scrollHeight: { configurable: true, value: 1_000 },
       scrollTop: { configurable: true, value: 4, writable: true },
     });
+    setTiming(productionTiming);
     vi.useFakeTimers();
 
     fireEvent.scroll(log);
@@ -181,7 +183,7 @@ describe("DeploymentLogViewer", () => {
     expect(screen.queryByText("Loading earlier output…")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(screen.getByText("Loading earlier output…")).toBeVisible();
     expect(screen.getByText("current")).toBeVisible();
@@ -198,7 +200,7 @@ describe("DeploymentLogViewer", () => {
     expect(screen.getByText(/Loading earlier output…/)).toBeVisible();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
     });
     expect(screen.queryByText(/Loading earlier output…/)).not.toBeInTheDocument();
   });
@@ -227,7 +229,7 @@ describe("DeploymentLogViewer", () => {
       }),
     };
     const onOpenChange = vi.fn();
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <DeploymentLogViewer
         colorKey="deployment-1"
@@ -316,7 +318,7 @@ describe("DeploymentLogViewer", () => {
         sources: [{ sourceLabel: "Worker", sourceName: "worker", state: "available" as const }],
       }),
     };
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <DeploymentLogViewer
         colorKey="deployment-1"
@@ -482,7 +484,7 @@ describe("DeploymentLogViewer", () => {
             resolveOlder = resolve;
           }),
       );
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <DeploymentLogViewer
         colorKey="deployment-1"
@@ -545,7 +547,7 @@ describe("DeploymentLogViewer", () => {
             resolveOlder = resolve;
           }),
       );
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <DeploymentLogViewer
         colorKey="deployment-1"
@@ -669,7 +671,7 @@ describe("DeploymentLogViewer", () => {
             resolveOlder = resolve;
           }),
       );
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <DeploymentLogViewer
         colorKey="deployment-1"
@@ -820,6 +822,7 @@ describe("DeploymentLogViewer", () => {
   });
 
   it("recovers from follow setup failure without a continuity warning", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const follow = vi
       .fn()
@@ -850,7 +853,7 @@ describe("DeploymentLogViewer", () => {
     expect(follow).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Reconnecting to live output…")).toBeVisible();
 
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(productionTiming.logReconnectMs[0]);
     await vi.advanceTimersByTimeAsync(16);
     expect(follow).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("log")).toHaveTextContent("setup recovered");
@@ -858,6 +861,7 @@ describe("DeploymentLogViewer", () => {
   });
 
   it("resumes an interrupted established stream from its latest position", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const follow = vi
       .fn()
@@ -894,7 +898,7 @@ describe("DeploymentLogViewer", () => {
     );
 
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(productionTiming.logReconnectMs[0]);
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(16);
 
@@ -1001,6 +1005,7 @@ describe("DeploymentLogViewer", () => {
   });
 
   it("reopens a dropped stream once with a resume position for every source", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const follow = vi
       .fn()
@@ -1040,7 +1045,7 @@ describe("DeploymentLogViewer", () => {
     expect(follow).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Reconnecting to live output…")).toBeVisible();
 
-    await vi.advanceTimersByTimeAsync(249);
+    await vi.advanceTimersByTimeAsync(productionTiming.logReconnectMs[0] - 1);
     expect(follow).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(follow).toHaveBeenCalledTimes(2);
@@ -1062,19 +1067,22 @@ describe("DeploymentLogViewer", () => {
   });
 
   it("backs off between reopen attempts up to a cap", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const follow = vi.fn(() => failingFollow(Code.Unavailable));
     renderViewer({ follow, read: vi.fn().mockResolvedValue(emptyHistory()) });
 
-    await vi.advanceTimersByTimeAsync(250 + 500 + 1_000 + 2_000 + 4_000 + 8_000);
+    const delays = productionTiming.logReconnectMs;
+    await vi.advanceTimersByTimeAsync(delays.reduce((sum, ms) => sum + ms));
     expect(follow).toHaveBeenCalledTimes(7);
-    await vi.advanceTimersByTimeAsync(7_999);
+    await vi.advanceTimersByTimeAsync(delays[delays.length - 1] - 1);
     expect(follow).toHaveBeenCalledTimes(7);
     await vi.advanceTimersByTimeAsync(1);
     expect(follow).toHaveBeenCalledTimes(8);
   });
 
   it("reopens after a transport failure that carries no status", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const follow = vi.fn(() => failingFollow(Code.Unknown));
     renderViewer({ follow, read: vi.fn().mockResolvedValue(emptyHistory()) });
@@ -1082,7 +1090,7 @@ describe("DeploymentLogViewer", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(follow).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Reconnecting to live output…")).toBeVisible();
-    await vi.advanceTimersByTimeAsync(250);
+    await vi.advanceTimersByTimeAsync(productionTiming.logReconnectMs[0]);
     expect(follow).toHaveBeenCalledTimes(2);
   });
 
@@ -1423,7 +1431,7 @@ describe("DeploymentLogViewer", () => {
         sources: [],
       }),
     };
-    const user = userEvent.setup();
+    const user = setupUser();
 
     function ViewerHarness() {
       const [open, setOpen] = useState(false);

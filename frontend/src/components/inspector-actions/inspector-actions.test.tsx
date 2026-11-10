@@ -1,5 +1,4 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { ArrowUp, Ban, Code, ExternalLink, MessageSquare, Pencil, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -16,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
+import { setupUser } from "@/test/user";
 
 const edit: InspectorAction = { icon: Pencil, label: "Edit", onSelect: () => {} };
 const disable: InspectorAction = { icon: Ban, label: "Disable", onSelect: () => {} };
@@ -83,7 +83,7 @@ afterEach(() => {
 
 describe("InspectorActions", () => {
   it("renders the primary, secondary and menu actions in that order", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <InspectorActions
         more={[remove, edit, disable]}
@@ -119,7 +119,7 @@ describe("InspectorActions", () => {
   });
 
   it("omits the separator when the menu holds no destructive action", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<InspectorActions more={[edit, disable]} />);
 
     expect(await moreActionNames(user)).toEqual(["Edit", "Disable"]);
@@ -141,7 +141,7 @@ describe("InspectorActions", () => {
   });
 
   it("runs the handler of the chosen menu item and closes the menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onEdit = vi.fn();
     render(<InspectorActions more={[{ ...edit, onSelect: onEdit }, remove]} />);
 
@@ -162,7 +162,7 @@ describe("InspectorActions", () => {
   });
 
   it("disables the menu trigger with a progress icon while a menu action is pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { container, rerender } = render(<InspectorActions more={[edit, remove]} />);
     const trigger = screen.getByRole("button", { name: "More actions" });
 
@@ -182,7 +182,7 @@ describe("InspectorActions", () => {
   });
 
   it("shows disabled reasons in a popup for buttons and as text for menu items", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSelect = vi.fn();
     render(
       <InspectorActions
@@ -242,7 +242,7 @@ describe("InspectorActions", () => {
   });
 
   it("opens and closes the menu from the keyboard, returning focus to the trigger", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<InspectorActions more={[edit, remove]} />);
     const trigger = screen.getByRole("button", { name: "More actions" });
 
@@ -257,7 +257,7 @@ describe("InspectorActions", () => {
   });
 
   it("keeps the inspector open while its menu is used", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onEdit = vi.fn();
     setViewportWidth(1440);
     render(<ActionsInspector more={[{ ...edit, onSelect: onEdit }, remove]} />);
@@ -278,7 +278,7 @@ describe("InspectorActions", () => {
   });
 
   it("keeps the inspector open when a data-table menu is used", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ActionsInspector more={[edit, remove]} />);
 

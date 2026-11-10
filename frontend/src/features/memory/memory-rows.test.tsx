@@ -1,10 +1,10 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
 import { MetricRows } from "@/components/metrics/metric-row/metric-row";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 import { getResourceColor } from "@/theme/resource-color";
 
 import {
@@ -72,7 +72,7 @@ describe("MemoryRows", () => {
   });
 
   it("leaves bars past the total unmarked without a capacity verdict", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const overEstimated = span("gpu1", 32n, [segment("qwen", "Qwen3.8 27B", 40n, true)], 0n);
     const { container } = render(<MemoryRows rows={[row("vram", [overEstimated])]} />);
 
@@ -93,7 +93,7 @@ describe("MemoryRows", () => {
   });
 
   it("marks the total and flags the readout when the verdict puts use beyond the total", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const predicted = span(
       "gpu1",
       32n,
@@ -128,7 +128,7 @@ describe("MemoryRows", () => {
   });
 
   it("marks the fit line in the warning tone when the verdict puts use within the headroom", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const tight = span(
       "gpu1",
       32n,
@@ -181,7 +181,7 @@ describe("MemoryRows", () => {
   });
 
   it("reads out a predicted deployment as this deployment, after deploy", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const predicted = span(
       "gpu1",
       32n,
@@ -201,7 +201,7 @@ describe("MemoryRows", () => {
   });
 
   it("replaces the focused readout with a status and describes it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <MemoryRows
         focusDeploymentId="next"
@@ -275,7 +275,7 @@ describe("MemoryRows", () => {
   });
 
   it("explains estimates, unmeasured models, and unreadable machines on hover", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const withUnmeasured: MemorySpan = {
       ...gpu1,
       unmeasured: [
@@ -314,7 +314,7 @@ describe("MemoryRows", () => {
   });
 
   it("reads a unified pool as system memory and names each measurement gap", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { rerender } = render(
       <MemoryRows focusDeploymentId="gemma" rows={[row("ram", [macHost])]} surface="panel" />,
     );
@@ -351,7 +351,7 @@ describe("MemoryRows", () => {
   });
 
   it("opens a row's breakdown on a click anywhere on the row, and closes it outside", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <>
         <MemoryRows rows={[row("vram", [gpu1]), row("ram", [gpu1Host])]} />
@@ -394,7 +394,7 @@ describe("MemoryRows", () => {
   });
 
   it("opens a row's breakdown from its readout by keyboard, keeping its label", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<MemoryRows rows={[row("vram", [gpu1])]} />);
 
     await user.tab();
@@ -417,7 +417,7 @@ describe("MemoryRows", () => {
 
 describe("MemoryMetricRows", () => {
   it("expands a row on a click to its body, leaving the breakdown to hover", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ExpandableRows />);
 
     const [gemma] = [...screen.getAllByRole("img")[0].children];
@@ -434,7 +434,7 @@ describe("MemoryMetricRows", () => {
   });
 
   it("leaves a row collapsed when its readout is pressed by keyboard", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ExpandableRows />);
 
     screen.getByRole("button", { name: "VRAM 28 / 32 GiB" }).focus();
@@ -444,7 +444,7 @@ describe("MemoryMetricRows", () => {
   });
 
   it("keeps the readout's detail tooltip and the bar's label", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ExpandableRows />);
 
     expect(screen.getAllByRole("img")[0]).toHaveAttribute(
@@ -510,7 +510,7 @@ describe("MemoryMetricRows", () => {
   });
 
   it("keeps each machine's span in spans mode and still expands", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ExpandableRows mode="spans" rows={[row("ram", [sparkOne, sparkTwo])]} />);
 
     expect(screen.getAllByRole("img").map((bar) => bar.getAttribute("aria-label"))).toEqual([
@@ -571,7 +571,7 @@ describe("MemoryMetricRows", () => {
   });
 
   it("names a machine's use and its deployments on hover, by machine", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ExpandableRows rows={[row("vram", [gpu1, sparkTwo])]} segmentBy="machine" />);
 
     await user.hover(screen.getByRole("img").children[0]);

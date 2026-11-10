@@ -1,13 +1,14 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
+
+import { setupUser } from "@/test/user";
 
 import { SegmentedControl } from "./segmented-control";
 
 describe("SegmentedControl", () => {
   it("is a radio group whose arrow keys move the selection", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<Picker />);
 
     const group = screen.getByRole("radiogroup", { name: "History range" });

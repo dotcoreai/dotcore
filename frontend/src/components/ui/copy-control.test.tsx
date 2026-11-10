@@ -1,12 +1,14 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CodeCopyControl, InlineCopyControl } from "@/components/ui/copy-control";
 import * as clipboard from "@/lib/clipboard";
+import { productionTiming, setTiming } from "@/lib/timing";
+import { setupUser } from "@/test/user";
 
 const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
 beforeEach(() => {
+  setTiming(productionTiming);
   vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
 });
 
@@ -20,7 +22,7 @@ beforeEach(() => {
 
 describe("copy controls", () => {
   it("copies an inline value from its full clickable surface without moving focus", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockResolvedValue(undefined);
     render(
       <InlineCopyControl label="Inference API origin" value="http://localhost:8080">
@@ -33,7 +35,7 @@ describe("copy controls", () => {
 
     expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("http://localhost:8080");
     expect(control).toHaveFocus();
-    expect(screen.getByRole("status")).toHaveTextContent("Copied to clipboard");
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied to clipboard");
     expect(screen.getByRole("status").parentElement).toHaveClass("absolute");
   });
 
@@ -64,13 +66,15 @@ describe("copy controls", () => {
   });
 
   it("keeps failure feedback anchored and actionable", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockRejectedValue(new Error("clipboard unavailable"));
     render(<CodeCopyControl label="curl example" value="curl http://localhost:8080/v1/models" />);
 
     await user.click(screen.getByRole("button", { name: "Copy curl example" }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Could not copy to clipboard. Try again.");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Could not copy to clipboard. Try again.",
+    );
     expect(screen.getByRole("status").parentElement).toHaveClass("absolute");
   });
 });

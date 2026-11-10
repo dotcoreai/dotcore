@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,6 +10,7 @@ import {
   SidebarProvider,
   SidebarRail,
 } from "@/components/ui/sidebar";
+import { setupUser } from "@/test/user";
 
 // window.matchMedia is stubbed globally in src/test/setup.ts, since the console shell now
 // renders the sidebar on every route.
@@ -43,7 +43,7 @@ describe("Sidebar primitive", () => {
   // dead: jsdom cannot prove the resting-visibility or cursor styling fix (no CSS layout, no
   // pseudo-elements), so this pins the one part of that fix that is behavioral rather than visual.
   it("toggles the sidebar open state when the edge rail is clicked", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <SidebarProvider>
         <Sidebar>

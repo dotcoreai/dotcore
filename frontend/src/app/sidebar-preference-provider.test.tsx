@@ -1,9 +1,9 @@
 import { act, render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { useSidebarPreference } from "@/app/sidebar-preference-context";
 import { SidebarPreferenceProvider } from "@/app/sidebar-preference-provider";
+import { setupUser } from "@/test/user";
 
 class FakeStorage {
   values = new Map<string, string>();
@@ -45,7 +45,7 @@ describe("SidebarPreferenceProvider", () => {
   });
 
   it("restores a collapsed preference across a fresh mount, simulating a reload", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const storage = new FakeStorage();
 
     const { unmount } = render(

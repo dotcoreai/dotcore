@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { type ReactNode, useState } from "react";
 import { createMemoryRouter, MemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,7 +71,7 @@ import {
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import { ListConfiguredExecutionTargetsResponseSchema } from "@/gen/dotcore/site/v1/service_pb";
-import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { PanelLink } from "@/panels/panel-navigation";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
@@ -79,6 +79,7 @@ import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction, moreActionNames } from "@/test/inspector-actions";
 import { clientsWrapper, testClients } from "@/test/render-with-clients";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { RoutesPage as RealRoutesPage } from "./routes-page";
 
@@ -145,7 +146,7 @@ function RoutesPage({
 
   return (
     <ClientsProvider clients={clients}>
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <RealRoutesPage />
       </ResourceWatchProvider>
     </ClientsProvider>
@@ -232,7 +233,7 @@ function renderConsoleAt(
     [
       {
         element: (
-          <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+          <ResourceWatchProvider client={watch.client()}>
             <PanelNavigationProvider>
               <Outlet />
             </PanelNavigationProvider>
@@ -392,7 +393,7 @@ function clients(
   return { model, route };
 }
 
-async function submitSingleMemberCreate(user: ReturnType<typeof userEvent.setup>, name: string) {
+async function submitSingleMemberCreate(user: UserEvent, name: string) {
   await user.click(screen.getByRole("button", { name: "Create route" }));
   await user.type(screen.getByRole("textbox", { name: "Name" }), name);
   await user.click(screen.getByRole("button", { name: "Show Primary deployments options" }));
@@ -434,7 +435,7 @@ describe("RoutesPage", () => {
   });
 
   it("shows the site's inference and opens a route on the page's range", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(
       staticWatch((query) =>
         queryResult({
@@ -474,6 +475,7 @@ describe("RoutesPage", () => {
   });
 
   it("delays initial feedback and holds completed Routes content for the minimum", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let resolveRoutes!: (response: Awaited<ReturnType<RouteClient["route"]["listRoutes"]>>) => void;
     const { model, route } = clients([]);
@@ -489,7 +491,7 @@ describe("RoutesPage", () => {
     expect(screen.queryByText("Loading routes…")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(screen.getByRole("status")).toHaveTextContent("Loading routes…");
 
@@ -501,13 +503,14 @@ describe("RoutesPage", () => {
     expect(screen.queryByText("No routes yet")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
     });
     expect(screen.queryByText("Loading routes…")).not.toBeInTheDocument();
     expect(screen.getByText("No routes yet")).toBeVisible();
   });
 
   it("delays route-member option feedback without delaying the options request", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let resolveDeployments!: (
       response: Awaited<ReturnType<ModelClient["model"]["listModelDeployments"]>>,
@@ -534,7 +537,7 @@ describe("RoutesPage", () => {
     expect(screen.queryByText("No options available.")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(screen.getByRole("status")).toHaveTextContent("Loading options…");
 
@@ -550,13 +553,13 @@ describe("RoutesPage", () => {
     expect(screen.queryByRole("option", { name: /Local model Ready/i })).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
     });
     expect(screen.queryByText("Loading options…")).not.toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Local model Ready/i })).toBeVisible();
   });
   it("lists routes as rows with status and members, and opens details inside the inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([
       routeView({ id: "route-disabled", name: "disabled", enabled: false, available: true }),
       routeView({ id: "route-available", name: "available", enabled: true, available: true }),
@@ -603,7 +606,7 @@ describe("RoutesPage", () => {
   });
 
   it("opens a row with Enter and Space", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-a", name: "chat" })]);
     const router = renderIntegratedAt(["/routes"], route, model);
 
@@ -681,7 +684,7 @@ describe("RoutesPage", () => {
   });
 
   it("returns from Connect to the selected route without changing the URL", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
     const router = renderAt(["/routes?panel=routes%2Froute%3Aroute-a"], route, model);
 
@@ -703,7 +706,7 @@ describe("RoutesPage", () => {
   });
 
   it("preserves model ancestry across a named route URL and browser traversal", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
     const router = renderConsoleAt(["/models"], route, model);
     const modelLocation = "/models?panel=models%2Fdeployment%3Adeployment-a";
@@ -740,7 +743,7 @@ describe("RoutesPage", () => {
   });
 
   it("names route members by deployment name and links them to the model deployment", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const named = deployment("deployment-a", "Local model");
     named.modelDeploymentName = "Lab GPU";
     const { model, route } = clients([routeView({ id: "route-a", name: "selected" })], [named]);
@@ -807,7 +810,7 @@ describe("RoutesPage", () => {
   });
 
   it("holds the listed routes while a route is being edited, then shows what changed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     renderIntegratedAt(
       ["/routes?panel=routes%2Froute%3Aroute-edit&panel=routes%2Fedit%3Aroute-edit"],
@@ -833,7 +836,7 @@ describe("RoutesPage", () => {
   });
 
   it("keeps an accepted change over a stream payload read before it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const groups = [{ selection: FallbackGroupSelection.SINGLE, modelDeploymentIds: ["a"] }];
     const { model, route } = clients([routeView({ id: "route-chat", name: "chat", groups })]);
     vi.mocked(route.route.replaceRoute).mockResolvedValue(
@@ -877,7 +880,7 @@ describe("RoutesPage", () => {
   });
 
   it("uses the exact upstream title for nested Routes inspector ancestry", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const upstream = externalDeployment("deployment-a", "Deliberately divergent provider");
     const { model, route } = clients(
       [
@@ -906,7 +909,7 @@ describe("RoutesPage", () => {
   });
 
   it("restores direct cross-page ancestry and returns to the model inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
     const routeLocation =
       "/routes?panel=models%2Fdeployment%3Adeployment-a&panel=routes%2Froute%3Aroute-a";
@@ -922,7 +925,7 @@ describe("RoutesPage", () => {
   });
 
   it("restores direct cross-page ancestry and closes to the Routes base", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
     const routeLocation =
       "/routes?panel=models%2Fdeployment%3Adeployment-a&panel=routes%2Froute%3Aroute-a";
@@ -940,7 +943,7 @@ describe("RoutesPage", () => {
   });
 
   it("uses the wide inspector and switches to the narrow modal without losing the route", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-responsive", name: "responsive" })]);
     setViewportWidth(1024);
     renderConsoleAt(["/routes"], route, model);
@@ -966,7 +969,7 @@ describe("RoutesPage", () => {
   });
 
   it("replaces a dismissed root Routes selection so Back or Forward cannot reopen it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
     const router = renderAt(
       ["/routes?tab=traffic", "/routes?tab=traffic&panel=routes%2Froute%3Aroute-a"],
@@ -997,7 +1000,7 @@ describe("RoutesPage", () => {
   });
 
   it("loads every non-teardown deployment and keeps stale route members available for editing", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients(
       [
         routeView({
@@ -1050,7 +1053,7 @@ describe("RoutesPage", () => {
   });
 
   it("saves reordered groups with selection derived from member count", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients(
       [
         routeView({
@@ -1112,7 +1115,7 @@ describe("RoutesPage", () => {
   });
 
   it("creates groups with SINGLE for one member and ROUND_ROBIN for two, without a kind", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients(
       [],
       [
@@ -1151,7 +1154,7 @@ describe("RoutesPage", () => {
   });
 
   it("adds a fallback group to an auto-created single-member route", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients(
       [routeView({ id: "route-gemma", name: "gemma", generation: 3n })],
       [deployment("deployment-a", "Gemma"), deployment("deployment-b", "Qwen")],
@@ -1194,7 +1197,7 @@ describe("RoutesPage", () => {
   });
 
   it("rejects invalid mutations, preserves stale generations, and deletes exactly", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([
       routeView({ id: "route-a", name: "route-a", generation: 7n }),
     ]);
@@ -1249,7 +1252,7 @@ describe("RoutesPage", () => {
   });
 
   it("stays on the routes page after deleting a route reached from the models page", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-a", name: "selected" })]);
     const router = renderConsoleAt(["/models", "/routes"], route, model);
     const visited: string[] = [];
@@ -1302,7 +1305,7 @@ describe("RoutesPage", () => {
     ]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
-    await userEvent.setup().click(await screen.findByRole("row", { name: "unavailable" }));
+    await setupUser().click(await screen.findByRole("row", { name: "unavailable" }));
     const inspector = screen.getByTestId("route-inspector");
     // The card and the inspector header project the same status, so a disabled route reads
     // Disabled on both rather than Disabled on the card and Unavailable in the inspector.
@@ -1323,7 +1326,7 @@ describe("RoutesPage", () => {
   });
 
   it("creates enabled routes and replaces exact payloads with opaque generations", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     const created = routeView({
       id: "route-new",
@@ -1380,7 +1383,7 @@ describe("RoutesPage", () => {
   });
 
   it("disables and enables a route from its details", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const groups = [
       { selection: FallbackGroupSelection.ROUND_ROBIN, modelDeploymentIds: ["a", "b"] },
     ];
@@ -1433,7 +1436,7 @@ describe("RoutesPage", () => {
   });
 
   it("shows a failed Disable inside the route details and keeps the route enabled", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-chat", name: "chat" })]);
     vi.mocked(route.route.replaceRoute).mockRejectedValue(
       new ConnectError("stale generation", Code.FailedPrecondition),
@@ -1453,7 +1456,7 @@ describe("RoutesPage", () => {
   });
 
   it("drops a cancelled edit's save error when returning to the route details", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     vi.mocked(route.route.replaceRoute).mockRejectedValue(
       new ConnectError("stale generation", Code.FailedPrecondition),
@@ -1477,7 +1480,7 @@ describe("RoutesPage", () => {
   });
 
   it("guards dirty Create dismissal and warns before document unload", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     const router = renderIntegratedAt(["/routes"], route, model);
 
@@ -1497,7 +1500,7 @@ describe("RoutesPage", () => {
   });
 
   it("guards dirty Back, Close, Escape, and global internal navigation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     const editLocation =
       "/routes?panel=routes%2Froute%3Aroute-edit&panel=routes%2Fedit%3Aroute-edit";
@@ -1540,7 +1543,7 @@ describe("RoutesPage", () => {
   });
 
   it("restores canceled browser Back and replays a confirmed traversal exactly once", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     const editLocation =
       "/routes?panel=routes%2Froute%3Aroute-edit&panel=routes%2Fedit%3Aroute-edit";
@@ -1564,7 +1567,7 @@ describe("RoutesPage", () => {
   });
 
   it("restores canceled browser Forward and replays a confirmed traversal exactly once", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     const editLocation =
       "/routes?panel=routes%2Froute%3Aroute-edit&panel=routes%2Fedit%3Aroute-edit";
@@ -1584,7 +1587,7 @@ describe("RoutesPage", () => {
   });
 
   it("disables inspector stack navigation with an explanation while saving", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     let resolveUpdate!: (value: Awaited<ReturnType<RouteClient["route"]["replaceRoute"]>>) => void;
     vi.mocked(route.route.replaceRoute).mockImplementation(
@@ -1627,7 +1630,7 @@ describe("RoutesPage", () => {
   });
 
   it("dismisses untouched Create through Close", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     const router = renderIntegratedAt(["/routes"], route, model);
 
@@ -1642,7 +1645,7 @@ describe("RoutesPage", () => {
   });
 
   it("dismisses untouched Create through Escape", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     const router = renderIntegratedAt(["/routes"], route, model);
 
@@ -1655,7 +1658,7 @@ describe("RoutesPage", () => {
   });
 
   it("dismisses untouched Edit through Close", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     const router = renderIntegratedAt(
       ["/routes?panel=routes%2Froute%3Aroute-edit&panel=routes%2Fedit%3Aroute-edit"],
@@ -1672,7 +1675,7 @@ describe("RoutesPage", () => {
   });
 
   it("dismisses untouched Edit through Escape without enabling outside-click dismissal", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(500);
     const { model, route } = clients([routeView({ id: "route-edit", name: "editable" })]);
     const router = renderIntegratedAt(
@@ -1693,7 +1696,7 @@ describe("RoutesPage", () => {
   });
 
   it("creates successfully and opens the created route's inspector with focus on its heading", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     vi.mocked(route.route.createRoute).mockResolvedValue(
       create(CreateRouteResponseSchema, {
@@ -1725,7 +1728,7 @@ describe("RoutesPage", () => {
   });
 
   it("opens the created route above a cross-page model deployment parent", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     vi.mocked(route.route.createRoute).mockResolvedValue(
       create(CreateRouteResponseSchema, {
@@ -1754,7 +1757,7 @@ describe("RoutesPage", () => {
   });
 
   it("starts Create with one empty Primary tier, validates it inline, and focuses its picker", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
@@ -1777,7 +1780,7 @@ describe("RoutesPage", () => {
   });
 
   it("checks the name format and uniqueness next to the name field before saving", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([
       routeView({ id: "route-chat", name: "chat" }),
       routeView({ id: "route-other", name: "other" }),
@@ -1823,7 +1826,7 @@ describe("RoutesPage", () => {
   });
 
   it("rejects a deployment repeated in another group next to that group's picker", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients(
       [],
       [deployment("deployment-a", "Gemma"), deployment("deployment-b", "Qwen")],
@@ -1849,7 +1852,7 @@ describe("RoutesPage", () => {
   });
 
   it("does not submit on Enter in a deployment picker", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
@@ -1869,7 +1872,7 @@ describe("RoutesPage", () => {
   });
 
   it("keeps focus in the edited picker instead of jumping to the next invalid group", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
@@ -1891,7 +1894,7 @@ describe("RoutesPage", () => {
   });
 
   it("adds, removes, and reorders tiers into the expected fallback groups payload", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients(
       [],
       [
@@ -1937,7 +1940,7 @@ describe("RoutesPage", () => {
   });
 
   it("caps tiers at eight and keeps the last tier", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 
@@ -1953,7 +1956,7 @@ describe("RoutesPage", () => {
   });
 
   it("shows a server error inside the sidebar rather than behind it", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     vi.mocked(route.route.createRoute).mockRejectedValue(
       new ConnectError("Inference route declaration is invalid", Code.InvalidArgument),
@@ -1986,7 +1989,7 @@ describe("RoutesPage", () => {
   });
 
   it("reconciles one exact uncertain Create match without retrying", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const accepted = routeView({
       id: "route-reconciled",
       name: "reconciled",
@@ -2016,7 +2019,7 @@ describe("RoutesPage", () => {
   });
 
   it("retains an uncertain Create draft when reconciliation has no exact match", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     vi.mocked(route.route.createRoute).mockRejectedValue(
       new ConnectError("timed out", Code.Unavailable),
@@ -2040,7 +2043,7 @@ describe("RoutesPage", () => {
   });
 
   it("retains the draft when reconciliation finds multiple exact normalized matches", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const accepted = routeView({
       id: "route-reconciled-a",
       name: "reconciled",
@@ -2070,7 +2073,7 @@ describe("RoutesPage", () => {
   });
 
   it("retains the draft when the same normalized name has a different declaration", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const conflicting = routeView({
       id: "route-conflicting",
       name: "reconciled",
@@ -2097,7 +2100,7 @@ describe("RoutesPage", () => {
   });
 
   it("retains the draft when uncertain Create reconciliation fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     vi.mocked(route.route.createRoute).mockRejectedValue(
       new ConnectError("timed out", Code.Unavailable),
@@ -2119,7 +2122,7 @@ describe("RoutesPage", () => {
   });
 
   it("retains a definitive Create service error without reconciliation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     vi.mocked(route.route.createRoute).mockRejectedValue(
       new ConnectError("name already exists", Code.AlreadyExists),
@@ -2138,7 +2141,7 @@ describe("RoutesPage", () => {
   });
 
   it("retains a malformed successful Create response without reconciliation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([]);
     vi.mocked(route.route.createRoute).mockResolvedValue(create(CreateRouteResponseSchema));
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
@@ -2155,7 +2158,7 @@ describe("RoutesPage", () => {
   });
 
   it("prevents duplicate pending Delete confirmation and dismissal", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-delete", name: "to-delete" })]);
     let resolveDelete!: () => void;
     vi.mocked(route.route.deleteRoute).mockImplementation(
@@ -2190,7 +2193,7 @@ describe("RoutesPage", () => {
   });
 
   it("removes a deleted route, closes the inspector, and returns focus to its opener", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { model, route } = clients([routeView({ id: "route-delete", name: "to-delete" })]);
     render(<RoutesPage client={route} metricsClient={idleMetricsClient} modelClient={model} />);
 

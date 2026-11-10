@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -34,6 +33,7 @@ import {
   NodeObservationState,
   type RuntimeTargetAvailabilitySchema,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { setupUser } from "@/test/user";
 
 import { MachineDetailContent } from "./machine-details";
 
@@ -1294,7 +1294,7 @@ describe("MachineDetailContent", () => {
   });
 
   it("counts application deployments and opens a target from its row", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSelect = vi.fn();
     const apps = executionTarget(
       "node-a",

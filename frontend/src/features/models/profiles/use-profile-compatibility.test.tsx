@@ -6,13 +6,13 @@ import {
   ListModelProfileCompatibilityResponseSchema,
   ModelCompatibilityStatus,
 } from "@/gen/dotcore/model/v1/service_pb";
+import { productionTiming, setTiming } from "@/lib/timing";
 
 import { profileEstimateKey } from "./model-row";
 import { profileTargetVerdict } from "./profile-compatibility";
 import { profileSizing } from "./profile-compatibility-test-support";
 import type { SizingScenario } from "./sizing-scenario";
 import {
-  PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS,
   type ProfileCompatibilityLoader,
   useProfileCompatibility,
 } from "./use-profile-compatibility";
@@ -26,6 +26,7 @@ const gpu = { executionTargetId: "gpu", siteNodeId: "node" };
 
 describe("useProfileCompatibility", () => {
   it("reads the model while active and re-reads it on the refresh interval", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const loader = vi.fn<ProfileCompatibilityLoader>((modelId) =>
       Promise.resolve(response(modelId, ModelCompatibilityStatus.RUNS)),
@@ -61,13 +62,14 @@ describe("useProfileCompatibility", () => {
 
     loader.mockResolvedValueOnce(response("alpha", ModelCompatibilityStatus.CANNOT_RUN));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
     });
     expect(loader).toHaveBeenCalledTimes(2);
     expect(status(result.current.compatibility, "alpha")).toBe("cannot-run");
   });
 
   it("keeps the last good read when a refresh fails", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const loader = vi.fn<ProfileCompatibilityLoader>((modelId) =>
       Promise.resolve(response(modelId, ModelCompatibilityStatus.RUNS)),
@@ -77,7 +79,7 @@ describe("useProfileCompatibility", () => {
 
     loader.mockRejectedValueOnce(new Error("unavailable"));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
     });
 
     expect(loader).toHaveBeenCalledTimes(2);
@@ -86,6 +88,7 @@ describe("useProfileCompatibility", () => {
   });
 
   it("reports a failed first read, then recovers on the next one", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const loader = vi
       .fn<ProfileCompatibilityLoader>()
@@ -103,7 +106,7 @@ describe("useProfileCompatibility", () => {
     });
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
     });
     expect(result.current.error).toBeUndefined();
     expect(status(result.current.compatibility, "alpha")).toBe("runs");
@@ -236,6 +239,7 @@ describe("useProfileCompatibility", () => {
   });
 
   it("stops reading once inactive and reads nothing without a loader", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const loader = vi.fn<ProfileCompatibilityLoader>((modelId) =>
       Promise.resolve(response(modelId, ModelCompatibilityStatus.RUNS)),
@@ -248,7 +252,7 @@ describe("useProfileCompatibility", () => {
 
     rerender({ active: false });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS * 2);
+      await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs * 2);
     });
     expect(loader).toHaveBeenCalledTimes(1);
     expect(result.current.loading).toBe(false);

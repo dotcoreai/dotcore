@@ -9,6 +9,7 @@ import {
 import { FieldError } from "@/components/ui/field-error";
 import { ContextSizeInput } from "@/features/models/runtime/context-size-input";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
+import { timing } from "@/lib/timing";
 
 import type { MemoryBasis } from "./profile-compatibility";
 import {
@@ -74,7 +75,7 @@ export function CatalogSizedFor({
     const timer = setTimeout(() => {
       setInputs(followedRef.current);
       if (pendingRef.current) onChangeRef.current(pendingRef.current);
-    }, scenarioInputDelayMs);
+    }, timing().scenarioInputMs);
     return () => clearTimeout(timer);
   }, [pendingKey]);
 
@@ -198,9 +199,6 @@ const initialCustomScenario: SizingScenario = { totalContextTokens: 131072 };
 
 // The slider's right end; the number input accepts larger contexts.
 const sliderMaximum = 1_048_576;
-
-// How long typing pauses before a scenario applies, so a read doesn't follow every keystroke.
-const scenarioInputDelayMs = 500;
 
 // The inputs take their own keys, so typing and arrow keys don't move the menu's highlight; Escape
 // still closes the menu.

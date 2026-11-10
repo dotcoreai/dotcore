@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
+
+import { setupUser } from "@/test/user";
 
 import { Sparkline } from "../sparkline/sparkline";
 import { MetricCard, MetricCardDetail, MetricCardGrid } from "./metric-card";
@@ -27,7 +28,7 @@ function Grid({ pending = false }: { pending?: boolean }) {
 
 describe("MetricCardGrid", () => {
   it("shows label, value, unit and line, and selects one card at a time", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<Grid />);
 
     const requests = screen.getByRole("button", { name: /Requests/ });
@@ -46,7 +47,7 @@ describe("MetricCardGrid", () => {
   });
 
   it("clears the selection when the selected card is chosen again", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<Grid />);
 
     const requests = screen.getByRole("button", { name: /Requests/ });
@@ -58,7 +59,7 @@ describe("MetricCardGrid", () => {
   });
 
   it("toggles from the keyboard with Enter and Space", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<Grid />);
 
     await user.tab();
@@ -113,7 +114,7 @@ describe("MetricCard", () => {
 
 describe("MetricCardDetail", () => {
   it("shows the title and chart, and switches the split", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const splits: string[] = [];
     render(
       <MetricCardDetail

@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import type { UserEvent } from "@testing-library/user-event";
 import { type ComponentProps, createRef, StrictMode, useState } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
@@ -40,6 +40,7 @@ import {
   waitForInspectorFocus,
 } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { UpstreamDeployDialog } from "./upstream-deploy-dialog";
 import { UpstreamEditInspector } from "./upstream-edit-inspector";
@@ -181,7 +182,7 @@ function renderTerminalUpstreamEdit(save: DeferredSave) {
 }
 
 // Moves from Connection to Deploy.
-async function openDeploy(dialog: HTMLElement, user: ReturnType<typeof userEvent.setup>) {
+async function openDeploy(dialog: HTMLElement, user: UserEvent) {
   await user.click(within(dialog).getByRole("button", { name: "Next" }));
   expect(within(dialog).getByText("Step 2 of 2 — Deploy")).toBeVisible();
 }
@@ -245,7 +246,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("accepts dotted upstream IDs and preserves them", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -265,7 +266,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("advances on Enter in Connection and submits once on Enter in Deploy", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -283,7 +284,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("keeps first-page actions available so required-field validation can explain errors", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -305,7 +306,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("flags connection fields on blur only after they change", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} template={template} />,
     );
@@ -336,7 +337,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("flags a cleared deployment name on blur and Deploy instead of a route notice", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -369,7 +370,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("keeps an untouched invalid deployment name quiet until Deploy", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -395,7 +396,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("flags the route name on blur only after it changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} template={template} />,
     );
@@ -418,7 +419,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("shows a derived route collision on the route field as Deploy opens until renamed", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog
@@ -452,7 +453,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("clears a derived route collision when the route is edited", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <UpstreamDeployDialog
         existingRouteNames={["private-model"]}
@@ -476,7 +477,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("shows a backend route conflict on the route field until the route changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <UpstreamDeployDialog
         open
@@ -504,7 +505,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("keeps edited values when Back returns to Connection and Advanced is toggled", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -539,7 +540,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("navigates visited steps from their headers and validates before moving forward", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -591,7 +592,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("submits the endpoint form once on Enter without saving Name metadata", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSaveEndpoint = vi.fn().mockResolvedValue(true);
     const onSaveMetadata = vi.fn();
     render(
@@ -620,7 +621,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("runs endpoint validation and focuses the first invalid field on Enter", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSaveEndpoint = vi.fn();
     render(
       <MemoryRouter>
@@ -637,6 +638,7 @@ describe("generic upstream endpoint UI", () => {
       </MemoryRouter>,
     );
     const inspector = screen.getByRole("complementary", { name: "Upstream model · Edit" });
+    await waitForInspectorFocus(inspector);
     const baseUrl = within(inspector).getByLabelText("Base URL");
     await user.clear(baseUrl);
     await user.clear(within(inspector).getByLabelText("Upstream model ID"));
@@ -650,7 +652,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("explains invalid connection values on blur and attempted progression", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -661,7 +663,7 @@ describe("generic upstream endpoint UI", () => {
 
     await user.type(baseUrl, "https://endpoint.example/v1?region=one");
     await user.tab();
-    expect(within(dialog).getByText("Base URL must not include a query.")).toBeVisible();
+    expect(await within(dialog).findByText("Base URL must not include a query.")).toBeVisible();
     expect(baseUrl).toHaveAttribute("aria-invalid", "true");
     expect(baseUrl).toHaveAccessibleDescription("Base URL must not include a query.");
     await user.clear(baseUrl);
@@ -680,7 +682,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("preserves rapid changes without a render-phase update warning", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     const consoleError = vi.spyOn(console, "error");
     try {
@@ -755,7 +757,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("keeps Deploy fields ordered and minimal while normalizing a followed route name", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -814,7 +816,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("lets the route name follow the deployment name until edited and restores it with the link", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} template={template} />,
     );
@@ -847,7 +849,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("shows a taken custom route on the route field and blocks Deploy", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <UpstreamDeployDialog
         existingRouteNames={["taken"]}
@@ -917,7 +919,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("validates blank Base URL before model ID, focuses it, and skips the endpoint RPC", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSaveEndpoint = vi.fn();
     render(
       <MemoryRouter>
@@ -935,6 +937,7 @@ describe("generic upstream endpoint UI", () => {
     );
 
     const inspector = screen.getByRole("complementary", { name: "Upstream model · Edit" });
+    await waitForInspectorFocus(inspector);
     const baseUrl = within(inspector).getByLabelText("Base URL");
     await user.clear(baseUrl);
     await user.clear(within(inspector).getByLabelText("Upstream model ID"));
@@ -947,7 +950,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("handles rejected metadata saves without losing drafts or navigation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSaveMetadata = vi.fn().mockRejectedValue(new Error("Name could not be saved."));
     const router = createMemoryRouter(
       [
@@ -993,7 +996,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("submits partial metadata while preserving the Endpoint draft", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSaveMetadata = vi.fn().mockResolvedValue({ displayName: "Accepted name" });
     render(
       <MemoryRouter>
@@ -1077,7 +1080,7 @@ describe("generic upstream endpoint UI", () => {
     await waitFor(() => expect(name).toHaveValue("Projected name"));
     expect(baseUrl).toHaveValue("https://projected.example/v1");
 
-    const user = userEvent.setup();
+    const user = setupUser();
     await user.clear(name);
     await user.type(name, "Unsaved name");
     rerender(
@@ -1107,7 +1110,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("disables the route name for Hidden deployments and submits the hidden exposure", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSubmit = vi.fn();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={onSubmit} template={template} />,
@@ -1161,7 +1164,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("keeps the Deploy dialog open and ignores dismissal while pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onOpenChange = vi.fn();
     const onSubmit = vi.fn();
     const { rerender } = render(
@@ -1193,7 +1196,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("guards dirty upstream Edit stack navigation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const editLocation =
       "/models?panel=models%2Fdeployment%3Adeployment-1&panel=models%2Fedit%3Adeployment-1";
     const router = createMemoryRouter(
@@ -1250,7 +1253,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("does not return after teardown settles a pending final-clean Name save", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const save = deferredSave();
     const editorLocation =
       "/models?panel=models%2Fdeployment%3Adeployment-1&panel=models%2Fedit%3Adeployment-1";
@@ -1289,7 +1292,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("does not return after teardown settles a pending final-clean Endpoint save", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const save = deferredSave();
     const editorLocation =
       "/models?panel=models%2Fdeployment%3Adeployment-1&panel=models%2Fedit%3Adeployment-1";
@@ -1328,7 +1331,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("clears an unsaveable Endpoint draft after a partial Name save observes teardown", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const save = deferredSave();
     renderTerminalUpstreamEdit(save);
 
@@ -1381,7 +1384,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("keeps an edited route name when returning to Connection", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <UpstreamDeployDialog open onOpenChange={vi.fn()} onSubmit={vi.fn()} template={template} />,
     );
@@ -1472,7 +1475,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("makes Chat primary inside the console layout", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openChat = vi.fn();
     render(
       <ChatOpenerContext.Provider value={openChat}>
@@ -1498,7 +1501,7 @@ describe("generic upstream endpoint UI", () => {
   });
 
   it("keeps upstream teardown confirmation pending, actionable, and retryable", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const dependencyError =
       'Cannot teardown the model deployment because application deployment "Open WebUI" (application-one) uses inference route "Upstream route" (route-one), which would be removed with the model deployment. Teardown the application and wait for it to be removed, then try again.';
     const onUnload = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);

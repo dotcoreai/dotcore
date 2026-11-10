@@ -1,7 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -38,6 +37,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { DeploymentApplicationInspector } from "./application-inspector";
 
@@ -824,7 +824,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("makes Open primary for an application with an endpoint and keeps Edit in the menu", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <DeploymentApplicationInspector
         deployment={create(ApplicationDeploymentSchema, {
@@ -856,7 +856,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("uses a Cancel-first removal confirmation and suppresses it during teardown", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const deployment = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "deployment-1",
       applicationDeploymentName: "open-webui-1",
@@ -905,7 +905,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("shows visible teardown and disables removal during teardown", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const deployment = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "deployment-1",
       desiredState: ApplicationDeploymentDesiredState.TEARDOWN,
@@ -929,7 +929,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("closes confirmation and keeps removal suppressed when desired state changes", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const present = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "deployment-1",
       applicationDeploymentName: "open-webui-1",
@@ -969,7 +969,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("shows Pause for Present without confirmation and keeps Remove separate", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onPause = vi.fn();
     const onResume = vi.fn();
     const deployment = create(ApplicationDeploymentSchema, {
@@ -1015,7 +1015,7 @@ describe("Application deployment dialog", () => {
     ["failed", ApplicationLifecycleState.FAILED],
     ["unavailable", ApplicationLifecycleState.UNAVAILABLE],
   ] as const)("keeps Pause enabled during %s startup state", async (_label, lifecycleState) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onPause = vi.fn();
     const deployment = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "present-deployment",
@@ -1048,7 +1048,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("shows Resume and Remove for Paused, preserves removal confirmation, suppresses stale endpoint access, and omits pause actions for Teardown", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const paused = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "paused-deployment",
       applicationDeploymentName: "open-webui-1",
@@ -1112,7 +1112,7 @@ describe("Application deployment dialog", () => {
   });
 
   it("disables conflicting actions and Open while an accepted pause is still pausing", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const deployment = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "pausing-deployment",
       applicationDeploymentName: "open-webui-1",
@@ -1157,7 +1157,7 @@ describe("Application deployment dialog", () => {
         sources: [],
       }),
     };
-    const user = userEvent.setup();
+    const user = setupUser();
     const deployment = create(ApplicationDeploymentSchema, {
       applicationDeploymentId: "deployment-with-logs",
       desiredState: ApplicationDeploymentDesiredState.PRESENT,

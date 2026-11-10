@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { runningDeployment } from "@/features/memory/node-memory-test-support";
@@ -8,6 +7,7 @@ import { type ResourceEstimate } from "@/features/models/deploy/use-resource-est
 import { ApplicationDeploymentSchema } from "@/gen/dotcore/application/v1/deployment_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
+import { setupUser } from "@/test/user";
 import { getResourceColor } from "@/theme/resource-color";
 import { ResourceColorContext } from "@/theme/resource-color-context";
 
@@ -40,7 +40,7 @@ const target: PreviewTarget = {
 
 describe("ModelDeployMemoryStrip", () => {
   it("draws a dedicated target's pools from the preview, this deployment on top", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderStrip({
       estimate: settled(
         placementPreview([

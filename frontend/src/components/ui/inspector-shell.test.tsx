@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { type ReactNode, useRef, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +20,7 @@ import { PanelPresentationContext } from "@/panels/panel-presentation";
 import { panelTitle } from "@/panels/panel-titles";
 import { PanelParentContext, usePublishPanelTitles } from "@/panels/panel-titles-context";
 import { PanelTitlesProvider } from "@/panels/panel-titles-provider";
+import { setupUser } from "@/test/user";
 
 const popupOptions: ComboboxOption[] = [{ id: "deployment-alpha", label: "Deployment Alpha" }];
 
@@ -334,7 +334,7 @@ afterEach(() => {
 
 describe("InspectorShell", () => {
   it("uses controlled state and restores focus from the close control", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ControlledInspector />);
 
     await user.click(screen.getByRole("button", { name: "Open inspector" }));
@@ -352,7 +352,7 @@ describe("InspectorShell", () => {
   });
 
   it("restores focus to the opener when the host unmounts the inspector on close", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
 
     function UnmountingHost() {
@@ -388,7 +388,7 @@ describe("InspectorShell", () => {
   });
 
   it("forgets a turned-down close, so a later unmount while open keeps focus off the opener", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
 
     function GuardedHost({ mounted }: { mounted: boolean }) {
@@ -444,7 +444,7 @@ describe("InspectorShell", () => {
   });
 
   it("renders a non-modal wide panel at the viewport right below the header", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ControlledInspector />);
 
@@ -480,7 +480,7 @@ describe("InspectorShell", () => {
   });
 
   it("closes a clean wide inspector once on outside activation and leaves focus with that target", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ControlledInspector />);
 
@@ -499,7 +499,7 @@ describe("InspectorShell", () => {
   });
 
   it("closes a clean inspector once after a primary touch activation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ControlledInspector />);
 
@@ -519,7 +519,7 @@ describe("InspectorShell", () => {
   });
 
   it("ignores right-click and a pointer drag that starts inside the inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ControlledInspector />);
 
@@ -540,7 +540,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps the same inspector mounted when Shift+Tab leaves for base content", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ControlledInspector />);
 
@@ -562,7 +562,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps the same inspector mounted when Tab leaves for base content", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ControlledInspector />);
 
@@ -585,7 +585,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps the same inspector mounted when focus moves directly into base content", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<ControlledInspector />);
 
@@ -606,11 +606,15 @@ describe("InspectorShell", () => {
   });
 
   it("dismisses a nested popup before the inspector on outside activation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<PopupInspector />);
 
     await user.click(screen.getByRole("button", { name: "Open popup inspector" }));
+    // The inspector takes its opening focus a frame after it opens.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Close inspector" })).toHaveFocus(),
+    );
     const outsideAction = screen.getByRole("button", { name: "Outside popup action 0" });
     await user.click(screen.getByRole("combobox", { name: "Deployment" }));
     await user.click(outsideAction);
@@ -627,7 +631,7 @@ describe("InspectorShell", () => {
   });
 
   it("dismisses a tooltip before the inspector on outside activation", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<PopupInspector tooltip />);
 
@@ -648,7 +652,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps the inspector open when a nested combobox portal option is activated", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<PopupInspector />);
 
@@ -673,7 +677,7 @@ describe("InspectorShell", () => {
   });
 
   it("lets a nested Base UI dialog close before its inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<NestedDialogInspector />);
 
@@ -691,7 +695,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps an active child dialog isolated when the inspector crosses into compact mode", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(721);
     render(<ResponsiveLayerInspector />);
 
@@ -717,7 +721,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps an active child dialog isolated when the inspector crosses into wide mode", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(720);
     render(<ResponsiveLayerInspector />);
 
@@ -742,7 +746,7 @@ describe("InspectorShell", () => {
   });
 
   it("gives an active feature modal precedence over inspector dismissal", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<SuspendedInspector />);
 
@@ -759,7 +763,7 @@ describe("InspectorShell", () => {
   });
 
   it("delegates marked lateral navigation without issuing a competing Close", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     render(<NavigationInspector />);
 
@@ -772,7 +776,7 @@ describe("InspectorShell", () => {
   });
 
   it("blocks dirty and pending outside dismissal requests", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(1440);
     const guarded = render(<NestedInspector guarded />);
 
@@ -790,7 +794,7 @@ describe("InspectorShell", () => {
   });
 
   it("uses an inline arrow-only Back/title/Close header with the parent-labelled accessible name", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <NestedInspector title="A route title that wraps across the available inspector header" />,
     );
@@ -849,7 +853,7 @@ describe("InspectorShell", () => {
   });
 
   it("uses column flex layout and self-centers every nested header item when narrow", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(500);
     render(
       <NestedInspector title="A route title that wraps across the available inspector header" />,
@@ -870,7 +874,7 @@ describe("InspectorShell", () => {
   });
 
   it("renders the parent-labelled header and routes Back separately from Close", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<NestedInspector />);
 
     await user.click(screen.getByRole("button", { name: "Open nested inspector" }));
@@ -900,7 +904,7 @@ describe("InspectorShell", () => {
   });
 
   it("uses a dirty dismissal guard and disables stack navigation while pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<NestedInspector guarded />);
 
     await user.click(screen.getByRole("button", { name: "Open nested inspector" }));
@@ -923,7 +927,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps inspector replacement immediate while reserving motion for a true open", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<NavigationInspector />);
 
     await user.click(screen.getByRole("button", { name: "Open navigation inspector" }));
@@ -935,7 +939,7 @@ describe("InspectorShell", () => {
   });
 
   it("uses only full-width right-edge opening motion and leaves Close and ordinary dialogs unchanged", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <PanelPresentationContext.Provider value="enter">
         <ControlledInspector />
@@ -973,7 +977,7 @@ describe("InspectorShell", () => {
   });
 
   it("announces canonical recovery once without transition motion", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <NestedInspector recoveryMessage="That route is no longer available. Returned to Routes." />,
     );
@@ -989,7 +993,7 @@ describe("InspectorShell", () => {
   });
 
   it("uses modal and non-modal presentation on either side of the 720px breakpoint", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(721);
     render(<ControlledInspector />);
 
@@ -1004,7 +1008,7 @@ describe("InspectorShell", () => {
   });
 
   it("exposes one accessible title in the narrow inspector", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(500);
     render(<ControlledInspector />);
 
@@ -1015,7 +1019,7 @@ describe("InspectorShell", () => {
   });
 
   it("moves focus into the narrow modal before hiding the page from assistive tech", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(500);
     const { container } = render(<ControlledInspector />);
     const hiddenWhileFocused: string[] = [];
@@ -1044,7 +1048,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps keyboard focus inside the narrow modal", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(500);
     render(<ControlledInspector />);
 
@@ -1063,7 +1067,7 @@ describe("InspectorShell", () => {
   });
 
   it("renders a full-screen narrow modal with a backdrop", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(500);
     render(<ControlledInspector />);
 
@@ -1079,8 +1083,10 @@ describe("InspectorShell", () => {
     expect(document.querySelector("[data-slot='dialog-overlay']")).not.toBeNull();
 
     // The scroll lock sets the axis longhands; jsdom does not fold them into the `overflow` shorthand.
-    expect(document.body.style.overflowX).toBe("hidden");
-    expect(document.body.style.overflowY).toBe("hidden");
+    await waitFor(() => {
+      expect(document.body.style.overflowX).toBe("hidden");
+      expect(document.body.style.overflowY).toBe("hidden");
+    });
 
     await user.click(document.querySelector("[data-slot='dialog-overlay']")!);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
@@ -1092,7 +1098,7 @@ describe("InspectorShell", () => {
   });
 
   it("keeps a flat sticky footer on the body surface outside the scrolling body", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(<ControlledInspector />);
 
     await user.click(screen.getByRole("button", { name: "Open inspector" }));
@@ -1117,7 +1123,7 @@ describe("InspectorShell", () => {
   });
 
   it("lays footer actions out at natural width in one right-aligned row", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     setViewportWidth(390);
     render(<TwoActionInspector />);
 

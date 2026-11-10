@@ -2,8 +2,10 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { runStreamLoop } from "@/lib/stream-loop";
+import { productionTiming, setTiming } from "@/lib/timing";
 
 beforeEach(() => {
+  setTiming(productionTiming);
   vi.useFakeTimers();
 });
 

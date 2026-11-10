@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { writeClipboard } from "@/lib/clipboard";
+import { timing } from "@/lib/timing";
 import { cn } from "@/lib/utils";
 
 type CopyControlProps = {
@@ -100,7 +101,7 @@ function useCopyFeedback(value: string) {
       setFeedback("failure");
     }
 
-    timer.current = setTimeout(() => setFeedback(undefined), 1500);
+    timer.current = setTimeout(() => setFeedback(undefined), timing().copyFeedbackMs);
   };
 
   return { copy, feedback };

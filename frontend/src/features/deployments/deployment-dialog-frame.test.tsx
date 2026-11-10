@@ -1,10 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Button } from "@/components/ui/button";
 import { expectResourceMarker } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { DeploymentDialogFrame } from "./deployment-dialog-frame";
 
@@ -78,7 +78,7 @@ describe("DeploymentDialogFrame", () => {
   });
 
   it("submits through the frame and protects every dismissal path while pending", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onOpenChange = vi.fn();
     const onSubmit = vi.fn();
     const view = render(

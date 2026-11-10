@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
@@ -16,6 +15,7 @@ import {
 import { useMetricCards } from "@/features/metrics/use-metric-cards";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { MachineSchema, NodeObservationState } from "@/gen/dotcore/site/v1/service_pb";
+import { setupUser } from "@/test/user";
 
 import { overviewCardSpecs, overviewSplitIds, overviewSplits } from "./overview-card-specs";
 import { OverviewMachinesSection } from "./overview-machines-section";
@@ -97,7 +97,7 @@ describe("OverviewMachinesSection", () => {
   });
 
   it("does not make the connected count selectable and charts a selected card by machine", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(metricsClientWith(staticWatch(answer)));
     const section = screen.getByRole("region", { name: "Machines" });
     await waitFor(() => expect(metrics.current.cards[0].reading).toBeDefined());
@@ -115,7 +115,7 @@ describe("OverviewMachinesSection", () => {
   });
 
   it("charts a machine card as the whole site when another kind's split is chosen", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { metrics } = renderSection(
       metricsClientWith(staticWatch(answer)),
       overviewSplitIds.model,
@@ -128,7 +128,7 @@ describe("OverviewMachinesSection", () => {
   });
 
   it("opens the machines page from the connected count", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { location } = renderSection(metricsClientWith(staticWatch(answer)));
 
     await user.click(screen.getByRole("link", { name: "Machines" }));

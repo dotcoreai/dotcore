@@ -2,13 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { ListModelProfileCompatibilityResponse } from "@/gen/dotcore/model/v1/service_pb";
 import { createPollTimer } from "@/lib/poll-timer";
+import { timing } from "@/lib/timing";
 
 import type { ProfileEstimates } from "./model-row";
 import { indexProfileCompatibility, type ProfileCompatibility } from "./profile-compatibility";
 import { type SizingScenario, sizingScenarioKey } from "./sizing-scenario";
-
-/** How often an open consumer re-reads compatibility; target observations expire after 60 s. */
-export const PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS = 5_000;
 
 /**
  * Reads the compatibility of one catalog model's profiles, or of every model's for `allModels`, on
@@ -110,7 +108,7 @@ export function useProfileCompatibility(
           );
         }
       }
-      if (latest()) pollTimer.arm(PROFILE_COMPATIBILITY_REFRESH_INTERVAL_MS);
+      if (latest()) pollTimer.arm(timing().profileCompatibilityRefreshMs);
     };
 
     if (document.visibilityState === "visible") void read();

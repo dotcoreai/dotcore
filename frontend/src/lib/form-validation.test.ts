@@ -31,7 +31,7 @@ describe("form validation", () => {
         ["deployment", deployment],
       ]);
 
-      focusFirstInvalidField(errors, controls);
+      expect(focusFirstInvalidField(errors, controls)).toBe(true);
 
       expect(routeName).toHaveFocus();
       expect(deployment).not.toHaveFocus();
@@ -39,5 +39,13 @@ describe("form validation", () => {
       routeName.remove();
       deployment.remove();
     }
+  });
+
+  it("reports no focus when no invalid field has a control yet", () => {
+    const errors = toFieldErrors([["route-name", "Enter a route name before saving."]]);
+    const focused = document.activeElement;
+
+    expect(focusFirstInvalidField(errors, new Map([["route-name", null]]))).toBe(false);
+    expect(document.activeElement).toBe(focused);
   });
 });

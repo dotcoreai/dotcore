@@ -30,6 +30,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { timing } from "@/lib/timing";
 import { usePanelNavigationPending } from "@/panels/panel-navigation-pending";
 
 interface NavChildItem {
@@ -359,12 +360,6 @@ function useDerivedOpen(pathname: string, branchActive: boolean) {
   return [open, setOpen] as const;
 }
 
-// A graze across the rail on the way to somewhere else should not open it, and a deliberate hover
-// away should not close it mid-transit toward a revealed sub-item — hence the asymmetric delays.
-// Exported so tests exercise the real values instead of a duplicated guess.
-export const PEEK_ENTER_DELAY_MS = 150;
-export const PEEK_LEAVE_DELAY_MS = 300;
-
 /**
  * Debounced pointer-hover state for the peek. Local to the caller and cleared on unmount, so it
  * never persists anywhere and never reaches the stored collapsed preference. `suppressHover` hides
@@ -384,12 +379,12 @@ function useHoverPeek() {
       setSuppressed(false);
       setHovering(false);
     }
-    timeoutRef.current = setTimeout(() => setHovering(true), PEEK_ENTER_DELAY_MS);
+    timeoutRef.current = setTimeout(() => setHovering(true), timing().sidebarPeekEnterMs);
   }, [suppressed]);
 
   const onPointerLeave = useCallback(() => {
     clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => setHovering(false), PEEK_LEAVE_DELAY_MS);
+    timeoutRef.current = setTimeout(() => setHovering(false), timing().sidebarPeekLeaveMs);
   }, []);
 
   const suppressHover = useCallback(() => setSuppressed(true), []);

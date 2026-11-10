@@ -1,6 +1,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { createPollTimer, DEFAULT_POLL_RETRY_DELAYS_MS } from "@/lib/poll-timer";
+import { createPollTimer } from "@/lib/poll-timer";
+import { timing } from "@/lib/timing";
 
 /** Error codes a request would hit again on every reopen, so the loop stops instead of retrying. */
 export const DEFAULT_TERMINAL_CODES: readonly Code[] = [Code.InvalidArgument, Code.NotFound];
@@ -19,8 +20,6 @@ export interface StreamLoopOptions<Message> {
   /** Codes that stop the loop without retry; defaults to invalid argument and not found. */
   terminalCodes?: readonly Code[];
 }
-
-const healthyStreamMs = DEFAULT_POLL_RETRY_DELAYS_MS[DEFAULT_POLL_RETRY_DELAYS_MS.length - 1];
 
 /**
  * Keeps one server stream open: reopens it with the shared poll backoff after it ends or fails,
@@ -51,6 +50,7 @@ export function runStreamLoop<Message>(options: StreamLoopOptions<Message>): () 
     controller?.abort();
     const current = new AbortController();
     controller = current;
+    const delays = timing().pollRetryMs;
     const connectedAt = Date.now();
     let live = false;
     let failure: ConnectError | undefined;
@@ -63,7 +63,7 @@ export function runStreamLoop<Message>(options: StreamLoopOptions<Message>): () 
           live = true;
         });
         // A watcher the server keeps dropping must not reconnect every second.
-        if (live && Date.now() - connectedAt >= healthyStreamMs) failureCount = 0;
+        if (live && Date.now() - connectedAt >= delays[delays.length - 1]) failureCount = 0;
       }
     } catch (error) {
       failure = ConnectError.from(error);
@@ -75,11 +75,7 @@ export function runStreamLoop<Message>(options: StreamLoopOptions<Message>): () 
     if (terminal) return;
 
     failureCount += 1;
-    timer.arm(
-      DEFAULT_POLL_RETRY_DELAYS_MS[
-        Math.min(failureCount - 1, DEFAULT_POLL_RETRY_DELAYS_MS.length - 1)
-      ],
-    );
+    timer.arm(delays[Math.min(failureCount - 1, delays.length - 1)]);
   };
 
   void connect();

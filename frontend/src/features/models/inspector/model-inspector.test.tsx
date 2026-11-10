@@ -1,6 +1,5 @@
 import { create } from "@bufbuild/protobuf";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,6 +33,7 @@ import * as clipboard from "@/lib/clipboard";
 import { PanelParentContext } from "@/panels/panel-titles-context";
 import { chooseMoreAction, inspectorActionList } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { CatalogModelInspector } from "./catalog-model-inspector";
 import { DeploymentModelInspector } from "./deployment-model-inspector";
@@ -269,7 +269,7 @@ describe("model inspectors", () => {
   });
 
   it("splits the Configuration screen into Resolved and Command sections", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockResolvedValue(undefined);
     render(
       <DeploymentModelInspector
@@ -300,7 +300,7 @@ describe("model inspectors", () => {
   });
 
   it("shows runtime-resolved arguments as placeholders apart from literal tokens", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockClear().mockResolvedValue(undefined);
     const symbolic = create(ResolvedLocalModelDeploymentSnapshotSchema, {
       ...snapshot,
@@ -467,7 +467,7 @@ describe("model inspectors", () => {
   });
 
   it("presents the root as Status, Configuration, Deployment with its memory, and Requests sections", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onOpenConfiguration = vi.fn();
     const onOpenLogs = vi.fn();
     const logs: DeploymentLogOperations = {
@@ -792,7 +792,7 @@ describe("model inspectors", () => {
   });
 
   it("keeps Pause in the menu while present and makes Resume primary while paused", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const inspector = (
       desiredState: ModelDeploymentDesiredState,
       status: ModelDeploymentStatus,
@@ -831,7 +831,7 @@ describe("model inspectors", () => {
   });
 
   it("makes Chat primary for a present deployment and opens the chat on its route", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const openChat = vi.fn();
     render(
       <ChatOpenerContext.Provider value={openChat}>
@@ -859,7 +859,7 @@ describe("model inspectors", () => {
   });
 
   it("keeps local teardown feedback in one retryable dialog", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const dependencyError =
       'Cannot teardown the model deployment because these application deployments use inference routes that would be removed with it: "App A" (application-a) via "Route A" (route-a); "App B" (application-b) via "Route B" (route-b); "App C" (application-c) via "Route C" (route-c); and 1 more. Teardown the applications and wait for them to be removed, then try again.';
     const onUnload = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);

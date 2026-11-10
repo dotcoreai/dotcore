@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { act, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -13,6 +12,7 @@ import {
   type ApplicationService,
   ApplicationServiceSchema,
 } from "@/gen/dotcore/catalog/v1/application_pb";
+import { setupUser } from "@/test/user";
 
 import {
   clientFor,
@@ -76,7 +76,7 @@ function service(
 }
 
 function renderCatalog(search = "", deployments: ReturnType<typeof deployment>[] = []) {
-  const user = userEvent.setup();
+  const user = setupUser();
   const client = clientFor([hermes, openWebUi, notebook], deployments);
   const rendered = renderAppsSection({ client, initialEntry: `/apps/catalog${search}` });
   return { ...rendered, client, user };

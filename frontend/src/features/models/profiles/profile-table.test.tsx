@@ -1,5 +1,4 @@
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +6,7 @@ import {
   nvidiaEstimates,
   syntheticCatalog,
 } from "@/features/models/catalog/catalog-table-test-support";
+import { setupUser } from "@/test/user";
 
 import { type ProfileRow, projectProfileRows } from "./model-row";
 import { ProfileNameCell } from "./profile-cells";
@@ -35,7 +35,7 @@ function renderTable(props: Partial<ComponentProps<typeof ProfileTable>> = {}) {
       {...props}
     />,
   );
-  return { onSelect, user: userEvent.setup() };
+  return { onSelect, user: setupUser() };
 }
 
 function renderTableWithRerender(props: Partial<ComponentProps<typeof ProfileTable>> = {}) {
@@ -52,7 +52,7 @@ function renderTableWithRerender(props: Partial<ComponentProps<typeof ProfileTab
   return {
     rerender: (overrides: Partial<ComponentProps<typeof ProfileTable>>) =>
       rerender(element(overrides)),
-    user: userEvent.setup(),
+    user: setupUser(),
   };
 }
 
@@ -139,6 +139,17 @@ describe("ProfileTable", () => {
     await user.click(await screen.findByRole("menuitem", { name: "High → low" }));
 
     expect(bodyRows()).toEqual(["Sized", "cpu", "Quality", "Fast", "Orphan"]);
+  });
+
+  it("keeps the memory order while estimates load, and orders by name when none is known", () => {
+    const { rerender } = renderTableWithRerender({ estimatesPending: true });
+    expect(bodyRows()).toEqual(["Sized", "cpu", "Quality", "Fast", "Orphan"]);
+
+    rerender({
+      estimatesPending: true,
+      profiles: alphaProfiles().map((profile) => ({ ...profile, memory: undefined })),
+    });
+    expect(bodyRows()).toEqual(["cpu", "Fast", "Orphan", "Quality", "Sized"]);
   });
 
   it("searches profile names and ids", async () => {

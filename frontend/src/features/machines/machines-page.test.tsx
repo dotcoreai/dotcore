@@ -9,7 +9,6 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { type ReactNode } from "react";
 import {
   createMemoryRouter,
@@ -79,13 +78,15 @@ import {
   NodeObservationState,
   type RuntimeTargetAvailabilitySchema,
 } from "@/gen/dotcore/site/v1/service_pb";
-import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
 import * as clipboard from "@/lib/clipboard";
+import { productionTiming, setTiming } from "@/lib/timing";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import type { ResourcePayload } from "@/resource-watch/resource-watch";
 import { failedSnapshot, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
+import { useFakeTimersWithWaits } from "@/test/fake-timers";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { MachinesPage, type MachinesSite, tick } from "./machines-page-test-support";
 
@@ -338,7 +339,7 @@ function renderAboveDeployment(
 
 describe("MachinesPage", () => {
   it("returns to the application deployment it was pushed from", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const deploymentLocation = "/apps?panel=apps%2Fdeployment%3Aapp-deployment-1";
     const router = renderAboveDeployment(
       [
@@ -367,7 +368,7 @@ describe("MachinesPage", () => {
   });
 
   it("returns to the model deployment it was pushed from", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const router = renderAboveDeployment(
       [
         "/machines?panel=models%2Fdeployment%3Amodel-deployment-1&panel=machines%2Fmachine%3Aworker",
@@ -415,6 +416,7 @@ describe("MachinesPage", () => {
   });
 
   it("delays inventory feedback and holds completed Machines content for the minimum", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     let resolveMachines!: (response: ResourcePayload<"machines">) => void;
     const client = clientFor([]);
@@ -434,7 +436,7 @@ describe("MachinesPage", () => {
     expect(screen.queryByText("Loading machines…")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
     expect(screen.getByRole("status")).toHaveTextContent("Loading machines…");
 
@@ -446,7 +448,7 @@ describe("MachinesPage", () => {
     expect(screen.queryByText("No machines are configured for this site.")).not.toBeInTheDocument();
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
     });
     expect(screen.queryByText("Loading machines…")).not.toBeInTheDocument();
     expect(screen.getByText("No machines are configured for this site.")).toBeVisible();
@@ -482,7 +484,7 @@ describe("MachinesPage", () => {
   });
 
   it("shows an opened inspector the machine's snapshot from the shared watch", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const client = clientFor([
       availableMachine("one", "Machine one"),
       unavailableMachine("two", "Machine two"),
@@ -616,7 +618,7 @@ describe("MachinesPage", () => {
     ["Space", " "],
     ["a click", undefined],
   ])("opens the machine panel from a row with %s", async (_, key) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     render(
       <>
         <MachinesPage
@@ -743,6 +745,7 @@ describe("MachinesPage", () => {
   });
 
   it("shows a newly selected machine's loading once its snapshot outlasts the reveal delay", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const client = clientFor([
       availableMachine("one", "Machine one"),
@@ -767,7 +770,7 @@ describe("MachinesPage", () => {
     });
     expect(screen.getByTestId("location")).toHaveTextContent("machine%3Atwo");
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS - 1);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs - 1);
     });
     expect(screen.getByRole("complementary", { name: "Machine one" })).toHaveTextContent(
       "host-one",
@@ -787,7 +790,7 @@ describe("MachinesPage", () => {
     expect(loading).toHaveTextContent("Loading current hardware snapshot…");
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_MINIMUM_VISIBLE_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
     });
     expect(loading).not.toHaveTextContent("Loading current hardware snapshot…");
     expect(within(loading).getByRole("region", { name: "Hardware" })).toHaveTextContent("host-two");
@@ -818,6 +821,8 @@ describe("MachinesPage", () => {
   });
 
   it("draws a first-opened machine's empty rows at once, and its sections once its reads settle", async () => {
+    setTiming(productionTiming);
+    useFakeTimersWithWaits();
     const client = clientFor([availableMachine("one", "Machine one")]);
     const readSnapshots = vi.fn(() =>
       Promise.resolve(hardwareSnapshotsPayload({ one: readable("host-one") })),
@@ -911,6 +916,8 @@ describe("MachinesPage", () => {
   });
 
   it("canonically recovers to a valid machine inspector as an immediate continuation", async () => {
+    setTiming(productionTiming);
+    useFakeTimersWithWaits();
     const client = clientFor([availableMachine("one", "Machine one")]);
     client.watched.hardwareSnapshots = () =>
       new Promise<ResourcePayload<"hardwareSnapshots">>(() => {});
@@ -1041,6 +1048,7 @@ describe("MachinesPage", () => {
   });
 
   it("streams machines so a worker's connection change reaches its open inspector", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers({ now: new Date("2026-09-30T12:00:30Z") });
     const receivedAt = { seconds: 1_790_769_600n };
     const connected = availableMachine("worker", "Worker");
@@ -1088,7 +1096,7 @@ describe("MachinesPage", () => {
       ["/machines?panel=machines%2Fmachine%3Aworker"],
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
 
     const status = screen.getByRole("region", { name: "Status" });
@@ -1107,6 +1115,7 @@ describe("MachinesPage", () => {
   });
 
   it("names the site manager's role in its machine inspector", async () => {
+    setTiming(productionTiming);
     vi.useFakeTimers();
     const manager = availableMachine("manager", "Manager");
     manager.siteManager = true;
@@ -1122,7 +1131,7 @@ describe("MachinesPage", () => {
       ["/machines?panel=machines%2Fmachine%3Amanager"],
     );
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(LOADING_REVEAL_DELAY_MS);
+      await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
     });
 
     const status = screen.getByRole("region", { name: "Status" });
@@ -1228,7 +1237,7 @@ describe("MachinesPage add machine", () => {
   }
 
   it("opens the add machine steps and copies the node add command", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockResolvedValue(undefined);
     renderPage();
 
@@ -1250,7 +1259,7 @@ describe("MachinesPage add machine", () => {
   });
 
   it("closes from Close and Escape and returns focus to Add machine", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderPage();
     const opener = screen.getByRole("button", { name: "Add machine" });
 
@@ -1273,7 +1282,7 @@ describe("MachinesPage add machine", () => {
 
 describe("MachinesPage execution target screen", () => {
   it("opens a target row's screen and returns to the machine with the row focused", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderExecutionTargets(["/machines?panel=machines%2Fmachine%3Aone"]);
 
     const machinePanel = await screen.findByRole("complementary", { name: "Machine one" });
@@ -1391,7 +1400,7 @@ describe("MachinesPage execution target screen", () => {
       "/apps?panel=machines%2Fmachine%3Aone&panel=machines%2Fexecution-target%3Aone-apps&panel=apps%2Fdeployment%3Awiki-1",
     ],
   ])("opens a running %s deployment's panel above the target", async (_, target, row, href) => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const { router } = renderExecutionTargets([
       `/machines?panel=machines%2Fmachine%3Aone&panel=machines%2Fexecution-target%3A${target}`,
     ]);

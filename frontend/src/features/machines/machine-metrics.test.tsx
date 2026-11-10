@@ -1,6 +1,5 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
@@ -27,6 +26,7 @@ import {
   type HardwareSnapshot,
   HardwareSnapshotSchema,
 } from "@/gen/dotcore/observation/v1/observation_pb";
+import { setupUser } from "@/test/user";
 
 import { MachineMetricSections } from "./machine-metrics";
 
@@ -97,7 +97,7 @@ describe("MachineMetricSections", () => {
   });
 
   it("expands rows to one-line history charts with their capacity, on one history stream", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(answer()));
     renderSections(metricsClientWith(watchMetrics));
     await screen.findAllByText("90%");

@@ -1,6 +1,3 @@
-/** Backoff sequence after failed polled reads: one, two, then five seconds until it settles. */
-export const DEFAULT_POLL_RETRY_DELAYS_MS = [1_000, 2_000, 5_000] as const;
-
 export interface PollTimerOptions {
   /**
    * When true (default), the pending timer is cleared when the document hides and the timer

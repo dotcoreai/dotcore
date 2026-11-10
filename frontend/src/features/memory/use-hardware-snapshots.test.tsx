@@ -46,11 +46,7 @@ function SitesProbe({
 }
 
 function Console({ children, watch }: { children: React.ReactNode; watch: FakeResourceWatch }) {
-  return (
-    <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
-      {children}
-    </ResourceWatchProvider>
-  );
+  return <ResourceWatchProvider client={watch.client()}>{children}</ResourceWatchProvider>;
 }
 
 async function flush() {

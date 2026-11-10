@@ -1,7 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
-export const LOADING_REVEAL_DELAY_MS = 300;
-export const LOADING_MINIMUM_VISIBLE_MS = 200;
+import { timing } from "@/lib/timing";
 
 export function useDelayedLoading(loading: boolean): boolean {
   const [visible, setVisible] = useState(false);
@@ -20,11 +19,11 @@ export function useDelayedLoading(loading: boolean): boolean {
       if (!visible) {
         revealTimerRef.current = setTimeout(() => {
           setVisible(true);
-        }, LOADING_REVEAL_DELAY_MS);
+        }, timing().loadingRevealMs);
       }
     } else if (visible) {
       const elapsed = performance.now() - (visibleSinceRef.current ?? performance.now());
-      const remaining = LOADING_MINIMUM_VISIBLE_MS - elapsed;
+      const remaining = timing().loadingMinimumVisibleMs - elapsed;
 
       if (remaining <= 0) {
         visibleSinceRef.current = null;

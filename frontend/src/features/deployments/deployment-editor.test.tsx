@@ -1,5 +1,4 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { createRef, StrictMode, useState } from "react";
 import { createMemoryRouter, MemoryRouter, RouterProvider, useLocation } from "react-router-dom";
 import { describe, expect, expectTypeOf, it, vi } from "vitest";
@@ -8,6 +7,7 @@ import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provid
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
 import { waitForInspectorFocus } from "@/test/inspector-actions";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
+import { setupUser } from "@/test/user";
 
 import { DeploymentEditor, type DeploymentEditorProps } from "./deployment-editor";
 
@@ -102,7 +102,7 @@ describe("DeploymentEditor layout", () => {
 
 describe("DeploymentEditor metadata saves", () => {
   it("submits and receives accepted metadata rather than a Name scalar", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSave = vi.fn().mockResolvedValue({ displayName: "Accepted name" });
     const router = createMemoryRouter(
       [
@@ -144,7 +144,7 @@ describe("DeploymentEditor metadata saves", () => {
 
 describe("DeploymentEditor metadata synchronization", () => {
   it("synchronizes clean metadata, retains dirty drafts, and emits no render-phase warning", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const consoleError = vi.spyOn(console, "error");
     const onSaveMetadata = vi.fn().mockResolvedValue({ displayName: "Initial name" });
     const renderEditor = (metadata: DeploymentMetadata) => (
@@ -195,7 +195,7 @@ describe("DeploymentEditor terminal saves", () => {
   it.each(["local model", "application"])(
     "does not return after a terminal transition settles a pending final-clean %s save",
     async () => {
-      const user = userEvent.setup();
+      const user = setupUser();
       const save = deferredSave();
       const router = createMemoryRouter(
         [

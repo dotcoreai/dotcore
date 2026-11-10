@@ -1,7 +1,6 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import type uPlot from "uplot";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +35,7 @@ import {
 } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { type ModelDeployment, ModelDeploymentSchema } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+import { setupUser } from "@/test/user";
 
 import {
   DeploymentMemoryRows,
@@ -65,7 +65,7 @@ beforeEach(() => {
 
 describe("DeploymentMemoryRows", () => {
   it("reads out a dedicated-machine deployment's own VRAM and names why host RAM has no figure", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = deployment("gemma", "gpu1", { deviceId: "GPU-0", bytes: 10n * gib });
     const qwen = deployment("qwen", "gpu1", { deviceId: "GPU-0", bytes: 17n * gib });
     renderMemory(
@@ -94,7 +94,7 @@ describe("DeploymentMemoryRows", () => {
   });
 
   it("reads out a dedicated-machine deployment's host memory estimate on its RAM row", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const ninfer = deployment(
       "ninfer",
       "gpu1",
@@ -190,7 +190,7 @@ describe("DeploymentMemoryRows", () => {
   });
 
   it("expands the VRAM row to the deployment's summed memory against capacity", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(
       staticWatch(() =>
         queryResult({
@@ -235,7 +235,7 @@ describe("DeploymentMemoryRows", () => {
   });
 
   it("doesn't expand a dedicated machine's RAM row, which has no deployment history", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = deployment("gemma", "gpu1", { deviceId: "GPU-0", bytes: 10n * gib });
     renderMemory(gemma, ready([gemma]), metricsClientWith(staticWatch(emptyAnswer)));
 
@@ -247,7 +247,7 @@ describe("DeploymentMemoryRows", () => {
   });
 
   it("states that history could not be read when the store's ranges fail", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const gemma = deployment("gemma", "gpu1", { deviceId: "GPU-0", bytes: 10n * gib });
     renderMemory(gemma, ready([gemma]), {
       metrics: {
@@ -264,7 +264,7 @@ describe("DeploymentMemoryRows", () => {
 
 describe("DeploymentRequests", () => {
   it("shows six cards over the range, charting one on a click and hiding it on the next", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderRequests(metricsClientWith(staticWatch(requestAnswer({ active: true }))));
 
     const section = screen.getByRole("region", { name: "Requests" });
@@ -309,7 +309,7 @@ describe("DeploymentRequests", () => {
   });
 
   it("holds at most a cards and a memory history stream with a card selected and the memory row expanded", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(requestAnswer({ active: true })));
     const gemma = deployment("gemma", "gpu1", { deviceId: "GPU-0", bytes: 10n * gib });
     render(
@@ -328,7 +328,7 @@ describe("DeploymentRequests", () => {
   });
 
   it("charts the memory history over the range picked for the cards, with no picker of its own", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(requestAnswer({ active: true })));
     const gemma = deployment("gemma", "gpu1", { deviceId: "GPU-0", bytes: 10n * gib });
     render(

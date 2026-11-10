@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { FieldError } from "@/components/ui/field-error";
+import { setupUser } from "@/test/user";
 
 function SubmitTimeValidationHarness({ onSave }: { onSave: () => void }) {
   const [name, setName] = useState("");
@@ -55,7 +55,7 @@ describe("FieldError", () => {
   });
 
   it("appears only after submit, focuses the invalid field, and clears on correction", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const onSave = vi.fn();
     render(<SubmitTimeValidationHarness onSave={onSave} />);
 

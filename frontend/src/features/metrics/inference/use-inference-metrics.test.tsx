@@ -89,7 +89,7 @@ function renderHook(
   }
   act(() => {
     render(
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <Probe />
       </ResourceWatchProvider>,
     );

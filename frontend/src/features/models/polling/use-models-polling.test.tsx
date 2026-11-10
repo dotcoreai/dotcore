@@ -19,6 +19,7 @@ import {
   UpstreamModelDesiredConfigurationSchema,
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ListModelDeploymentsResponseSchema } from "@/gen/dotcore/model/v1/service_pb";
+import { timing } from "@/lib/timing";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 
@@ -203,7 +204,7 @@ describe("ModelsPollingProvider", () => {
     const watch = new FakeResourceWatch();
     const client = clientFor(() => Promise.resolve(create(ListModelsResponseSchema)));
     const consumer = (mounted: boolean) => (
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
+      <ResourceWatchProvider client={watch.client()}>
         <ModelsPollingProvider client={client}>
           {mounted ? <SharedPolling /> : null}
         </ModelsPollingProvider>
@@ -224,7 +225,8 @@ describe("ModelsPollingProvider", () => {
     expect(shown()).toBe("a:paused:a");
 
     view.rerender(consumer(false));
-    await flush();
+    // Releasing the last kind closes the stream after the reopen delay.
+    await act(() => vi.advanceTimersByTimeAsync(timing().resourceWatchReopenMs));
     expect(watch.watchedKinds()).toEqual([]);
 
     view.rerender(consumer(true));
@@ -257,9 +259,7 @@ async function renderHook({
   const client = clientFor(listModels);
   const { result } = renderReactHook(() => useModelsPolling(client), {
     wrapper: ({ children }) => (
-      <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
-        {children}
-      </ResourceWatchProvider>
+      <ResourceWatchProvider client={watch.client()}>{children}</ResourceWatchProvider>
     ),
   });
   polling = () => result.current;

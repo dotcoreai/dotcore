@@ -1,13 +1,15 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as clipboard from "@/lib/clipboard";
+import { productionTiming, setTiming } from "@/lib/timing";
+import { setupUser } from "@/test/user";
 
 import { CopyableValue } from "./copyable-value";
 
 const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
 beforeEach(() => {
+  setTiming(productionTiming);
   vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
 });
 
@@ -96,23 +98,25 @@ describe("CopyableValue", () => {
   });
 
   it("copies the full untruncated value on click and shows success feedback", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockResolvedValue(undefined);
     render(<CopyableValue value={longValue} />);
 
     await user.click(screen.getByRole("button", { name: `Copy ${longValue}` }));
 
     expect(writeClipboard).toHaveBeenCalledExactlyOnceWith(longValue);
-    expect(screen.getByRole("status")).toHaveTextContent("Copied to clipboard");
+    expect(await screen.findByRole("status")).toHaveTextContent("Copied to clipboard");
   });
 
   it("shows a distinct message when the copy fails", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     writeClipboard.mockRejectedValue(new Error("clipboard unavailable"));
     render(<CopyableValue value={longValue} />);
 
     await user.click(screen.getByRole("button", { name: `Copy ${longValue}` }));
 
-    expect(screen.getByRole("status")).toHaveTextContent("Could not copy to clipboard. Try again.");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Could not copy to clipboard. Try again.",
+    );
   });
 });

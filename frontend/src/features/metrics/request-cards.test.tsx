@@ -1,11 +1,11 @@
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { MetricsClient } from "@/api/metrics-client";
 import type { MetricQuerySchema } from "@/gen/dotcore/metrics/v1/metric_pb";
 import { WatchPauseContext } from "@/hooks/use-watch-pause";
+import { setupUser } from "@/test/user";
 
 import {
   counterPoint,
@@ -31,7 +31,7 @@ const specs = deploymentRequestCards("deployment-a");
 
 describe("RequestCards", () => {
   it("shows six cards with their values over the range and no chart until one is selected", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     renderCards(metricsClientWith(staticWatch(busyAnswer)));
 
     const section = screen.getByRole("region", { name: "Requests" });
@@ -95,7 +95,7 @@ describe("RequestCards", () => {
   });
 
   it("reopens at the picked range and reads its values", async () => {
-    const user = userEvent.setup();
+    const user = setupUser();
     const watchMetrics = vi.fn(staticWatch(busyAnswer));
     renderCards(metricsClientWith(watchMetrics));
     const section = screen.getByRole("region", { name: "Requests" });

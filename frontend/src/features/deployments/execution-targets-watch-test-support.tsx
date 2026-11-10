@@ -34,9 +34,5 @@ export function ExecutionTargetsWatch({
   children: ReactNode;
   watch: FakeResourceWatch;
 }) {
-  return (
-    <ResourceWatchProvider client={watch.client()} reopenDelayMs={0}>
-      {children}
-    </ResourceWatchProvider>
-  );
+  return <ResourceWatchProvider client={watch.client()}>{children}</ResourceWatchProvider>;
 }
