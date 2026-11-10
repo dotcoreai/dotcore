@@ -460,6 +460,8 @@ where
                 .into_iter()
                 .find(|record| record.application_deployment_id == deployment_id);
             let (state, write) = intent(existing.as_ref().and_then(|record| record.state.as_ref()));
+            // An intent begins a new start or ends one, so no earlier start's step carries over.
+            let state = super::with_start_steps(None, state);
             if write && declared.contains(deployment_id) {
                 owner
                     .current

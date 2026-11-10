@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/model/v1/state.proto.
  */
 export const file_dotcore_model_v1_state: GenFile = /*@__PURE__*/
-  fileDesc("Chxkb3Rjb3JlL21vZGVsL3YxL3N0YXRlLnByb3RvEhBkb3Rjb3JlLm1vZGVsLnYxIqICChZDdXJyZW50TW9kZWxEZXBsb3ltZW50EhsKE21vZGVsX2RlcGxveW1lbnRfaWQYASABKAkSFwoPcmVjb3JkX3JldmlzaW9uGAIgASgEEjUKBXN0YXRlGAMgASgLMiYuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnRTdGF0ZRIsCh9yZWNvbmNpbGVkX2xpZmVjeWNsZV9nZW5lcmF0aW9uGAUgASgESACIAQESSQoQcmVjb3ZlcnlfYmFycmllchgEIAEoCzIvLmRvdGNvcmUubW9kZWwudjEuTW9kZWxMaWZlY3ljbGVSZWNvdmVyeUJhcnJpZXJCIgogX3JlY29uY2lsZWRfbGlmZWN5Y2xlX2dlbmVyYXRpb24iTQodTW9kZWxMaWZlY3ljbGVSZWNvdmVyeUJhcnJpZXISHAoUbGlmZWN5Y2xlX2dlbmVyYXRpb24YASABKAQSDgoGcmVhc29uGAIgASgJIsIDChRNb2RlbERlcGxveW1lbnRTdGF0ZRI3CgZzdGF0dXMYASABKA4yJy5kb3Rjb3JlLm1vZGVsLnYxLk1vZGVsRGVwbG95bWVudFN0YXR1cxIWCg5zdGF0dXNfbWVzc2FnZRgCIAEoCRI/CgphY3RpdmF0aW9uGAMgASgLMisuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnRBY3RpdmF0aW9uEi4KCnN0YXJ0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjkKB2ZhaWx1cmUYBiABKAsyKC5kb3Rjb3JlLm1vZGVsLnYxLk1vZGVsRGVwbG95bWVudEZhaWx1cmUSQAoTb2JzZXJ2ZWRfcGxhY2VtZW50cxgHIAMoCzIjLmRvdGNvcmUubW9kZWwudjEuT2JzZXJ2ZWRQbGFjZW1lbnQSOwoIcHJvZ3Jlc3MYCCABKAsyKS5kb3Rjb3JlLm1vZGVsLnYxLk1vZGVsRGVwbG95bWVudFByb2dyZXNzIrQBChlNb2RlbERlcGxveW1lbnRBY3RpdmF0aW9uEj8KBXBoYXNlGAEgASgOMjAuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnRBY3RpdmF0aW9uUGhhc2USIAoTd29ya2xvYWRfZ2VuZXJhdGlvbhgCIAEoBEgAiAEBEhwKFGxpZmVjeWNsZV9nZW5lcmF0aW9uGAMgASgEQhYKFF93b3JrbG9hZF9nZW5lcmF0aW9uIqkBChdNb2RlbERlcGxveW1lbnRQcm9ncmVzcxIUCgdwZXJjZW50GAEgASgNSACIAQESEQoJY29tcGxldGVkGAIgASgEEhIKBXRvdGFsGAMgASgESAGIAQESOwoEdW5pdBgEIAEoDjItLmRvdGNvcmUubW9kZWwudjEuTW9kZWxEZXBsb3ltZW50UHJvZ3Jlc3NVbml0QgoKCF9wZXJjZW50QggKBl90b3RhbCJMChZNb2RlbERlcGxveW1lbnRGYWlsdXJlEgwKBGNvZGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCRITCgtkaWFnbm9zdGljcxgDIAMoCSJMChFPYnNlcnZlZFBsYWNlbWVudBIXCg9tYW5hZ2VkX25vZGVfaWQYASABKAkSHgoWYWNjZWxlcmF0b3JfZGV2aWNlX2lkcxgCIAMoCSr3AQoeTW9kZWxEZXBsb3ltZW50QWN0aXZhdGlvblBoYXNlEjEKLU1PREVMX0RFUExPWU1FTlRfQUNUSVZBVElPTl9QSEFTRV9VTlNQRUNJRklFRBAAEjQKME1PREVMX0RFUExPWU1FTlRfQUNUSVZBVElPTl9QSEFTRV9BV0FJVElOR19TVEFSVBABEjUKMU1PREVMX0RFUExPWU1FTlRfQUNUSVZBVElPTl9QSEFTRV9TVEFSVF9JTl9GTElHSFQQAhI1CjFNT0RFTF9ERVBMT1lNRU5UX0FDVElWQVRJT05fUEhBU0VfU1RBUlRfQ09ORklSTUVEEAMqdwobTW9kZWxEZXBsb3ltZW50UHJvZ3Jlc3NVbml0Ei4KKk1PREVMX0RFUExPWU1FTlRfUFJPR1JFU1NfVU5JVF9VTlNQRUNJRklFRBAAEigKJE1PREVMX0RFUExPWU1FTlRfUFJPR1JFU1NfVU5JVF9CWVRFUxABKuEDChVNb2RlbERlcGxveW1lbnRTdGF0dXMSJwojTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIiCh5NT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19RVUVVRUQQAhIlCiFNT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19QUkVQQVJJTkcQAxIjCh9NT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19MT0FESU5HEAQSJgoiTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfV0FSTUlOR19VUBAFEiEKHU1PREVMX0RFUExPWU1FTlRfU1RBVFVTX1JFQURZEAYSJQohTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfVU5MT0FESU5HEAcSIgoeTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfRkFJTEVEEAgSJwojTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfVU5BVkFJTEFCTEUQCRIjCh9NT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19QQVVTSU5HEAoSIgoeTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfUEFVU0VEEAsSJwojTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfRE9XTkxPQURJTkcQDGIGcHJvdG8z", [file_google_protobuf_timestamp]);
+  fileDesc("Chxkb3Rjb3JlL21vZGVsL3YxL3N0YXRlLnByb3RvEhBkb3Rjb3JlLm1vZGVsLnYxIqICChZDdXJyZW50TW9kZWxEZXBsb3ltZW50EhsKE21vZGVsX2RlcGxveW1lbnRfaWQYASABKAkSFwoPcmVjb3JkX3JldmlzaW9uGAIgASgEEjUKBXN0YXRlGAMgASgLMiYuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnRTdGF0ZRIsCh9yZWNvbmNpbGVkX2xpZmVjeWNsZV9nZW5lcmF0aW9uGAUgASgESACIAQESSQoQcmVjb3ZlcnlfYmFycmllchgEIAEoCzIvLmRvdGNvcmUubW9kZWwudjEuTW9kZWxMaWZlY3ljbGVSZWNvdmVyeUJhcnJpZXJCIgogX3JlY29uY2lsZWRfbGlmZWN5Y2xlX2dlbmVyYXRpb24iTQodTW9kZWxMaWZlY3ljbGVSZWNvdmVyeUJhcnJpZXISHAoUbGlmZWN5Y2xlX2dlbmVyYXRpb24YASABKAQSDgoGcmVhc29uGAIgASgJIvkDChRNb2RlbERlcGxveW1lbnRTdGF0ZRI3CgZzdGF0dXMYASABKA4yJy5kb3Rjb3JlLm1vZGVsLnYxLk1vZGVsRGVwbG95bWVudFN0YXR1cxIWCg5zdGF0dXNfbWVzc2FnZRgCIAEoCRI/CgphY3RpdmF0aW9uGAMgASgLMisuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnRBY3RpdmF0aW9uEi4KCnN0YXJ0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCnVwZGF0ZWRfYXQYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjkKB2ZhaWx1cmUYBiABKAsyKC5kb3Rjb3JlLm1vZGVsLnYxLk1vZGVsRGVwbG95bWVudEZhaWx1cmUSQAoTb2JzZXJ2ZWRfcGxhY2VtZW50cxgHIAMoCzIjLmRvdGNvcmUubW9kZWwudjEuT2JzZXJ2ZWRQbGFjZW1lbnQSOwoIcHJvZ3Jlc3MYCCABKAsyKS5kb3Rjb3JlLm1vZGVsLnYxLk1vZGVsRGVwbG95bWVudFByb2dyZXNzEjUKBXN0ZXBzGAkgASgLMiYuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnRTdGVwcyK0AQoZTW9kZWxEZXBsb3ltZW50QWN0aXZhdGlvbhI/CgVwaGFzZRgBIAEoDjIwLmRvdGNvcmUubW9kZWwudjEuTW9kZWxEZXBsb3ltZW50QWN0aXZhdGlvblBoYXNlEiAKE3dvcmtsb2FkX2dlbmVyYXRpb24YAiABKARIAIgBARIcChRsaWZlY3ljbGVfZ2VuZXJhdGlvbhgDIAEoBEIWChRfd29ya2xvYWRfZ2VuZXJhdGlvbiJdChRNb2RlbERlcGxveW1lbnRTdGVwcxI0CgVzdGVwcxgBIAMoDjIlLmRvdGNvcmUubW9kZWwudjEuTW9kZWxEZXBsb3ltZW50U3RlcBIPCgdjdXJyZW50GAIgASgNIqkBChdNb2RlbERlcGxveW1lbnRQcm9ncmVzcxIUCgdwZXJjZW50GAEgASgNSACIAQESEQoJY29tcGxldGVkGAIgASgEEhIKBXRvdGFsGAMgASgESAGIAQESOwoEdW5pdBgEIAEoDjItLmRvdGNvcmUubW9kZWwudjEuTW9kZWxEZXBsb3ltZW50UHJvZ3Jlc3NVbml0QgoKCF9wZXJjZW50QggKBl90b3RhbCJMChZNb2RlbERlcGxveW1lbnRGYWlsdXJlEgwKBGNvZGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCRITCgtkaWFnbm9zdGljcxgDIAMoCSJMChFPYnNlcnZlZFBsYWNlbWVudBIXCg9tYW5hZ2VkX25vZGVfaWQYASABKAkSHgoWYWNjZWxlcmF0b3JfZGV2aWNlX2lkcxgCIAMoCSr3AQoeTW9kZWxEZXBsb3ltZW50QWN0aXZhdGlvblBoYXNlEjEKLU1PREVMX0RFUExPWU1FTlRfQUNUSVZBVElPTl9QSEFTRV9VTlNQRUNJRklFRBAAEjQKME1PREVMX0RFUExPWU1FTlRfQUNUSVZBVElPTl9QSEFTRV9BV0FJVElOR19TVEFSVBABEjUKMU1PREVMX0RFUExPWU1FTlRfQUNUSVZBVElPTl9QSEFTRV9TVEFSVF9JTl9GTElHSFQQAhI1CjFNT0RFTF9ERVBMT1lNRU5UX0FDVElWQVRJT05fUEhBU0VfU1RBUlRfQ09ORklSTUVEEAMqlAIKE01vZGVsRGVwbG95bWVudFN0ZXASJQohTU9ERUxfREVQTE9ZTUVOVF9TVEVQX1VOU1BFQ0lGSUVEEAASLAooTU9ERUxfREVQTE9ZTUVOVF9TVEVQX0NIRUNLSU5HX0FSVElGQUNUUxABEi8KK01PREVMX0RFUExPWU1FTlRfU1RFUF9ET1dOTE9BRElOR19BUlRJRkFDVFMQAhIqCiZNT0RFTF9ERVBMT1lNRU5UX1NURVBfUFJFUEFSSU5HX0VOR0lORRADEiIKHk1PREVMX0RFUExPWU1FTlRfU1RFUF9TVEFSVElORxAEEicKI01PREVMX0RFUExPWU1FTlRfU1RFUF9MT0FESU5HX01PREVMEAUqdwobTW9kZWxEZXBsb3ltZW50UHJvZ3Jlc3NVbml0Ei4KKk1PREVMX0RFUExPWU1FTlRfUFJPR1JFU1NfVU5JVF9VTlNQRUNJRklFRBAAEigKJE1PREVMX0RFUExPWU1FTlRfUFJPR1JFU1NfVU5JVF9CWVRFUxABKuEDChVNb2RlbERlcGxveW1lbnRTdGF0dXMSJwojTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIiCh5NT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19RVUVVRUQQAhIlCiFNT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19QUkVQQVJJTkcQAxIjCh9NT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19MT0FESU5HEAQSJgoiTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfV0FSTUlOR19VUBAFEiEKHU1PREVMX0RFUExPWU1FTlRfU1RBVFVTX1JFQURZEAYSJQohTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfVU5MT0FESU5HEAcSIgoeTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfRkFJTEVEEAgSJwojTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfVU5BVkFJTEFCTEUQCRIjCh9NT0RFTF9ERVBMT1lNRU5UX1NUQVRVU19QQVVTSU5HEAoSIgoeTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfUEFVU0VEEAsSJwojTU9ERUxfREVQTE9ZTUVOVF9TVEFUVVNfRE9XTkxPQURJTkcQDGIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * Current state for one desired model deployment. It contains observations and
@@ -154,6 +154,13 @@ export type ModelDeploymentState = Message<"dotcore.model.v1.ModelDeploymentStat
    * @generated from field: dotcore.model.v1.ModelDeploymentProgress progress = 8;
    */
   progress?: ModelDeploymentProgress;
+
+  /**
+   * Ordered start steps and the current one; absent unless the deployment is starting.
+   *
+   * @generated from field: dotcore.model.v1.ModelDeploymentSteps steps = 9;
+   */
+  steps?: ModelDeploymentSteps;
 };
 
 /**
@@ -199,6 +206,34 @@ export const ModelDeploymentActivationSchema: GenMessage<ModelDeploymentActivati
   messageDesc(file_dotcore_model_v1_state, 3);
 
 /**
+ * The ordered steps of one deployment start and the step it is on.
+ *
+ * @generated from message dotcore.model.v1.ModelDeploymentSteps
+ */
+export type ModelDeploymentSteps = Message<"dotcore.model.v1.ModelDeploymentSteps"> & {
+  /**
+   * Every step of this start in order; the list keeps its length for the whole start.
+   *
+   * @generated from field: repeated dotcore.model.v1.ModelDeploymentStep steps = 1;
+   */
+  steps: ModelDeploymentStep[];
+
+  /**
+   * Zero-based index into steps of the current step; never decreases during one start.
+   *
+   * @generated from field: uint32 current = 2;
+   */
+  current: number;
+};
+
+/**
+ * Describes the message dotcore.model.v1.ModelDeploymentSteps.
+ * Use `create(ModelDeploymentStepsSchema)` to create a new message.
+ */
+export const ModelDeploymentStepsSchema: GenMessage<ModelDeploymentSteps> = /*@__PURE__*/
+  messageDesc(file_dotcore_model_v1_state, 4);
+
+/**
  * Measurable progress for the current deployment status.
  *
  * @generated from message dotcore.model.v1.ModelDeploymentProgress
@@ -238,7 +273,7 @@ export type ModelDeploymentProgress = Message<"dotcore.model.v1.ModelDeploymentP
  * Use `create(ModelDeploymentProgressSchema)` to create a new message.
  */
 export const ModelDeploymentProgressSchema: GenMessage<ModelDeploymentProgress> = /*@__PURE__*/
-  messageDesc(file_dotcore_model_v1_state, 4);
+  messageDesc(file_dotcore_model_v1_state, 5);
 
 /**
  * A controller-owned failure summary without backend-private diagnostic identity.
@@ -273,7 +308,7 @@ export type ModelDeploymentFailure = Message<"dotcore.model.v1.ModelDeploymentFa
  * Use `create(ModelDeploymentFailureSchema)` to create a new message.
  */
 export const ModelDeploymentFailureSchema: GenMessage<ModelDeploymentFailure> = /*@__PURE__*/
-  messageDesc(file_dotcore_model_v1_state, 5);
+  messageDesc(file_dotcore_model_v1_state, 6);
 
 /**
  * Publicly attributable observed placement. It intentionally omits runtime
@@ -302,7 +337,7 @@ export type ObservedPlacement = Message<"dotcore.model.v1.ObservedPlacement"> & 
  * Use `create(ObservedPlacementSchema)` to create a new message.
  */
 export const ObservedPlacementSchema: GenMessage<ObservedPlacement> = /*@__PURE__*/
-  messageDesc(file_dotcore_model_v1_state, 6);
+  messageDesc(file_dotcore_model_v1_state, 7);
 
 /**
  * Durable progress of an explicit Resume operation.
@@ -346,6 +381,61 @@ export const ModelDeploymentActivationPhaseSchema: GenEnum<ModelDeploymentActiva
   enumDesc(file_dotcore_model_v1_state, 0);
 
 /**
+ * One step of starting a model deployment.
+ *
+ * @generated from enum dotcore.model.v1.ModelDeploymentStep
+ */
+export enum ModelDeploymentStep {
+  /**
+   * No step was specified.
+   *
+   * @generated from enum value: MODEL_DEPLOYMENT_STEP_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Checking which model artifacts are already on the machine.
+   *
+   * @generated from enum value: MODEL_DEPLOYMENT_STEP_CHECKING_ARTIFACTS = 1;
+   */
+  CHECKING_ARTIFACTS = 1,
+
+  /**
+   * Downloading the missing model artifacts.
+   *
+   * @generated from enum value: MODEL_DEPLOYMENT_STEP_DOWNLOADING_ARTIFACTS = 2;
+   */
+  DOWNLOADING_ARTIFACTS = 2,
+
+  /**
+   * Preparing the inference engine for the machine.
+   *
+   * @generated from enum value: MODEL_DEPLOYMENT_STEP_PREPARING_ENGINE = 3;
+   */
+  PREPARING_ENGINE = 3,
+
+  /**
+   * Starting the engine process.
+   *
+   * @generated from enum value: MODEL_DEPLOYMENT_STEP_STARTING = 4;
+   */
+  STARTING = 4,
+
+  /**
+   * The engine is loading the model into memory.
+   *
+   * @generated from enum value: MODEL_DEPLOYMENT_STEP_LOADING_MODEL = 5;
+   */
+  LOADING_MODEL = 5,
+}
+
+/**
+ * Describes the enum dotcore.model.v1.ModelDeploymentStep.
+ */
+export const ModelDeploymentStepSchema: GenEnum<ModelDeploymentStep> = /*@__PURE__*/
+  enumDesc(file_dotcore_model_v1_state, 1);
+
+/**
  * Unit for measurable model deployment progress.
  *
  * @generated from enum dotcore.model.v1.ModelDeploymentProgressUnit
@@ -370,7 +460,7 @@ export enum ModelDeploymentProgressUnit {
  * Describes the enum dotcore.model.v1.ModelDeploymentProgressUnit.
  */
 export const ModelDeploymentProgressUnitSchema: GenEnum<ModelDeploymentProgressUnit> = /*@__PURE__*/
-  enumDesc(file_dotcore_model_v1_state, 1);
+  enumDesc(file_dotcore_model_v1_state, 2);
 
 /**
  * The current controller-owned model deployment status.
@@ -467,5 +557,5 @@ export enum ModelDeploymentStatus {
  * Describes the enum dotcore.model.v1.ModelDeploymentStatus.
  */
 export const ModelDeploymentStatusSchema: GenEnum<ModelDeploymentStatus> = /*@__PURE__*/
-  enumDesc(file_dotcore_model_v1_state, 2);
+  enumDesc(file_dotcore_model_v1_state, 3);
 

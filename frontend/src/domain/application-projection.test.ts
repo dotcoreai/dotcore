@@ -54,6 +54,15 @@ function deployment(
   });
 }
 
+// Lifecycle states the system is working through, which animate the status pill.
+const transitioningStates = new Set([
+  ApplicationLifecycleState.QUEUED,
+  ApplicationLifecycleState.PREPARING,
+  ApplicationLifecycleState.STARTING,
+  ApplicationLifecycleState.STOPPING,
+  ApplicationLifecycleState.PAUSING,
+]);
+
 describe("Application projection", () => {
   // A deployment with no endpoint yet, so the attention column also covers what it waits for.
   it.each([
@@ -148,7 +157,62 @@ describe("Application projection", () => {
         attention,
         label,
         tone,
+        ...(transitioningStates.has(lifecycle) && { inProgress: true }),
       });
+    },
+  );
+
+  it.each([
+    [ApplicationLifecycleState.PREPARING, ApplicationDeploymentDesiredState.PRESENT, true],
+    [ApplicationLifecycleState.STARTING, ApplicationDeploymentDesiredState.PRESENT, true],
+    [ApplicationLifecycleState.QUEUED, ApplicationDeploymentDesiredState.PRESENT, true],
+    [ApplicationLifecycleState.STOPPING, ApplicationDeploymentDesiredState.PRESENT, true],
+    [ApplicationLifecycleState.PAUSING, ApplicationDeploymentDesiredState.PAUSED, true],
+    [ApplicationLifecycleState.STARTING, ApplicationDeploymentDesiredState.PAUSED, true],
+    [ApplicationLifecycleState.STARTING, ApplicationDeploymentDesiredState.TEARDOWN, true],
+    [ApplicationLifecycleState.READY, ApplicationDeploymentDesiredState.PRESENT, false],
+    [ApplicationLifecycleState.PAUSED, ApplicationDeploymentDesiredState.PAUSED, false],
+    [ApplicationLifecycleState.FAILED, ApplicationDeploymentDesiredState.PRESENT, false],
+    [ApplicationLifecycleState.STOPPED, ApplicationDeploymentDesiredState.PRESENT, false],
+    [ApplicationLifecycleState.UNAVAILABLE, ApplicationDeploymentDesiredState.PRESENT, false],
+  ])("flags %s with target %s as in progress: %s", (lifecycle, desiredState, inProgress) => {
+    const projected = projectApplicationDeploymentStatus(
+      deployment(lifecycle, ApplicationReadinessState.NOT_READY, desiredState),
+    );
+
+    expect(projected.inProgress === true).toBe(inProgress);
+  });
+
+  it("is in progress while running until its endpoint is up", () => {
+    const waiting = deployment(
+      ApplicationLifecycleState.RUNNING,
+      ApplicationReadinessState.UNSPECIFIED,
+    );
+    const serving = deployment(
+      ApplicationLifecycleState.RUNNING,
+      ApplicationReadinessState.UNSPECIFIED,
+      ApplicationDeploymentDesiredState.PRESENT,
+      "http://127.0.0.1:8080",
+    );
+
+    expect(projectApplicationDeploymentStatus(waiting)).toMatchObject({
+      attention: "Waiting for endpoint",
+      inProgress: true,
+    });
+    expect(projectApplicationDeploymentStatus(serving).inProgress).toBeUndefined();
+  });
+
+  it.each([ApplicationDeploymentDesiredState.PRESENT, ApplicationDeploymentDesiredState.TEARDOWN])(
+    "does not animate a stale starting state with target %s",
+    (desiredState) => {
+      const value = deployment(
+        ApplicationLifecycleState.STARTING,
+        ApplicationReadinessState.NOT_READY,
+        desiredState,
+      );
+      value.state!.observationStale = true;
+
+      expect(projectApplicationDeploymentStatus(value).inProgress).toBeUndefined();
     },
   );
 
@@ -343,6 +407,7 @@ describe("Application projection", () => {
 
     expect(applicationDeploymentLifecycleState(value)).toBe(ApplicationLifecycleState.STOPPED);
     expect(projectApplicationDeploymentStatus(value)).toEqual({
+      inProgress: true,
       label: "Tearing down",
       tone: "info",
     });

@@ -141,6 +141,8 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
         state.lifecycle_state,
         ApplicationLifecycleState::Unavailable as i32
     );
+    assert_eq!(state.steps, None);
+    let failed_revision = current.snapshot().expect("current state").deployments[0].record_revision;
     assert_eq!(
         state.failure,
         Some(ApplicationDeploymentFailure {
@@ -158,13 +160,234 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
         .expect("retried reconciliation");
 
     assert_eq!(preparer.requests().len(), 2);
-    let retried = current.snapshot().expect("current state").deployments[0]
-        .state
-        .as_ref()
-        .expect("failed state")
-        .clone();
+    let retried_record = current.snapshot().expect("current state").deployments[0].clone();
+    assert_eq!(
+        retried_record.record_revision, failed_revision,
+        "a retried preparation keeps reporting the failure instead of preparing again"
+    );
+    let retried = retried_record.state.expect("failed state");
     assert_eq!(retried.stage, "artifact-preparation");
     assert_eq!(retried.failure, state.failure);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn new_deployment_reports_preparing_image_then_starting_steps() {
+    let directory = test_directory();
+    let desired = TestApplicationDeclarationRepository::open(&directory, "site-one")
+        .expect("declaration repository");
+    let current =
+        TestCurrentApplicationRepository::open(&directory, "site-one").expect("current repository");
+    let deployment = deployment(ApplicationDeploymentDesiredState::Present);
+    desired
+        .upsert(deployment.clone(), 0)
+        .expect("desired deployment");
+    let launch = workload_group_launch(
+        &deployment,
+        Ipv4Addr::LOCALHOST,
+        test_inference_route_resolver().as_ref(),
+    )
+    .expect("launch");
+    let preparer = Arc::new(StateCapturingPreparer::new(current.clone()));
+    let artifacts =
+        dotcore_artifact::ArtifactManager::new(directory.join("artifacts"), Some(preparer.clone()))
+            .expect("Artifact manager");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let controller = controller_with_runtime_and_artifacts(
+        desired,
+        current.clone(),
+        PausedMatrixRuntime::with_recovery(
+            Vec::new(),
+            group_observation(&launch, [("web", WorkloadUnitState::Running)], false),
+            Arc::clone(&calls),
+            Arc::default(),
+        ),
+        artifacts,
+    );
+
+    controller
+        .realizer
+        .reconcile()
+        .await
+        .expect("reconciliation");
+
+    let preparing = preparer.states();
+    assert_eq!(preparing.len(), 1);
+    assert_eq!(
+        preparing[0].lifecycle_state,
+        ApplicationLifecycleState::Preparing as i32
+    );
+    assert_eq!(preparing[0].stage, "preparing");
+    assert_eq!(preparing[0].steps, Some(start_steps(0)));
+    assert_eq!(*calls.lock().expect("Runtime calls"), ["create"]);
+    let started = current.snapshot().expect("current state").deployments[0]
+        .state
+        .clone()
+        .expect("started group state");
+    assert_eq!(
+        started.lifecycle_state,
+        ApplicationLifecycleState::Starting as i32
+    );
+    assert_eq!(started.stage, ENDPOINT_NOT_ASSIGNED_STAGE);
+    assert_eq!(started.steps, Some(start_steps(1)));
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn resumed_deployment_prepares_its_image_again_and_its_step_only_moves_forward() {
+    let directory = test_directory();
+    let desired = TestApplicationDeclarationRepository::open(&directory, "site-one")
+        .expect("declaration repository");
+    let current =
+        TestCurrentApplicationRepository::open(&directory, "site-one").expect("current repository");
+    let deployment = deployment(ApplicationDeploymentDesiredState::Present);
+    desired
+        .upsert(deployment.clone(), 0)
+        .expect("present desired deployment");
+    // The record of the earlier start, paused at an older generation.
+    current
+        .upsert(
+            CurrentApplicationDeployment {
+                application_deployment_id: deployment.application_deployment_id.clone(),
+                record_revision: 0,
+                state: Some(paused_state(None)),
+                reconciled_lifecycle_generation: Some(deployment.lifecycle_generation - 1),
+            },
+            None,
+        )
+        .expect("paused record");
+    let launch = workload_group_launch(
+        &deployment,
+        Ipv4Addr::LOCALHOST,
+        test_inference_route_resolver().as_ref(),
+    )
+    .expect("launch");
+    let preparer = Arc::new(StateCapturingPreparer::new(current.clone()));
+    let artifacts =
+        dotcore_artifact::ArtifactManager::new(directory.join("artifacts"), Some(preparer.clone()))
+            .expect("Artifact manager");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let controller = controller_with_runtime_and_artifacts(
+        desired,
+        current.clone(),
+        PausedMatrixRuntime::new(
+            vec![group_observation(
+                &launch,
+                [("web", WorkloadUnitState::Stopped)],
+                false,
+            )],
+            Some(group_observation(
+                &launch,
+                [("web", WorkloadUnitState::Running)],
+                false,
+            )),
+            Arc::clone(&calls),
+        ),
+        artifacts,
+    );
+
+    controller
+        .realizer
+        .reconcile()
+        .await
+        .expect("reconciliation");
+
+    assert_eq!(*calls.lock().expect("Runtime calls"), ["start"]);
+    let preparing = preparer.states();
+    assert_eq!(preparing.len(), 1);
+    assert_eq!(
+        preparing[0].lifecycle_state,
+        ApplicationLifecycleState::Preparing as i32
+    );
+    let record = current.snapshot().expect("current state").deployments[0].clone();
+    assert_eq!(
+        record.reconciled_lifecycle_generation,
+        Some(deployment.lifecycle_generation)
+    );
+    let started = record.state.expect("started group state");
+    assert_eq!(started.stage, ENDPOINT_NOT_ASSIGNED_STAGE);
+    let observed =
+        [&preparing[0], &started].map(|state| state.steps.as_ref().map(|steps| steps.current));
+    assert_eq!(observed, [Some(0), Some(1)]);
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units_exit() {
+    let directory = test_directory();
+    let desired = TestApplicationDeclarationRepository::open(&directory, "site-one")
+        .expect("declaration repository");
+    let current =
+        TestCurrentApplicationRepository::open(&directory, "site-one").expect("current repository");
+    let deployment = deployment(ApplicationDeploymentDesiredState::Present);
+    desired
+        .upsert(deployment.clone(), 0)
+        .expect("present desired deployment");
+    // This start already reached its starting step before its unit exited.
+    let booting = with_start_steps(
+        None,
+        booting_state(unavailable_state(ENDPOINT_NOT_ASSIGNED_STAGE, None)),
+    );
+    current
+        .upsert(
+            CurrentApplicationDeployment {
+                application_deployment_id: deployment.application_deployment_id.clone(),
+                record_revision: 0,
+                state: Some(booting.clone()),
+                reconciled_lifecycle_generation: Some(deployment.lifecycle_generation),
+            },
+            None,
+        )
+        .expect("booting record");
+    let recorded = current.snapshot().expect("current state").deployments[0].clone();
+    let launch = workload_group_launch(
+        &deployment,
+        Ipv4Addr::LOCALHOST,
+        test_inference_route_resolver().as_ref(),
+    )
+    .expect("launch");
+    let preparer = Arc::new(StateCapturingPreparer::new(current.clone()));
+    let artifacts =
+        dotcore_artifact::ArtifactManager::new(directory.join("artifacts"), Some(preparer.clone()))
+            .expect("Artifact manager");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let controller = controller_with_runtime_and_artifacts(
+        desired,
+        current.clone(),
+        PausedMatrixRuntime::new(
+            vec![group_observation(
+                &launch,
+                [("web", WorkloadUnitState::Stopped)],
+                false,
+            )],
+            Some(group_observation(
+                &launch,
+                [("web", WorkloadUnitState::Running)],
+                false,
+            )),
+            Arc::clone(&calls),
+        ),
+        artifacts,
+    );
+
+    for _ in 0..2 {
+        controller
+            .realizer
+            .reconcile()
+            .await
+            .expect("reconciliation");
+    }
+
+    assert_eq!(*calls.lock().expect("Runtime calls"), ["start", "start"]);
+    assert_eq!(preparer.states(), [booting.clone(), booting]);
+    assert_eq!(
+        current.snapshot().expect("current state").deployments[0],
+        recorded,
+        "restarting the exited unit writes nothing"
+    );
+    drop(controller);
     fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 
@@ -1449,6 +1672,7 @@ async fn pause_and_resume_operations_are_idempotent_and_clear_public_endpoint() 
         ApplicationReadinessState::NotReady as i32
     );
     assert_eq!(paused_state.endpoint, None);
+    assert_eq!(paused_state.steps, None);
 
     let repeated_pause = controller
         .pause_deployment(deployment.application_deployment_id.clone())
@@ -1477,6 +1701,11 @@ async fn pause_and_resume_operations_are_idempotent_and_clear_public_endpoint() 
             .expect("resume state")
             .lifecycle_state,
         ApplicationLifecycleState::Starting as i32
+    );
+    assert_eq!(
+        resumed.state.as_ref().expect("resume state").steps,
+        Some(start_steps(0)),
+        "an accepted resume is on its first step until its node prepares the image"
     );
 
     let repeated_resume = controller

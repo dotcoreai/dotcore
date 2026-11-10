@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { LifecycleTone, StatusProjection } from "@/lib/status-projection";
 import { cn } from "@/lib/utils";
 
@@ -29,10 +30,20 @@ export interface StatusTextProps {
  *
  * A badge that names a property rather than a state — an upstream model's `External`, a profile's
  * `Default` — is not a status and stays a plain `Badge`.
+ *
+ * An in-progress status animates the pill like any other loading indicator of the console: a brief
+ * transition never flashes it, and a shown animation lasts long enough to be seen.
  */
 export function StatusBadge({ status }: StatusBadgeProps) {
+  const animated = useDelayedLoading(Boolean(status.inProgress));
+
   return (
-    <Badge title={status.attention} variant={status.tone}>
+    <Badge
+      className={cn(animated && "relative", animated && PROGRESS_BAND)}
+      data-in-progress={status.inProgress ? "true" : undefined}
+      title={status.attention}
+      variant={status.tone}
+    >
       {status.label}
     </Badge>
   );
@@ -75,6 +86,11 @@ export function StatusText({ className, status }: StatusTextProps) {
     </span>
   );
 }
+
+// A band of the badge's own ink slides across the pill while it is in progress; reduced motion
+// leaves the pill still.
+const PROGRESS_BAND =
+  "after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-2/5 after:animate-slide-block after:bg-linear-to-r after:from-transparent after:via-current/25 after:to-transparent motion-reduce:after:hidden";
 
 const DOT_TONES: Record<LifecycleTone, string> = {
   destructive: "bg-destructive",

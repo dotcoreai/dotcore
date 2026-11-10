@@ -92,6 +92,10 @@ message ApplicationDeploymentStatus {
   // Local-development launch identities this node resolved for the deployment, keyed by
   // service name; reported until the manager projects them back in the declaration.
   repeated dotcore.deployment.v1.NodeResolvedLaunchIdentity resolved_launch_identities = 13;
+
+  // Ordered start steps and the current one; present only while the lifecycle is Preparing or
+  // Starting.
+  dotcore.application.v1.ApplicationDeploymentSteps steps = 15;
 }
 
 // Primary endpoint published by the node runtime, without allocation details.
@@ -189,6 +193,9 @@ enum ApplicationLifecycleObservation {
 
   // The workload group is not serving; the stage names why.
   APPLICATION_LIFECYCLE_OBSERVATION_UNAVAILABLE = 9;
+
+  // The deployment's image is being prepared before its workload group is created.
+  APPLICATION_LIFECYCLE_OBSERVATION_PREPARING = 10;
 }
 
 // Typed operation stage of an assigned application deployment, carrying no runtime detail.
@@ -292,6 +299,9 @@ enum ApplicationStatusStage {
 
   // Reconciliation failed while removing a replaced runtime group during recovery.
   APPLICATION_STATUS_STAGE_RUNTIME_RECOVERY_REPLACEMENT_REMOVAL_FAILED = 32;
+
+  // The deployment's image is being prepared.
+  APPLICATION_STATUS_STAGE_PREPARING = 33;
 }
 
 // Stable non-sensitive application realization failure categories.

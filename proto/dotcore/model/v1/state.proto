@@ -58,6 +58,9 @@ message ModelDeploymentState {
 
   // Progress for the current status when it is measurable.
   ModelDeploymentProgress progress = 8;
+
+  // Ordered start steps and the current one; absent unless the deployment is starting.
+  ModelDeploymentSteps steps = 9;
 }
 
 // Controller-owned state of an explicit Resume operation, not a runtime identity.
@@ -87,6 +90,15 @@ enum ModelDeploymentActivationPhase {
   MODEL_DEPLOYMENT_ACTIVATION_PHASE_START_CONFIRMED = 3;
 }
 
+// The ordered steps of one deployment start and the step it is on.
+message ModelDeploymentSteps {
+  // Every step of this start in order; the list keeps its length for the whole start.
+  repeated ModelDeploymentStep steps = 1;
+
+  // Zero-based index into steps of the current step; never decreases during one start.
+  uint32 current = 2;
+}
+
 // Measurable progress for the current deployment status.
 message ModelDeploymentProgress {
   // The optional integer percentage derived from completed and total.
@@ -100,6 +112,27 @@ message ModelDeploymentProgress {
 
   // The unit used by completed and total.
   ModelDeploymentProgressUnit unit = 4;
+}
+
+// One step of starting a model deployment.
+enum ModelDeploymentStep {
+  // No step was specified.
+  MODEL_DEPLOYMENT_STEP_UNSPECIFIED = 0;
+
+  // Checking which model artifacts are already on the machine.
+  MODEL_DEPLOYMENT_STEP_CHECKING_ARTIFACTS = 1;
+
+  // Downloading the missing model artifacts.
+  MODEL_DEPLOYMENT_STEP_DOWNLOADING_ARTIFACTS = 2;
+
+  // Preparing the inference engine for the machine.
+  MODEL_DEPLOYMENT_STEP_PREPARING_ENGINE = 3;
+
+  // Starting the engine process.
+  MODEL_DEPLOYMENT_STEP_STARTING = 4;
+
+  // The engine is loading the model into memory.
+  MODEL_DEPLOYMENT_STEP_LOADING_MODEL = 5;
 }
 
 // Unit for measurable model deployment progress.

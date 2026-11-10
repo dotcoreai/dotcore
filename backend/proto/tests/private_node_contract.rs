@@ -257,6 +257,7 @@ fn application_owner_extends_the_generic_envelope_without_free_text_or_reservati
             "endpoint",
             "service_accelerator_memory",
             "resolved_launch_identities",
+            "steps",
         ]
     );
     let string_fields = message(application, "ApplicationDeploymentStatus")
@@ -397,6 +398,7 @@ fn application_wire_round_trip_keeps_route_projection_pins_and_cleanup_receipt_e
                             port: 32768,
                         }),
                         service_accelerator_memory: Vec::new(),
+                        steps: None,
                         resolved_launch_identities: vec![pin],
                     }],
                     cleanup_evidence: vec![ApplicationCleanupEvidence {

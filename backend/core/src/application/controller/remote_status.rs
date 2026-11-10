@@ -19,8 +19,9 @@ use dotcore_proto::dotcore::application::{
     },
     v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
-        ApplicationDeploymentState, ApplicationEndpoint, ApplicationLifecycleState,
-        ApplicationReadinessState, CurrentApplicationDeployment,
+        ApplicationDeploymentState, ApplicationDeploymentStep, ApplicationDeploymentSteps,
+        ApplicationEndpoint, ApplicationLifecycleState, ApplicationReadinessState,
+        CurrentApplicationDeployment,
     },
 };
 use dotcore_site::{
@@ -329,6 +330,14 @@ fn observed_state(
             }
             endpoint_url(host, endpoint.port)
         });
+    // The node decides its start steps; a lifecycle outside a start never shows them, and steps
+    // this manager cannot show are dropped without rejecting the status.
+    let steps = status.steps.clone().filter(|steps| {
+        matches!(
+            lifecycle,
+            ApplicationLifecycleState::Preparing | ApplicationLifecycleState::Starting
+        ) && valid_steps(steps)
+    });
     let observed_placement = match lifecycle {
         ApplicationLifecycleState::Stopped | ApplicationLifecycleState::Queued => None,
         ApplicationLifecycleState::Ready | ApplicationLifecycleState::Paused => {
@@ -347,22 +356,34 @@ fn observed_state(
         endpoint,
         observed_placement,
         observation_stale: false,
+        steps,
     }
 }
 
 /// The record shown while the node has not reported the current launch: starting, without
-/// readiness, services, or endpoint. Projection shows it as pausing or stopping when that is the
+/// readiness, services, endpoint, or start steps. Projection shows it as pausing or stopping when that is the
 /// declared intent.
 fn reconciling_state(previous: Option<&ApplicationDeploymentState>) -> ApplicationDeploymentState {
     let mut state = super::starting_state(previous);
     state.stage = RECONCILING_STAGE.to_owned();
     state.failure = None;
+    state.steps = None;
     state
+}
+
+/// Whether reported start steps name only known steps and a current step among them.
+fn valid_steps(steps: &ApplicationDeploymentSteps) -> bool {
+    (steps.current as usize) < steps.steps.len()
+        && steps.steps.iter().all(|step| {
+            ApplicationDeploymentStep::try_from(*step)
+                .is_ok_and(|step| step != ApplicationDeploymentStep::Unspecified)
+        })
 }
 
 fn public_lifecycle(observation: ApplicationLifecycleObservation) -> ApplicationLifecycleState {
     match observation {
         ApplicationLifecycleObservation::Queued => ApplicationLifecycleState::Queued,
+        ApplicationLifecycleObservation::Preparing => ApplicationLifecycleState::Preparing,
         ApplicationLifecycleObservation::Starting
         | ApplicationLifecycleObservation::Reconciling
         | ApplicationLifecycleObservation::Unspecified => ApplicationLifecycleState::Starting,
@@ -565,7 +586,8 @@ mod tests {
             },
             v1::{
                 ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
-                ApplicationDeploymentState, ApplicationLifecycleState, ApplicationReadinessState,
+                ApplicationDeploymentState, ApplicationDeploymentStep, ApplicationDeploymentSteps,
+                ApplicationLifecycleState, ApplicationReadinessState,
                 ApplicationServiceAcceleratorMemory, CurrentApplicationDeployment,
             },
         },
@@ -586,7 +608,7 @@ mod tests {
     };
 
     use super::super::test_support::{
-        WORKER_HOST, application_execution_target, deployment, open_node_site_with,
+        WORKER_HOST, application_execution_target, deployment, open_node_site_with, start_steps,
     };
     use super::{ApplicationStatusReport, accept_application_status};
     use crate::application::repository::{
@@ -698,6 +720,69 @@ mod tests {
         assert_eq!(state.stage, "Application primary endpoint is not ready");
         assert_eq!(state.endpoint, None);
         assert_eq!(state.failure, None);
+    }
+
+    #[test]
+    fn node_start_steps_and_preparing_are_recorded_until_a_reconciling_record_drops_them() {
+        let manager = Manager::new(vec![deployment(ApplicationDeploymentDesiredState::Present)]);
+        manager.intent(super::super::queued_state());
+
+        let mut preparing = status(1, ApplicationLifecycleObservation::Preparing, 7);
+        preparing.stage = ApplicationStatusStage::Preparing as i32;
+        preparing.steps = Some(start_steps(0));
+        manager.accept(vec![preparing], Vec::new());
+        let state = manager.record().state.expect("recorded state");
+        assert_eq!(
+            state.lifecycle_state,
+            ApplicationLifecycleState::Preparing as i32
+        );
+        assert_eq!(state.stage, "preparing");
+        assert_eq!(state.steps, Some(start_steps(0)));
+
+        let mut booting = status(1, ApplicationLifecycleObservation::Starting, 7);
+        booting.stage = ApplicationStatusStage::EndpointNotReady as i32;
+        booting.steps = Some(start_steps(2));
+        manager.accept(vec![booting], Vec::new());
+        assert_eq!(
+            manager.record().state.expect("recorded state").steps,
+            Some(start_steps(2))
+        );
+
+        // Steps the manager cannot show are dropped while the status is still recorded.
+        for invalid in [
+            ApplicationDeploymentSteps {
+                current: 3,
+                ..start_steps(0)
+            },
+            ApplicationDeploymentSteps {
+                steps: vec![ApplicationDeploymentStep::Unspecified as i32],
+                current: 0,
+            },
+        ] {
+            let mut booting = status(1, ApplicationLifecycleObservation::Starting, 7);
+            booting.stage = ApplicationStatusStage::GroupNotRunning as i32;
+            booting.steps = Some(invalid);
+            manager.accept(vec![booting], Vec::new());
+            let state = manager.record().state.expect("recorded state");
+            assert_eq!(state.stage, "Application group is not running");
+            assert_eq!(state.steps, None);
+        }
+
+        // Steps outside a start are never recorded, whatever the node sent.
+        let mut ready = ready(1, 7, WORKER_HOST);
+        ready.steps = Some(start_steps(2));
+        manager.accept(vec![ready], Vec::new());
+        assert_eq!(manager.record().state.expect("ready state").steps, None);
+
+        let mut booting = status(1, ApplicationLifecycleObservation::Starting, 7);
+        booting.stage = ApplicationStatusStage::GroupNotRunning as i32;
+        booting.steps = Some(start_steps(2));
+        manager.accept(vec![booting.clone()], Vec::new());
+        booting.accepted_view_revision = 0;
+        manager.accept(vec![booting], Vec::new());
+        let reconciling = manager.record().state.expect("reconciling state");
+        assert_eq!(reconciling.stage, "reconciling");
+        assert_eq!(reconciling.steps, None);
     }
 
     #[test]

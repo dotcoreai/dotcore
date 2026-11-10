@@ -21,7 +21,7 @@ use tracing::{Instrument, Span, debug_span, error, field, info, info_span, warn}
 
 use super::state::{
     current_error, desired_error, loading_state, partial_current_error, pausing_state,
-    resuming_state, unloading_state, validate_id,
+    resuming_state, start_requested_state, unloading_state, validate_id,
 };
 use super::{
     CurrentStateRepository, DesiredDeploymentRepository, ManagerInferenceControllerInner,
@@ -1287,8 +1287,14 @@ where
     D: DesiredDeploymentRepository,
     S: CurrentStateRepository,
 {
+    // An upstream deployment has no local start, so it reports no start steps.
+    let requested = if super::is_upstream_deployment(desired) {
+        loading_state()
+    } else {
+        start_requested_state()
+    };
     let state = record_intent(inner, &desired.model_deployment_id, "Load", |_| {
-        (loading_state(), true)
+        (requested.clone(), true)
     })?;
     info!(
         event_kind = "model_mutation_accepted",

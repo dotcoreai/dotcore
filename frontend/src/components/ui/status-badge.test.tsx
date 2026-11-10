@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusBadge } from "@/components/ui/status-badge";
+import { productionTiming, setTiming } from "@/lib/timing";
 
 describe("StatusBadge", () => {
   it("renders the projected word and carries its tone", () => {
@@ -33,6 +34,43 @@ describe("StatusBadge", () => {
     expect(badge).toHaveAttribute("data-variant", "warning");
     expect(badge).toHaveClass("bg-warning");
     expect(badge).toHaveClass("text-warning-foreground");
+  });
+
+  describe("while in progress", () => {
+    beforeEach(() => {
+      setTiming(productionTiming);
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
+
+    it("animates a band once the loading reveal delay passed", async () => {
+      render(<StatusBadge status={{ inProgress: true, label: "Downloading", tone: "info" }} />);
+
+      const badge = screen.getByText("Downloading");
+      expect(badge).toHaveAttribute("data-in-progress", "true");
+      expect(badge.className).not.toContain("animate-slide-block");
+
+      await advanceBy(productionTiming.loadingRevealMs);
+      expect(badge).toHaveClass("after:animate-slide-block", "motion-reduce:after:hidden");
+    });
+
+    it("never animates a transition shorter than the reveal delay", async () => {
+      const { rerender } = render(
+        <StatusBadge status={{ inProgress: true, label: "Pausing", tone: "info" }} />,
+      );
+
+      await advanceBy(productionTiming.loadingRevealMs - 1);
+      rerender(<StatusBadge status={{ label: "Paused", tone: "neutral" }} />);
+      await advanceBy(productionTiming.loadingRevealMs);
+
+      const still = screen.getByText("Paused");
+      expect(still).not.toHaveAttribute("data-in-progress");
+      expect(still.className).not.toContain("animate-slide-block");
+    });
   });
 
   it("renders no tooltip when nothing qualifies the status", () => {
@@ -102,3 +140,9 @@ describe("status tone enforcement", () => {
     ]);
   });
 });
+
+async function advanceBy(milliseconds: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds);
+  });
+}

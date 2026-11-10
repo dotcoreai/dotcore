@@ -243,8 +243,10 @@ export function projectApplicationDeploymentStatus(
   // The application lifecycle has no state meaning "being removed", so teardown is read off the
   // target instead.
   if (deployment.desiredState === ApplicationDeploymentDesiredState.TEARDOWN) {
+    const stale = deployment.state?.observationStale;
     return {
-      attention: deployment.state?.observationStale ? staleMachineAttention : undefined,
+      attention: stale ? staleMachineAttention : undefined,
+      ...(!stale && { inProgress: true }),
       label: "Tearing down",
       tone: applicationDeploymentDesiredStateTone(deployment.desiredState),
     };
@@ -292,6 +294,7 @@ export function projectApplicationDeploymentStatus(
 
   return {
     attention,
+    ...(isApplicationInProgress(deployment, lifecycleState) && { inProgress: true }),
     label: applicationLifecycleLabel(lifecycleState),
     tone: applicationLifecycleTone(lifecycleState),
   };
@@ -324,4 +327,18 @@ function applicationAttentionLabel(
   return settling && !applicationDeploymentEndpoint(deployment)
     ? "Waiting for endpoint"
     : undefined;
+}
+
+/**
+ * Whether a deployment works toward another state: a transition, or running before its endpoint
+ * is up.
+ */
+function isApplicationInProgress(
+  deployment: ApplicationDeployment,
+  state: ApplicationLifecycleState,
+): boolean {
+  return (
+    transitioningStates.has(state) ||
+    (state === ApplicationLifecycleState.RUNNING && !applicationDeploymentEndpoint(deployment))
+  );
 }

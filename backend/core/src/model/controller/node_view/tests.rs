@@ -18,7 +18,7 @@ use dotcore_proto::dotcore::{
     deployment::v1::ExactPlacement,
     model::v1::{
         ModelDeploymentFailure, ModelDeploymentLifecycleTransition, ModelDeploymentState,
-        ObservedPlacement,
+        ModelDeploymentSteps, ObservedPlacement,
     },
     observation::v1::{
         AcceleratorFacts, AcceleratorFactsSet, AcceleratorObservation, AcceleratorVendor,
@@ -58,6 +58,7 @@ use crate::model::controller::{
         deployment_metric_descriptors,
     },
     serving_targets::{LocalServingTargetsPublisher, local_target_for_test},
+    test_support::expected_start_steps,
 };
 
 #[test]
@@ -180,6 +181,7 @@ fn status_reports_ready_only_from_a_live_target_serving_the_declared_generation(
     assert_eq!(
         live.deployments,
         [PrivateModelDeploymentStatus {
+            steps: None,
             model_deployment_id: "model-one".to_owned(),
             lifecycle_generation: 2,
             placement: Some(ExactPlacement {
@@ -468,6 +470,41 @@ fn recorded_lifecycle_message_and_download_bytes_are_reported_as_recorded() {
         assert_eq!(status.preparation_progress, reported, "{message}");
         assert_eq!(status.failure, None, "{message}");
     }
+}
+
+#[test]
+fn recorded_start_steps_are_reported_only_for_the_assigned_generation() {
+    let declaration = assigned("model-one", ModelDeploymentDesiredState::Present, 2);
+    let steps = ModelDeploymentSteps {
+        steps: expected_start_steps(),
+        current: 2,
+    };
+    let record = |generation| CurrentModelDeployment {
+        model_deployment_id: "model-one".to_owned(),
+        reconciled_lifecycle_generation: Some(generation),
+        record_revision: 1,
+        state: Some(ModelDeploymentState {
+            status: ModelDeploymentStatus::Loading as i32,
+            status_message: "Acquiring engine image".to_owned(),
+            steps: Some(steps.clone()),
+            ..Default::default()
+        }),
+        recovery_barrier: None,
+    };
+
+    let assigned = deployment_status("worker-one", &declaration, Some(&record(2)), None);
+    let earlier = deployment_status("worker-one", &declaration, Some(&record(1)), None);
+
+    assert_eq!(
+        assigned.lifecycle,
+        ModelLifecycleObservation::Loading as i32
+    );
+    assert_eq!(assigned.steps, Some(steps));
+    assert_eq!(
+        earlier.lifecycle,
+        ModelLifecycleObservation::Reconciling as i32
+    );
+    assert_eq!(earlier.steps, None);
 }
 
 #[test]

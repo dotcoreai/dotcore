@@ -247,6 +247,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
     ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
         Box::pin(async move {
             validate_group_platform(group, &self.config.execution_platform)?;
+            self.group_transition().await;
             let mut state = self.state.lock().expect("simulated runtime state");
             if let Some(test_support) = &self.config.test_support {
                 let mut support = test_support
@@ -300,6 +301,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
     ) -> RuntimeFuture<'a, WorkloadGroupObservation> {
         Box::pin(async move {
             validate_group_platform(group, &self.config.execution_platform)?;
+            self.group_transition().await;
             let mut state = self.state.lock().expect("simulated runtime state");
             if self
                 .config
@@ -439,6 +441,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
 
     fn stop_workload_group<'a>(&'a self, group: &'a WorkloadGroupLaunch) -> RuntimeFuture<'a, ()> {
         Box::pin(async move {
+            self.group_transition().await;
             let mut state = self.state.lock().expect("simulated runtime state");
             if self
                 .config
@@ -540,6 +543,16 @@ impl InMemoryRuntimeBackend {
 
     /// Starts a process on the declared machine for every unit of `group` without one, so its
     /// synthetic memory counts as used there.
+    /// Waits as long as one creation, start or stop of a workload group takes.
+    async fn group_transition(&self) {
+        let delay = self
+            .config
+            .transition_duration(self.config.group_transition_delay);
+        if !delay.is_zero() {
+            self.config.clock.sleep(delay).await;
+        }
+    }
+
     fn start_unit_processes(&self, group: &mut FakeWorkloadGroup) {
         let Some((machine, node)) = self
             .config
@@ -747,7 +760,9 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
                     () = cancellation.cancelled() => {
                         return Err(RuntimeBackendError::preparation_cancelled());
                     }
-                    () = self.config.clock.sleep(startup.step_duration) => {}
+                    () = self.config.clock.sleep(
+                        self.config.transition_duration(startup.step_duration),
+                    ) => {}
                 }
             }
             Ok(())
@@ -839,7 +854,9 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
             )],
             host_process,
         };
-        let delay = self.ready_delay_for(&workload.correlation.owner_id);
+        let delay = self
+            .config
+            .transition_duration(self.ready_delay_for(&workload.correlation.owner_id));
         let mut created = FakeWorkload {
             identity: identity.clone(),
             machine_process,
@@ -867,7 +884,9 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
             .map(|workload| {
                 workload.state = FakeWorkloadState::Loading;
                 workload.transition_at = self.config.clock.now()
-                    + self.ready_delay_for(&workload.identity.correlation.owner_id);
+                    + self.config.transition_duration(
+                        self.ready_delay_for(&workload.identity.correlation.owner_id),
+                    );
                 self.observation(workload)
             })
             .ok_or_else(|| RuntimeBackendError::invalid_launch("simulated workload is unknown"));
@@ -916,7 +935,9 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
                 ) {
                     workload.state = FakeWorkloadState::Unloading;
                     workload.transition_at = self.config.clock.now()
-                        + self.stop_delay_for(&workload.identity.correlation.owner_id);
+                        + self.config.transition_duration(
+                            self.stop_delay_for(&workload.identity.correlation.owner_id),
+                        );
                 }
                 Ok(())
             }

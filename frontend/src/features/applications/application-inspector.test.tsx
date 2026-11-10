@@ -14,6 +14,7 @@ import {
 import {} from "@/gen/dotcore/application/v1/service_pb";
 import {
   ApplicationDeploymentStateSchema,
+  ApplicationDeploymentStep,
   ApplicationLifecycleState,
   ApplicationReadinessState,
 } from "@/gen/dotcore/application/v1/state_pb";
@@ -372,6 +373,81 @@ describe("Application deployment dialog", () => {
     expect(screen.queryByRole("link", { name: "Open" })).not.toBeInTheDocument();
     const access = screen.getByRole("region", { name: "Access" });
     expect(within(access).getByText("Not assigned")).toBeVisible();
+  });
+
+  describe("step bar", () => {
+    const startSteps = [
+      ApplicationDeploymentStep.PREPARING_IMAGE,
+      ApplicationDeploymentStep.STARTING,
+      ApplicationDeploymentStep.WAITING_FOR_ENDPOINT,
+    ];
+
+    function renderWithState(
+      state: Parameters<typeof create<typeof ApplicationDeploymentStateSchema>>[1],
+    ) {
+      return render(
+        <DeploymentApplicationInspector
+          deployment={create(ApplicationDeploymentSchema, {
+            applicationDeploymentId: "deployment-1",
+            applicationDeploymentName: "open-webui-1",
+            snapshot: resolvedSnapshot(application),
+            state: create(ApplicationDeploymentStateSchema, state),
+          })}
+          onOpenChange={vi.fn()}
+          onRemove={vi.fn()}
+          open
+          openerRef={createRef<HTMLElement>()}
+          pending={false}
+        />,
+      );
+    }
+
+    it("shows the current step of a starting application", () => {
+      renderWithState({
+        lifecycleState: ApplicationLifecycleState.STARTING,
+        readinessState: ApplicationReadinessState.NOT_READY,
+        steps: { current: 1, steps: startSteps },
+      });
+
+      const bar = within(screen.getByRole("region", { name: "Status" })).getByRole("progressbar", {
+        name: "Starting",
+      });
+      expect(bar).toHaveTextContent("Step 2 of 3");
+      expect(
+        [...bar.querySelectorAll('[data-slot="step-progress-segment"]')].map((segment) =>
+          segment.getAttribute("data-state"),
+        ),
+      ).toEqual(["done", "current", "pending"]);
+    });
+
+    it("names the endpoint wait on the last step", () => {
+      renderWithState({
+        lifecycleState: ApplicationLifecycleState.STARTING,
+        steps: { current: 2, steps: startSteps },
+      });
+
+      expect(screen.getByRole("progressbar", { name: "Waiting for endpoint" })).toHaveTextContent(
+        "Step 3 of 3",
+      );
+    });
+
+    it.each([
+      ["ready", { lifecycleState: ApplicationLifecycleState.READY }],
+      ["paused", { lifecycleState: ApplicationLifecycleState.PAUSED }],
+      ["failed", { lifecycleState: ApplicationLifecycleState.FAILED }],
+      [
+        "stale",
+        {
+          lifecycleState: ApplicationLifecycleState.STARTING,
+          observationStale: true,
+          steps: { current: 1, steps: startSteps },
+        },
+      ],
+    ])("hides the bar when the application is %s", (_name, state) => {
+      renderWithState(state);
+
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    });
   });
 
   it("renders four ordered sections and nothing outside a section", () => {

@@ -898,9 +898,10 @@ mod tests {
                 body: br#"{"id":"replacement-model"}"#.to_vec(),
             }),
         ]));
+        let current = TestCurrent::new(calls);
         let controller = InferenceController::new_with_verification(
             desired.clone(),
-            TestCurrent::new(calls),
+            current.clone(),
             verification,
         )
         .expect("controller construction");
@@ -926,13 +927,20 @@ mod tests {
             .expect("upstream configuration");
         replacement.upstream_model_id = "replacement-model".to_owned();
         replacement.api_key = "replacement-key".to_owned();
-        controller
+        let updated = controller
             .update_upstream_model(
                 ModelDeploymentId(deployment.model_deployment_id.clone()),
                 replacement,
             )
             .await
             .expect("update upstream deployment");
+        let updated = updated.state.expect("updated state");
+        assert_eq!(updated.status, ModelDeploymentStatus::Loading as i32);
+        assert_eq!(updated.steps, None, "an upstream start has no start steps");
+        assert_eq!(
+            current.start_step_history(&deployment.model_deployment_id),
+            [None]
+        );
 
         controller
             .inner

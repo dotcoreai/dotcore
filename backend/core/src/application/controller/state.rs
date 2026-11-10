@@ -1,8 +1,14 @@
 //! Apps-controller state values and repository error mappings.
 
 use dotcore_domain::real_time;
+use dotcore_proto::dotcore::application::v1::{
+    ApplicationDeploymentStep, ApplicationDeploymentSteps,
+};
 use dotcore_runtime::{ObservedWorkloadGroup, WorkloadGroupLaunch};
 
+use super::readiness::{
+    ENDPOINT_NOT_ASSIGNED_STAGE, ENDPOINT_NOT_READY_STAGE, GROUP_NOT_RUNNING_STAGE,
+};
 use super::*;
 
 pub(super) fn queued_state() -> ApplicationDeploymentState {
@@ -32,6 +38,22 @@ pub(super) fn starting_state(
     state.lifecycle_state = ApplicationLifecycleState::Starting as i32;
     state.readiness_state = ApplicationReadinessState::NotReady as i32;
     state.stage = "starting".to_owned();
+    state.services.clear();
+    state.endpoint = None;
+    state.updated_at = Some(now());
+    state
+}
+
+/// State recorded while a starting deployment's image is prepared on its node. It keeps the
+/// deployment's history but no failure, readiness, services or endpoint of an earlier start.
+pub(super) fn preparing_state(
+    previous: Option<&ApplicationDeploymentState>,
+) -> ApplicationDeploymentState {
+    let mut state = previous.cloned().unwrap_or_else(queued_state);
+    state.lifecycle_state = ApplicationLifecycleState::Preparing as i32;
+    state.readiness_state = ApplicationReadinessState::NotReady as i32;
+    state.stage = "preparing".to_owned();
+    state.failure = None;
     state.services.clear();
     state.endpoint = None;
     state.updated_at = Some(now());
@@ -248,6 +270,55 @@ pub(super) fn settled_state(
     Some(next)
 }
 
+/// Sets the start steps of a state about to be recorded, the one place they are decided. A
+/// deployment that prepares or starts without a failure reports every step of a start and the one
+/// its stage stands for; any other state reports none. `previous` holds the steps already
+/// recorded in this start, so the current step never moves back, as when a unit restarts.
+pub(super) fn with_start_steps(
+    previous: Option<&ApplicationDeploymentSteps>,
+    mut state: ApplicationDeploymentState,
+) -> ApplicationDeploymentState {
+    state.steps = start_step(&state).map(|step| {
+        let current = START_STEPS
+            .iter()
+            .position(|candidate| *candidate == step)
+            .unwrap_or_default() as u32;
+        ApplicationDeploymentSteps {
+            steps: START_STEPS.iter().map(|step| *step as i32).collect(),
+            current: previous.map_or(current, |previous| current.max(previous.current)),
+        }
+    });
+    state
+}
+
+/// Every step of one application start, in order. A step a start does not need, such as image
+/// preparation on a runtime that launches from references alone, is passed.
+const START_STEPS: [ApplicationDeploymentStep; 3] = [
+    ApplicationDeploymentStep::PreparingImage,
+    ApplicationDeploymentStep::Starting,
+    ApplicationDeploymentStep::WaitingForEndpoint,
+];
+
+/// The start step a state stands for, `None` outside a start or once it failed. An accepted start
+/// that has not prepared its image yet is on the first step.
+fn start_step(state: &ApplicationDeploymentState) -> Option<ApplicationDeploymentStep> {
+    if state.failure.is_some() {
+        return None;
+    }
+    match ApplicationLifecycleState::try_from(state.lifecycle_state).ok()? {
+        ApplicationLifecycleState::Preparing => Some(ApplicationDeploymentStep::PreparingImage),
+        ApplicationLifecycleState::Starting => match state.stage.as_str() {
+            "starting" => Some(ApplicationDeploymentStep::PreparingImage),
+            GROUP_NOT_RUNNING_STAGE | ENDPOINT_NOT_ASSIGNED_STAGE => {
+                Some(ApplicationDeploymentStep::Starting)
+            }
+            ENDPOINT_NOT_READY_STAGE => Some(ApplicationDeploymentStep::WaitingForEndpoint),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn state(
     lifecycle: ApplicationLifecycleState,
     readiness: ApplicationReadinessState,
@@ -266,6 +337,7 @@ fn state(
         failure: None,
         observed_placement: None,
         observation_stale: false,
+        steps: None,
     }
 }
 
@@ -287,11 +359,20 @@ mod tests {
         ApplicationServiceObservation,
     };
 
-    use super::{paused_state, pausing_state, settled_state, starting_state, unavailable_state};
+    use super::{
+        booting_state, deployment_failure_state, paused_state, pausing_state, preparing_state,
+        queued_state, settled_state, starting_state, stopped_state, unavailable_state,
+        with_start_steps,
+    };
+    use crate::application::controller::readiness::{
+        ENDPOINT_NOT_ASSIGNED_STAGE, ENDPOINT_NOT_READY_STAGE, GROUP_NOT_RUNNING_STAGE,
+    };
+    use crate::application::controller::test_support::start_steps;
 
     #[test]
     fn pause_states_clear_public_readiness_and_endpoint_while_preserving_history() {
         let previous = ApplicationDeploymentState {
+            steps: None,
             lifecycle_state: ApplicationLifecycleState::Ready as i32,
             readiness_state: ApplicationReadinessState::Ready as i32,
             stage: "ready".to_owned(),
@@ -367,6 +448,111 @@ mod tests {
         );
         assert_eq!(starting.stage, "starting");
         assert_eq!(starting.endpoint, None);
+    }
+
+    #[test]
+    fn each_start_state_reports_every_step_and_the_one_its_stage_stands_for() {
+        let booting = |stage| booting_state(unavailable_state(stage, None));
+        let cases = [
+            ("accepted start", starting_state(None), 0),
+            ("preparing image", preparing_state(None), 0),
+            ("group not running", booting(GROUP_NOT_RUNNING_STAGE), 1),
+            (
+                "endpoint not assigned",
+                booting(ENDPOINT_NOT_ASSIGNED_STAGE),
+                1,
+            ),
+            ("endpoint not ready", booting(ENDPOINT_NOT_READY_STAGE), 2),
+        ];
+        for (case, state, current) in cases {
+            assert_eq!(
+                with_start_steps(None, state).steps,
+                Some(start_steps(current)),
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_current_step_never_moves_back_within_a_start() {
+        let restarted = booting_state(unavailable_state(GROUP_NOT_RUNNING_STAGE, None));
+        let recorded = start_steps(2);
+
+        assert_eq!(
+            with_start_steps(Some(&recorded), restarted.clone()).steps,
+            Some(start_steps(2))
+        );
+        assert_eq!(
+            with_start_steps(Some(&start_steps(0)), restarted).steps,
+            Some(start_steps(1))
+        );
+    }
+
+    #[test]
+    fn states_outside_a_start_or_with_a_failure_report_no_steps() {
+        let mut failed_creation = starting_state(None);
+        failed_creation.failure = Some(ApplicationDeploymentFailure {
+            code: "CreationFailed".to_owned(),
+            message: "Application workload creation failed".to_owned(),
+            diagnostics: Vec::new(),
+        });
+        let mut reconciling = starting_state(None);
+        reconciling.stage = "reconciling".to_owned();
+        let mut ready = unavailable_state("ready", None);
+        ready.lifecycle_state = ApplicationLifecycleState::Ready as i32;
+        let cases = [
+            ("queued", queued_state()),
+            ("ready", ready),
+            ("pausing", pausing_state(None)),
+            ("paused", paused_state(None)),
+            ("stopped", stopped_state()),
+            (
+                "unavailable",
+                unavailable_state(ENDPOINT_NOT_READY_STAGE, None),
+            ),
+            (
+                "failed",
+                deployment_failure_state("artifact-preparation", None),
+            ),
+            ("failed creation", failed_creation),
+            ("reconciling", reconciling),
+        ];
+        for (case, state) in cases {
+            assert_eq!(
+                with_start_steps(Some(&start_steps(2)), state).steps,
+                None,
+                "{case}"
+            );
+        }
+    }
+
+    #[test]
+    fn preparing_starts_afresh_from_an_earlier_start_and_keeps_its_history() {
+        let mut previous = paused_state(None);
+        previous.started_at = Some(timestamp(11));
+        previous.failure = Some(ApplicationDeploymentFailure {
+            code: "runtime".to_owned(),
+            message: "failed".to_owned(),
+            diagnostics: Vec::new(),
+        });
+        previous.endpoint = Some(ApplicationEndpoint {
+            url: "http://127.0.0.1:8080".to_owned(),
+        });
+
+        let preparing = preparing_state(Some(&previous));
+
+        assert_eq!(
+            preparing.lifecycle_state,
+            ApplicationLifecycleState::Preparing as i32
+        );
+        assert_eq!(
+            preparing.readiness_state,
+            ApplicationReadinessState::NotReady as i32
+        );
+        assert_eq!(preparing.stage, "preparing");
+        assert_eq!(preparing.started_at, Some(timestamp(11)));
+        assert_eq!(preparing.failure, None);
+        assert_eq!(preparing.endpoint, None);
     }
 
     fn timestamp(seconds: i64) -> dotcore_proto::google::protobuf::Timestamp {

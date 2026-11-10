@@ -30,8 +30,9 @@ use dotcore_proto::dotcore::{
     model::v1::{
         CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentDesiredState,
         ModelDeploymentLifecycleTransition, ModelDeploymentSnapshot, ModelDeploymentStatus,
-        OpenAiCompatibleEndpointConfiguration, UpstreamModelDeploymentSnapshot,
-        UpstreamModelDesiredConfiguration, UpstreamModelInputCapabilities,
+        ModelDeploymentStep, OpenAiCompatibleEndpointConfiguration,
+        UpstreamModelDeploymentSnapshot, UpstreamModelDesiredConfiguration,
+        UpstreamModelInputCapabilities,
         model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
     },
     site::v1::{
@@ -399,6 +400,7 @@ pub(super) struct TestCurrent {
     pub(super) state: InMemoryCurrentState,
     failure: Arc<Mutex<Option<TestFailure>>>,
     pub(super) calls: Arc<Mutex<Vec<&'static str>>>,
+    writes: Arc<Mutex<Vec<CurrentModelDeployment>>>,
 }
 
 #[derive(Clone, Copy)]
@@ -823,6 +825,47 @@ impl TestCurrent {
             state: InMemoryCurrentState::new("site-one").expect("current state"),
             failure: Arc::new(Mutex::new(None)),
             calls,
+            writes: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// The current start step each committed write left on a deployment's record, with
+    /// consecutive repeats collapsed; `None` is a record without steps. Every reported list must
+    /// be the fixed list of model start steps.
+    pub(super) fn start_step_history(&self, deployment_id: &str) -> Vec<Option<u32>> {
+        let mut history = Vec::new();
+        for record in self.writes.lock().expect("writes").iter() {
+            if record.model_deployment_id != deployment_id {
+                continue;
+            }
+            let steps = record.state.as_ref().and_then(|state| state.steps.as_ref());
+            if let Some(steps) = steps {
+                assert_eq!(
+                    steps.steps,
+                    expected_start_steps(),
+                    "start steps of {deployment_id}"
+                );
+            }
+            let current = steps.map(|steps| steps.current);
+            if history.last() != Some(&current) {
+                history.push(current);
+            }
+        }
+        history
+    }
+
+    /// Keeps the stored copy of each written record, as the store normalized it.
+    fn record_writes(&self, deployment_ids: impl IntoIterator<Item = String>) {
+        let snapshot = self.state.snapshot().expect("written current state");
+        let mut writes = self.writes.lock().expect("writes");
+        for deployment_id in deployment_ids {
+            if let Some(record) = snapshot
+                .model_deployments
+                .iter()
+                .find(|record| record.model_deployment_id == deployment_id)
+            {
+                writes.push(record.clone());
+            }
         }
     }
 
@@ -850,7 +893,13 @@ impl CurrentStateRepository for TestCurrent {
         expected_storage_revision: u64,
     ) -> Result<CurrentStateMutation, CurrentStateError> {
         self.operation("current prepare")?;
-        self.state.prepare(deployments, expected_storage_revision)
+        let deployment_ids = deployments
+            .iter()
+            .map(|deployment| deployment.model_deployment_id.clone())
+            .collect::<Vec<_>>();
+        let mutation = self.state.prepare(deployments, expected_storage_revision)?;
+        self.record_writes(deployment_ids);
+        Ok(mutation)
     }
 
     fn upsert(
@@ -859,7 +908,10 @@ impl CurrentStateRepository for TestCurrent {
         expected_record_revision: Option<u64>,
     ) -> Result<CurrentStateMutation, CurrentStateError> {
         self.operation("current upsert")?;
-        self.state.upsert(deployment, expected_record_revision)
+        let deployment_id = deployment.model_deployment_id.clone();
+        let mutation = self.state.upsert(deployment, expected_record_revision)?;
+        self.record_writes([deployment_id]);
+        Ok(mutation)
     }
 
     fn remove(
@@ -1151,6 +1203,19 @@ pub(crate) fn test_engine_binding_for_values(
     test_engine_integrations()
         .bind_workload(&resolved, deployment_id, &service)
         .expect("engine binding")
+}
+
+/// The steps every model start reports, in order.
+pub(super) fn expected_start_steps() -> Vec<i32> {
+    [
+        ModelDeploymentStep::CheckingArtifacts,
+        ModelDeploymentStep::DownloadingArtifacts,
+        ModelDeploymentStep::PreparingEngine,
+        ModelDeploymentStep::Starting,
+        ModelDeploymentStep::LoadingModel,
+    ]
+    .map(|step| step as i32)
+    .to_vec()
 }
 
 pub(super) fn current_deployment(id: &str) -> CurrentModelDeployment {

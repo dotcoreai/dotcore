@@ -6,7 +6,7 @@ use anyhow::anyhow;
 use dotcore_domain::{SiteNodeId, valid_id};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentProgress, ModelDeploymentProgressUnit,
-    ModelDeploymentStatus,
+    ModelDeploymentState, ModelDeploymentStatus,
 };
 use dotcore_site::{
     repository::SiteRepositoryError,
@@ -173,6 +173,20 @@ impl CurrentStateError {
     }
 }
 
+/// Keeps a deployment's start steps only while it is starting, that is Downloading or Loading.
+///
+/// Every record write and public projection passes through it, so a state built from an earlier
+/// start, such as a failure or pause cloned from a starting record, never reports stale steps and
+/// the next start begins a fresh step list.
+pub(crate) fn retain_start_steps(state: &mut ModelDeploymentState) {
+    if !matches!(
+        ModelDeploymentStatus::try_from(state.status),
+        Ok(ModelDeploymentStatus::Downloading | ModelDeploymentStatus::Loading)
+    ) {
+        state.steps = None;
+    }
+}
+
 pub(crate) fn snapshot_view<S: StoredCurrentState>(
     state: &S,
 ) -> Result<CurrentStateSnapshot, CurrentStateError> {
@@ -191,6 +205,9 @@ pub(crate) fn upsert_state<S: StoredCurrentState>(
     expected: Option<u64>,
 ) -> Result<CurrentStateMutation, CurrentStateError> {
     validate_deployment(&deployment, false)?;
+    if let Some(state) = deployment.state.as_mut() {
+        retain_start_steps(state);
+    }
     let records = state.model_deployments_mut();
     let position = records
         .iter()
@@ -229,6 +246,9 @@ pub(crate) fn prepare_state<S: StoredCurrentState>(
     let mut ids = BTreeSet::new();
     for deployment in &mut deployments {
         validate_deployment(deployment, false)?;
+        if let Some(state) = deployment.state.as_mut() {
+            retain_start_steps(state);
+        }
         if !ids.insert(&deployment.model_deployment_id) {
             return Err(CurrentStateError::AlreadyExists);
         }

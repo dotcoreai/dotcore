@@ -75,22 +75,43 @@ describe("model deployment status projection", () => {
   }
 
   it.each([
-    [ModelDeploymentStatus.QUEUED, "Queued", "info"],
-    [ModelDeploymentStatus.PREPARING, "Preparing", "info"],
-    [ModelDeploymentStatus.DOWNLOADING, "Downloading", "info"],
-    [ModelDeploymentStatus.LOADING, "Loading", "info"],
-    [ModelDeploymentStatus.WARMING_UP, "Warming up", "info"],
-    [ModelDeploymentStatus.READY, "Ready", "success"],
-    [ModelDeploymentStatus.UNLOADING, "Tearing down", "info"],
-    [ModelDeploymentStatus.PAUSED, "Paused", "neutral"],
-    [ModelDeploymentStatus.FAILED, "Failed", "destructive"],
-    [ModelDeploymentStatus.UNAVAILABLE, "Unavailable", "destructive"],
-    [ModelDeploymentStatus.UNSPECIFIED, "Unknown", "neutral"],
-  ])("projects %s as %s with %s tone", (status, label, tone) => {
+    [ModelDeploymentStatus.QUEUED, "Queued", "info", true],
+    [ModelDeploymentStatus.PREPARING, "Preparing", "info", true],
+    [ModelDeploymentStatus.DOWNLOADING, "Downloading", "info", true],
+    [ModelDeploymentStatus.LOADING, "Loading", "info", true],
+    [ModelDeploymentStatus.WARMING_UP, "Warming up", "info", true],
+    [ModelDeploymentStatus.READY, "Ready", "success", false],
+    [ModelDeploymentStatus.UNLOADING, "Tearing down", "info", true],
+    [ModelDeploymentStatus.PAUSING, "Pausing", "info", true],
+    [ModelDeploymentStatus.PAUSED, "Paused", "neutral", false],
+    [ModelDeploymentStatus.FAILED, "Failed", "destructive", false],
+    [ModelDeploymentStatus.UNAVAILABLE, "Unavailable", "destructive", false],
+    [ModelDeploymentStatus.UNSPECIFIED, "Unknown", "neutral", false],
+  ])("projects %s as %s with %s tone, in progress %s", (status, label, tone, inProgress) => {
     expect(projectModelDeploymentStatus(deploymentInState(status))).toEqual({
       label,
       tone,
+      ...(inProgress && { inProgress }),
     });
+  });
+
+  it.each([
+    [ModelDeploymentDesiredState.PAUSED, "Pausing"],
+    [ModelDeploymentDesiredState.TEARDOWN, "Tearing down"],
+  ])("stays in progress while a %s target rewrites a starting status as %s", (desired, label) => {
+    expect(
+      projectModelDeploymentStatus(
+        deploymentInState(ModelDeploymentStatus.DOWNLOADING, {}, desired),
+      ),
+    ).toMatchObject({ inProgress: true, label });
+  });
+
+  it("is still once a pause settles", () => {
+    expect(
+      projectModelDeploymentStatus(
+        deploymentInState(ModelDeploymentStatus.PAUSED, {}, ModelDeploymentDesiredState.PAUSED),
+      ).inProgress,
+    ).toBeUndefined();
   });
 
   it("keeps download progress off the card; the inspector is the only progress surface", () => {
@@ -146,7 +167,12 @@ describe("model deployment status projection", () => {
           ModelDeploymentDesiredState.PAUSED,
         ),
       ),
-    ).toEqual({ attention: "Engine exited with status 1", label: "Pausing", tone: "info" });
+    ).toEqual({
+      attention: "Engine exited with status 1",
+      inProgress: true,
+      label: "Pausing",
+      tone: "info",
+    });
     expect(
       projectModelDeploymentStatus(
         deploymentInState(

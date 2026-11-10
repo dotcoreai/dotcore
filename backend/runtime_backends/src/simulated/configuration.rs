@@ -41,6 +41,14 @@ pub struct SimulatedRuntimeConfig {
     /// Stop delays keyed by deployment id.
     pub deployment_stop_delays: BTreeMap<String, Duration>,
 
+    /// Time an application workload group takes to be created, started or stopped, as a container
+    /// runtime takes to run or stop its containers.
+    pub group_transition_delay: Duration,
+
+    /// Whether every delay and startup step takes a random share of its base duration instead of
+    /// exactly the base.
+    pub vary_durations: bool,
+
     /// Shared call evidence and failure injection, when tests or development observe the backend.
     pub test_support: Option<SimulatedRuntimeTestSupport>,
 
@@ -61,10 +69,28 @@ impl Default for SimulatedRuntimeConfig {
             default_stop_delay: Duration::ZERO,
             deployment_ready_delays: BTreeMap::new(),
             deployment_stop_delays: BTreeMap::new(),
+            group_transition_delay: Duration::ZERO,
+            vary_durations: false,
             test_support: None,
             startup: None,
             clock: Arc::new(SystemClock),
         }
+    }
+}
+
+impl SimulatedRuntimeConfig {
+    /// One occurrence of a `base` delay: the base itself, or a random duration between half and
+    /// twice the base when durations vary.
+    pub(super) fn transition_duration(&self, base: Duration) -> Duration {
+        if !self.vary_durations || base.is_zero() {
+            return base;
+        }
+
+        // Variation is a development aid: without a random source, the base delay still holds.
+        let Ok(random) = getrandom::u32() else {
+            return base;
+        };
+        base.mul_f64(0.5 + 1.5 * f64::from(random) / f64::from(u32::MAX))
     }
 }
 

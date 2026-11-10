@@ -5,7 +5,7 @@
 //! the pass. A deployment is realized only with ownership evidence for its storage and with its
 //! local-development images pinned once in durable node records.
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Mutex};
 
 use dotcore_domain::{
     deployment::launch_pin::{
@@ -105,13 +105,12 @@ impl ApplicationRealizer {
                 "Application teardown reconciliation decision"
             );
             let pass = self.reconcile_teardown(&deployment, assignment).await;
-            self.publish_pass(
-                &deployment,
+            let record = PassRecord::new(
+                current.get(&deployment.application_deployment_id),
                 assignment,
                 view.as_ref(),
-                current.get(&deployment.application_deployment_id),
-                pass,
-            )?;
+            );
+            self.publish_pass(&deployment, &record, pass)?;
         }
         if had_teardown && retained.is_empty() {
             if let Some(attribution) = &self.accelerator_attribution {
@@ -162,10 +161,14 @@ impl ApplicationRealizer {
                 observed_group_count = observations.len(),
                 "Application deployment reconciliation decision"
             );
-            let existing = current.get(&deployment.application_deployment_id);
+            let record = PassRecord::new(
+                current.get(&deployment.application_deployment_id),
+                assignment,
+                view.as_ref(),
+            );
             let pass = match validate_retained_target(&deployment, &site) {
                 Ok(()) => {
-                    self.reconcile_retained(&deployment, assignment, existing, &observations)
+                    self.reconcile_retained(&deployment, &record, &observations)
                         .await
                 }
                 Err(source) => DeploymentPass::reconciled(Err(deployment_failure(
@@ -179,7 +182,7 @@ impl ApplicationRealizer {
             {
                 reconciliation = ReconcileOutcome::Pending;
             }
-            self.publish_pass(&deployment, assignment, view.as_ref(), existing, pass)?;
+            self.publish_pass(&deployment, &record, pass)?;
         }
         Ok(reconciliation)
     }
@@ -211,12 +214,11 @@ impl ApplicationRealizer {
     async fn reconcile_retained(
         &self,
         deployment: &ApplicationDeploymentDeclaration,
-        assignment: &ActionAssignment,
-        existing: Option<&CurrentApplicationDeployment>,
+        record: &PassRecord<'_>,
         observations: &[TargetWorkloadGroupObservation],
     ) -> DeploymentPass {
         let Ok(token) = self.runtimes.capture_operation(
-            assignment,
+            record.assignment,
             LifecycleOperationAttempt::Runtime {
                 reconcile_generation: deployment.lifecycle_generation,
             },
@@ -224,7 +226,7 @@ impl ApplicationRealizer {
             return DeploymentPass::Frozen;
         };
         let effective = match self
-            .prepare_node_launch(deployment, existing, observations)
+            .prepare_node_launch(deployment, record.get().as_ref(), observations)
             .await
         {
             Ok(effective) => effective,
@@ -245,7 +247,7 @@ impl ApplicationRealizer {
         };
         self.track_resources(&effective, &launch);
         DeploymentPass::reconciled(
-            reconcile_deployment(self, &effective, &launch, &token, observations).await,
+            reconcile_deployment(self, &effective, &launch, &token, record, observations).await,
         )
     }
 
@@ -295,8 +297,13 @@ impl ApplicationRealizer {
                     configuration("Application deployment awaits recovery on this node"),
                 ));
             }
+            // A newer generation that prepared its image may have created its group in the same
+            // pass, so a Preparing record is as uncertain as a Starting one.
             if reconciled.is_some_and(|reconciled| reconciled > generation)
-                && state.lifecycle_state == ApplicationLifecycleState::Starting as i32
+                && matches!(
+                    ApplicationLifecycleState::try_from(state.lifecycle_state),
+                    Ok(ApplicationLifecycleState::Preparing | ApplicationLifecycleState::Starting)
+                )
             {
                 warn!(
                     event_kind = "application_start_uncertain",
@@ -541,9 +548,7 @@ impl ApplicationRealizer {
     fn publish_pass(
         &self,
         deployment: &ApplicationDeploymentDeclaration,
-        assignment: &ActionAssignment,
-        view: Option<&RealizedView>,
-        existing: Option<&CurrentApplicationDeployment>,
+        record: &PassRecord<'_>,
         pass: DeploymentPass,
     ) -> Result<(), ApplicationLifecycleError> {
         let result = match pass {
@@ -560,13 +565,25 @@ impl ApplicationRealizer {
             debug!(event_kind = "application_reconciliation_frozen", deployment_id = %deployment.application_deployment_id, failure_stage = failure.stage, "Application runtime action was refused by the node view lease; state is kept");
             return Ok(());
         }
-        self.publish_reconciliation(deployment, existing, result)?;
-        if let Some(view) = view {
-            self.node
-                .reconciled
-                .record(&deployment.application_deployment_id, assignment, view);
-        }
+        self.publish_reconciliation(deployment, record.get().as_ref(), result)?;
+        self.mark_reconciled(deployment, record);
         Ok(())
+    }
+
+    /// Records that the deployment's state now stands for the assignment and view of this pass,
+    /// so the node's status reports that view revision.
+    fn mark_reconciled(
+        &self,
+        deployment: &ApplicationDeploymentDeclaration,
+        record: &PassRecord<'_>,
+    ) {
+        if let Some(view) = record.view {
+            self.node.reconciled.record(
+                &deployment.application_deployment_id,
+                record.assignment,
+                view,
+            );
+        }
     }
 
     fn publish_reconciliation(
@@ -589,12 +606,18 @@ impl ApplicationRealizer {
             }
             _ => previous.and_then(|state| state.observed_placement.clone()),
         };
-        let teardown_complete = desired_state(deployment)?
-            == ApplicationDeploymentDesiredState::Teardown
-            && next.lifecycle_state == ApplicationLifecycleState::Stopped as i32;
         let generation_changed = existing.is_none_or(|record| {
             record.reconciled_lifecycle_generation != Some(deployment.lifecycle_generation)
         });
+        next = with_start_steps(
+            previous
+                .filter(|_| !generation_changed)
+                .and_then(|state| state.steps.as_ref()),
+            next,
+        );
+        let teardown_complete = desired_state(deployment)?
+            == ApplicationDeploymentDesiredState::Teardown
+            && next.lifecycle_state == ApplicationLifecycleState::Stopped as i32;
         match settled_state(previous, next.clone())
             .or_else(|| generation_changed.then(|| previous.cloned()).flatten())
         {
@@ -636,6 +659,7 @@ impl ApplicationRealizer {
     async fn reconcile_observation(
         &self,
         token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
         desired: &ApplicationDeploymentDeclaration,
         execution_target_id: &str,
         launch: &WorkloadGroupLaunch,
@@ -651,7 +675,7 @@ impl ApplicationRealizer {
                 stale_owned_group(candidate, launch, execution_target_id, &self.runtimes)
         {
             return self
-                .reconcile_stale_group(token, desired, execution_target_id, launch, group)
+                .reconcile_stale_group(token, record, desired, execution_target_id, launch, group)
                 .await;
         }
         let rehydrated;
@@ -692,6 +716,7 @@ impl ApplicationRealizer {
                 Some(ExactOwnedObservation::Absent) => {
                     self.create_and_observe(
                         token,
+                        record,
                         desired,
                         execution_target_id,
                         launch,
@@ -702,6 +727,7 @@ impl ApplicationRealizer {
                 Some(ExactOwnedObservation::Partial { .. }) => {
                     self.create_and_observe(
                         token,
+                        record,
                         desired,
                         execution_target_id,
                         launch,
@@ -721,6 +747,7 @@ impl ApplicationRealizer {
                         })?;
                     self.create_and_observe(
                         token,
+                        record,
                         desired,
                         execution_target_id,
                         launch,
@@ -734,6 +761,7 @@ impl ApplicationRealizer {
                 }) if group_has_absent_unit(group) => {
                     self.create_and_observe(
                         token,
+                        record,
                         desired,
                         execution_target_id,
                         launch,
@@ -745,7 +773,7 @@ impl ApplicationRealizer {
                     group,
                     stale: false,
                 }) if group_is_all_stopped(group) => {
-                    self.start_and_observe(token, desired, execution_target_id, launch)
+                    self.start_and_observe(token, record, desired, execution_target_id, launch)
                         .await
                 }
                 Some(ExactOwnedObservation::Complete {
@@ -760,6 +788,7 @@ impl ApplicationRealizer {
                         })?;
                     self.create_and_observe(
                         token,
+                        record,
                         desired,
                         execution_target_id,
                         launch,
@@ -808,6 +837,7 @@ impl ApplicationRealizer {
     async fn reconcile_stale_group(
         &self,
         token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
         desired: &ApplicationDeploymentDeclaration,
         execution_target_id: &str,
         launch: &WorkloadGroupLaunch,
@@ -829,6 +859,7 @@ impl ApplicationRealizer {
             ApplicationDeploymentDesiredState::Present => {
                 self.create_and_observe(
                     token,
+                    record,
                     desired,
                     execution_target_id,
                     launch,
@@ -865,6 +896,7 @@ impl ApplicationRealizer {
     async fn reconcile_missing(
         &self,
         token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
         desired: &ApplicationDeploymentDeclaration,
         execution_target_id: &str,
         launch: &WorkloadGroupLaunch,
@@ -883,6 +915,7 @@ impl ApplicationRealizer {
             ApplicationDeploymentDesiredState::Present => {
                 self.create_and_observe(
                     token,
+                    record,
                     desired,
                     execution_target_id,
                     launch,
@@ -933,12 +966,13 @@ impl ApplicationRealizer {
     async fn create_and_observe(
         &self,
         token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
         desired: &ApplicationDeploymentDeclaration,
         execution_target_id: &str,
         launch: &WorkloadGroupLaunch,
         stage: &'static str,
     ) -> Result<ApplicationDeploymentState, DeploymentReconcileFailure> {
-        self.prepare_application_artifacts(desired).await?;
+        self.prepare_start(token, record, desired).await?;
         self.forget_announced(desired, launch);
         let observation = match self
             .runtimes
@@ -1001,12 +1035,105 @@ impl ApplicationRealizer {
             == WorkloadAssetMaterialization::ReferenceOnly)
     }
 
-    async fn prepare_application_artifacts(
+    /// Prepares the image of a deployment about to start. A deployment whose image this node
+    /// prepares is first recorded as preparing, so its status shows that step while it runs.
+    async fn prepare_start(
         &self,
+        token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
         desired: &ApplicationDeploymentDeclaration,
     ) -> Result<(), DeploymentReconcileFailure> {
-        let Some(artifacts) = self.artifact_manager.as_ref() else {
+        if self.image_preparer(desired)?.is_some() {
+            self.record_preparing(token, record, desired)?;
+        }
+        self.prepare_application_artifacts(desired).await
+    }
+
+    /// Records the deployment as preparing its image, under the operation `token` captured, so a
+    /// node whose lease expired writes nothing. Only a start still on its first step is recorded
+    /// as preparing: one that went further, became ready or failed keeps its state while its
+    /// group is recreated. Failing to write leaves the state for the pass outcome and lets
+    /// preparation go on.
+    fn record_preparing(
+        &self,
+        token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
+        desired: &ApplicationDeploymentDeclaration,
+    ) -> Result<(), DeploymentReconcileFailure> {
+        let existing = record.get();
+        let previous = existing.as_ref().and_then(|record| record.state.as_ref());
+        let same_start = existing.as_ref().is_some_and(|record| {
+            record.reconciled_lifecycle_generation == Some(desired.lifecycle_generation)
+        });
+        if same_start
+            && !previous
+                .and_then(|state| state.steps.as_ref())
+                .is_some_and(|steps| steps.current == 0)
+        {
             return Ok(());
+        }
+        let preparing = with_start_steps(
+            previous
+                .filter(|_| same_start)
+                .and_then(|state| state.steps.as_ref()),
+            preparing_state(previous),
+        );
+        // An equal state of another generation is still written, so the record names this one.
+        let Some(state) = settled_state(previous, preparing)
+            .or_else(|| (!same_start).then(|| previous.cloned()).flatten())
+        else {
+            // This start is already recorded as preparing, as after a node restart: its status
+            // reports it for this pass's view.
+            self.mark_reconciled(desired, record);
+            return Ok(());
+        };
+        let next = CurrentApplicationDeployment {
+            application_deployment_id: desired.application_deployment_id.clone(),
+            record_revision: 0,
+            state: Some(state),
+            reconciled_lifecycle_generation: Some(desired.lifecycle_generation),
+        };
+        let expected = existing.as_ref().map(|record| record.record_revision);
+        let written = self
+            .runtimes
+            .commit_operation(token, || self.current.upsert(next.clone(), expected))
+            .map_err(|source| deployment_failure("artifact-preparation", source))?;
+        match written {
+            Ok(mutation) => {
+                record.replace(CurrentApplicationDeployment {
+                    record_revision: mutation.record_revision,
+                    ..next
+                });
+                self.mark_reconciled(desired, record);
+                info!(
+                    event_kind = "application_lifecycle_transition",
+                    deployment_id = %desired.application_deployment_id,
+                    previous_lifecycle_state = previous.map(|state| state.lifecycle_state),
+                    next_lifecycle_state = ApplicationLifecycleState::Preparing as i32,
+                    stage = "preparing",
+                    "Application deployment lifecycle transitioned"
+                );
+            }
+            Err(error) => {
+                warn!(
+                    event_kind = "application_preparing_unrecorded",
+                    deployment_id = %desired.application_deployment_id,
+                    error = ?error,
+                    "Application preparing state could not be recorded; image preparation goes on"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the artifact manager that prepares a deployment's image on this node, `None` when
+    /// this node prepares none for it.
+    fn image_preparer(
+        &self,
+        desired: &ApplicationDeploymentDeclaration,
+    ) -> Result<Option<&dotcore_artifact::ArtifactManager>, DeploymentReconcileFailure> {
+        let Some(artifacts) = self.artifact_manager.as_ref() else {
+            return Ok(None);
         };
         let placement = desired.placement.as_ref().ok_or_else(|| {
             deployment_failure(
@@ -1020,8 +1147,18 @@ impl ApplicationRealizer {
             .launches_from_references(&placement.execution_target_id)
             .map_err(|source| deployment_failure("artifact-preparation", source))?
         {
-            return Ok(());
+            return Ok(None);
         }
+        Ok(Some(artifacts))
+    }
+
+    async fn prepare_application_artifacts(
+        &self,
+        desired: &ApplicationDeploymentDeclaration,
+    ) -> Result<(), DeploymentReconcileFailure> {
+        let Some(artifacts) = self.image_preparer(desired)? else {
+            return Ok(());
+        };
         let snapshot = desired.snapshot.as_ref().ok_or_else(|| {
             deployment_failure(
                 "artifact-preparation",
@@ -1188,11 +1325,12 @@ impl ApplicationRealizer {
     async fn start_and_observe(
         &self,
         token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
         desired: &ApplicationDeploymentDeclaration,
         execution_target_id: &str,
         launch: &WorkloadGroupLaunch,
     ) -> Result<ApplicationDeploymentState, DeploymentReconcileFailure> {
-        self.prepare_application_artifacts(desired).await?;
+        self.prepare_start(token, record, desired).await?;
         self.forget_announced(desired, launch);
         let observation = self
             .runtimes
@@ -1311,6 +1449,7 @@ pub(super) async fn reconcile_deployment(
     deployment: &ApplicationDeploymentDeclaration,
     launch: &WorkloadGroupLaunch,
     token: &LifecycleOperationToken,
+    record: &PassRecord<'_>,
     observations: &[TargetWorkloadGroupObservation],
 ) -> Result<ApplicationDeploymentState, DeploymentReconcileFailure> {
     let execution_target_id = deployment
@@ -1339,11 +1478,18 @@ pub(super) async fn reconcile_deployment(
     }
     if let Some(candidate) = matches.first() {
         inner
-            .reconcile_observation(token, deployment, &execution_target_id, launch, candidate)
+            .reconcile_observation(
+                token,
+                record,
+                deployment,
+                &execution_target_id,
+                launch,
+                candidate,
+            )
             .await
     } else {
         inner
-            .reconcile_missing(token, deployment, &execution_target_id, launch)
+            .reconcile_missing(token, record, deployment, &execution_target_id, launch)
             .await
     }
 }
@@ -1363,6 +1509,43 @@ pub(super) enum DeploymentPass {
 impl DeploymentPass {
     fn reconciled(result: Result<ApplicationDeploymentState, DeploymentReconcileFailure>) -> Self {
         Self::Reconciled(Box::new(result))
+    }
+}
+
+/// One deployment's place in a pass: the current record it reconciles from, and the assignment
+/// and view it acts for. A state the pass records before its outcome, such as image preparation,
+/// replaces the record, so the outcome is written over it.
+pub(super) struct PassRecord<'a> {
+    record: Mutex<Option<CurrentApplicationDeployment>>,
+    assignment: &'a ActionAssignment,
+    view: Option<&'a RealizedView>,
+}
+
+impl<'a> PassRecord<'a> {
+    fn new(
+        record: Option<&CurrentApplicationDeployment>,
+        assignment: &'a ActionAssignment,
+        view: Option<&'a RealizedView>,
+    ) -> Self {
+        Self {
+            record: Mutex::new(record.cloned()),
+            assignment,
+            view,
+        }
+    }
+
+    fn get(&self) -> Option<CurrentApplicationDeployment> {
+        self.lock().clone()
+    }
+
+    fn replace(&self, record: CurrentApplicationDeployment) {
+        *self.lock() = Some(record);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<CurrentApplicationDeployment>> {
+        self.record
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 

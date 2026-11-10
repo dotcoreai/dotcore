@@ -1240,6 +1240,7 @@ dependencies = [
  "dotcore-proto",
  "dotcore-runtime",
  "futures-util",
+ "getrandom 0.3.4",
  "humantime",
  "prost",
  "serde",

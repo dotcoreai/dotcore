@@ -27,6 +27,7 @@ use super::{
     accelerator_memory::node_hosted_projection,
     state::{configuration, current_error, desired_error, desired_state},
 };
+use crate::model::state::retain_start_steps;
 
 /// Reads an inference controller's projected deployments as the list read does, without waiting
 /// for a lifecycle operation and without keeping the controller alive, so a source the controller
@@ -268,7 +269,7 @@ fn sanitize_state(
     desired_state: dotcore_proto::dotcore::model::v1::ModelDeploymentDesiredState,
     state: ModelDeploymentState,
 ) -> ModelDeploymentState {
-    match desired_state {
+    let mut state = match desired_state {
         dotcore_proto::dotcore::model::v1::ModelDeploymentDesiredState::Paused
             if !matches!(
                 ModelDeploymentStatus::try_from(state.status),
@@ -288,7 +289,9 @@ fn sanitize_state(
             super::state::unloading_state(Some(&state))
         }
         _ => state,
-    }
+    };
+    retain_start_steps(&mut state);
+    state
 }
 
 #[cfg(test)]

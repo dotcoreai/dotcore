@@ -159,6 +159,15 @@ pub(super) struct SimulatedRuntimeInputs {
     pub(super) clock: Arc<dyn Clock>,
 }
 
+impl SimulatedRuntimeInputs {
+    /// Whether simulated workloads take representative time to start, as on a development site.
+    fn representative_startup(&self) -> bool {
+        self.test_support
+            .as_ref()
+            .is_some_and(SimulatedRuntimeTestSupport::representative_startup)
+    }
+}
+
 pub(super) fn runtime_adapter_registry_with_docker_factory(
     docker_factory: Arc<dyn DockerBackendFactory>,
     simulated: SimulatedRuntimeInputs,
@@ -469,11 +478,20 @@ impl ApplicationRuntimeAdapterFactory for SimulatedRuntimeAdapterFactory {
                         error,
                     )
                 })?;
+            // A representative development site paces application groups like model startup
+            // steps, so their transitions last long enough to be observed.
+            let group_transition_delay = if self.inputs.representative_startup() {
+                self.inputs.timing.startup_step_interval
+            } else {
+                std::time::Duration::ZERO
+            };
             Ok(Box::new(InMemoryRuntimeBackend::for_target(
                 SimulatedRuntimeConfig {
                     execution_platform,
                     managed_node_id: dotcore_domain::SiteNodeId::parse(&target.site_node_id).ok(),
                     machine: self.inputs.machine.clone(),
+                    group_transition_delay,
+                    vary_durations: self.inputs.timing.vary_durations,
                     test_support: self.inputs.test_support.clone(),
                     clock: Arc::clone(&self.inputs.clock),
                     ..Default::default()
@@ -569,10 +587,8 @@ fn simulated_runtime(
             })
         })
         .unzip();
-    let test_support = inputs.test_support.clone();
-    let startup = test_support
-        .as_ref()
-        .is_some_and(SimulatedRuntimeTestSupport::representative_startup)
+    let startup = inputs
+        .representative_startup()
         .then(|| SimulatedStartupConfig::development_default(inputs.timing.startup_step_interval));
     Ok(InMemoryRuntimeBackend::for_target(
         SimulatedRuntimeConfig {
@@ -583,8 +599,10 @@ fn simulated_runtime(
             default_stop_delay,
             deployment_ready_delays,
             deployment_stop_delays,
+            group_transition_delay: std::time::Duration::ZERO,
+            vary_durations: inputs.timing.vary_durations,
             startup,
-            test_support,
+            test_support: inputs.test_support.clone(),
             clock: Arc::clone(&inputs.clock),
         },
         &target.execution_target_id,
