@@ -143,9 +143,9 @@ ci-lint:
   just build
   just nix-eval-check
 
-# Run the frontend tests CI runs; a part such as `1/2` runs only that share of the Vitest tests.
-ci-test part="":
-  just test {{ if part == "" { "" } else { "--shard=" + part } }}
+# Run the frontend tests CI runs.
+ci-test:
+  just test
 
 # Fail when the Nix frontend package or its tests can't be evaluated from package-lock.json, without building them.
 nix-eval-check:
