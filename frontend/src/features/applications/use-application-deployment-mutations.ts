@@ -1,5 +1,5 @@
 import { ConnectError } from "@connectrpc/connect";
-import { type RefObject, useCallback, useRef, useState } from "react";
+import { type RefObject, useCallback, useState } from "react";
 
 import type { ApplicationClient } from "@/api/application-client";
 import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
@@ -9,6 +9,7 @@ import {
   ApplicationDeploymentDesiredState,
 } from "@/gen/dotcore/application/v1/deployment_pb";
 import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
+import { usePendingActions } from "@/hooks/use-pending-actions";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
 
 import type { useApplicationsPolling } from "./use-applications-polling";
@@ -41,30 +42,18 @@ export function useApplicationDeploymentMutations({
   selectionRef,
 }: UseApplicationDeploymentMutationsOptions) {
   const [mutationError, setMutationError] = useState<MutationError>();
-  const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(() => new Set());
-  const pendingActionsRef = useRef<Set<string>>(new Set());
+  const pending = usePendingActions<DeploymentAction>();
 
   const clearErrors = useCallback(() => setMutationError(undefined), []);
-
-  const updatePending = (key: string, pending: boolean) => {
-    if (pending) {
-      pendingActionsRef.current.add(key);
-    } else {
-      pendingActionsRef.current.delete(key);
-    }
-    setPendingActions(new Set(pendingActionsRef.current));
-  };
 
   const remove = async (deployment: ApplicationDeployment) => {
     const initiatingSelection: ApplicationInspectorSelection = {
       applicationDeploymentId: deployment.applicationDeploymentId,
     };
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "remove");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.applicationDeploymentId, "remove")) {
       return;
     }
 
-    updatePending(pendingKey, true);
     try {
       const response = await client.application.removeApplicationDeployment({
         applicationDeploymentId: deployment.applicationDeploymentId,
@@ -104,7 +93,7 @@ export function useApplicationDeploymentMutations({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.applicationDeploymentId, "remove");
     }
   };
 
@@ -112,12 +101,10 @@ export function useApplicationDeploymentMutations({
     const initiatingSelection: ApplicationInspectorSelection = {
       applicationDeploymentId: deployment.applicationDeploymentId,
     };
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "pause");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.applicationDeploymentId, "pause")) {
       return;
     }
 
-    updatePending(pendingKey, true);
     try {
       const response = await client.application.pauseDeployment({
         applicationDeploymentId: deployment.applicationDeploymentId,
@@ -174,7 +161,7 @@ export function useApplicationDeploymentMutations({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.applicationDeploymentId, "pause");
     }
   };
 
@@ -182,12 +169,10 @@ export function useApplicationDeploymentMutations({
     const initiatingSelection: ApplicationInspectorSelection = {
       applicationDeploymentId: deployment.applicationDeploymentId,
     };
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "resume");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.applicationDeploymentId, "resume")) {
       return;
     }
 
-    updatePending(pendingKey, true);
     try {
       const response = await client.application.resumeDeployment({
         applicationDeploymentId: deployment.applicationDeploymentId,
@@ -249,7 +234,7 @@ export function useApplicationDeploymentMutations({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.applicationDeploymentId, "resume");
     }
   };
 
@@ -261,11 +246,9 @@ export function useApplicationDeploymentMutations({
       applicationDeploymentId: deployment.applicationDeploymentId,
     };
     const requested = update.metadata;
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "update-metadata");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.applicationDeploymentId, "update-metadata")) {
       throw new Error("Metadata save is already pending.");
     }
-    updatePending(pendingKey, true);
     try {
       const acceptedMetadata = await client.application.updateApplicationDeploymentMetadata(
         deployment.applicationDeploymentId,
@@ -304,12 +287,12 @@ export function useApplicationDeploymentMutations({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.applicationDeploymentId, "update-metadata");
     }
     throw new Error("Name could not be saved. Check the deployment status and try again.");
   };
 
-  return { clearErrors, mutationError, pause, pendingActions, remove, resume, updateMetadata };
+  return { clearErrors, mutationError, pause, pending, remove, resume, updateMetadata };
 }
 
 interface MutationError {
@@ -317,27 +300,11 @@ interface MutationError {
   selection: ApplicationInspectorSelection;
 }
 
-const deploymentActions = ["pause", "resume", "remove", "update-metadata"] as const;
+type DeploymentAction = "pause" | "resume" | "remove" | "update-metadata";
 
 export function isSameSelection(
   left: ApplicationInspectorSelection | undefined,
   right: ApplicationInspectorSelection | undefined,
 ): boolean {
   return Boolean(left && right && left.applicationDeploymentId === right.applicationDeploymentId);
-}
-
-export function deploymentPendingKey(
-  applicationDeploymentId: string,
-  action: (typeof deploymentActions)[number],
-): string {
-  return `deployment:${applicationDeploymentId}:${action}`;
-}
-
-export function isDeploymentPending(
-  pendingActions: ReadonlySet<string>,
-  applicationDeploymentId: string,
-): boolean {
-  return deploymentActions.some((action) =>
-    pendingActions.has(deploymentPendingKey(applicationDeploymentId, action)),
-  );
 }

@@ -32,6 +32,7 @@ import {
   type ModelDeploymentExposure,
 } from "@/gen/dotcore/model/v1/service_pb";
 import { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
+import { usePendingActions } from "@/hooks/use-pending-actions";
 import type { usePanelNavigation } from "@/panels/panel-navigation";
 import { panelPagePath, serializePanelStack } from "@/panels/panel-stack";
 
@@ -59,8 +60,7 @@ export function useCatalogDeploy({
   const [upstreamError, setUpstreamError] = useState<string>();
   const [routeConflict, setRouteConflict] = useState<RouteNameConflict>();
   const [deployError, setDeployError] = useState<DeployError>();
-  const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(() => new Set());
-  const pendingActionsRef = useRef<Set<string>>(new Set());
+  const deploys = usePendingActions<"deploy">();
   const deployTemplateRef = useRef<UpstreamModelTemplate | undefined>(undefined);
   const upstreamDeployPendingRef = useRef(false);
   const mountedRef = useRef(false);
@@ -71,16 +71,6 @@ export function useCatalogDeploy({
       mountedRef.current = false;
     };
   }, []);
-
-  const updatePending = (key: string, pending: boolean) => {
-    if (pending) {
-      pendingActionsRef.current.add(key);
-    } else {
-      pendingActionsRef.current.delete(key);
-    }
-
-    setPendingActions(new Set(pendingActionsRef.current));
-  };
 
   /**
    * Opens an accepted deployment's panel on the Models page as a new history entry, so Back returns
@@ -112,14 +102,12 @@ export function useCatalogDeploy({
   ) => {
     const initiatingSelection = selectionRef.current;
     if (!initiatingSelection) return;
-    const pendingKey = catalogPendingKey(model.modelId);
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!deploys.start(model.modelId, "deploy")) {
       return;
     }
 
     setDeployError(undefined);
     setRouteConflict(undefined);
-    updatePending(pendingKey, true);
     try {
       if (!client.model.createLocalModelDeployment) {
         throw new Error(
@@ -164,7 +152,7 @@ export function useCatalogDeploy({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      deploys.finish(model.modelId, "deploy");
     }
   };
 
@@ -233,7 +221,7 @@ export function useCatalogDeploy({
 
   // A pending deploy keeps the dialog open.
   const closeDeployDialog = (model: Model) => {
-    if (!pendingActionsRef.current.has(catalogPendingKey(model.modelId))) {
+    if (!deploys.isRunning(model.modelId, "deploy")) {
       setDeployModel(undefined);
       setDeployProfileId(undefined);
       setRouteConflict(undefined);
@@ -257,7 +245,7 @@ export function useCatalogDeploy({
     }
   };
 
-  const deployPending = (modelId: string) => pendingActions.has(catalogPendingKey(modelId));
+  const deployPending = (modelId: string) => deploys.isPending(modelId);
 
   return {
     closeDeployDialog,
@@ -382,8 +370,4 @@ async function previewLocalDeployment(
   if (!response.resolvedSnapshot)
     throw new Error("Preview response protocol error: missing resolved deployment snapshot.");
   return { advisories: response.advisories, snapshot: response.resolvedSnapshot };
-}
-
-function catalogPendingKey(modelId: string): string {
-  return `catalog:${modelId}`;
 }

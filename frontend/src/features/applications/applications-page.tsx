@@ -54,8 +54,6 @@ import {
 import { useSharedApplicationsPolling } from "./applications-polling-context";
 import {
   type ApplicationInspectorSelection,
-  deploymentPendingKey,
-  isDeploymentPending,
   isSameSelection,
   useApplicationDeploymentMutations,
 } from "./use-application-deployment-mutations";
@@ -84,7 +82,7 @@ export function ApplicationsPage() {
   const shouldRestoreHeadingFocus = useRef(false);
   const { applyDeploymentMetadataOverlay, applyDeploymentOverlay, snapshot, statuses } =
     useSharedApplicationsPolling();
-  const { clearErrors, mutationError, pause, pendingActions, remove, resume, updateMetadata } =
+  const { clearErrors, mutationError, pause, pending, remove, resume, updateMetadata } =
     useApplicationDeploymentMutations({
       applyDeploymentMetadataOverlay,
       applyDeploymentOverlay,
@@ -183,7 +181,7 @@ export function ApplicationsPage() {
     ),
   ]);
   const selectedNavigationPending = selection
-    ? isDeploymentPending(pendingActions, selection.applicationDeploymentId)
+    ? pending.isPending(selection.applicationDeploymentId)
     : false;
   usePanelPendingNavigation(
     selectedNavigationPending,
@@ -387,10 +385,7 @@ export function ApplicationsPage() {
             onResume={() => void resume(selectedDeployment)}
             open={Boolean(urlSelection)}
             openerRef={openerRef}
-            pending={isDeploymentPending(
-              pendingActions,
-              selectedDeployment.applicationDeploymentId,
-            )}
+            pending={pending.isPending(selectedDeployment.applicationDeploymentId)}
             placementMachine={selectedPlacementMachine}
             placementMachineHref={
               selectedPlacementMachine
@@ -401,21 +396,11 @@ export function ApplicationsPage() {
                   })
                 : undefined
             }
-            pendingAction={
-              pendingActions.has(
-                deploymentPendingKey(selectedDeployment.applicationDeploymentId, "pause"),
-              )
-                ? "pause"
-                : pendingActions.has(
-                      deploymentPendingKey(selectedDeployment.applicationDeploymentId, "resume"),
-                    )
-                  ? "resume"
-                  : pendingActions.has(
-                        deploymentPendingKey(selectedDeployment.applicationDeploymentId, "remove"),
-                      )
-                    ? "remove"
-                    : undefined
-            }
+            pendingAction={pending.pendingAction(selectedDeployment.applicationDeploymentId, [
+              "pause",
+              "resume",
+              "remove",
+            ])}
             suspendDismissal={viewingLogs}
           />
         ) : null}

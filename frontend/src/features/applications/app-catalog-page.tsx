@@ -13,6 +13,7 @@ import { applicationDeploymentPresentationName } from "@/domain/application-depl
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { usePendingActions } from "@/hooks/use-pending-actions";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
@@ -67,8 +68,7 @@ export function AppCatalogPage() {
   const urlApplicationId = applicationIdFromEntry(urlEntry);
   const [deployDialogOpen, setDeployDialogOpen] = useState(false);
   const [mutationError, setMutationError] = useState<MutationError>();
-  const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(() => new Set());
-  const pendingActionsRef = useRef<Set<string>>(new Set());
+  const deploys = usePendingActions<"deploy">();
   const openerRef = useRef<HTMLElement | null>(null);
   const deployDialogOpenerRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -160,8 +160,7 @@ export function AppCatalogPage() {
         (application) => application.applicationId === applicationId,
       )
     : undefined;
-  const pendingKey = applicationId ? catalogPendingKey(applicationId) : undefined;
-  const selectedPending = pendingKey ? pendingActions.has(pendingKey) : false;
+  const selectedPending = applicationId ? deploys.isPending(applicationId) : false;
   usePublishPanelTitles([
     ...(snapshot?.catalogApplications ?? []).map((application) =>
       panelTitle("app-catalog", "catalog", application.applicationId, application.displayName),
@@ -203,15 +202,6 @@ export function AppCatalogPage() {
     }
   }, [applicationId]);
 
-  const updatePending = (key: string, pending: boolean) => {
-    if (pending) {
-      pendingActionsRef.current.add(key);
-    } else {
-      pendingActionsRef.current.delete(key);
-    }
-    setPendingActions(new Set(pendingActionsRef.current));
-  };
-
   /**
    * Opens an accepted application deployment's panel on the Apps page as a new history entry, so
    * Back returns to the catalog inspector the deploy started from.
@@ -238,12 +228,10 @@ export function AppCatalogPage() {
     options?: DeploymentCreationOptions,
   ) => {
     const initiatingApplicationId = application.applicationId;
-    const pendingKey = catalogPendingKey(initiatingApplicationId);
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!deploys.start(initiatingApplicationId, "deploy")) {
       return;
     }
 
-    updatePending(pendingKey, true);
     try {
       const response = await client.application.createApplicationDeployment(
         options?.inferenceRouteId !== undefined
@@ -290,7 +278,7 @@ export function AppCatalogPage() {
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      deploys.finish(initiatingApplicationId, "deploy");
     }
   };
 
@@ -449,8 +437,4 @@ function applicationIdFromEntry(entry: PanelEntry | undefined): string | undefin
 
 function catalogEntry(applicationId: string): PanelEntry {
   return { page: "app-catalog", resourceId: applicationId, screen: "catalog" };
-}
-
-function catalogPendingKey(applicationId: string): string {
-  return `catalog:${applicationId}`;
 }

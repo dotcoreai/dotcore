@@ -45,9 +45,7 @@ import {
   DeploymentRequests,
 } from "./deployment-metrics";
 import {
-  deploymentPendingKey,
   type DeploymentSelection,
-  isDeploymentPending,
   isSameSelection,
   useDeploymentMutations,
 } from "./use-deployment-mutations";
@@ -100,7 +98,7 @@ export function DeploymentSidebar({
     clearUpstreamError,
     mutationError,
     pause,
-    pendingActions,
+    pending,
     resume,
     unload,
     updateMetadata,
@@ -189,7 +187,7 @@ export function DeploymentSidebar({
     editingDeployment && upstreamEditPending
       ? true
       : selection
-        ? isDeploymentPending(pendingActions, selection.modelDeploymentId)
+        ? pending.isPending(selection.modelDeploymentId)
         : false;
   usePanelPendingNavigation(
     selectedNavigationPending,
@@ -278,7 +276,7 @@ export function DeploymentSidebar({
           onOpenChange={onInspectorOpenChange}
           open={Boolean(urlSelection)}
           openerRef={openerRef}
-          pending={isDeploymentPending(pendingActions, selectedDeployment.modelDeploymentId)}
+          pending={pending.isPending(selectedDeployment.modelDeploymentId)}
         />
       ) : null}
 
@@ -343,22 +341,12 @@ export function DeploymentSidebar({
             onUnload={() => unload(selectedDeployment)}
             open={Boolean(urlSelection)}
             openerRef={openerRef}
-            pending={isDeploymentPending(pendingActions, selectedDeployment.modelDeploymentId)}
-            pendingAction={
-              pendingActions.has(
-                deploymentPendingKey(selectedDeployment.modelDeploymentId, "pause"),
-              )
-                ? "pause"
-                : pendingActions.has(
-                      deploymentPendingKey(selectedDeployment.modelDeploymentId, "resume"),
-                    )
-                  ? "resume"
-                  : pendingActions.has(
-                        deploymentPendingKey(selectedDeployment.modelDeploymentId, "unload"),
-                      )
-                    ? "unload"
-                    : undefined
-            }
+            pending={pending.isPending(selectedDeployment.modelDeploymentId)}
+            pendingAction={pending.pendingAction(selectedDeployment.modelDeploymentId, [
+              "pause",
+              "resume",
+              "unload",
+            ])}
             memory={<DeploymentMemoryRows deployment={selectedDeployment} state={siteMemory} />}
             placementMachine={selectedPlacementMachine}
             requests={<DeploymentRequests />}
