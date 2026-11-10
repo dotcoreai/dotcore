@@ -1,66 +1,197 @@
 # Models
 
-A model deployment is one running copy of a catalog model on one target, or a link to an upstream
-endpoint.
+A model deployment is one deployed model: a local workload on one target, or an upstream endpoint.
+The inference controller owns model deployments, from intent to serving eligibility.
 
-## What you can do
+Code: `backend/core/src/model/` (inference controller, resolution, engine adapters,
+recommendations), `backend/core/src/telemetry/` (workload resource records).
 
-- Deploy a model on a machine and target you choose, as many copies as you need.
-- Override options and engine parameters, and see which values you set and which Dotcore worked
-  out.
-- See which targets can run each profile, and filter the catalog to models that fit.
-- Pause, resume and tear down a deployment, and follow its progress, failures and logs.
-- Add a model from any OpenAI-compatible endpoint, next to your local ones.
+## Capabilities
 
-## How it works
+- Create independently managed deployments of the same model, each with its own configuration and
+  execution target.
+- Use profiles as presets, and override typed options and engine parameters when you create a
+  deployment. Existing deployments keep their resolved configuration when catalog defaults change.
+- Use expert launch arguments. Derived launch values still apply, and their fit is your risk.
+- See derived values before deploying and while inspecting a deployment, apart from the values you
+  supplied.
+- See advisory memory estimates for a configuration when measured evidence exists, and its fit on
+  each target.
+- See which configured targets can run each profile, and narrow the catalog to profiles whose fit
+  allows them there.
+- Get model recommendations for your use cases across the site's targets, through a guided quick
+  start.
+- Inspect a deployment's identity, configuration, lifecycle, readiness, progress, failures and
+  diagnostics.
+- Deploy, pause, resume and tear down each deployment.
+- Add upstream models through one generic OpenAI-compatible template, beside local deployments. There's
+  no provider-specific directory or automatic discovery of provider models.
+
+## Architecture
 
 ```mermaid
-stateDiagram-v2
-  [*] --> Accepted: resolve and save snapshot
-  Accepted --> Preparing: node prepares artifacts
-  Preparing --> Starting: engine launched
-  Starting --> Ready: readiness check passes
-  Ready --> Paused
-  Paused --> Preparing
-  Ready --> [*]: tear down
-  Paused --> [*]: tear down
+flowchart TB
+  REQ["Create request"] --> IC["Inference controller"]
+  CAT["Catalog"] --> IC
+  INV["Reconciled inventory"] --> IC
+  IC -->|"snapshot in node view"| NODE["Hosting node: reconciliation"]
+  NODE -->|"status, readiness, attributed memory"| IC
+  IC -->|"eligible targets"| RTR["Inference router"]
+  IC -->|"upstream verification"| UP["Upstream endpoint"]
 ```
 
-The inference controller owns model deployments: what you asked for, the configuration, the
-lifecycle, and whether a deployment may serve traffic.
+### Resolving a deployment
 
-When you deploy, the controller picks the engine artifact and hardware class for the target. It
-then merges your values with the profile's defaults, the engine release's defaults and sizing, and
-saves the result as the deployment's snapshot. Artifacts and hardware classes each have a selector
-that matches the target's platform and hardware.
+The controller resolves a create request against the catalog and the target's observed facts, then
+keeps the result as the deployment's snapshot.
 
-Every local deployment names one node and one of its targets. Dotcore never quietly falls back to
-another machine, target, platform or artifact. The hosting node starts the model from the snapshot
-alone, but the controller stays in charge.
+- It selects the engine artifact and the hardware class by matching their selectors against the
+  target's concrete platform and observed facts. The most specific match wins.
+- It selects only engine artifacts of a kind the target's runtime binding can realize, and only
+  hardware classes the configuration supports.
+- A local request that omits its engine configuration takes the selected profile's default binding.
+- Engine parameter values merge per parameter: the supplied value, then the profile default, then
+  the engine release default, then the sizing derivation, for every supplied set.
+- An omitted context per request becomes the smaller of the maximum context and the total context,
+  kept as a derived value.
+- It evaluates the declared sizing for the configuration, the selected hardware class and the
+  binding, deriving the values the caller omitted and advisory estimates. Supplied values win.
+- Engines that need sizing deploy only when the catalog declares it. Derived values aren't verified
+  hardware fit.
 
-An upstream deployment stores a template and a private endpoint. The site manager checks that the
-endpoint works. It has no local engine and no placement.
+### Admitting a deployment
 
-The compatibility view shows which profiles each target can run. It goes through the same steps
-as a real deployment, plus the capacity component's fit, and it's only advice.
+- Admission enforces target constraints, such as a target's GPUs numbering exactly the devices the
+  resolved launch uses, so an incompatible target is rejected before acceptance, not discovered at
+  realization.
+- Admission rechecks the retained memory architecture and hardware class match against current
+  observations.
+- Admission never blocks on fit.
 
-## Rules
+### Running a local deployment
 
-- Deploying never waits on memory fit. Dotcore only rejects a deployment that can't work, such as a
-  target with the wrong number of GPUs.
-- A snapshot never changes. New hardware or catalog changes apply only when you redeploy.
-- Pausing keeps the deployment's identity, configuration and storage. It stops the workload and
-  its traffic.
-- Tearing down deletes the data that belongs only to that deployment.
-- Memory use comes from the hosting node's current status. Without it, memory use shows as
-  unavailable, never zero.
-- Provider credentials stay private. Inference clients never see them, and connection details
-  never include them.
+- The hosting node realizes the deployment through node-local reconciliation on its runtime
+  ([runtime](runtime.md)).
+- The controller validates the retained snapshot through the selected engine adapter and reconciles
+  the retained launch plan, with no catalog lookup or product-configuration translation.
+- The hosting node pins the deployment's launch identity once ([storage](storage.md)). The controller
+  keeps it and never resolves it again.
+- The hosting node emits workload resource telemetry for its ready local deployments, at readiness
+  and whenever attributed GPU memory grows, and keeps none ([storage](storage.md)).
 
-## Future
+### Running an upstream deployment
 
-- Safe model releases: compare evaluations, check provenance, roll out to a canary, promote, and
-  roll back with the old version's capacity kept.
-- Reviewable and exportable release evidence.
-- Open: release thresholds, how long to keep rollback versions, and which roles can run disruptive
-  operations.
+- Upstream deployments reconcile on the site manager through a separate private verification
+  boundary, outside runtime and any node's realization.
+- Being on the site manager never turns an upstream endpoint into a local workload. Endpoint failure
+  affects that deployment only, never healthy local targets.
+
+### Advisory reads
+
+- The compatibility read covers catalog model profiles and configured model targets. It runs the same
+  resolution as admission over the reconciled inventory. A target without fresh observations is
+  unknown.
+- It can evaluate a sizing scenario (total context and optional context per request) and report
+  estimates per hardware class and the capacity component's two fits per target: on free memory and
+  on total memory. Declared memory minimums always compare with the total.
+- For each running target, it reports the capacity component's largest fitting total context and
+  starting total context. Narrowing by scenario uses the fit.
+- Resource estimates for a launch configuration carry the capacity component's placement preview for
+  the selected target.
+- Recommendations: each target takes its most specific hardware class's list per use case. Entries
+  are kept or dropped by the capacity component's verdicts, entry minimums included, and the result
+  is one ranking per use case across the site.
+- A target that stopped reporting is judged on its last observations for recommendations, marked
+  unreachable with free memory unknown, until its node leaves the site. This is the only read that
+  accepts stale observations.
+
+## Resources
+
+### Model deployment
+
+- Every local deployment keeps an exact placement naming one node and one execution target owned by
+  that node. Controllers reject mismatched pairs instead of choosing or correcting placement on the
+  hosting node.
+
+### Deployment snapshot
+
+What a deployment keeps from resolution. Later catalog edits, removals or new artifact alternatives
+never redefine it.
+
+- Normalized option values.
+- The selected immutable artifacts and their concrete platforms.
+- The selected hardware class and its resolved selector.
+- Concrete engine state and capabilities.
+- The portable launch plan.
+- The engine-neutral sizing result when sizing is declared, and which engine parameter values were
+  derived rather than supplied.
+- The selected target's memory architecture. Engine adapters derive launch settings and non-blocking
+  advisories from it.
+- The selected target's device memory total: the smallest of its GPUs when it has several, or its
+  host memory total on unified targets. Engine adapters use it as the denominator of a memory
+  fraction, never as reserved capacity, and engines that need it reject targets without one.
+
+### Portable launch plan
+
+- References the engine executable, artifacts and service endpoints symbolically, never as
+  runtime-specific paths, mounts or ports. The runtime resolves them ([runtime](runtime.md)).
+
+### Upstream deployment
+
+- Keeps a template snapshot and a private endpoint configuration.
+- Has no local model artifact, engine, runtime workload or exact placement. Dotcore never invents
+  local hardware, engine or placement data for it.
+
+## Components
+
+### Inference controller
+
+#### Responsibilities
+
+- Own model deployment intent, source-specific configuration, lifecycle, placement where it applies,
+  reconciliation, readiness, status and serving eligibility.
+- Own model option resolution, compatible artifact selection from each configuration's approved set,
+  concrete engine state, accepted snapshots and portable launch plans.
+- Run the compatibility read, resource estimates and recommendations.
+- Project each deployment's GPU memory, as attributed by the hosting node, from that node's current
+  status at read time.
+- Publish eligible targets to the inference router.
+
+#### Boundaries
+
+- Uses typed engine adapters from the engine integration registry for engine-specific validation,
+  realization and local engine transport ([runtime](runtime.md)).
+- Stays off the live request path.
+- Never reserves capacity. The capacity component evaluates, and nothing reserves.
+
+#### Interfaces
+
+- Receive: create, pause, resume and teardown requests through the management API.
+- Receive: typed status, readiness and attributed memory from hosting nodes.
+- Provide: eligible targets with deployment identity and capabilities to the route manager and the
+  router ([inference](inference.md)).
+- Provide: derived values and estimates to clients, never catalog sizing declarations.
+
+#### State
+
+- Deployment records and their snapshots, in the site store through its own repository.
+
+## Invariants
+
+- A deployment's memory reads from its hosting node's current status, never from retained state.
+  Without current status or attribution, it reads as unavailable with its reason, never a false zero.
+- The retained memory total is fixed at creation. Deployments pick up changed hardware only when
+  recreated.
+- Estimates and fits never admit, reserve or place workloads.
+
+## Future direction
+
+- Safe model releases: evaluation comparison, provenance, canary rollout, explicit promotion, and
+  rollback with retained capacity.
+- Reviewable and exportable release evidence, and governance audit.
+- Engine-local request scheduling, prefix-cache reuse and concurrent multi-user serving, qualified on
+  representative models and hardware.
+
+## Open decisions
+
+- Release thresholds, exceptions and rollback retention.

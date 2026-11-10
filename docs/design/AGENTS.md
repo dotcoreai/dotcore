@@ -1,56 +1,90 @@
 # Design documents agentic instructions
 
-These pages are the one authority for Dotcore's product intent and architecture. Delivery
+These pages are the one authority for Dotcore's product intent and architecture: what each component
+owns, what it never does, what it keeps, and the guarantees that hold between components. Delivery
 milestones and commercial plans live outside this repository. Treat the pages as the scope.
+
+## When to update
+
+- A change to ownership, boundaries, identities, retained state, flows, failure behavior, trust or
+  data boundaries updates its page in the same change.
+- Routine code and UI changes that keep every contract need no page edit.
+- Removing a fact is a design decision. A rewrite or move never drops one silently.
 
 ## Pages
 
-The contents table in `README.md` says what each page covers. Each page covers one subject and the
-component that owns it. Add a page only when a new component owns a new kind of state.
+- `README.md` lists the pages and the components each owns. Add a page only when a new component
+  owns a new kind of state.
+- Each page names the code it covers. Every component on a page appears in an area code map
+  (`backend/AGENTS.md`, `frontend/AGENTS.md`), and every crate that holds a component appears on
+  one page.
 
-To find the page for some code, read the code map in that area's `AGENTS.md` (`backend/`,
-`frontend/`) and match the component to the contents table.
+## Page skeleton
+
+Use these sections, in this order, and leave out any that would be empty:
+
+1. Title, a one or two sentence definition naming the owning components, and the code it covers.
+2. `## Capabilities`: what the subject lets users and operators do. Outcomes, not screens or commands.
+3. `## Architecture`: one Mermaid diagram, each component in one line, then one `###` per flow: what
+   moves between which components, then that flow's rules as bullets.
+4. `## Resources`: one `###` per thing the page owns: its identity, whether it can change, what it
+   keeps and how long it lives.
+5. `## Components`: one `###` per component, with these `####` parts:
+   - `Responsibilities`: the state and decisions it owns. Always present.
+   - `Boundaries`: what it never owns or does, and who does instead. Always present.
+   - `Interfaces`: what it receives, from whom, and what it hands back, in domain terms.
+   - `State`: what it keeps, where and for how long.
+   Variants of a component, such as the runtime backends, go in a short list under its heading.
+6. `## Invariants`: guarantees that bind several components on the page, or that no change may break.
+7. `## Future direction`: planned capabilities and ideas. No dates or milestones.
+8. `## Open decisions`: undecided questions, worded as questions or topics. Never settle one through
+   wording.
+
+The definition, Capabilities and the opening of Architecture stay short, for people browsing. Flows,
+Resources, Components and Invariants are as long as the contracts need.
+
+## What goes in
+
+Ask: could two correct implementations differ here and still be the same design? If they could, the
+code owns it. If not, it goes in a page.
+
+A statement goes in when it fixes one of these:
+
+- Who owns, decides or writes something.
+- What a component never does, and who does instead.
+- A resource's identity, whether it can change, what it keeps by category, or how long it lives.
+- How the system behaves on failure or under trust: advice never blocks, no silent fallback, fails
+  closed.
+- A component's inputs and outputs, in domain terms.
+
+The code owns, and the pages leave out:
+
+- Numbers: headroom, silence bounds, retention periods, intervals.
+- Formulas, field names, API methods, flags, configuration inventories and paths.
+- The tools a component uses internally.
+- Step order inside one component, detailed state machines and implementation walkthroughs.
+- Coding rules such as the backend clock and timing policy (`backend/AGENTS.md`).
+
+Also out: milestones, delivery dates, pricing, commercial plans, unannounced products and services,
+and implementation status or history.
 
 ## Where a fact goes
 
-- On the page of the component that owns or enforces it. Other pages link to it and never repeat
-  it.
-- A component that owns no state goes on the page of the question it answers: the router in
-  `inference.md`, the capacity component in `machines.md`.
-- A term not in the root glossary is defined on the page that explains it.
-- Ideas and open questions go in the Future section of the page they belong to. Ideas that span
-  several pages go in the README's Future section.
-
-## Page template
-
-1. Title and a one-line definition.
-2. What you can do: what the user gets, not screens.
-3. How it works: one Mermaid diagram, then short paragraphs. Use bullets only for a real list of
-   parallel items.
-4. Rules: the constraints a change must keep.
-5. Future: planned capabilities and ideas that aren't committed yet, then open questions starting
-   with "Open:". No dates or milestones.
-
-Keep a page around 300 to 550 words.
+- On the page of the component that owns or enforces it, in one section. Other pages link to it and
+  never repeat it.
+- A flow's rules sit under the flow. A rule goes in Invariants only when it binds several components
+  on the page.
+- A component that owns no state goes on the page of the question it answers: the capacity component
+  in `machines.md`, the router in `inference.md`.
+- Ideas and open decisions that span several pages go in the README.
 
 ## Writing
 
-- Write like an engineer explaining the system to a colleague. Plain words, short sentences, "you"
-  rather than "the customer". Use the same word for the same thing every time.
-- Describe the system as it's meant to be. Never write how it was built, what changed, or
-  implementation steps.
-- State each fact once.
-- No bold labels at the start of bullets, no semicolons, no em dashes, and no slogan-style
-  headings or principle names.
-- Diagrams are Mermaid, show only the major relationships, and match the text.
-- Update a page when ownership, trust, data boundaries, major flows, user outcomes or site shapes
-  change, not for routine code or UI changes.
-- Keep open questions as questions. Don't turn one into a decision through wording.
-
-## What stays out
-
-- Milestones, delivery dates, pricing and commercial plans.
-- Unannounced products and services.
-- Commands, flags, API fields, configuration lists, algorithms and detailed state machines.
-- Detail the code owns: accounting formulas, heartbeat timing, snapshot fields, folder layouts,
-  clock and timing policies.
+- Plain English: short sentences, "you" for the operator, the same word for the same thing. Bullets
+  are the default in flows, resources and components.
+- Precision beats brevity. Reword a statement for clarity, but keep every qualifier and exception.
+- Glossary terms from the root `AGENTS.md` are used as is. A contract term not in the glossary is
+  defined once, on the page that owns it.
+- Describe the target design, never how it was built or what changed.
+- Diagrams are Mermaid, show only the major relationships, and match the text. The text is the
+  contract.
