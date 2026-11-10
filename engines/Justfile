@@ -1,17 +1,20 @@
 mod llama-cpp 'llama-cpp/Justfile'
 mod ninfer 'ninfer/Justfile'
+mod strata 'strata/Justfile'
 mod vllm 'vllm/Justfile'
 
 # List engine modules.
 help:
   @just --list
 
-# Load every engine image into the current Docker daemon; ninfer comes last, as it exists only on x86_64 Linux and builds for minutes on its first load.
+# Load every engine image into the current Docker daemon; the x86_64-only images come last, ninfer at the end, as it builds for minutes on its first load.
 image-load:
   just llama-cpp image-load
   just vllm image-load
+  just strata image-load
   just ninfer image-load
 
-# Run the image tests of the engines that have one (ninfer); loader tests are `just dev::docker-images-check`.
+# Run the image tests of the engines that have one (ninfer, Strata); loader tests are `just dev::docker-images-check`.
 test:
   just ninfer image-test
+  just strata image-test
