@@ -86,9 +86,9 @@ frontend/src/
   state.
 - Every UI delay and every retry, poll and reconnect cadence comes from the timing module
   ([`src/lib/timing.ts`](src/lib/timing.ts)), read through `timing()`; never a module or
-  component constant. Tests run with its test preset, set in the shared setup. A test whose
-  behavior depends on a delay calls `setTiming(productionTiming)` and drives the delay with fake
-  timers; the shared setup restores the test preset after each test. A fake-timer test that waits
+  component constant. Tests run with its test preset, set in the shared setup, where a steady
+  refresh never fires. A test whose behavior depends on a delay or a refresh calls
+  `setTiming(productionTiming)` and drives it with fake timers; the shared setup restores the test preset after each test. A fake-timer test that waits
   with `waitFor` or `findBy*` installs its timers with `useFakeTimersWithWaits`
   ([`src/test/fake-timers.ts`](src/test/fake-timers.ts)).
 

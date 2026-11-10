@@ -4,7 +4,7 @@ import { configure } from "@testing-library/dom";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
-import { productionTiming, setTiming, type Timing } from "@/lib/timing";
+import { setTiming, type Timing } from "@/lib/timing";
 
 // testing-library's default async-utility timeout (asyncUtilTimeout, 1s) is too tight for async
 // UI callbacks when the suite runs under parallel-worker load in CI; a callback that lands just
@@ -13,8 +13,9 @@ import { productionTiming, setTiming, type Timing } from "@/lib/timing";
 // fires still fails.
 configure({ asyncUtilTimeout: 4000 });
 
-// Tests run without UI delays, and retries and reconnects come quickly without spinning. A test
-// whose behavior depends on a delay sets the production timing for itself.
+// Tests run without UI delays, and retries and reconnects come quickly without spinning. A steady
+// refresh waits on nothing, so it never comes within a test. A test whose behavior depends on a
+// delay or a refresh sets the production timing for itself.
 const testTiming: Timing = Object.freeze({
   loadingRevealMs: 0,
   loadingMinimumVisibleMs: 0,
@@ -26,8 +27,8 @@ const testTiming: Timing = Object.freeze({
   pollRetryMs: Object.freeze([10]),
   logReconnectMs: Object.freeze([10]),
   resourceWatchReopenMs: 10,
-  // A steady refresh keeps its production cadence; a fast one would re-read through every test.
-  profileCompatibilityRefreshMs: productionTiming.profileCompatibilityRefreshMs,
+  // An hour, which no test outlives; a delay past 2^31-1 ms would fire at once instead.
+  profileCompatibilityRefreshMs: 60 * 60 * 1_000,
 });
 
 setTiming(testTiming);
