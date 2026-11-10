@@ -95,6 +95,7 @@ impl Timing {
                 startup_step_interval: Duration::from_millis(1_200),
                 // The router then measures simulated generation as it measures an engine's.
                 token_interval: Duration::from_millis(20),
+                vary_durations: true,
             },
             join: JoinTiming {
                 connect_timeout: Duration::from_secs(10),
@@ -227,6 +228,8 @@ impl Timing {
                 startup_step_interval: Duration::from_millis(10),
                 // Streamed simulated answers arrive without pause.
                 token_interval: Duration::ZERO,
+                // Tests assert exact simulated timings.
+                vary_durations: false,
             },
             join: production.join,
             // A lost private connection is noticed within moments; a loopback ping answers far
@@ -414,6 +417,11 @@ pub struct SimulatedTiming {
 
     /// Pause between two streamed text tokens of a simulated model, its generation speed.
     pub token_interval: Duration,
+
+    /// Whether each simulated startup step and lifecycle transition takes a random share of its
+    /// base duration, so a development site never repeats one timing and timing-dependent
+    /// behavior shows up.
+    pub vary_durations: bool,
 }
 
 /// Real-time bounds of joining a node to a site.

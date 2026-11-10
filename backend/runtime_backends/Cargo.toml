@@ -19,6 +19,7 @@ dotcore-node-hardware.workspace = true
 dotcore-proto.workspace = true
 dotcore-runtime.workspace = true
 futures-util.workspace = true
+getrandom.workspace = true
 humantime = "2.4.0"
 prost.workspace = true
 serde = { workspace = true, features = ["derive"] }

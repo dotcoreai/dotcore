@@ -2,9 +2,11 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     net::Ipv4Addr,
+    sync::Arc,
+    time::{Duration, UNIX_EPOCH},
 };
 
-use dotcore_domain::SiteNodeId;
+use dotcore_domain::{SiteNodeId, clock::VirtualClock};
 use dotcore_runtime::{
     ExecutionTarget, ObservedWorkload, RuntimeBackend, RuntimeBackendError, RuntimeBackendId,
     RuntimeLogEntry, RuntimeLogEvent, RuntimeLogFollowQuery, RuntimeLogQuery, RuntimeLogSource,
@@ -15,7 +17,7 @@ use dotcore_runtime::{
     WorkloadStorageKind, WorkloadUnitLaunch, WorkloadUnitName, WorkloadUnitResources,
     WorkloadUnitResourcesUnavailable, WorkloadUnitState,
 };
-use futures_util::StreamExt as _;
+use futures_util::{FutureExt as _, StreamExt as _};
 
 use super::{
     BACKEND_ID, InMemoryRuntimeBackend, SimulatedRuntimeCallCounts, SimulatedRuntimeTestSupport,
@@ -394,6 +396,59 @@ async fn group_stop_and_start_retain_identity_without_removal() {
 }
 
 #[tokio::test]
+async fn group_creation_start_and_stop_each_take_the_group_transition_delay() {
+    let delay = Duration::from_secs(2);
+    let clock = VirtualClock::starting_at(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
+    let runtime = InMemoryRuntimeBackend::with_config(SimulatedRuntimeConfig {
+        group_transition_delay: delay,
+        clock: Arc::new(clock.clone()),
+        ..Default::default()
+    });
+    let group = group_launch();
+
+    let created =
+        after_exactly(&clock, delay, runtime.create_workload_group(&group)).expect("create group");
+    assert_group_units(&created, WorkloadUnitState::Running);
+
+    after_exactly(&clock, delay, runtime.stop_workload_group(&group)).expect("stop group");
+    let stopped = runtime
+        .inspect_workload_group(&group)
+        .await
+        .expect("inspect stopped group");
+    assert_group_units(&stopped, WorkloadUnitState::Stopped);
+
+    let started =
+        after_exactly(&clock, delay, runtime.start_workload_group(&group)).expect("start group");
+    assert_group_units(&started, WorkloadUnitState::Running);
+}
+
+#[test]
+fn varied_durations_fall_between_half_and_twice_the_base() {
+    let base = Duration::from_secs(2);
+    let varied = SimulatedRuntimeConfig {
+        vary_durations: true,
+        ..Default::default()
+    };
+
+    let draws = (0..32)
+        .map(|_| varied.transition_duration(base))
+        .collect::<Vec<_>>();
+
+    assert!(
+        draws
+            .iter()
+            .all(|draw| (base / 2..=base * 2).contains(draw)),
+        "{draws:?}"
+    );
+    assert!(draws.iter().any(|draw| *draw != draws[0]), "{draws:?}");
+    assert_eq!(varied.transition_duration(Duration::ZERO), Duration::ZERO);
+    assert_eq!(
+        SimulatedRuntimeConfig::default().transition_duration(base),
+        base
+    );
+}
+
+#[tokio::test]
 async fn running_group_units_take_synthetic_host_memory_and_cpu_time_on_the_declared_machine() {
     use dotcore_domain::hardware_observation::HardwareSnapshotSource;
     use dotcore_proto::dotcore::observation::v1::host_observation;
@@ -555,6 +610,36 @@ async fn web_resources(
         WorkloadUnitResources::Unavailable(WorkloadUnitResourcesUnavailable::NotRunning) => None,
         other => panic!("unexpected unit resources: {other:?}"),
     }
+}
+
+/// Completes `operation`, asserting it waits exactly `delay` of `clock` time.
+fn after_exactly<F: Future>(clock: &VirtualClock, delay: Duration, operation: F) -> F::Output {
+    let mut operation = std::pin::pin!(operation);
+    assert!(
+        operation.as_mut().now_or_never().is_none(),
+        "completed at once"
+    );
+
+    clock.advance(delay - Duration::from_millis(1));
+    assert!(
+        operation.as_mut().now_or_never().is_none(),
+        "completed before the delay"
+    );
+
+    clock.advance(Duration::from_millis(1));
+    operation
+        .now_or_never()
+        .expect("completed once the delay passed")
+}
+
+fn assert_group_units(observation: &WorkloadGroupObservation, expected: WorkloadUnitState) {
+    let WorkloadGroupObservation::Observed(group) = observation else {
+        panic!("expected an observed group, got {observation:?}");
+    };
+    assert!(
+        group.units.values().all(|unit| unit.state == expected),
+        "{group:?}"
+    );
 }
 
 fn group_storage(group: &WorkloadGroupLaunch) -> WorkloadStorageKey {
