@@ -24,13 +24,6 @@ const transitioningStates = new Set([
   ModelDeploymentStatus.PAUSING,
 ]);
 
-const inProgressStatuses = new Set([
-  ModelDeploymentStatus.PREPARING,
-  ModelDeploymentStatus.DOWNLOADING,
-  ModelDeploymentStatus.LOADING,
-  ModelDeploymentStatus.WARMING_UP,
-]);
-
 const pausedStatuses = new Set([
   ModelDeploymentStatus.PAUSING,
   ModelDeploymentStatus.PAUSED,
@@ -176,7 +169,7 @@ export function modelDeploymentDesiredStateTone(state: ModelDeploymentDesiredSta
 
 /**
  * The status a model deployment card renders: one status word, the tone it carries, whether it is
- * being deployed, and an attention label qualifying it. The attention label reports the backend failure message once the
+ * transitioning, and an attention label qualifying it. The attention label reports the backend failure message once the
  * deployment has failed; download progress is shown in the inspector, not on the card.
  */
 export function projectModelDeploymentStatus(deployment: ModelDeployment): StatusProjection {
@@ -184,7 +177,7 @@ export function projectModelDeploymentStatus(deployment: ModelDeployment): Statu
 
   return {
     attention: modelAttentionLabel(deployment, status),
-    ...(inProgressStatuses.has(status) && { inProgress: true }),
+    ...(transitioningStates.has(status) && { inProgress: true }),
     label: modelStatusLabel(status),
     tone: modelStatusTone(status),
   };

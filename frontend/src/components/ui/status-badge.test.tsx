@@ -1,9 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StatusBadge } from "@/components/ui/status-badge";
+import { LOADING_MINIMUM_VISIBLE_MS, LOADING_REVEAL_DELAY_MS } from "@/hooks/use-delayed-loading";
 
 describe("StatusBadge", () => {
   it("renders the projected word and carries its tone", () => {
@@ -35,20 +36,55 @@ describe("StatusBadge", () => {
     expect(badge).toHaveClass("text-warning-foreground");
   });
 
-  it("animates a band across the badge only while the status is in progress", () => {
-    const { rerender } = render(
-      <StatusBadge status={{ inProgress: true, label: "Downloading", tone: "info" }} />,
-    );
+  describe("while in progress", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
 
-    const badge = screen.getByText("Downloading");
-    expect(badge).toHaveAttribute("data-in-progress", "true");
-    expect(badge).toHaveClass("after:animate-slide-block", "motion-reduce:after:hidden");
+    afterEach(() => {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    });
 
-    rerender(<StatusBadge status={{ label: "Ready", tone: "success" }} />);
+    it("animates a band once the loading reveal delay passed", async () => {
+      render(<StatusBadge status={{ inProgress: true, label: "Downloading", tone: "info" }} />);
 
-    const still = screen.getByText("Ready");
-    expect(still).not.toHaveAttribute("data-in-progress");
-    expect(still.className).not.toContain("animate-slide-block");
+      const badge = screen.getByText("Downloading");
+      expect(badge).toHaveAttribute("data-in-progress", "true");
+      expect(badge.className).not.toContain("animate-slide-block");
+
+      await advanceBy(LOADING_REVEAL_DELAY_MS);
+      expect(badge).toHaveClass("after:animate-slide-block", "motion-reduce:after:hidden");
+    });
+
+    it("never animates a transition shorter than the reveal delay", async () => {
+      const { rerender } = render(
+        <StatusBadge status={{ inProgress: true, label: "Pausing", tone: "info" }} />,
+      );
+
+      await advanceBy(LOADING_REVEAL_DELAY_MS - 1);
+      rerender(<StatusBadge status={{ label: "Paused", tone: "neutral" }} />);
+      await advanceBy(LOADING_REVEAL_DELAY_MS);
+
+      const still = screen.getByText("Paused");
+      expect(still).not.toHaveAttribute("data-in-progress");
+      expect(still.className).not.toContain("animate-slide-block");
+    });
+
+    it("keeps a shown band for the minimum visible time after the status settles", async () => {
+      const { rerender } = render(
+        <StatusBadge status={{ inProgress: true, label: "Starting", tone: "info" }} />,
+      );
+      await advanceBy(LOADING_REVEAL_DELAY_MS);
+
+      rerender(<StatusBadge status={{ label: "Ready", tone: "success" }} />);
+      const settled = screen.getByText("Ready");
+      expect(settled).not.toHaveAttribute("data-in-progress");
+      expect(settled).toHaveClass("after:animate-slide-block");
+
+      await advanceBy(LOADING_MINIMUM_VISIBLE_MS);
+      expect(settled.className).not.toContain("animate-slide-block");
+    });
   });
 
   it("renders no tooltip when nothing qualifies the status", () => {
@@ -118,3 +154,9 @@ describe("status tone enforcement", () => {
     ]);
   });
 });
+
+async function advanceBy(milliseconds: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(milliseconds);
+  });
+}

@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import type { LifecycleTone, StatusProjection } from "@/lib/status-projection";
 import { cn } from "@/lib/utils";
 
@@ -29,11 +30,16 @@ export interface StatusTextProps {
  *
  * A badge that names a property rather than a state — an upstream model's `External`, a profile's
  * `Default` — is not a status and stays a plain `Badge`.
+ *
+ * An in-progress status animates the pill like any other loading indicator of the console: a brief
+ * transition never flashes it, and a shown animation lasts long enough to be seen.
  */
 export function StatusBadge({ status }: StatusBadgeProps) {
+  const animated = useDelayedLoading(Boolean(status.inProgress));
+
   return (
     <Badge
-      className={cn(status.inProgress && "relative", status.inProgress && PROGRESS_BAND)}
+      className={cn(animated && "relative", animated && PROGRESS_BAND)}
       data-in-progress={status.inProgress ? "true" : undefined}
       title={status.attention}
       variant={status.tone}
