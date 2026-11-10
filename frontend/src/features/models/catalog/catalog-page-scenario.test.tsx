@@ -731,6 +731,10 @@ describe("ModelCatalogPage model panel Runs on", () => {
     // The catalog keeps its own Sized for.
     expect(currentLocation(router)).toBe(search);
 
+    // The rows keep their order once the loading look shows.
+    await act(() => vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs));
+    expect(panelRows()).toEqual(["Quality", "Fast"]);
+
     act(() => held.finish());
     // On the workstation, Fast exceeds 128k and Quality can't serve it.
     await waitFor(() =>
