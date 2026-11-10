@@ -12,6 +12,7 @@ frontend/src/
 ├── app/              app composition and providers; routes in routes.ts, router in router.tsx
 ├── features/         product capabilities and their behavior tests
 │   ├── chat/decisions/  the console chat's decision draft, controls and answers
+│   ├── metrics/inference/  the inference request metrics section and its cards
 │   └── models/       model deployment errors and exposure shared by the subfolders below
 │       ├── polling/     the shared view of catalog models and live deployments
 │       ├── profiles/    model and profile rows, compatibility, sizing scenarios, profile tables

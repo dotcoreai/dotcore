@@ -30,11 +30,11 @@ import { panelTitle } from "@/panels/panel-titles";
 import { usePublishPanelTitles } from "@/panels/panel-titles-context";
 import { useWatchedRoutes } from "@/resource-watch/resource-watch";
 
+import { CatalogApplicationInspector } from "./app-catalog-inspector";
 import {
   ApplicationDeployDialog,
-  CatalogApplicationInspector,
   type DeploymentCreationOptions,
-} from "./app-catalog-inspector";
+} from "./application-deploy-dialog";
 import { describeMutationError } from "./application-mutation-errors";
 import { useSharedApplicationsPolling } from "./applications-polling-context";
 import {
