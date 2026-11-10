@@ -662,8 +662,8 @@ export function useModelDeployForm({
   // holding an invalid field.
   const exposeErrors = (errors: FieldErrors): boolean => {
     setFieldErrors(errors);
+    pendingFocusRef.current = errors.size ? errors : undefined;
     if (!errors.size) return true;
-    pendingFocusRef.current = errors;
     setRevealedErrors(errors);
     return false;
   };
@@ -677,12 +677,14 @@ export function useModelDeployForm({
     if (owner !== step) goToStep(owner);
   };
 
-  // Runs after the shell focuses a new step heading, so the invalid field keeps focus.
+  // Runs after the shell focuses a new step heading, so the invalid field keeps focus. The request
+  // stays until a render shows one of its fields: an earlier render may still hold the step or
+  // section the field isn't in yet.
   useEffect(() => {
     const errors = pendingFocusRef.current;
-    if (!errors) return;
-    pendingFocusRef.current = undefined;
-    focusFirstInvalidField(errors, fieldControls());
+    if (errors && focusFirstInvalidField(errors, fieldControls())) {
+      pendingFocusRef.current = undefined;
+    }
   });
 
   // The launch values arrive with the read, so the first estimate and the deploy wait for them.

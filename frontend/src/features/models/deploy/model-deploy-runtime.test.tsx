@@ -1,5 +1,5 @@
 import { clone, create } from "@bufbuild/protobuf";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -344,9 +344,6 @@ describe("ModelDeployDialog Runtime step", () => {
     );
 
     // Leaving Runtime re-opens the section and focuses the field.
-    // No rendered state marks it, but the collapse's effects must settle first: a stale effect
-    // otherwise runs Next's re-open and focus against the previous section state.
-    await act(async () => {});
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
     expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "true");
