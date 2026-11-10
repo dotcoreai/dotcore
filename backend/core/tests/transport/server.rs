@@ -1043,6 +1043,7 @@ async fn manager_backend_server_serves_memory_history_from_node_samples() {
 #[tokio::test]
 async fn manager_backend_server_serves_distribution_percentiles() {
     let root = support::temporary_fast_fixture();
+    let clock = dotcore::testing::ManualClock::new();
     let recorder = dotcore::composition::MetricRecorderSlot::default();
     let (shutdown, shutdown_signal) = oneshot::channel();
     let backend = support::prepare_backend_with_test_support(
@@ -1051,13 +1052,16 @@ async fn manager_backend_server_serves_distribution_percentiles() {
             let _ = shutdown_signal.await;
         },
         dotcore::composition::BackendTestSupport {
+            clock: Some(Arc::new(clock.clone())),
             metric_recorder: Some(recorder.clone()),
             ..dotcore::composition::BackendTestSupport::test()
         },
     )
     .await
     .expect("prepared backend");
-    let observed_at = SystemTime::now();
+    // Samples are observed on the backend's clock, so they never lie past the end of the window
+    // the query resolves from that clock.
+    let observed_at = clock.wall_now();
     recorder
         .recorder()
         .expect("composed metric recorder")

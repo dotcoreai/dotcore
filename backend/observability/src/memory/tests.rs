@@ -1201,8 +1201,9 @@ async fn watches_beyond_the_configured_cap_are_refused() {
 
 #[tokio::test]
 async fn the_sweep_trims_idle_series_and_removes_them_once_empty() {
-    // Time moves only when advanced, so no up reading lands after the last sweep.
-    let clock = VirtualClock::starting_at(SystemTime::now());
+    // Time moves only when advanced, so no up reading lands after the last sweep. Off a second
+    // boundary, the bucket holding the frozen time stays inside a window ending at it.
+    let clock = virtual_clock();
     let store = start_store_on(InMemoryStoreConfig::default(), Arc::new(clock.clone()));
     let start = clock.wall_now();
     let recorder = store.recorder();
@@ -1406,15 +1407,13 @@ fn start_store_on(config: InMemoryStoreConfig, clock: Arc<dyn Clock>) -> InMemor
     .expect("start store")
 }
 
-/// A store on a clock that moves only when advanced, started half a second into a second.
+/// A store on a clock that moves only when advanced, started off any second boundary.
 fn start_virtual_store() -> (InMemoryMetricStore, VirtualClock) {
     start_virtual_store_with(InMemoryStoreConfig::default())
 }
 
 fn start_virtual_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore, VirtualClock) {
-    let clock = VirtualClock::starting_at(
-        SystemTime::UNIX_EPOCH + Duration::from_millis(1_800_000_000_600),
-    );
+    let clock = virtual_clock();
     let store = InMemoryMetricStore::start(
         config,
         vec![MetricDescriptor {
@@ -1432,6 +1431,11 @@ fn start_virtual_store_with(config: InMemoryStoreConfig) -> (InMemoryMetricStore
     )
     .expect("start store");
     (store, clock)
+}
+
+/// A clock that moves only when advanced, started partway into a second, off any second boundary.
+fn virtual_clock() -> VirtualClock {
+    VirtualClock::starting_at(SystemTime::UNIX_EPOCH + Duration::from_millis(1_800_000_000_600))
 }
 
 /// Bucket start, reading count and latest observation of each one-second bucket of the
