@@ -1175,23 +1175,15 @@ describe("DeploymentLogViewer", () => {
 
     await screen.findByRole("checkbox", { name: "Exited (ended)" });
     expect(screen.getByRole("checkbox", { name: "Live" })).toBeVisible();
-    expect(screen.getByRole("checkbox", { name: "Waiting (not started)" })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: "Waiting (unavailable)" })).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Dropped (unavailable)" })).toBeVisible();
     // Returned to live: keeps its earlier line
     expect(screen.getByRole("checkbox", { name: "Returning" })).toBeVisible();
     expect(screen.getByRole("log")).toHaveTextContent("old line");
-    expect(screen.getByRole("checkbox", { name: "Gone (not started)" })).toBeVisible();
-    const chips = screen.getAllByText(/^(Live|Not started|Ended|Unavailable)$/, {
-      selector: "[data-slot=badge]",
-    });
-    expect(chips.map((chip) => chip.textContent)).toEqual([
-      "Live",
-      "Not started",
-      "Ended",
-      "Unavailable",
-      "Live",
-      "Not started",
-    ]);
+    expect(screen.getByRole("checkbox", { name: "Gone (unavailable)" })).toBeVisible();
+    // Source state shows only in the checkbox names, never as a pill next to them
+    const sources = screen.getByRole("group", { name: "Log sources" });
+    expect(sources).toHaveTextContent("LiveWaitingExitedDroppedReturningGone");
   });
 
   it("marks a source with history lines that is reported unavailable as unavailable", async () => {
