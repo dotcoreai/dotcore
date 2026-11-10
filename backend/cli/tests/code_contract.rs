@@ -169,6 +169,31 @@ fn pi_loads_the_cached_extension_with_every_enabled_route_on_the_selected_model(
 }
 
 #[test]
+fn codex_gets_the_provider_and_selected_model_before_the_agent_arguments() {
+    let inference = listed_routes();
+    let sandbox = Sandbox::with_agent("codex");
+
+    let output = sandbox.run(
+        &inference,
+        &["codex", "--model", "chat", "--", "exec", "hello"],
+    );
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(output.status.code(), Some(AGENT_EXIT_CODE));
+    assert_eq!(
+        sandbox.agent_args(),
+        format!(
+            "-c\nmodel_provider=\"dotcore\"\n-c\nmodel_providers.dotcore={{ name = \"Dotcore\", \
+             base_url = \"{}\", wire_api = \"responses\" }}\n-c\nmodel=\"chat\"\nexec\nhello\n",
+            inference.base_url()
+        )
+    );
+    assert_eq!(inference.requests(), ["GET /v1/models HTTP/1.1"]);
+    sandbox.assert_user_configuration_untouched();
+}
+
+#[test]
 fn the_inference_address_comes_from_the_flag_before_the_environment() {
     let inference = listed_routes();
     let sandbox = Sandbox::with_agent("opencode");

@@ -9,6 +9,7 @@
 
 mod address;
 mod agent;
+mod codex;
 mod opencode;
 mod pi;
 mod routes;

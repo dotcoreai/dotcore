@@ -12,8 +12,8 @@ This guide starts with your first model and ends with a site on several machines
 
 Each route is an OpenAI-compatible endpoint, and its route name is the `model` your client asks for.
 
-- A route's **Connect** screen shows the address and commands to copy for curl, [OpenCode](https://opencode.ai) and [Pi](https://github.com/earendil-works/pi).
-- `dotc code` starts OpenCode or Pi set up with your models. The agent must be installed already.
+- A route's **Connect** screen shows the address and commands to copy for curl, [OpenCode](https://opencode.ai), [Pi](https://github.com/earendil-works/pi) and [Codex](https://github.com/openai/codex).
+- `dotc code` starts OpenCode, Pi or Codex set up with your models. The agent must be installed already.
 
 ## Add apps
 
