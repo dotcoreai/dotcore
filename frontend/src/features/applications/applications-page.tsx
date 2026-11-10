@@ -1,4 +1,3 @@
-import { ConnectError } from "@connectrpc/connect";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -20,21 +19,17 @@ import {
 } from "@/components/ui/page-header";
 import { AppsSectionIcon } from "@/components/ui/section-icons";
 import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
-import type { DeploymentMetadata, DeploymentMetadataUpdate } from "@/domain/deployment-metadata";
 import { placementMachine } from "@/domain/placement";
 import { DeploymentApplicationInspector } from "@/features/applications/application-inspector";
 import { applicationInspectorPanelId } from "@/features/applications/application-inspector-panel";
-import { describeMutationError } from "@/features/applications/application-mutation-errors";
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentEditor } from "@/features/deployments/deployment-editor";
 import {
   type ApplicationDeployment,
   ApplicationDeploymentDesiredState,
 } from "@/gen/dotcore/application/v1/deployment_pb";
-import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { rejectedMutationCodes } from "@/lib/mutation-errors";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
 import {
@@ -57,54 +52,14 @@ import {
   applicationDeploymentViewCodec,
 } from "./application-deployment-table";
 import { useSharedApplicationsPolling } from "./applications-polling-context";
+import {
+  type ApplicationInspectorSelection,
+  deploymentPendingKey,
+  isDeploymentPending,
+  isSameSelection,
+  useApplicationDeploymentMutations,
+} from "./use-application-deployment-mutations";
 import { useApplicationResources } from "./use-application-resources";
-
-export interface ApplicationInspectorSelection {
-  applicationDeploymentId: string;
-}
-
-function applicationSelectionFromEntry(
-  entry: PanelEntry | undefined,
-): ApplicationInspectorSelection | undefined {
-  if (!entry || entry.page !== "apps" || !entry.resourceId) return undefined;
-  return { applicationDeploymentId: entry.resourceId };
-}
-
-function applicationSelectionEntry(selection: ApplicationInspectorSelection): PanelEntry {
-  return { page: "apps", resourceId: selection.applicationDeploymentId, screen: "deployment" };
-}
-
-interface MutationError {
-  message: string;
-  selection: ApplicationInspectorSelection;
-}
-
-function isSameSelection(
-  left: ApplicationInspectorSelection | undefined,
-  right: ApplicationInspectorSelection | undefined,
-): boolean {
-  return Boolean(left && right && left.applicationDeploymentId === right.applicationDeploymentId);
-}
-
-function deploymentPendingKey(
-  applicationDeploymentId: string,
-  action: "pause" | "resume" | "remove" | "update-metadata",
-): string {
-  return `deployment:${applicationDeploymentId}:${action}`;
-}
-
-const noDeployments: readonly ApplicationDeployment[] = [];
-
-const deploymentActions = ["pause", "resume", "remove", "update-metadata"] as const;
-
-function isDeploymentPending(
-  pendingActions: ReadonlySet<string>,
-  applicationDeploymentId: string,
-): boolean {
-  return deploymentActions.some((action) =>
-    pendingActions.has(deploymentPendingKey(applicationDeploymentId, action)),
-  );
-}
 
 export function ApplicationsPage() {
   const { applicationClient: client, metricsClient } = useClients();
@@ -121,22 +76,28 @@ export function ApplicationsPage() {
   const urlSelection = applicationSelectionFromEntry(urlEntry);
   const viewingLogs = urlEntry?.page === "apps" && urlEntry.screen === "logs";
   const editingDeployment = urlEntry?.page === "apps" && urlEntry.screen === "edit";
-  const [mutationError, setMutationError] = useState<MutationError>();
-  const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(() => new Set());
-  const pendingActionsRef = useRef<Set<string>>(new Set());
   const openerRef = useRef<HTMLElement | null>(null);
   const logOpenerRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const selectionRef = useRef<ApplicationInspectorSelection | undefined>(undefined);
   const pendingSelectionRef = useRef<ApplicationInspectorSelection | undefined>(undefined);
   const shouldRestoreHeadingFocus = useRef(false);
+  const { applyDeploymentMetadataOverlay, applyDeploymentOverlay, snapshot, statuses } =
+    useSharedApplicationsPolling();
+  const { clearErrors, mutationError, pause, pendingActions, remove, resume, updateMetadata } =
+    useApplicationDeploymentMutations({
+      applyDeploymentMetadataOverlay,
+      applyDeploymentOverlay,
+      client,
+      selectionRef,
+    });
   const closeSelection = useCallback(() => {
     pendingSelectionRef.current = undefined;
     selectionRef.current = undefined;
-    setMutationError(undefined);
+    clearErrors();
     setSelection(undefined);
     panelNavigation.close();
-  }, [panelNavigation]);
+  }, [clearErrors, panelNavigation]);
   const requestCloseSelection = useCallback(() => {
     panelNavigation.close();
   }, [panelNavigation]);
@@ -165,13 +126,11 @@ export function ApplicationsPage() {
 
     if (!isSameSelection(selectionRef.current, urlSelection)) {
       selectionRef.current = urlSelection;
-      setMutationError(undefined);
+      clearErrors();
       setSelection(urlSelection);
     }
-  }, [canonical, location.pathname, navigate, urlEntry, urlSelection, view.state]);
+  }, [canonical, clearErrors, location.pathname, navigate, urlEntry, urlSelection, view.state]);
 
-  const { applyDeploymentMetadataOverlay, applyDeploymentOverlay, snapshot, statuses } =
-    useSharedApplicationsPolling();
   const deployments = snapshot?.deployments ?? noDeployments;
   const resources = useApplicationResources(metricsClient, deployments.length > 0);
   const deploymentRows = useMemo(
@@ -265,274 +224,11 @@ export function ApplicationsPage() {
     }
   }, [selection]);
 
-  const updatePending = (key: string, pending: boolean) => {
-    if (pending) {
-      pendingActionsRef.current.add(key);
-    } else {
-      pendingActionsRef.current.delete(key);
-    }
-    setPendingActions(new Set(pendingActionsRef.current));
-  };
-
-  const remove = async (deployment: ApplicationDeployment) => {
-    const initiatingSelection: ApplicationInspectorSelection = {
-      applicationDeploymentId: deployment.applicationDeploymentId,
-    };
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "remove");
-    if (pendingActionsRef.current.has(pendingKey)) {
-      return;
-    }
-
-    updatePending(pendingKey, true);
-    try {
-      const response = await client.application.removeApplicationDeployment({
-        applicationDeploymentId: deployment.applicationDeploymentId,
-      });
-      const acceptedDeployment = response.deployment;
-
-      if (
-        !acceptedDeployment ||
-        acceptedDeployment.applicationDeploymentId !== deployment.applicationDeploymentId
-      ) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message:
-              "Teardown response protocol error: missing or mismatched accepted deployment ID.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      if (acceptedDeployment.desiredState !== ApplicationDeploymentDesiredState.TEARDOWN) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message: "Teardown response protocol error: accepted deployment is not TEARDOWN.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      applyDeploymentOverlay(acceptedDeployment);
-    } catch (mutationError) {
-      if (isSameSelection(selectionRef.current, initiatingSelection)) {
-        setMutationError({
-          message: describeMutationError("Teardown", mutationError),
-          selection: initiatingSelection,
-        });
-      }
-    } finally {
-      updatePending(pendingKey, false);
-    }
-  };
-
-  const pause = async (deployment: ApplicationDeployment) => {
-    const initiatingSelection: ApplicationInspectorSelection = {
-      applicationDeploymentId: deployment.applicationDeploymentId,
-    };
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "pause");
-    if (pendingActionsRef.current.has(pendingKey)) {
-      return;
-    }
-
-    updatePending(pendingKey, true);
-    try {
-      const response = await client.application.pauseDeployment({
-        applicationDeploymentId: deployment.applicationDeploymentId,
-      });
-      const acceptedDeployment = response.deployment;
-
-      if (
-        !acceptedDeployment ||
-        acceptedDeployment.applicationDeploymentId !== deployment.applicationDeploymentId
-      ) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message: "Pause response protocol error: missing or mismatched accepted deployment ID.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      if (acceptedDeployment.desiredState !== ApplicationDeploymentDesiredState.PAUSED) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message: "Pause response protocol error: accepted deployment is not PAUSED.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      if (
-        !acceptedDeployment.state ||
-        !new Set([
-          ApplicationLifecycleState.PAUSING,
-          ApplicationLifecycleState.PAUSED,
-          ApplicationLifecycleState.UNAVAILABLE,
-        ]).has(acceptedDeployment.state.lifecycleState)
-      ) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message:
-              "Pause response protocol error: accepted deployment has an invalid lifecycle state.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      applyDeploymentOverlay(acceptedDeployment);
-    } catch (mutationError) {
-      if (isSameSelection(selectionRef.current, initiatingSelection)) {
-        setMutationError({
-          message: describeMutationError("Pause", mutationError),
-          selection: initiatingSelection,
-        });
-      }
-    } finally {
-      updatePending(pendingKey, false);
-    }
-  };
-
-  const resume = async (deployment: ApplicationDeployment) => {
-    const initiatingSelection: ApplicationInspectorSelection = {
-      applicationDeploymentId: deployment.applicationDeploymentId,
-    };
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "resume");
-    if (pendingActionsRef.current.has(pendingKey)) {
-      return;
-    }
-
-    updatePending(pendingKey, true);
-    try {
-      const response = await client.application.resumeDeployment({
-        applicationDeploymentId: deployment.applicationDeploymentId,
-      });
-      const acceptedDeployment = response.deployment;
-
-      if (
-        !acceptedDeployment ||
-        acceptedDeployment.applicationDeploymentId !== deployment.applicationDeploymentId
-      ) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message:
-              "Resume response protocol error: missing or mismatched accepted deployment ID.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      if (acceptedDeployment.desiredState !== ApplicationDeploymentDesiredState.PRESENT) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message: "Resume response protocol error: accepted deployment is not PRESENT.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      if (
-        !acceptedDeployment.state ||
-        !new Set([
-          ApplicationLifecycleState.QUEUED,
-          ApplicationLifecycleState.PREPARING,
-          ApplicationLifecycleState.STARTING,
-          ApplicationLifecycleState.RUNNING,
-          ApplicationLifecycleState.READY,
-          ApplicationLifecycleState.FAILED,
-          ApplicationLifecycleState.UNAVAILABLE,
-        ]).has(acceptedDeployment.state.lifecycleState)
-      ) {
-        if (isSameSelection(selectionRef.current, initiatingSelection)) {
-          setMutationError({
-            message:
-              "Resume response protocol error: accepted deployment has an invalid lifecycle state.",
-            selection: initiatingSelection,
-          });
-        }
-        return;
-      }
-
-      applyDeploymentOverlay(acceptedDeployment);
-    } catch (mutationError) {
-      if (isSameSelection(selectionRef.current, initiatingSelection)) {
-        setMutationError({
-          message: describeMutationError("Resume", mutationError),
-          selection: initiatingSelection,
-        });
-      }
-    } finally {
-      updatePending(pendingKey, false);
-    }
-  };
-
-  const updateMetadata = async (
-    deployment: ApplicationDeployment,
-    update: DeploymentMetadataUpdate,
-  ): Promise<DeploymentMetadata> => {
-    const initiatingSelection: ApplicationInspectorSelection = {
-      applicationDeploymentId: deployment.applicationDeploymentId,
-    };
-    const requested = update.metadata;
-    const pendingKey = deploymentPendingKey(deployment.applicationDeploymentId, "update-metadata");
-    if (pendingActionsRef.current.has(pendingKey)) {
-      throw new Error("Metadata save is already pending.");
-    }
-    updatePending(pendingKey, true);
-    try {
-      const acceptedMetadata = await client.application.updateApplicationDeploymentMetadata(
-        deployment.applicationDeploymentId,
-        update,
-      );
-      applyDeploymentMetadataOverlay(deployment.applicationDeploymentId, acceptedMetadata);
-      return acceptedMetadata;
-    } catch (error) {
-      const connectError = ConnectError.from(error);
-      if (!rejectedMutationCodes.has(connectError.code)) {
-        try {
-          const refreshed = await client.application.listApplicationDeployments({});
-          const matches = refreshed.deployments.filter(
-            (candidate) => candidate.applicationDeploymentId === deployment.applicationDeploymentId,
-          );
-          const observed = matches[0];
-          const observedMetadata: DeploymentMetadata | undefined = observed
-            ? { displayName: observed.applicationDeploymentName }
-            : undefined;
-          if (
-            matches.length === 1 &&
-            observedMetadata &&
-            update.fields.every((field) => observedMetadata[field] === requested[field])
-          ) {
-            applyDeploymentMetadataOverlay(deployment.applicationDeploymentId, observedMetadata);
-            return observedMetadata;
-          }
-        } catch {
-          // Preserve the uncertain outcome when the authoritative read also fails.
-        }
-      }
-      if (isSameSelection(selectionRef.current, initiatingSelection)) {
-        setMutationError({
-          message: describeMutationError("Update metadata", error),
-          selection: initiatingSelection,
-        });
-      }
-    } finally {
-      updatePending(pendingKey, false);
-    }
-    throw new Error("Name could not be saved. Check the deployment status and try again.");
-  };
-
   const select = (nextSelection: ApplicationInspectorSelection, opener: HTMLElement) => {
     openerRef.current = opener;
     pendingSelectionRef.current = nextSelection;
     selectionRef.current = nextSelection;
-    setMutationError(undefined);
+    clearErrors();
     setSelection(nextSelection);
     panelNavigation.navigatePanel({
       pathname: "/apps",
@@ -741,6 +437,19 @@ export function ApplicationsPage() {
       </div>
     </div>
   );
+}
+
+const noDeployments: readonly ApplicationDeployment[] = [];
+
+function applicationSelectionFromEntry(
+  entry: PanelEntry | undefined,
+): ApplicationInspectorSelection | undefined {
+  if (!entry || entry.page !== "apps" || !entry.resourceId) return undefined;
+  return { applicationDeploymentId: entry.resourceId };
+}
+
+function applicationSelectionEntry(selection: ApplicationInspectorSelection): PanelEntry {
+  return { page: "apps", resourceId: selection.applicationDeploymentId, screen: "deployment" };
 }
 
 /**
