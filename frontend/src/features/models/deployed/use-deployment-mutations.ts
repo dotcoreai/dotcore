@@ -21,6 +21,7 @@ import {
   ModelDeploymentDesiredState,
 } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+import { usePendingActions } from "@/hooks/use-pending-actions";
 import { rejectedMutationCodes } from "@/lib/mutation-errors";
 
 /** The deployment whose panel is open, named by its immutable model deployment ID. */
@@ -54,8 +55,7 @@ export function useDeploymentMutations({
   const [upstreamEditPending, setUpstreamEditPending] = useState(false);
   const [upstreamError, setUpstreamError] = useState<string>();
   const [mutationError, setMutationError] = useState<MutationError>();
-  const [pendingActions, setPendingActions] = useState<ReadonlySet<string>>(() => new Set());
-  const pendingActionsRef = useRef<Set<string>>(new Set());
+  const pending = usePendingActions<DeploymentAction>();
   const upstreamEditPendingRef = useRef(false);
 
   const clearErrors = useCallback(() => {
@@ -64,27 +64,15 @@ export function useDeploymentMutations({
   }, []);
   const clearUpstreamError = useCallback(() => setUpstreamError(undefined), []);
 
-  const updatePending = (key: string, pending: boolean) => {
-    if (pending) {
-      pendingActionsRef.current.add(key);
-    } else {
-      pendingActionsRef.current.delete(key);
-    }
-
-    setPendingActions(new Set(pendingActionsRef.current));
-  };
-
   const unload = async (deployment: ModelDeployment): Promise<boolean> => {
     const initiatingSelection: DeploymentSelection = {
       modelDeploymentId: deployment.modelDeploymentId,
     };
-    const pendingKey = deploymentPendingKey(deployment.modelDeploymentId, "unload");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.modelDeploymentId, "unload")) {
       return false;
     }
 
     setMutationError(undefined);
-    updatePending(pendingKey, true);
     try {
       const response = await client.model.removeModelDeployment({
         modelDeploymentId: deployment.modelDeploymentId,
@@ -132,7 +120,7 @@ export function useDeploymentMutations({
       }
       return false;
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.modelDeploymentId, "unload");
     }
   };
 
@@ -140,12 +128,10 @@ export function useDeploymentMutations({
     const initiatingSelection: DeploymentSelection = {
       modelDeploymentId: deployment.modelDeploymentId,
     };
-    const pendingKey = deploymentPendingKey(deployment.modelDeploymentId, "pause");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.modelDeploymentId, "pause")) {
       return;
     }
 
-    updatePending(pendingKey, true);
     try {
       const response = await client.model.pauseModel({
         modelDeploymentId: deployment.modelDeploymentId,
@@ -205,7 +191,7 @@ export function useDeploymentMutations({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.modelDeploymentId, "pause");
     }
   };
 
@@ -213,12 +199,10 @@ export function useDeploymentMutations({
     const initiatingSelection: DeploymentSelection = {
       modelDeploymentId: deployment.modelDeploymentId,
     };
-    const pendingKey = deploymentPendingKey(deployment.modelDeploymentId, "resume");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.modelDeploymentId, "resume")) {
       return;
     }
 
-    updatePending(pendingKey, true);
     try {
       const response = await client.model.resumeModel({
         modelDeploymentId: deployment.modelDeploymentId,
@@ -283,7 +267,7 @@ export function useDeploymentMutations({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.modelDeploymentId, "resume");
     }
   };
 
@@ -359,11 +343,9 @@ export function useDeploymentMutations({
       modelDeploymentId: deployment.modelDeploymentId,
     };
     const requested = update.metadata;
-    const pendingKey = deploymentPendingKey(deployment.modelDeploymentId, "update-metadata");
-    if (pendingActionsRef.current.has(pendingKey)) {
+    if (!pending.start(deployment.modelDeploymentId, "update-metadata")) {
       throw new Error("Metadata save is already pending.");
     }
-    updatePending(pendingKey, true);
     try {
       const acceptedMetadata = await client.model.updateModelDeploymentMetadata(
         deployment.modelDeploymentId,
@@ -403,7 +385,7 @@ export function useDeploymentMutations({
         });
       }
     } finally {
-      updatePending(pendingKey, false);
+      pending.finish(deployment.modelDeploymentId, "update-metadata");
     }
     throw new Error("Name could not be saved. Check the deployment status and try again.");
   };
@@ -413,7 +395,7 @@ export function useDeploymentMutations({
     clearUpstreamError,
     mutationError,
     pause,
-    pendingActions,
+    pending,
     resume,
     unload,
     updateMetadata,
@@ -429,27 +411,11 @@ interface MutationError {
   selection: DeploymentSelection;
 }
 
-const deploymentActions = ["pause", "resume", "unload", "update-metadata"] as const;
+type DeploymentAction = "pause" | "resume" | "unload" | "update-metadata";
 
 export function isSameSelection(
   left: DeploymentSelection | undefined,
   right: DeploymentSelection | undefined,
 ): boolean {
   return Boolean(left && right && left.modelDeploymentId === right.modelDeploymentId);
-}
-
-export function deploymentPendingKey(
-  modelDeploymentId: string,
-  action: (typeof deploymentActions)[number],
-): string {
-  return `deployment:${modelDeploymentId}:${action}`;
-}
-
-export function isDeploymentPending(
-  pendingActions: ReadonlySet<string>,
-  modelDeploymentId: string,
-): boolean {
-  return deploymentActions.some((action) =>
-    pendingActions.has(deploymentPendingKey(modelDeploymentId, action)),
-  );
 }
