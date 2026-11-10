@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package dotcore.engine.strata.v1;
+
+// Engine-owned Strata configuration embedded in one catalog model
+// configuration. Generic catalog code treats this payload as opaque typed data.
+message StrataModelConfiguration {
+  // Fixed Strata settings shared by every selection of this configuration.
+  StrataFixedModelSettings fixed_settings = 1;
+}
+
+// Concrete Strata state retained in a resolved deployment snapshot.
+message StrataResolvedModelState {
+  // Fixed settings copied from the selected configuration.
+  StrataFixedModelSettings fixed_settings = 1;
+}
+
+// Fixed Strata launch inputs. Editable values use generic engine parameter
+// schema and value contracts.
+message StrataFixedModelSettings {
+  // Generic engine parameter containing the accelerator memory cap for the model's experts in MiB.
+  string expert_vram_mib_parameter_id = 1;
+
+  // Model architecture Strata's engine runs, as the model's GGUF names it.
+  string architecture = 2;
+
+  // Tokens Strata drafts per step with the model's own MTP head.
+  uint32 mtp_draft_tokens = 3;
+}

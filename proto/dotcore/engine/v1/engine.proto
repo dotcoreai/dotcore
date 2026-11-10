@@ -4,6 +4,7 @@ package dotcore.engine.v1;
 
 import "dotcore/engine/llama_cpp/v1/model.proto";
 import "dotcore/engine/ninfer/v1/model.proto";
+import "dotcore/engine/strata/v1/model.proto";
 import "dotcore/engine/vllm/v1/model.proto";
 
 // Identifies reusable model-server software, not a running inference engine.
@@ -19,6 +20,9 @@ enum EngineKind {
 
   // The engine kind ninfer value.
   ENGINE_KIND_NINFER = 3;
+
+  // The engine kind Strata value.
+  ENGINE_KIND_STRATA = 4;
 }
 
 // Neutral wrapper for one engine-owned catalog model configuration payload.
@@ -35,6 +39,9 @@ message EngineModelConfiguration {
 
     // Engine-owned ninfer model configuration.
     dotcore.engine.ninfer.v1.NinferModelConfiguration ninfer = 4;
+
+    // Engine-owned Strata model configuration.
+    dotcore.engine.strata.v1.StrataModelConfiguration strata = 5;
   }
 }
 
@@ -55,5 +62,8 @@ message ResolvedEngineModelState {
 
     // Concrete resolved ninfer state.
     dotcore.engine.ninfer.v1.NinferResolvedModelState ninfer = 5;
+
+    // Concrete resolved Strata state.
+    dotcore.engine.strata.v1.StrataResolvedModelState strata = 6;
   }
 }
