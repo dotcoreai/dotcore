@@ -15,7 +15,10 @@ use dotcore_site::repository::SiteRepositoryError;
 use super::ModelLifecycleError;
 use crate::{
     inference::{EngineBinding, EngineReadiness},
-    model::{engine::EngineIntegrationRegistry, state::CurrentStateError},
+    model::{
+        engine::{EngineIntegrationRegistry, startup_refusal::StartupRefusal},
+        state::CurrentStateError,
+    },
 };
 
 pub(super) enum RegisteredObservationStatus {
@@ -105,6 +108,7 @@ pub(super) async fn status_from_observation(
 pub(super) fn apply_startup_failure<S: super::CurrentStateRepository>(
     state: &S,
     desired: &ModelDeploymentDeclaration,
+    refusal: Option<&StartupRefusal>,
     diagnostics: Vec<String>,
 ) -> Result<bool, ModelLifecycleError> {
     let snapshot = state.snapshot().map_err(current_error)?;
@@ -125,7 +129,7 @@ pub(super) fn apply_startup_failure<S: super::CurrentStateRepository>(
                 reconciled_lifecycle_generation: Some(desired.lifecycle_generation),
                 record_revision: 0,
                 recovery_barrier: None,
-                state: Some(engine_startup_failed_state(previous, diagnostics)),
+                state: Some(engine_startup_failed_state(previous, refusal, diagnostics)),
             },
             existing.map(|value| value.record_revision),
         )
@@ -595,8 +599,12 @@ pub(super) fn engine_image_acquisition_diagnostics(
         .unwrap_or_default()
 }
 
+/// Failed state of an engine that stopped during startup. The engine's own refusal, when it
+/// reported one, gives the failure its code and explanation; otherwise the engine arguments are
+/// the likely cause.
 pub(super) fn engine_startup_failed_state(
     previous: &ModelDeploymentState,
+    refusal: Option<&StartupRefusal>,
     diagnostics: Vec<String>,
 ) -> ModelDeploymentState {
     let mut state = previous.clone();
@@ -606,11 +614,30 @@ pub(super) fn engine_startup_failed_state(
     state.progress = None;
     state.observed_placements.clear();
     state.updated_at = Some(now());
-    state.failure = Some(ModelDeploymentFailure {
-        code: "engine_startup_failed".to_owned(),
-        message:
+    let (code, message) = match refusal {
+        None => (
+            "engine_startup_failed",
             "Engine stopped during startup; correct the engine arguments and deploy the model again"
                 .to_owned(),
+        ),
+        Some(StartupRefusal::InsufficientFreeMemory {
+            needed_bytes,
+            free_bytes,
+            ..
+        }) => (
+            "engine_insufficient_memory",
+            format!(
+                "Not enough free memory to start the engine: it needs {:.2} GiB and {:.2} GiB is \
+                 free; lower the total context or stop other workloads, then deploy the model \
+                 again",
+                gib(*needed_bytes),
+                gib(*free_bytes),
+            ),
+        ),
+    };
+    state.failure = Some(ModelDeploymentFailure {
+        code: code.to_owned(),
+        message,
         diagnostics,
     });
     state
@@ -618,16 +645,25 @@ pub(super) fn engine_startup_failed_state(
 
 pub(super) fn startup_failure_diagnostics(
     exit_status: Option<i64>,
+    refusal: Option<&StartupRefusal>,
     output_tail: Option<String>,
 ) -> Vec<String> {
     let mut diagnostics = vec!["Stage: engine startup".to_owned()];
     if let Some(status) = exit_status {
         diagnostics.push(format!("Exit status: {status}"));
     }
+    if let Some(refusal) = refusal {
+        diagnostics.push(format!("Engine refusal: {}", refusal.line()));
+    }
     if let Some(output) = output_tail {
         diagnostics.push(format!("Output tail: {output}"));
     }
     diagnostics
+}
+
+/// Converts bytes to GiB for operator messages.
+fn gib(bytes: u64) -> f64 {
+    bytes as f64 / (1_u64 << 30) as f64
 }
 
 pub(super) fn unloading_state(previous: Option<&ModelDeploymentState>) -> ModelDeploymentState {
@@ -853,12 +889,13 @@ mod tests {
 
     use super::super::ModelLifecycleError;
     use super::{
-        acquiring_engine_image_state, apply_observation, artifact_preparation_stage_state,
-        checking_model_artifacts_state, configuration_with_source, current_error,
-        deployment_status_state, desired_error, downloading_state, engine_startup_failed_state,
-        first_realization_pending_state, loading_state, partial_current_error, pausing_state,
-        preparation_completed_state, previously_realized, realization_startup_admitted_state,
-        resuming_state, runtime_startup_progress_state, status_from_observation,
+        StartupRefusal, acquiring_engine_image_state, apply_observation,
+        artifact_preparation_stage_state, checking_model_artifacts_state,
+        configuration_with_source, current_error, deployment_status_state, desired_error,
+        downloading_state, engine_startup_failed_state, first_realization_pending_state,
+        loading_state, partial_current_error, pausing_state, preparation_completed_state,
+        previously_realized, realization_startup_admitted_state, resuming_state,
+        runtime_startup_progress_state, status_from_observation,
     };
     use crate::model::{
         controller::{
@@ -1110,7 +1147,8 @@ mod tests {
 
         let failed = engine_startup_failed_state(
             &previous,
-            super::startup_failure_diagnostics(Some(17), None),
+            None,
+            super::startup_failure_diagnostics(Some(17), None, None),
         );
 
         assert_eq!(failed.status, ModelDeploymentStatus::Failed as i32);
@@ -1126,6 +1164,43 @@ mod tests {
             })
         );
     }
+    #[test]
+    fn engine_startup_refusal_explains_the_failure_and_leads_the_diagnostics() {
+        const LINE: &str = "ValueError: Free memory on device cuda:0 (111.66/121.63 GiB) on startup is less than desired GPU memory utilization (0.97, 117.98 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.";
+        let refusal = StartupRefusal::InsufficientFreeMemory {
+            needed_bytes: 126_680_060_396,
+            free_bytes: 119_894_012_068,
+            line: LINE.to_owned(),
+        };
+
+        let failed = engine_startup_failed_state(
+            &loading_state(),
+            Some(&refusal),
+            super::startup_failure_diagnostics(
+                Some(1),
+                Some(&refusal),
+                Some("RuntimeError: Engine core initialization failed".to_owned()),
+            ),
+        );
+
+        assert_eq!(
+            failed.failure,
+            Some(ModelDeploymentFailure {
+                code: "engine_insufficient_memory".to_owned(),
+                message: "Not enough free memory to start the engine: it needs 117.98 GiB and \
+                          111.66 GiB is free; lower the total context or stop other workloads, \
+                          then deploy the model again"
+                    .to_owned(),
+                diagnostics: vec![
+                    "Stage: engine startup".to_owned(),
+                    "Exit status: 1".to_owned(),
+                    format!("Engine refusal: {LINE}"),
+                    "Output tail: RuntimeError: Engine core initialization failed".to_owned(),
+                ],
+            })
+        );
+    }
+
     #[test]
     fn engine_image_acquisition_failures_carry_the_loader_output_tail() {
         let state = super::engine_image_acquisition_failed_state(
@@ -1152,6 +1227,7 @@ mod tests {
         assert_eq!(
             super::startup_failure_diagnostics(
                 Some(17),
+                None,
                 Some("FileNotFoundError: [REDACTED]".to_owned())
             ),
             vec![
@@ -1161,7 +1237,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            super::startup_failure_diagnostics(Some(1), None),
+            super::startup_failure_diagnostics(Some(1), None, None),
             vec!["Stage: engine startup", "Exit status: 1"]
         );
     }

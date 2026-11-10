@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 use super::{
     definition::{ENGINES, EngineDefinition},
     startup_facts::StartupFactExtractor,
+    startup_refusal::StartupRefusal,
 };
 use crate::{
     inference::{
@@ -138,6 +139,18 @@ impl EngineIntegrationRegistry {
         self.snapshot_integration(snapshot)
             .ok()?
             .startup_fact_extractor()
+    }
+
+    /// Returns the reason the snapshot's engine gave for stopping during startup, when its output
+    /// holds one the engine recognizes.
+    pub(crate) fn startup_refusal(
+        &self,
+        snapshot: &ResolvedLocalModelDeploymentSnapshot,
+        output: &str,
+    ) -> Option<StartupRefusal> {
+        self.snapshot_integration(snapshot)
+            .ok()?
+            .startup_refusal(output)
     }
 
     pub(crate) fn enables_host_kv_offload(
@@ -325,6 +338,11 @@ impl EngineIntegration {
     /// Returns the engine's startup fact parser, when it has one.
     pub(crate) fn startup_fact_extractor(&self) -> Option<&'static dyn StartupFactExtractor> {
         self.definition.startup_fact_extractor()
+    }
+
+    /// Returns the engine's reason for stopping during startup, when its output holds one.
+    pub(crate) fn startup_refusal(&self, output: &str) -> Option<StartupRefusal> {
+        self.definition.startup_refusal(output)
     }
 }
 

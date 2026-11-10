@@ -950,8 +950,10 @@ mod tests {
         let manager_local = [
             engine_startup_failed_state(
                 &loading_state(),
+                None,
                 startup_failure_diagnostics(
                     Some(17),
+                    None,
                     Some("FileNotFoundError: [REDACTED]\nengine exited".to_owned()),
                 ),
             ),

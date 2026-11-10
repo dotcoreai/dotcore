@@ -64,8 +64,8 @@ use crate::{
     deployment_logs::PreparationOwner,
     dispatch::model::{RuntimeTargetError, RuntimeTargetMap, TargetObservation},
     model::{
-        domain::ModelDeploymentId, resolved::ResolvedModelLaunch,
-        selection::RetainedTargetCapabilityError,
+        domain::ModelDeploymentId, engine::startup_refusal::StartupRefusal,
+        resolved::ResolvedModelLaunch, selection::RetainedTargetCapabilityError,
     },
 };
 
@@ -2587,13 +2587,18 @@ where
             } = &observation
             {
                 let output = self
-                    .capture_startup_output_tail(target, workload, launch)
+                    .capture_startup_output(desired, target, workload, launch)
                     .await;
                 self.commit_status_operation(&operation, attempt_binding.as_ref(), || {
                     apply_startup_failure(
                         &self.state,
                         desired,
-                        startup_failure_diagnostics(*exit_status, output),
+                        output.refusal.as_ref(),
+                        startup_failure_diagnostics(
+                            *exit_status,
+                            output.refusal.as_ref(),
+                            output.tail.clone(),
+                        ),
                     )
                 })??
             } else {
@@ -2738,18 +2743,22 @@ where
         );
     }
 
-    async fn capture_startup_output_tail(
+    /// Reads the newest page of a stopped workload's output for its startup failure, letting its
+    /// engine recognize a refusal that the shown tail would cut off.
+    async fn capture_startup_output(
         &self,
+        desired: &dotcore_proto::dotcore::model::v1::ModelDeploymentDeclaration,
         target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
         workload: &dotcore_runtime::ObservedWorkload,
         launch: &dotcore_runtime::WorkloadLaunch,
-    ) -> Option<String> {
+    ) -> StartupOutput {
         let source = dotcore_runtime::RuntimeLogSource {
             name: super::logs::MODEL_LOG_SOURCE_NAME.to_owned(),
             label: super::logs::MODEL_LOG_SOURCE_LABEL.to_owned(),
         };
         let history = dotcore_runtime::RuntimeLogQuery::new(
-            std::num::NonZeroU16::new(16).expect("positive startup log limit"),
+            std::num::NonZeroU16::new(dotcore_runtime::MAX_RUNTIME_LOG_ENTRIES)
+                .expect("positive startup log limit"),
             None,
         )
         .expect("startup log limit is within runtime bounds");
@@ -2765,14 +2774,21 @@ where
         )
         .await
         {
-            Ok(Ok(history)) => startup_output_tail(history, &protected),
+            Ok(Ok(history)) => {
+                let launch = super::launch::resolved_launch(desired).ok();
+                startup_output(history, &protected, &|output| {
+                    let launch = launch.as_ref()?;
+                    self.engine_integrations
+                        .startup_refusal(&launch.snapshot, output)
+                })
+            }
             Ok(Err(_)) => {
                 debug!(
                     event_kind = "model_startup_output_unavailable",
                     reason = "read_failed",
                     "startup output unavailable"
                 );
-                None
+                StartupOutput::default()
             }
             Err(_) => {
                 debug!(
@@ -2780,7 +2796,7 @@ where
                     reason = "timeout",
                     "startup output timed out"
                 );
-                None
+                StartupOutput::default()
             }
         }
     }
@@ -3347,31 +3363,49 @@ async fn replace_stale_workload_admitted(
     Ok(None)
 }
 
-fn startup_output_tail(
+/// Output of a workload that stopped during startup: the bounded tail shown in its diagnostics,
+/// and the engine's own refusal when the engine recognizes one.
+#[derive(Debug, Default, PartialEq)]
+struct StartupOutput {
+    tail: Option<String>,
+    refusal: Option<StartupRefusal>,
+}
+
+/// Masks protected values and file paths in startup output, keeps the newest entries within the
+/// diagnostic bounds as the tail, and reads the engine's refusal from every entry.
+fn startup_output(
     history: dotcore_runtime::RuntimeLogHistory,
     protected: &crate::management_logs::ProtectedLogValues,
-) -> Option<String> {
+    read_refusal: &dyn Fn(&str) -> Option<StartupRefusal>,
+) -> StartupOutput {
+    const MAX_STARTUP_OUTPUT_ENTRIES: usize = 16;
     const MAX_STARTUP_OUTPUT_BYTES: usize = 4096;
-    let mut tail = String::new();
-    for entry in history.entries {
-        let filtered = crate::management_logs::filter_entry(entry, protected);
-        let safe =
-            crate::diagnostic::redact_filesystem_paths(&String::from_utf8_lossy(&filtered.content));
-        if !tail.is_empty() {
-            tail.push('\n');
+    let entries = history
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let filtered = crate::management_logs::filter_entry(entry, protected);
+            crate::diagnostic::redact_filesystem_paths(&String::from_utf8_lossy(&filtered.content))
+                .chars()
+                .filter(|character| {
+                    !character.is_control() || *character == '\n' || *character == '\t'
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    let refusal = read_refusal(&entries.join("\n"));
+    let mut tail = entries[entries.len().saturating_sub(MAX_STARTUP_OUTPUT_ENTRIES)..].join("\n");
+    if tail.len() > MAX_STARTUP_OUTPUT_BYTES {
+        let mut start = tail.len() - MAX_STARTUP_OUTPUT_BYTES;
+        while !tail.is_char_boundary(start) {
+            start += 1;
         }
-        tail.extend(safe.chars().filter(|character| {
-            !character.is_control() || *character == '\n' || *character == '\t'
-        }));
-        if tail.len() > MAX_STARTUP_OUTPUT_BYTES {
-            let mut start = tail.len() - MAX_STARTUP_OUTPUT_BYTES;
-            while !tail.is_char_boundary(start) {
-                start += 1;
-            }
-            tail.drain(..start);
-        }
+        tail.drain(..start);
     }
-    (!tail.is_empty()).then_some(tail)
+    StartupOutput {
+        tail: (!tail.is_empty()).then_some(tail),
+        refusal,
+    }
 }
 
 fn protected_startup_values(
