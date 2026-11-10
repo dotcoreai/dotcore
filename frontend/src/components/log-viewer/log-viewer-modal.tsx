@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -13,18 +12,10 @@ import type { LogViewerOperations } from "@/api/log-types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useInspectorFloatingLayerRegistration } from "@/components/ui/inspector-shell";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useWatchPausedWhile } from "@/hooks/use-watch-pause";
-import type { StatusProjection } from "@/lib/status-projection";
 
-import {
-  formatLogTimestamp,
-  type LogConnection,
-  MAX_DISPLAYED_LOG_ROWS,
-  type SourceChipState,
-  sourceChipState,
-} from "./state";
+import { formatLogTimestamp, type LogConnection, MAX_DISPLAYED_LOG_ROWS } from "./state";
 import { useLogViewer } from "./use-log-viewer";
 
 const latestThreshold = 16;
@@ -85,13 +76,9 @@ export function LogViewerModal<Position>({
     Boolean(viewer.sources.length) &&
     viewer.sources.every((source) => source.state === "unavailable");
   // Per-source viewers report a connection problem when every source is gone; the single-stream
-  // viewer reports the stream only and shows source state on the chips.
+  // viewer reports the stream only.
   const connection: LogConnection =
     perSourceReconnect && allSourcesUnavailable ? "unavailable" : viewer.connection;
-  const sourcesWithLines = useMemo(
-    () => new Set(viewer.entries.map((entry) => entry.sourceName)),
-    [viewer.entries],
-  );
   const retainedHistoryLoadingVisible = useDelayedLoading(connection === "loading");
   const earlierHistoryLoadingVisible = useDelayedLoading(viewer.loadingOlder);
   const retainedHistoryFeedbackVisible =
@@ -248,9 +235,6 @@ export function LogViewerModal<Position>({
                 Sources
               </legend>
               {viewer.sources.map((source) => {
-                const chip = perSourceReconnect
-                  ? undefined
-                  : sourceChipState(source, viewer.availableSources, sourcesWithLines);
                 return (
                   <label
                     className="relative inline-flex touch-target items-center gap-1.5 text-xs"
@@ -258,9 +242,9 @@ export function LogViewerModal<Position>({
                   >
                     <input
                       aria-label={
-                        (chip ? chip === "live" : source.state === "available")
+                        source.state === "available"
                           ? source.sourceLabel
-                          : `${source.sourceLabel} (${chip ? sourceChipStatus[chip].label.toLowerCase() : source.state})`
+                          : `${source.sourceLabel} (${source.state})`
                       }
                       checked={selectedSources?.has(source.sourceName) ?? true}
                       className="size-3.5 accent-primary"
@@ -268,11 +252,6 @@ export function LogViewerModal<Position>({
                       type="checkbox"
                     />
                     {source.sourceLabel}
-                    {chip ? (
-                      <StatusBadge status={sourceChipStatus[chip]} />
-                    ) : source.state !== "available" ? (
-                      <span className="text-muted-foreground">({source.state})</span>
-                    ) : null}
                   </label>
                 );
               })}
@@ -440,13 +419,6 @@ function connectionLabel(
   if (connection === "loading") return "";
   return "Live";
 }
-
-const sourceChipStatus: Record<SourceChipState, StatusProjection> = {
-  ended: { label: "Ended", tone: "neutral" },
-  live: { label: "Live", tone: "success" },
-  "not-started": { label: "Not started", tone: "neutral" },
-  unavailable: { label: "Unavailable", tone: "warning" },
-};
 
 function viewerTimestamp(timestamp: string): string {
   if (timestamp === "Unknown time") return "Unknown";

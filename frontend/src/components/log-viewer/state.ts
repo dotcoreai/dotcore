@@ -11,12 +11,7 @@ export interface DisplayLogEntry extends LogEntry {
 export type LogConnection =
   "loading" | "following" | "reconnecting" | "reconnected" | "unavailable" | "ended" | "failed";
 
-/** What one source chip shows, derived from the source events the viewer has seen. */
-export type SourceChipState = "live" | "not-started" | "ended" | "unavailable";
-
 export interface LogViewerState<Position> {
-  /** Sources that were reported available at some point in this session. */
-  availableSources: ReadonlySet<string>;
   connection: LogConnection;
   continuityWarning: boolean;
   droppedRows: number;
@@ -50,7 +45,6 @@ export type LogViewerAction<Position> =
 
 export function createLogViewerState<Position>(): LogViewerState<Position> {
   return {
-    availableSources: new Set(),
     connection: "loading",
     continuityWarning: false,
     droppedRows: 0,
@@ -80,7 +74,6 @@ export function logViewerReducer<Position>(
       );
       return {
         ...state,
-        availableSources: withAvailable(state.availableSources, action.result.sources),
         connection: action.sourceDrivesConnection
           ? connectionForSources(action.result.sources)
           : "following",
@@ -113,7 +106,6 @@ export function logViewerReducer<Position>(
       const sources = updateSource(state.sources, action.source);
       return {
         ...state,
-        availableSources: withAvailable(state.availableSources, [action.source]),
         connection:
           action.sourceDrivesConnection &&
           action.source.state === "unavailable" &&
@@ -170,7 +162,6 @@ export function logViewerReducer<Position>(
         nextEntryOccurrence: nextOccurrence,
         olderLoadFailed: false,
         olderPageLoaded: true,
-        availableSources: withAvailable(state.availableSources, action.result.sources),
         responseTruncated: state.responseTruncated || action.result.responseTruncated,
         sourceTruncated:
           state.sourceTruncated || hasSourceState(action.result.sources, "truncated"),
@@ -179,25 +170,6 @@ export function logViewerReducer<Position>(
     }
     case "older-failed":
       return { ...state, loadingOlder: false, olderLoadFailed: true };
-  }
-}
-
-export function sourceChipState(
-  source: LogSource,
-  availableSources: ReadonlySet<string>,
-  sourcesWithLines: ReadonlySet<string>,
-): SourceChipState | undefined {
-  const hadOutput =
-    availableSources.has(source.sourceName) || sourcesWithLines.has(source.sourceName);
-  switch (source.state) {
-    case "available":
-      return "live";
-    case "ended":
-      return hadOutput ? "ended" : "not-started";
-    case "unavailable":
-      return hadOutput ? "unavailable" : "not-started";
-    default:
-      return undefined;
   }
 }
 
@@ -221,12 +193,6 @@ const unsafeControlCharactersPattern = new RegExp(
   `[${String.fromCharCode(0)}-${String.fromCharCode(8)}${String.fromCharCode(11)}${String.fromCharCode(12)}${String.fromCharCode(14)}-${String.fromCharCode(31)}${String.fromCharCode(127)}-${String.fromCharCode(159)}]`,
   "g",
 );
-
-function withAvailable(current: ReadonlySet<string>, sources: readonly LogSource[]) {
-  const available = sources.filter((source) => source.state === "available");
-  if (available.every((source) => current.has(source.sourceName))) return current;
-  return new Set([...current, ...available.map((source) => source.sourceName)]);
-}
 
 function connectionForSources(sources: readonly LogSource[]): LogConnection {
   return sources.length && sources.every((source) => source.state === "unavailable")
