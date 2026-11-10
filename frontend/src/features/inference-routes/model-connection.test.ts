@@ -10,6 +10,8 @@ describe("buildModelConnectionExamples", () => {
       opencodeCommand:
         "dotc code opencode --model route/model-alpha --inference-addr http://100.64.0.9:6407",
       piCommand: "dotc code pi --model route/model-alpha --inference-addr http://100.64.0.9:6407",
+      codexCommand:
+        "dotc code codex --model route/model-alpha --inference-addr http://100.64.0.9:6407",
       curl: `curl --fail-with-body --silent --show-error \\
   --request POST \\
   --url 'http://100.64.0.9:6407/v1/chat/completions' \\
@@ -35,6 +37,9 @@ describe("buildModelConnectionExamples", () => {
     expect(examples.piCommand).toBe(
       `dotc code pi --model 'route/quote'"'"'";\n$(touch pwned)' --inference-addr 'https://gateway.example.test:7443/route/'"'"'$(touch pwned)'`,
     );
+    expect(examples.codexCommand).toBe(
+      `dotc code codex --model 'route/quote'"'"'";\n$(touch pwned)' --inference-addr 'https://gateway.example.test:7443/route/'"'"'$(touch pwned)'`,
+    );
     expect(examples.curl).toContain(
       "--url 'https://gateway.example.test:7443/route/'\"'\"'$(touch pwned)/v1/chat/completions'",
     );
@@ -49,6 +54,9 @@ describe("buildModelConnectionExamples", () => {
     );
     expect(examples.piCommand).toBe(
       "dotc code pi --model chat-model --inference-addr http://127.0.0.1:50052",
+    );
+    expect(examples.codexCommand).toBe(
+      "dotc code codex --model chat-model --inference-addr http://127.0.0.1:50052",
     );
     expect(examples.curl).toContain("/v1/chat/completions'");
   });

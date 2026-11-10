@@ -1,6 +1,7 @@
 export interface ModelConnectionExamples {
   opencodeCommand: string;
   piCommand: string;
+  codexCommand: string;
   curl: string;
 }
 
@@ -17,6 +18,7 @@ export function buildModelConnectionExamples(
   return {
     opencodeCommand: codeCommand("opencode", inferenceOrigin, modelId),
     piCommand: codeCommand("pi", inferenceOrigin, modelId),
+    codexCommand: codeCommand("codex", inferenceOrigin, modelId),
     curl: [
       "curl --fail-with-body --silent --show-error \\",
       "  --request POST \\",

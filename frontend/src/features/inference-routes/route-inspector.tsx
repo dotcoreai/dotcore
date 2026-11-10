@@ -329,6 +329,7 @@ export function RouteConnectionView({ name }: { name: string }) {
       </section>
       <ConnectionExample label="OpenCode" value={examples.opencodeCommand} />
       <ConnectionExample label="Pi" value={examples.piCommand} />
+      <ConnectionExample label="Codex" value={examples.codexCommand} />
       <ConnectionExample label="curl example" value={examples.curl} />
     </div>
   );
