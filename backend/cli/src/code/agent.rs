@@ -63,7 +63,7 @@ impl CodingAgent {
         match self {
             Self::Opencode => opencode::launch(setup),
             Self::Pi => pi::launch(setup),
-            Self::Codex => Ok(codex::launch(setup)),
+            Self::Codex => codex::launch(setup),
         }
     }
 }
@@ -78,6 +78,10 @@ pub(super) struct LaunchSetup<'a> {
 
     /// The route the agent starts with; one of `routes`.
     pub(super) selected: &'a str,
+
+    /// Largest context one request may use on the selected route, in tokens, when the inference
+    /// API states it.
+    pub(super) selected_context: Option<u64>,
 
     /// Arguments the operator passed for the agent, kept unchanged.
     pub(super) passthrough: &'a [OsString],
@@ -106,8 +110,8 @@ pub(super) struct OwnedFile {
     /// Where the file lives under the cache root.
     pub(super) path: PathBuf,
 
-    /// The file's fixed content.
-    pub(super) content: &'static str,
+    /// The file's content, which its name is derived from.
+    pub(super) content: String,
 }
 
 impl OwnedFile {
@@ -124,7 +128,7 @@ impl OwnedFile {
         let temporary = self
             .path
             .with_extension(format!("{}.tmp", std::process::id()));
-        fs::write(&temporary, self.content)
+        fs::write(&temporary, &self.content)
             .and_then(|()| fs::rename(&temporary, &self.path))
             .inspect_err(|_| {
                 let _ = fs::remove_file(&temporary);
@@ -160,7 +164,7 @@ mod tests {
         let root = tempfile::tempdir().expect("cache root");
         let file = OwnedFile {
             path: root.path().join("code/pi/extension.ts"),
-            content: "export default 1;\n",
+            content: "export default 1;\n".to_owned(),
         };
 
         file.ensure().expect("write absent file");

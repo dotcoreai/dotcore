@@ -73,7 +73,8 @@ async fn model_list_has_the_public_openai_shape() {
                 "id": "fixture-route",
                 "object": "model",
                 "created": 0,
-                "owned_by": "dotcore"
+                "owned_by": "dotcore",
+                "context_length": 32768
             }]
         })
     );
@@ -143,8 +144,8 @@ async fn route_discovery_lists_only_enabled_route_names_in_sorted_order() {
     assert_eq!(
         json_body(&response),
         serde_json::json!({"object":"list","data":[
-            {"id":"alpha-route","object":"model","created":0,"owned_by":"dotcore"},
-            {"id":"zulu-route","object":"model","created":0,"owned_by":"dotcore"}
+            {"id":"alpha-route","object":"model","created":0,"owned_by":"dotcore","context_length":32768},
+            {"id":"zulu-route","object":"model","created":0,"owned_by":"dotcore","context_length":32768}
         ]}),
         "discovery must sort enabled route names and omit disabled routes and raw catalog identities"
     );
@@ -285,7 +286,7 @@ async fn system_one_decisions_have_the_public_shape_on_a_decision_route() {
 
     assert_eq!(
         json_body(&models)["data"],
-        serde_json::json!([{"id":"decision-route","object":"model","created":0,"owned_by":"dotcore"}])
+        serde_json::json!([{"id":"decision-route","object":"model","created":0,"owned_by":"dotcore","context_length":32768}])
     );
     assert_eq!(response.status, 200);
     let body = String::from_utf8(response.body.clone()).expect("UTF-8 body");
@@ -870,7 +871,9 @@ async fn responses_reject_deferred_capabilities_with_safe_public_errors() {
         br#"{"model":"fixture-route","input":[{"type":"item_reference","id":"msg_1"}],"store":false}"#.as_slice(),
         br#"{"model":"fixture-route","input":[{"type":"message","role":"user","content":[{"type":"input_image","image_url":"data:image/png;base64,aQ=="}]}],"store":false}"#.as_slice(),
         br#"{"model":"fixture-route","input":"hello","store":false,"tools":[{"type":"web_search_preview"}]}"#.as_slice(),
-        br#"{"model":"fixture-route","input":"hello","store":false,"reasoning":{"effort":"low","summary":"auto"}}"#.as_slice(),
+        br#"{"model":"fixture-route","input":"hello","store":false,"reasoning":{"effort":"low","generate_summary":"auto"}}"#.as_slice(),
+        br#"{"model":"fixture-route","input":"hello","store":false,"include":["message.output_text.logprobs"]}"#.as_slice(),
+        br#"{"model":"fixture-route","input":[{"type":"reasoning","summary":[],"encrypted_content":"gAAAA"}],"store":false}"#.as_slice(),
         br#"{"model":"fixture-route","input":"hello","store":false,"text":{"format":{"type":"json_schema"}}}"#.as_slice(),
         br#"{"model":"fixture-route","input":"hello","store":false,"conversation":"conv_1"}"#.as_slice(),
     ] {
@@ -1315,6 +1318,7 @@ async fn engine_controls_and_outputs_are_faithful_through_the_public_boundary() 
 async fn refused_controls_never_reach_the_engine_or_leak_their_values() {
     let engine = EngineRouter::start("refusal-route").await;
     let attempts = engine.chat_attempts();
+    let mut client_errors = Vec::new();
     for (path, body, status, param) in [
         (
             "/v1/chat/completions",
@@ -1342,7 +1346,7 @@ async fn refused_controls_never_reach_the_engine_or_leak_their_values() {
         ),
         (
             "/v1/responses",
-            r#"{"model":"refusal-route","store":false,"input":"prompt-sentinel","reasoning":{"effort":"low","summary":"auto"}}"#,
+            r#"{"model":"refusal-route","store":false,"input":"prompt-sentinel","reasoning":{"effort":"low","generate_summary":"auto"}}"#,
             400,
             serde_json::json!("reasoning"),
         ),
@@ -1356,6 +1360,15 @@ async fn refused_controls_never_reach_the_engine_or_leak_their_values() {
         let response = engine.request(path, body.as_bytes()).await;
         assert_eq!(response.status, status, "{body}");
         assert_eq!(json_body(&response)["error"]["param"], param, "{body}");
+        let error = &json_body(&response)["error"];
+        let text = |name: &str| error[name].as_str().unwrap_or("none").to_owned();
+        client_errors.push(BTreeMap::from([
+            ("status".to_owned(), status.to_string()),
+            ("error_type".to_owned(), text("type")),
+            ("code".to_owned(), text("code")),
+            ("param".to_owned(), text("param")),
+            ("error_message".to_owned(), text("message")),
+        ]));
         let public = String::from_utf8_lossy(&response.body);
         for sentinel in ["sentinel", "http://", ENGINE_MODEL] {
             assert!(
@@ -1368,6 +1381,11 @@ async fn refused_controls_never_reach_the_engine_or_leak_their_values() {
         engine.chat_attempts(),
         attempts,
         "refused requests never reach the engine"
+    );
+    assert_eq!(
+        rejected_request_events(),
+        client_errors,
+        "each refusal logs exactly the error its client received"
     );
     engine.assert_backend_logs_private(&["prompt-sentinel", "extension-sentinel", "sentinel-key"]);
 
@@ -2285,6 +2303,26 @@ async fn serve_engine_request(
 }
 
 /// Backend trace events and formatted log lines captured for the whole test binary.
+/// Fields of the requests refused before routing, in the order they were logged, without the
+/// event's own text and kind.
+fn rejected_request_events() -> Vec<BTreeMap<String, String>> {
+    trace_capture()
+        .events
+        .lock()
+        .expect("captured events")
+        .iter()
+        .filter(|event| {
+            event.fields.get("event_kind").map(String::as_str) == Some("inference_request_rejected")
+        })
+        .map(|event| {
+            let mut fields = event.fields.clone();
+            fields.remove("event_kind");
+            fields.remove("message");
+            fields
+        })
+        .collect()
+}
+
 #[derive(Clone, Default)]
 struct TraceCapture {
     events: Arc<Mutex<Vec<CapturedEvent>>>,

@@ -83,10 +83,12 @@ pub(super) async fn write_responses_stream(
     mut events: EventReceiver,
     mut cancellation: crate::router::cancellation::RequestCancellation,
     admitted_route_name: String,
+    namespaces: &crate::router::openai::ToolNamespaces,
     observe: &mut (dyn FnMut(&ChatStreamEvent) + Send),
 ) -> Result<StreamWriteOutcome, OpenAiWriteError> {
     let mut committed = false;
-    let mut encoder = crate::router::openai::responses::StreamEncoder::new(admitted_route_name);
+    let mut encoder =
+        crate::router::openai::responses::StreamEncoder::new(admitted_route_name, namespaces);
     loop {
         let event = tokio::select! { biased; reason = cancellation.cancelled() => return Ok(StreamWriteOutcome::Cancelled(reason)), event = events.recv() => event };
         let Some(event) = event else {
@@ -113,7 +115,7 @@ pub(super) async fn write_responses_stream(
             Err(error) => {
                 return write_stream_failure(
                     writer,
-                    StreamFailure::from_error(&error, failure_frame()),
+                    StreamFailure::responses(&error, failure_frame()),
                     &mut cancellation,
                     committed,
                 )
@@ -165,6 +167,24 @@ impl StreamFailure {
                 frame,
             },
             _ => Self::invalid_engine_response(failure_stage, frame),
+        }
+    }
+
+    /// A Responses stream failure, which answers a context refusal as a stream carrying the
+    /// failure even before the stream starts.
+    fn responses(error: &crate::router::adapters::AdapterError, frame: Vec<u8>) -> Self {
+        match error {
+            crate::router::adapters::AdapterError::InvalidRequest(invalid)
+                if invalid.category == crate::inference::InvalidRequestCategory::ContextLength =>
+            {
+                Self {
+                    error_kind: "invalid_request",
+                    failure_stage: crate::router::adapters::failure_stage(error),
+                    response: crate::router::openai::responses::context_length_stream_response(),
+                    frame: crate::router::openai::responses::context_length_stream_frame(),
+                }
+            }
+            _ => Self::from_error(error, frame),
         }
     }
 
@@ -346,6 +366,7 @@ mod tests {
             receiver,
             uncancelled(),
             "fixture-route".to_owned(),
+            &crate::router::openai::ToolNamespaces::default(),
             &mut |_| {},
         )
         .await;
@@ -368,6 +389,48 @@ mod tests {
         assert!(!body.contains("provider.example"));
         assert!(!body.contains("private-model"));
         assert!(!body.contains("secret"));
+    }
+
+    #[tokio::test]
+    async fn responses_stream_context_refusal_before_start_is_a_failed_event() {
+        let (mut client, mut writer) = connected_writer().await;
+        let (sender, receiver) = mpsc::channel(1);
+        sender
+            .send(Err(AdapterError::InvalidRequest(
+                crate::inference::InvalidRequest::context_length(),
+            )))
+            .await
+            .expect("stream receiver");
+        drop(sender);
+
+        let result = write_responses_stream(
+            &mut writer,
+            receiver,
+            uncancelled(),
+            "fixture-route".to_owned(),
+            &crate::router::openai::ToolNamespaces::default(),
+            &mut |_| {},
+        )
+        .await;
+        writer.shutdown().await.expect("stream writer shutdown");
+        let body = read_stream(&mut client).await;
+
+        assert_eq!(
+            result.expect("stream write"),
+            StreamWriteOutcome::Failed {
+                error_kind: "invalid_request",
+                failure_stage: "invalid_request",
+                committed: false,
+                status: 200,
+            }
+        );
+        let (head, events) = body.split_once("\r\n\r\n").expect("HTTP response");
+        assert!(head.starts_with("HTTP/1.1 200 OK\r\n"), "{head}");
+        assert_eq!(
+            events.as_bytes(),
+            crate::router::openai::responses::context_length_stream_frame()
+        );
+        assert!(events.contains(r#""code":"context_length_exceeded""#));
     }
 
     #[tokio::test]

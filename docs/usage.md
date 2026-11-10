@@ -14,6 +14,11 @@ Each route is an OpenAI-compatible endpoint, and its route name is the `model` y
 
 - A route's **Connect** screen shows the address and commands to copy for curl, [OpenCode](https://opencode.ai), [Pi](https://github.com/earendil-works/pi) and [Codex](https://github.com/openai/codex).
 - `dotc code` starts OpenCode, Pi or Codex set up with your models. The agent must be installed already.
+- Codex limits:
+  - It offers only the route you chose, and it does not generate conversation titles.
+  - ChatGPT connectors and web search are off.
+  - Image tool results are not supported (image viewing, or an MCP tool that returns images).
+  - MCP servers from your Codex setup work.
 
 ## Add apps
 

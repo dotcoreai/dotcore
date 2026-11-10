@@ -35,7 +35,7 @@ pub(super) fn launch(setup: &LaunchSetup<'_>) -> anyhow::Result<AgentLaunch> {
         env: vec![(PROVIDER_ENV, provider(setup).to_string())],
         files: vec![OwnedFile {
             path: extension,
-            content: EXTENSION,
+            content: EXTENSION.to_owned(),
         }],
     })
 }
@@ -62,6 +62,7 @@ mod tests {
             base_url: "http://127.0.0.1:50052/v1".to_owned(),
             routes: vec!["chat", "code"],
             selected: "code",
+            selected_context: None,
             passthrough: &passthrough,
             cache_root: &|| Ok(PathBuf::from("/cache/dotcore")),
         };
@@ -89,7 +90,7 @@ mod tests {
             launch.files,
             [OwnedFile {
                 path: extension,
-                content: EXTENSION,
+                content: EXTENSION.to_owned(),
             }]
         );
         let [(variable, content)] = launch.env.as_slice() else {

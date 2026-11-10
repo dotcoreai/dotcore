@@ -312,6 +312,8 @@ fn size_limit(message: &'static str) -> AdapterError {
 
 #[cfg(test)]
 mod tests {
+    use dotcore_proto::dotcore::inference::v1::{ChatMessage, ChatMessageRole, chat_message};
+
     use super::*;
 
     #[test]
@@ -327,6 +329,46 @@ mod tests {
         assert!(
             pending.len() > MAX_SSE_FRAME_BYTES,
             "the test must contain more than one frame's limit"
+        );
+    }
+
+    #[test]
+    fn upstream_providers_receive_instruction_roles_and_reasoning_unchanged() {
+        let message = |role: ChatMessageRole, content: &str| ChatMessage {
+            role: role as i32,
+            content: Some(chat_message::Content::TextContent(content.to_owned())),
+            ..Default::default()
+        };
+        let request = ChatRequest {
+            model_id: "route".to_owned(),
+            messages: vec![
+                message(ChatMessageRole::System, "You are Codex."),
+                message(ChatMessageRole::Developer, "Sandbox: read-only."),
+                message(ChatMessageRole::User, "hi"),
+                ChatMessage {
+                    reasoning: Some("Say hello.".to_owned()),
+                    ..message(ChatMessageRole::Assistant, "hello")
+                },
+                message(ChatMessageRole::Developer, "Be brief."),
+            ],
+            ..Default::default()
+        };
+
+        let body = request_body(
+            &crate::model::controller::serving_targets::upstream_target_for_test("upstream"),
+            &request,
+        )
+        .expect("upstream body");
+
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).expect("body JSON")["messages"],
+            serde_json::json!([
+                {"role":"system","content":"You are Codex."},
+                {"role":"developer","content":"Sandbox: read-only."},
+                {"role":"user","content":"hi"},
+                {"role":"assistant","content":"hello","reasoning":"Say hello."},
+                {"role":"developer","content":"Be brief."}
+            ])
         );
     }
 

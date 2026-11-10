@@ -1,7 +1,8 @@
 //! Encodes and decodes the shared OpenAI-compatible Chat wire contract.
 //!
 //! Local engines, configured upstream providers, and tests use one request encoding and one
-//! response decoding, so a control or reasoning field survives every dispatch path the same way.
+//! response decoding, so a control or reasoning field survives every dispatch path the same way;
+//! local engines also receive history reasoning under the field their chat templates read.
 //! Engine-specific controls are merged into the outbound body as their original JSON text.
 
 use std::collections::BTreeMap;
@@ -27,9 +28,49 @@ pub(crate) fn encode_request_for_model(
     request: &ChatRequest,
     wire_model: &str,
 ) -> Result<Vec<u8>, InvalidRequest> {
+    encode_body(request, wire_model, HistoryReasoning::Reasoning)
+}
+
+/// Encodes a validated Chat request body for a local engine serving the model as
+/// `served_model_id`.
+///
+/// History reasoning also travels as `reasoning_content`, the field local engines and model chat
+/// templates read to replay it.
+pub(crate) fn encode_request_for_local_engine(
+    request: &ChatRequest,
+    served_model_id: &str,
+) -> Result<Vec<u8>, InvalidRequest> {
+    encode_body(
+        request,
+        served_model_id,
+        HistoryReasoning::WithReasoningContent,
+    )
+}
+
+/// Encodes a validated Chat request body that names the request's own route.
+#[cfg(test)]
+pub(crate) fn encode_request(request: &ChatRequest) -> Result<Vec<u8>, InvalidRequest> {
+    encode_request_for_model(request, &request.model_id)
+}
+
+/// Fields that carry an assistant message's reasoning in an outbound request.
+#[derive(Clone, Copy)]
+enum HistoryReasoning {
+    /// `reasoning` only.
+    Reasoning,
+
+    /// `reasoning` and the same text as `reasoning_content`.
+    WithReasoningContent,
+}
+
+fn encode_body(
+    request: &ChatRequest,
+    wire_model: &str,
+    history_reasoning: HistoryReasoning,
+) -> Result<Vec<u8>, InvalidRequest> {
     request_controls::validate(request)?;
     let mut body = BTreeMap::new();
-    for (name, value) in typed_request_fields(request)? {
+    for (name, value) in typed_request_fields(request, history_reasoning)? {
         body.insert(name, raw_json(&value));
     }
     body.insert(
@@ -52,17 +93,14 @@ pub(crate) fn encode_request_for_model(
     Ok(body)
 }
 
-/// Encodes a validated Chat request body that names the request's own route.
-#[cfg(test)]
-pub(crate) fn encode_request(request: &ChatRequest) -> Result<Vec<u8>, InvalidRequest> {
-    encode_request_for_model(request, &request.model_id)
-}
-
-fn typed_request_fields(request: &ChatRequest) -> Result<Map<String, Value>, InvalidRequest> {
+fn typed_request_fields(
+    request: &ChatRequest,
+    history_reasoning: HistoryReasoning,
+) -> Result<Map<String, Value>, InvalidRequest> {
     let messages = request
         .messages
         .iter()
-        .map(encode_message)
+        .map(|message| encode_message(message, history_reasoning))
         .collect::<Vec<_>>();
     let mut value = serde_json::json!({
         "model": request.model_id,
@@ -210,7 +248,7 @@ fn encode_tool(
     Ok(serde_json::json!({"type":"function","function":function}))
 }
 
-fn encode_message(message: &ChatMessage) -> Value {
+fn encode_message(message: &ChatMessage, history_reasoning: HistoryReasoning) -> Value {
     let role = match ChatMessageRole::try_from(message.role).unwrap_or(ChatMessageRole::Unspecified)
     {
         ChatMessageRole::System => "system",
@@ -255,6 +293,9 @@ fn encode_message(message: &ChatMessage) -> Value {
     }
     if let Some(reasoning) = &message.reasoning {
         object.insert("reasoning".to_owned(), serde_json::json!(reasoning));
+        if matches!(history_reasoning, HistoryReasoning::WithReasoningContent) {
+            object.insert("reasoning_content".to_owned(), serde_json::json!(reasoning));
+        }
     }
     if !message.content_parts.is_empty() {
         object.insert(

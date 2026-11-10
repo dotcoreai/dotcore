@@ -447,6 +447,7 @@ async fn a_second_responses_choice_fails_the_stream_before_or_after_commit() {
             receiver,
             uncancelled(),
             "route".to_owned(),
+            &crate::router::openai::ToolNamespaces::default(),
             &mut |_| {},
         )
         .await
@@ -1426,6 +1427,57 @@ async fn an_oversized_decision_is_a_context_length_error_that_never_falls_back()
 }
 
 #[tokio::test]
+async fn a_streamed_responses_context_refusal_is_a_failed_event_and_others_keep_their_error() {
+    let router = MeteredRouter::start_with(Script::InvalidRequest(
+        crate::inference::InvalidRequest::context_length(),
+    ))
+    .await;
+
+    let streamed = r#"{"model":"fallback","input":"Hello","store":false,"stream":true}"#;
+    let mut client = router.send_to("/v1/responses", streamed).await;
+    client.read_to_end().await;
+    let received = String::from_utf8(std::mem::take(&mut client.received)).expect("UTF-8");
+    router.finish(client).await;
+    let (head, body) = received.split_once("\r\n\r\n").expect("HTTP response");
+    assert!(head.starts_with("HTTP/1.1 200 OK\r\n"), "{head}");
+    assert!(
+        head.contains("Content-Type: text/event-stream\r\n"),
+        "{head}"
+    );
+    assert_eq!(
+        body,
+        concat!(
+            "event: response.failed\n",
+            r#"data: {"response":{"created_at":0,"error":{"code":"context_length_exceeded","message":"The request is larger than the deployment's context."},"id":"resp_pending","incomplete_details":null,"model":"","object":"response","output":[],"status":"failed","store":false},"type":"response.failed"}"#,
+            "\n\n"
+        )
+    );
+
+    for (path, request) in [
+        (
+            "/v1/responses",
+            r#"{"model":"fallback","input":"Hello","store":false,"stream":false}"#,
+        ),
+        (
+            "/v1/chat/completions",
+            r#"{"model":"fallback","messages":[{"role":"user","content":"Hello"}],"stream":true}"#,
+        ),
+    ] {
+        let mut client = router.send_to(path, request).await;
+        client.read_to_end().await;
+        let received = String::from_utf8(std::mem::take(&mut client.received)).expect("UTF-8");
+        router.finish(client).await;
+        assert!(received.starts_with("HTTP/1.1 400 "), "{path}: {received}");
+        assert!(
+            received.ends_with(
+                r#"{"error":{"code":"context_length_exceeded","message":"The request is larger than the deployment's context.","param":null,"type":"invalid_request_error"}}"#
+            ),
+            "{path}: {received}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_decision_on_a_route_serving_only_chat_is_invalid_and_never_dispatched() {
     let router = MeteredRouter::start_with(Script::Complete).await;
     let request = SYSTEM_ONE_REQUEST.replace(r#""model":"decision""#, r#""model":"chat""#);
@@ -1451,13 +1503,15 @@ fn a_responses_answer_with_several_choices_fails_its_attempt_as_its_stream_would
             ..Default::default()
         }))
     };
+    let namespaces = crate::router::openai::ToolNamespaces::default();
+    let responses = OpenAiRoute::Chat(ChatRoute::Responses(&namespaces));
 
     assert_eq!(
-        answered_attempt_end(OpenAiRoute::Chat(ChatRoute::Responses), None, &answer(2)),
+        answered_attempt_end(responses, None, &answer(2)),
         Some((RequestOutcome::Failed, Some("unexpected_choice")))
     );
     assert_eq!(
-        answered_attempt_end(OpenAiRoute::Chat(ChatRoute::Responses), None, &answer(1)),
+        answered_attempt_end(responses, None, &answer(1)),
         Some((RequestOutcome::Success, None))
     );
     assert_eq!(

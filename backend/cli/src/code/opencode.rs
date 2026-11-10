@@ -91,6 +91,7 @@ mod tests {
             base_url: "http://127.0.0.1:50052/v1".to_owned(),
             routes: vec!["chat", "code"],
             selected: "code",
+            selected_context: None,
             passthrough: &[],
             cache_root: &no_cache_root,
         }

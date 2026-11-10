@@ -2,13 +2,15 @@
 //!
 //! The binding performs exactly one transport attempt and preserves cancellation,
 //! fallback disposition, streaming, and passthrough response evidence for the router.
-//! It recognizes llama.cpp's refusals of a decision prompt too large for the deployment, so
-//! clients learn to shorten the request instead of seeing an engine failure.
+//! It recognizes llama.cpp's refusals of a decision or chat prompt too large for the deployment,
+//! so clients learn to shorten the request instead of seeing an engine failure.
 
 use std::sync::Arc;
 
 use crate::inference::{EngineInvoker, EngineTransportFactory, InvalidRequest};
-use crate::model::engine::loopback_http::LoopbackInvoker;
+use crate::model::engine::loopback_http::{
+    LoopbackInvoker, RejectionClassifiers, error_message, matches_format,
+};
 
 /// Creates endpoint-bound llama.cpp transport invokers for engine bindings.
 pub(crate) struct LlamaCppTransportFactory;
@@ -19,7 +21,10 @@ impl EngineTransportFactory for LlamaCppTransportFactory {
             port,
             served_model_id,
             super::REQUEST_KINDS,
-            Some(classify_decision_rejection),
+            RejectionClassifiers {
+                chat: Some(classify_chat_rejection),
+                decision: Some(classify_decision_rejection),
+            },
         )
     }
 }
@@ -29,12 +34,20 @@ impl EngineTransportFactory for LlamaCppTransportFactory {
 /// Only an exact status and message match is recognized, so a reworded engine message keeps
 /// passing through rather than being misread.
 fn classify_decision_rejection(status: u16, body: &[u8]) -> Option<InvalidRequest> {
-    let body = serde_json::from_slice::<serde_json::Value>(body).ok()?;
-    let message = body.pointer("/error/message")?.as_str()?;
-    OVERSIZED_PROMPT_REJECTIONS
+    classify(&OVERSIZED_PROMPT_REJECTIONS, status, body)
+}
+
+/// Recognizes llama.cpp's refusal of a chat prompt larger than the deployment's context.
+fn classify_chat_rejection(status: u16, body: &[u8]) -> Option<InvalidRequest> {
+    classify(&OVERSIZED_CHAT_REJECTIONS, status, body)
+}
+
+fn classify(rejections: &[(u16, &str)], status: u16, body: &[u8]) -> Option<InvalidRequest> {
+    let message = error_message(body)?;
+    rejections
         .iter()
         .any(|(rejected_status, format)| {
-            *rejected_status == status && matches_format(message, format)
+            *rejected_status == status && matches_format(&message, format)
         })
         .then(InvalidRequest::context_length)
 }
@@ -55,27 +68,12 @@ const OVERSIZED_PROMPT_REJECTIONS: [(u16, &str); 2] = [
     ),
 ];
 
-/// Whether `message` is `format` with each `%d` replaced by a decimal number.
-fn matches_format(message: &str, format: &str) -> bool {
-    let mut fragments = format.split("%d");
-    let Some(mut remaining) = fragments
-        .next()
-        .and_then(|first| message.strip_prefix(first))
-    else {
-        return false;
-    };
-    for fragment in fragments {
-        let digits = remaining.bytes().take_while(u8::is_ascii_digit).count();
-        let Some(rest) = (digits > 0)
-            .then(|| remaining[digits..].strip_prefix(fragment))
-            .flatten()
-        else {
-            return false;
-        };
-        remaining = rest;
-    }
-    remaining.is_empty()
-}
+/// llama.cpp's refusal of a chat prompt larger than a slot's context: the HTTP status it answers
+/// with and its message format (b11723 `tools/server/server-context.cpp`).
+const OVERSIZED_CHAT_REJECTIONS: [(u16, &str); 1] = [(
+    400,
+    "request (%d tokens) exceeds the available context size (%d tokens), try increasing it",
+)];
 
 #[cfg(test)]
 mod tests {
@@ -93,6 +91,9 @@ mod tests {
     };
 
     const BATCH_REJECTION: &str = r#"{"error":{"code":500,"message":"input (5000 tokens) is too large to process. increase the physical batch size (current batch size: 4096)","type":"server_error"}}"#;
+
+    /// llama.cpp b11723's refusal of a chat prompt over a 131072-token context, as it answered.
+    const CHAT_CONTEXT_REJECTION: &str = r#"{"error":{"code":400,"message":"request (140016 tokens) exceeds the available context size (131072 tokens), try increasing it","type":"exceed_context_size_error","n_prompt_tokens":140016,"n_ctx":131072}}"#;
 
     const CONTEXT_REJECTION: &str = r#"{"error":{"code":400,"message":"input (5000 tokens) is larger than the max context size (4096 tokens). skipping","type":"exceed_context_size_error","n_prompt_tokens":5000,"n_ctx":4096}}"#;
 
@@ -147,19 +148,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chat_rejections_are_never_classified() {
-        for (status, body) in [(500, BATCH_REJECTION), (400, CONTEXT_REJECTION)] {
-            let (port, engine) = serve(respond(status, body)).await;
-            let invoker = LlamaCppTransportFactory.bind_loopback(port, "served".to_owned());
+    async fn oversized_chat_rejections_fail_as_context_length_invalid_requests() {
+        for stream in [false, true] {
+            let attempt = chat(respond(400, CHAT_CONTEXT_REJECTION), stream).await;
 
-            let attempt = invoker
-                .invoke(chat_request(), inference_cancellation().1)
-                .await;
-            engine.await.expect("engine task");
+            assert!(
+                matches!(
+                    attempt,
+                    InferenceAttempt::Failed {
+                        disposition: InferenceAttemptDisposition::NonRetryable,
+                        error: InferenceError::InvalidRequest(error),
+                    } if error == InvalidRequest::context_length()
+                ),
+                "an oversized chat prompt (stream {stream}) must be an invalid request"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn other_chat_rejections_pass_through_unchanged() {
+        for (status, body) in [
+            (500, CHAT_CONTEXT_REJECTION),
+            (500, BATCH_REJECTION),
+            (400, CONTEXT_REJECTION),
+        ] {
+            let attempt = chat(respond(status, body), false).await;
 
             let InferenceAttempt::Response(InferenceResponse::Passthrough(passthrough)) = attempt
             else {
-                panic!("a chat {status} rejection must pass through");
+                panic!("a chat {status} rejection must pass through: {body}");
             };
             assert_eq!(
                 (passthrough.status, passthrough.body),
@@ -168,22 +185,22 @@ mod tests {
         }
     }
 
-    #[test]
-    fn formats_match_only_whole_messages_with_numbers_in_place() {
-        let format = "input (%d tokens) is larger than the max context size (%d tokens). skipping";
+    /// Sends one chat request through a llama.cpp binding whose engine answers `response`.
+    async fn chat(response: String, stream: bool) -> InferenceAttempt {
+        let (port, engine) = serve(response).await;
+        let invoker = LlamaCppTransportFactory.bind_loopback(port, "served".to_owned());
 
-        assert!(matches_format(
-            "input (17 tokens) is larger than the max context size (16 tokens). skipping",
-            format
-        ));
-        for message in [
-            "input ( tokens) is larger than the max context size (16 tokens). skipping",
-            "input (17 tokens) is larger than the max context size (-16 tokens). skipping",
-            "input (17 tokens) is larger than the max context size (16 tokens).",
-            "error: input (17 tokens) is larger than the max context size (16 tokens). skipping",
-        ] {
-            assert!(!matches_format(message, format), "{message}");
-        }
+        let attempt = invoker
+            .invoke(
+                ChatRequest {
+                    stream: Some(stream),
+                    ..chat_request()
+                },
+                inference_cancellation().1,
+            )
+            .await;
+        engine.await.expect("engine task");
+        attempt
     }
 
     /// Decides one request through a llama.cpp binding whose engine answers `response`.

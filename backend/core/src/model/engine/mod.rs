@@ -2,6 +2,7 @@
 
 mod declaration;
 mod definition;
+mod instruction_roles;
 mod probe;
 mod realization;
 mod registry;

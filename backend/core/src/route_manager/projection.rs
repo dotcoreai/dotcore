@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use dotcore_catalog::shared_parameters::CONTEXT_PER_REQUEST_PARAMETER_ID;
 use dotcore_proto::dotcore::{
     catalog::v1::{InferenceRequestKind, ModelInputModality},
     inference::v1::{
@@ -12,7 +13,7 @@ use dotcore_proto::dotcore::{
         InferenceRouteMemberAvailability, InferenceRouteMemberExclusionReason,
         InferenceRouteUnavailabilityReason,
     },
-    model::v1::ModelDeploymentDeclaration,
+    model::v1::{ModelDeploymentDeclaration, model_deployment_snapshot::Source},
 };
 
 use crate::model::controller::serving_targets::{
@@ -20,7 +21,7 @@ use crate::model::controller::serving_targets::{
 };
 
 /// One complete immutable set of compiled desired route declarations, with the request kinds
-/// each route's members declare.
+/// and the context per request each route's members declare.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct CompiledRouteSnapshot {
     routes: Arc<[InferenceRoute]>,
@@ -28,44 +29,54 @@ pub(crate) struct CompiledRouteSnapshot {
     /// Request kinds any member of a route declares, keyed by route id, whether or not the
     /// member is ready.
     request_kinds: Arc<BTreeMap<String, BTreeSet<InferenceRequestKind>>>,
+
+    /// Smallest context per request a route's members declare, keyed by route id, whether or not
+    /// the member is ready. A route none of whose members declares one has no entry.
+    context_per_request: Arc<BTreeMap<String, u64>>,
 }
 
 impl CompiledRouteSnapshot {
     /// Compiles all accepted desired declarations into one immutable snapshot, taking member
-    /// request kinds from the declared model deployments.
+    /// request kinds and context per request from the declared model deployments.
     pub(crate) fn new(
         mut routes: Vec<InferenceRoute>,
         deployments: &[ModelDeploymentDeclaration],
     ) -> Self {
         routes.sort_by(|left, right| left.name.cmp(&right.name));
-        let deployment_kinds = deployments
+        let deployments = deployments
             .iter()
-            .map(|deployment| {
-                (
-                    deployment.model_deployment_id.as_str(),
-                    declared_request_kinds(deployment),
-                )
-            })
+            .map(|deployment| (deployment.model_deployment_id.as_str(), deployment))
             .collect::<BTreeMap<_, _>>();
-        let request_kinds = routes
-            .iter()
-            .map(|route| {
-                let kinds = route
-                    .fallback_groups
-                    .iter()
-                    .flat_map(|group| &group.model_deployment_ids)
-                    .filter_map(|model_deployment_id| {
-                        deployment_kinds.get(model_deployment_id.as_str())
-                    })
-                    .flatten()
-                    .copied()
-                    .collect();
-                (route.inference_route_id.clone(), kinds)
-            })
-            .collect();
+        let members = |route: &InferenceRoute| {
+            route
+                .fallback_groups
+                .iter()
+                .flat_map(|group| &group.model_deployment_ids)
+                .filter_map(|model_deployment_id| deployments.get(model_deployment_id.as_str()))
+                .copied()
+                .collect::<Vec<_>>()
+        };
+        let mut request_kinds = BTreeMap::new();
+        let mut context_per_request = BTreeMap::new();
+        for route in &routes {
+            let members = members(route);
+            let kinds = members
+                .iter()
+                .flat_map(|deployment| declared_request_kinds(deployment))
+                .collect();
+            request_kinds.insert(route.inference_route_id.clone(), kinds);
+            if let Some(context) = members
+                .iter()
+                .filter_map(|deployment| declared_context_per_request(deployment))
+                .min()
+            {
+                context_per_request.insert(route.inference_route_id.clone(), context);
+            }
+        }
         Self {
             routes: Arc::from(routes),
             request_kinds: Arc::new(request_kinds),
+            context_per_request: Arc::new(context_per_request),
         }
     }
 
@@ -89,6 +100,29 @@ impl CompiledRouteSnapshot {
             .cloned()
             .unwrap_or_default()
     }
+
+    /// Returns the largest context one request may use on the route, in tokens: the smallest
+    /// context per request its members declare, ready or not. None when no member declares one
+    /// or the route is unknown.
+    pub(crate) fn context_per_request(&self, inference_route_id: &str) -> Option<u64> {
+        self.context_per_request.get(inference_route_id).copied()
+    }
+}
+
+/// Returns the context per request a local deployment's snapshot resolved, in tokens. Upstream
+/// deployments and engines without a context per request declare none.
+fn declared_context_per_request(declaration: &ModelDeploymentDeclaration) -> Option<u64> {
+    let Some(Source::Local(local)) = declaration
+        .snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.source.as_ref())
+    else {
+        return None;
+    };
+    crate::model::engine::unsigned_parameter_value(
+        local.engine_parameter_values.as_ref()?,
+        CONTEXT_PER_REQUEST_PARAMETER_ID,
+    )
 }
 
 /// Private source for controller-published READY target capability evidence.
@@ -213,8 +247,10 @@ fn modalities(supports_text: bool, supports_image: bool) -> Vec<i32> {
 
 #[cfg(test)]
 mod tests {
-    use dotcore_proto::dotcore::inference::v1::{
-        FallbackGroup, FallbackGroupSelection, InferenceRoute,
+    use dotcore_proto::dotcore::{
+        catalog::v1::engine_parameter_value,
+        inference::v1::{FallbackGroup, FallbackGroupSelection, InferenceRoute},
+        model::v1::ModelDeploymentSnapshot,
     };
     use dotcore_runtime::LoopbackEndpoint;
 
@@ -280,6 +316,25 @@ mod tests {
         assert!(!availability.fallback_groups[0].members[0].eligible);
     }
 
+    #[test]
+    fn a_route_context_per_request_is_the_smallest_its_members_declare() {
+        let deployments = [
+            local_deployment("large", 32_768),
+            local_deployment("small", 16_384),
+            upstream_deployment("upstream"),
+        ];
+        let routes = vec![
+            route("mixed", &[&["large", "upstream"], &["small"]]),
+            route("upstream-only", &[&["upstream", "undeclared"]]),
+        ];
+
+        let snapshot = CompiledRouteSnapshot::new(routes, &deployments);
+
+        assert_eq!(snapshot.context_per_request("mixed-id"), Some(16_384));
+        assert_eq!(snapshot.context_per_request("upstream-only-id"), None);
+        assert_eq!(snapshot.context_per_request("unknown-id"), None);
+    }
+
     struct FakeReadyTarget<D> {
         ready: ServingTargetEligibility,
         #[expect(
@@ -308,6 +363,54 @@ mod tests {
             eligible: true,
             supports_text: true,
             supports_image: false,
+        }
+    }
+
+    fn route(name: &str, groups: &[&[&str]]) -> InferenceRoute {
+        InferenceRoute {
+            inference_route_id: format!("{name}-id"),
+            name: name.to_owned(),
+            enabled: true,
+            fallback_groups: groups
+                .iter()
+                .map(|members| FallbackGroup {
+                    selection: FallbackGroupSelection::Single as i32,
+                    model_deployment_ids: members.iter().map(|id| (*id).to_owned()).collect(),
+                })
+                .collect(),
+            generation: 1,
+        }
+    }
+
+    /// A local deployment whose snapshot resolved `context` tokens of context per request.
+    fn local_deployment(id: &str, context: u64) -> ModelDeploymentDeclaration {
+        let mut snapshot = dotcore_domain::test_support::model::local_model_snapshot("model");
+        let Some(Source::Local(local)) = snapshot.source.as_mut() else {
+            panic!("local fixture snapshot");
+        };
+        let values = local
+            .engine_parameter_values
+            .as_mut()
+            .expect("fixture parameter values");
+        for value in &mut values.values {
+            if value.parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID {
+                value.value = Some(engine_parameter_value::Value::UnsignedInteger(context));
+            }
+        }
+        ModelDeploymentDeclaration {
+            model_deployment_id: id.to_owned(),
+            snapshot: Some(snapshot),
+            ..Default::default()
+        }
+    }
+
+    fn upstream_deployment(id: &str) -> ModelDeploymentDeclaration {
+        ModelDeploymentDeclaration {
+            model_deployment_id: id.to_owned(),
+            snapshot: Some(ModelDeploymentSnapshot {
+                source: Some(Source::Upstream(Default::default())),
+            }),
+            ..Default::default()
         }
     }
 }

@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use tokio::sync::{OwnedSemaphorePermit, watch};
-use tracing::{Instrument, Span, debug, field, warn};
+use tracing::{Instrument, Span, debug, field, info, warn};
 
 use super::{
     errors::{ConnectionError, OpenAiBodyReadError},
@@ -73,9 +73,9 @@ pub(crate) async fn handle_inference_connection(
             )
             .await;
         }
-        Ok(crate::router::openai::OpenAiRequest::Responses(request)) => {
+        Ok(crate::router::openai::OpenAiRequest::Responses(request, namespaces)) => {
             return serve_route(
-                OpenAiRoute::Chat(ChatRoute::Responses),
+                OpenAiRoute::Chat(ChatRoute::Responses(&namespaces)),
                 &mut writer,
                 &router,
                 InferenceRequest::Chat(request),
@@ -97,7 +97,10 @@ pub(crate) async fn handle_inference_connection(
             )
             .await;
         }
-        Err(response) => response,
+        Err(response) => {
+            log_request_rejected(&span, &response);
+            response
+        }
     };
     let (_, route) = watch::channel(None);
     let cancellation = crate::router::cancellation::RequestCancellation::new(cancellation, route);
@@ -106,7 +109,7 @@ pub(crate) async fn handle_inference_connection(
 }
 
 async fn serve_route(
-    route: OpenAiRoute,
+    route: OpenAiRoute<'_>,
     writer: &mut tokio::net::tcp::OwnedWriteHalf,
     router: &crate::router::selection::InferenceRouter,
     request: InferenceRequest,
@@ -222,7 +225,7 @@ async fn serve_route(
                         None,
                     );
                 };
-                if matches!(chat_route, ChatRoute::Responses) && result.choices.len() > 1 {
+                if matches!(chat_route, ChatRoute::Responses(_)) && result.choices.len() > 1 {
                     // The single-choice Response refuses this result as an invalid engine answer.
                     warn!(
                         parent: span,
@@ -355,8 +358,19 @@ async fn serve_route(
                 );
             }
             Err(crate::router::adapters::AdapterError::InvalidRequest(error)) => {
+                // Responses clients only recognize a context refusal from a streamed failure.
+                let streamed_responses = matches!(
+                    route,
+                    OpenAiRoute::Chat(ChatRoute::Responses(_))
+                ) && matches!(&request, InferenceRequest::Chat(chat) if chat.stream == Some(true));
                 break (
-                    crate::router::openai::request_error(error),
+                    if streamed_responses
+                        && error.category == crate::inference::InvalidRequestCategory::ContextLength
+                    {
+                        crate::router::openai::responses::context_length_stream_response()
+                    } else {
+                        crate::router::openai::request_error(error)
+                    },
                     target_cancellation,
                     None,
                 );
@@ -379,7 +393,7 @@ async fn serve_route(
 /// answer; a streamed attempt ends when its stream does.
 fn end_answered_attempt(
     meter: &mut crate::router::metrics::RequestMeter,
-    route: OpenAiRoute,
+    route: OpenAiRoute<'_>,
     decision: Option<&DecisionEncoding>,
     attempt: &crate::router::adapters::AdapterAttempt,
 ) {
@@ -409,7 +423,7 @@ fn end_answered_attempt(
 /// route refuses fails like the same answer streamed, and so does an answer of another kind. A
 /// decision answer ends as its `decision` encoding did.
 pub(super) fn answered_attempt_end(
-    route: OpenAiRoute,
+    route: OpenAiRoute<'_>,
     decision: Option<&DecisionEncoding>,
     attempt: &crate::router::adapters::AdapterAttempt,
 ) -> Option<(RequestOutcome, Option<&'static str>)> {
@@ -423,7 +437,7 @@ pub(super) fn answered_attempt_end(
         }
         AdapterAttempt::Response(AdapterResponse::Stream(_)) => return None,
         AdapterAttempt::Response(AdapterResponse::Complete(result))
-            if matches!(route, OpenAiRoute::Chat(ChatRoute::Responses))
+            if matches!(route, OpenAiRoute::Chat(ChatRoute::Responses(_)))
                 && result.choices.len() > 1 =>
         {
             (RequestOutcome::Failed, Some("unexpected_choice"))
@@ -507,9 +521,9 @@ pub(super) fn record_written_response(
 
 /// Public inference API route a request arrived on, which decides how its answer is encoded.
 #[derive(Clone, Copy)]
-pub(super) enum OpenAiRoute {
+pub(super) enum OpenAiRoute<'a> {
     /// A chat route, answering complete or streamed chat results.
-    Chat(ChatRoute),
+    Chat(ChatRoute<'a>),
 
     /// A decision route, answering decision results.
     Decision(DecisionRoute),
@@ -523,13 +537,14 @@ pub(super) enum DecisionRoute {
 
 /// Public chat route encoding chat results.
 #[derive(Clone, Copy)]
-pub(super) enum ChatRoute {
+pub(super) enum ChatRoute<'a> {
     Completions,
 
-    Responses,
+    /// The Responses route, with the request's namespaced tools its function calls go back under.
+    Responses(&'a crate::router::openai::ToolNamespaces),
 }
 
-impl ChatRoute {
+impl ChatRoute<'_> {
     fn completion(
         self,
         result: dotcore_proto::dotcore::inference::v1::ChatCompletionResult,
@@ -537,9 +552,11 @@ impl ChatRoute {
     ) -> crate::router::openai::OpenAiResponse {
         match self {
             Self::Completions => crate::router::openai::completion(result, admitted_route_name),
-            Self::Responses => {
-                crate::router::openai::responses::completion(result, admitted_route_name)
-            }
+            Self::Responses(namespaces) => crate::router::openai::responses::completion(
+                result,
+                admitted_route_name,
+                namespaces,
+            ),
         }
     }
 
@@ -569,9 +586,16 @@ impl ChatRoute {
                 )
                 .await
             }
-            Self::Responses => {
-                write_responses_stream(writer, events, cancellation, admitted_route_name, observe)
-                    .await
+            Self::Responses(namespaces) => {
+                write_responses_stream(
+                    writer,
+                    events,
+                    cancellation,
+                    admitted_route_name,
+                    namespaces,
+                    observe,
+                )
+                .await
             }
         }
     }
@@ -602,6 +626,30 @@ fn decision_response(
         }
         _ => Err("unexpected_result"),
     }
+}
+
+/// Logs a public request refused before it reached a route, with the error the client receives.
+///
+/// The error names only recognized fields and fixed messages, never request values, so it is
+/// safe to log whole.
+fn log_request_rejected(span: &Span, response: &crate::router::openai::OpenAiResponse) {
+    let body = serde_json::from_slice::<serde_json::Value>(&response.body).ok();
+    let error_field = |name: &str| {
+        body.as_ref()
+            .and_then(|body| body.get("error")?.get(name)?.as_str())
+            .unwrap_or("none")
+            .to_owned()
+    };
+    info!(
+        parent: span,
+        event_kind = "inference_request_rejected",
+        status = response.status,
+        error_type = error_field("type"),
+        code = error_field("code"),
+        param = error_field("param"),
+        error_message = error_field("message"),
+        "inference request rejected",
+    );
 }
 
 fn log_unexpected_result(span: &Span, route: &str, deployment_id: &str, attempt_index: usize) {

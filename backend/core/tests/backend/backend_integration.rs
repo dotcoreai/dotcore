@@ -444,8 +444,8 @@ async fn simulated_model_withdrawal_preserves_unrelated_model_discovery_and_infe
         &serde_json::json!({
             "object": "list",
             "data": [
-                {"id": "fixture-model", "object": "model", "created": 0, "owned_by": "dotcore"},
-                {"id": "fixture-model-b", "object": "model", "created": 0, "owned_by": "dotcore"}
+                {"id": "fixture-model", "object": "model", "created": 0, "owned_by": "dotcore", "context_length": 32768},
+                {"id": "fixture-model-b", "object": "model", "created": 0, "owned_by": "dotcore", "context_length": 32768}
             ]
         }),
     )
@@ -486,7 +486,7 @@ async fn simulated_model_withdrawal_preserves_unrelated_model_discovery_and_infe
         served_models(backend.inference_address()).await,
         serde_json::json!({
             "object": "list",
-            "data": [{"id": "fixture-model-b", "object": "model", "created": 0, "owned_by": "dotcore"}]
+            "data": [{"id": "fixture-model-b", "object": "model", "created": 0, "owned_by": "dotcore", "context_length": 32768}]
         })
     );
     assert_eq!(

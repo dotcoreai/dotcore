@@ -14,8 +14,8 @@ use super::{CodeError, address::InferenceAddress};
 /// How long reading the routes may take, connecting included.
 const LIST_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Reads the listed route names, in the inference API's order.
-pub(super) async fn list_routes(address: &InferenceAddress) -> Result<Vec<String>, CodeError> {
+/// Reads the listed routes, in the inference API's order.
+pub(super) async fn list_routes(address: &InferenceAddress) -> Result<Vec<ListedRoute>, CodeError> {
     let unreachable = |source| CodeError::InferenceUnreachable {
         address: address.clone(),
         source,
@@ -50,17 +50,21 @@ pub(super) async fn list_routes(address: &InferenceAddress) -> Result<Vec<String
             source,
         }
     })?;
-    Ok(models.data.into_iter().map(|model| model.id).collect())
+    Ok(models.data)
+}
+
+/// One listed route: a model of the listing, whose id is the route's callable name.
+#[derive(Debug, Deserialize)]
+pub(super) struct ListedRoute {
+    #[serde(rename = "id")]
+    pub(super) name: String,
+
+    /// Largest context one request may use on the route, in tokens, when the API states it.
+    pub(super) context_length: Option<u64>,
 }
 
 /// The inference API's model listing; its other fields are not needed.
 #[derive(Debug, Deserialize)]
 struct ModelList {
-    data: Vec<ListedModel>,
-}
-
-/// One listed model, whose id is the route's callable name.
-#[derive(Debug, Deserialize)]
-struct ListedModel {
-    id: String,
+    data: Vec<ListedRoute>,
 }
