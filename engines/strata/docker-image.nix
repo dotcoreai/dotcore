@@ -10,7 +10,6 @@
         ./start.py
       ];
     };
-    # Upstream publishes its prebuilt images for x86_64 only.
     platforms = [ "linux/amd64" ];
     records = ./docker-image.stored.json;
   };

@@ -4,7 +4,7 @@
 
 * [`Dockerfile`](Dockerfile) wraps upstream's published CUDA 13 image, pinned by digest, and adds
   [`start.py`](start.py) as `dotcore-strata-start`. The node loads the stored image when it has one,
-  otherwise builds the `Dockerfile` on the first deployment. Upstream publishes x86_64 images only.
+  otherwise builds the `Dockerfile` on the first deployment.
 * Upstream's entrypoint always turns an API key on, so the image's entrypoint is only its init, and
   the deployment's command is the wrapper. The wrapper extracts the tokenizer and writes Strata's run
   configuration under `/data`, then execs Strata's server keyless and offline on the port it is

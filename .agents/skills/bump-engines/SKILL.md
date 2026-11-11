@@ -1,6 +1,6 @@
 ---
 name: bump-engines
-description: Bump Dotcore's inference engine pins (llama.cpp, vLLM, ninfer, Strata) to newer upstream versions and qualify them on every platform. Use when asked to bump, update or upgrade an engine or all engines.
+description: Bump Dotcore's inference engine pins to newer upstream versions and qualify them on every platform. Use when asked to bump, update or upgrade an engine or all engines.
 ---
 
 # Bump engines

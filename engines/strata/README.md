@@ -5,7 +5,7 @@ splitting the model between GPU and host memory.
 
 ## Good to know
 
-* x86_64 Linux only, with an NVIDIA GPU and driver 580 or newer.
+* An NVIDIA GPU and driver 580 or newer.
 * The experts that don't fit on the GPU stay in pinned host memory, so a deployment can use as much
   host memory as GPU memory.
 * The machine downloads the engine the first time a model uses it.

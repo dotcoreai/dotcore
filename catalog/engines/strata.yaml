@@ -1,6 +1,6 @@
 # Strata's published CUDA 13 image plus Dotcore's keyless start wrapper, built by
 # `engines/strata/docker-image.nix`, loaded from its stored image or built locally on the hosting
-# node. Upstream publishes its images for x86_64 only.
+# node.
 engineReleaseId: "strata-0-2-13"
 engineKind: "ENGINE_KIND_STRATA"
 version: "0.2.13"

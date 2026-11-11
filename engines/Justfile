@@ -7,14 +7,14 @@ mod vllm 'vllm/Justfile'
 help:
   @just --list
 
-# Load every engine image into the current Docker daemon; the x86_64-only images come last, ninfer at the end, as it builds for minutes on its first load.
+# Load every engine image into the current Docker daemon.
 image-load:
   just llama-cpp image-load
   just vllm image-load
   just strata image-load
   just ninfer image-load
 
-# Run the image tests of the engines that have one (ninfer, Strata); loader tests are `just dev::docker-images-check`.
+# Run the image tests of the engines that have one; loader tests are `just dev::docker-images-check`.
 test:
   just ninfer image-test
   just strata image-test

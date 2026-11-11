@@ -4,7 +4,7 @@
 
 Dotcore runs AI on hardware you own. It loads models, fits them to your machines, and puts a single endpoint in front of everything.
 
-- **Pick a model, get a running endpoint.** Dotcore starts it for you, on llama.cpp, vLLM, ninfer or Strata.
+- **Pick a model, get a running endpoint.** Dotcore starts it for you, on llama.cpp, vLLM, etc.
 - **Fit the model to your hardware.** See how much memory a model needs and the largest context that fits each machine.
 - **One endpoint in front of everything.** Call every model through one OpenAI-compatible API. If a deployment is down, requests move to another one.
 - **Many machines, working as one.** Start on one machine, then add more.
