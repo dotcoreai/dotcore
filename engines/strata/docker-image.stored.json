@@ -1,7 +1,7 @@
 {
   "linux/amd64": {
-    "recipeHash": "26c97aeb8812027b0f20c07d75fe961d",
-    "hash": "sha256-QdqYHKbI4/t9XBvMe80P5QwLwiTsuKG5jB5zvbtBA70=",
+    "recipeHash": "3c8d52b1c44b8ab8e217d74d65605fa1",
+    "hash": "sha256-b605K50BxGZ21gf6GYcemZR68SQem/mhue1FJs9Ujvg=",
     "diffIds": [
       "sha256:bec87777bc2fb2edcdf9af11df1531469e7df911309c1413082b18fcb8610278",
       "sha256:08a0705657c1744104afa8c3ac49457e8a46e533b449d8dac040aadd611ac790",
@@ -12,7 +12,17 @@
       "sha256:2c946b50c318a37d7c8e0e3fb92fa893d6192784810748053f37a01ed156af89",
       "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
       "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-      "sha256:82dbe5da61381f73a63e15f35988cb4f24eae6dcb444044875b312ec0c9c8ee1"
+      "sha256:d1ccfd1c13cb3922489e243d8d889cc688be384edc3a2e55f5f1f168bc9f8387"
+    ]
+  },
+  "linux/arm64": {
+    "recipeHash": "08ac05b15868c89a9e83605be25caa63",
+    "hash": "sha256-izoWr+bt8fCNnK6S2XsU9U4BueWhEGRN7VdqCueL1oo=",
+    "diffIds": [
+      "sha256:107ffca6dcd3fc87a7bed8c062f5ddc0d6a4b107205c82c0b49efdb7c1aff967",
+      "sha256:f7976eb37a040b2bfb5f624bc923a1d73d248c38c3877e5812106a799dd40f75",
+      "sha256:3fa714fabf927e80de2c56db388f9233f6916d3913a0e38e1ea0684fed2bb591",
+      "sha256:fa43c72ee45f4b1fa072e862f978e9275f44f397ed3403fe00382c8101a7d2ad"
     ]
   }
 }

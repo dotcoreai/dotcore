@@ -18,7 +18,6 @@ from pathlib import Path
 
 DATA = Path("/data")
 TERMINAL = Path("/opt/strata/terminal")
-GGUF_PY = Path("/opt/strata/seed/third_party/llama.cpp/gguf-py")
 MAX_PARALLEL = 8
 MAX_MTP = 8
 
@@ -87,7 +86,6 @@ def prepare_tokenizer(model: Path) -> Path:
     shutil.rmtree(out, ignore_errors=True)
     subprocess.run(
         [sys.executable, str(TERMINAL / "tools" / "strata_tokenizer.py"), "--gguf", str(model), "--out", str(out)],
-        env={**os.environ, "STRATA_GGUF_PY": str(GGUF_PY)},
         check=True,
     )
     stamp.write_text(source)
