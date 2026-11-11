@@ -1,4 +1,4 @@
-# Strata's published CUDA 13 image plus Dotcore's keyless start wrapper, built by
+# Strata's CUDA 13 build plus Dotcore's keyless start wrapper, built by
 # `engines/strata/docker-image.nix`, loaded from its stored image or built locally on the hosting
 # node.
 engineReleaseId: "strata-0-2-13"
@@ -60,4 +60,15 @@ artifacts:
       - platform: { operatingSystem: "linux", architecture: "amd64" }
         accelerators: ["nvidia"]
         # The CUDA 13 image runs on the R580 driver branch.
+        minimumNvidiaDriverMajorVersion: 580
+  - artifactId: "linux-arm64-cuda"
+    nix:
+      flake: "self"
+      package: "engines.strata.docker"
+      dockerImage: {}
+    # Each selector is one set of target facts this build runs on.
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "arm64" }
+        accelerators: ["nvidia"]
+        # The CUDA 13 engine package runs on the R580 driver branch.
         minimumNvidiaDriverMajorVersion: 580
