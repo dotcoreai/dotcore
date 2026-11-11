@@ -5043,7 +5043,7 @@ async fn profile_compatibility_reads_the_simulated_site_through_the_model_servic
 }
 
 /// Master catalog copy whose only recommendations are the synthetic ones the recommendation read
-/// test expects: coding lists the fixture profile on the fixture class, and decision making lists
+/// test expects: coding lists the fixture profile on the fixture class, and the other use cases list
 /// nothing.
 fn recommendation_master_catalog(root: &Path) -> PathBuf {
     let master = root.join("cache/recommendation-master-catalog");
@@ -5055,7 +5055,7 @@ fn recommendation_master_catalog(root: &Path) -> PathBuf {
         "fixture-nvidia",
         r#"hardwareClassId: "fixture-nvidia"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "fixture-model"
         profileId: "fixture-profile"
@@ -5081,6 +5081,7 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
         ModelServiceContract::list_model_recommendations(
             &service,
             Request::new(ListModelRecommendationsRequest {
+                can_start_now: false,
                 use_cases: use_cases
                     .into_iter()
                     .map(|use_case| use_case as i32)
@@ -5092,7 +5093,7 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
     // The manager's own node reports its first observation asynchronously after composition.
     let deadline = Instant::now() + Duration::from_secs(10);
     let response = loop {
-        let response = read(vec![UseCase::CodingAndAgents])
+        let response = read(vec![UseCase::Coding])
             .await
             .expect("recommendation read")
             .into_inner();
@@ -5129,21 +5130,22 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
     assert_eq!(
         response.use_cases,
         [UseCaseModelRecommendations {
-            use_case: UseCase::CodingAndAgents as i32,
+            use_case: UseCase::Coding as i32,
             rows: vec![RecommendedModelProfile {
                 model_id: "fixture-model".to_owned(),
                 profile_id: "fixture-profile".to_owned(),
+                context_tokens_per_request: 0,
                 targets: vec![RecommendedProfileTarget {
                     target: Some(support::exact_placement("fixture-node", "fixture-target")),
                     fit: ModelRecommendationFit::FitsNow as i32,
-                    deployed: false,
+                    model_deployment_id: None,
                     starting_total_context_tokens: Some(starting_total_context_tokens),
                 }],
             }],
         }]
     );
 
-    // No use case asks for all four, each ranked even when nothing is recommended.
+    // No use case asks for all three, each ranked even when nothing is recommended.
     let all = read(Vec::new()).await.expect("all use cases").into_inner();
     assert_eq!(
         all.use_cases
@@ -5151,14 +5153,13 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
             .map(|ranked| (ranked.use_case, ranked.rows.len()))
             .collect::<Vec<_>>(),
         [
-            (UseCase::CodingAndAgents as i32, 1),
-            (UseCase::GeneralAssistant as i32, 0),
-            (UseCase::Translation as i32, 0),
-            (UseCase::DecisionMaking as i32, 0),
+            (UseCase::Coding as i32, 1),
+            (UseCase::ChatAssistant as i32, 0),
+            (UseCase::ImageGeneration as i32, 0),
         ]
     );
 
-    let unspecified = read(vec![UseCase::CodingAndAgents, UseCase::Unspecified])
+    let unspecified = read(vec![UseCase::Coding, UseCase::Unspecified])
         .await
         .expect_err("unspecified use case");
     assert_eq!(unspecified.code(), tonic::Code::InvalidArgument);

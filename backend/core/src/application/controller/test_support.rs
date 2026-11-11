@@ -3023,6 +3023,8 @@ pub(super) fn application() -> Application {
         description: String::new(),
         notes: String::new(),
         version: "1.0.0".to_owned(),
+        use_cases: Vec::new(),
+        preferred_accelerators: Vec::new(),
         graph: Some(ApplicationGraph {
             services: vec![ApplicationService {
                 service_name: "web".to_owned(),

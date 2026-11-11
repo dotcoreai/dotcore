@@ -10,7 +10,8 @@ use dotcore_proto::dotcore::application::v1::{
     CreateApplicationDeploymentRequest, CreateApplicationDeploymentResponse,
     FollowDeploymentLogsRequest, FollowDeploymentLogsResponse, GetApplicationDeploymentRequest,
     GetApplicationDeploymentResponse, ListApplicationDeploymentsRequest,
-    ListApplicationDeploymentsResponse, PauseDeploymentRequest, PauseDeploymentResponse,
+    ListApplicationDeploymentsResponse, ListApplicationTargetsRequest,
+    ListApplicationTargetsResponse, PauseDeploymentRequest, PauseDeploymentResponse,
     ReadDeploymentLogsRequest, ReadDeploymentLogsResponse, RemoveApplicationDeploymentRequest,
     RemoveApplicationDeploymentResponse, ResumeDeploymentRequest, ResumeDeploymentResponse,
     UpdateApplicationDeploymentMetadataRequest, UpdateApplicationDeploymentMetadataResponse,
@@ -84,6 +85,16 @@ where
             .await
             .map(Response::new)
             .map_err(|error| error.to_tonic_status())
+    }
+
+    async fn list_application_targets(
+        &self,
+        _request: Request<ListApplicationTargetsRequest>,
+    ) -> Result<Response<ListApplicationTargetsResponse>, Status> {
+        // TODO: answer from the apps controller's application target read.
+        Ok(Response::new(ListApplicationTargetsResponse {
+            targets: Vec::new(),
+        }))
     }
 
     async fn get_application_deployment(

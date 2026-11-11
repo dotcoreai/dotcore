@@ -6156,11 +6156,19 @@ fn hardware_recommend_prints_exact_tables_for_a_described_machine() {
     // The model that needs 24 GB per device is listed first on the roomy GPU and dropped on the tight one.
     assert_eq!(
         recommend(&roomy, &[]),
-        "Coding and agents\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Big    Fixture Q4  Fixture GPU X  fits now  174080\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  314368\n\nGeneral assistant\nNo recommendation for this machine\n\nTranslation\nNo recommendation for this machine\n\nDecision making\nNo recommendation for this machine\n"
+        "Coding\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Big    Fixture Q4  Fixture GPU X  fits now  174080\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  314368\n\nChat assistant\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  314368\n\nImage generation\nNo recommendation for this machine\n"
     );
     assert_eq!(
         recommend(&tight, &["--use-case", "coding"]),
-        "Coding and agents\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  59392\n"
+        "Coding\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  59392\n"
+    );
+    assert_eq!(
+        recommend(&tight, &["--use-case", "chat"]),
+        "Chat assistant\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT TOKENS\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  59392\n"
+    );
+    assert_eq!(
+        recommend(&tight, &["--use-case", "image"]),
+        "Image generation\nNo recommendation for this machine\n"
     );
 }
 

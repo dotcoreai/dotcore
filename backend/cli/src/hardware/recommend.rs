@@ -34,25 +34,18 @@ pub(super) struct RecommendArgs {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum UseCaseArg {
     Coding,
-    Assistant,
-    Translation,
-    Decision,
+    Chat,
+    Image,
 }
 
 impl UseCaseArg {
-    const ALL: [Self; 4] = [
-        Self::Coding,
-        Self::Assistant,
-        Self::Translation,
-        Self::Decision,
-    ];
+    const ALL: [Self; 3] = [Self::Coding, Self::Chat, Self::Image];
 
     fn use_case(self) -> UseCase {
         match self {
-            Self::Coding => UseCase::CodingAndAgents,
-            Self::Assistant => UseCase::GeneralAssistant,
-            Self::Translation => UseCase::Translation,
-            Self::Decision => UseCase::DecisionMaking,
+            Self::Coding => UseCase::Coding,
+            Self::Chat => UseCase::ChatAssistant,
+            Self::Image => UseCase::ImageGeneration,
         }
     }
 }
@@ -149,10 +142,9 @@ fn table(catalog: &Catalog, machine: &IdleMachine, list: &UseCaseRecommendations
 
 fn use_case_label(use_case: UseCase) -> &'static str {
     match use_case {
-        UseCase::CodingAndAgents => "Coding and agents",
-        UseCase::GeneralAssistant => "General assistant",
-        UseCase::Translation => "Translation",
-        UseCase::DecisionMaking => "Decision making",
+        UseCase::Coding => "Coding",
+        UseCase::ChatAssistant => "Chat assistant",
+        UseCase::ImageGeneration => "Image generation",
         UseCase::Unspecified => "Unspecified",
     }
 }

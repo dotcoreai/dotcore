@@ -61,7 +61,6 @@ pub(super) fn validate_recommendations(
             }
             validate_entry(
                 entry,
-                use_case,
                 hardware_class,
                 models,
                 hardware_classes,
@@ -103,7 +102,6 @@ pub(super) fn report_overlapping_recommendation_classes(
 
 fn validate_entry(
     entry: &ModelRecommendation,
-    use_case: UseCase,
     hardware_class: &HardwareClass,
     models: &BTreeMap<String, Model>,
     hardware_classes: &BTreeMap<String, HardwareClass>,
@@ -136,18 +134,13 @@ fn validate_entry(
         ));
     }
 
-    let required_kind = if use_case == UseCase::DecisionMaking {
-        InferenceRequestKind::Decision
-    } else {
-        InferenceRequestKind::Chat
-    };
     if !configuration
         .request_kinds
-        .contains(&(required_kind as i32))
+        .contains(&(InferenceRequestKind::Chat as i32))
     {
         errors.push(anyhow::anyhow!(
             "{label} runs a configuration that doesn't accept {} requests",
-            required_kind.as_str_name()
+            InferenceRequestKind::Chat.as_str_name()
         ));
     }
 

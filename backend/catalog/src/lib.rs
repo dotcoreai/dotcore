@@ -2129,7 +2129,7 @@ artifacts:
 
     const NVIDIA_RECOMMENDATIONS: &str = r#"hardwareClassId: "nvidia"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "fixture-model"
         profileId: "balanced"
@@ -2137,7 +2137,7 @@ useCases:
           minimumMemoryBytesPerDevice: "32000000000"
       - modelId: "fixture-model"
         profileId: "fast"
-  - useCase: "USE_CASE_TRANSLATION"
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - modelId: "fixture-model"
         profileId: "fast"
@@ -2187,10 +2187,10 @@ useCases:
             [
                 (
                     "nvidia",
-                    UseCase::CodingAndAgents,
+                    UseCase::Coding,
                     vec![("balanced", Some(32_000_000_000)), ("fast", None)]
                 ),
-                ("nvidia", UseCase::Translation, vec![("fast", None)]),
+                ("nvidia", UseCase::ChatAssistant, vec![("fast", None)]),
             ]
         );
         fs::remove_dir_all(root).expect("Catalog fixture cleanup");
@@ -2265,7 +2265,7 @@ useCases:
                 &root,
                 class,
                 &format!(
-                    "hardwareClassId: \"{class}\"\nuseCases:\n  - useCase: \"USE_CASE_GENERAL_ASSISTANT\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n"
+                    "hardwareClassId: \"{class}\"\nuseCases:\n  - useCase: \"USE_CASE_CHAT_ASSISTANT\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n"
                 ),
             );
         }
@@ -2310,9 +2310,9 @@ useCases:
                 lists.concat()
             )
         };
-        let assistant = |entries: &[(&str, &str)]| list("USE_CASE_GENERAL_ASSISTANT", entries);
+        let assistant = |entries: &[(&str, &str)]| list("USE_CASE_CHAT_ASSISTANT", entries);
         let balanced = [("fixture-model", "balanced")];
-        let entry = "use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"fixture-model\" profile \"balanced\")";
+        let entry = "use case USE_CASE_CHAT_ASSISTANT entry 1 (model \"fixture-model\" profile \"balanced\")";
         let nvidia_support = "      - hardwareClassId: \"nvidia\"\n";
         let minimum_support = "      - hardwareClassId: \"nvidia\"\n        hardwareRequirements:\n          minimumMemoryBytesPerDevice: \"16000000000\"\n";
 
@@ -2333,31 +2333,25 @@ useCases:
                 "repeated use case",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&balanced), assistant(&[("fixture-model", "fast")])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" list use case USE_CASE_GENERAL_ASSISTANT more than once".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" list use case USE_CASE_CHAT_ASSISTANT more than once".to_owned(),
             ),
             (
                 "unknown model",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&[("missing", "balanced")])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"missing\" profile \"balanced\") references an unknown model".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CHAT_ASSISTANT entry 1 (model \"missing\" profile \"balanced\") references an unknown model".to_owned(),
             ),
             (
                 "unknown profile",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&[("fixture-model", "missing")])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"fixture-model\" profile \"missing\") references an unknown profile".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CHAT_ASSISTANT entry 1 (model \"fixture-model\" profile \"missing\") references an unknown profile".to_owned(),
             ),
             (
                 "unrelated class",
                 nvidia_support,
                 vec![("apple", file("apple", &[assistant(&balanced)]))],
                 format!("recommendations/apple.yaml: model recommendations for hardware class \"apple\" {entry} runs a configuration that supports neither this hardware class, a class containing it, nor a class nested in it"),
-            ),
-            (
-                "decision making without decision requests",
-                nvidia_support,
-                vec![("nvidia", file("nvidia", &[list("USE_CASE_DECISION_MAKING", &balanced)]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_DECISION_MAKING entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_DECISION requests".to_owned(),
             ),
             (
                 "entry minimum below the configuration's",
@@ -2375,7 +2369,7 @@ useCases:
                 "repeated entry",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&[balanced[0], balanced[0]])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 2 (model \"fixture-model\" profile \"balanced\") repeats an earlier entry".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CHAT_ASSISTANT entry 2 (model \"fixture-model\" profile \"balanced\") repeats an earlier entry".to_owned(),
             ),
             (
                 "class declared twice",
@@ -2420,7 +2414,7 @@ useCases:
     }
 
     #[test]
-    fn chat_use_cases_require_a_configuration_accepting_chat_requests() {
+    fn coding_entries_require_a_configuration_accepting_chat_requests() {
         let root = recommendation_fixture("      - hardwareClassId: \"nvidia\"\n");
         let path = root.join("models/fixture.yaml");
         let model = fs::read_to_string(&path).expect("fixture model");
@@ -2435,7 +2429,7 @@ useCases:
         super::test_support::write_recommendations(
             &root,
             "nvidia",
-            "hardwareClassId: \"nvidia\"\nuseCases:\n  - useCase: \"USE_CASE_DECISION_MAKING\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n  - useCase: \"USE_CASE_TRANSLATION\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n",
+            "hardwareClassId: \"nvidia\"\nuseCases:\n  - useCase: \"USE_CASE_CODING\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n",
         );
 
         let error = Catalog::load_with_policy(
@@ -2443,12 +2437,12 @@ useCases:
             OciArtifactPolicy::Development,
             &ACCEPT_ENGINE_DECLARATIONS,
         )
-        .expect_err("a chat use case on a decision-only configuration must reject")
+        .expect_err("a coding entry on a decision-only configuration must reject")
         .to_string();
 
         assert_eq!(
             error,
-            "Catalog diagnostics: recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_TRANSLATION entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_CHAT requests"
+            "Catalog diagnostics: recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CODING entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_CHAT requests"
         );
         fs::remove_dir_all(root).expect("Catalog fixture cleanup");
     }
