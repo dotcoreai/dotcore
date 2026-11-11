@@ -5134,7 +5134,8 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
             rows: vec![RecommendedModelProfile {
                 model_id: "fixture-model".to_owned(),
                 profile_id: "fixture-profile".to_owned(),
-                context_tokens_per_request: 0,
+                // The entry sets none, so the row reads the profile's default.
+                context_tokens_per_request: 32_768,
                 targets: vec![RecommendedProfileTarget {
                     target: Some(support::exact_placement("fixture-node", "fixture-target")),
                     fit: ModelRecommendationFit::FitsNow as i32,
