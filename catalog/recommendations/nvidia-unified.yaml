@@ -1,9 +1,9 @@
 # Model recommendations for NVIDIA GPUs sharing the host's memory, such as the GB10, best first.
-# Memory bandwidth limits generation there, so the general assistant prefers mixture-of-experts
-# models, which read fewer weights per token. Decision making uses the nvidia list.
+# Memory bandwidth limits generation there, so the chat assistant prefers mixture-of-experts
+# models, which read fewer weights per token.
 hardwareClassId: "nvidia-unified"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "nvfp4-text"
@@ -11,19 +11,11 @@ useCases:
         profileId: "nvfp4"
       - modelId: "qwen3-5-9b"
         profileId: "q4-xl"
-  - useCase: "USE_CASE_GENERAL_ASSISTANT"
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - modelId: "ornith-1-5-35b-a3b"
         profileId: "nvfp4-multimodal"
       - modelId: "qwen3-8-27b"
         profileId: "nvfp4-multimodal"
-      - modelId: "gemma-4-12b-it-qat"
-        profileId: "gpu"
-  - useCase: "USE_CASE_TRANSLATION"
-    entries:
-      - modelId: "gemma-4-31b-it"
-        profileId: "nvfp4"
-      - modelId: "gemma-4-26b-a4b-it"
-        profileId: "nvfp4"
       - modelId: "gemma-4-12b-it-qat"
         profileId: "gpu"
