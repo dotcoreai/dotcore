@@ -34,21 +34,21 @@ message ModelRecommendation {
 
   // Optional memory minimums a machine needs for this entry, on top of the configuration's own.
   HardwareRequirements hardware_requirements = 3;
+
+  // Optional context per request in tokens to size this entry with; the profile's default applies when absent.
+  optional uint64 context_tokens_per_request = 4;
 }
 
 // What an operator runs models for. Distinct from inference request kinds.
 enum UseCase {
   USE_CASE_UNSPECIFIED = 0;
 
-  // Coding assistants and autonomous agents.
-  USE_CASE_CODING_AND_AGENTS = 1;
-
   // General chat assistance.
-  USE_CASE_GENERAL_ASSISTANT = 2;
+  USE_CASE_CHAT_ASSISTANT = 1;
 
-  // Translating text between languages.
-  USE_CASE_TRANSLATION = 3;
+  // Coding assistants and autonomous agents.
+  USE_CASE_CODING = 2;
 
-  // Typed decisions with per-option probabilities.
-  USE_CASE_DECISION_MAKING = 4;
+  // Generating images.
+  USE_CASE_IMAGE_GENERATION = 3;
 }

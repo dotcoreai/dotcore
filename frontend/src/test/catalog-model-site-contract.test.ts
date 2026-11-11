@@ -51,6 +51,7 @@ describe("separate catalog and model read contracts", () => {
       "ReadDeploymentLogs",
       "FollowDeploymentLogs",
       "UpdateApplicationDeploymentMetadata",
+      "ListApplicationTargets",
     ]);
     expect(
       fieldNumbers(
