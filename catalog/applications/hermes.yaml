@@ -3,7 +3,7 @@
 applicationId: "hermes-app"
 displayName: "Hermes"
 description: "Autonomous AI agent with tools, memory, and a web dashboard that has a chat page."
-version: "0.2.0"
+version: "0.2.1"
 notes: |-
   Dashboard login: username admin, password dotcore. Every deployment uses the same login, so it
   doesn't protect the dashboard from anyone who can reach it. Chat with the agent on the dashboard's
@@ -54,11 +54,6 @@ graph:
           input:
             inferenceRoute:
               projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
-      storageBindings:
-        - bindingName: "data"
-          mountPath: "/opt/data"
-          kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_DEPLOYMENT"
       readiness:
         httpGet:
           portName: "gateway"

@@ -13,6 +13,10 @@
   deployment; they are not a leaked secret. They set no session secret, so a restart logs users out.
   Its test reaches the login and chat through a published port, never from inside the container,
   which sees loopback.
+* The catalog declares no storage binding, so `/opt/data` is container-local on every platform.
+  Docker Desktop's shared folders can't make Hermes' gateway socket private (upstream
+  NousResearch/hermes-agent#142743, PR #148254), which broke the Chat page on macOS. Remove this
+  note once deployments can have optional volumes.
 
 ## Update
 
