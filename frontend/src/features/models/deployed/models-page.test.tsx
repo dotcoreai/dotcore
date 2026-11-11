@@ -487,6 +487,68 @@ describe("ModelsPage deployment inspector", () => {
   });
 });
 
+describe("ModelsPage deployment connect", () => {
+  function chatRouteList(available: boolean) {
+    return () =>
+      Promise.resolve(
+        create(ListRoutesResponseSchema, {
+          routes: [
+            create(InferenceRouteViewSchema, {
+              availability: create(InferenceRouteAvailabilitySchema, { available }),
+              route: create(InferenceRouteSchema, {
+                enabled: true,
+                fallbackGroups: [{ modelDeploymentIds: ["deployment-a"] }],
+                inferenceRouteId: "id-chat",
+                name: "chat",
+              }),
+            }),
+          ],
+        }),
+      );
+  }
+
+  it("opens the connect page of the route Chat would use, above the deployment", async () => {
+    const user = setupUser();
+    const gemma = catalogModel("gemma", "Gemma", ["default"]);
+    const { router, watch } = renderModelsSection({
+      chatOpener: vi.fn(),
+      deployments: [
+        localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
+      ],
+      initialEntry: "/models?panel=models%2Fdeployment%3Adeployment-a",
+      listRoutes: chatRouteList(true),
+      models: [gemma],
+    });
+
+    await screen.findByRole("button", { name: "Connect" });
+    await act(() => watch.tick());
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Connect" })).not.toHaveAttribute("aria-disabled"),
+    );
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    expect(currentLocation(router)).toBe(
+      "/routes?panel=models%2Fdeployment%3Adeployment-a&panel=routes%2Fconnect%3Aid-chat",
+    );
+  });
+
+  it("disables Connect with the reason no route can be used", async () => {
+    const gemma = catalogModel("gemma", "Gemma", ["default"]);
+    renderModelsSection({
+      chatOpener: vi.fn(),
+      deployments: [
+        localDeployment("deployment-a", gemma, { status: ModelDeploymentStatus.READY }),
+      ],
+      initialEntry: "/models?panel=models%2Fdeployment%3Adeployment-a",
+      listRoutes: chatRouteList(false),
+      models: [gemma],
+    });
+
+    const connect = await screen.findByRole("button", { name: "Connect" });
+    await waitFor(() => expect(connect).toHaveAttribute("aria-disabled", "true"));
+  });
+});
+
 describe("ModelsPage deployment panel", () => {
   it("names the inspected deployment's placement by its machine and target display names", async () => {
     const user = setupUser();

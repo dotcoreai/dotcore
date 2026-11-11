@@ -591,6 +591,41 @@ describe("generic upstream endpoint UI", () => {
     );
   });
 
+  it("offers Connect for the target route, or disabled with the reason there is none", async () => {
+    const user = setupUser();
+    const onConnect = vi.fn();
+    const props = {
+      deployment: upstreamDeployment(),
+      metricsClient: idleMetricsClient(),
+      onConnect,
+      onEdit: vi.fn(),
+      onOpenChange: vi.fn(),
+      onUnload: vi.fn(),
+      open: true,
+      openerRef: createRef<HTMLButtonElement>(),
+    };
+    const { rerender } = render(
+      <MemoryRouter>
+        <UpstreamInspector {...props} connectTarget={{ routeId: "id-chat" }} />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+    expect(onConnect).toHaveBeenCalledExactlyOnceWith("id-chat");
+
+    rerender(
+      <MemoryRouter>
+        <UpstreamInspector
+          {...props}
+          connectTarget={{ unavailableReason: "Add the deployment to a route to connect to it." }}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Connect" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+  });
+
   it("submits the endpoint form once on Enter without saving Name metadata", async () => {
     const user = setupUser();
     const onSaveEndpoint = vi.fn().mockResolvedValue(true);

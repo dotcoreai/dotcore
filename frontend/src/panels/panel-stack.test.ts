@@ -136,6 +136,12 @@ describe("panel stack", () => {
     },
   );
 
+  it("accepts a route's connect page directly above a model deployment", () => {
+    expect(
+      parsePanelStack("panel=models%2Fdeployment%3Adeployment-1&panel=routes%2Fconnect%3Aroute-1"),
+    ).toEqual([deployment, connect]);
+  });
+
   it("round-trips typed entries and preserves unrelated query parameters", () => {
     expect(parsePanelEntry(serializePanelEntry(deployment))).toEqual(deployment);
     expect(serializePanelStack("filter=active&tab=details", [deployment, route])).toBe(
@@ -329,7 +335,7 @@ describe("panel stack", () => {
       ),
     ).toEqual([deployment, route, connect]);
     expect(
-      parsePanelStack("panel=models%2Fdeployment%3Adeployment-1&panel=routes%2Fconnect%3Aroute-1"),
+      parsePanelStack("panel=models%2Fdeployment%3Adeployment-1&panel=routes%2Fedit%3Aroute-1"),
     ).toEqual([deployment]);
     expect(
       parsePanelStack(

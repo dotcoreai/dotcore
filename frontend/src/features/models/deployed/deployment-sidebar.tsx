@@ -5,7 +5,7 @@ import { useClients } from "@/api/clients";
 import { InspectorPlaceholder } from "@/components/ui/inspector-placeholder";
 import { localModelSnapshot, modelDeploymentPresentationName } from "@/domain/model-projection";
 import { placementMachine } from "@/domain/placement";
-import { deploymentChatTarget } from "@/features/chat/chattable-route";
+import { deploymentChatTarget, deploymentConnectTarget } from "@/features/chat/chattable-route";
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentEditor } from "@/features/deployments/deployment-editor";
 import { useSiteMemory } from "@/features/memory/use-site-memory";
@@ -232,6 +232,11 @@ export function DeploymentSidebar({
       }),
     );
 
+  const openRouteConnect = (routeId: string) =>
+    panelNavigation.navigatePanel(
+      appendPanelLocation(location, { page: "routes", resourceId: routeId, screen: "connect" }),
+    );
+
   const onInspectorOpenChange = (open: boolean) => {
     if (!open) requestCloseSelection();
   };
@@ -263,6 +268,8 @@ export function DeploymentSidebar({
             openChildScreen(selectedDeployment, "edit");
           }}
           onUnload={() => unload(selectedDeployment)}
+          connectTarget={deploymentConnectTarget(routeViews, selectedDeployment.modelDeploymentId)}
+          onConnect={openRouteConnect}
           chatTarget={deploymentChatTarget(
             routeViews,
             selectedDeployment.modelDeploymentId,
@@ -297,6 +304,11 @@ export function DeploymentSidebar({
             )}
             executionTargets={executionTargets?.value?.executionTargets}
             catalogModelHref={catalogModelHrefForDeployment(selectedDeployment, location)}
+            connectTarget={deploymentConnectTarget(
+              routeViews,
+              selectedDeployment.modelDeploymentId,
+            )}
+            onConnect={openRouteConnect}
             chatTarget={deploymentChatTarget(
               routeViews,
               selectedDeployment.modelDeploymentId,

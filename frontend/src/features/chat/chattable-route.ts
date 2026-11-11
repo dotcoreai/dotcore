@@ -47,31 +47,42 @@ export function deploymentChatTarget(
   deploymentKinds: readonly InferenceRequestKind[],
 ): ChatTarget {
   const declaredLabel = actionLabel(chatModeForKinds(deploymentKinds));
-  const memberOf = routes.filter((view) =>
-    view.route?.fallbackGroups.some((group) =>
-      group.modelDeploymentIds.includes(modelDeploymentId),
-    ),
-  );
-  if (memberOf.length === 0) {
+  const selection = selectDeploymentRoute(routes, modelDeploymentId);
+  if (selection.kind === "not-a-member") {
     return {
       label: declaredLabel,
       unavailableReason: `Add the deployment to a route to ${declaredLabel === "Ask" ? "ask" : "chat with"} it.`,
     };
   }
-
-  const available = memberOf.find(isChattableRoute);
-  if (!available) {
-    return {
-      label: declaredLabel,
-      unavailableReason: "None of the deployment's routes is available.",
-    };
+  if (selection.kind === "unavailable") {
+    return { label: declaredLabel, unavailableReason: unavailableRoutesReason };
   }
 
+  const available = selection.view;
   const shared = deploymentKinds.length
     ? available.requestKinds.filter((kind) => deploymentKinds.includes(kind))
     : available.requestKinds;
   const mode = chatModeForKinds(shared);
   return { label: actionLabel(mode), mode, route: available.route!.name };
+}
+
+/** Where a deployment's Connect action takes the operator: the same route Chat uses, or why none. */
+export type ConnectTarget =
+  | { routeId: string; unavailableReason?: undefined }
+  | { routeId?: undefined; unavailableReason: string };
+
+/** The Connect target of a model deployment: the route `deploymentChatTarget` would pick. */
+export function deploymentConnectTarget(
+  routes: readonly InferenceRouteView[],
+  modelDeploymentId: string,
+): ConnectTarget {
+  const selection = selectDeploymentRoute(routes, modelDeploymentId);
+  if (selection.kind === "not-a-member") {
+    return { unavailableReason: "Add the deployment to a route to connect to it." };
+  }
+  if (selection.kind === "unavailable") return { unavailableReason: unavailableRoutesReason };
+
+  return { routeId: selection.view.route!.inferenceRouteId };
 }
 
 function actionLabel(mode: ChatMode): ChatActionLabel {
@@ -80,4 +91,23 @@ function actionLabel(mode: ChatMode): ChatActionLabel {
 
 function enableReason(mode: ChatMode): string {
   return mode === "decision" ? "Enable the route to ask it." : "Enable the route to chat with it.";
+}
+
+const unavailableRoutesReason = "None of the deployment's routes is available.";
+
+/** The first available route listing the deployment, or why there is none. */
+function selectDeploymentRoute(
+  routes: readonly InferenceRouteView[],
+  modelDeploymentId: string,
+):
+  { kind: "found"; view: InferenceRouteView } | { kind: "not-a-member" } | { kind: "unavailable" } {
+  const memberOf = routes.filter((view) =>
+    view.route?.fallbackGroups.some((group) =>
+      group.modelDeploymentIds.includes(modelDeploymentId),
+    ),
+  );
+  if (memberOf.length === 0) return { kind: "not-a-member" };
+
+  const available = memberOf.find(isChattableRoute);
+  return available ? { kind: "found", view: available } : { kind: "unavailable" };
 }
