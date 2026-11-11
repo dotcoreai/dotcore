@@ -19,5 +19,7 @@ web dashboard.
 * Restarting the app logs you out.
 * Dotcore doesn't manage its credentials or secrets.
 * The Hermes agent API is off.
+* Hermes keeps its data (sessions, memory, settings) inside the app. It is lost when the app is
+  redeployed or recreated.
 
 Maintaining it: [`AGENTS.md`](AGENTS.md).
