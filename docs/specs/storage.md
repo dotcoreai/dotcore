@@ -20,10 +20,9 @@ transport).
 - Get a site-wide overview of inference and machine metrics over a chosen time range, leading to
   each deployment, route and machine.
 - See hardware metrics (memory, CPU, GPU use, power, temperature, storage), per-deployment resource
-  use, and request metrics, per site, machine, device, deployment and route. History is kept in
-  memory, is lost on restart, and isn't usage accounting.
+  use, and request metrics, per site, machine, device, deployment and route.
 - Read workload and backend diagnostics, apart from platform telemetry. Access to logs doesn't imply
-  durable retention, complete history, productized telemetry or remote-access security.
+  durable retention or complete history.
 - See configured and observed protection honestly. Nothing implies a backup or recovery guarantee
   without support and configuration.
 

@@ -135,7 +135,7 @@ What an app deployment keeps from creation:
   devices, and fail the deployment as incompatible when they differ.
 - Prepare service images only for targets whose runtime backend needs them physically present.
 - Project each unit's GPU memory, as attributed by the hosting node, from that node's current status
-  at read time.
+  at read time, never from retained state.
 
 #### Boundaries
 

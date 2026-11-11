@@ -13,8 +13,8 @@ Code: `backend/core/src/route_manager/`, `backend/core/src/router/`,
   client-defined function tools and supported image inputs. Supported models keep their reasoning
   output separate.
 - Ask decision requests: typed questions answered with per-option probabilities from one model pass,
-  through the System One format, with OpenAI Decisions to follow. Decisions are non-streaming and
-  text-only, and upstream models serve chat only.
+  through the System One and OpenAI Decisions formats. Decisions are non-streaming and text-only,
+  and upstream models serve chat only.
 - Expose a deployment directly under its own route, or keep it hidden in other routes. Route
   membership doesn't care whether a deployment is local or upstream.
 - Create, inspect, rename, enable, disable and delete routes, with visible membership and

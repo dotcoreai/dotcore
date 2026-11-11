@@ -79,8 +79,7 @@ in the same change that adds, removes or renames a folder it lists.
   status summaries are not technical plans.
 - After writing or materially revising a technical plan, request an architecture review. Before
   implementing it, report its effects on the facts above and the document updates it needs.
-- Update a spec page only when its own subject changes; leave out POC-only and scope-limited
-  detail. Routine UI and implementation changes need neither a document edit nor a discussion.
+- [`docs/specs/AGENTS.md`](docs/specs/AGENTS.md) says when a change updates a spec page.
 
 ## Development
 

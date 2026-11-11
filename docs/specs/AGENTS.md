@@ -8,14 +8,15 @@ milestones and commercial plans live outside this repository. Treat the pages as
 
 - A change to ownership, boundaries, identities, retained state, flows, failure behavior, trust or
   data boundaries updates its page in the same change.
-- Routine code and UI changes that keep every contract need no page edit.
+- Routine code and UI changes that keep every contract need no page edit and no discussion.
+- Leave out POC-only and scope-limited detail.
 - Removing a fact is a design decision. A rewrite or move never drops one silently.
 
 ## Pages
 
 - `README.md` lists the pages and the components each owns. Add a page only when a new component
   owns a new kind of state.
-- Each page names the code it covers. Every component on a page appears in an area code map
+- Each page names the code it covers. Every component that has code appears in an area code map
   (`backend/AGENTS.md`, `frontend/AGENTS.md`), and every crate that holds a component appears on
   one page.
 

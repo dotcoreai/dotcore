@@ -9,7 +9,6 @@ Code: node identity and enrollment in `backend/site/`, listeners in `backend/cor
 ## Capabilities
 
 - Keep management access, inference consumption and app access separate.
-- Use local administration, identity provider sign-in, roles, sessions, scoped API keys and audit.
 - See entitlement and usage, with where each number comes from and what enforces it.
 - Join a machine to a site with your approval, and remove it.
 - Keep the site fully local, or connect it to Dotcore's services for remote management.
