@@ -9,7 +9,7 @@ import { enumDesc, fileDesc } from "@bufbuild/protobuf/codegenv2";
  * Describes the file dotcore/catalog/v1/recommendation.proto.
  */
 export const file_dotcore_catalog_v1_recommendation: GenFile = /*@__PURE__*/
-  fileDesc("Cidkb3Rjb3JlL2NhdGFsb2cvdjEvcmVjb21tZW5kYXRpb24ucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSqbAQoHVXNlQ2FzZRIYChRVU0VfQ0FTRV9VTlNQRUNJRklFRBAAEh4KGlVTRV9DQVNFX0NPRElOR19BTkRfQUdFTlRTEAESHgoaVVNFX0NBU0VfR0VORVJBTF9BU1NJU1RBTlQQAhIYChRVU0VfQ0FTRV9UUkFOU0xBVElPThADEhwKGFVTRV9DQVNFX0RFQ0lTSU9OX01BS0lORxAEYgZwcm90bzM");
+  fileDesc("Cidkb3Rjb3JlL2NhdGFsb2cvdjEvcmVjb21tZW5kYXRpb24ucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSp0CgdVc2VDYXNlEhgKFFVTRV9DQVNFX1VOU1BFQ0lGSUVEEAASGwoXVVNFX0NBU0VfQ0hBVF9BU1NJU1RBTlQQARITCg9VU0VfQ0FTRV9DT0RJTkcQAhIdChlVU0VfQ0FTRV9JTUFHRV9HRU5FUkFUSU9OEANiBnByb3RvMw");
 
 /**
  * What an operator runs models for. Distinct from inference request kinds.
@@ -23,32 +23,25 @@ export enum UseCase {
   UNSPECIFIED = 0,
 
   /**
-   * Coding assistants and autonomous agents.
-   *
-   * @generated from enum value: USE_CASE_CODING_AND_AGENTS = 1;
-   */
-  CODING_AND_AGENTS = 1,
-
-  /**
    * General chat assistance.
    *
-   * @generated from enum value: USE_CASE_GENERAL_ASSISTANT = 2;
+   * @generated from enum value: USE_CASE_CHAT_ASSISTANT = 1;
    */
-  GENERAL_ASSISTANT = 2,
+  CHAT_ASSISTANT = 1,
 
   /**
-   * Translating text between languages.
+   * Coding assistants and autonomous agents.
    *
-   * @generated from enum value: USE_CASE_TRANSLATION = 3;
+   * @generated from enum value: USE_CASE_CODING = 2;
    */
-  TRANSLATION = 3,
+  CODING = 2,
 
   /**
-   * Typed decisions with per-option probabilities.
+   * Generating images.
    *
-   * @generated from enum value: USE_CASE_DECISION_MAKING = 4;
+   * @generated from enum value: USE_CASE_IMAGE_GENERATION = 3;
    */
-  DECISION_MAKING = 4,
+  IMAGE_GENERATION = 3,
 }
 
 /**

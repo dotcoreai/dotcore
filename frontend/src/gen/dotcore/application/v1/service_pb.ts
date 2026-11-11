@@ -18,7 +18,85 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/application/v1/service.proto.
  */
 export const file_dotcore_application_v1_service: GenFile = /*@__PURE__*/
-  fileDesc("CiRkb3Rjb3JlL2FwcGxpY2F0aW9uL3YxL3NlcnZpY2UucHJvdG8SFmRvdGNvcmUuYXBwbGljYXRpb24udjEiIwohTGlzdEFwcGxpY2F0aW9uRGVwbG95bWVudHNSZXF1ZXN0ImgKIkxpc3RBcHBsaWNhdGlvbkRlcGxveW1lbnRzUmVzcG9uc2USQgoLZGVwbG95bWVudHMYASADKAsyLS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uRGVwbG95bWVudCJECh9HZXRBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXF1ZXN0EiEKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYASABKAkiZQogR2V0QXBwbGljYXRpb25EZXBsb3ltZW50UmVzcG9uc2USQQoKZGVwbG95bWVudBgBIAEoCzItLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50IuMCCiJDcmVhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXF1ZXN0EhYKDmFwcGxpY2F0aW9uX2lkGAEgASgJEjgKCXBsYWNlbWVudBgCIAEoCzIlLmRvdGNvcmUuZGVwbG95bWVudC52MS5FeGFjdFBsYWNlbWVudBIfChJpbmZlcmVuY2Vfcm91dGVfaWQYAyABKAlIAIgBARIrCiNleHBlY3RlZF9pbmZlcmVuY2Vfcm91dGVfZ2VuZXJhdGlvbhgEIAEoBBIoChthcHBsaWNhdGlvbl9kZXBsb3ltZW50X25hbWUYBiABKAlIAYgBARI8ChBwYXJhbWV0ZXJfdmFsdWVzGAUgAygLMiIuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZhbHVlQhUKE19pbmZlcmVuY2Vfcm91dGVfaWRCHgocX2FwcGxpY2F0aW9uX2RlcGxveW1lbnRfbmFtZSJoCiNDcmVhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXNwb25zZRJBCgpkZXBsb3ltZW50GAEgASgLMi0uZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnQiRwoiUmVtb3ZlQXBwbGljYXRpb25EZXBsb3ltZW50UmVxdWVzdBIhChlhcHBsaWNhdGlvbl9kZXBsb3ltZW50X2lkGAEgASgJImgKI1JlbW92ZUFwcGxpY2F0aW9uRGVwbG95bWVudFJlc3BvbnNlEkEKCmRlcGxveW1lbnQYASABKAsyLS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uRGVwbG95bWVudCI7ChZQYXVzZURlcGxveW1lbnRSZXF1ZXN0EiEKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYASABKAkiXAoXUGF1c2VEZXBsb3ltZW50UmVzcG9uc2USQQoKZGVwbG95bWVudBgBIAEoCzItLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50IjwKF1Jlc3VtZURlcGxveW1lbnRSZXF1ZXN0EiEKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYASABKAkiXQoYUmVzdW1lRGVwbG95bWVudFJlc3BvbnNlEkEKCmRlcGxveW1lbnQYASABKAsyLS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uRGVwbG95bWVudCK3AQoZUmVhZERlcGxveW1lbnRMb2dzUmVxdWVzdBIhChlhcHBsaWNhdGlvbl9kZXBsb3ltZW50X2lkGAEgASgJEhQKDHNvdXJjZV9uYW1lcxgCIAMoCRIRCglwYWdlX3NpemUYAyABKA0SOQoQYmVmb3JlX3RpbWVzdGFtcBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBAUITChFfYmVmb3JlX3RpbWVzdGFtcCKmAwoaUmVhZERlcGxveW1lbnRMb2dzUmVzcG9uc2USPAoHc291cmNlcxgBIAMoCzIrLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ1NvdXJjZRI7CgdlbnRyaWVzGAIgAygLMiouZG90Y29yZS5hcHBsaWNhdGlvbi52MS5EZXBsb3ltZW50TG9nRW50cnkSPgoVbmV4dF9iZWZvcmVfdGltZXN0YW1wGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgAiAEBEkgKDWhpc3Rvcnlfc3RhdGUYBCABKA4yMS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkRlcGxveW1lbnRMb2dIaXN0b3J5U3RhdGUSGgoScmVzcG9uc2VfdHJ1bmNhdGVkGAUgASgIEk0KEGxhdGVzdF9wb3NpdGlvbnMYBiADKAsyMy5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkRlcGxveW1lbnRMb2dSZXN1bWVQb3NpdGlvbkIYChZfbmV4dF9iZWZvcmVfdGltZXN0YW1wIqUBChtGb2xsb3dEZXBsb3ltZW50TG9nc1JlcXVlc3QSIQoZYXBwbGljYXRpb25fZGVwbG95bWVudF9pZBgBIAEoCRIUCgxzb3VyY2VfbmFtZXMYAiADKAkSTQoQcmVzdW1lX3Bvc2l0aW9ucxgDIAMoCzIzLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ1Jlc3VtZVBvc2l0aW9uIq4BChxGb2xsb3dEZXBsb3ltZW50TG9nc1Jlc3BvbnNlEkgKDHNvdXJjZV9ldmVudBgBIAEoCzIwLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ1NvdXJjZUV2ZW50SAASOwoFZW50cnkYAiABKAsyKi5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkRlcGxveW1lbnRMb2dFbnRyeUgAQgcKBWV2ZW50IoEBChNEZXBsb3ltZW50TG9nU291cmNlEhMKC3NvdXJjZV9uYW1lGAEgASgJEhQKDHNvdXJjZV9sYWJlbBgCIAEoCRI/CgVzdGF0ZRgDIAEoDjIwLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ1NvdXJjZVN0YXRlIs8BChJEZXBsb3ltZW50TG9nRW50cnkSEwoLc291cmNlX25hbWUYASABKAkSFAoMc291cmNlX2xhYmVsGAIgASgJEjsKBnN0cmVhbRgDIAEoDjIrLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ1N0cmVhbRItCgl0aW1lc3RhbXAYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEg8KB2NvbnRlbnQYBSABKAwSEQoJdHJ1bmNhdGVkGAYgASgIImgKG0RlcGxveW1lbnRMb2dSZXN1bWVQb3NpdGlvbhITCgtzb3VyY2VfbmFtZRgBIAEoCRI0ChBsYXRlc3RfdGltZXN0YW1wGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCKGAQoYRGVwbG95bWVudExvZ1NvdXJjZUV2ZW50EhMKC3NvdXJjZV9uYW1lGAEgASgJEhQKDHNvdXJjZV9sYWJlbBgCIAEoCRI/CgVzdGF0ZRgDIAEoDjIwLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ1NvdXJjZVN0YXRlIskBCipVcGRhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRNZXRhZGF0YVJlcXVlc3QSIQoZYXBwbGljYXRpb25fZGVwbG95bWVudF9pZBgBIAEoCRJHCghtZXRhZGF0YRgCIAEoCzI1LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50TWV0YWRhdGESLwoLdXBkYXRlX21hc2sYAyABKAsyGi5nb29nbGUucHJvdG9idWYuRmllbGRNYXNrIksKHUFwcGxpY2F0aW9uRGVwbG95bWVudE1ldGFkYXRhEhkKDGRpc3BsYXlfbmFtZRgBIAEoCUgAiAEBQg8KDV9kaXNwbGF5X25hbWUicAorVXBkYXRlQXBwbGljYXRpb25EZXBsb3ltZW50TWV0YWRhdGFSZXNwb25zZRJBCgpkZXBsb3ltZW50GAEgASgLMi0uZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnQqvgEKGURlcGxveW1lbnRMb2dIaXN0b3J5U3RhdGUSLAooREVQTE9ZTUVOVF9MT0dfSElTVE9SWV9TVEFURV9VTlNQRUNJRklFRBAAEjgKNERFUExPWU1FTlRfTE9HX0hJU1RPUllfU1RBVEVfT0xERVJfT1VUUFVUX01BWV9SRU1BSU4QARI5CjVERVBMT1lNRU5UX0xPR19ISVNUT1JZX1NUQVRFX05PX09MREVSX09VVFBVVF9PQlNFUlZFRBACKsYBChhEZXBsb3ltZW50TG9nU291cmNlU3RhdGUSKwonREVQTE9ZTUVOVF9MT0dfU09VUkNFX1NUQVRFX1VOU1BFQ0lGSUVEEAASKQolREVQTE9ZTUVOVF9MT0dfU09VUkNFX1NUQVRFX0FWQUlMQUJMRRABEisKJ0RFUExPWU1FTlRfTE9HX1NPVVJDRV9TVEFURV9VTkFWQUlMQUJMRRACEiUKIURFUExPWU1FTlRfTE9HX1NPVVJDRV9TVEFURV9FTkRFRBADKoABChNEZXBsb3ltZW50TG9nU3RyZWFtEiUKIURFUExPWU1FTlRfTE9HX1NUUkVBTV9VTlNQRUNJRklFRBAAEiAKHERFUExPWU1FTlRfTE9HX1NUUkVBTV9TVERPVVQQARIgChxERVBMT1lNRU5UX0xPR19TVFJFQU1fU1RERVJSEAIylQoKHEFwcGxpY2F0aW9uRGVwbG95bWVudFNlcnZpY2USkwEKGkxpc3RBcHBsaWNhdGlvbkRlcGxveW1lbnRzEjkuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5MaXN0QXBwbGljYXRpb25EZXBsb3ltZW50c1JlcXVlc3QaOi5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkxpc3RBcHBsaWNhdGlvbkRlcGxveW1lbnRzUmVzcG9uc2USjQEKGEdldEFwcGxpY2F0aW9uRGVwbG95bWVudBI3LmRvdGNvcmUuYXBwbGljYXRpb24udjEuR2V0QXBwbGljYXRpb25EZXBsb3ltZW50UmVxdWVzdBo4LmRvdGNvcmUuYXBwbGljYXRpb24udjEuR2V0QXBwbGljYXRpb25EZXBsb3ltZW50UmVzcG9uc2USlgEKG0NyZWF0ZUFwcGxpY2F0aW9uRGVwbG95bWVudBI6LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQ3JlYXRlQXBwbGljYXRpb25EZXBsb3ltZW50UmVxdWVzdBo7LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQ3JlYXRlQXBwbGljYXRpb25EZXBsb3ltZW50UmVzcG9uc2USlgEKG1JlbW92ZUFwcGxpY2F0aW9uRGVwbG95bWVudBI6LmRvdGNvcmUuYXBwbGljYXRpb24udjEuUmVtb3ZlQXBwbGljYXRpb25EZXBsb3ltZW50UmVxdWVzdBo7LmRvdGNvcmUuYXBwbGljYXRpb24udjEuUmVtb3ZlQXBwbGljYXRpb25EZXBsb3ltZW50UmVzcG9uc2UScgoPUGF1c2VEZXBsb3ltZW50Ei4uZG90Y29yZS5hcHBsaWNhdGlvbi52MS5QYXVzZURlcGxveW1lbnRSZXF1ZXN0Gi8uZG90Y29yZS5hcHBsaWNhdGlvbi52MS5QYXVzZURlcGxveW1lbnRSZXNwb25zZRJ1ChBSZXN1bWVEZXBsb3ltZW50Ei8uZG90Y29yZS5hcHBsaWNhdGlvbi52MS5SZXN1bWVEZXBsb3ltZW50UmVxdWVzdBowLmRvdGNvcmUuYXBwbGljYXRpb24udjEuUmVzdW1lRGVwbG95bWVudFJlc3BvbnNlEnsKElJlYWREZXBsb3ltZW50TG9ncxIxLmRvdGNvcmUuYXBwbGljYXRpb24udjEuUmVhZERlcGxveW1lbnRMb2dzUmVxdWVzdBoyLmRvdGNvcmUuYXBwbGljYXRpb24udjEuUmVhZERlcGxveW1lbnRMb2dzUmVzcG9uc2USgwEKFEZvbGxvd0RlcGxveW1lbnRMb2dzEjMuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5Gb2xsb3dEZXBsb3ltZW50TG9nc1JlcXVlc3QaNC5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkZvbGxvd0RlcGxveW1lbnRMb2dzUmVzcG9uc2UwARKuAQojVXBkYXRlQXBwbGljYXRpb25EZXBsb3ltZW50TWV0YWRhdGESQi5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLlVwZGF0ZUFwcGxpY2F0aW9uRGVwbG95bWVudE1ldGFkYXRhUmVxdWVzdBpDLmRvdGNvcmUuYXBwbGljYXRpb24udjEuVXBkYXRlQXBwbGljYXRpb25EZXBsb3ltZW50TWV0YWRhdGFSZXNwb25zZWIGcHJvdG8z", [file_dotcore_application_v1_deployment, file_dotcore_catalog_v1_parameter, file_dotcore_deployment_v1_placement, file_google_protobuf_field_mask, file_google_protobuf_timestamp]);
+  fileDesc("CiRkb3Rjb3JlL2FwcGxpY2F0aW9uL3YxL3NlcnZpY2UucHJvdG8SFmRvdGNvcmUuYXBwbGljYXRpb24udjEiNwodTGlzdEFwcGxpY2F0aW9uVGFyZ2V0c1JlcXVlc3QSFgoOYXBwbGljYXRpb25faWQYASABKAkiYgoeTGlzdEFwcGxpY2F0aW9uVGFyZ2V0c1Jlc3BvbnNlEkAKB3RhcmdldHMYASADKAsyLy5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uVGFyZ2V0T3B0aW9uIrIBChdBcHBsaWNhdGlvblRhcmdldE9wdGlvbhI1CgZ0YXJnZXQYASABKAsyJS5kb3Rjb3JlLmRlcGxveW1lbnQudjEuRXhhY3RQbGFjZW1lbnQSGgoSbWF0Y2hlc19wcmVmZXJlbmNlGAIgASgIEiYKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYAyABKAlIAIgBAUIcChpfYXBwbGljYXRpb25fZGVwbG95bWVudF9pZCIjCiFMaXN0QXBwbGljYXRpb25EZXBsb3ltZW50c1JlcXVlc3QiaAoiTGlzdEFwcGxpY2F0aW9uRGVwbG95bWVudHNSZXNwb25zZRJCCgtkZXBsb3ltZW50cxgBIAMoCzItLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50IkQKH0dldEFwcGxpY2F0aW9uRGVwbG95bWVudFJlcXVlc3QSIQoZYXBwbGljYXRpb25fZGVwbG95bWVudF9pZBgBIAEoCSJlCiBHZXRBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXNwb25zZRJBCgpkZXBsb3ltZW50GAEgASgLMi0uZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnQi4wIKIkNyZWF0ZUFwcGxpY2F0aW9uRGVwbG95bWVudFJlcXVlc3QSFgoOYXBwbGljYXRpb25faWQYASABKAkSOAoJcGxhY2VtZW50GAIgASgLMiUuZG90Y29yZS5kZXBsb3ltZW50LnYxLkV4YWN0UGxhY2VtZW50Eh8KEmluZmVyZW5jZV9yb3V0ZV9pZBgDIAEoCUgAiAEBEisKI2V4cGVjdGVkX2luZmVyZW5jZV9yb3V0ZV9nZW5lcmF0aW9uGAQgASgEEigKG2FwcGxpY2F0aW9uX2RlcGxveW1lbnRfbmFtZRgGIAEoCUgBiAEBEjwKEHBhcmFtZXRlcl92YWx1ZXMYBSADKAsyIi5kb3Rjb3JlLmNhdGFsb2cudjEuUGFyYW1ldGVyVmFsdWVCFQoTX2luZmVyZW5jZV9yb3V0ZV9pZEIeChxfYXBwbGljYXRpb25fZGVwbG95bWVudF9uYW1lImgKI0NyZWF0ZUFwcGxpY2F0aW9uRGVwbG95bWVudFJlc3BvbnNlEkEKCmRlcGxveW1lbnQYASABKAsyLS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uRGVwbG95bWVudCJHCiJSZW1vdmVBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXF1ZXN0EiEKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYASABKAkiaAojUmVtb3ZlQXBwbGljYXRpb25EZXBsb3ltZW50UmVzcG9uc2USQQoKZGVwbG95bWVudBgBIAEoCzItLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50IjsKFlBhdXNlRGVwbG95bWVudFJlcXVlc3QSIQoZYXBwbGljYXRpb25fZGVwbG95bWVudF9pZBgBIAEoCSJcChdQYXVzZURlcGxveW1lbnRSZXNwb25zZRJBCgpkZXBsb3ltZW50GAEgASgLMi0uZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnQiPAoXUmVzdW1lRGVwbG95bWVudFJlcXVlc3QSIQoZYXBwbGljYXRpb25fZGVwbG95bWVudF9pZBgBIAEoCSJdChhSZXN1bWVEZXBsb3ltZW50UmVzcG9uc2USQQoKZGVwbG95bWVudBgBIAEoCzItLmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50IrcBChlSZWFkRGVwbG95bWVudExvZ3NSZXF1ZXN0EiEKGWFwcGxpY2F0aW9uX2RlcGxveW1lbnRfaWQYASABKAkSFAoMc291cmNlX25hbWVzGAIgAygJEhEKCXBhZ2Vfc2l6ZRgDIAEoDRI5ChBiZWZvcmVfdGltZXN0YW1wGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgAiAEBQhMKEV9iZWZvcmVfdGltZXN0YW1wIqYDChpSZWFkRGVwbG95bWVudExvZ3NSZXNwb25zZRI8Cgdzb3VyY2VzGAEgAygLMisuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5EZXBsb3ltZW50TG9nU291cmNlEjsKB2VudHJpZXMYAiADKAsyKi5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkRlcGxveW1lbnRMb2dFbnRyeRI+ChVuZXh0X2JlZm9yZV90aW1lc3RhbXAYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQESSAoNaGlzdG9yeV9zdGF0ZRgEIAEoDjIxLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ0hpc3RvcnlTdGF0ZRIaChJyZXNwb25zZV90cnVuY2F0ZWQYBSABKAgSTQoQbGF0ZXN0X3Bvc2l0aW9ucxgGIAMoCzIzLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ1Jlc3VtZVBvc2l0aW9uQhgKFl9uZXh0X2JlZm9yZV90aW1lc3RhbXAipQEKG0ZvbGxvd0RlcGxveW1lbnRMb2dzUmVxdWVzdBIhChlhcHBsaWNhdGlvbl9kZXBsb3ltZW50X2lkGAEgASgJEhQKDHNvdXJjZV9uYW1lcxgCIAMoCRJNChByZXN1bWVfcG9zaXRpb25zGAMgAygLMjMuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5EZXBsb3ltZW50TG9nUmVzdW1lUG9zaXRpb24irgEKHEZvbGxvd0RlcGxveW1lbnRMb2dzUmVzcG9uc2USSAoMc291cmNlX2V2ZW50GAEgASgLMjAuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5EZXBsb3ltZW50TG9nU291cmNlRXZlbnRIABI7CgVlbnRyeRgCIAEoCzIqLmRvdGNvcmUuYXBwbGljYXRpb24udjEuRGVwbG95bWVudExvZ0VudHJ5SABCBwoFZXZlbnQigQEKE0RlcGxveW1lbnRMb2dTb3VyY2USEwoLc291cmNlX25hbWUYASABKAkSFAoMc291cmNlX2xhYmVsGAIgASgJEj8KBXN0YXRlGAMgASgOMjAuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5EZXBsb3ltZW50TG9nU291cmNlU3RhdGUizwEKEkRlcGxveW1lbnRMb2dFbnRyeRITCgtzb3VyY2VfbmFtZRgBIAEoCRIUCgxzb3VyY2VfbGFiZWwYAiABKAkSOwoGc3RyZWFtGAMgASgOMisuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5EZXBsb3ltZW50TG9nU3RyZWFtEi0KCXRpbWVzdGFtcBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASDwoHY29udGVudBgFIAEoDBIRCgl0cnVuY2F0ZWQYBiABKAgiaAobRGVwbG95bWVudExvZ1Jlc3VtZVBvc2l0aW9uEhMKC3NvdXJjZV9uYW1lGAEgASgJEjQKEGxhdGVzdF90aW1lc3RhbXAYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIoYBChhEZXBsb3ltZW50TG9nU291cmNlRXZlbnQSEwoLc291cmNlX25hbWUYASABKAkSFAoMc291cmNlX2xhYmVsGAIgASgJEj8KBXN0YXRlGAMgASgOMjAuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5EZXBsb3ltZW50TG9nU291cmNlU3RhdGUiyQEKKlVwZGF0ZUFwcGxpY2F0aW9uRGVwbG95bWVudE1ldGFkYXRhUmVxdWVzdBIhChlhcHBsaWNhdGlvbl9kZXBsb3ltZW50X2lkGAEgASgJEkcKCG1ldGFkYXRhGAIgASgLMjUuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnRNZXRhZGF0YRIvCgt1cGRhdGVfbWFzaxgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE1hc2siSwodQXBwbGljYXRpb25EZXBsb3ltZW50TWV0YWRhdGESGQoMZGlzcGxheV9uYW1lGAEgASgJSACIAQFCDwoNX2Rpc3BsYXlfbmFtZSJwCitVcGRhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRNZXRhZGF0YVJlc3BvbnNlEkEKCmRlcGxveW1lbnQYASABKAsyLS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkFwcGxpY2F0aW9uRGVwbG95bWVudCq+AQoZRGVwbG95bWVudExvZ0hpc3RvcnlTdGF0ZRIsCihERVBMT1lNRU5UX0xPR19ISVNUT1JZX1NUQVRFX1VOU1BFQ0lGSUVEEAASOAo0REVQTE9ZTUVOVF9MT0dfSElTVE9SWV9TVEFURV9PTERFUl9PVVRQVVRfTUFZX1JFTUFJThABEjkKNURFUExPWU1FTlRfTE9HX0hJU1RPUllfU1RBVEVfTk9fT0xERVJfT1VUUFVUX09CU0VSVkVEEAIqxgEKGERlcGxveW1lbnRMb2dTb3VyY2VTdGF0ZRIrCidERVBMT1lNRU5UX0xPR19TT1VSQ0VfU1RBVEVfVU5TUEVDSUZJRUQQABIpCiVERVBMT1lNRU5UX0xPR19TT1VSQ0VfU1RBVEVfQVZBSUxBQkxFEAESKwonREVQTE9ZTUVOVF9MT0dfU09VUkNFX1NUQVRFX1VOQVZBSUxBQkxFEAISJQohREVQTE9ZTUVOVF9MT0dfU09VUkNFX1NUQVRFX0VOREVEEAMqgAEKE0RlcGxveW1lbnRMb2dTdHJlYW0SJQohREVQTE9ZTUVOVF9MT0dfU1RSRUFNX1VOU1BFQ0lGSUVEEAASIAocREVQTE9ZTUVOVF9MT0dfU1RSRUFNX1NURE9VVBABEiAKHERFUExPWU1FTlRfTE9HX1NUUkVBTV9TVERFUlIQAjKfCwocQXBwbGljYXRpb25EZXBsb3ltZW50U2VydmljZRKTAQoaTGlzdEFwcGxpY2F0aW9uRGVwbG95bWVudHMSOS5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkxpc3RBcHBsaWNhdGlvbkRlcGxveW1lbnRzUmVxdWVzdBo6LmRvdGNvcmUuYXBwbGljYXRpb24udjEuTGlzdEFwcGxpY2F0aW9uRGVwbG95bWVudHNSZXNwb25zZRKNAQoYR2V0QXBwbGljYXRpb25EZXBsb3ltZW50EjcuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5HZXRBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXF1ZXN0GjguZG90Y29yZS5hcHBsaWNhdGlvbi52MS5HZXRBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXNwb25zZRKWAQobQ3JlYXRlQXBwbGljYXRpb25EZXBsb3ltZW50EjouZG90Y29yZS5hcHBsaWNhdGlvbi52MS5DcmVhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXF1ZXN0GjsuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5DcmVhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXNwb25zZRKWAQobUmVtb3ZlQXBwbGljYXRpb25EZXBsb3ltZW50EjouZG90Y29yZS5hcHBsaWNhdGlvbi52MS5SZW1vdmVBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXF1ZXN0GjsuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5SZW1vdmVBcHBsaWNhdGlvbkRlcGxveW1lbnRSZXNwb25zZRJyCg9QYXVzZURlcGxveW1lbnQSLi5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLlBhdXNlRGVwbG95bWVudFJlcXVlc3QaLy5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLlBhdXNlRGVwbG95bWVudFJlc3BvbnNlEnUKEFJlc3VtZURlcGxveW1lbnQSLy5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLlJlc3VtZURlcGxveW1lbnRSZXF1ZXN0GjAuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5SZXN1bWVEZXBsb3ltZW50UmVzcG9uc2USewoSUmVhZERlcGxveW1lbnRMb2dzEjEuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5SZWFkRGVwbG95bWVudExvZ3NSZXF1ZXN0GjIuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5SZWFkRGVwbG95bWVudExvZ3NSZXNwb25zZRKDAQoURm9sbG93RGVwbG95bWVudExvZ3MSMy5kb3Rjb3JlLmFwcGxpY2F0aW9uLnYxLkZvbGxvd0RlcGxveW1lbnRMb2dzUmVxdWVzdBo0LmRvdGNvcmUuYXBwbGljYXRpb24udjEuRm9sbG93RGVwbG95bWVudExvZ3NSZXNwb25zZTABEq4BCiNVcGRhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRNZXRhZGF0YRJCLmRvdGNvcmUuYXBwbGljYXRpb24udjEuVXBkYXRlQXBwbGljYXRpb25EZXBsb3ltZW50TWV0YWRhdGFSZXF1ZXN0GkMuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5VcGRhdGVBcHBsaWNhdGlvbkRlcGxveW1lbnRNZXRhZGF0YVJlc3BvbnNlEocBChZMaXN0QXBwbGljYXRpb25UYXJnZXRzEjUuZG90Y29yZS5hcHBsaWNhdGlvbi52MS5MaXN0QXBwbGljYXRpb25UYXJnZXRzUmVxdWVzdBo2LmRvdGNvcmUuYXBwbGljYXRpb24udjEuTGlzdEFwcGxpY2F0aW9uVGFyZ2V0c1Jlc3BvbnNlYgZwcm90bzM", [file_dotcore_application_v1_deployment, file_dotcore_catalog_v1_parameter, file_dotcore_deployment_v1_placement, file_google_protobuf_field_mask, file_google_protobuf_timestamp]);
+
+/**
+ * Asks where one catalog application can run now. A fast, advisory read of current target observations and
+ * deployments; it never changes deployments, admission or placement.
+ *
+ * @generated from message dotcore.application.v1.ListApplicationTargetsRequest
+ */
+export type ListApplicationTargetsRequest = Message<"dotcore.application.v1.ListApplicationTargetsRequest"> & {
+  /**
+   * Immutable catalog application release identifier.
+   *
+   * @generated from field: string application_id = 1;
+   */
+  applicationId: string;
+};
+
+/**
+ * Describes the message dotcore.application.v1.ListApplicationTargetsRequest.
+ * Use `create(ListApplicationTargetsRequestSchema)` to create a new message.
+ */
+export const ListApplicationTargetsRequestSchema: GenMessage<ListApplicationTargetsRequest> = /*@__PURE__*/
+  messageDesc(file_dotcore_application_v1_service, 0);
+
+/**
+ * The application targets that can take the application now, best first; empty when none can.
+ *
+ * @generated from message dotcore.application.v1.ListApplicationTargetsResponse
+ */
+export type ListApplicationTargetsResponse = Message<"dotcore.application.v1.ListApplicationTargetsResponse"> & {
+  /**
+   * Targets ordered with deployed ones first, then those matching the application's preferred accelerators.
+   *
+   * @generated from field: repeated dotcore.application.v1.ApplicationTargetOption targets = 1;
+   */
+  targets: ApplicationTargetOption[];
+};
+
+/**
+ * Describes the message dotcore.application.v1.ListApplicationTargetsResponse.
+ * Use `create(ListApplicationTargetsResponseSchema)` to create a new message.
+ */
+export const ListApplicationTargetsResponseSchema: GenMessage<ListApplicationTargetsResponse> = /*@__PURE__*/
+  messageDesc(file_dotcore_application_v1_service, 1);
+
+/**
+ * One application target that can take the application.
+ *
+ * @generated from message dotcore.application.v1.ApplicationTargetOption
+ */
+export type ApplicationTargetOption = Message<"dotcore.application.v1.ApplicationTargetOption"> & {
+  /**
+   * Exact placement of the application target.
+   *
+   * @generated from field: dotcore.deployment.v1.ExactPlacement target = 1;
+   */
+  target?: ExactPlacement;
+
+  /**
+   * Whether the target holds accelerators of a vendor the application prefers; true for an application with no preference.
+   *
+   * @generated from field: bool matches_preference = 2;
+   */
+  matchesPreference: boolean;
+
+  /**
+   * The application's running or starting deployment on the target; absent when there is none.
+   *
+   * @generated from field: optional string application_deployment_id = 3;
+   */
+  applicationDeploymentId?: string;
+};
+
+/**
+ * Describes the message dotcore.application.v1.ApplicationTargetOption.
+ * Use `create(ApplicationTargetOptionSchema)` to create a new message.
+ */
+export const ApplicationTargetOptionSchema: GenMessage<ApplicationTargetOption> = /*@__PURE__*/
+  messageDesc(file_dotcore_application_v1_service, 2);
 
 /**
  * Requests the controller-owned application deployments.
@@ -33,7 +111,7 @@ export type ListApplicationDeploymentsRequest = Message<"dotcore.application.v1.
  * Use `create(ListApplicationDeploymentsRequestSchema)` to create a new message.
  */
 export const ListApplicationDeploymentsRequestSchema: GenMessage<ListApplicationDeploymentsRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 0);
+  messageDesc(file_dotcore_application_v1_service, 3);
 
 /**
  * Returns controller-owned application deployments without catalog resolution.
@@ -54,7 +132,7 @@ export type ListApplicationDeploymentsResponse = Message<"dotcore.application.v1
  * Use `create(ListApplicationDeploymentsResponseSchema)` to create a new message.
  */
 export const ListApplicationDeploymentsResponseSchema: GenMessage<ListApplicationDeploymentsResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 1);
+  messageDesc(file_dotcore_application_v1_service, 4);
 
 /**
  * Requests one controller-owned application deployment.
@@ -75,7 +153,7 @@ export type GetApplicationDeploymentRequest = Message<"dotcore.application.v1.Ge
  * Use `create(GetApplicationDeploymentRequestSchema)` to create a new message.
  */
 export const GetApplicationDeploymentRequestSchema: GenMessage<GetApplicationDeploymentRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 2);
+  messageDesc(file_dotcore_application_v1_service, 5);
 
 /**
  * Returns one controller-owned application deployment.
@@ -96,7 +174,7 @@ export type GetApplicationDeploymentResponse = Message<"dotcore.application.v1.G
  * Use `create(GetApplicationDeploymentResponseSchema)` to create a new message.
  */
 export const GetApplicationDeploymentResponseSchema: GenMessage<GetApplicationDeploymentResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 3);
+  messageDesc(file_dotcore_application_v1_service, 6);
 
 /**
  * Requests creation of one deployment from an immutable catalog application.
@@ -152,7 +230,7 @@ export type CreateApplicationDeploymentRequest = Message<"dotcore.application.v1
  * Use `create(CreateApplicationDeploymentRequestSchema)` to create a new message.
  */
 export const CreateApplicationDeploymentRequestSchema: GenMessage<CreateApplicationDeploymentRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 4);
+  messageDesc(file_dotcore_application_v1_service, 7);
 
 /**
  * Returns the accepted controller-owned application deployment.
@@ -173,7 +251,7 @@ export type CreateApplicationDeploymentResponse = Message<"dotcore.application.v
  * Use `create(CreateApplicationDeploymentResponseSchema)` to create a new message.
  */
 export const CreateApplicationDeploymentResponseSchema: GenMessage<CreateApplicationDeploymentResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 5);
+  messageDesc(file_dotcore_application_v1_service, 8);
 
 /**
  * Requests removal of one controller-owned application deployment.
@@ -194,7 +272,7 @@ export type RemoveApplicationDeploymentRequest = Message<"dotcore.application.v1
  * Use `create(RemoveApplicationDeploymentRequestSchema)` to create a new message.
  */
 export const RemoveApplicationDeploymentRequestSchema: GenMessage<RemoveApplicationDeploymentRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 6);
+  messageDesc(file_dotcore_application_v1_service, 9);
 
 /**
  * Returns the deployment after the remove request is accepted.
@@ -215,7 +293,7 @@ export type RemoveApplicationDeploymentResponse = Message<"dotcore.application.v
  * Use `create(RemoveApplicationDeploymentResponseSchema)` to create a new message.
  */
 export const RemoveApplicationDeploymentResponseSchema: GenMessage<RemoveApplicationDeploymentResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 7);
+  messageDesc(file_dotcore_application_v1_service, 10);
 
 /**
  * Requests pausing one application deployment while retaining its resources.
@@ -236,7 +314,7 @@ export type PauseDeploymentRequest = Message<"dotcore.application.v1.PauseDeploy
  * Use `create(PauseDeploymentRequestSchema)` to create a new message.
  */
 export const PauseDeploymentRequestSchema: GenMessage<PauseDeploymentRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 8);
+  messageDesc(file_dotcore_application_v1_service, 11);
 
 /**
  * Returns the deployment after the pause request is accepted.
@@ -257,7 +335,7 @@ export type PauseDeploymentResponse = Message<"dotcore.application.v1.PauseDeplo
  * Use `create(PauseDeploymentResponseSchema)` to create a new message.
  */
 export const PauseDeploymentResponseSchema: GenMessage<PauseDeploymentResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 9);
+  messageDesc(file_dotcore_application_v1_service, 12);
 
 /**
  * Requests resuming one paused application deployment.
@@ -278,7 +356,7 @@ export type ResumeDeploymentRequest = Message<"dotcore.application.v1.ResumeDepl
  * Use `create(ResumeDeploymentRequestSchema)` to create a new message.
  */
 export const ResumeDeploymentRequestSchema: GenMessage<ResumeDeploymentRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 10);
+  messageDesc(file_dotcore_application_v1_service, 13);
 
 /**
  * Returns the deployment after the resume request is accepted.
@@ -299,7 +377,7 @@ export type ResumeDeploymentResponse = Message<"dotcore.application.v1.ResumeDep
  * Use `create(ResumeDeploymentResponseSchema)` to create a new message.
  */
 export const ResumeDeploymentResponseSchema: GenMessage<ResumeDeploymentResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 11);
+  messageDesc(file_dotcore_application_v1_service, 14);
 
 /**
  * Requests a bounded retained-log page from the current application workload sources.
@@ -341,7 +419,7 @@ export type ReadDeploymentLogsRequest = Message<"dotcore.application.v1.ReadDepl
  * Use `create(ReadDeploymentLogsRequestSchema)` to create a new message.
  */
 export const ReadDeploymentLogsRequestSchema: GenMessage<ReadDeploymentLogsRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 12);
+  messageDesc(file_dotcore_application_v1_service, 15);
 
 /**
  * Returns one bounded aggregate page and point-in-time source availability.
@@ -397,7 +475,7 @@ export type ReadDeploymentLogsResponse = Message<"dotcore.application.v1.ReadDep
  * Use `create(ReadDeploymentLogsResponseSchema)` to create a new message.
  */
 export const ReadDeploymentLogsResponseSchema: GenMessage<ReadDeploymentLogsResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 13);
+  messageDesc(file_dotcore_application_v1_service, 16);
 
 /**
  * Requests a live best-effort follow of the sources of one application deployment. A follow
@@ -436,7 +514,7 @@ export type FollowDeploymentLogsRequest = Message<"dotcore.application.v1.Follow
  * Use `create(FollowDeploymentLogsRequestSchema)` to create a new message.
  */
 export const FollowDeploymentLogsRequestSchema: GenMessage<FollowDeploymentLogsRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 14);
+  messageDesc(file_dotcore_application_v1_service, 17);
 
 /**
  * Returns one source-status transition or one line from a live follow.
@@ -471,7 +549,7 @@ export type FollowDeploymentLogsResponse = Message<"dotcore.application.v1.Follo
  * Use `create(FollowDeploymentLogsResponseSchema)` to create a new message.
  */
 export const FollowDeploymentLogsResponseSchema: GenMessage<FollowDeploymentLogsResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 15);
+  messageDesc(file_dotcore_application_v1_service, 18);
 
 /**
  * Describes one public source and its point-in-time availability.
@@ -506,7 +584,7 @@ export type DeploymentLogSource = Message<"dotcore.application.v1.DeploymentLogS
  * Use `create(DeploymentLogSourceSchema)` to create a new message.
  */
 export const DeploymentLogSourceSchema: GenMessage<DeploymentLogSource> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 16);
+  messageDesc(file_dotcore_application_v1_service, 19);
 
 /**
  * Carries one normalized visual line without runtime-native identity.
@@ -562,7 +640,7 @@ export type DeploymentLogEntry = Message<"dotcore.application.v1.DeploymentLogEn
  * Use `create(DeploymentLogEntrySchema)` to create a new message.
  */
 export const DeploymentLogEntrySchema: GenMessage<DeploymentLogEntry> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 17);
+  messageDesc(file_dotcore_application_v1_service, 20);
 
 /**
  * Carries the full-precision timestamp of the latest entry delivered for one public source.
@@ -591,7 +669,7 @@ export type DeploymentLogResumePosition = Message<"dotcore.application.v1.Deploy
  * Use `create(DeploymentLogResumePositionSchema)` to create a new message.
  */
 export const DeploymentLogResumePositionSchema: GenMessage<DeploymentLogResumePosition> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 18);
+  messageDesc(file_dotcore_application_v1_service, 21);
 
 /**
  * Reports a public source becoming available, unavailable, or ended.
@@ -626,7 +704,7 @@ export type DeploymentLogSourceEvent = Message<"dotcore.application.v1.Deploymen
  * Use `create(DeploymentLogSourceEventSchema)` to create a new message.
  */
 export const DeploymentLogSourceEventSchema: GenMessage<DeploymentLogSourceEvent> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 19);
+  messageDesc(file_dotcore_application_v1_service, 22);
 
 /**
  * Requests a typed metadata update to one application deployment.
@@ -661,7 +739,7 @@ export type UpdateApplicationDeploymentMetadataRequest = Message<"dotcore.applic
  * Use `create(UpdateApplicationDeploymentMetadataRequestSchema)` to create a new message.
  */
 export const UpdateApplicationDeploymentMetadataRequestSchema: GenMessage<UpdateApplicationDeploymentMetadataRequest> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 20);
+  messageDesc(file_dotcore_application_v1_service, 23);
 
 /**
  * Supplies writable presentation metadata for an application deployment update.
@@ -682,7 +760,7 @@ export type ApplicationDeploymentMetadata = Message<"dotcore.application.v1.Appl
  * Use `create(ApplicationDeploymentMetadataSchema)` to create a new message.
  */
 export const ApplicationDeploymentMetadataSchema: GenMessage<ApplicationDeploymentMetadata> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 21);
+  messageDesc(file_dotcore_application_v1_service, 24);
 
 /**
  * Returns the accepted deployment after a metadata update is accepted.
@@ -703,7 +781,7 @@ export type UpdateApplicationDeploymentMetadataResponse = Message<"dotcore.appli
  * Use `create(UpdateApplicationDeploymentMetadataResponseSchema)` to create a new message.
  */
 export const UpdateApplicationDeploymentMetadataResponseSchema: GenMessage<UpdateApplicationDeploymentMetadataResponse> = /*@__PURE__*/
-  messageDesc(file_dotcore_application_v1_service, 22);
+  messageDesc(file_dotcore_application_v1_service, 25);
 
 /**
  * States whether older matching output was observed during one bounded read.
@@ -891,6 +969,14 @@ export const ApplicationDeploymentService: GenService<{
     methodKind: "unary";
     input: typeof UpdateApplicationDeploymentMetadataRequestSchema;
     output: typeof UpdateApplicationDeploymentMetadataResponseSchema;
+  },
+  /**
+   * @generated from rpc dotcore.application.v1.ApplicationDeploymentService.ListApplicationTargets
+   */
+  listApplicationTargets: {
+    methodKind: "unary";
+    input: typeof ListApplicationTargetsRequestSchema;
+    output: typeof ListApplicationTargetsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_dotcore_application_v1_service, 0);
