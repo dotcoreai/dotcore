@@ -100,6 +100,10 @@ pub trait RuntimeBackend: Send + Sync {
 
     fn remove_workload<'a>(&'a self, workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()>;
 
+    /// Removes every storage folder under one owner key and confirms it is absent; absent storage
+    /// is already removed. A backend that refuses storage at launch has nothing to remove.
+    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()>;
+
     /// Reads direct diagnostics only when this runtime explicitly supports the capability.
     fn read_workload_logs<'a>(
         &'a self,
@@ -781,6 +785,10 @@ mod tests {
 
         fn remove_workload<'a>(&'a self, _: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
             Box::pin(async { unreachable!("contract test does not remove workloads") })
+        }
+
+        fn remove_storage<'a>(&'a self, _: &'a crate::WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+            Box::pin(std::future::ready(Ok(())))
         }
     }
 

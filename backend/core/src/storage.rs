@@ -23,6 +23,22 @@ pub(crate) fn deployment_storage(kind: WorkloadStorageKind, key: &str) -> Worklo
     }
 }
 
+/// Returns the storage keys launch attaches for the deployment-scoped bindings among `bindings`
+/// under one owner key, one per storage kind, so teardown removes exactly those folders.
+pub(crate) fn deployment_storage_keys<'a>(
+    bindings: impl IntoIterator<Item = &'a StorageBinding>,
+    key: &str,
+) -> Result<Vec<WorkloadStorageKey>, StorageBindingError> {
+    Ok(bindings
+        .into_iter()
+        .filter(|binding| binding.scope == StorageScope::Deployment as i32)
+        .map(storage_kind)
+        .collect::<Result<std::collections::BTreeSet<_>, _>>()?
+        .into_iter()
+        .map(|kind| deployment_storage(kind, key))
+        .collect())
+}
+
 /// Storage attachments and the environment variables that point a workload into them.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct WorkloadStorage {
@@ -56,15 +72,7 @@ pub(crate) fn workload_storage<'a>(
 ) -> Result<WorkloadStorage, StorageBindingError> {
     let mut storage = WorkloadStorage::default();
     for (name, binding) in bindings {
-        let kind = match StorageKind::try_from(binding.kind) {
-            Ok(StorageKind::Cache) => WorkloadStorageKind::Cache,
-            Ok(StorageKind::Data) => WorkloadStorageKind::Data,
-            Ok(StorageKind::Unspecified) | Err(_) => {
-                return Err(StorageBindingError::InvalidKind {
-                    binding: binding.binding_name.clone(),
-                });
-            }
-        };
+        let kind = storage_kind(binding)?;
         let unsupported = || StorageBindingError::UnsupportedScope {
             binding: binding.binding_name.clone(),
         };
@@ -98,6 +106,17 @@ pub(crate) fn workload_storage<'a>(
         });
     }
     Ok(storage)
+}
+
+/// Returns the runtime storage kind one binding attaches.
+fn storage_kind(binding: &StorageBinding) -> Result<WorkloadStorageKind, StorageBindingError> {
+    match StorageKind::try_from(binding.kind) {
+        Ok(StorageKind::Cache) => Ok(WorkloadStorageKind::Cache),
+        Ok(StorageKind::Data) => Ok(WorkloadStorageKind::Data),
+        Ok(StorageKind::Unspecified) | Err(_) => Err(StorageBindingError::InvalidKind {
+            binding: binding.binding_name.clone(),
+        }),
+    }
 }
 
 /// Returns the runtime namespace that keeps one scope's keys apart from every other scope's.

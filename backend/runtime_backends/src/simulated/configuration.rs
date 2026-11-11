@@ -420,6 +420,17 @@ impl SimulatedRuntimeTestSupport {
             .contains(storage)
     }
 
+    /// Returns every owner key holding simulated storage, in key order.
+    pub fn storage_keys(&self) -> Vec<dotcore_runtime::WorkloadStorageKey> {
+        self.state
+            .lock()
+            .expect("simulated runtime test support")
+            .storage
+            .iter()
+            .cloned()
+            .collect()
+    }
+
     /// Places simulated storage under one owner key, as left by an earlier realization this
     /// runtime no longer knows about.
     pub fn insert_storage(&self, storage: dotcore_runtime::WorkloadStorageKey) {

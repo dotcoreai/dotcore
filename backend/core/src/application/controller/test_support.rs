@@ -2141,6 +2141,13 @@ impl RuntimeBackend for ColdAbsentRuntime {
     fn remove_workload<'a>(&'a self, _: &'a dotcore_runtime::WorkloadId) -> RuntimeFuture<'a, ()> {
         Box::pin(ready(Err(runtime_error())))
     }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 impl dotcore_runtime::WorkloadGroupBackend for ColdAbsentRuntime {
@@ -2235,6 +2242,13 @@ impl RuntimeBackend for SelectiveCreateRuntime {
 
     fn remove_workload<'a>(&'a self, _: &'a dotcore_runtime::WorkloadId) -> RuntimeFuture<'a, ()> {
         Box::pin(ready(Err(runtime_error())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 
@@ -2448,6 +2462,13 @@ impl RuntimeBackend for RestartRuntime {
 
     fn remove_workload<'a>(&'a self, _: &'a dotcore_runtime::WorkloadId) -> RuntimeFuture<'a, ()> {
         Box::pin(ready(Err(runtime_error())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 

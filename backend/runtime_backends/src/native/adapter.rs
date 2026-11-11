@@ -29,7 +29,7 @@ use dotcore_runtime::{
     ProcessMemoryUnavailable, RuntimeBackend, RuntimeBackendError, RuntimeBackendId, RuntimeFuture,
     RuntimeLogFuture, RuntimeLogHistory, RuntimeLogStream, RuntimeWorkloadLogFollowQuery,
     RuntimeWorkloadLogQuery, WorkloadCorrelation, WorkloadId, WorkloadLaunch, WorkloadObservation,
-    WorkloadServiceBinding,
+    WorkloadServiceBinding, WorkloadStorageKey,
 };
 use tracing::{info, warn};
 
@@ -695,6 +695,11 @@ impl RuntimeBackend for NativeRuntimeBackend {
 
     fn remove_workload<'a>(&'a self, workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
         Box::pin(self.remove(&workload_id.0))
+    }
+
+    // Native launches refuse storage attachments, so no native storage exists to remove.
+    fn remove_storage<'a>(&'a self, _: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 
     fn read_workload_logs<'a>(

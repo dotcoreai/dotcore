@@ -728,19 +728,21 @@ async fn teardown_removes_the_runner_deployment_storage_and_keeps_engine_artifac
         namespace: "deployment".to_owned(),
         key: runner.to_owned(),
     };
+    let attached_deployment_keys = launches[0]
+        .spec
+        .storage
+        .iter()
+        .filter(|storage| storage.namespace == "deployment")
+        .map(|storage| storage.storage_key())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        attached_deployment_keys,
+        [deployment_key(WorkloadStorageKind::Cache)]
+    );
     assert_eq!(
         runtime.removed_storage(),
-        [
-            deployment_key(WorkloadStorageKind::Cache),
-            deployment_key(WorkloadStorageKind::Data)
-        ]
-    );
-    assert!(
-        launches[0].spec.storage.iter().any(|storage| {
-            storage.namespace == "deployment"
-                && storage.storage_key() == deployment_key(storage.kind)
-        }),
-        "the removed key is the key launch attached"
+        attached_deployment_keys,
+        "teardown removes exactly the deployment-scoped keys launch attached"
     );
 
     // A repeated teardown of a removed handle removes nothing more.
@@ -748,7 +750,7 @@ async fn teardown_removes_the_runner_deployment_storage_and_keeps_engine_artifac
         .teardown(&handle_path)
         .await
         .expect("repeat teardown");
-    assert_eq!(runtime.removed_storage().len(), 2);
+    assert_eq!(runtime.removed_storage(), attached_deployment_keys);
     std::fs::remove_dir_all(cache_root).expect("cache cleanup");
 }
 
@@ -1835,6 +1837,17 @@ impl RuntimeBackend for RecordingDevelopmentRuntime {
         RuntimeBackendId("runtime/docker".to_owned())
     }
 
+    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+        if let Some(error) = self.injected_failure("remove-storage") {
+            return Box::pin(ready(Err(error)));
+        }
+        self.removed_storage
+            .lock()
+            .expect("removed storage")
+            .push(storage.clone());
+        Box::pin(ready(Ok(())))
+    }
+
     fn discover_workloads<'a>(&'a self) -> RuntimeFuture<'a, Vec<WorkloadObservation>> {
         if let Some(error) = self.injected_failure("discover") {
             return Box::pin(ready(Err(error)));
@@ -1943,17 +1956,6 @@ impl RuntimeBackend for RecordingDevelopmentRuntime {
 impl DevelopmentRuntime for RecordingDevelopmentRuntime {
     fn starts_on_create(&self) -> bool {
         self.starts_on_create
-    }
-
-    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
-        if let Some(error) = self.injected_failure("remove-storage") {
-            return Box::pin(ready(Err(error)));
-        }
-        self.removed_storage
-            .lock()
-            .expect("removed storage")
-            .push(storage.clone());
-        Box::pin(ready(Ok(())))
     }
 
     fn namespace_evidence_count<'a>(&'a self) -> RuntimeFuture<'a, usize> {
