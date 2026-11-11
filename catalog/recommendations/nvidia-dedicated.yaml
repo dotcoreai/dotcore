@@ -3,7 +3,7 @@
 # skipped for it.
 hardwareClassId: "nvidia-dedicated"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "ninfer-nvfp4"
@@ -17,23 +17,11 @@ useCases:
           minimumMemoryBytesPerDevice: "12000000000"
       - modelId: "qwen3-5-4b"
         profileId: "q4-xl"
-  - useCase: "USE_CASE_GENERAL_ASSISTANT"
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "ninfer-nvfp4"
       - modelId: "qwen3-8-27b"
-        profileId: "q4-xl"
-        hardwareRequirements:
-          minimumMemoryBytesPerDevice: "24000000000"
-      - modelId: "gemma-4-12b-it-qat"
-        profileId: "gpu"
-        hardwareRequirements:
-          minimumMemoryBytesPerDevice: "12000000000"
-      - modelId: "qwen3-5-4b"
-        profileId: "q4-xl"
-  - useCase: "USE_CASE_TRANSLATION"
-    entries:
-      - modelId: "gemma-4-26b-a4b-it"
         profileId: "q4-xl"
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "24000000000"
