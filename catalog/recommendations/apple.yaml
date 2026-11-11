@@ -1,45 +1,43 @@
 # Model recommendations for Apple Silicon Macs, best first. Minimums on system memory separate Mac
-# sizes: 16, 24, 32, 64 and 128 GB. Memory bandwidth limits generation, so the chat assistant
-# prefers a mixture-of-experts model on Macs large enough for it.
+# sizes: 24, 32 and 64 GB, with the last entries for 16 GB Macs and smaller. Coding entries carry
+# the largest context per request that starts on an idle Mac of their size.
 hardwareClassId: "apple"
 useCases:
   - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "q5-xl"
-        contextTokensPerRequest: 131072
+        contextTokensPerRequest: 245760
         hardwareRequirements:
           minimumSystemMemoryBytes: "64000000000"
-      - modelId: "qwen3-8-27b"
-        profileId: "q4-xl"
-        contextTokensPerRequest: 131072
+      - modelId: "gemma-4-26b-a4b-it"
+        profileId: "q3-xl"
+        contextTokensPerRequest: 196608
         hardwareRequirements:
           minimumSystemMemoryBytes: "32000000000"
-      - modelId: "qwen3-5-9b"
-        profileId: "q4-xl"
-        contextTokensPerRequest: 131072
+      - modelId: "gemma-4-12b-it-qat"
+        profileId: "gpu"
+        contextTokensPerRequest: 262144
         hardwareRequirements:
-          minimumSystemMemoryBytes: "16000000000"
+          minimumSystemMemoryBytes: "24000000000"
       - modelId: "qwen3-5-4b"
-        profileId: "q4-xl"
-        contextTokensPerRequest: 131072
+        profileId: "q5-xl"
+        contextTokensPerRequest: 139264
   - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
-      - modelId: "qwen3-6-35b-a3b"
-        profileId: "q4-xl"
+      - modelId: "qwen3-8-27b"
+        profileId: "q5-xl"
         contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumSystemMemoryBytes: "64000000000"
       - modelId: "qwen3-8-27b"
-        profileId: "q4-xl"
+        profileId: "q3-xl"
         contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumSystemMemoryBytes: "32000000000"
       - modelId: "gemma-4-12b-it-qat"
         profileId: "gpu"
         contextTokensPerRequest: 32768
-        hardwareRequirements:
-          minimumSystemMemoryBytes: "16000000000"
       - modelId: "gemma-4-e4b-it-qat"
         profileId: "gpu"
         contextTokensPerRequest: 32768

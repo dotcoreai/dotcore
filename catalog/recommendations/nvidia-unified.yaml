@@ -1,25 +1,25 @@
 # Model recommendations for NVIDIA GPUs sharing the host's memory, such as the GB10, best first.
-# Memory bandwidth limits generation there, so the chat assistant prefers mixture-of-experts
-# models, which read fewer weights per token.
+# Later entries are fallbacks for smaller machines. Coding entries carry the largest context per
+# request that starts on an idle GB10.
 hardwareClassId: "nvidia-unified"
 useCases:
   - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "nvfp4-text"
-        contextTokensPerRequest: 131072
+        contextTokensPerRequest: 262144
       - modelId: "qwen3-6-35b-a3b"
         profileId: "nvfp4"
-        contextTokensPerRequest: 131072
+        contextTokensPerRequest: 262144
       - modelId: "qwen3-5-9b"
         profileId: "q4-xl"
-        contextTokensPerRequest: 131072
+        contextTokensPerRequest: 262144
   - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
-      - modelId: "ornith-1-5-35b-a3b"
+      - modelId: "qwen3-8-27b"
         profileId: "nvfp4-multimodal"
         contextTokensPerRequest: 32768
-      - modelId: "qwen3-8-27b"
+      - modelId: "ornith-1-5-35b-a3b"
         profileId: "nvfp4-multimodal"
         contextTokensPerRequest: 32768
       - modelId: "gemma-4-12b-it-qat"

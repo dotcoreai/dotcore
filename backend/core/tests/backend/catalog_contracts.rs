@@ -472,9 +472,9 @@ fn repository_ninfer_leads_coding_on_gb202_cards_only() {
     assert_eq!(
         coding(&large_4090),
         [
-            ("qwen3-8-27b".to_owned(), "q4-xl".to_owned()),
-            ("qwen3-5-9b".to_owned(), "q4-xl".to_owned()),
-            ("qwen3-5-4b".to_owned(), "q4-xl".to_owned()),
+            ("qwen3-8-27b".to_owned(), "q3-xl-q8-kv".to_owned()),
+            ("gemma-4-12b-it-qat".to_owned(), "gpu".to_owned()),
+            ("qwen3-5-4b".to_owned(), "q3-xl".to_owned()),
         ]
     );
 }
