@@ -1,7 +1,7 @@
-# Hermes Agent v0.15.0 (2026.5.28), pinned to its immutable multi-platform index.
+# Hermes Agent v0.23.1, pinned to its immutable multi-platform index.
 # Update this digest only after reviewing the selected upstream release and rerunning
 # `just apps hermes image-test` on each native platform.
-FROM nousresearch/hermes-agent@sha256:497d818208838f2cd3fb992b999450856acc725c6d97c55962289f1fd92b8b91
+FROM nousresearch/hermes-agent@sha256:276d44685c65c0cb2a25f190b63c65c8906f9dc76486fb1c05ae71b5826bda08
 
 # Preserve the upstream entrypoint so its volume preparation, gateway
 # supervision, and non-root execution remain in effect. The catalog arguments invoke

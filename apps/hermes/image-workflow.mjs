@@ -8,6 +8,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -39,6 +40,10 @@ const INVALID_STARTUPS = [
   ['http://127.0.0.1:50052/"/v1', ROUTE],
   [INFERENCE_URL, "Fixture route"],
 ];
+// The login the catalog sets for the dashboard: deliberate public placeholders, the same for every
+// deployment.
+const LOGIN_USERNAME = "admin";
+const LOGIN_PASSWORD = "dotcore";
 const BASE_IMAGE = dockerfileBaseImage(
   readFileSync(new URL("./Dockerfile", import.meta.url), "utf8"),
   /^nousresearch\/hermes-agent@sha256:[a-f0-9]{64}$/,
@@ -145,7 +150,10 @@ async function verifyStartupFiles(data, model) {
   }
 }
 
-/** Starts the gateway with a linked route and checks the dashboard serves and selects Dotcore. */
+/**
+ * Starts the gateway with a linked route and the catalog's login, and checks the dashboard serves,
+ * selects Dotcore, and offers login and chat to a client outside the container.
+ */
 async function verifyGateway() {
   let created = false;
   try {
@@ -164,6 +172,13 @@ async function verifyGateway() {
       "HERMES_DASHBOARD_HOST=0.0.0.0",
       "--env",
       "API_SERVER_ENABLED=false",
+      "--env",
+      `HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${LOGIN_USERNAME}`,
+      "--env",
+      `HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${LOGIN_PASSWORD}`,
+      // Published on the host's loopback: the dashboard then sees a non-loopback peer, like a browser.
+      "--publish",
+      "127.0.0.1::9119",
       IMAGE,
       "/usr/local/bin/dotcore-hermes-start",
       "hermes",
@@ -211,10 +226,109 @@ async function verifyGateway() {
         `Hermes did not select the Dotcore provider and route: ${JSON.stringify(provider)}`,
       );
     }
-    return { readiness: readiness.stdout.trim(), provider };
+
+    const port = publishedPort();
+    const chat = await verifyLoginAndChat(port);
+    return { readiness: readiness.stdout.trim(), provider, chat };
   } finally {
     if (created) removeWorkload(WORKLOAD, TIMEOUT_MS);
   }
+}
+
+/** The host port Docker published for the dashboard. */
+function publishedPort() {
+  const mapping = docker(["port", WORKLOAD, "9119/tcp"]).trim().split("\n")[0];
+  return Number(mapping.slice(mapping.lastIndexOf(":") + 1));
+}
+
+/**
+ * Checks the dashboard through the published port, as a browser reaches it: readiness answers
+ * without a login, a wrong password is refused, the login yields a one-use ticket, and the Chat
+ * page's WebSocket upgrades only with that ticket.
+ */
+async function verifyLoginAndChat(port) {
+  const login = (password) =>
+    request(port, "POST", "/auth/password-login", {
+      body: JSON.stringify({
+        provider: "basic",
+        username: LOGIN_USERNAME,
+        password,
+      }),
+    });
+  const socket = (query, cookie) =>
+    request(port, "GET", `/api/pty${query}`, { cookie, upgrade: true });
+
+  const status = await request(port, "GET", "/api/status");
+  const refused = await login("wrong-password");
+  const accepted = await login(LOGIN_PASSWORD);
+  const cookie = (accepted.setCookie ?? []).map((c) => c.split(";")[0]).join("; ");
+  const noSessionTicket = await request(port, "POST", "/api/auth/ws-ticket");
+  const ticket = await request(port, "POST", "/api/auth/ws-ticket", { cookie });
+  const ticketValue = JSON.parse(ticket.body || "{}").ticket ?? "";
+
+  const result = {
+    statusWithoutLogin: status.status,
+    wrongPassword: refused.status,
+    login: accepted.status,
+    ticketWithoutSession: noSessionTicket.status,
+    ticket: ticket.status,
+    socketWithTicket: ticketValue
+      ? (await socket(`?ticket=${ticketValue}`, cookie)).status
+      : 0,
+    socketWithoutTicket: (await socket("", cookie)).status,
+  };
+  const expected = {
+    statusWithoutLogin: 200,
+    wrongPassword: 401,
+    login: 200,
+    ticketWithoutSession: 401,
+    ticket: 200,
+    socketWithTicket: 101,
+    socketWithoutTicket: 403,
+  };
+  if (JSON.stringify(result) !== JSON.stringify(expected)) {
+    throw new Error(
+      `Hermes login and chat did not behave as expected: ${JSON.stringify(result)}`,
+    );
+  }
+  return result;
+}
+
+/** Sends one HTTP request to the dashboard, or a WebSocket upgrade, and resolves with its status. */
+function request(port, method, path, { body, cookie, upgrade } = {}) {
+  const headers = {};
+  if (body) headers["content-type"] = "application/json";
+  if (cookie) headers.cookie = cookie;
+  if (upgrade) {
+    Object.assign(headers, {
+      connection: "Upgrade",
+      upgrade: "websocket",
+      "sec-websocket-version": "13",
+      "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+    });
+  }
+  return new Promise((resolve, reject) => {
+    const outgoing = http.request(
+      { host: "127.0.0.1", port, method, path, headers, timeout: TIMEOUT_MS },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () =>
+          resolve({
+            status: response.statusCode,
+            setCookie: response.headers["set-cookie"],
+            body: Buffer.concat(chunks).toString("utf8"),
+          }),
+        );
+      },
+    );
+    outgoing.on("upgrade", (response, upgraded) => {
+      upgraded.destroy();
+      resolve({ status: response.statusCode });
+    });
+    outgoing.on("error", reject);
+    outgoing.end(body);
+  });
 }
 
 function docker(arguments_) {
