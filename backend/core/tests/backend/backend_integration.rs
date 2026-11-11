@@ -5077,11 +5077,11 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
     let mut paths = support::configuration(&root);
     paths.master_catalog_root = Some(recommendation_master_catalog(&root));
     let service = model_service_for(&paths).await.expect("model service");
-    let read = |use_cases: Vec<UseCase>| {
+    let read = |use_cases: Vec<UseCase>, can_start_now: bool| {
         ModelServiceContract::list_model_recommendations(
             &service,
             Request::new(ListModelRecommendationsRequest {
-                can_start_now: false,
+                can_start_now,
                 use_cases: use_cases
                     .into_iter()
                     .map(|use_case| use_case as i32)
@@ -5093,7 +5093,7 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
     // The manager's own node reports its first observation asynchronously after composition.
     let deadline = Instant::now() + Duration::from_secs(10);
     let response = loop {
-        let response = read(vec![UseCase::Coding])
+        let response = read(vec![UseCase::Coding], false)
             .await
             .expect("recommendation read")
             .into_inner();
@@ -5127,27 +5127,35 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
         .starting_total_context_tokens
         .map(u64::from)
         .expect("a starting total context");
-    assert_eq!(
-        response.use_cases,
-        [UseCaseModelRecommendations {
-            use_case: UseCase::Coding as i32,
-            rows: vec![RecommendedModelProfile {
-                model_id: "fixture-model".to_owned(),
-                profile_id: "fixture-profile".to_owned(),
-                // The entry sets none, so the row reads the profile's default.
-                context_tokens_per_request: 32_768,
-                targets: vec![RecommendedProfileTarget {
-                    target: Some(support::exact_placement("fixture-node", "fixture-target")),
-                    fit: ModelRecommendationFit::FitsNow as i32,
-                    model_deployment_id: None,
-                    starting_total_context_tokens: Some(starting_total_context_tokens),
-                }],
+    let expected = [UseCaseModelRecommendations {
+        use_case: UseCase::Coding as i32,
+        rows: vec![RecommendedModelProfile {
+            model_id: "fixture-model".to_owned(),
+            profile_id: "fixture-profile".to_owned(),
+            // The entry sets none, so the row reads the profile's default.
+            context_tokens_per_request: 32_768,
+            targets: vec![RecommendedProfileTarget {
+                target: Some(support::exact_placement("fixture-node", "fixture-target")),
+                fit: ModelRecommendationFit::FitsNow as i32,
+                model_deployment_id: None,
+                starting_total_context_tokens: Some(starting_total_context_tokens),
             }],
-        }]
-    );
+        }],
+    }];
+    assert_eq!(response.use_cases, expected);
+
+    // The idle site's target fits now, so asking for what can start now keeps it.
+    let startable = read(vec![UseCase::Coding], true)
+        .await
+        .expect("can start now read")
+        .into_inner();
+    assert_eq!(startable.use_cases, expected);
 
     // No use case asks for all three, each ranked even when nothing is recommended.
-    let all = read(Vec::new()).await.expect("all use cases").into_inner();
+    let all = read(Vec::new(), false)
+        .await
+        .expect("all use cases")
+        .into_inner();
     assert_eq!(
         all.use_cases
             .iter()
@@ -5160,7 +5168,7 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
         ]
     );
 
-    let unspecified = read(vec![UseCase::Coding, UseCase::Unspecified])
+    let unspecified = read(vec![UseCase::Coding, UseCase::Unspecified], false)
         .await
         .expect_err("unspecified use case");
     assert_eq!(unspecified.code(), tonic::Code::InvalidArgument);

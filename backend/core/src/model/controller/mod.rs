@@ -212,6 +212,7 @@ pub(crate) trait DesiredDeploymentRepository: ModelRealizationInput {
     fn model_recommendations(
         &self,
         _use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
+        _can_start_now: bool,
         _inventory: Option<&TargetCapabilityInventory>,
         _deployments: &[ModelDeployment],
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
@@ -328,11 +329,13 @@ pub trait ModelLifecycleController: Send + Sync {
     }
 
     /// Ranks the catalog's recommended model profiles for each of `use_cases` on the site's
-    /// configured model execution targets, marking the profiles already deployed. Advisory: it
-    /// never changes deployments, admission or placement.
+    /// configured model execution targets, naming the deployments already running them, and
+    /// keeping only what can start now when `can_start_now` is set. Advisory: it never changes
+    /// deployments, admission or placement.
     fn list_model_recommendations(
         &self,
         _use_cases: Vec<dotcore_proto::dotcore::catalog::v1::UseCase>,
+        _can_start_now: bool,
     ) -> impl Future<Output = Result<ListModelRecommendationsResponse, ModelLifecycleError>> + Send
     {
         std::future::ready(Err(ModelLifecycleError::configuration(
@@ -484,10 +487,11 @@ impl DesiredDeploymentRepository for crate::model::repository::ModelDeclarationR
     fn model_recommendations(
         &self,
         use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
+        can_start_now: bool,
         inventory: Option<&TargetCapabilityInventory>,
         deployments: &[ModelDeployment],
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
-        self.model_recommendations(use_cases, inventory, deployments)
+        self.model_recommendations(use_cases, can_start_now, inventory, deployments)
     }
 
     fn load_upstream_model(
