@@ -1,7 +1,8 @@
 //! Loopback chat transport for local OpenAI-compatible engines.
 //!
 //! The llama.cpp, vLLM, and ninfer bindings share this one-attempt transport: it sends the
-//! validated request under the engine's served model id, decodes complete or streamed answers,
+//! validated request under the engine's served model id, with its instruction messages shaped for
+//! model chat templates, decodes complete or streamed answers,
 //! and passes unsuccessful engine responses through unchanged. Streams are checked for order
 //! and completeness before any event reaches the router.
 
@@ -13,12 +14,13 @@ use dotcore_proto::dotcore::inference::v1::{
 #[cfg(test)]
 use serde_json::{Value, json};
 use tokio::{io::AsyncReadExt, net::TcpStream, sync::mpsc};
-use tracing::{Instrument, debug_span, field};
+use tracing::{Instrument, debug, debug_span, field};
 
+use super::instruction_roles;
 use super::loopback_http::{
-    self as http, ChunkedBodyDecoder, inference_attempt, inference_error, invalid_response,
-    passthrough, read_chunked_body, read_http_head, read_http_response, read_remaining_body,
-    transfer_encoding, upstream_transport,
+    self as http, ChunkedBodyDecoder, RejectionClassifier, inference_attempt, inference_error,
+    invalid_response, passthrough, read_chunked_body, read_http_head, read_http_response,
+    read_remaining_body, transfer_encoding, upstream_transport,
 };
 use crate::{
     inference::{InferenceAttempt, InferenceCancellation, InferenceResponse},
@@ -33,15 +35,16 @@ use crate::{
 };
 
 /// Makes one chat attempt on the engine listening on `port`, which serves the model as
-/// `served_model_id`.
+/// `served_model_id`, failing the rejections `classify` recognizes as invalid requests.
 pub(super) async fn attempt(
     port: u16,
     served_model_id: &str,
     request: ChatRequest,
+    classify: Option<RejectionClassifier>,
     cancellation: InferenceCancellation,
 ) -> InferenceAttempt {
     inference_attempt(
-        invoke_loopback(port, served_model_id, request, cancellation)
+        invoke_loopback(port, served_model_id, request, classify, cancellation)
             .await
             .and_then(inference_response),
     )
@@ -51,11 +54,14 @@ pub(super) async fn attempt(
 async fn invoke_loopback(
     port: u16,
     served_model_id: &str,
-    request: ChatRequest,
+    mut request: ChatRequest,
+    classify: Option<RejectionClassifier>,
     mut cancellation: RequestCancellation,
 ) -> Result<AdapterResponse, AdapterError> {
+    request.messages = instruction_roles::fold(std::mem::take(&mut request.messages))
+        .map_err(AdapterError::InvalidRequest)?;
     // The engine serves its own model id; responses keep the request's public route name.
-    let body = codec::encode_request_for_model(&request, served_model_id)
+    let body = codec::encode_request_for_local_engine(&request, served_model_id)
         .map_err(AdapterError::InvalidRequest)?;
     let mut stream = http::post(
         port,
@@ -66,7 +72,7 @@ async fn invoke_loopback(
     )
     .await?;
     if request.stream.unwrap_or(false) {
-        return read_stream(stream, request, cancellation).await;
+        return read_stream(stream, request, classify, cancellation).await;
     }
     let (status, headers, body) = read_http_response(&mut stream, &mut cancellation).await?;
     let upstream = UpstreamResponse {
@@ -75,7 +81,7 @@ async fn invoke_loopback(
         body,
     };
     if !(200..300).contains(&upstream.status) {
-        return Ok(AdapterResponse::Upstream(upstream));
+        return unsuccessful(upstream, classify);
     }
     codec::decode_completion(&upstream.body)
         .map_err(|error| upstream_transport(TransportError::CompletionDecode(error)))
@@ -83,6 +89,23 @@ async fn invoke_loopback(
             completion.model_id = request.model_id;
             AdapterResponse::Complete(completion)
         })
+}
+
+/// Fails an unsuccessful engine answer that `classify` recognizes as an invalid request; any
+/// other passes through unchanged.
+fn unsuccessful(
+    upstream: UpstreamResponse,
+    classify: Option<RejectionClassifier>,
+) -> Result<AdapterResponse, AdapterError> {
+    if let Some(invalid) = classify.and_then(|classify| classify(upstream.status, &upstream.body)) {
+        debug!(
+            status = upstream.status,
+            category = %invalid.category,
+            "Engine chat rejection classified as an invalid request"
+        );
+        return Err(AdapterError::InvalidRequest(invalid));
+    }
+    Ok(AdapterResponse::Upstream(upstream))
 }
 
 /// Converts a chat transport answer into the engine-neutral response; a decision result is not a
@@ -121,12 +144,13 @@ async fn invoke(
     request: ChatRequest,
     cancellation: RequestCancellation,
 ) -> Result<AdapterResponse, AdapterError> {
-    invoke_loopback(port, TEST_SERVED_MODEL_ID, request, cancellation).await
+    invoke_loopback(port, TEST_SERVED_MODEL_ID, request, None, cancellation).await
 }
 
 async fn read_stream(
     mut stream: TcpStream,
     request: ChatRequest,
+    classify: Option<RejectionClassifier>,
     mut cancellation: RequestCancellation,
 ) -> Result<AdapterResponse, AdapterError> {
     let (status, headers, pending) = read_http_head(&mut stream, &mut cancellation).await?;
@@ -137,11 +161,14 @@ async fn read_stream(
         } else {
             read_remaining_body(&mut stream, &mut cancellation, &mut pending).await?;
         }
-        return Ok(AdapterResponse::Upstream(UpstreamResponse {
-            status,
-            headers,
-            body: pending,
-        }));
+        return unsuccessful(
+            UpstreamResponse {
+                status,
+                headers,
+                body: pending,
+            },
+            classify,
+        );
     }
     let (pending, chunked) = if transfer_encoding(&headers)?.is_some() {
         let mut decoder = ChunkedBodyDecoder::new();
@@ -381,6 +408,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn engine_receives_one_leading_system_message_and_replayable_reasoning() {
+        let message = |role: ChatMessageRole, content: &str| ChatMessage {
+            role: role as i32,
+            content: Some(chat_message::Content::TextContent(content.to_owned())),
+            ..Default::default()
+        };
+        let mut chat = request(false);
+        chat.messages = vec![
+            message(ChatMessageRole::System, "You are Codex."),
+            message(ChatMessageRole::Developer, "Sandbox: read-only."),
+            message(ChatMessageRole::User, "hi"),
+            ChatMessage {
+                reasoning: Some("Say hello.".to_owned()),
+                ..message(ChatMessageRole::Assistant, "hello")
+            },
+            message(ChatMessageRole::Developer, "Be brief."),
+            message(ChatMessageRole::User, "again"),
+        ];
+        let response: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}";
+
+        let (_, body) = invoke_capturing_request(chat, response).await;
+
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).expect("JSON request body")["messages"],
+            json!([
+                {"role":"system","content":"You are Codex.\n\nSandbox: read-only."},
+                {"role":"user","content":"hi"},
+                {"role":"assistant","content":"hello","reasoning":"Say hello.","reasoning_content":"Say hello."},
+                {"role":"user","content":"Be brief."},
+                {"role":"user","content":"again"}
+            ])
+        );
+    }
+
+    #[tokio::test]
     async fn non_streamed_request_never_carries_stream_options() {
         for client_intent in [None, Some(false), Some(true)] {
             let mut chat = request(false);
@@ -504,7 +567,7 @@ mod tests {
             port,
             TEST_SERVED_MODEL_ID.to_owned(),
             &[dotcore_proto::dotcore::catalog::v1::InferenceRequestKind::Chat],
-            None,
+            Default::default(),
         );
         let mut request = request(false);
         request.request_extensions_json = Some(r#"{"stream":true}"#.to_owned());

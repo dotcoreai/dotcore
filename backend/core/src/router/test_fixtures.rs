@@ -106,6 +106,68 @@ pub(super) fn responses_request_bytes() -> Vec<u8> {
     .expect("Responses fixture JSON")
 }
 
+/// A Codex Responses request after an MCP tool call and a final answer, each preceded by
+/// reasoning Codex replays. Trimmed from a real Codex 0.167 request: shorter texts, IDs and tool
+/// lists, with an echo MCP server.
+pub(super) fn codex_responses_request_bytes() -> Vec<u8> {
+    serde_json::to_vec(&json!({
+        "model": "route",
+        "stream": true,
+        "input": [
+            {"type": "message", "id": "msg_1", "role": "developer", "content": [{"type": "input_text", "text": "You are a coding agent running in the Codex CLI."}]},
+            {"type": "message", "id": "msg_2", "role": "user", "content": [{"type": "input_text", "text": "<environment_context>\n  <cwd>/work</cwd>\n</environment_context>"}]},
+            {"type": "message", "id": "msg_3", "role": "user", "content": [{"type": "input_text", "text": "echo ping"}]},
+            {"type": "reasoning", "id": "rs_1", "summary": [], "content": [{"type": "reasoning_text", "text": "I should echo."}], "encrypted_content": null},
+            {"type": "function_call", "status": "completed", "id": "fc_1", "name": "echo", "namespace": "mcp__echo", "arguments": "{\"text\":\"ping\"}", "call_id": "call_1"},
+            {"type": "function_call_output", "id": "fco_1", "call_id": "call_1", "output": [{"type": "input_text", "text": "Wall time: 0.0025 seconds\nOutput:"}, {"type": "input_text", "text": "ping"}]},
+            {"type": "reasoning", "id": "rs_2", "summary": [], "content": [{"type": "reasoning_text", "text": "The echo answered."}], "encrypted_content": null},
+            {"type": "message", "status": "completed", "id": "msg_4", "role": "assistant", "content": [{"type": "output_text", "text": "pong", "annotations": []}]},
+            {"type": "message", "id": "msg_5", "role": "user", "content": [{"type": "input_text", "text": "again"}]}
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "name": "exec_command",
+                "description": "Runs a command in a PTY.",
+                "strict": false,
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"], "additionalProperties": false}
+            },
+            {
+                "type": "namespace",
+                "name": "multi_agent_v1",
+                "description": "Tools for spawning and managing sub-agents.",
+                "tools": [{
+                    "type": "function",
+                    "name": "spawn_agent",
+                    "description": "Spawn a sub-agent.",
+                    "strict": false,
+                    "parameters": {"type": "object", "properties": {"message": {"type": "string"}}, "additionalProperties": false}
+                }]
+            },
+            {
+                "type": "namespace",
+                "name": "mcp__echo",
+                "description": "Tools in the mcp__echo namespace.",
+                "tools": [{
+                    "type": "function",
+                    "name": "echo",
+                    "description": "Echoes the given text back.",
+                    "strict": false,
+                    "parameters": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+                }]
+            }
+        ],
+        "tool_choice": "auto",
+        "parallel_tool_calls": true,
+        "reasoning": {"summary": "auto"},
+        "store": false,
+        "include": ["reasoning.encrypted_content"],
+        "prompt_cache_key": "thread-1",
+        "client_metadata": {"thread_id": "thread-1", "turn_id": "turn-1"}
+    }))
+    .expect("Codex Responses fixture JSON")
+}
+
 /// Independently authored expected llama.cpp request wire JSON oracle.
 pub(crate) fn llama_request_oracle() -> Value {
     json!({

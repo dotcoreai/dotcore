@@ -9,6 +9,7 @@
 
 mod address;
 mod agent;
+mod codex;
 mod opencode;
 mod pi;
 mod routes;
@@ -53,12 +54,21 @@ impl CodeArgs {
     pub(crate) async fn dispatch(self, paths: &RootPathArgs) -> anyhow::Result<()> {
         let inference = self.inference_address();
         let routes = list_routes(&inference).await?;
-        let route = self.choose_route(&routes)?;
+        let names = routes
+            .iter()
+            .map(|route| route.name.clone())
+            .collect::<Vec<_>>();
+        let route = self.choose_route(&names)?;
+        let selected_context = routes
+            .iter()
+            .find(|listed| listed.name == route)
+            .and_then(|listed| listed.context_length);
 
         let launch = self.agent.launch(&LaunchSetup {
             base_url: inference.base_url(),
-            routes: routes.iter().map(String::as_str).collect(),
+            routes: names.iter().map(String::as_str).collect(),
             selected: route,
+            selected_context,
             passthrough: &self.agent_args,
             cache_root: &|| paths.cache_root(),
         })?;

@@ -4,7 +4,8 @@
 //! A launch is a plain value (arguments, extra environment and files kept under the cache folder)
 //! built from the base URL, the listed routes and the selected route, so it can be checked
 //! without starting anything. Every agent registers all listed routes under one provider, uses
-//! Chat Completions without an API key, and leaves the user's own agent configuration untouched.
+//! the wire format it supports without an API key, and leaves the user's own agent configuration
+//! untouched.
 
 use std::{
     ffi::OsString,
@@ -14,7 +15,7 @@ use std::{
 
 use clap::ValueEnum;
 
-use super::{opencode, pi};
+use super::{codex, opencode, pi};
 
 /// A coding agent that can be started on the site's inference API.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
@@ -24,6 +25,9 @@ pub(crate) enum CodingAgent {
 
     /// Pi (https://github.com/earendil-works/pi).
     Pi,
+
+    /// Codex (https://github.com/openai/codex).
+    Codex,
 }
 
 impl CodingAgent {
@@ -32,6 +36,7 @@ impl CodingAgent {
         match self {
             Self::Opencode => "opencode",
             Self::Pi => "pi",
+            Self::Codex => "codex",
         }
     }
 
@@ -40,6 +45,7 @@ impl CodingAgent {
         match self {
             Self::Opencode => "OpenCode",
             Self::Pi => "Pi",
+            Self::Codex => "Codex",
         }
     }
 
@@ -48,6 +54,7 @@ impl CodingAgent {
         match self {
             Self::Opencode => "https://opencode.ai",
             Self::Pi => "npm install -g @earendil-works/pi-coding-agent",
+            Self::Codex => "npm install -g @openai/codex",
         }
     }
 
@@ -56,6 +63,7 @@ impl CodingAgent {
         match self {
             Self::Opencode => opencode::launch(setup),
             Self::Pi => pi::launch(setup),
+            Self::Codex => codex::launch(setup),
         }
     }
 }
@@ -70,6 +78,10 @@ pub(super) struct LaunchSetup<'a> {
 
     /// The route the agent starts with; one of `routes`.
     pub(super) selected: &'a str,
+
+    /// Largest context one request may use on the selected route, in tokens, when the inference
+    /// API states it.
+    pub(super) selected_context: Option<u64>,
 
     /// Arguments the operator passed for the agent, kept unchanged.
     pub(super) passthrough: &'a [OsString],
@@ -98,8 +110,8 @@ pub(super) struct OwnedFile {
     /// Where the file lives under the cache root.
     pub(super) path: PathBuf,
 
-    /// The file's fixed content.
-    pub(super) content: &'static str,
+    /// The file's content, which its name is derived from.
+    pub(super) content: String,
 }
 
 impl OwnedFile {
@@ -116,7 +128,7 @@ impl OwnedFile {
         let temporary = self
             .path
             .with_extension(format!("{}.tmp", std::process::id()));
-        fs::write(&temporary, self.content)
+        fs::write(&temporary, &self.content)
             .and_then(|()| fs::rename(&temporary, &self.path))
             .inspect_err(|_| {
                 let _ = fs::remove_file(&temporary);
@@ -152,7 +164,7 @@ mod tests {
         let root = tempfile::tempdir().expect("cache root");
         let file = OwnedFile {
             path: root.path().join("code/pi/extension.ts"),
-            content: "export default 1;\n",
+            content: "export default 1;\n".to_owned(),
         };
 
         file.ensure().expect("write absent file");

@@ -178,6 +178,7 @@ describe("RouteInspector", () => {
     for (const [label, command] of [
       ["OpenCode", examples.opencodeCommand],
       ["Pi", examples.piCommand],
+      ["Codex", examples.codexCommand],
       ["curl example", examples.curl],
     ] as const) {
       expect(screen.getByLabelText(label, { selector: "pre" }).textContent).toBe(command);
@@ -189,6 +190,9 @@ describe("RouteInspector", () => {
     );
     expect(examples.piCommand).toBe(
       `dotc code pi --model route/model-alpha --inference-addr ${origin}`,
+    );
+    expect(examples.codexCommand).toBe(
+      `dotc code codex --model route/model-alpha --inference-addr ${origin}`,
     );
   });
 
@@ -204,6 +208,7 @@ describe("RouteInspector", () => {
       "route-connect-endpoint-heading",
       "route-connect-opencode-heading",
       "route-connect-pi-heading",
+      "route-connect-codex-heading",
       "route-connect-curl-example-heading",
     ]);
     for (const heading of view.querySelectorAll("h2")) {

@@ -148,7 +148,8 @@ impl InferenceRouter {
         self.routes.as_ref().map(RouteManager::shared_pointer)
     }
 
-    /// Lists enabled route names that have at least one eligible text target.
+    /// Lists enabled route names that have at least one eligible text target, with each route's
+    /// context per request when its members declare one.
     pub(crate) fn available_models(&self) -> AvailableModels {
         let span = debug_span!(
             "inference_list_models",
@@ -169,6 +170,8 @@ impl InferenceRouter {
                     .filter(|route| route_has_eligible_text_target(route, &targets))
                     .map(|route| AvailableModel {
                         model_id: route.name.clone(),
+                        context_per_request: snapshot
+                            .context_per_request(&route.inference_route_id),
                     })
                     .collect()
             });

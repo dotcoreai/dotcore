@@ -43,26 +43,25 @@ pub(crate) struct LoopbackInvoker {
     /// The request kinds the engine serves, from its engine definition.
     request_kinds: &'static [InferenceRequestKind],
 
-    /// The engine's classifier of decision rejections, when it recognizes any.
-    decision_rejections: Option<RejectionClassifier>,
+    /// The engine's classifiers of the rejections it recognizes.
+    rejections: RejectionClassifiers,
 }
 
 impl LoopbackInvoker {
     /// Binds an engine listening on a loopback port that serves the model as `served_model_id`
-    /// and answers the `request_kinds` its engine serves. Decision rejections the engine's
-    /// `decision_rejections` classifier recognizes fail as invalid requests instead of passing
-    /// through.
+    /// and answers the `request_kinds` its engine serves. Rejections the engine's `rejections`
+    /// classifiers recognize fail as invalid requests instead of passing through.
     pub(crate) fn bind(
         port: u16,
         served_model_id: String,
         request_kinds: &'static [InferenceRequestKind],
-        decision_rejections: Option<RejectionClassifier>,
+        rejections: RejectionClassifiers,
     ) -> Arc<dyn EngineInvoker> {
         Arc::new(Self {
             port,
             served_model_id,
             request_kinds,
-            decision_rejections,
+            rejections,
         })
     }
 
@@ -86,6 +85,7 @@ impl EngineInvoker for LoopbackInvoker {
             self.port,
             &self.served_model_id,
             request,
+            self.rejections.chat,
             cancellation,
         ))
     }
@@ -104,7 +104,7 @@ impl EngineInvoker for LoopbackInvoker {
             self.port,
             &self.served_model_id,
             request,
-            self.decision_rejections,
+            self.rejections.decision,
             cancellation,
         ))
     }
@@ -113,6 +113,45 @@ impl EngineInvoker for LoopbackInvoker {
 /// Recognizes an engine's unsuccessful response, from its status and body, as a platform invalid
 /// request the client must fix. Responses it does not recognize keep passing through.
 pub(crate) type RejectionClassifier = fn(u16, &[u8]) -> Option<InvalidRequest>;
+
+/// An engine's rejection classifiers per request kind; a kind without one passes every
+/// rejection through.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct RejectionClassifiers {
+    pub(crate) chat: Option<RejectionClassifier>,
+    pub(crate) decision: Option<RejectionClassifier>,
+}
+
+/// Returns an engine error body's message, when it has the OpenAI-style error shape.
+pub(crate) fn error_message(body: &[u8]) -> Option<String> {
+    let body = serde_json::from_slice::<serde_json::Value>(body).ok()?;
+    body.pointer("/error/message")?.as_str().map(str::to_owned)
+}
+
+/// Whether `message` is `format` with each `%d` replaced by a decimal number.
+///
+/// Engines' fixed refusal messages are matched whole, so a reworded message keeps passing
+/// through rather than being misread.
+pub(crate) fn matches_format(message: &str, format: &str) -> bool {
+    let mut fragments = format.split("%d");
+    let Some(mut remaining) = fragments
+        .next()
+        .and_then(|first| message.strip_prefix(first))
+    else {
+        return false;
+    };
+    for fragment in fragments {
+        let digits = remaining.bytes().take_while(u8::is_ascii_digit).count();
+        let Some(rest) = (digits > 0)
+            .then(|| remaining[digits..].strip_prefix(fragment))
+            .flatten()
+        else {
+            return false;
+        };
+        remaining = rest;
+    }
+    remaining.is_empty()
+}
 
 /// Converts one transport result into the engine-neutral attempt a binding returns, keeping
 /// whether its failure may fall back.
@@ -454,6 +493,24 @@ fn parse_upstream_header(line: &str) -> Result<(String, String), AdapterError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_match_only_whole_messages_with_numbers_in_place() {
+        let format = "input (%d tokens) is larger than the max context size (%d tokens). skipping";
+
+        assert!(matches_format(
+            "input (17 tokens) is larger than the max context size (16 tokens). skipping",
+            format
+        ));
+        for message in [
+            "input ( tokens) is larger than the max context size (16 tokens). skipping",
+            "input (17 tokens) is larger than the max context size (-16 tokens). skipping",
+            "input (17 tokens) is larger than the max context size (16 tokens).",
+            "error: input (17 tokens) is larger than the max context size (16 tokens). skipping",
+        ] {
+            assert!(!matches_format(message, format), "{message}");
+        }
+    }
 
     #[test]
     fn upstream_header_parser_rejects_malformed_and_injectable_fields() {

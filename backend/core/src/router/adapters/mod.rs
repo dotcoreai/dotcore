@@ -1538,7 +1538,7 @@ mod tests {
                 9,
                 "fixture-model".to_owned(),
                 &[dotcore_proto::dotcore::catalog::v1::InferenceRequestKind::Chat],
-                None,
+                Default::default(),
             ),
         );
         let chat_only_engine = invoke_local_binding(chat_only, decision(), uncancelled());

@@ -24,13 +24,22 @@ use support::{
 const AGENT_EXIT_CODE: i32 = 7;
 
 /// A fake agent that writes each argument on its own line and the configuration variables of
-/// OpenCode and Pi next to the record path, then exits with the requested code.
+/// OpenCode and Pi next to the record path, then exits with the requested code. Asked for Codex's
+/// bundled model catalog, it prints the file named by `FAKE_BUNDLED_CATALOG` instead.
 const FAKE_AGENT: &str = r#"#!/bin/sh
+if [ "$1" = debug ]; then
+    while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line"; done < "$FAKE_BUNDLED_CATALOG"
+    exit 0
+fi
 for argument in "$@"; do printf '%s\n' "$argument"; done > "$FAKE_AGENT_RECORD.args"
 printf '%s' "$OPENCODE_CONFIG_CONTENT" > "$FAKE_AGENT_RECORD.config"
 printf '%s' "$DOTCORE_PI_PROVIDER" > "$FAKE_AGENT_RECORD.provider"
 exit "$FAKE_AGENT_EXIT"
 "#;
+
+/// A trimmed catalog bundled with Codex: the model the route's entry derives from.
+const BUNDLED_CODEX_CATALOG: &str =
+    r#"{"models":[{"slug":"gpt-5.5","base_instructions":"You are Codex."}]}"#;
 
 /// The Pi extension `dotc` embeds.
 const PI_EXTENSION: &str = include_str!("../src/code/dotcore-provider.ts");
@@ -166,6 +175,68 @@ fn pi_loads_the_cached_extension_with_every_enabled_route_on_the_selected_model(
         })
     );
     sandbox.assert_user_configuration_untouched();
+}
+
+#[test]
+fn codex_gets_the_provider_a_single_route_catalog_and_the_selected_model_before_the_agent_arguments()
+ {
+    let inference = FakeInference::answering(
+        200,
+        &json!({"object": "list", "data": [
+            {"id": "chat", "object": "model", "created": 0, "context_length": 65536},
+            {"id": "code", "object": "model", "created": 0, "context_length": 131072},
+        ]})
+        .to_string(),
+    );
+    let sandbox = Sandbox::with_agent("codex");
+    sandbox.bundle_codex_catalog(BUNDLED_CODEX_CATALOG);
+
+    let output = sandbox.run(
+        &inference,
+        &["codex", "--model", "chat", "--", "exec", "hello"],
+    );
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(output.status.code(), Some(AGENT_EXIT_CODE));
+    let catalog = sandbox.codex_catalog();
+    assert_eq!(
+        sandbox.agent_args(),
+        format!(
+            "-c\nmodel_provider=\"dotcore\"\n-c\nmodel_providers.dotcore={{ name = \"Dotcore\", \
+             base_url = \"{}\", wire_api = \"responses\" }}\n-c\nmodel=\"chat\"\n-c\n\
+             model_catalog_json=\"{}\"\n-c\nweb_search=\"disabled\"\n-c\n\
+             features.view_image=false\n-c\nshow_raw_agent_reasoning=true\n-c\n\
+             features.apps=false\nexec\nhello\n",
+            inference.base_url(),
+            catalog.display()
+        )
+    );
+    let content: Value = serde_json::from_str(&fs::read_to_string(&catalog).expect("catalog"))
+        .expect("catalog JSON");
+    assert_eq!(content["models"].as_array().map(Vec::len), Some(1));
+    assert_eq!(content["models"][0]["slug"], "chat");
+    assert_eq!(content["models"][0]["base_instructions"], "You are Codex.");
+    assert_eq!(content["models"][0]["context_window"], 65536);
+    assert_eq!(content["models"][0]["auto_compact_token_limit"], 52428);
+    assert_eq!(inference.requests(), ["GET /v1/models HTTP/1.1"]);
+    sandbox.assert_user_configuration_untouched();
+}
+
+#[test]
+fn codex_does_not_start_when_its_bundled_catalog_has_no_model_to_derive_from() {
+    let inference = listed_routes();
+    let sandbox = Sandbox::with_agent("codex");
+    sandbox.bundle_codex_catalog(r#"{"models":[{"slug":"other"}]}"#);
+
+    let output = sandbox.run(&inference, &["codex", "--model", "chat"]);
+
+    assert_eq!(
+        text(&output.stderr),
+        "the model catalog bundled with Codex has no model \"gpt-5.5\" to derive from\n"
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(!sandbox.agent_ran());
 }
 
 #[test]
@@ -470,6 +541,10 @@ impl Sandbox {
             .env("XDG_CONFIG_HOME", self.root.path().join("config"))
             .env("XDG_CACHE_HOME", self.root.path().join("cache"))
             .env("FAKE_AGENT_RECORD", self.record())
+            .env(
+                "FAKE_BUNDLED_CATALOG",
+                self.root.path().join("bundled-catalog.json"),
+            )
             .env("FAKE_AGENT_EXIT", AGENT_EXIT_CODE.to_string());
     }
 
@@ -491,6 +566,21 @@ impl Sandbox {
         let content =
             fs::read_to_string(self.record().with_extension("provider")).expect("agent provider");
         serde_json::from_str(&content).expect("agent provider JSON")
+    }
+
+    /// Makes the fake Codex print `catalog` as its bundled model catalog.
+    fn bundle_codex_catalog(&self, catalog: &str) {
+        fs::write(self.root.path().join("bundled-catalog.json"), catalog)
+            .expect("write bundled catalog");
+    }
+
+    /// The one Codex model catalog `dotc` keeps under this sandbox's cache root.
+    fn codex_catalog(&self) -> PathBuf {
+        let files = entries(&self.root.path().join("cache/dotcore/code/codex"));
+        let [catalog] = files.as_slice() else {
+            panic!("one Codex catalog expected: {files:?}");
+        };
+        catalog.clone()
     }
 
     /// The one Pi extension `dotc` keeps under this sandbox's cache root.

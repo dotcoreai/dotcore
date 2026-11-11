@@ -16,6 +16,7 @@ use dotcore_proto::dotcore::inference::v1::{
 use dotcore_proto::google::protobuf::NullValue;
 use serde_json::{Map, Value, json};
 
+use super::ToolNamespaces;
 use crate::{
     inference::{InvalidRequest, InvalidRequestCategory},
     router::{
@@ -31,7 +32,8 @@ pub(crate) enum OpenAiRequest {
 
     Chat(ChatRequest),
 
-    Responses(ChatRequest),
+    /// A Responses request, with the namespaced tools its function calls are answered under.
+    Responses(ChatRequest, ToolNamespaces),
 
     /// A System One decision request.
     SystemOne(DecisionRequest),
@@ -48,7 +50,8 @@ pub(crate) fn decode(
         ("GET", "/v1/models") => Ok(OpenAiRequest::Models),
         ("POST", "/v1/chat/completions") => validated(decode_chat(body)?).map(OpenAiRequest::Chat),
         ("POST", "/v1/responses") => {
-            validated(super::responses::decode_request(body)?).map(OpenAiRequest::Responses)
+            let (request, namespaces) = super::responses::decode_request(body)?;
+            Ok(OpenAiRequest::Responses(validated(request)?, namespaces))
         }
         ("POST", "/v1/systemone") => {
             let request =
@@ -81,10 +84,21 @@ pub(crate) fn decode(
 }
 
 pub(crate) fn models(models: AvailableModels) -> OpenAiResponse {
-    json_response(
-        200,
-        json!({"object":"list","data":models.models.into_iter().map(|model| json!({"id":model.model_id,"object":"model","created":0,"owned_by":"dotcore"})).collect::<Vec<_>>() }),
-    )
+    let data = models
+        .models
+        .into_iter()
+        .map(|model| {
+            let mut entry =
+                json!({"id":model.model_id,"object":"model","created":0,"owned_by":"dotcore"});
+            // Not in OpenAI's model object; clients such as Codex size their context from it.
+            // The name follows OpenRouter's listing.
+            if let Some(context) = model.context_per_request {
+                entry["context_length"] = json!(context);
+            }
+            entry
+        })
+        .collect::<Vec<_>>();
+    json_response(200, json!({"object":"list","data":data}))
 }
 
 pub(crate) fn completion(
@@ -1491,6 +1505,10 @@ mod tests {
             (
                 r#"{"model":"route","messages":[{"role":"user","content":"hi"}],"background":false}"#.to_owned(),
                 unsupported("background"),
+            ),
+            (
+                r#"{"model":"route","messages":[{"role":"user","content":"hi"}],"include":["reasoning.encrypted_content"]}"#.to_owned(),
+                unsupported("include"),
             ),
             (
                 r#"{"model":"route","messages":[{"role":"user","content":"hi"}],"previous_response_id":"resp_1"}"#.to_owned(),
