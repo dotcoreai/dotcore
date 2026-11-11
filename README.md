@@ -32,7 +32,7 @@ Follow the installer's instructions. See [docs/install.md](docs/install.md) for 
 - [Install and set up](docs/install.md)
 - [Using Dotcore](docs/usage.md)
 - [Developing Dotcore](docs/development/README.md)
-- [Design](docs/design/README.md)
+- [Product and architecture](docs/specs/README.md)
 
 ## Contributing
 

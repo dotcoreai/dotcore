@@ -18,17 +18,29 @@ connection in `backend/core/src/server/`.
 
 ```mermaid
 flowchart TB
+  CTRL["Owning controllers"]
+  API["Management API"]
+  CAP["Capacity component"]
   subgraph Manager["Site manager process"]
-    AUTH["Site authority: owner intent"]
+    AUTH["Site authority"]
     INV["Reconciled inventory"]
+    ING["Observability ingest"]
   end
   subgraph Node["Each SiteNode"]
     REC["Node-local reconciliation"]
     NA["Node agent"]
+    FW["Metric forwarder"]
   end
-  AUTH -->|"node view: revisioned, fenced"| REC
-  REC -->|"typed status, readiness, cleanup evidence"| AUTH
-  NA -->|"hardware observations"| INV
+  CTRL -->|"owner intent"| AUTH
+  AUTH -->|"node view"| REC
+  REC -->|"status, cleanup evidence"| AUTH
+  AUTH -->|"admin requests"| NA
+  NA -->|"observations"| INV
+  NA -->|"hardware signals"| FW
+  FW -->|"metric buckets"| ING
+  INV -->|"owner admission"| CTRL
+  INV -->|"reads"| API
+  INV -->|"reads"| CAP
 ```
 
 - The site manager owns site identity, membership, topology and the site-wide inventory.
@@ -38,6 +50,21 @@ flowchart TB
   workloads.
 
 ### Distributing node views
+
+```mermaid
+flowchart TB
+  IC["Inference controller"] -->|"owner section"| SNAP
+  AC["Apps controller"] -->|"owner section"| SNAP
+  subgraph SM["Site manager"]
+    SNAP["Authoritative site snapshot"]
+  end
+  SNAP -->|"derive"| VA["Node view for node A"]
+  SNAP -->|"derive"| VB["Node view for node B"]
+  VA -->|"install atomically"| RA["Node A reconciliation"]
+  VB -->|"install atomically"| RB["Node B reconciliation"]
+  RA -->|"typed status per owner"| SM
+  RB -->|"typed status per owner"| SM
+```
 
 The site manager derives one complete, revisioned node view per node from a single authoritative
 site snapshot. Each node installs its view and reconciles toward it.
@@ -61,6 +88,21 @@ site snapshot. Each node installs its view and reconciles toward it.
 
 ### The node control stream
 
+```mermaid
+sequenceDiagram
+  participant N as Node incarnation
+  participant SM as Site manager
+  N->>SM: Open authenticated stream
+  N->>SM: Current observations and status again
+  loop While the stream is open
+    N->>SM: Observations, typed status, idle heartbeats
+    SM->>N: View publications and acknowledgements
+    SM->>N: Periodic view republication
+  end
+  Note over N,SM: Silence past a bound lapses contact
+  Note over N,SM: A closed stream disconnects the node
+```
+
 Each node incarnation holds one long-lived authenticated stream to the site manager. Observations
 and typed controller status flow up. View publications and acknowledgements flow down.
 
@@ -81,6 +123,18 @@ and typed controller status flow up. View publications and acknowledgements flow
   same moment.
 
 ### Cleaning up a withdrawn deployment
+
+```mermaid
+sequenceDiagram
+  participant N as Hosting node
+  participant SM as Site manager
+  N->>N: Keep cleanup evidence
+  N->>SM: Cleanup evidence
+  SM->>SM: Accept only from the placed node
+  SM->>SM: Wait for durable removal
+  SM->>N: Acknowledgement
+  N->>N: Drop the cleanup evidence
+```
 
 - A hosting node keeps cleanup evidence for each withdrawn deployment until the manager acknowledges
   it.

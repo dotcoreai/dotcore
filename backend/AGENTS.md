@@ -52,7 +52,7 @@ backend/
 
 ## Design
 
-- The running server's in-memory site is the declarative authority (`docs/design/sites.md`). Owner-scoped mutations update only their section, write `site.yaml` and notify controllers to reconcile from memory; a write failure is an error but never rolls back the in-memory mutation. Never add a hidden desired-state store.
+- The running server's in-memory site is the declarative authority (`docs/specs/sites.md`). Owner-scoped mutations update only their section, write `site.yaml` and notify controllers to reconcile from memory; a write failure is an error but never rolls back the in-memory mutation. Never add a hidden desired-state store.
 - Retained `state.pb` holds observed and historical model and application state in owner sections, never desired declarations or deployment configuration. Owner repositories are scoped access to the shared `site.yaml` and `state.pb`, not separate files.
 - Lower crates never import higher ones (layers under Code map). Library crates stay invocation-neutral: docs and errors never name `dotc` commands or flags, and state remedies in domain terms ("reset the site"); the CLI adds command hints by matching typed errors or transport reason codes.
 - A component's public service lives in the crate owning that component. `core` hosts the transport adapter of a proto-free crate (`observability`) and services combining several owners (`resource_watch/`), which owner crates cannot import.

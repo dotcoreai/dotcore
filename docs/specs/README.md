@@ -1,7 +1,7 @@
-# Dotcore design
+# Dotcore product and architecture
 
 Dotcore runs AI models and approved apps on hardware you own, and manages them like a cloud. These
-pages are the target design: the product's intent and its architecture. They describe the system
+pages are the specs of the target design: the product's intent and its architecture. They describe the system
 Dotcore is building toward, not what is built today.
 
 The site stays in charge. Cloud connectivity can extend management, but healthy local serving and
@@ -75,55 +75,103 @@ and app access. Inference clients include SDKs, applications and evaluation harn
 ```mermaid
 flowchart TB
   subgraph Clients
-    direction LR
-    CON["Console"]
-    CLI["CLI"]
+    CON["Console and CLI"]
     IC["Inference clients"]
     AU["App users"]
   end
+  subgraph M["Site manager node"]
+    MM["Model deployments"]
+    MA["App deployments"]
+  end
+  subgraph W["Worker nodes"]
+    WM["Model deployments"]
+    WA["App deployments"]
+  end
+  Clients --> M
+  M <--> W
+```
+
+- A site is one or more machines, each a node. One node, the site manager node, holds the site's
+  authority and the entry points clients use. A site may have no worker nodes.
+- Every node, the site manager node included, runs model and app deployments.
+- Clients own no product state. The management API, the inference API and app access are separate
+  entry points. They aren't extra components or required network hops.
+- These are logical boundaries. Packaging, which process hosts a component, and where an adapter
+  runs don't change them.
+
+### On the site manager node
+
+```mermaid
+flowchart TB
   subgraph Control["Control plane"]
-    direction LR
     SM["Site manager"]
-    NA["Node agents"]
     CAP["Capacity component"]
     IAM["Identity and access"]
     CC["Cloud connector"]
+    SM ~~~ IAM
+    CAP ~~~ CC
   end
-  subgraph Workloads["Workload management and serving"]
-    direction LR
+  subgraph Serving["Workload management and serving"]
     CTRL["Inference and apps controllers"]
     RM["Route manager"]
     IR["Inference router"]
     PX["App proxy"]
-    RB["Runtime backends"]
+    CTRL ~~~ IR
+    RM ~~~ PX
   end
+  Control ~~~ Serving
+```
+
+- The control plane administers sites and nodes ([sites](sites.md)), evaluates capacity
+  ([machines](machines.md)), decides identity and access, and carries controlled remote management
+  ([access](access.md)).
+- Workload management and serving holds the controllers that own deployments ([models](models.md),
+  [apps](apps.md)), route management and the serving components ([inference](inference.md),
+  [apps](apps.md)).
+
+### On every node
+
+```mermaid
+flowchart TB
+  subgraph NC["Control plane"]
+    NA["Node agent"]
+  end
+  subgraph NW["Workload management and serving"]
+    REC["Node-local reconciliation"]
+    RB["Runtime backends"]
+    EIR["Engine integration registry"]
+    WL["Workloads"]
+    REC ~~~ EIR
+    RB ~~~ WL
+  end
+  NC ~~~ NW
+```
+
+- The node agent reports the node's hardware ([sites](sites.md), [machines](machines.md)).
+- Node-local reconciliation realizes the node's view for the owning controllers
+  ([sites](sites.md)).
+- Runtime backends start and stop workloads, and the engine integration registry checks and calls
+  them ([runtime](runtime.md)).
+- The node agent belongs to the control plane. The rest of the node's components and its workloads
+  belong to workload management and serving.
+
+### Platform services
+
+```mermaid
+flowchart TB
   subgraph Platform["Platform services"]
-    direction LR
     AM["Artifact manager"]
     ST["Site store"]
     OBS["Observability"]
     BK["Backups"]
     ME["Metering and entitlement"]
+    AM ~~~ BK
+    ST ~~~ ME
   end
-  CON & CLI -->|"management API"| SM & CTRL & RM
-  IC -->|"inference API"| IR
-  AU -->|"app access"| PX
-  CTRL -->|"workload intent"| RB
-  IR --> RB
-  Control & Workloads -.-> Platform
 ```
 
-- Clients own no product state.
-- The management API, the inference API and app access are separate entry points. They aren't
-  extra components or required network hops.
-- The control plane administers sites and nodes, evaluates capacity, decides identity and access,
-  and carries controlled remote management.
-- Workload management and serving holds the controllers that own deployments, route management,
-  the serving components, the runtime backends and the workloads.
 - Platform services hold artifacts, durable records, backups, observability, entitlement and
-  accounting.
-- These are logical boundaries. Packaging, which process hosts a component, and where an adapter
-  runs don't change them.
+  accounting ([storage](storage.md), [access](access.md)). Every other component uses them.
 
 ### Managing the site
 

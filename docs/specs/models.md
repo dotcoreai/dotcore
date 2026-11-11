@@ -31,16 +31,33 @@ recommendations), `backend/core/src/telemetry/` (workload resource records).
 
 ```mermaid
 flowchart TB
-  REQ["Create request"] --> IC["Inference controller"]
-  CAT["Catalog"] --> IC
-  INV["Reconciled inventory"] --> IC
+  API["Management API"] -->|"lifecycle requests"| IC["Inference controller"]
+  CAT["Catalog"] -->|"declarations"| IC
+  INV["Reconciled inventory"] -->|"observed facts"| IC
+  EIR["Engine integration registry"] -->|"typed engine adapters"| IC
+  IC -->|"sizing estimates"| CAP["Capacity component"]
+  CAP -->|"verdicts, previews"| IC
+  IC -->|"records"| SS["Site store"]
   IC -->|"snapshot in node view"| NODE["Hosting node: reconciliation"]
   NODE -->|"status, readiness, attributed memory"| IC
-  IC -->|"eligible targets"| RTR["Inference router"]
+  NODE -->|"resource telemetry"| OBS["Observability"]
+  IC -->|"eligible targets"| RTR["Route manager and inference router"]
   IC -->|"upstream verification"| UP["Upstream endpoint"]
 ```
 
 ### Resolving a deployment
+
+```mermaid
+flowchart TB
+  REQ["Create request"] --> SEL["Select engine artifact and hardware class: most specific match"]
+  CAT["Catalog"] --> SEL
+  FACTS["Target platform, runtime binding, observed facts"] --> SEL
+  SEL --> MERGE
+  subgraph MERGE["Each engine parameter: first value that applies"]
+    S1["Supplied value"] --> S2["Profile default"] --> S3["Engine release default"] --> S4["Sizing derivation"]
+  end
+  MERGE --> SNAP["Deployment snapshot: values, derived values, estimates"]
+```
 
 The controller resolves a create request against the catalog and the target's observed facts, then
 keeps the result as the deployment's snapshot.
@@ -61,6 +78,15 @@ keeps the result as the deployment's snapshot.
 
 ### Admitting a deployment
 
+```mermaid
+flowchart LR
+  RES["Resolved launch"] --> ADM["Admission"]
+  OBS["Current observations"] -->|"memory architecture, hardware class match"| ADM
+  ADM -->|"target constraints met"| OK["Accepted"]
+  ADM -->|"incompatible target"| NO["Rejected before acceptance"]
+  FIT["Fit verdict"] -.->|"never blocks"| ADM
+```
+
 - Admission enforces target constraints, such as a target's GPUs numbering exactly the devices the
   resolved launch uses, so an incompatible target is rejected before acceptance, not discovered at
   realization.
@@ -69,6 +95,21 @@ keeps the result as the deployment's snapshot.
 - Admission never blocks on fit.
 
 ### Running a local deployment
+
+```mermaid
+sequenceDiagram
+  participant IC as Inference controller
+  participant EA as Engine adapter
+  participant N as Hosting node
+  participant RT as Runtime
+  participant OBS as Observability
+  IC->>EA: Validate snapshot
+  IC->>N: Snapshot in node view
+  N->>N: Pin launch identity once
+  N->>RT: Realize the launch plan
+  N->>IC: Status, pinned identity
+  N->>OBS: Resource telemetry
+```
 
 - The hosting node realizes the deployment through node-local reconciliation on its runtime
   ([runtime](runtime.md)).
@@ -81,12 +122,33 @@ keeps the result as the deployment's snapshot.
 
 ### Running an upstream deployment
 
+```mermaid
+flowchart LR
+  subgraph SM["Site manager"]
+    UD["Upstream deployment reconciliation"] --> VB["Private verification boundary"]
+  end
+  VB -->|"verification"| UP["Upstream endpoint"]
+```
+
 - Upstream deployments reconcile on the site manager through a separate private verification
   boundary, outside runtime and any node's realization.
 - Being on the site manager never turns an upstream endpoint into a local workload. Endpoint failure
   affects that deployment only, never healthy local targets.
 
 ### Advisory reads
+
+```mermaid
+flowchart LR
+  INV["Reconciled inventory"] --> RES["Same resolution as admission"]
+  CAT["Catalog profiles"] --> RES
+  SCN["Sizing scenario"] --> RES
+  RES -->|"estimates per hardware class"| COMP["Compatibility read"]
+  CAP["Capacity component"] -->|"fits on free and total memory, largest fit, starting context"| COMP
+  CAP -->|"placement preview"| EST["Resource estimates"]
+  CAP -->|"verdicts"| RECS["Recommendations: one ranking per use case"]
+  LISTS["Hardware class lists per use case"] --> RECS
+  STALE["Last observations of unreachable targets"] -.-> RECS
+```
 
 - The compatibility read covers catalog model profiles and configured model targets. It runs the same
   resolution as admission over the reconciled inventory. A target without fresh observations is

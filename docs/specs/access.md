@@ -21,12 +21,27 @@ flowchart LR
   MC["Management client"] --> MA["Management API"]
   IC["Inference client"] --> IA["Inference API"]
   AU["App user"] --> PX["App proxy"]
-  IAM["Identity and access manager"] -.->|"decisions"| MA & IA & PX
+  IAM["Identity and access manager"] -.->|"authentication, authorization decisions"| MA & IA & PX
+  ME["Metering and entitlement manager"] -.->|"entitlement decisions"| SE["Serving and enforcement"]
   N["Joining node"] -->|"join token, own key"| SM["Site manager"]
+  SM -->|"site-issued node identity"| N
   CC["Cloud connector"] <-->|"remote management"| DS["Dotcore services"]
 ```
 
 ### Joining a node
+
+```mermaid
+sequenceDiagram
+  participant N as Joining node
+  participant SM as Site manager handshake
+  participant SA as Site authority
+  actor OP as You
+  N->>N: Generate own key
+  N->>SM: Handshake with the join token
+  SA->>N: Node identity
+  OP->>SA: Approve
+  SA->>SA: Record membership, pin
+```
 
 - Site machine trust is established before a worker enrolls. Each provisioned node, the site manager
   included, holds its own site-issued node identity. The site signing key is separate and held only
@@ -41,6 +56,24 @@ flowchart LR
 - A node with an intact folder joins again by proving its pinned identity. Only its addresses change.
 
 ### Connecting nodes
+
+```mermaid
+flowchart TB
+  CL["Console and inference clients"] -->|"recorded node host only"| ENTRY
+  subgraph SMN["Site manager node"]
+    ENTRY["Network entry points"]
+    SM["Site manager"]
+    RTR["Inference router"]
+  end
+  subgraph WN["Worker node"]
+    NODE["Private node interfaces"]
+  end
+  NODE -->|"node control stream"| SM
+  RTR -->|"peer inference dispatch"| NODE
+  SM -->|"diagnostic reads"| NODE
+  SA["Site authority: hosts, pins, authorization"] -.-> SM
+  SA -.-> NODE
+```
 
 - Private node connections need a valid site-local node identity, exact peer pins, and directional
   authorization derived from site authority and trusted bootstrap policy, not a manager-specific

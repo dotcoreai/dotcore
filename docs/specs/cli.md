@@ -18,17 +18,38 @@ Code: `backend/cli/`.
 
 ```mermaid
 flowchart LR
-  CLI["dotc"] -->|"running site"| API["Management API"] --> OWN["Owning components"]
-  CLI -->|"stopped site"| IN["Site inputs and stopped-site administration"]
+  CLI["dotc"] -->|"running site"| API["Management API"] -->|"validate, accept"| OWN["Owning components"]
+  CLI -->|"offline initialization, validation"| IN["Site inputs"]
+  CLI -->|"node removal, reset, destructive recovery"| STOP["Stopped-site administration"]
   CLI -->|"process lifecycle"| SRV["Server process"]
+  CLI -->|"join from the machine"| JH["Site manager join handshake"]
+  CLI -->|"starts"| AG["Coding agents"] -->|"site's routes"| INF["Inference API"]
 ```
 
 ### Managing a running site
+
+```mermaid
+sequenceDiagram
+  participant CLI as dotc
+  participant API as Management API
+  participant OWN as Owning component
+  CLI->>API: Change
+  API->>OWN: Change
+  OWN->>OWN: Validate
+  OWN->>API: Accepted or rejected
+  API->>CLI: Result
+```
 
 - Every change goes through the management API to the owning component, which validates and accepts
   it ([README](README.md#managing-the-site)).
 
 ### Before the site starts
+
+```mermaid
+flowchart LR
+  CLI["dotc: offline initialization"] -->|"authors"| IN["Site configuration"]
+  IN -->|"read at start"| SRV["Server process"]
+```
 
 - Offline initialization authors the site's inputs before startup
   ([sites](sites.md#site-configuration)). It's a local CLI step, not a console workflow.

@@ -19,15 +19,35 @@ Code: `frontend/` (its `AGENTS.md` holds the code map).
 
 ```mermaid
 flowchart LR
-  CON["Console"] -->|"live watches"| API["Management API"]
+  CON["Console"] -->|"changes, reads, live watches"| API["Management API"]
+  OWN["Owning components"] -->|"owner reads, recommendations, verdicts, previews"| API
+  CAP["Capacity component"] -->|"node memory projection"| API
   CON -->|"try a route"| INF["Inference API"]
+  CON -->|"decision drafts, question sets"| BS["Browser storage"]
 ```
 
 ### Watching the site
 
+```mermaid
+sequenceDiagram
+  participant CON as Console
+  participant API as Management API
+  CON->>API: Subscribe to live watches
+  loop Each change
+    API->>CON: Change, stamped with its aligned interval
+  end
+```
+
 - The console subscribes to the management API's live watches ([README](README.md#managing-the-site)).
 
 ### Trying a route
+
+```mermaid
+flowchart LR
+  CHAT["Console chat: browser session"] -->|"chat or decision request"| INF["Inference API"]
+  INF -->|"answer"| CHAT
+  CHAT -->|"decision drafts, saved question sets"| BS["Browser storage"]
+```
 
 - The chat is an ordinary inference client of the inference API.
 - Conversations last for the browser session. Decision drafts and saved question sets are kept in

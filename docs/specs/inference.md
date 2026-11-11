@@ -27,16 +27,40 @@ Code: `backend/core/src/route_manager/`, `backend/core/src/router/`,
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
   C["Inference client"] --> API["Inference API"] --> R["Inference router"]
-  RM["Route manager"] -.->|"route policy"| R
-  IC["Inference controller"] -.->|"eligible targets"| R
-  EIR["Engine integration registry"] -.->|"readiness, binding"| R
-  R -->|"in process or peer endpoint"| N["Hosting node"]
+  IC["Inference controller"] -->|"identity, eligibility, capabilities"| RM["Route manager"]
+  RM -.->|"route policy"| R
+  IC -.->|"eligible targets"| R
+  APP["App deployment"] -.->|"links by route identity"| RM
+  R -->|"in process or peer endpoint"| EIR["Hosting node: engine integration registry"]
+  EIR -->|"local binding"| W["Engine workload"]
   R -->|"upstream transport"| UP["Upstream endpoint"]
+  R -->|"request metrics"| OBS["Observability"]
 ```
 
 ### Serving a request
+
+```mermaid
+sequenceDiagram
+  participant C as Inference client
+  participant API as Inference API
+  participant R as Inference router
+  participant N as Hosting node
+  participant UP as Upstream endpoint
+  C->>API: Request by route name
+  API->>R: Internal contract
+  R->>R: Resolve route, admit member
+  R->>R: Join to eligible target
+  alt Node-hosted
+    R->>N: Invoke binding
+    N->>R: Answer
+  else Upstream
+    R->>UP: Upstream transport
+    UP->>R: Answer
+  end
+  R->>C: Answer streams back
+```
 
 The router resolves the route, admits the request to an eligible member, and invokes it.
 
@@ -62,6 +86,19 @@ The router resolves the route, admits the request to an eligible member, and inv
 
 ### Retry and fallback
 
+```mermaid
+flowchart TB
+  A["Attempt a target"] --> Q1{"Public output committed?"}
+  Q1 -->|"yes"| STAY["No change of target"]
+  Q1 -->|"no, attempt failed"| Q2{"Failure kind"}
+  Q2 -->|"invalid request"| INV["No fallback"]
+  Q2 -->|"other engine rejection"| KEEP["Status kept, message in safe error envelope"]
+  Q2 -->|"availability or identity refusal before dispatch"| NEXT{"Unattempted target left?"}
+  Q2 -->|"engine refuses the kind before any work"| NEXT
+  NEXT -->|"yes"| A
+  NEXT -->|"no"| STOP["No further attempt"]
+```
+
 - No change of target after public output commits.
 - No repeat of a deployment already attempted.
 - One provider request per upstream attempt.
@@ -74,6 +111,16 @@ The router resolves the route, admits the request to an eligible member, and inv
   back from.
 
 ### Publishing a node-hosted target
+
+```mermaid
+flowchart LR
+  EV["Fresh readiness evidence: hosting node, declared generation, this deployment"] -->|"publishes"| T["Serving target"]
+  T -->|"evidence expires"| EXP["Target expired"]
+  T -->|"node incarnation ends"| EXP
+  T -->|"contact lapses past the silence bound"| EXP
+  T -->|"binding revoked"| REV["Revoked, terminal"]
+  CS["Stream closed, or unrelated view change"] -.->|"no effect"| T
+```
 
 - A node-hosted deployment becomes a serving target only from fresh readiness evidence from its
   hosting node, for the declared deployment generation, scoped to that deployment.

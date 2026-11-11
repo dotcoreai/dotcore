@@ -31,6 +31,8 @@ transport).
 
 ```mermaid
 flowchart TB
+  CTRL["Owning controllers"]
+  API["Management API"]
   subgraph Manager["Site manager process"]
     SS["Site store: owner records"]
     MS["Site-wide metric store"]
@@ -40,12 +42,33 @@ flowchart TB
     NS["Node store: realization state"]
     FW["Metric forwarder"]
     TS["Workload resource records"]
+    W["Workloads"]
   end
+  SRC["Source components"] -.->|"copies"| BK["Backups manager"]
+  CTRL -->|"records, own repository"| SS
+  CTRL -.->|"on-demand diagnostic reads"| NS
+  AM -->|"verified artifacts"| W
   FW -->|"authenticated node channel"| MS
-  CTRL["Owning controller"] -.->|"on-demand diagnostic reads"| NS
+  MS -->|"queries, live streams"| API
+  IC["Inference controller, development tooling"] -->|"telemetry sink"| TS
 ```
 
 ### Preparing an artifact
+
+```mermaid
+flowchart TB
+  AM["Artifact manager on the hosting node"]
+  AM --> OCI["OCI: pinned digest"]
+  AM --> NIX["Nix: store path for the node's Nix system"]
+  AM --> DN["Docker-delivered Nix: build the loader"]
+  AM --> DEVI["Node-local development image: inspect"]
+  AM --> DEVN["Development-source Nix: evaluate"]
+  SRC["Local Dotcore source, or fetch"] -->|"locked revision"| NIX
+  OCI -->|"pull"| DOCK["Docker runtime's Docker endpoint"]
+  DN -->|"load"| DOCK
+  OCI & NIX & DN & DEVI & DEVN --> VER["Verify and publish for workloads"]
+  AM -->|"preparation output"| NS["Node store, until cleanup"]
+```
 
 The artifact manager prepares each artifact on the hosting node, verifies it, and publishes it for
 workloads.
@@ -73,6 +96,15 @@ workloads.
 
 ### Recording metrics
 
+```mermaid
+flowchart TB
+  subgraph Node["Each node"]
+    WR["Writers: own measurements"] -->|"typed samples with observation time"| FW["Metric forwarder"]
+  end
+  FW -->|"authenticated node channel"| MS["Site-wide metric store: epoch-aligned buckets"]
+  MS -->|"queries, live streams"| API["Management API"]
+```
+
 - Writers own measurement and observability owns retention. Recording never blocks the measured work.
 - Every node sends its metrics through a node-local forwarder to the site manager over the
   authenticated node channel. A node writes only metrics it measured about itself.
@@ -86,6 +118,15 @@ workloads.
   sample interval and are recorded once per collection.
 
 ### Reading diagnostics
+
+```mermaid
+flowchart LR
+  CTRL["Owning controller"] -->|"on-demand read"| HN["Hosting node: diagnostics, preparation output"]
+  HN -->|"protected values removed"| CTRL
+  MD["Management diagnostics"] -->|"on-demand read"| BL["Each node: retained backend logs"]
+  BL -->|"paths removed"| MD
+  HN -->|"failure diagnostics in status"| DR["Deployment record"]
+```
 
 - The owning controller reads a node-hosted deployment's diagnostics on demand from the hosting
   node's local runtime. Preparation output is read the same way.

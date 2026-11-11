@@ -26,13 +26,16 @@ Code: `backend/node_hardware/` (hardware facts, signal sampling, declared machin
 ## Architecture
 
 ```mermaid
-flowchart LR
-  HW["Real hardware or declared machine"] --> NA["Node agent"]
-  NA -->|"observations"| INV["Site manager: reconciled inventory"]
+flowchart TB
+  HW["Real hardware or declared machine"] -->|"readings"| NA["Node agent"]
+  NA -->|"hardware observations"| INV["Site manager: reconciled inventory"]
   REC["Node-local reconciliation"] -->|"attributed memory per deployment"| INV
-  INV --> CAP["Capacity component"]
-  CAP --> OUT["Fit, largest fit, starting context, previews, node memory"]
-  OUT --> R["Compatibility, recommendations, estimates, memory views"]
+  INV -->|"memory facts, target mapping, occupancy"| CAP["Capacity component"]
+  IC["Inference controller"] -->|"resolved sizing estimates"| CAP
+  CAP -->|"verdicts, previews, largest fits, starting values"| IC
+  CAP -->|"node memory projection"| API["Management API"]
+  IC -->|"compatibility, recommendations, estimates"| CL["Clients"]
+  API -->|"memory views"| CL
 ```
 
 - Node agents observe hardware. The site manager reconciles those observations into an inventory,
@@ -41,6 +44,22 @@ flowchart LR
 - The capacity component evaluates the inventory and answers every memory question.
 
 ### From observations to an answer
+
+```mermaid
+flowchart TB
+  OBS["Platform and GPU observations, with freshness"] --> INV["Reconciled inventory"]
+  INV -->|"reads"| ADM["Owner admission"]
+  INV -->|"memory facts, target-to-device mapping"| CAP["Capacity component: builds pools"]
+  subgraph IC["Inference controller"]
+    COMP["Compatibility read"]
+    RECS["Model recommendations"]
+    EST["Resource estimates"]
+  end
+  CAP -->|"verdicts, previews, pools"| IC
+  CAP -->|"verdicts, previews, pools"| MV["Site memory views"]
+  IC -->|"drawn by"| CL["Clients"]
+  MV -->|"drawn by"| CL
+```
 
 - The site manager reconciles platform and GPU observations attributed to targets, each with an
   explicit freshness. Owner admission reads this inventory, never runtime, node agent or console
@@ -52,6 +71,16 @@ flowchart LR
   Clients draw them and hold no fit, headroom or starting-value rule.
 
 ### Attributing memory to deployments
+
+```mermaid
+flowchart TB
+  HC["Node hardware collection"] -->|"per-process observations"| SCOPE["Owner-neutral attribution scope"]
+  RB["Runtime backend"] -->|"process identity, memory report"| SCOPE
+  SCOPE --> MREC["Inference controller reconciliation"]
+  SCOPE --> AREC["Apps controller reconciliation"]
+  MREC -->|"memory or unavailable, with reason"| ST["Node status"]
+  AREC -->|"memory or unavailable, with reason"| ST
+```
 
 - Each workload controller's node-local reconciliation attributes its workloads' GPU memory from
   the hosting node's per-process observations, matched by the runtime's node-qualified process

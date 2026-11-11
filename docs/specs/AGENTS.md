@@ -1,4 +1,4 @@
-# Design documents agentic instructions
+# Product and architecture agentic instructions
 
 These pages are the one authority for Dotcore's product intent and architecture: what each component
 owns, what it never does, what it keeps, and the guarantees that hold between components. Delivery
@@ -25,8 +25,9 @@ Use these sections, in this order, and leave out any that would be empty:
 
 1. Title, a one or two sentence definition naming the owning components, and the code it covers.
 2. `## Capabilities`: what the subject lets users and operators do. Outcomes, not screens or commands.
-3. `## Architecture`: one Mermaid diagram, each component in one line, then one `###` per flow: what
-   moves between which components, then that flow's rules as bullets.
+3. `## Architecture`: a component diagram, each component in one line, then one `###` per flow: a
+   flow or sequence diagram, what moves between which components, then that flow's rules as
+   bullets.
 4. `## Resources`: one `###` per thing the page owns: its identity, whether it can change, what it
    keeps and how long it lives.
 5. `## Components`: one `###` per component, with these `####` parts:
@@ -86,5 +87,12 @@ and implementation status or history.
 - Glossary terms from the root `AGENTS.md` are used as is. A contract term not in the glossary is
   defined once, on the page that owns it.
 - Describe the target design, never how it was built or what changed.
-- Diagrams are Mermaid, show only the major relationships, and match the text. The text is the
-  contract.
+- Diagrams are Mermaid and match the text. The text is the contract.
+- Diagrams zoom in three levels:
+  - README top level: clients, the site manager node and worker nodes, and the deployments they
+    run. No components and no relation labels.
+  - README zooms: the components on the site manager node, on every node, and in platform services,
+    each linking to its pages.
+  - Subject pages: the page's components with their neighbours and labeled relations, and one
+    diagram per flow.
+- Keep a diagram to about fifteen boxes; split a bigger one.

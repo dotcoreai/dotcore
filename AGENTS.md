@@ -28,9 +28,9 @@ to it instead of repeating it. This file owns the repository-wide rules and the 
   cluster. [`dev/AGENTS.md`](dev/AGENTS.md)
 - `ci/`: the recipes CI runs (`just ci::check`). The workflows live in `.github/workflows/`;
   [`.github/AGENTS.md`](.github/AGENTS.md) owns their rules.
-- `docs/`: the user guides, the development guides (`docs/development/`), and the design documents
-  (`docs/design/`). [`docs/design/AGENTS.md`](docs/design/AGENTS.md) owns the design documents'
-  rules.
+- `docs/`: the user guides, the development guides (`docs/development/`), and the product and
+  architecture specs (`docs/specs/`). [`docs/specs/AGENTS.md`](docs/specs/AGENTS.md) owns the
+  specs' rules.
 - `utils/`: standalone tools with no build integration; each has its own README.
 - `.agents/skills/`: skills, linked from `.claude/skills/`.
 
@@ -68,18 +68,18 @@ in the same change that adds, removes or renames a folder it lists.
 
 ## Product and architecture
 
-- The design documents (`docs/design/`) hold the product intent and the target architecture. They
-  don't describe current implementation status.
-- Dotcore has no deployments to stay compatible with. Align decisions with the design documents
-  and the future design, not with existing code, unless there is a concrete need.
-- If a request conflicts with a design document, name the affected decision, propose the document
-  change, and ask for a brief confirmation. Don't refuse, and don't change the decision silently.
+- The product and architecture specs (`docs/specs/`) hold the product intent and the target
+  architecture. They don't describe current implementation status.
+- Dotcore has no deployments to stay compatible with. Align decisions with the specs and the
+  future design, not with existing code, unless there is a concrete need.
+- If a request conflicts with a spec, name the affected decision, propose the spec change, and ask
+  for a brief confirmation. Don't refuse, and don't change the decision silently.
 - A technical plan selects or changes design, architecture, ownership boundaries, protocols,
   topology, milestones or capability placement. Task lists, runbooks, investigation steps and
   status summaries are not technical plans.
 - After writing or materially revising a technical plan, request an architecture review. Before
   implementing it, report its effects on the facts above and the document updates it needs.
-- Update a design page only when its own subject changes; leave out POC-only and scope-limited
+- Update a spec page only when its own subject changes; leave out POC-only and scope-limited
   detail. Routine UI and implementation changes need neither a document edit nor a discussion.
 
 ## Development
@@ -153,7 +153,8 @@ in the same change that adds, removes or renames a folder it lists.
   to `--help`, a recipe or a doc. Title it `# <Area> agentic instructions`.
 - A README is for a person browsing: what the folder is, how it fits, where to go next. Procedures,
   rules and checks for changing it go in the folder's `AGENTS.md`, which the README may link.
-  `docs/` holds the guides people follow to use and develop Dotcore, and the design documents.
+  `docs/` holds the guides people follow to use and develop Dotcore, and the product and
+  architecture specs.
 - Docs state current facts once: when a change makes one false (`docs/`, READMEs, agent files),
   rewrite or delete it in the same change; never append dated addenda or migration notes.
 - Guides and READMEs tell a reader how to do something. A code change needs a doc change only
@@ -184,7 +185,7 @@ in the same change that adds, removes or renames a folder it lists.
   confused with another. Implementation and development vocabulary (data files, test fixtures,
   internal types) stays in the code and its area's `AGENTS.md`.
 - Common concepts keep their usual meaning. Reuse these words in code, docs and plans; don't
-  invent synonyms. The design documents (`docs/design/`) explain how they relate.
+  invent synonyms. The specs (`docs/specs/`) explain how they relate.
 - Write domain nouns in lowercase mid-sentence in every human-readable text: docs, comments, logs,
   errors, test names, CLI output and UI copy (`the console`, `the master catalog`, `site not
   found`). Capitalize only sentence and heading starts, proper names (Dotcore, OpenAI, Docker),

@@ -23,16 +23,39 @@ Code: `backend/core/src/application/` (apps controller).
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TB
   U["App user"] --> ACC["App access"] --> PX["App proxy"]
-  PX -->|"allowed traffic"| W["Ready app workload"]
-  IAM["Access policy"] -.-> PX
-  AC["Apps controller"] -.->|"readiness"| PX
-  AC -->|"owner section in node view"| W
+  IAM["Identity and access manager"] -.->|"access decisions"| PX
+  AC["Apps controller"] -.->|"ready workloads"| PX
+  PX -->|"allowed traffic"| W["App workload"]
+  CAT["Catalog"] -->|"app graph, defaults"| AC
+  AC -->|"owner section in node view"| NODE["Hosting node: reconciliation"]
+  NODE -->|"status, attributed GPU memory"| AC
+  NODE -->|"workload intent"| RB["Runtime backend"]
+  RB -->|"starts, stops"| W
+  NODE -->|"resource metric history"| OBS["Observability"]
   W -->|"inference base URL"| R["Linked inference route"]
 ```
 
 ### Reaching an app
+
+```mermaid
+sequenceDiagram
+  participant U as App user
+  participant PX as App proxy
+  participant IAM as Identity and access
+  participant AC as Apps controller
+  participant W as App workload
+  AC->>PX: Ready workloads
+  U->>PX: Request via app access
+  PX->>IAM: Access decision
+  IAM->>PX: Decision
+  alt Allowed and ready
+    PX->>W: Forward traffic
+  else Otherwise
+    PX->>U: Not forwarded
+  end
+```
 
 - App access is the user-facing entry point, distinct from private workload endpoints.
 - The proxy enforces identity and access decisions. It never trusts or forwards an identity the
@@ -40,6 +63,16 @@ flowchart LR
 - The proxy forwards allowed traffic only to workloads the controller reports ready.
 
 ### Linking a route
+
+```mermaid
+flowchart TB
+  G["App graph declares the route input"] --> AD["App deployment"]
+  AD -->|"link by route identity"| R["Inference route"]
+  AD -.->|"retained link blocks deleting"| R
+  R -->|"change affecting the launch"| AC["Apps controller"]
+  AC -->|"reconciles the dependent launch"| AD
+  AD -->|"linked route unknown"| FAIL["Deployment fails, typed, no substitute route"]
+```
 
 - An app links a route only when its immutable graph declares the matching input.
 - The link keeps the route's stable identity, never a copied callable name, so renaming the route
@@ -51,6 +84,13 @@ flowchart LR
 - A retained app route link blocks deleting the route. Not every app links a route.
 
 ### Recording resource use
+
+```mermaid
+flowchart LR
+  RB["Runtime backend"] -->|"group resource use"| HN["Hosting node"]
+  HC["Node GPU memory per collection"] --> HN
+  HN -->|"CPU, memory, GPU memory per service"| MH["Metric history"]
+```
 
 - The hosting node records each app service's CPU use, host memory and GPU memory as metric history.
   It attributes the runtime's resource observation of the deployment's group, and the node's GPU

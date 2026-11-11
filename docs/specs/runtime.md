@@ -19,17 +19,20 @@ Code: `backend/runtime/` (owner-neutral contracts), `backend/runtime_backends/`,
 
 ```mermaid
 flowchart TB
+  SRV["Server"] -->|"completed backend set"| CTRL
   subgraph Node["Hosting node"]
     CTRL["Controllers' node-local reconciliation"]
     EIR["Engine integration registry"]
-    RB["Runtime backend"]
+    RB["Runtime backend: Docker, native or simulated"]
+    AM["Artifact manager"]
     W["Workloads"]
   end
   RTR["Inference router"]
-  CTRL -->|"workload intent"| RB
-  RB -->|"realization identity, endpoints, bindings"| CTRL
-  RB -->|"starts, stops"| W
-  CTRL -->|"readiness"| EIR
+  CTRL -->|"workload intent, expected memory"| RB
+  RB -->|"realization identity, endpoints, bindings, observations"| CTRL
+  RB -->|"starts, stops, storage attachments"| W
+  AM -->|"prepared artifacts"| W
+  CTRL -->|"launch translation, readiness"| EIR
   RTR -->|"in process or authenticated peer call"| EIR
   EIR -->|"probes, invocations"| W
 ```
@@ -40,6 +43,17 @@ flowchart TB
 - Workloads are the engines and app services that run.
 
 ### Realizing a workload
+
+```mermaid
+flowchart TB
+  C["Controller's node-local reconciliation"] -->|"workload intent"| RB["Runtime backend"]
+  C -->|"physical artifact preparation"| AM["Artifact manager"]
+  AM -->|"verified artifacts"| W["Workload"]
+  RB -->|"checks, realizes"| W
+  RB -->|"realization identity, endpoints, bindings"| C
+  RB -->|"unsupported: rejected, no fallback"| C
+  W -.->|"failure changes observations only"| C
+```
 
 The controllers decide what should run. On each hosting node, their node-local reconciliation hands
 the runtime backend a workload intent: what to launch, with which artifacts, devices and storage.
@@ -55,6 +69,15 @@ The backend realizes it and reports back what it started and where it listens.
 - Runtime failure changes observations, never desired intent.
 
 ### Serving through a workload
+
+```mermaid
+flowchart TB
+  CTRL["Controller"] -->|"is it ready?"| EIR["Engine integration registry"]
+  RTR["Inference router"] -->|"same process"| EIR
+  RTR -->|"other node"| PEER["Node's authenticated peer endpoint"]
+  PEER --> EIR
+  EIR -->|"readiness probes, invocations"| W["Workload"]
+```
 
 The controller asks the registry whether a workload is ready. The router asks it to invoke the
 workload's binding: in process when the node shares the router's process, or through the node's

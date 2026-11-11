@@ -24,6 +24,25 @@ Code: `backend/catalog/` (declarations, validation, sizing), `catalog/` (the mas
 ## Architecture
 
 ```mermaid
+flowchart TB
+  subgraph Layers["Catalog layers"]
+    MC["Master catalog"]
+    SC["Site and development catalogs"]
+  end
+  AM["Artifact manager: declarations"]
+  EA["Engine adapters"]
+  RES["Model deployment resolution"]
+  APPS["App deployments"]
+  CAP["Capacity component"]
+  SC -->|"adds unique identities"| MC
+  Layers -->|"declarations"| AM
+  AM -->|"engine payloads to validate"| EA
+  AM -->|"models, profiles, sizing, recommendations"| RES
+  AM -->|"app graphs"| APPS
+  RES -->|"sizing estimates"| CAP
+```
+
+```mermaid
 flowchart LR
   M["Model"] --> C["Model-local engine configuration"]
   C --> P["Model profiles"]
@@ -43,6 +62,16 @@ flowchart LR
 - An app declares a graph of services and requirements.
 
 ### Validating a catalog
+
+```mermaid
+flowchart LR
+  CAT["Catalog declarations"] --> AM["Artifact manager: engine-neutral checks"]
+  AM -->|"engine payload"| V["Selected engine's typed declaration validator"]
+  V -->|"accept or reject"| AM
+  AM -->|"accepted"| OK["Immutable declarations"]
+  AM -->|"rejected"| NO["Catalog rejected"]
+  RC["Repository catalog checks"] -->|"linear sizing, own-repository sources"| MC["Master catalog"]
+```
 
 The artifact manager validates engine-neutral structure, including hardware class references, and
 calls the selected engine's typed declaration validator. It never interprets engine payloads or
