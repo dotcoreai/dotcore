@@ -697,8 +697,7 @@ fn recommendations_response(
                     .map(|row| RecommendedModelProfile {
                         model_id: row.model_id,
                         profile_id: row.profile_id,
-                        // TODO: the recommender returns each row's context per request.
-                        context_tokens_per_request: 0,
+                        context_tokens_per_request: row.context_tokens_per_request,
                         targets: row
                             .targets
                             .into_iter()

@@ -2366,6 +2366,30 @@ useCases:
                 format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets minimum memory per device 8000000000 bytes, below its configuration's 16000000000 bytes"),
             ),
             (
+                "context per request above the maximum context",
+                nvidia_support,
+                vec![(
+                    "nvidia",
+                    file("nvidia", &[assistant(&balanced)]).replace(
+                        "profileId: \"balanced\"\n",
+                        "profileId: \"balanced\"\n        contextTokensPerRequest: 262145\n",
+                    ),
+                )],
+                format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets context per request 262145 tokens, above its configuration's maximum context of 262144 tokens"),
+            ),
+            (
+                "context per request below the minimum context",
+                nvidia_support,
+                vec![(
+                    "nvidia",
+                    file("nvidia", &[assistant(&balanced)]).replace(
+                        "profileId: \"balanced\"\n",
+                        "profileId: \"balanced\"\n        contextTokensPerRequest: 1023\n",
+                    ),
+                )],
+                format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets context per request 1023 tokens, below the minimum context of 1024 tokens"),
+            ),
+            (
                 "repeated entry",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&[balanced[0], balanced[0]])]))],
