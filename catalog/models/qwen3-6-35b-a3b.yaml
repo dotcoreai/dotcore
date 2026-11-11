@@ -1,8 +1,8 @@
 # Immutable provenance for Qwen3.6 35B A3B's public GGUF tiers.
 # Qualification tier: q4-xl on Linux NVIDIA. Base sizing equations are measured for every llama.cpp tier;
 # the llama.cpp MTP terms and llama.cpp base terms after the MTP GGUF re-pin are estimates pending
-# remeasurement. On Strata, q4-xl is measured on an RTX 5090; q6-xl and q8 run on Strata only, with
-# estimated sizing.
+# remeasurement. On Strata, q4-xl is measured on an RTX 5090 and a GB10; q6-xl and q8 run on Strata
+# only, with estimated sizing.
 # MTP is exposed on vLLM and llama.cpp. The llama.cpp GGUFs come from Unsloth's MTP repository, which embeds the
 # MTP head in each main file, so the llama.cpp realization declares an embedded head. The vision projector stays
 # pinned to the original repository (identical tensor data). Vision and parallel slots work with MTP on b11429.
@@ -460,10 +460,16 @@ configurations:
           values:
             - parameterId: "token-count"
               unsignedInteger: "2"
-  # Strata reads the GGUF in place and drafts with the MTP head built into it (no pack, no separate
-  # draft layer). It accepts only the UD-Q4_K_XL, UD-Q6_K_XL and Q8_0 files of this repository revision.
+  # Strata reads the GGUF in place and loads the MTP head built into it (no pack, no separate draft
+  # layer). It uses the head for draft tokens only when a request's sampling allows it; requests that
+  # carry penalties or sampling beyond fully greedy decoding don't draft. It accepts only the UD-Q4_K_XL, UD-Q6_K_XL and Q8_0 files of this repository revision.
   # The experts beyond the expert accelerator memory cap stay in pinned host memory, with every expert
   # pinned there whenever they don't all fit on the GPU.
+  # Each Strata engine build carries kernels for its own GPUs only, so each configuration approves
+  # one build with the hardware class it runs on.
+  # The amd64 build carries kernels for sm_75, sm_86, sm_89 and sm_120 and PTX for compute_120 only,
+  # so of the dedicated cards it runs only on those generations; this configuration covers the
+  # measured GB202 cards.
   - configurationId: "strata-nvidia-cuda"
     engineArtifacts:
       - engineReleaseId: "strata-0-2-13"
@@ -501,9 +507,6 @@ configurations:
           equation: >-
             if(${expert-vram-mib} * MiB < ${expertBytes}, ${expertBytes}, 0)
     hardwareSupport:
-      # The engine build carries kernels for sm_75, sm_86, sm_89 and sm_120 and PTX for compute_120
-      # only, so of the dedicated cards it runs only on those generations; this class covers the
-      # measured GB202 cards.
       - hardwareClassId: "nvidia-gb202"
         # The device minimum fits the default cap and context; the system minimum is upstream's.
         hardwareRequirements:
@@ -533,6 +536,80 @@ configurations:
               baseAccelBytes: 7934151998
               expertBytes: 35081158656
               expertVramMib: 12288
+              marginBytes: 536870912
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen35moe"
+          mtpDraftTokens: 2
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+  # Strata on the GB10, with the arm64 build.
+  - configurationId: "strata-nvidia-gb10"
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-13"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+      - bindingId: "q6-xl"
+        modelArtifactId: "q6-xl"
+      - bindingId: "q8"
+        modelArtifactId: "q8"
+    sizing:
+      classParameters: ["workBytesPerToken"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "expertVramMib", "marginBytes"]
+      parameters:
+        kvBytesPerToken: 45056
+      derivedParameters:
+        expert-vram-mib: "${expertVramMib}"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${expert-vram-mib} * MiB < ${expertBytes}, ${expert-vram-mib} * MiB, ${expertBytes})
+            + ${kvBytesPerToken} * ${total-context}
+            + ${workBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+        hostMemory:
+          unit: bytes
+          equation: >-
+            if(${expert-vram-mib} * MiB < ${expertBytes}, ${expertBytes}, 0)
+    hardwareSupport:
+      # The GPU shares the host memory, so each cap holds every expert: a lower cap would also pin
+      # them in host memory, using the same memory twice.
+      - hardwareClassId: "nvidia-gb10"
+        # Measured on a GB10 with q4-xl at one request; 2-4 requests read below the estimate.
+        parameters:
+          workBytesPerToken: 6181
+        bindingSizing:
+          # Measured: residuals within 0.5 MB.
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 6213899606
+              expertBytes: 20122173440
+              expertVramMib: 21504
+              marginBytes: 134217728
+          # Estimated: q4-xl's constants (same non-expert size) with a larger margin.
+          - bindingId: "q6-xl"
+            parameters:
+              baseAccelBytes: 6213899606
+              expertBytes: 29880221696
+              expertVramMib: 30720
+              marginBytes: 536870912
+          # Estimated: q4-xl's constants (same non-expert size) with a larger margin.
+          - bindingId: "q8"
+            parameters:
+              baseAccelBytes: 6213899606
+              expertBytes: 35081158656
+              expertVramMib: 35840
               marginBytes: 536870912
     engineConfiguration:
       engineKind: "ENGINE_KIND_STRATA"
@@ -627,20 +704,38 @@ profiles:
             boolean: true
   - profileId: "strata-q4-xl"
     displayName: "Unsloth Q4_K_XL on Strata"
-    description: "Runs the balanced Q4 weights through Strata, keeping the experts that don't fit on the GPU in host memory."
+    description: "Runs the balanced Q4 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
     configurationId: "strata-nvidia-cuda"
     defaultModelArtifactBindingId: "q4-xl"
     engineParameterDefaults: {}
   - profileId: "strata-q6-xl"
     displayName: "Unsloth Q6_K_XL on Strata"
-    description: "Runs the higher-precision Q6 weights through Strata, keeping the experts that don't fit on the GPU in host memory."
+    description: "Runs the higher-precision Q6 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
     configurationId: "strata-nvidia-cuda"
     defaultModelArtifactBindingId: "q6-xl"
     engineParameterDefaults: {}
   - profileId: "strata-q8"
     displayName: "Q8_0 on Strata"
-    description: "Runs the 8-bit weights, the closest to the full model, through Strata, keeping the experts that don't fit on the GPU in host memory."
+    description: "Runs the 8-bit weights, the closest to the full model, through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
     configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "q8"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-q4-xl"
+    displayName: "Unsloth Q4_K_XL on Strata for GB10"
+    description: "Runs the balanced Q4 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "q4-xl"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-q6-xl"
+    displayName: "Unsloth Q6_K_XL on Strata for GB10"
+    description: "Runs the higher-precision Q6 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "q6-xl"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-q8"
+    displayName: "Q8_0 on Strata for GB10"
+    description: "Runs the 8-bit weights, the closest to the full model, through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvidia-gb10"
     defaultModelArtifactBindingId: "q8"
     engineParameterDefaults: {}
 intelligence:

@@ -1,0 +1,10 @@
+# The NVIDIA GB10 chip (compute capability 12.1), for engines built only for that chip.
+# Nested in nvidia-unified.
+hardwareClassId: "nvidia-gb10"
+displayName: "NVIDIA GB10"
+description: "The NVIDIA GB10 of a DGX Spark, which shares the host memory."
+selector:
+  accelerators: ["nvidia"]
+  memoryArchitecture: "ACCELERATOR_MEMORY_ARCHITECTURE_UNIFIED"
+  deviceModels:
+    - "NVIDIA GB10"
