@@ -1,0 +1,63 @@
+# Strata's published CUDA 13 image plus Dotcore's keyless start wrapper, built by
+# `engines/strata/docker-image.nix`, loaded from its stored image or built locally on the hosting
+# node. Upstream publishes its images for x86_64 only.
+engineReleaseId: "strata-0-2-13"
+engineKind: "ENGINE_KIND_STRATA"
+version: "0.2.13"
+parameterSchema:
+  schemaId: "strata-v1"
+  parameters:
+    # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
+    - parameterId: "total-context"
+      displayName: "Total context"
+      exposed: true
+      description: "Context memory the server holds from the start. Each parallel request keeps its own part of it, as large as the context per request, so it is always the parallel requests times the context per request."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "2097152"
+        unit: "tokens"
+        defaultValue: "32768"
+    - parameterId: "context-per-request"
+      displayName: "Context per request"
+      exposed: true
+      description: "Largest context one request may use. The server holds this much context for each parallel request from the start, whether a request uses it or not."
+      unsignedInteger:
+        minimum: "1024"
+        maximum: "262144"
+        unit: "tokens"
+    - parameterId: "parallel-requests"
+      displayName: "Parallel requests"
+      exposed: true
+      description: "Requests the server generates at the same time; further requests wait for a free one. Each one holds its own context per request."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "8"
+        unit: "requests"
+        defaultValue: "1"
+    - parameterId: "expert-vram-mib"
+      displayName: "Expert accelerator memory"
+      exposed: true
+      description: "Accelerator memory the model's experts may use; the experts that don't fit stay in host memory. The model's sizing sets it unless you do."
+      unsignedInteger:
+        minimum: "1"
+        maximum: "1048576"
+        unit: "MiB"
+# The deployment's own folder for the tokenizer extracted from the model, Strata's run configuration
+# and its engine log; the wrapper rebuilds whatever is missing.
+storageBindings:
+  - bindingName: "data"
+    mountPath: "/data"
+    kind: "STORAGE_KIND_CACHE"
+    scope: "STORAGE_SCOPE_DEPLOYMENT"
+artifacts:
+  - artifactId: "linux-amd64-cuda"
+    nix:
+      flake: "self"
+      package: "engines.strata.docker"
+      dockerImage: {}
+    # Each selector is one set of target facts this build runs on.
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "amd64" }
+        accelerators: ["nvidia"]
+        # The CUDA 13 image runs on the R580 driver branch.
+        minimumNvidiaDriverMajorVersion: 580
