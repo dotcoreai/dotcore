@@ -5,7 +5,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use dotcore_artifact::{
@@ -14,14 +14,16 @@ use dotcore_artifact::{
 };
 use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
 use dotcore_domain::SiteNodeId;
+use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        ModelOptionParameterValue, ModelOptionValues,
+        ModelOptionParameterValue, ModelOptionValues, Selector,
         model_option_parameter_value::Value as ModelOptionValue,
     },
     model::v1::{
         LocalModelDeploymentConfiguration, ModelDeploymentSnapshot, model_deployment_snapshot,
     },
+    observation::v1::AcceleratorMemoryArchitecture,
 };
 use dotcore_runtime::{
     ExecutionTarget, ObservedWorkload, RuntimeBackend, RuntimeBackendError, RuntimeBackendId,
@@ -32,6 +34,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::*;
+use crate::hardware::selection::{select_target_capabilities, selector_matches};
 use crate::model::{resolution::resolve_local_launch, resolved::ResolvedModelLaunch};
 
 #[tokio::test]
@@ -1332,6 +1335,40 @@ fn development_runtime_namespace_rejects_unsafe_caller_identities() {
     for value in ["", "site_owner", "Site-owner", "site/owner"] {
         assert!(namespace.owner_id(value).is_err());
     }
+}
+
+#[test]
+fn direct_targets_match_device_model_classes_through_their_selected_devices() {
+    let description =
+        MachineDescription::simulated(&["gb10".to_owned()], "arm64").expect("simulated machine");
+    let snapshot = description
+        .render(&[], SystemTime::now())
+        .expect("rendered snapshot");
+    let gb10_class = Selector {
+        accelerators: vec!["nvidia".to_owned()],
+        memory_architecture: AcceleratorMemoryArchitecture::Unified as i32,
+        device_models: vec!["NVIDIA GB10".to_owned()],
+        ..Default::default()
+    };
+    let target = ExecutionTarget {
+        managed_node_id: SiteNodeId::for_test("development-node"),
+        accelerator_device_ids: vec!["nvidia.com/gpu=0".to_owned()],
+    };
+
+    let (site_target, inventory) = direct_target_capabilities(
+        &target,
+        model_runtime_binding::Adapter::DockerRuntime(Default::default()),
+        description.platform().clone(),
+        NodeAcceleratorObservation::from_hardware_snapshot("development-node", &snapshot, false),
+        Timing::test().node_control.capability_max_age,
+        real_time::wall_now(),
+    );
+    let selected =
+        select_target_capabilities(&site_target, &inventory).expect("target capabilities");
+
+    // The selected GPU's model reaches the target, so the device model class matches it.
+    assert_eq!(selected.device_models, ["NVIDIA GB10"]);
+    assert!(selector_matches(&gb10_class, &selected));
 }
 
 #[tokio::test]

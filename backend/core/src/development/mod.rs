@@ -1191,8 +1191,10 @@ fn direct_target_capabilities(
             adapter: Some(adapter),
         })),
     };
+    // The target's accelerator selectors pick the observed devices whose models and memory the
+    // hardware class and capacity read.
     let inventory = TargetCapabilityReconciler::reconcile(
-        [(execution_target_id, target.managed_node_id.as_str())],
+        [&development_target],
         [RuntimePlatformObservation::available_at(
             execution_target_id,
             platform,
