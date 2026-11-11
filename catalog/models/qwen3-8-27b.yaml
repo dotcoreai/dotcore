@@ -20,7 +20,7 @@ artifacts:
     weightQuantization: "Q3_K_XL"
     source:
       repository: "unsloth/Qwen3.8-27B-GGUF"
-      revision: "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+      revision: "ce331efc48d5722b4b8041f72793e530eae18d9b"
       file:
         path: "Qwen3.8-27B-UD-Q3_K_XL.gguf"
         provenanceDigest: "8c2a45ff85e7674ca185ec8eb6cdeab0e617ed9d8018caed0b64380eb2a67a5e"
@@ -28,18 +28,18 @@ artifacts:
     weightQuantization: "Q4_K_XL"
     source:
       repository: "unsloth/Qwen3.8-27B-GGUF"
-      revision: "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+      revision: "ce331efc48d5722b4b8041f72793e530eae18d9b"
       file:
         path: "Qwen3.8-27B-UD-Q4_K_XL.gguf"
-        provenanceDigest: "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e"
+        provenanceDigest: "2a5f3565f39cf885103da591182c1266da64745737b42b452fd3e675369f1211"
   - artifactId: "q5-xl"
     weightQuantization: "Q5_K_XL"
     source:
       repository: "unsloth/Qwen3.8-27B-GGUF"
-      revision: "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+      revision: "ce331efc48d5722b4b8041f72793e530eae18d9b"
       file:
         path: "Qwen3.8-27B-UD-Q5_K_XL.gguf"
-        provenanceDigest: "8601193d3d5760c37fb8ce1b43afebc69df5fb24e1fbc5a547c32e2200305276"
+        provenanceDigest: "a9c4a1d9f7298dfb00c95dd83241530bc07b141ee01ec6962cd31b39d746837c"
   - artifactId: "nvfp4"
     weightQuantization: "NVFP4"
     source:
@@ -154,17 +154,12 @@ configurations:
         parameters:
           promptCacheOnAccelerator: 1
           baseOffsetBytes: 0
-        # F16 measured on an NVIDIA GB10 host: unified host pool, linux/arm64, llama.cpp b11429,
-        # contexts 4096-131072. Q8_0 KV cache measured on the same host with llama.cpp b11723 (MTP 3, 4
-        # parallel requests): q3-xl, q4-xl and q5-xl at total contexts 8192-262144 (7 points each) give
-        # the same slope of 40,735 B per context token, the free-intercept fit of the measurement minus
-        # the f16 base terms and the MTP draft cache (4096, which stays f16). Local slopes run 38,000
-        # (8k-16k) to 45,000 (above 16k, MTP included), and residuals around the fit stay within 45 MB.
-        # The slope comes from a free-intercept fit because the estimate sits a constant 2.1 GB above the
-        # same-release measurement at both f16 and q8_0: the prompt cache term budgets 2048 MiB that a
-        # sweep never fills. Fitting the slope against the fixed bases would absorb that budget and
-        # under-predict at large contexts, so the q8_0 estimate keeps the f16 convention. A
-        # 232k-token prompt at 262144 context added 14 MB over the warm measurement.
+        # Measured on an NVIDIA GB10 host (linux/arm64): f16 KV with llama.cpp b11429, q8_0 KV with
+        # b11723, total contexts 4096-262144. The q8_0 slope is a free-intercept fit: the prompt cache
+        # allowance keeps the estimate about 2.1 GB above every measurement, and fitting against the
+        # fixed bases would absorb it and under-predict at large contexts.
+        # The q4-xl and q5-xl bases add the pinned files' growth over the measured ones (100,229,120 B
+        # and 100,024,320 B, all in offloaded layers); a q4-xl launch at the defaults reads within 2 MB.
         bindingSizing:
           - bindingId: "q3-xl"
             parameters:
@@ -174,13 +169,13 @@ configurations:
               marginBytes: 41943040
           - bindingId: "q4-xl"
             parameters:
-              baseAccelBytes: 16838017007
+              baseAccelBytes: 16938246127
               accelBytesPerContextToken: 66560
               accelBytesPerContextTokenQ8: 40735
               marginBytes: 37748736
           - bindingId: "q5-xl"
             parameters:
-              baseAccelBytes: 19828031468
+              baseAccelBytes: 19928055788
               accelBytesPerContextToken: 66560
               accelBytesPerContextTokenQ8: 40735
               marginBytes: 37748736
@@ -205,13 +200,13 @@ configurations:
               marginBytes: 41943040
           - bindingId: "q4-xl"
             parameters:
-              baseAccelBytes: 16838017007
+              baseAccelBytes: 16938246127
               accelBytesPerContextToken: 66560
               accelBytesPerContextTokenQ8: 40735
               marginBytes: 37748736
           - bindingId: "q5-xl"
             parameters:
-              baseAccelBytes: 19828031468
+              baseAccelBytes: 19928055788
               accelBytesPerContextToken: 66560
               accelBytesPerContextTokenQ8: 40735
               marginBytes: 37748736
@@ -223,7 +218,8 @@ configurations:
         # Derived, not measured: the equation of the RTX 5090 before the hardware classes were split,
         # adjusted to the macOS process footprint with the gemma-4-e2b Metal calibration.
         # The q8_0 slope is the nvidia-unified one (40,735) times the same per-token calibration
-        # factor as the f16 slope (75,213 / 66,560).
+        # factor as the f16 slope (75,213 / 66,560). The q4-xl and q5-xl bases add the same file growth
+        # as the nvidia-unified class.
         bindingSizing:
           - bindingId: "q3-xl"
             parameters:
@@ -234,13 +230,13 @@ configurations:
               marginBytes: 0
           - bindingId: "q4-xl"
             parameters:
-              baseAccelBytes: 19632062554
+              baseAccelBytes: 19732291674
               accelBytesPerContextToken: 75213
               accelBytesPerContextTokenQ8: 46031
               marginBytes: 0
           - bindingId: "q5-xl"
             parameters:
-              baseAccelBytes: 22772128243
+              baseAccelBytes: 22872152563
               accelBytesPerContextToken: 75213
               accelBytesPerContextTokenQ8: 46031
               marginBytes: 0
