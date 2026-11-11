@@ -25,9 +25,10 @@ import {
   localModelSnapshot,
   modelDeploymentPresentationName,
 } from "@/domain/model-projection";
-import type { ChatTarget } from "@/features/chat/chattable-route";
+import type { ChatTarget, ConnectTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
 import type { RouteMention } from "@/features/deployments/panel-mention";
+import { deploymentConnectAction } from "@/features/models/deployment-connect-action";
 import { type Model } from "@/gen/dotcore/catalog/v1/model_pb";
 import {
   type ModelDeployment,
@@ -48,6 +49,7 @@ import { ResolvedDeploymentDetails } from "./resolved-deployment-details";
 export function DeploymentModelInspector({
   catalogModel,
   chatTarget,
+  connectTarget,
   catalogModelHref,
   containingRoutes,
   deployment,
@@ -58,6 +60,7 @@ export function DeploymentModelInspector({
   logOpenerRef,
   logs,
   onBack,
+  onConnect,
   onOpenConfiguration,
   onOpenLogs,
   onPause,
@@ -84,6 +87,7 @@ export function DeploymentModelInspector({
   const actionDisabled = pending || isTransitioningModelStatus(status);
   const pauseDisabled = pending || isPauseConflictingStatus(status);
   const chat = useChatAction(chatTarget);
+  const connect = deploymentConnectAction(connectTarget, onConnect, pending);
   const presentationName = modelDeploymentPresentationName(deployment);
   const screenTitle = deploymentScreenTitle(screen);
 
@@ -165,6 +169,7 @@ export function DeploymentModelInspector({
                   }
                 : chat && { ...chat, disabled: chat.disabled || pending }
             }
+            secondary={connect ? [connect] : []}
           />
         }
         focusKey={`${screen}:${deployment.modelDeploymentId}`}
@@ -252,6 +257,10 @@ interface DeploymentModelInspectorProps {
   catalogModel?: Model;
   /** Where the Chat action takes the operator; computed from the routes listing the deployment. */
   chatTarget?: ChatTarget;
+  /** Where the Connect action takes the operator; computed from the routes listing the deployment. */
+  connectTarget?: ConnectTarget;
+  /** Opens the connect page of the target route. */
+  onConnect?: (routeId: string) => void;
   containingRoutes?: readonly RouteMention[];
   deployment: ModelDeployment;
   error?: string;

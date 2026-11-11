@@ -8,7 +8,7 @@ import {
   InferenceRouteViewSchema,
 } from "@/gen/dotcore/inference/v1/routes_pb";
 
-import { deploymentChatTarget, routeChatTarget } from "./chattable-route";
+import { deploymentChatTarget, deploymentConnectTarget, routeChatTarget } from "./chattable-route";
 
 const { CHAT, DECISION } = InferenceRequestKind;
 
@@ -137,5 +137,34 @@ describe("deploymentChatTarget", () => {
         [DECISION],
       ),
     ).toEqual({ label: "Ask", unavailableReason: "None of the deployment's routes is available." });
+  });
+});
+
+describe("deploymentConnectTarget", () => {
+  it("targets the same route Chat uses, by id", () => {
+    const routes = [
+      routeView("other", ["deployment-b"]),
+      routeView("disabled", ["deployment-a"], { enabled: false }),
+      routeView("first", ["deployment-a"]),
+      routeView("second", ["deployment-a"]),
+    ];
+
+    expect(deploymentConnectTarget(routes, "deployment-a")).toEqual({ routeId: "id-first" });
+    expect(deploymentChatTarget(routes, "deployment-a", [])).toMatchObject({ route: "first" });
+  });
+
+  it("names why a deployment has no route to connect through", () => {
+    expect(deploymentConnectTarget([routeView("other", ["deployment-b"])], "deployment-a")).toEqual(
+      { unavailableReason: "Add the deployment to a route to connect to it." },
+    );
+    expect(
+      deploymentConnectTarget(
+        [
+          routeView("disabled", ["deployment-a"], { enabled: false }),
+          routeView("down", ["deployment-a"], { available: false }),
+        ],
+        "deployment-a",
+      ),
+    ).toEqual({ unavailableReason: "None of the deployment's routes is available." });
   });
 });

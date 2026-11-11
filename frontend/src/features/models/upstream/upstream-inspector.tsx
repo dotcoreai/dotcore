@@ -19,11 +19,12 @@ import { InspectorShell } from "@/components/ui/inspector-shell";
 import { Notice } from "@/components/ui/notice";
 import { ResourceMarker, ResourceTitle } from "@/components/ui/resource-marker";
 import { UPSTREAM_MODEL_NAME } from "@/domain/upstream-presentation";
-import type { ChatTarget } from "@/features/chat/chattable-route";
+import type { ChatTarget, ConnectTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
 import { type RouteMention, RouteMentions } from "@/features/deployments/panel-mention";
 import { deploymentRequestCards } from "@/features/metrics/request-card-specs";
 import { RequestCards } from "@/features/metrics/request-cards";
+import { deploymentConnectAction } from "@/features/models/deployment-connect-action";
 import { modelInspectorPanelId } from "@/features/models/inspector/model-inspector-panel";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 
@@ -33,9 +34,11 @@ import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
  */
 export function UpstreamInspector({
   chatTarget,
+  connectTarget,
   deployment,
   open,
   onBack,
+  onConnect,
   onOpenChange,
   openerRef,
   onEdit,
@@ -49,6 +52,10 @@ export function UpstreamInspector({
 }: {
   /** Where the Chat action takes the operator; computed from the routes listing the deployment. */
   chatTarget?: ChatTarget;
+  /** Where the Connect action takes the operator; computed from the routes listing the deployment. */
+  connectTarget?: ConnectTarget;
+  /** Opens the connect page of the target route. */
+  onConnect?: (routeId: string) => void;
   deployment: ModelDeployment;
   open: boolean;
   onBack?: () => void;
@@ -74,6 +81,7 @@ export function UpstreamInspector({
   const config = deployment.upstreamDesiredConfiguration;
   const presentationName = deployment.modelDeploymentName || UPSTREAM_MODEL_NAME;
   const chat = useChatAction(chatTarget);
+  const connect = deploymentConnectAction(connectTarget, onConnect, pending);
 
   return (
     <>
@@ -128,6 +136,7 @@ export function UpstreamInspector({
               },
             ]}
             primary={chat && { ...chat, disabled: chat.disabled || pending }}
+            secondary={connect ? [connect] : []}
           />
         }
         focusKey={`deployment:${deployment.modelDeploymentId}`}

@@ -513,6 +513,11 @@ function impliedParent(entry: PanelEntry): PanelEntry | undefined {
 
 function isChildOf(parent: PanelEntry, entry: PanelEntry): boolean {
   if (entry.page === "routes" && (entry.screen === "connect" || entry.screen === "edit")) {
+    // A model deployment's Connect action opens a route's connect page straight above the
+    // deployment, so Back returns to the deployment.
+    if (entry.screen === "connect" && parent.page === "models" && parent.screen === "deployment") {
+      return true;
+    }
     return (
       parent.page === "routes" &&
       parent.screen === "route" &&
