@@ -10,7 +10,6 @@ import { ContextSizeField } from "@/features/models/runtime/context-size-field";
 import type { ContextSizeRange } from "@/features/models/runtime/context-size-input";
 import {
   engineParameterHelp,
-  filledContextPerRequest,
   maximumContext,
   runtimeParameterGroups,
 } from "@/features/models/runtime/engine-parameter-values";
@@ -26,6 +25,8 @@ interface ModelDeployContextStepProps {
   engineParameterRefs: RefObject<Map<string, HTMLElement | null>>;
   exposedParameters: readonly EngineParameterDefinition[];
   fieldErrors: FieldErrors;
+  /** The context per request the backend fills while the input is empty, from the latest estimate. */
+  filledContextPerRequest?: number;
   inputs: ReadonlyMap<string, string>;
   model: Model;
   onParameterBlur: (parameter: EngineParameterDefinition) => void;
@@ -54,6 +55,7 @@ export function ModelDeployContextStep({
   engineParameterRefs,
   exposedParameters,
   fieldErrors,
+  filledContextPerRequest,
   inputs,
   model,
   onParameterBlur,
@@ -120,7 +122,7 @@ export function ModelDeployContextStep({
         : null}
       {contextPerRequest
         ? contextField(contextPerRequest, {
-            emptyValue: filledContextPerRequest(model, configuration, inputs),
+            emptyValue: filledContextPerRequest,
             help: inputs.get(contextPerRequest.parameterId) ? (
               <Button
                 className="h-auto p-0 text-xs"
@@ -132,7 +134,7 @@ export function ModelDeployContextStep({
                 Follow the total
               </Button>
             ) : (
-              "Follows the total, up to the model maximum."
+              "Filled from the total context, up to the model maximum."
             ),
             hint:
               maximum === undefined

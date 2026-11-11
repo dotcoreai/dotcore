@@ -16,6 +16,7 @@ import {
 } from "@/features/models/profiles/profile-compatibility";
 import type { CatalogChips } from "@/features/models/profiles/profile-table-seed";
 import type { SizingScenario } from "@/features/models/profiles/sizing-scenario";
+import { CONTEXT_PER_REQUEST_PARAMETER_ID } from "@/features/models/runtime/engine-parameter-values";
 import {
   toUpstreamConfiguration,
   type UpstreamFormValues,
@@ -310,7 +311,12 @@ export function modelDeployRequests(
       // estimate per class, and only a target tells which one applies.
       const [estimate, ...others] = response.hardwareClassEstimates;
       if (others.length) throw new Error("it depends on the selected target's hardware");
+      const filled = estimate?.derivedEngineParameterValues?.values.find(
+        (value) => value.parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID,
+      )?.value;
       return {
+        filledContextPerRequest:
+          filled?.case === "unsignedInteger" ? Number(filled.value) : undefined,
         launchRejection: estimate?.launchRejection,
         placementPreview: response.placementPreview,
       };

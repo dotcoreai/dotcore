@@ -29,6 +29,7 @@ import {
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
+import { sharedContextEstimate } from "./resource-estimate-test-support";
 
 describe("ModelDeployDialog Context step", () => {
   it("shows total context and context per request in both modes, with short help", async () => {
@@ -48,14 +49,18 @@ describe("ModelDeployDialog Context step", () => {
       "Memory the model holds for all requests at once.",
     );
     const perRequest = screen.getByRole("textbox", { name: "Context per request" });
-    expect(perRequest).toHaveAccessibleDescription("Follows the total, up to the model maximum.");
+    expect(perRequest).toHaveAccessibleDescription(
+      "Filled from the total context, up to the model maximum.",
+    );
 
     // A set context per request offers to follow the total again.
     await user.type(perRequest, "8192");
     await user.tab();
     await user.click(screen.getByRole("button", { name: "Follow the total" }));
     expect(perRequest).toHaveValue("");
-    expect(screen.getByText("Follows the total, up to the model maximum.")).toBeVisible();
+    expect(
+      screen.getByText("Filled from the total context, up to the model maximum."),
+    ).toBeVisible();
 
     await user.click(preset("64k"));
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
@@ -684,6 +689,7 @@ function dialog(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {
         hardwareClasses={[]}
         listConfiguredExecutionTargets={listTargets}
         model={runtimeSchemaModel}
+        onEstimate={sharedContextEstimate(props.model ?? runtimeSchemaModel)}
         onOpenChange={vi.fn()}
         onPreview={vi.fn()}
         onSubmit={vi.fn()}

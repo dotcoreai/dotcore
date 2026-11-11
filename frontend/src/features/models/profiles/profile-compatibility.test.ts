@@ -145,6 +145,41 @@ describe("profile compatibility", () => {
     ]);
   });
 
+  it("takes each profile's sizing-derived parameters from its estimates' derived values", () => {
+    const derivedValue = (parameterId: string) => ({
+      parameterId,
+      value: { case: "unsignedInteger" as const, value: 1n },
+    });
+    const { derivedParameterIds } = indexProfileCompatibility(
+      create(ListModelProfileCompatibilityResponseSchema, {
+        profiles: [
+          {
+            hardwareClassEstimates: [
+              {
+                derivedEngineParameterValues: {
+                  values: [derivedValue("context-per-request"), derivedValue("expert-vram-mib")],
+                },
+                hardwareClassId: "nvidia-gb202",
+              },
+              { derivedEngineParameterValues: { values: [] }, hardwareClassId: "nvidia" },
+            ],
+            modelId: "lab",
+            profileId: "strata",
+          },
+          profileSizing("lab", "llama", { acceleratorMemoryBytes: 1n, hardwareClassId: "nvidia" }),
+          profileSizing("lab", "unsized"),
+        ],
+      }),
+    );
+
+    expect(new Map([...derivedParameterIds].map(([key, ids]) => [key, [...ids]]))).toEqual(
+      new Map([
+        [profileEstimateKey("lab", "strata"), ["expert-vram-mib"]],
+        [profileEstimateKey("lab", "llama"), []],
+      ]),
+    );
+  });
+
   it("keeps each profile's per-class estimates, with or without a reporting target", () => {
     const { estimates } = indexProfileCompatibility(
       create(ListModelProfileCompatibilityResponseSchema, {

@@ -29,6 +29,7 @@ export function useResourceEstimate(
 
   return {
     error: read.error,
+    filledContextPerRequest: read.value?.estimate.filledContextPerRequest,
     launchRejection: read.value?.estimate.launchRejection,
     loadingVisible: read.loadingVisible,
     pending: read.pending,
@@ -45,6 +46,8 @@ export type ResourceEstimateLoader = (
 
 /** What the model service estimated for one configuration. */
 export interface LocalResourceEstimate {
+  /** The context per request resolution fills when the configuration leaves it out. */
+  filledContextPerRequest?: number;
   /** Why a deploy with this configuration would be rejected, for the operator. */
   launchRejection?: string;
   /** The placement's target memory with the configuration added; absent without a placement. */
@@ -74,6 +77,8 @@ export interface LocalResourceEstimateValues {
  */
 export interface ResourceEstimate {
   error?: string;
+  /** The context per request resolution fills when the configuration leaves it out. */
+  filledContextPerRequest?: number;
   launchRejection?: string;
   /** Whether pending feedback should show, after the reveal delay and for its minimum time. */
   loadingVisible: boolean;

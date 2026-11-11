@@ -58,6 +58,7 @@ export function useModelDeployMemoryPreview({
   customArgumentTokens,
   declaredValues,
   deployments,
+  derivedParameterIds,
   engineParameterInputs,
   engineRelease,
   engineReleases,
@@ -89,6 +90,7 @@ export function useModelDeployMemoryPreview({
         bindingId: estimateBindingId ?? "",
         customArgumentTokens,
         declaredValues,
+        derivedParameterIds,
         inputs: engineParameterInputs,
         optionOverrides,
       })
@@ -187,6 +189,7 @@ export function useModelDeployMemoryPreview({
           bindingId: estimateBindingId ?? "",
           customArgumentTokens,
           declaredValues,
+          derivedParameterIds,
           inputs: engineParameterInputs,
           optionOverrides: previewSpeculativeOverrides && [
             ...previewSpeculativeOverrides,
@@ -275,6 +278,8 @@ export interface ModelDeployMemoryPreviewOptions {
   customArgumentTokens: string[];
   declaredValues?: EngineParameterValues;
   deployments?: readonly ModelDeployment[];
+  /** Parameters catalog sizing derives for the profile, which an empty input leaves to it. */
+  derivedParameterIds: ReadonlySet<string>;
   engineParameterInputs: ReadonlyMap<string, string>;
   engineRelease?: EngineRelease;
   engineReleases: readonly EngineRelease[];
