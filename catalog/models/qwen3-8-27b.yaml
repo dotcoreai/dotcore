@@ -458,8 +458,6 @@ configurations:
       - hardwareClassId: "nvidia-gb202"
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "32000000000"
-          # The host context budget is pinned in system memory.
-          minimumSystemMemoryBytes: "64000000000"
         bindingSizing:
           - bindingId: "ninfer-nvfp4"
     engineConfiguration:
@@ -594,7 +592,7 @@ profiles:
         - parameterId: "parallel-requests"
           unsignedInteger: "4"
         - parameterId: "host-context-mib"
-          unsignedInteger: "20480"
+          unsignedInteger: "0"
     optionDefaults:
       - optionId: "vision"
         values:
