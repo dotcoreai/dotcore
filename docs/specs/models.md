@@ -217,7 +217,8 @@ never redefine it.
 - Run the compatibility read, resource estimates and recommendations.
 - Project each deployment's GPU memory, as attributed by the hosting node, from that node's current
   status at read time.
-- Publish eligible targets to the inference router.
+- Publish serving eligibility and capabilities to the route manager, and eligible targets to the
+  inference router.
 
 #### Boundaries
 

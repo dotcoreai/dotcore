@@ -29,8 +29,9 @@ Code: `backend/node_hardware/` (hardware facts, signal sampling, declared machin
 flowchart TB
   HW["Real hardware or declared machine"] -->|"readings"| NA["Node agent"]
   NA -->|"hardware observations"| INV["Site manager: reconciled inventory"]
-  REC["Node-local reconciliation"] -->|"attributed memory per deployment"| INV
-  INV -->|"memory facts, target mapping, occupancy"| CAP["Capacity component"]
+  REC["Node-local reconciliation"] -->|"attributed memory per deployment, in node status"| CTRL["Workload controllers"]
+  CTRL -->|"deployments with attributed memory and claims"| CAP["Capacity component"]
+  INV -->|"memory facts, target mapping"| CAP
   IC["Inference controller"] -->|"resolved sizing estimates"| CAP
   CAP -->|"verdicts, previews, largest fits, starting values"| IC
   CAP -->|"node memory projection"| API["Management API"]
@@ -40,7 +41,8 @@ flowchart TB
 
 - Node agents observe hardware. The site manager reconciles those observations into an inventory,
   per node, device and target.
-- Workload controllers attribute measured memory to their deployments on each hosting node.
+- Workload controllers attribute measured memory to their deployments from each hosting node's
+  status and hand it to the capacity component as occupancy.
 - The capacity component evaluates the inventory and answers every memory question.
 
 ### From observations to an answer
@@ -194,8 +196,9 @@ needs no new shape.
 
 #### Interfaces
 
-- Receive: the site manager's reconciled memory facts and target-to-device mapping, attributed
-  occupancy, and resolved sizing estimates.
+- Receive: the site manager's reconciled memory facts and target-to-device mapping; each workload
+  controller's deployments with the memory their hosting nodes attribute to them and their claims;
+  and the inference controller's resolved sizing estimates.
 - Provide: verdicts, previews, largest fits and starting values to the inference controller, and the
   node memory projection to the management API.
 

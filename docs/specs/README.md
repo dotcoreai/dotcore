@@ -67,8 +67,8 @@ and app access. Inference clients include SDKs, applications and evaluation harn
 - Defining a verification process for third-party apps in these pages.
 - Full administration workflows such as invitations, team membership and quota editing, and audit
   investigations, until they're designed.
-- Agentic workloads, global scheduling, federation settlement and a memory service are outside the
-  architecture's scope.
+- Agentic workloads, scheduling across sites, federation and a memory service are outside the
+  architecture's scope. A site works with its own machines.
 
 ## Architecture
 
@@ -243,14 +243,8 @@ Ideas that span several pages. Each page has its own.
   Enforcing allocations, procurement and automatic rebalancing each need separate approval.
 - Data visibility: what data exists, what space it uses, how it's protected and how it relates. This
   starts as visibility, not data loss prevention or general data management.
-- Remote capacity, an uncommitted horizon rather than an approved direction: opt-in hosted, peer, externally orchestrated or third-party inference capacity.
-  Local capacity stays the default. Who owns the capacity, where it is, what's trusted, what data
-  leaves the site, its capabilities and its cost stay visible. Clients keep the same public endpoint
-  and never see private target addresses.
 
 ## Open decisions
 
-- Federation protocols, global scheduling, delegated identity, cross-site lifecycle, accounting and
-  commercial policy each need separate approval.
 - Which safe administrative changes are allowed while disconnected from the cloud, and how they're
   accepted.

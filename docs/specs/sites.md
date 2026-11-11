@@ -128,16 +128,20 @@ and typed controller status flow up. View publications and acknowledgements flow
 sequenceDiagram
   participant N as Hosting node
   participant SM as Site manager
-  N->>N: Keep cleanup evidence
+  SM->>N: Node view with teardown intent
+  N->>N: Tear down, keep cleanup evidence
   N->>SM: Cleanup evidence
   SM->>SM: Accept only from the placed node
   SM->>SM: Wait for durable removal
-  SM->>N: Acknowledgement
+  SM->>N: Acknowledgement, deployment leaves the view
   N->>N: Drop the cleanup evidence
 ```
 
-- A hosting node keeps cleanup evidence for each withdrawn deployment until the manager acknowledges
-  it.
+- A withdrawal reaches the hosting node as teardown intent in its node view, never as absence. The
+  node tears the workload down, keeps cleanup evidence for that teardown generation and reports it in
+  its status until the manager acknowledges it.
+- The deployment leaves the view only once it's removed, and the node drops acknowledged evidence
+  whose teardown the view no longer carries.
 - The manager accepts cleanup evidence only from the node named by the deployment's exact placement,
   and acknowledges it only after the teardown's removal is durable.
 - A deployment withdrawn by removing its node finalizes without cleanup evidence. Only the removed
@@ -254,9 +258,9 @@ The node that hosts the manager process runs workloads like every other node.
   teardown rules. Owners treat those deployments as finalized without cleanup evidence.
 - Destructive recovery of a stopped site is an exclusive administrative boundary, not reconciliation
   or a console capability. It needs exact ownership evidence before it cleans up infrastructure.
-- No node clock sets the manager's freshness.
-- A capability observation carries the time its source read it, on the source's own clock, and
-  freshness is judged against that time, not the reader's clock.
+- Freshness is an age on the clock of the process that holds the observation: the manager ages a
+  node's observation from when it received it, and a node ages its own collection from when it read
+  it. No node clock sets the manager's freshness.
 
 ## Future direction
 

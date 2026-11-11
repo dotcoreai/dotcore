@@ -195,5 +195,5 @@ flowchart LR
 
 - Inference access enforcement, entitlement integration, serving-state persistence and remote
   exposure.
-- Routing beyond bounded safe fallback, and external-provider and federation authority.
+- Routing beyond bounded safe fallback, and external-provider authority.
 - Batch inference ownership, scheduling and result retention.

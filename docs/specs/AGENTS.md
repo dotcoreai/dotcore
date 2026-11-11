@@ -15,7 +15,7 @@ milestones and commercial plans live outside this repository. Treat the pages as
 ## Pages
 
 - `README.md` lists the pages and the components each owns. Add a page only when a new component
-  owns a new kind of state.
+  owns a new kind of state, or when a new client (a way people reach Dotcore) appears.
 - Each page names the code it covers. Every component that has code appears in an area code map
   (`backend/AGENTS.md`, `frontend/AGENTS.md`), and every crate that holds a component appears on
   one page.
