@@ -2,8 +2,12 @@
 # `apps/hermes/docker-image.nix`, loaded from its stored image or built locally on the hosting node.
 applicationId: "hermes-app"
 displayName: "Hermes"
-description: "Autonomous AI agent with tools, memory, and a web dashboard."
-version: "0.1.1"
+description: "Autonomous AI agent with tools, memory, and a web dashboard that has a chat page."
+version: "0.2.0"
+notes: |-
+  Dashboard login: username admin, password dotcore. Every deployment uses the same login, so it
+  doesn't protect the dashboard from anyone who can reach it. Chat with the agent on the dashboard's
+  Chat page.
 graph:
   services:
     - serviceName: "gateway"
@@ -32,6 +36,12 @@ graph:
         - bindingName: "dashboard-host"
           environmentVariable: "HERMES_DASHBOARD_HOST"
           literalValue: "0.0.0.0"
+        - bindingName: "dashboard-login-username"
+          environmentVariable: "HERMES_DASHBOARD_BASIC_AUTH_USERNAME"
+          literalValue: "admin"
+        - bindingName: "dashboard-login-password"
+          environmentVariable: "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"
+          literalValue: "dotcore"
         - bindingName: "agent-api-enabled"
           environmentVariable: "API_SERVER_ENABLED"
           literalValue: "false"
