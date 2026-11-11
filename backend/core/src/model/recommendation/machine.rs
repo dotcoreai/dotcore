@@ -139,6 +139,7 @@ impl IdleMachine {
             Some(&self.inventory),
             &[],
             use_cases,
+            false,
         )
     }
 
@@ -264,7 +265,7 @@ mod tests {
                     .iter()
                     .flat_map(|row| {
                         row.targets.iter().map(move |target| {
-                            assert!(!target.deployed);
+                            assert_eq!(target.model_deployment_id, None);
                             let name = machine
                                 .targets()
                                 .iter()

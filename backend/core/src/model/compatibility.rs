@@ -311,25 +311,13 @@ pub(crate) fn node_workloads(
 ) -> NodeWorkloads {
     let mut workloads = NodeWorkloads::new();
     for deployment in deployments {
-        let Some(status) = deployment.state.as_ref().map(|state| state.status()) else {
+        let Some(phase) = workload_phase(deployment) else {
             continue;
         };
         let memory = deployment
             .accelerator_memory
             .as_ref()
             .and_then(|memory| memory.result.as_ref());
-        let phase = match status {
-            ModelDeploymentStatus::Queued
-            | ModelDeploymentStatus::Preparing
-            | ModelDeploymentStatus::Downloading
-            | ModelDeploymentStatus::Loading
-            | ModelDeploymentStatus::WarmingUp => WorkloadPhase::Starting,
-            // Its estimate counts until a reading measures it, rather than offering memory the
-            // next reading will show in use.
-            ModelDeploymentStatus::Ready if memory_pending(memory) => WorkloadPhase::Starting,
-            ModelDeploymentStatus::Ready => WorkloadPhase::Ready,
-            _ => WorkloadPhase::Other,
-        };
         let local = match deployment
             .snapshot
             .as_ref()
@@ -389,6 +377,30 @@ pub(crate) fn node_workloads(
             });
     }
     workloads
+}
+
+/// The phase a model deployment's workload is in, or none without a lifecycle state. Deployments
+/// queued, preparing, downloading, loading or warming up are starting, and so are ready ones whose
+/// memory no reading has measured yet; other ready ones are ready, and the rest are in another
+/// phase.
+pub(crate) fn workload_phase(deployment: &ModelDeployment) -> Option<WorkloadPhase> {
+    let status = deployment.state.as_ref()?.status();
+    let memory = deployment
+        .accelerator_memory
+        .as_ref()
+        .and_then(|memory| memory.result.as_ref());
+    Some(match status {
+        ModelDeploymentStatus::Queued
+        | ModelDeploymentStatus::Preparing
+        | ModelDeploymentStatus::Downloading
+        | ModelDeploymentStatus::Loading
+        | ModelDeploymentStatus::WarmingUp => WorkloadPhase::Starting,
+        // Its estimate counts until a reading measures it, rather than offering memory the next
+        // reading will show in use.
+        ModelDeploymentStatus::Ready if memory_pending(memory) => WorkloadPhase::Starting,
+        ModelDeploymentStatus::Ready => WorkloadPhase::Ready,
+        _ => WorkloadPhase::Other,
+    })
 }
 
 /// Whether a deployment's accelerator memory has no reading yet only because none was taken since

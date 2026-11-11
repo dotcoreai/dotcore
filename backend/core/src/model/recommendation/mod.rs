@@ -6,8 +6,11 @@
 //! read, the entry's own minimums added to its configuration's. An entry is sized for one request
 //! using its whole total context, at the entry's context per request or else the profile's
 //! default. Entries that can't run on a target or exceed its total memory are left out there, and
-//! the rest merge across targets by their best declared position and context per request. The
-//! answer is advisory: it never admits, reserves, or places a deployment.
+//! the rest merge across targets by their best declared position and context per request. Each
+//! target names the model's running or starting deployment of the same profile there, whatever its
+//! context. Asked for what can start now, it keeps only reachable targets that are deployed or fit
+//! free memory, deployed rows first. The answer is advisory: it never admits, reserves, or places a
+//! deployment.
 
 use std::{cmp::Ordering, collections::BTreeMap};
 
@@ -32,13 +35,16 @@ mod machine;
 pub use machine::{IdleMachine, IdleMachineError};
 
 use crate::{
-    hardware::selection::{
-        HardwareClassSelectionError, SelectedTargetCapabilities, select_hardware_class,
+    hardware::{
+        capacity::WorkloadPhase,
+        selection::{
+            HardwareClassSelectionError, SelectedTargetCapabilities, select_hardware_class,
+        },
     },
     model::{
         compatibility::{
             CheckedTarget, ProfileEvaluation, ProfileRequest, StaleTargets, check_targets,
-            evaluate_profile, node_workloads,
+            evaluate_profile, node_workloads, workload_phase,
         },
         engine::EngineIntegrationRegistry,
         sizing_scenario::{
@@ -66,7 +72,8 @@ pub struct Recommendation {
     /// profile's default.
     pub context_tokens_per_request: u64,
 
-    /// Targets whose list has the profile and that can run it, by node then target.
+    /// Targets whose list has the profile and that can run it, by node then target; deployed
+    /// targets come first when only what can start now is asked for.
     pub targets: Vec<TargetRecommendation>,
 }
 
@@ -77,8 +84,9 @@ pub struct TargetRecommendation {
 
     pub fit: RecommendationFit,
 
-    /// Whether a model deployment of the same model and profile is placed on the target.
-    pub deployed: bool,
+    /// The running or starting model deployment of the same model and profile on the target,
+    /// whatever its context per request.
+    pub model_deployment_id: Option<String>,
 
     /// Total context in tokens a deployment of the profile starts from there; absent without a
     /// largest fit or a profile default.
@@ -106,14 +114,16 @@ pub enum RecommendationFit {
 /// `targets`, which must be configured model execution targets. `inventory` is the current target
 /// observation, or none when it couldn't be read, which leaves nothing to recommend; a target that
 /// stopped reporting is judged on its last observations, its rows marked unreachable, until it
-/// leaves the site. `deployments` are the site's model deployments, which hold memory and mark the
-/// profiles already deployed.
+/// leaves the site. `deployments` are the site's model deployments, which hold memory and name the
+/// profiles already deployed. With `can_start_now`, each list keeps only what can start now, as
+/// `startable` describes.
 pub(crate) fn recommend_models(
     catalog: &Catalog,
     targets: &[ExecutionTarget],
     inventory: Option<&TargetCapabilityInventory>,
     deployments: &[ModelDeployment],
     use_cases: &[UseCase],
+    can_start_now: bool,
 ) -> Vec<UseCaseRecommendations> {
     let workloads = node_workloads(deployments, inventory);
     let checked = check_targets(
@@ -131,9 +141,12 @@ pub(crate) fn recommend_models(
     };
     use_cases
         .iter()
-        .map(|&use_case| UseCaseRecommendations {
-            use_case,
-            rows: recommender.rank(use_case, &checked, deployments),
+        .map(|&use_case| {
+            let rows = recommender.rank(use_case, &checked, deployments);
+            UseCaseRecommendations {
+                use_case,
+                rows: if can_start_now { startable(rows) } else { rows },
+            }
         })
         .collect()
 }
@@ -214,7 +227,7 @@ impl Recommender<'_> {
                     });
                 row.position = row.position.min(position);
                 row.targets.push(TargetRecommendation {
-                    deployed: deployed(deployments, &placement, entry),
+                    model_deployment_id: deployment_id(deployments, &placement, entry),
                     placement,
                     fit,
                     starting_total_context_tokens,
@@ -373,25 +386,34 @@ fn target_fit(evaluation: &ProfileEvaluation) -> Option<(RecommendationFit, Opti
     ))
 }
 
-/// Whether a model deployment of the entry's model and profile is placed at `placement`.
-fn deployed(
+/// The first running or starting model deployment of the entry's model and profile placed at
+/// `placement`, whatever its context per request. It shares the memory accounting's lifecycle
+/// phases, so failed, paused, unavailable and unloading deployments don't count.
+fn deployment_id(
     deployments: &[ModelDeployment],
     placement: &ExactPlacement,
     entry: &ModelRecommendation,
-) -> bool {
-    deployments.iter().any(|deployment| {
-        let placed = deployment
-            .intent
-            .as_ref()
-            .and_then(|intent| intent.placement.as_ref())
-            == Some(placement);
-        let same_profile = matches!(
-            deployment.snapshot.as_ref().and_then(|snapshot| snapshot.source.as_ref()),
-            Some(model_deployment_snapshot::Source::Local(local))
-                if local.model_id == entry.model_id && local.profile_id == entry.profile_id
-        );
-        placed && same_profile
-    })
+) -> Option<String> {
+    deployments
+        .iter()
+        .find(|deployment| {
+            let placed = deployment
+                .intent
+                .as_ref()
+                .and_then(|intent| intent.placement.as_ref())
+                == Some(placement);
+            let same_profile = matches!(
+                deployment.snapshot.as_ref().and_then(|snapshot| snapshot.source.as_ref()),
+                Some(model_deployment_snapshot::Source::Local(local))
+                    if local.model_id == entry.model_id && local.profile_id == entry.profile_id
+            );
+            let active = matches!(
+                workload_phase(deployment),
+                Some(WorkloadPhase::Starting | WorkloadPhase::Ready)
+            );
+            placed && same_profile && active
+        })
+        .map(|deployment| deployment.model_deployment_id.clone())
 }
 
 /// Orders merged rows by best declared position, then higher intelligence score, then model id,
@@ -419,6 +441,39 @@ fn ranked(rows: BTreeMap<RowKey, RankedRow>) -> Vec<Recommendation> {
             },
         )
         .collect()
+}
+
+/// Keeps what can start now from ranked rows: unreachable targets go first, deployed or not; a row
+/// keeps its deployed targets and those that fit free memory now, and goes when none remain. Rows
+/// with a deployed target come first, each group in rank order; within a row deployed targets
+/// come first, then by node and target.
+fn startable(rows: Vec<Recommendation>) -> Vec<Recommendation> {
+    let mut rows = rows
+        .into_iter()
+        .filter_map(|mut row| {
+            row.targets.retain(|target| {
+                target.fit != RecommendationFit::Unreachable
+                    && (target.model_deployment_id.is_some()
+                        || target.fit == RecommendationFit::FitsNow)
+            });
+            row.targets.sort_by_key(|target| {
+                (
+                    target.model_deployment_id.is_none(),
+                    target.fit != RecommendationFit::FitsNow,
+                    target.placement.site_node_id.clone(),
+                    target.placement.execution_target_id.clone(),
+                )
+            });
+            (!row.targets.is_empty()).then_some(row)
+        })
+        .collect::<Vec<_>>();
+    // A stable sort keeps the rank order within each group.
+    rows.sort_by_key(|row| {
+        !row.targets
+            .iter()
+            .any(|target| target.model_deployment_id.is_some())
+    });
+    rows
 }
 
 /// Logs why a target has no list for a use case: no class with one matches it, or, against
