@@ -7,31 +7,39 @@ useCases:
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "q5-xl"
+        contextTokensPerRequest: 131072
         hardwareRequirements:
           minimumSystemMemoryBytes: "64000000000"
       - modelId: "qwen3-8-27b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 131072
         hardwareRequirements:
           minimumSystemMemoryBytes: "32000000000"
       - modelId: "qwen3-5-9b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 131072
         hardwareRequirements:
           minimumSystemMemoryBytes: "16000000000"
       - modelId: "qwen3-5-4b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 131072
   - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - modelId: "qwen3-6-35b-a3b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumSystemMemoryBytes: "64000000000"
       - modelId: "qwen3-8-27b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumSystemMemoryBytes: "32000000000"
       - modelId: "gemma-4-12b-it-qat"
         profileId: "gpu"
+        contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumSystemMemoryBytes: "16000000000"
       - modelId: "gemma-4-e4b-it-qat"
         profileId: "gpu"
+        contextTokensPerRequest: 32768

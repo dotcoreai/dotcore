@@ -7,27 +7,35 @@ useCases:
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "ninfer-nvfp4"
+        contextTokensPerRequest: 131072
       - modelId: "qwen3-8-27b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 131072
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "24000000000"
       - modelId: "qwen3-5-9b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 131072
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "12000000000"
       - modelId: "qwen3-5-4b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 131072
   - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "ninfer-nvfp4"
+        contextTokensPerRequest: 32768
       - modelId: "qwen3-8-27b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "24000000000"
       - modelId: "gemma-4-12b-it-qat"
         profileId: "gpu"
+        contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "12000000000"
       - modelId: "qwen3-5-4b"
         profileId: "q4-xl"
+        contextTokensPerRequest: 32768
