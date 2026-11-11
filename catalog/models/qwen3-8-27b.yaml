@@ -414,24 +414,25 @@ configurations:
               unsignedInteger: "3"
   - configurationId: "ninfer-nvidia-gb202"
     engineArtifacts:
-      - engineReleaseId: "ninfer-1936758"
+      - engineReleaseId: "ninfer-13ebb92"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "ninfer-nvfp4"
         modelArtifactId: "ninfer-nvfp4"
     sizing:
-      # Fitted on an RTX 5090 with total-context 8192-250000 (context per request equal to it),
-      # parallel-requests 1-4 and device-state-slots 1-4; the largest residual is 11 MB, so
-      # marginBytes keeps a wide cushion. The KV and MTP draft caches are paged by total context.
+      # Fitted on an RTX 5090 with total-context 32768-232000, parallel-requests 1-4 and every
+      # vision and MTP choice; the largest residual is 81 MB. The per-token slopes are the
+      # engine's exact pool cost, so the estimate holds past the measured range. marginBytes
+      # covers the largest under-prediction plus one text and one draft block of pool rounding.
       parameters:
-        baseBytes: 21158257512
-        bytesPerContextToken: 33041
-        bytesPerConcurrency: 161616557
-        bytesPerStateSlot: 154501220
-        visionBytes: 909492137
-        mtpBaseBytes: 829904405
-        mtpBytesPerContextToken: 2059
-        marginBytes: 100000000
+        baseBytes: 21433928566
+        bytesPerContextToken: 33411
+        bytesPerConcurrency: 160109070
+        visionBytes: 1124254968
+        mtpBaseBytes: 864305347
+        mtpBytesPerContextToken: 2065
+        mtpBytesPerConcurrency: 172209378
+        marginBytes: 400000000
       estimates:
         acceleratorMemory:
           unit: bytes
@@ -439,10 +440,10 @@ configurations:
             ${baseBytes}
             + ${bytesPerContextToken} * ${total-context}
             + ${bytesPerConcurrency} * ${parallel-requests}
-            + ${bytesPerStateSlot} * ${device-state-slots}
             + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
             + if(${options.mtp.token-count} > 0, 1, 0)
-            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context}
+            + ${mtpBytesPerConcurrency} * ${parallel-requests})
           allowance: >-
             ${marginBytes}
         # Pinned host context budget (state images, KV and pause snapshots).
@@ -457,8 +458,6 @@ configurations:
       - hardwareClassId: "nvidia-gb202"
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "32000000000"
-          # The host context budget is pinned in system memory.
-          minimumSystemMemoryBytes: "64000000000"
         bindingSizing:
           - bindingId: "ninfer-nvfp4"
     engineConfiguration:
@@ -468,15 +467,20 @@ configurations:
           kvCacheDataType: "NINFER_KV_CACHE_DATA_TYPE_FP8"
           pendingTimeoutMilliseconds: 120000
           preserveThinking: true
-          deviceStateSlotsParameterId: "device-state-slots"
           hostContextMibParameterId: "host-context-mib"
+          # Device context pool record sizes, read from the engine's startup log at this
+          # configuration: one request state (also the pool's block size), and one token of
+          # history in the KV cache and in the MTP draft cache.
+          stateImageBytes: "153954304"
+          kvBytesPerToken: "33024"
+          draftKvBytesPerToken: "2064"
         optionRealizations:
           - optionId: "vision"
             vision:
               enabledParameterId: "enabled"
           - optionId: "mtp"
             mtp:
-              lmHeadDraft: true
+              optimizedProposalHead: true
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -585,13 +589,10 @@ profiles:
     defaultModelArtifactBindingId: "ninfer-nvfp4"
     engineParameterDefaults:
       values:
-        # The device state slots below are tuned for four parallel requests.
         - parameterId: "parallel-requests"
           unsignedInteger: "4"
         - parameterId: "host-context-mib"
-          unsignedInteger: "20480"
-        - parameterId: "device-state-slots"
-          unsignedInteger: "4"
+          unsignedInteger: "0"
     optionDefaults:
       - optionId: "vision"
         values:

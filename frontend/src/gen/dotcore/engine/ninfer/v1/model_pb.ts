@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/engine/ninfer/v1/model.proto.
  */
 export const file_dotcore_engine_ninfer_v1_model: GenFile = /*@__PURE__*/
-  fileDesc("CiRkb3Rjb3JlL2VuZ2luZS9uaW5mZXIvdjEvbW9kZWwucHJvdG8SGGRvdGNvcmUuZW5naW5lLm5pbmZlci52MSK2AQoYTmluZmVyTW9kZWxDb25maWd1cmF0aW9uEkoKDmZpeGVkX3NldHRpbmdzGAEgASgLMjIuZG90Y29yZS5lbmdpbmUubmluZmVyLnYxLk5pbmZlckZpeGVkTW9kZWxTZXR0aW5ncxJOChNvcHRpb25fcmVhbGl6YXRpb25zGAIgAygLMjEuZG90Y29yZS5lbmdpbmUubmluZmVyLnYxLk5pbmZlck9wdGlvblJlYWxpemF0aW9uIrYBChhOaW5mZXJSZXNvbHZlZE1vZGVsU3RhdGUSSgoOZml4ZWRfc2V0dGluZ3MYASABKAsyMi5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyRml4ZWRNb2RlbFNldHRpbmdzEk4KE29wdGlvbl9yZWFsaXphdGlvbnMYAiADKAsyMS5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyT3B0aW9uUmVhbGl6YXRpb24i+AEKGE5pbmZlckZpeGVkTW9kZWxTZXR0aW5ncxJLChJrdl9jYWNoZV9kYXRhX3R5cGUYASABKA4yLy5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyS3ZDYWNoZURhdGFUeXBlEiQKHHBlbmRpbmdfdGltZW91dF9taWxsaXNlY29uZHMYAiABKA0SGQoRcHJlc2VydmVfdGhpbmtpbmcYAyABKAgSJwofZGV2aWNlX3N0YXRlX3Nsb3RzX3BhcmFtZXRlcl9pZBgGIAEoCRIlCh1ob3N0X2NvbnRleHRfbWliX3BhcmFtZXRlcl9pZBgHIAEoCSLLAQoXTmluZmVyT3B0aW9uUmVhbGl6YXRpb24SEQoJb3B0aW9uX2lkGAEgASgJEkkKBnZpc2lvbhgCIAEoCzI3LmRvdGNvcmUuZW5naW5lLm5pbmZlci52MS5OaW5mZXJWaXNpb25PcHRpb25SZWFsaXphdGlvbkgAEkMKA210cBgDIAEoCzI0LmRvdGNvcmUuZW5naW5lLm5pbmZlci52MS5OaW5mZXJNdHBPcHRpb25SZWFsaXphdGlvbkgAQg0KC3JlYWxpemF0aW9uIj0KHU5pbmZlclZpc2lvbk9wdGlvblJlYWxpemF0aW9uEhwKFGVuYWJsZWRfcGFyYW1ldGVyX2lkGAEgASgJIjMKGk5pbmZlck10cE9wdGlvblJlYWxpemF0aW9uEhUKDWxtX2hlYWRfZHJhZnQYAyABKAgqZQoVTmluZmVyS3ZDYWNoZURhdGFUeXBlEikKJU5JTkZFUl9LVl9DQUNIRV9EQVRBX1RZUEVfVU5TUEVDSUZJRUQQABIhCh1OSU5GRVJfS1ZfQ0FDSEVfREFUQV9UWVBFX0ZQOBABYgZwcm90bzM");
+  fileDesc("CiRkb3Rjb3JlL2VuZ2luZS9uaW5mZXIvdjEvbW9kZWwucHJvdG8SGGRvdGNvcmUuZW5naW5lLm5pbmZlci52MSK2AQoYTmluZmVyTW9kZWxDb25maWd1cmF0aW9uEkoKDmZpeGVkX3NldHRpbmdzGAEgASgLMjIuZG90Y29yZS5lbmdpbmUubmluZmVyLnYxLk5pbmZlckZpeGVkTW9kZWxTZXR0aW5ncxJOChNvcHRpb25fcmVhbGl6YXRpb25zGAIgAygLMjEuZG90Y29yZS5lbmdpbmUubmluZmVyLnYxLk5pbmZlck9wdGlvblJlYWxpemF0aW9uIrYBChhOaW5mZXJSZXNvbHZlZE1vZGVsU3RhdGUSSgoOZml4ZWRfc2V0dGluZ3MYASABKAsyMi5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyRml4ZWRNb2RlbFNldHRpbmdzEk4KE29wdGlvbl9yZWFsaXphdGlvbnMYAiADKAsyMS5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyT3B0aW9uUmVhbGl6YXRpb24iqAIKGE5pbmZlckZpeGVkTW9kZWxTZXR0aW5ncxJLChJrdl9jYWNoZV9kYXRhX3R5cGUYASABKA4yLy5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyS3ZDYWNoZURhdGFUeXBlEiQKHHBlbmRpbmdfdGltZW91dF9taWxsaXNlY29uZHMYAiABKA0SGQoRcHJlc2VydmVfdGhpbmtpbmcYAyABKAgSJQodaG9zdF9jb250ZXh0X21pYl9wYXJhbWV0ZXJfaWQYByABKAkSGQoRc3RhdGVfaW1hZ2VfYnl0ZXMYCCABKAQSGgoSa3ZfYnl0ZXNfcGVyX3Rva2VuGAkgASgEEiAKGGRyYWZ0X2t2X2J5dGVzX3Blcl90b2tlbhgKIAEoBCLLAQoXTmluZmVyT3B0aW9uUmVhbGl6YXRpb24SEQoJb3B0aW9uX2lkGAEgASgJEkkKBnZpc2lvbhgCIAEoCzI3LmRvdGNvcmUuZW5naW5lLm5pbmZlci52MS5OaW5mZXJWaXNpb25PcHRpb25SZWFsaXphdGlvbkgAEkMKA210cBgDIAEoCzI0LmRvdGNvcmUuZW5naW5lLm5pbmZlci52MS5OaW5mZXJNdHBPcHRpb25SZWFsaXphdGlvbkgAQg0KC3JlYWxpemF0aW9uIj0KHU5pbmZlclZpc2lvbk9wdGlvblJlYWxpemF0aW9uEhwKFGVuYWJsZWRfcGFyYW1ldGVyX2lkGAEgASgJIj0KGk5pbmZlck10cE9wdGlvblJlYWxpemF0aW9uEh8KF29wdGltaXplZF9wcm9wb3NhbF9oZWFkGAMgASgIKmUKFU5pbmZlckt2Q2FjaGVEYXRhVHlwZRIpCiVOSU5GRVJfS1ZfQ0FDSEVfREFUQV9UWVBFX1VOU1BFQ0lGSUVEEAASIQodTklORkVSX0tWX0NBQ0hFX0RBVEFfVFlQRV9GUDgQAWIGcHJvdG8z");
 
 /**
  * Engine-owned ninfer configuration embedded in one catalog model
@@ -98,18 +98,32 @@ export type NinferFixedModelSettings = Message<"dotcore.engine.ninfer.v1.NinferF
   preserveThinking: boolean;
 
   /**
-   * Generic engine parameter containing the extra device checkpoint slot count.
-   *
-   * @generated from field: string device_state_slots_parameter_id = 6;
-   */
-  deviceStateSlotsParameterId: string;
-
-  /**
    * Generic engine parameter containing the shared pinned host context budget in MiB.
    *
    * @generated from field: string host_context_mib_parameter_id = 7;
    */
   hostContextMibParameterId: string;
+
+  /**
+   * Bytes of one request's continuation state, also the device context pool's block size.
+   *
+   * @generated from field: uint64 state_image_bytes = 8;
+   */
+  stateImageBytes: bigint;
+
+  /**
+   * Device context bytes one token of history takes at the configured KV-cache element type.
+   *
+   * @generated from field: uint64 kv_bytes_per_token = 9;
+   */
+  kvBytesPerToken: bigint;
+
+  /**
+   * Device context bytes one token takes in the MTP draft history while MTP is selected.
+   *
+   * @generated from field: uint64 draft_kv_bytes_per_token = 10;
+   */
+  draftKvBytesPerToken: bigint;
 };
 
 /**
@@ -191,9 +205,9 @@ export type NinferMtpOptionRealization = Message<"dotcore.engine.ninfer.v1.Ninfe
   /**
    * Whether the optimized proposal head is loaded while the count is above 0.
    *
-   * @generated from field: bool lm_head_draft = 3;
+   * @generated from field: bool optimized_proposal_head = 3;
    */
-  lmHeadDraft: boolean;
+  optimizedProposalHead: boolean;
 };
 
 /**

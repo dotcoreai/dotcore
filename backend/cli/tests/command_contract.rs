@@ -894,13 +894,16 @@ fn hw_nvidia_workload_vram_attributes_the_owned_process_to_one_device() {
         serde_json::from_slice(&measurement.stdout).expect("VRAM JSON");
     let launch_payload = &launch_response["payload"];
     let payload = &observation["payload"];
-    assert_eq!(observation["format_version"], 1);
+    assert_eq!(observation["format_version"], 2);
     assert_eq!(observation["operation"], "vram");
     assert_eq!(observation["result"], "success");
     assert_eq!(payload["workload_id"], launch_payload["workload_id"]);
     assert_eq!(payload["container_id"], launch_payload["container_id"]);
     assert_eq!(payload["process_id"], launch_payload["process_id"]);
+    // The gated device runs nothing else, so no memory belongs to another process.
     assert_eq!(payload["isolated"], true);
+    assert_eq!(payload["other_processes"], serde_json::json!([]));
+    assert_eq!(payload["unattributed_max_bytes"], 0);
     assert!(payload["process_start_token"].as_u64().unwrap() > 0);
     assert!(payload["gpu"]["uuid"].as_str().unwrap().starts_with("GPU-"));
     assert!(!payload["gpu"]["name"].as_str().unwrap().is_empty());

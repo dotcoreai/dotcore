@@ -161,9 +161,9 @@ fn each_engine_sets_the_scenario_on_its_profile_values() {
         )]
     );
 
-    // ninfer: host context and device state slots keep the profile defaults, and the
-    // profile's 4 parallel requests hold the total context at the context per request. With
-    // MTP on, the draft adds its base and per-token terms: 500 + 2 × 131072 bytes.
+    // ninfer: host context keeps the profile default, and the profile's 4 parallel requests hold
+    // the total context at the context per request. With MTP on, the draft adds its base and
+    // per-token terms: 500 + 2 × 131072 bytes.
     for (context_per_request, filled) in [(Some(65_536), None), (None, Some(131_072))] {
         let estimate = |accelerator_memory_bytes| {
             vec![class_estimate(
@@ -176,7 +176,6 @@ fn each_engine_sets_the_scenario_on_its_profile_values() {
         let values = [
             ("parallel-requests", 4),
             ("host-context-mib", 20_480),
-            ("device-state-slots", 4),
             ("total-context", 131_072),
             (
                 "context-per-request",
@@ -1700,7 +1699,6 @@ parameterSchema:
     - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
     - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
     - { parameterId: "host-context-mib", displayName: "Host context memory", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
-    - { parameterId: "device-state-slots", displayName: "Device state slots", unsignedInteger: { minimum: "0", maximum: "64", unit: "slots" } }
 artifacts:
   - artifactId: "linux"
     oci:
@@ -1756,11 +1754,13 @@ configurations:
           kvCacheDataType: "NINFER_KV_CACHE_DATA_TYPE_FP8"
           pendingTimeoutMilliseconds: 120000
           preserveThinking: true
-          deviceStateSlotsParameterId: "device-state-slots"
           hostContextMibParameterId: "host-context-mib"
+          stateImageBytes: "153954304"
+          kvBytesPerToken: "33024"
+          draftKvBytesPerToken: "2064"
         optionRealizations:
           - optionId: "mtp"
-            mtp: { lmHeadDraft: true }
+            mtp: { optimizedProposalHead: true }
     executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
     requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
     inputCapabilities: { supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }
@@ -1781,7 +1781,6 @@ profiles:
       values:
         - { parameterId: "parallel-requests", unsignedInteger: "4" }
         - { parameterId: "host-context-mib", unsignedInteger: "20480" }
-        - { parameterId: "device-state-slots", unsignedInteger: "4" }
   - profileId: "no-mtp"
     displayName: "No MTP"
     configurationId: "ninfer"
@@ -1790,7 +1789,6 @@ profiles:
       values:
         - { parameterId: "parallel-requests", unsignedInteger: "4" }
         - { parameterId: "host-context-mib", unsignedInteger: "20480" }
-        - { parameterId: "device-state-slots", unsignedInteger: "4" }
     optionDefaults:
       - optionId: "mtp"
         values:

@@ -42,14 +42,13 @@ use dotcore_proto::dotcore::{
 };
 
 /// Resolved engine parameter values of the Qwen3.8 27B ninfer profile: the engine's default total
-/// context, the context per request filled from it, and the profile's parallel requests, host
-/// context and device state slots.
-const PROFILE_PARAMETERS: [(&str, u64); 5] = [
+/// context, the context per request filled from it, and the profile's parallel requests and host
+/// context.
+const PROFILE_PARAMETERS: [(&str, u64); 4] = [
     (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
     (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
     (PARALLEL_REQUESTS_PARAMETER_ID, 4),
     ("host-context-mib", 20_480),
-    ("device-state-slots", 4),
 ];
 
 /// Returns an accepted ninfer snapshot for the profile defaults with vision on and MTP at a nonzero token count.
@@ -130,7 +129,7 @@ pub(crate) fn parameter_values<const N: usize>(values: [(&str, u64); N]) -> Engi
 }
 
 /// Returns a ninfer engine release with the shared context parameters at ninfer's limits and
-/// engine defaults, then the host context and device state slots.
+/// engine defaults, then the host context.
 pub(crate) fn release() -> EngineRelease {
     EngineRelease {
         engine_release_id: "fixture-ninfer".to_owned(),
@@ -168,14 +167,6 @@ pub(crate) fn release() -> EngineRelease {
                     0,
                     1_048_576,
                     "MiB",
-                    None,
-                ),
-                (
-                    "device-state-slots",
-                    "Device state slots",
-                    0,
-                    64,
-                    "slots",
                     None,
                 ),
             ]
@@ -278,8 +269,10 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
                     kv_cache_data_type: NinferKvCacheDataType::Fp8 as i32,
                     pending_timeout_milliseconds: 120_000,
                     preserve_thinking: true,
-                    device_state_slots_parameter_id: "device-state-slots".to_owned(),
                     host_context_mib_parameter_id: "host-context-mib".to_owned(),
+                    state_image_bytes: 153_954_304,
+                    kv_bytes_per_token: 33_024,
+                    draft_kv_bytes_per_token: 2_064,
                 }),
                 option_realizations: vec![
                     NinferOptionRealization {
@@ -291,7 +284,7 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
                     NinferOptionRealization {
                         option_id: "mtp".to_owned(),
                         realization: Some(Realization::Mtp(NinferMtpOptionRealization {
-                            lm_head_draft: true,
+                            optimized_proposal_head: true,
                         })),
                     },
                 ],
