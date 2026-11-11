@@ -402,6 +402,11 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
                 "UpdateApplicationDeploymentMetadataRequest",
                 "UpdateApplicationDeploymentMetadataResponse",
             ),
+            (
+                "ListApplicationTargets",
+                "ListApplicationTargetsRequest",
+                "ListApplicationTargetsResponse",
+            ),
         ],
     );
     // The application contracts share types through owner-neutral packages, never the model

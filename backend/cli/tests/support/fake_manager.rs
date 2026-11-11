@@ -725,6 +725,13 @@ impl ApplicationDeploymentService for FakeApplications {
         )))
     }
 
+    async fn list_application_targets(
+        &self,
+        _request: Request<application::ListApplicationTargetsRequest>,
+    ) -> Result<Response<application::ListApplicationTargetsResponse>, Status> {
+        Err(not_faked())
+    }
+
     async fn update_application_deployment_metadata(
         &self,
         _request: Request<application::UpdateApplicationDeploymentMetadataRequest>,

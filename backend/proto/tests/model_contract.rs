@@ -1385,14 +1385,26 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
     );
     assert_eq!(
         field_layout(service, "ListModelRecommendationsRequest"),
-        [("use_cases", 1, ".dotcore.catalog.v1.UseCase")]
+        [
+            ("use_cases", 1, ".dotcore.catalog.v1.UseCase"),
+            ("can_start_now", 2, "TYPE_BOOL"),
+        ]
+    );
+    assert_eq!(
+        field_layout(service, "RecommendedModelProfile"),
+        [
+            ("model_id", 1, "TYPE_STRING"),
+            ("profile_id", 2, "TYPE_STRING"),
+            ("context_tokens_per_request", 4, "TYPE_UINT64"),
+            ("targets", 3, ".dotcore.model.v1.RecommendedProfileTarget"),
+        ]
     );
     assert_eq!(
         field_layout(service, "RecommendedProfileTarget"),
         [
             ("target", 1, ".dotcore.deployment.v1.ExactPlacement"),
             ("fit", 2, ".dotcore.model.v1.ModelRecommendationFit"),
-            ("deployed", 3, "TYPE_BOOL"),
+            ("model_deployment_id", 3, "TYPE_STRING"),
             ("starting_total_context_tokens", 4, "TYPE_UINT64"),
         ]
     );

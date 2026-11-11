@@ -697,6 +697,8 @@ fn recommendations_response(
                     .map(|row| RecommendedModelProfile {
                         model_id: row.model_id,
                         profile_id: row.profile_id,
+                        // TODO: the recommender returns each row's context per request.
+                        context_tokens_per_request: 0,
                         targets: row
                             .targets
                             .into_iter()
@@ -713,7 +715,8 @@ fn recommendations_response(
                                     }
                                 }
                                 .into(),
-                                deployed: target.deployed,
+                                // TODO: the recommender returns the deployment id.
+                                model_deployment_id: None,
                                 starting_total_context_tokens: target.starting_total_context_tokens,
                             })
                             .collect(),

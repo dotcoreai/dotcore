@@ -192,10 +192,7 @@ mod tests {
         assert_eq!(
             rows(
                 &mac,
-                &mac.recommend(
-                    &catalog,
-                    &[UseCase::CodingAndAgents, UseCase::DecisionMaking]
-                )
+                &mac.recommend(&catalog, &[UseCase::Coding, UseCase::ChatAssistant])
             ),
             [
                 vec![
@@ -203,7 +200,10 @@ mod tests {
                     "mid/q4 on Fixture Apple GPU: FitsNow from 454656",
                     "small/q4 on Fixture Apple GPU: FitsNow from 494592",
                 ],
-                vec!["decider/q8 on Fixture Apple GPU: FitsNow from 504832"],
+                vec![
+                    "mid/q4 on Fixture Apple GPU: FitsNow from 454656",
+                    "small/q4 on Fixture Apple GPU: FitsNow from 494592",
+                ],
             ]
         );
     }
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(
             rows(
                 &gpu,
-                &gpu.recommend(&catalog, &[UseCase::CodingAndAgents, UseCase::Translation])
+                &gpu.recommend(&catalog, &[UseCase::Coding, UseCase::ChatAssistant])
             ),
             [
                 vec![

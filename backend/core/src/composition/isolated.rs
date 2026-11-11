@@ -16,8 +16,8 @@ use dotcore_proto::dotcore::{
         FollowDeploymentLogsRequest as FollowApplicationLogsRequest,
         GetApplicationDeploymentRequest, GetApplicationDeploymentResponse,
         ListApplicationDeploymentsRequest, ListApplicationDeploymentsResponse,
-        PauseDeploymentRequest, PauseDeploymentResponse,
-        ReadDeploymentLogsRequest as ReadApplicationLogsRequest,
+        ListApplicationTargetsRequest, ListApplicationTargetsResponse, PauseDeploymentRequest,
+        PauseDeploymentResponse, ReadDeploymentLogsRequest as ReadApplicationLogsRequest,
         ReadDeploymentLogsResponse as ReadApplicationLogsResponse,
         RemoveApplicationDeploymentRequest, RemoveApplicationDeploymentResponse,
         ResumeDeploymentRequest, ResumeDeploymentResponse,
@@ -274,6 +274,13 @@ impl ApplicationDeploymentServiceContract for IsolatedApplicationService {
         request: Request<ListApplicationDeploymentsRequest>,
     ) -> Result<Response<ListApplicationDeploymentsResponse>, Status> {
         self.service.list_application_deployments(request).await
+    }
+
+    async fn list_application_targets(
+        &self,
+        request: Request<ListApplicationTargetsRequest>,
+    ) -> Result<Response<ListApplicationTargetsResponse>, Status> {
+        self.service.list_application_targets(request).await
     }
 
     async fn get_application_deployment(

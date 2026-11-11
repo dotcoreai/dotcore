@@ -864,11 +864,10 @@ fn parse_model_recommendations_request(
 }
 
 /// Every use case a recommendations read ranks when the request names none.
-const ALL_USE_CASES: [UseCase; 4] = [
-    UseCase::CodingAndAgents,
-    UseCase::GeneralAssistant,
-    UseCase::Translation,
-    UseCase::DecisionMaking,
+const ALL_USE_CASES: [UseCase; 3] = [
+    UseCase::Coding,
+    UseCase::ChatAssistant,
+    UseCase::ImageGeneration,
 ];
 
 /// Validated compatibility read selection: the model, the target and the sizing scenario.
@@ -1348,29 +1347,29 @@ mod tests {
         let parse = |use_cases: &[i32]| {
             super::parse_model_recommendations_request(ListModelRecommendationsRequest {
                 use_cases: use_cases.to_vec(),
+                can_start_now: false,
             })
         };
 
         assert_eq!(
             parse(&[]).expect("all use cases"),
             [
-                UseCase::CodingAndAgents,
-                UseCase::GeneralAssistant,
-                UseCase::Translation,
-                UseCase::DecisionMaking,
+                UseCase::Coding,
+                UseCase::ChatAssistant,
+                UseCase::ImageGeneration,
             ]
         );
         assert_eq!(
             parse(&[
-                UseCase::Translation as i32,
-                UseCase::CodingAndAgents as i32,
-                UseCase::Translation as i32,
+                UseCase::ImageGeneration as i32,
+                UseCase::Coding as i32,
+                UseCase::ImageGeneration as i32,
             ])
             .expect("named use cases"),
-            [UseCase::Translation, UseCase::CodingAndAgents]
+            [UseCase::ImageGeneration, UseCase::Coding]
         );
         for invalid in [UseCase::Unspecified as i32, 99] {
-            let status = parse(&[UseCase::Translation as i32, invalid]).expect_err("invalid");
+            let status = parse(&[UseCase::ImageGeneration as i32, invalid]).expect_err("invalid");
             assert_eq!(status.code(), tonic::Code::InvalidArgument);
             assert_eq!(
                 status.message(),
