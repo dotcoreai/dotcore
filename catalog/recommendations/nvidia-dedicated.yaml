@@ -1,25 +1,26 @@
 # Model recommendations for NVIDIA GPUs with their own memory, best first. Minimums per GPU separate
-# card sizes: 8, 16, 24 and 32 GB. Entries a GPU can't run, such as ninfer off an RTX 5090 or RTX PRO 6000, are
-# skipped for it.
+# card sizes: 12, 16 and 24 GB, with the last entry for 8 GB cards. Entries a GPU can't run, such as
+# ninfer off an RTX 5090 or RTX PRO 6000, are skipped for it. Coding entries carry the largest
+# context per request that starts on an idle card of their size.
 hardwareClassId: "nvidia-dedicated"
 useCases:
   - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "qwen3-8-27b"
         profileId: "ninfer-nvfp4"
-        contextTokensPerRequest: 131072
+        contextTokensPerRequest: 229376
       - modelId: "qwen3-8-27b"
-        profileId: "q4-xl"
-        contextTokensPerRequest: 131072
+        profileId: "q3-xl-q8-kv"
+        contextTokensPerRequest: 155648
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "24000000000"
-      - modelId: "qwen3-5-9b"
-        profileId: "q4-xl"
-        contextTokensPerRequest: 131072
+      - modelId: "gemma-4-12b-it-qat"
+        profileId: "gpu"
+        contextTokensPerRequest: 163840
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "12000000000"
       - modelId: "qwen3-5-4b"
-        profileId: "q4-xl"
+        profileId: "q3-xl"
         contextTokensPerRequest: 131072
   - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
@@ -31,11 +32,16 @@ useCases:
         contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "24000000000"
+      - modelId: "muse-glimmer-30b"
+        profileId: "q3-xl"
+        contextTokensPerRequest: 32768
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "16000000000"
       - modelId: "gemma-4-12b-it-qat"
         profileId: "gpu"
         contextTokensPerRequest: 32768
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "12000000000"
       - modelId: "qwen3-5-4b"
-        profileId: "q4-xl"
+        profileId: "q5-xl"
         contextTokensPerRequest: 32768
