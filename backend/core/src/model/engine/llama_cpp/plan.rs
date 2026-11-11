@@ -237,7 +237,7 @@ fn resolved_state(
         .and_then(|state| state.state.as_ref())
         .and_then(|state| match state {
             State::LlamaCpp(state) => Some(state),
-            State::Vllm(_) | State::Ninfer(_) => None,
+            State::Vllm(_) | State::Ninfer(_) | State::Strata(_) => None,
         })
         .ok_or(LlamaCppPlanError::InvalidResolvedState)
 }

@@ -1,6 +1,6 @@
 //! The behavior every supported inference engine provides, and the single list of those engines.
 //!
-//! Each engine package (llama.cpp, vLLM, ninfer) describes itself once: how its catalog
+//! Each engine package (llama.cpp, vLLM, ninfer, Strata) describes itself once: how its catalog
 //! declarations are validated, how options become a launch plan and container workload, how
 //! readiness is probed, and which transport reaches it. Catalog validation, deployment
 //! realization, and the engine integration registry all look engines up here by kind, so adding
@@ -9,11 +9,12 @@
 use std::{collections::BTreeSet, ops::RangeInclusive, sync::Arc};
 
 use dotcore_artifact::PreparedModelArtifacts;
+use dotcore_catalog::shared_parameters;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineParameterValues, EngineRelease, HardwareClass,
-        InferenceRequestKind, Model, ModelArtifactBinding, ModelEngineConfiguration,
+        EngineParameterSchema, EngineParameterValue, EngineParameterValues, EngineRelease,
+        HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding, ModelEngineConfiguration,
         ModelOptionValues, engine_parameter_definition, engine_parameter_value,
     },
     engine::v1::{EngineKind, ResolvedEngineModelState},
@@ -23,7 +24,7 @@ use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
 
 use super::{
     llama_cpp, ninfer, realization::ResolvedEngineSelection, startup_facts::StartupFactExtractor,
-    startup_refusal::StartupRefusal, vllm,
+    startup_refusal::StartupRefusal, strata, vllm,
 };
 use crate::{
     inference::{EngineBindingError, EngineReadinessProbe, EngineTransportFactory},
@@ -31,8 +32,12 @@ use crate::{
 };
 
 /// Every supported engine, keyed by its unique engine kind.
-pub(crate) static ENGINES: [&dyn EngineDefinition; 3] =
-    [&llama_cpp::LlamaCpp, &vllm::Vllm, &ninfer::Ninfer];
+pub(crate) static ENGINES: [&dyn EngineDefinition; 4] = [
+    &llama_cpp::LlamaCpp,
+    &vllm::Vllm,
+    &ninfer::Ninfer,
+    &strata::Strata,
+];
 
 /// Stateless, engine-owned behavior selected by engine kind.
 pub(crate) trait EngineDefinition: Send + Sync {
@@ -71,6 +76,18 @@ pub(crate) trait EngineDefinition: Send + Sync {
         _configuration: &ModelEngineConfiguration,
     ) -> EngineParameterValues {
         EngineParameterValues::default()
+    }
+
+    /// Context per request for values that leave it out, which counts as derived. By default it is
+    /// the maximum context capped by the total context, for engines whose requests share one total
+    /// context.
+    fn filled_context_per_request(
+        &self,
+        schema: &EngineParameterSchema,
+        values: &EngineParameterValues,
+        maximum_context_tokens: u32,
+    ) -> Option<EngineParameterValue> {
+        shared_parameters::filled_context_per_request(schema, values, maximum_context_tokens)
     }
 
     /// Rejects complete engine parameter values the engine cannot launch together, or cannot launch
@@ -238,7 +255,12 @@ mod tests {
 
     #[test]
     fn definition_selects_each_engine_and_rejects_unknown_kinds() {
-        for kind in [EngineKind::LlamaCpp, EngineKind::Vllm, EngineKind::Ninfer] {
+        for kind in [
+            EngineKind::LlamaCpp,
+            EngineKind::Vllm,
+            EngineKind::Ninfer,
+            EngineKind::Strata,
+        ] {
             assert_eq!(
                 definition(kind as i32).map(|engine| engine.kind()),
                 Some(kind)

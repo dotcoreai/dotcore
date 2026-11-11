@@ -14,7 +14,7 @@ use dotcore_catalog::{
     HOST_MEMORY_RESOURCE,
     shared_parameters::{
         CONTEXT_PER_REQUEST_PARAMETER_ID, MINIMUM_CONTEXT_TOKENS, TOTAL_CONTEXT_PARAMETER_ID,
-        filled_context_per_request, is_shared_parameter, maximum_context_tokens,
+        is_shared_parameter, maximum_context_tokens,
     },
 };
 use dotcore_proto::dotcore::{
@@ -582,7 +582,8 @@ fn with_filled_context_per_request(
     mut values: EngineParameterValues,
 ) -> EngineParameterValues {
     if let Some(schema) = engine_parameter_schema(declarations) {
-        let filled = filled_context_per_request(
+        let filled = crate::model::engine::filled_context_per_request(
+            declarations.engine_kind,
             schema,
             &values,
             maximum_context_tokens(&declarations.model, &declarations.configuration),

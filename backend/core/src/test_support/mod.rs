@@ -8,6 +8,7 @@ use dotcore_proto::dotcore::{
 pub(crate) mod http;
 pub(crate) mod ninfer;
 pub(crate) mod nix;
+pub(crate) mod strata;
 
 pub(crate) use dotcore_domain::test_support::{
     canonical_tempdir, child,

@@ -415,7 +415,12 @@ mod tests {
     fn local_engine_transports_cover_every_local_engine_kind() {
         let factories = EngineTransportFactories::local_engines();
 
-        for kind in [EngineKind::LlamaCpp, EngineKind::Vllm, EngineKind::Ninfer] {
+        for kind in [
+            EngineKind::LlamaCpp,
+            EngineKind::Vllm,
+            EngineKind::Ninfer,
+            EngineKind::Strata,
+        ] {
             assert!(factories.get(kind).is_some(), "{kind:?}");
         }
         assert!(factories.get(EngineKind::Unspecified).is_none());
@@ -425,7 +430,12 @@ mod tests {
     fn production_registry_selects_each_retained_engine_kind() {
         let registry = EngineIntegrationRegistry::production();
 
-        for kind in [EngineKind::LlamaCpp, EngineKind::Vllm, EngineKind::Ninfer] {
+        for kind in [
+            EngineKind::LlamaCpp,
+            EngineKind::Vllm,
+            EngineKind::Ninfer,
+            EngineKind::Strata,
+        ] {
             let integration = registry.integration(kind).expect("integration");
             assert_eq!(integration.definition.kind(), kind);
         }
@@ -449,6 +459,7 @@ mod tests {
         assert!(has_extractor(EngineKind::Vllm));
         assert!(!has_extractor(EngineKind::LlamaCpp));
         assert!(!has_extractor(EngineKind::Ninfer));
+        assert!(!has_extractor(EngineKind::Strata));
     }
 
     #[test]

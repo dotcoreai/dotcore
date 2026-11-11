@@ -597,7 +597,9 @@ fn llama_cpp_settings(
         .and_then(|state| state.state.as_ref())
         .and_then(|state| match state {
             ResolvedEngineState::LlamaCpp(state) => state.fixed_settings.clone(),
-            ResolvedEngineState::Vllm(_) | ResolvedEngineState::Ninfer(_) => None,
+            ResolvedEngineState::Vllm(_)
+            | ResolvedEngineState::Ninfer(_)
+            | ResolvedEngineState::Strata(_) => None,
         })
         .ok_or_else(|| anyhow!("Catalog snapshot has no llama.cpp fixed settings"))
 }

@@ -52,11 +52,18 @@ use tonic::Request;
 
 /// Engines whose releases build for one Linux platform only. Every other repository model
 /// configuration that declares a Linux platform must resolve on both linux/amd64 and linux/arm64.
-const SINGLE_PLATFORM_ENGINES: [SinglePlatformEngine; 1] = [SinglePlatformEngine {
-    engine_kind: EngineKind::Ninfer,
-    platform: ExecutionPlatform::linux_amd64(),
-    reason: "ninfer compiles only for sm_120a (RTX 5090), and no arm64 RTX 5090 host exists",
-}];
+const SINGLE_PLATFORM_ENGINES: [SinglePlatformEngine; 2] = [
+    SinglePlatformEngine {
+        engine_kind: EngineKind::Ninfer,
+        platform: ExecutionPlatform::linux_amd64(),
+        reason: "ninfer compiles only for sm_120a (RTX 5090), and no arm64 RTX 5090 host exists",
+    },
+    SinglePlatformEngine {
+        engine_kind: EngineKind::Strata,
+        platform: ExecutionPlatform::linux_amd64(),
+        reason: "Strata publishes its engine images for x86_64 only, and Dotcore has no arm64 Strata image yet",
+    },
+];
 
 /// Host memory pool of a 32 GiB unified-memory node, used by the GB10 and Docker Desktop targets.
 const HOST_POOL_BYTES: u64 = 34_190_917_632;

@@ -1033,7 +1033,9 @@ mod tests {
             .and_then(|payload| payload.configuration.as_mut())
             .and_then(|payload| match payload {
                 Configuration::LlamaCpp(payload) => Some(payload),
-                Configuration::Vllm(_) | Configuration::Ninfer(_) => None,
+                Configuration::Vllm(_) | Configuration::Ninfer(_) | Configuration::Strata(_) => {
+                    None
+                }
             })
             .expect("llama.cpp payload");
         let vision = payload.option_realizations[0]
@@ -1085,7 +1087,9 @@ mod tests {
             .and_then(|payload| payload.configuration.as_mut())
             .and_then(|payload| match payload {
                 Configuration::LlamaCpp(payload) => Some(payload),
-                Configuration::Vllm(_) | Configuration::Ninfer(_) => None,
+                Configuration::Vllm(_) | Configuration::Ninfer(_) | Configuration::Strata(_) => {
+                    None
+                }
             })
             .expect("llama.cpp payload");
         let mtp = payload.option_realizations[1]

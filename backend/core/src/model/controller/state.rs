@@ -981,7 +981,7 @@ mod tests {
             test_support::{
                 TestCurrent, current_deployment, expected_identity, expected_start_steps,
                 test_desired_deployment, test_engine_integrations, test_ninfer_desired_deployment,
-                test_site,
+                test_site, test_strata_desired_deployment,
             },
         },
         repository::ModelDeclarationRepositoryError,
@@ -1157,6 +1157,72 @@ mod tests {
         assert_eq!(
             engine.chat_models.lock().expect("chat models").as_slice(),
             ["qwen3-8-27b"]
+        );
+    }
+
+    #[tokio::test]
+    async fn strata_deployment_loads_while_refusing_connections_then_serves_over_loopback() {
+        let engine = FakeStrataEngine::reserve();
+        let desired = test_strata_desired_deployment("qwen3-6-35b-a3b");
+        let mut workload = expected_identity(&test_site(), &desired, "runtime/test");
+        let endpoint = LoopbackEndpoint {
+            port_name: "http".to_owned(),
+            host_port: engine.port(),
+        };
+        workload.loopback_endpoints = vec![endpoint.clone()];
+        workload.services = vec![dotcore_runtime::WorkloadServiceBinding::loopback(
+            workload.workload_id.0.clone(),
+            "http",
+            workload.correlation.reconcile_generation,
+            endpoint,
+        )];
+        let observation = WorkloadObservation::Running(workload);
+        let integrations = test_engine_integrations();
+
+        let (loading, binding) = status_from_observation(&integrations, &desired, &observation)
+            .await
+            .expect("loading status");
+        assert_eq!(loading, ModelDeploymentStatus::Loading);
+        assert!(binding.is_none());
+
+        engine.load().await;
+        let (ready, binding) = status_from_observation(&integrations, &desired, &observation)
+            .await
+            .expect("ready status");
+        assert_eq!(ready, ModelDeploymentStatus::Ready);
+        let binding = binding.expect("ready engine binding");
+
+        let (_, cancellation) = crate::inference::inference_cancellation();
+        let attempt = binding
+            .invoker()
+            .invoke(
+                dotcore_proto::dotcore::inference::v1::ChatRequest {
+                    model_id: "route-name".to_owned(),
+                    messages: vec![dotcore_proto::dotcore::inference::v1::ChatMessage {
+                        role: dotcore_proto::dotcore::inference::v1::ChatMessageRole::User as i32,
+                        content: Some(
+                            dotcore_proto::dotcore::inference::v1::chat_message::Content::TextContent(
+                                "hello".to_owned(),
+                            ),
+                        ),
+                        ..Default::default()
+                    }],
+                    stream: Some(false),
+                    ..Default::default()
+                },
+                cancellation,
+            )
+            .await;
+        let crate::inference::InferenceAttempt::Response(
+            crate::inference::InferenceResponse::Complete(completion),
+        ) = attempt
+        else {
+            panic!("Strata chat completion");
+        };
+        assert_eq!(completion.model_id, "route-name");
+        assert_eq!(
+            engine.chat_models.lock().expect("chat models").as_slice(),
+            ["qwen3-6-35b-a3b"]
         );
     }
 
@@ -2070,6 +2136,90 @@ mod tests {
             source = current.source();
         }
         false
+    }
+
+    /// Loopback stand-in for Strata's server, which listens only once its model is loaded.
+    struct FakeStrataEngine {
+        reserved: dotcore_domain::test_support::ports::ReservedPort,
+        chat_models: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FakeStrataEngine {
+        fn reserve() -> Self {
+            Self {
+                reserved: dotcore_domain::test_support::ports::reserve_port(),
+                chat_models: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn port(&self) -> u16 {
+            self.reserved.port()
+        }
+
+        /// Starts listening and answers health as loaded, and chat completions.
+        async fn load(&self) {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", self.port()))
+                .await
+                .expect("loopback listener");
+            let chat_models = self.chat_models.clone();
+            tokio::spawn(async move {
+                loop {
+                    let Ok((mut stream, _)) = listener.accept().await else {
+                        return;
+                    };
+                    let mut request = Vec::new();
+                    let mut buffer = [0_u8; 4096];
+                    let (head, body) = loop {
+                        let read = stream.read(&mut buffer).await.expect("request bytes");
+                        assert_ne!(read, 0, "request ended early");
+                        request.extend_from_slice(&buffer[..read]);
+                        let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n")
+                        else {
+                            continue;
+                        };
+                        let head = String::from_utf8_lossy(&request[..end]).to_lowercase();
+                        let length = head
+                            .lines()
+                            .find_map(|line| line.strip_prefix("content-length:"))
+                            .map_or(0, |value| value.trim().parse().expect("length"));
+                        if request.len() >= end + 4 + length {
+                            break (head, request[end + 4..end + 4 + length].to_vec());
+                        }
+                    };
+                    let (status, body) = if head.starts_with("get /health") {
+                        (
+                            200,
+                            r#"{"status": "ok", "model": "qwen3-6-35b-a3b", "loaded": true, "service": "strata"}"#
+                                .to_owned(),
+                        )
+                    } else if head.starts_with("post /v1/chat/completions") {
+                        let request: serde_json::Value =
+                            serde_json::from_slice(&body).expect("chat request JSON");
+                        chat_models
+                            .lock()
+                            .expect("chat models")
+                            .push(request["model"].as_str().expect("model").to_owned());
+                        (
+                            200,
+                            r#"{"id":"chatcmpl-1","object":"chat.completion","created":0,"model":"qwen3-6-35b-a3b","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}"#
+                                .to_owned(),
+                        )
+                    } else {
+                        (404, "{}".to_owned())
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    stream
+                        .write_all(response.as_bytes())
+                        .await
+                        .expect("response");
+                }
+            });
+        }
     }
 
     /// Loopback stand-in for `ninfer-serve` that hangs every connection until marked ready.

@@ -1030,6 +1030,14 @@ pub(super) fn test_ninfer_desired_deployment(model_id: &str) -> ModelDeploymentD
     }
 }
 
+/// Returns a present deployment of the in-code Strata fixture serving `model_id`.
+pub(super) fn test_strata_desired_deployment(model_id: &str) -> ModelDeploymentDeclaration {
+    ModelDeploymentDeclaration {
+        snapshot: Some(crate::test_support::strata::local_model_snapshot(model_id)),
+        ..test_desired_deployment(model_id, ModelDeploymentDesiredState::Present)
+    }
+}
+
 pub(super) fn valid_upstream_desired_deployment() -> ModelDeploymentDeclaration {
     ModelDeploymentDeclaration {
         model_deployment_id: "upstream-deployment".to_owned(),

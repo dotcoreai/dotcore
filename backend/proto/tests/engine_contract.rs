@@ -15,6 +15,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
     let llama_cpp = descriptor_file(&descriptor, "dotcore/engine/llama_cpp/v1/model.proto");
     let vllm = descriptor_file(&descriptor, "dotcore/engine/vllm/v1/model.proto");
     let ninfer = descriptor_file(&descriptor, "dotcore/engine/ninfer/v1/model.proto");
+    let strata = descriptor_file(&descriptor, "dotcore/engine/strata/v1/model.proto");
     let catalog = descriptor_file(&descriptor, "dotcore/catalog/v1/model.proto");
     let deployment = descriptor_file(&descriptor, "dotcore/model/v1/deployment.proto");
 
@@ -34,6 +35,11 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
                 4,
                 ".dotcore.engine.ninfer.v1.NinferModelConfiguration",
             ),
+            (
+                "strata",
+                5,
+                ".dotcore.engine.strata.v1.StrataModelConfiguration",
+            ),
         ]
     );
     assert_eq!(
@@ -51,6 +57,11 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
                 "ninfer",
                 5,
                 ".dotcore.engine.ninfer.v1.NinferResolvedModelState",
+            ),
+            (
+                "strata",
+                6,
+                ".dotcore.engine.strata.v1.StrataResolvedModelState",
             ),
         ]
     );
@@ -142,6 +153,22 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
         field_numbers(ninfer, "NinferMtpOptionRealization"),
         [("optimized_proposal_head", 3)]
     );
+    assert_eq!(
+        field_numbers(strata, "StrataModelConfiguration"),
+        [("fixed_settings", 1)]
+    );
+    assert_eq!(
+        field_numbers(strata, "StrataResolvedModelState"),
+        [("fixed_settings", 1)]
+    );
+    assert_eq!(
+        field_layout(strata, "StrataFixedModelSettings"),
+        [
+            ("expert_vram_mib_parameter_id", 1, "TYPE_STRING"),
+            ("architecture", 2, "TYPE_STRING"),
+            ("mtp_draft_tokens", 3, "TYPE_UINT32"),
+        ]
+    );
 
     assert_eq!(
         field_layout(catalog, "ModelArtifact"),
@@ -207,7 +234,10 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
     assert!(
         catalog.message_type.iter().all(|message| {
             let name = message.name.as_deref().unwrap_or_default();
-            !name.contains("LlamaCpp") && !name.contains("Vllm") && !name.contains("Ninfer")
+            !name.contains("LlamaCpp")
+                && !name.contains("Vllm")
+                && !name.contains("Ninfer")
+                && !name.contains("Strata")
         }),
         "Catalog messages must not define engine-owned payloads"
     );

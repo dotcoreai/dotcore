@@ -95,7 +95,7 @@ fn validate_runtime_constraints<'a>(
         .and_then(|state| state.state.as_ref())
         .and_then(|state| match state {
             State::Vllm(state) => state.fixed_settings.as_ref(),
-            State::LlamaCpp(_) | State::Ninfer(_) => None,
+            State::LlamaCpp(_) | State::Ninfer(_) | State::Strata(_) => None,
         })
         .ok_or(VllmWorkloadError::UnsupportedEngine)?;
     if fixed.container_port == 0
