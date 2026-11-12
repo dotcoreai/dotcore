@@ -10,36 +10,51 @@ import { ResourceMarker } from "@/components/ui/resource-marker";
 import { AppsSectionIcon, ModelsSectionIcon } from "@/components/ui/section-icons";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
-import { projectApplicationDeploymentStatus } from "@/domain/application-projection";
+import {
+  applicationLifecycleLabel,
+  applicationLifecycleTone,
+  projectApplicationDeploymentStatus,
+} from "@/domain/application-projection";
 import {
   modelDeploymentPresentationName,
+  modelStatusLabel,
+  modelStatusTone,
   projectModelDeploymentStatus,
 } from "@/domain/model-projection";
 import { ApplicationSteps } from "@/features/applications/application-inspector";
 import { DeploymentLogViewer } from "@/features/deployment-logs/deployment-log-viewer";
 import { DeploymentSteps } from "@/features/models/inspector/deployment-overview";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
+import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
+import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
+import type { LifecycleTone, StatusProjection } from "@/lib/status-projection";
 
 import { Item } from "./proposal-card";
 
 /**
  * The deployments Get started started, each with its status and step bar, and a link to its logs.
- * The page leaves this step on its own once every deployment is ready; when one can't get there,
- * Back returns to the proposal.
+ * A deployment not listed yet shows its name as queued. The page leaves this step on its own once
+ * every deployment is ready; when one can't get there, Back returns to the proposal.
  */
 export function DeployingStep({
   applicationClient,
   applicationDeployment,
+  application,
   modelClient,
   modelDeployment,
+  model,
   notice,
   onBack,
 }: {
   applicationClient: ApplicationClient;
   applicationDeployment?: ApplicationDeployment;
+  /** The app this step follows; absent when no app deploys. */
+  application?: FollowedDeployment;
   modelClient: ModelClient;
   modelDeployment?: ModelDeployment;
+  /** The model this step follows; absent when no model deploys. */
+  model?: FollowedDeployment;
   /** What stopped the deployments, such as one removed elsewhere. */
   notice?: string;
   /** Returns to the proposal; absent while the deployments can still become ready. */
@@ -80,6 +95,14 @@ export function DeployingStep({
             />
           ) : null}
         </Item>
+      ) : model ? (
+        <Item icon={ModelsSectionIcon} kind="Model">
+          <DeploymentHead
+            colorKey={model.id ?? model.name}
+            name={model.name}
+            status={queuedStatus(modelStatusLabel(QUEUED_MODEL), modelStatusTone(QUEUED_MODEL))}
+          />
+        </Item>
       ) : null}
       {applicationDeployment ? (
         <Item icon={AppsSectionIcon} kind="App">
@@ -103,6 +126,17 @@ export function DeployingStep({
           !applicationDeployment.state.observationStale ? (
             <ApplicationSteps className="mt-0" steps={applicationDeployment.state.steps} />
           ) : null}
+        </Item>
+      ) : application ? (
+        <Item icon={AppsSectionIcon} kind="App">
+          <DeploymentHead
+            colorKey={application.id ?? application.name}
+            name={application.name}
+            status={queuedStatus(
+              applicationLifecycleLabel(QUEUED_APPLICATION),
+              applicationLifecycleTone(QUEUED_APPLICATION),
+            )}
+          />
         </Item>
       ) : null}
       {notice ? (
@@ -128,6 +162,26 @@ export function DeployingStep({
   );
 }
 
+/** The deployments a use case follows, known by name before their creates answer. */
+export interface FollowedDeployments {
+  application?: FollowedDeployment;
+  model?: FollowedDeployment;
+}
+
+/** One followed deployment: the name it shows until the watch lists it, and its id once created. */
+export interface FollowedDeployment {
+  id?: string;
+  name: string;
+}
+
+const QUEUED_MODEL = ModelDeploymentStatus.QUEUED;
+const QUEUED_APPLICATION = ApplicationLifecycleState.QUEUED;
+
+// A deployment whose create hasn't answered or that the watch hasn't listed yet waits in line.
+function queuedStatus(label: string, tone: LifecycleTone): StatusProjection {
+  return { inProgress: true, label, tone };
+}
+
 interface LogTarget {
   id: string;
   kind: "application" | "model";
@@ -142,9 +196,9 @@ function DeploymentHead({
   status,
 }: {
   colorKey: string;
-  logs: boolean;
+  logs?: boolean;
   name: string;
-  onOpenLogs: (opener: HTMLElement) => void;
+  onOpenLogs?: (opener: HTMLElement) => void;
   status: Parameters<typeof StatusBadge>[0]["status"];
 }) {
   return (
@@ -154,7 +208,7 @@ function DeploymentHead({
         {name}
       </span>
       <StatusBadge status={status} />
-      {logs ? (
+      {logs && onOpenLogs ? (
         <Button
           className="ml-auto"
           onClick={(event) => onOpenLogs(event.currentTarget)}
