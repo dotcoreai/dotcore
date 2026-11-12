@@ -97,6 +97,8 @@ option effects itself.
   omits and the engine release doesn't default.
 - Sizing equations must be linear in the total context, so the largest fitting total context follows
   from the estimates.
+- Repository checks reject a non-empty literal bound to a credential-like variable name in the
+  master catalog; such values come from secret parameters.
 - Repository checks keep the master catalog pointing only at Dotcore's own repository. The backend
   accepts any locked source in site and development catalogs.
 
@@ -186,7 +188,8 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 
 - Own the immutable catalog declarations and their lifecycle.
 - Own the typed parameter definition engine releases and apps share, with its basic, advanced or
-  hidden visibility, and the shape of the shared engine parameters.
+  hidden visibility, and its types (boolean, integer, text and secret), and the shape of the shared
+  engine parameters. Apps use any type; engines use boolean, integer and secret.
 - Validate catalogs as described above.
 
 #### Boundaries

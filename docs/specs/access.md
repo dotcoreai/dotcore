@@ -114,7 +114,14 @@ flowchart TB
 
 ### Secrets
 
-- Stored as references, never as durable plaintext values.
+- Platform and provider credentials are stored as references, never as durable plaintext values.
+- A deployment's secret parameters, such as an app login or an engine key, belong to that
+  deployment. Its controller generates or accepts them at creation, keeps them with the
+  deployment, and gives each workload only the value or derived form it needs.
+- Clients show secret parameters masked until asked. Logs, diagnostics and telemetry never carry
+  them.
+- Current trade-offs: a deployment's secret values sit in plain text in the site's state file and
+  are visible through the container runtime's inspect output. The management API has no login.
 - Verification and serving each receive only the credential capability they need.
 - Private provider credentials stay apart from inference client credentials and public connection
   information.
