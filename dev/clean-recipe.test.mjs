@@ -161,6 +161,29 @@ test("clean removes workloads first, then the site, the worker folder and scratc
   assert.equal(await readFile(path.join(root, ".env.local"), "utf8"), "kept");
 });
 
+test("clean releases the workspace's stored Docker image roots, names them, and leaves the rest of .dotcore", async (t) => {
+  const { exists, root, run } = await fixture(t);
+  const roots = path.join(root, ".dotcore", "docker-images");
+  await mkdir(roots, { recursive: true });
+  await symlink("/nix/store/fake-stored", path.join(roots, "docker-image-comfyui-linux-amd64"));
+  await symlink("/nix/store/fake-stored-2", path.join(roots, "docker-image-ninfer-linux-amd64"));
+  const slotLock = path.join(root, ".dotcore", ".workspace-environment-slot-allocation-v2.lock");
+  await writeFile(slotLock, "");
+
+  const cleaned = run(["clean"], { DOTCORE_YES: "1" });
+
+  assert.equal(cleaned.status, 0, cleaned.stderr);
+  assert.match(cleaned.stderr, /released the stored Docker images of this workspace; .*: docker-image-comfyui-linux-amd64 docker-image-ninfer-linux-amd64\n/);
+  assert.equal(await exists(roots), false);
+  assert.equal(await exists(slotLock), true);
+
+  const again = run(["clean"], { DOTCORE_YES: "1" });
+
+  assert.equal(again.status, 0, again.stderr);
+  assert.doesNotMatch(again.stderr, /released the stored Docker images/);
+  assert.equal(await exists(slotLock), true);
+});
+
 test("DOTCORE_YES forwards the confirmation bypass to every command", async (t) => {
   const { worker, recorded, run, site } = await fixture(t);
 
