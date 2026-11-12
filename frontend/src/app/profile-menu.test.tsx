@@ -79,6 +79,7 @@ describe("ProfileMenu", () => {
       ...within(menu).getAllByRole("menuitemcheckbox"),
     ];
     expect(items.map((item) => item.textContent)).toEqual([
+      "Get started",
       "Preferences",
       "Site logs",
       "Dark mode",
@@ -106,9 +107,9 @@ describe("ProfileMenu", () => {
         trigger.focus();
         await user.keyboard("{Enter}");
         await waitFor(() =>
-          expect(screen.getByRole("menuitem", { name: "Preferences" })).toHaveFocus(),
+          expect(screen.getByRole("menuitem", { name: "Get started" })).toHaveFocus(),
         );
-        await user.keyboard("{ArrowDown}");
+        await user.keyboard("{ArrowDown}{ArrowDown}");
         await waitFor(() =>
           expect(screen.getByRole("menuitem", { name: "Site logs" })).toHaveFocus(),
         );

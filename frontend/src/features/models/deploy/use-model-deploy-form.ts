@@ -131,6 +131,8 @@ export function useModelDeployForm({
   existingRouteNames = [],
   catalogChips = defaultCatalogChips,
   deployments,
+  initialName,
+  initialPlacement,
   initialProfileId,
   listConfiguredExecutionTargets,
   listProfileCompatibility,
@@ -211,8 +213,11 @@ export function useModelDeployForm({
   const [customArgumentTokens, setCustomArgumentTokens] = useState<string[]>([]);
   const commandPreview = useCommandPreview(onPreview);
   const { invalidatePreview } = commandPreview;
-  // The operator's target choice: undefined until they choose, null once they clear it.
-  const [pickedPlacement, setPickedPlacement] = useState<ExactPlacement | null>();
+  // The operator's target choice, starting from the opener's: undefined until they choose, null
+  // once they clear it.
+  const [pickedPlacement, setPickedPlacement] = useState<ExactPlacement | null | undefined>(
+    initialPlacement,
+  );
   const [targetValidationPending, setTargetValidationPending] = useState(false);
   const [ineligibleTarget, setIneligibleTarget] = useState<string>();
   // Whether the Target step shows, fixed when leaving the Profile step so the steps ahead stay put.
@@ -234,7 +239,7 @@ export function useModelDeployForm({
     refresh: refreshExecutionTargets,
     executionTargets: loadedExecutionTargets,
   } = useConfiguredExecutionTargets(listConfiguredExecutionTargets, open);
-  const [name, setName] = useState(model.displayName);
+  const [name, setName] = useState(initialName ?? model.displayName);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
   // The errors of the latest blocked step change or Deploy, which open collapsed Runtime sections.
@@ -982,6 +987,13 @@ export interface ModelDeployFormOptions {
    * memory strip. Without them, the strip doesn't show.
    */
   deployments?: readonly ModelDeployment[];
+  /** The deployment name the launch starts with, such as one the operator already chose. */
+  initialName?: string;
+  /**
+   * The target the launch starts on, such as a proposal's, kept while it can run the selected
+   * profile; the dialog picks one without it.
+   */
+  initialPlacement?: ExactPlacement;
   initialProfileId?: string;
   listConfiguredExecutionTargets?: ConfiguredExecutionTargetLoader;
   /**

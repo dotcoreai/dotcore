@@ -123,7 +123,7 @@ describe("ConsoleSidebar primary destinations", () => {
       within(groupRow.parentElement as HTMLElement)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href")),
-    ).toEqual(["/overview", "/machines", "/models", "/models/catalog", "/routes"]);
+    ).toEqual(["/get-started", "/overview", "/machines", "/models", "/models/catalog", "/routes"]);
   });
 
   it("groups the Apps and Catalog links under Apps, open on the Apps pages", () => {

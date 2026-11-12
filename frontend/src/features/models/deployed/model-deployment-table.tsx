@@ -7,6 +7,8 @@ import { formatChartValue } from "@/components/metrics/time-series-chart/chart-d
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
+  deploymentSiteNodeId,
+  deploymentVramBytes,
   localModelSnapshot,
   modelDeploymentPresentationName,
   projectModelDeploymentStatus,
@@ -229,24 +231,6 @@ export function modelDeploymentRows(
       vramBytes: deploymentVramBytes(deployment),
     };
   });
-}
-
-/** The accelerator memory measured on the deployment's devices; absent without a measure. */
-function deploymentVramBytes(deployment: ModelDeployment): bigint | undefined {
-  const result = deployment.acceleratorMemory?.result;
-  const devices = result?.case === "available" ? result.value.devices : [];
-  return devices.length
-    ? devices.reduce((total, device) => total + device.usedMemoryBytes, 0n)
-    : undefined;
-}
-
-/** The machine a local deployment is placed on, else the one it was observed on. */
-function deploymentSiteNodeId(deployment: ModelDeployment): string | undefined {
-  return (
-    deployment.intent?.placement?.siteNodeId ||
-    deployment.state?.observedPlacements[0]?.managedNodeId ||
-    undefined
-  );
 }
 
 function localDetail(deployment: ModelDeployment): string | undefined {
