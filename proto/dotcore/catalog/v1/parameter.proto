@@ -27,6 +27,12 @@ message ParameterDefinition {
 
     // Closed string choices for this parameter.
     StringEnumParameterSchema string_enum = 6;
+
+    // Free text constraints for this parameter.
+    TextParameterSchema text = 8;
+
+    // Secret constraints for this parameter; its value is generated when none is supplied.
+    SecretParameterSchema secret = 9;
   }
 }
 
@@ -60,6 +66,29 @@ message StringEnumParameterSchema {
   optional string default_value = 2;
 }
 
+// Defines a free text parameter: any text within its length bounds, without `=` or control
+// characters.
+message TextParameterSchema {
+  // Inclusive minimum length in characters.
+  uint32 minimum_length = 1;
+
+  // Inclusive maximum length in characters, at least 1.
+  uint32 maximum_length = 2;
+
+  // Value used when the caller supplies none, within the length bounds.
+  optional string default_value = 3;
+}
+
+// Defines a secret parameter: never defaulted, generated at random from letters and digits when the
+// caller supplies none, and masked by clients until asked.
+message SecretParameterSchema {
+  // Length in characters of a generated value, at least the minimum length.
+  uint32 generated_length = 1;
+
+  // Inclusive minimum length in characters of a supplied value, at least 1.
+  uint32 minimum_length = 2;
+}
+
 // Supplies a set of exact typed parameter values.
 message ParameterValues {
   // Exact values keyed by stable parameter identity.
@@ -78,7 +107,7 @@ message ParameterValue {
     // Exact unsigned-integer value.
     uint64 unsigned_integer = 3;
 
-    // Exact string-enum value.
+    // Exact string-enum, text or secret value.
     string string = 4;
   }
 }
