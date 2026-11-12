@@ -1,6 +1,6 @@
 //! Owner-facing repositories for application declarations and current deployment state.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_catalog::{
     OciArtifactPolicy,
@@ -32,7 +32,7 @@ use dotcore_site::{
     store::{CurrentStateStore, StoreError, StoredCurrentState, reserve_lifecycle_generation},
 };
 
-use super::published_port::valid_published_port;
+use super::{published_port::valid_published_port, secret_form::is_bcrypt_hash};
 
 /// An isolated read view of apps-controller declarations.
 #[derive(Clone, Debug, PartialEq)]
@@ -629,7 +629,7 @@ fn validate_resolved_snapshot(
         .services
         .iter()
         .map(|service| (service.service_name.as_str(), service))
-        .collect::<std::collections::BTreeMap<_, _>>();
+        .collect::<BTreeMap<_, _>>();
     let mut selected = BTreeSet::new();
     for selection in &snapshot.service_selections {
         let service = services
@@ -834,6 +834,8 @@ fn validate_configuration_attachments(
 
 /// Checks that every secret binding has exactly one attachment carrying its parameter's retained
 /// value in the binding's form, and that the generated parameters are distinct retained secrets.
+/// A bcrypt attachment is the authoritative hash computed at create: it must be well formed, and
+/// is never verified against the value here.
 fn validate_secret_attachments(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> Result<(), ApplicationRepositoryError> {
@@ -845,45 +847,41 @@ fn validate_secret_attachments(
         .graph
         .as_ref()
         .expect("Application snapshot was validated");
-    let mut expected = BTreeSet::new();
+    let mut expected = BTreeMap::new();
     for service in &graph.services {
         for binding in &service.secret_bindings {
             let value = canonical_value_text(&snapshot.parameter_values, &binding.parameter_id)
                 .ok_or(ApplicationRepositoryError::InvalidState)?;
-            let value = match ApplicationSecretForm::try_from(binding.form) {
-                Ok(ApplicationSecretForm::Plain) => value,
-                Ok(ApplicationSecretForm::Unspecified) | Err(_) => {
-                    return Err(ApplicationRepositoryError::InvalidState);
-                }
-            };
-            expected.insert((
-                service.service_name.as_str(),
-                binding.binding_name.as_str(),
-                binding.environment_variable.as_str(),
-                value,
-            ));
+            let form = ApplicationSecretForm::try_from(binding.form)
+                .map_err(|_| ApplicationRepositoryError::InvalidState)?;
+            expected.insert(
+                (service.service_name.as_str(), binding.binding_name.as_str()),
+                (binding.environment_variable.as_str(), form, value),
+            );
         }
     }
-    let mut actual = BTreeSet::new();
+    let mut attached = BTreeSet::new();
     for ApplicationSecretAttachment {
         service_name,
         binding_name,
         environment_variable,
-        value,
+        value: attachment,
     } in &deployment.secret_attachments
     {
-        if !valid_configuration_value(value)
-            || !actual.insert((
-                service_name.as_str(),
-                binding_name.as_str(),
-                environment_variable.as_str(),
-                value.clone(),
-            ))
-        {
+        let key = (service_name.as_str(), binding_name.as_str());
+        let carries_its_form = expected.get(&key).is_some_and(|(variable, form, value)| {
+            variable == environment_variable
+                && match form {
+                    ApplicationSecretForm::Plain => attachment == value,
+                    ApplicationSecretForm::Bcrypt => is_bcrypt_hash(attachment),
+                    ApplicationSecretForm::Unspecified => false,
+                }
+        });
+        if !carries_its_form || !valid_configuration_value(attachment) || !attached.insert(key) {
             return Err(ApplicationRepositoryError::InvalidState);
         }
     }
-    if actual != expected {
+    if attached.len() != expected.len() {
         return Err(ApplicationRepositoryError::InvalidState);
     }
 
@@ -1349,7 +1347,7 @@ mod tests {
     }
 
     #[test]
-    fn secret_attachment_must_carry_its_retained_value_and_generated_ids_name_secrets() {
+    fn secret_attachment_carries_its_form_and_generated_ids_name_secrets() {
         let with_secret = |attachment_value: &str, generated: &[&str]| {
             let mut deployment = valid_deployment();
             let snapshot = deployment.snapshot.as_mut().expect("snapshot");
@@ -1434,6 +1432,33 @@ mod tests {
         ] {
             assert!(matches!(
                 validate_declarations(&[invalid]),
+                Err(ApplicationRepositoryError::InvalidState)
+            ));
+        }
+
+        // A bcrypt attachment only needs to be a well-formed hash: this one was computed from
+        // another value and still reads back, since reads never verify it.
+        let with_hash = |attachment_value: &str| {
+            let mut deployment = with_secret(attachment_value, &[]);
+            deployment
+                .snapshot
+                .as_mut()
+                .and_then(|snapshot| snapshot.graph.as_mut())
+                .expect("graph")
+                .services[0]
+                .secret_bindings[0]
+                .form = ApplicationSecretForm::Bcrypt as i32;
+            deployment
+        };
+        let foreign_hash = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+        assert!(!bcrypt::verify("retained-password", foreign_hash).expect("verifiable hash"));
+        assert!(validate_declarations(&[with_hash(foreign_hash)]).is_ok());
+        for invalid in [
+            "retained-password",
+            "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhW",
+        ] {
+            assert!(matches!(
+                validate_declarations(&[with_hash(invalid)]),
                 Err(ApplicationRepositoryError::InvalidState)
             ));
         }

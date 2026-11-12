@@ -681,17 +681,37 @@ mod tests {
             ],
             &["username"],
         );
-        bind_secret(&mut application, "password", "password");
+        bind_secret(
+            &mut application,
+            "password",
+            "password",
+            ApplicationSecretForm::Plain,
+        );
+        bind_secret(
+            &mut application,
+            "password-hash",
+            "password",
+            ApplicationSecretForm::Bcrypt,
+        );
 
         assert!(validate_application(&application).is_empty());
     }
 
     #[test]
     fn application_validation_rejects_invalid_text_and_secret_parameters() {
+        let with_form_binding =
+            |parameters, bound_ids: &[&str], secret_id: &str, form: ApplicationSecretForm| {
+                let mut application = parameterized_application(parameters, bound_ids);
+                bind_secret(&mut application, "password", secret_id, form);
+                application
+            };
         let with_secret_binding = |parameters, bound_ids: &[&str], secret_id: &str| {
-            let mut application = parameterized_application(parameters, bound_ids);
-            bind_secret(&mut application, "password", secret_id);
-            application
+            with_form_binding(
+                parameters,
+                bound_ids,
+                secret_id,
+                ApplicationSecretForm::Plain,
+            )
         };
         let cases = [
             (
@@ -765,24 +785,32 @@ mod tests {
             );
         }
 
-        let not_secret = with_secret_binding(
-            vec![parameter("username", text(1, 64, Some("admin")))],
-            &[],
-            "username",
-        );
-        assert_eq!(
-            validate_application(&not_secret)
-                .into_iter()
-                .map(|error| error.to_string())
-                .collect::<Vec<_>>(),
-            [
-                "application secret binding \"password\" on service \"web\" references parameter \"username\", which is not a secret"
-            ]
-        );
+        for form in [ApplicationSecretForm::Plain, ApplicationSecretForm::Bcrypt] {
+            let not_secret = with_form_binding(
+                vec![parameter("username", text(1, 64, Some("admin")))],
+                &[],
+                "username",
+                form,
+            );
+            assert_eq!(
+                validate_application(&not_secret)
+                    .into_iter()
+                    .map(|error| error.to_string())
+                    .collect::<Vec<_>>(),
+                [
+                    "application secret binding \"password\" on service \"web\" references parameter \"username\", which is not a secret"
+                ]
+            );
+        }
 
         let mut unknown_form =
             parameterized_application(vec![parameter("password", secret(32, 12))], &[]);
-        bind_secret(&mut unknown_form, "password", "password");
+        bind_secret(
+            &mut unknown_form,
+            "password",
+            "password",
+            ApplicationSecretForm::Plain,
+        );
         unknown_form.graph.as_mut().expect("graph").services[1].secret_bindings[0].form =
             ApplicationSecretForm::Unspecified as i32;
         assert_eq!(
@@ -958,14 +986,19 @@ services:
         application
     }
 
-    fn bind_secret(application: &mut Application, binding_name: &str, parameter_id: &str) {
+    fn bind_secret(
+        application: &mut Application,
+        binding_name: &str,
+        parameter_id: &str,
+        form: ApplicationSecretForm,
+    ) {
         application.graph.as_mut().expect("graph").services[1]
             .secret_bindings
             .push(ApplicationSecretBinding {
                 binding_name: binding_name.to_owned(),
-                environment_variable: binding_name.to_uppercase(),
+                environment_variable: binding_name.to_uppercase().replace('-', "_"),
                 parameter_id: parameter_id.to_owned(),
-                form: ApplicationSecretForm::Plain as i32,
+                form: form as i32,
             });
     }
 

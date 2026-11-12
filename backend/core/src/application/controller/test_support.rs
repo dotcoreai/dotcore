@@ -3027,7 +3027,7 @@ pub(super) fn application_with_parameters() -> Application {
 }
 
 /// The test application with a text `username` parameter bound to `USERNAME` and a secret
-/// `password` parameter bound in plain form to `PASSWORD`.
+/// `password` parameter bound in plain form to `PASSWORD` and in bcrypt form to `PASSWORD_HASH`.
 pub(super) fn application_with_secret_parameters() -> Application {
     use dotcore_proto::dotcore::catalog::v1::{
         ApplicationSecretBinding, ApplicationSecretForm, ParameterDefinition, ParameterVisibility,
@@ -3059,12 +3059,20 @@ pub(super) fn application_with_secret_parameters() -> Application {
         )),
         input: None,
     }];
-    web.secret_bindings = vec![ApplicationSecretBinding {
-        binding_name: "password".to_owned(),
-        environment_variable: "PASSWORD".to_owned(),
-        parameter_id: "password".to_owned(),
-        form: ApplicationSecretForm::Plain as i32,
-    }];
+    web.secret_bindings = vec![
+        ApplicationSecretBinding {
+            binding_name: "password".to_owned(),
+            environment_variable: "PASSWORD".to_owned(),
+            parameter_id: "password".to_owned(),
+            form: ApplicationSecretForm::Plain as i32,
+        },
+        ApplicationSecretBinding {
+            binding_name: "password-hash".to_owned(),
+            environment_variable: "PASSWORD_HASH".to_owned(),
+            parameter_id: "password".to_owned(),
+            form: ApplicationSecretForm::Bcrypt as i32,
+        },
+    ];
     application
 }
 

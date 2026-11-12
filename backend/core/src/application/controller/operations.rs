@@ -6,7 +6,7 @@ use dotcore_domain::{SiteNodeId, real_time};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
-        ApplicationLifecycleState, CreateApplicationDeploymentRequest,
+        ApplicationLifecycleState, ApplicationSecretAttachment, CreateApplicationDeploymentRequest,
         CurrentApplicationDeployment, ResolvedApplicationDeploymentSnapshot,
         ResolvedApplicationServiceSelection,
     },
@@ -55,6 +55,7 @@ where
         &site,
         &declaration_snapshot,
     )?;
+    declaration.secret_attachments = secret_attachments(&declaration).await?;
     declaration.lifecycle_generation =
         owner.reserve_lifecycle_generation(&declaration.application_deployment_id)?;
     persist_create(owner, &declaration, declaration_snapshot.storage_revision)?;
@@ -526,11 +527,33 @@ fn resolve_application<D, S>(
         .ok_or(ApplicationLifecycleError::NotFound)
 }
 
+/// Resolves a new declaration's secret attachments on a blocking thread, since a bcrypt form
+/// spends a deliberate amount of CPU time per hash.
+async fn secret_attachments(
+    declaration: &ApplicationDeploymentDeclaration,
+) -> Result<Vec<ApplicationSecretAttachment>, ApplicationLifecycleError> {
+    let snapshot = declaration
+        .snapshot
+        .as_ref()
+        .ok_or(ApplicationLifecycleError::FailedPrecondition)?;
+    let graph = snapshot
+        .graph
+        .clone()
+        .ok_or(ApplicationLifecycleError::FailedPrecondition)?;
+    let values = snapshot.parameter_values.clone();
+    tokio::task::spawn_blocking(move || super::launch::secret_attachments(&graph, &values))
+        .await
+        .map_err(|error| {
+            configuration_with_source("Application secret resolution stopped", error)
+        })?
+}
+
 /// Builds the declaration of a new deployment on `placement`, with its immutable snapshot for
 /// the selected `platform`, the parameter values resolved from the request with missing secrets
-/// generated, the secret attachments derived from them once, and a published host
-/// port no other retained deployment holds, even one still tearing down. Local-development launch
-/// identities are left empty for the hosting node to pin once on its own image store.
+/// generated, and a published host port no other retained deployment holds, even one still
+/// tearing down. Its secret attachments are left for the caller to derive once, off the async
+/// executor. Local-development launch identities are left empty for the hosting node to pin once
+/// on its own image store.
 fn declaration<D, S>(
     owner: &Arc<ApplicationOwner<D, S>>,
     placement: &ExactPlacement,
@@ -591,7 +614,6 @@ where
         &parameters.values,
         request.inference_route_id.is_some(),
     )?;
-    let secret_attachments = super::launch::secret_attachments(&application, &parameters.values)?;
     let storage_attachments = super::launch::storage_attachments(&application)?;
 
     Ok(ApplicationDeploymentDeclaration {
@@ -610,7 +632,7 @@ where
         desired_state: ApplicationDeploymentDesiredState::Present as i32,
         storage_attachments,
         configuration_attachments,
-        secret_attachments,
+        secret_attachments: Vec::new(),
         inference_route_id: request.inference_route_id,
         lifecycle_generation: 0,
         node_resolved_launch_identities: Vec::new(),

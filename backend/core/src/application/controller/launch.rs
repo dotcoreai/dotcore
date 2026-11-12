@@ -19,9 +19,10 @@ use dotcore_proto::dotcore::{
         ApplicationSecretAttachment, ApplicationStorageAttachment,
     },
     catalog::v1::{
-        Application, ApplicationDependencyCondition, ApplicationInferenceRouteProjection,
-        ApplicationSecretForm, ParameterValue, StorageScope, application_configuration_binding,
-        application_deployment_input, application_service_readiness,
+        Application, ApplicationDependencyCondition, ApplicationGraph,
+        ApplicationInferenceRouteProjection, ApplicationSecretForm, ParameterValue, StorageScope,
+        application_configuration_binding, application_deployment_input,
+        application_service_readiness,
     },
 };
 use dotcore_runtime::{
@@ -35,6 +36,7 @@ use super::{
     ApplicationConfigurationSources, ApplicationLifecycleError, InferenceRouteResolver,
     ResolvedInferenceRoute, configuration, configuration_with_source,
 };
+use crate::application::secret_form::bcrypt_hash;
 use crate::storage::{deployment_storage, workload_storage};
 
 pub(super) fn workload_group_launch(
@@ -720,15 +722,12 @@ fn configuration_attachment_value(
 }
 
 /// Resolves the retained secret attachments of a new deployment: each secret binding receives its
-/// parameter's resolved value in the binding's form.
+/// parameter's resolved value in the binding's form. A bcrypt form hashes, so callers run it off
+/// the async executor, and only once per deployment.
 pub(super) fn secret_attachments(
-    application: &Application,
+    graph: &ApplicationGraph,
     parameter_values: &[ParameterValue],
 ) -> Result<Vec<ApplicationSecretAttachment>, ApplicationLifecycleError> {
-    let graph = application
-        .graph
-        .as_ref()
-        .ok_or_else(|| configuration("Application graph is missing"))?;
     graph
         .services
         .iter()
@@ -740,6 +739,12 @@ pub(super) fn secret_attachments(
                     })?;
                 let value = match ApplicationSecretForm::try_from(binding.form) {
                     Ok(ApplicationSecretForm::Plain) => value,
+                    Ok(ApplicationSecretForm::Bcrypt) => bcrypt_hash(&value).map_err(|error| {
+                        configuration_with_source(
+                            "Application secret form cannot be computed",
+                            error,
+                        )
+                    })?,
                     Ok(ApplicationSecretForm::Unspecified) | Err(_) => {
                         return Err(configuration("Application secret binding form is invalid"));
                     }

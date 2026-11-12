@@ -4139,7 +4139,7 @@ fn secret_bindings_attach_apart_from_configuration() {
         []
     );
     assert_eq!(
-        secret_attachments(&application, &values).expect("secrets"),
+        secret_attachments(application.graph.as_ref().expect("graph"), &values).expect("secrets"),
         [ApplicationSecretAttachment {
             service_name: "web".to_owned(),
             binding_name: "password".to_owned(),
@@ -8045,14 +8045,26 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
         })
         .expect("generated declaration")
         .clone();
+    // The bcrypt form is a hash computed at create that verifies against the generated value.
+    let password_hash = declaration.secret_attachments[1].value.clone();
+    assert!(password_hash.starts_with("$2b$10$"));
+    assert!(bcrypt::verify(&generated_password, &password_hash).expect("verifiable hash"));
     assert_eq!(
         declaration.secret_attachments,
-        [ApplicationSecretAttachment {
-            service_name: "web".to_owned(),
-            binding_name: "password".to_owned(),
-            environment_variable: "PASSWORD".to_owned(),
-            value: generated_password.clone(),
-        }]
+        [
+            ApplicationSecretAttachment {
+                service_name: "web".to_owned(),
+                binding_name: "password".to_owned(),
+                environment_variable: "PASSWORD".to_owned(),
+                value: generated_password.clone(),
+            },
+            ApplicationSecretAttachment {
+                service_name: "web".to_owned(),
+                binding_name: "password-hash".to_owned(),
+                environment_variable: "PASSWORD_HASH".to_owned(),
+                value: password_hash.clone(),
+            },
+        ]
     );
     assert_eq!(
         declaration
@@ -8078,15 +8090,19 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
         first_launch.units[&WorkloadUnitName("web".to_owned())].environment,
         BTreeMap::from([
             ("PASSWORD".to_owned(), generated_password.clone()),
+            ("PASSWORD_HASH".to_owned(), password_hash.clone()),
             ("USERNAME".to_owned(), "admin".to_owned()),
         ])
     );
     assert_eq!(launch(&declaration), first_launch);
     // Launch types never show a secret in their `Debug` form.
-    assert!(!format!("{first_launch:?}").contains(&generated_password));
+    let launch_debug = format!("{first_launch:?}");
+    assert!(!launch_debug.contains(&generated_password));
+    assert!(!launch_debug.contains(&password_hash));
     drop(controller);
 
-    // A restarted control plane reads the retained value back and never generates again.
+    // A restarted control plane reads the retained value and hash back, and never generates or
+    // hashes again.
     let path = directory.join("site.yaml");
     let mut persisted_site = site();
     persisted_site.application_deployments = declarations.clone();
