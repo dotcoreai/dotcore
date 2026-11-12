@@ -427,7 +427,8 @@ pub struct SimulatedTiming {
 /// Real-time bounds of joining a node to a site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JoinTiming {
-    /// Bound on reaching a join listener and completing its handshake.
+    /// Bound on reaching a join listener and completing its handshake, and on the manager's
+    /// dial-back to the joining node across all of its addresses.
     pub connect_timeout: Duration,
 
     /// Bound on a join's commit round trip; past it the outcome is unknown.

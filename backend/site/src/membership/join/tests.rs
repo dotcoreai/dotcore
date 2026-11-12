@@ -12,7 +12,7 @@ use std::{
 };
 
 use dotcore_domain::{
-    ExecutionPlatform, HostResolver, SiteNodeHost, SystemHostResolver,
+    ExecutionPlatform, HostResolver, SiteNodeHost,
     test_support::{
         host_resolver::FakeHostResolver,
         ports::{ReservedPort, reserve_port},
@@ -40,10 +40,11 @@ use tonic::{
 };
 
 use super::{
-    JOIN_SECRET_BYTES, JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostError,
-    JoinHostLimits, JoinHostSettings, JoinHostSource, JoinProposal, JoinReview, JoinSecret,
-    JoinSiteError, JoinSiteWriter, JoinToken, JoinedNode, LocalPeers, NodeFolderError,
+    DialBack, JOIN_SECRET_BYTES, JoinApproval, JoinConnection, JoinDecision, JoinHost,
+    JoinHostError, JoinHostLimits, JoinHostSettings, JoinHostSource, JoinProposal, JoinReview,
+    JoinSecret, JoinSiteError, JoinSiteWriter, JoinToken, JoinedNode, NodeFolderError,
     NodeJoinError, NodeKey, NodeRejoin, RejoinProposal, RejoiningNodeFolder, ReviewedJoin,
+    dial_back_listener::DialBackListener,
     test_fixtures::{InitializedSite, initialized_site, initialized_site_with_manager_host},
     verifier::JoinHostVerifier,
 };
@@ -89,15 +90,9 @@ async fn successful_join_installs_a_startable_folder_and_records_exactly_one_nod
     assert_eq!(joined.site_id, harness.fixture.site.site_id);
     assert_eq!(joined.root, node_root);
     assert_eq!(joined.host, host(WORKER_HOST));
-    // The proposed host is not an address of this machine, so the listener binds the route
-    // address to the manager and the network must translate.
-    assert_eq!(joined.private_bind_address.to_string(), "127.0.0.1:7443");
-    assert!(
-        joined
-            .address_translation_warning(&SystemHostResolver)
-            .await
-            .expect("translation warning")
-            .contains("192.0.2.7:7443")
+    assert_eq!(
+        joined.private_bind_address.to_string(),
+        format!("{WORKER_HOST}:{}", worker_port())
     );
 
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("valid node folder");
@@ -177,7 +172,8 @@ async fn successful_join_installs_a_startable_folder_and_records_exactly_one_nod
         reviews[0].peer_address.ip(),
         std::net::IpAddr::V4(Ipv4Addr::LOCALHOST)
     );
-    assert!(reviews[0].host_differs_from_peer);
+    // The proposed name resolves to the loopback address the node connects from.
+    assert!(!reviews[0].host_differs_from_peer);
 
     // The manager received only the signing request; it carries no private key material.
     let private_key = fs::read(
@@ -256,7 +252,6 @@ async fn a_split_network_join_records_both_addresses() {
         return;
     }
     let harness = Harness::start(Options {
-        allow_observed_loopback: true,
         reserved_listener_port: true,
         ..Options::default()
     })
@@ -265,6 +260,14 @@ async fn a_split_network_join_records_both_addresses() {
         SocketAddr::from((DIALED, harness.host_address.port())),
         SOURCE,
         harness.host_address,
+    )
+    .await;
+    // The manager dials the node back at its observed address, which the network forwards to
+    // where the node listens with the same port, as a NAT would.
+    start_source_forwarder(
+        SocketAddr::from((SOURCE, worker_port())),
+        DIALED,
+        SocketAddr::from((route_address_toward(DIALED), worker_port())),
     )
     .await;
     let node_root = harness.node_root();
@@ -284,12 +287,11 @@ async fn a_split_network_join_records_both_addresses() {
     let recorded = harness.finish().await.expect("host result");
 
     assert_eq!(joined.host, ipv4_host(SOURCE));
-    assert_eq!(joined.private_bind_address.to_string(), "127.0.0.3:7443");
+    // With no proposed host, the node listens on the route to the manager before the manager
+    // observes its source address, so the network must forward the recorded host to it.
     assert_eq!(
-        joined
-            .address_translation_warning(&SystemHostResolver)
-            .await,
-        None
+        joined.private_bind_address.to_string(),
+        format!("{}:{}", route_address_toward(DIALED), worker_port())
     );
     assert_eq!(
         (recorded.host, recorded.manager_host),
@@ -342,12 +344,9 @@ async fn an_explicit_local_host_is_recorded_as_given_and_bound() {
     let recorded = harness.finish().await.expect("host result");
 
     assert_eq!(joined.host, ipv4_host(HOST));
-    assert_eq!(joined.private_bind_address.to_string(), "127.0.0.5:7443");
     assert_eq!(
-        joined
-            .address_translation_warning(&SystemHostResolver)
-            .await,
-        None
+        joined.private_bind_address.to_string(),
+        format!("127.0.0.5:{}", worker_port())
     );
     assert_eq!(
         (recorded.host, recorded.manager_host),
@@ -437,9 +436,9 @@ async fn a_manager_host_name_other_than_the_declared_address_is_recorded() {
 #[tokio::test]
 async fn a_proposed_host_name_is_recorded_as_given_and_bound_by_name() {
     let resolver =
-        Arc::new(FakeHostResolver::default().with("gpu-box.example.ts.net", [Ipv4Addr::LOCALHOST]));
+        Arc::new(worker_resolver().with("gpu-box.example.ts.net", [Ipv4Addr::LOCALHOST]));
     let harness = Harness::start(Options {
-        resolver: Some(Arc::clone(&resolver)),
+        resolver: Some(resolver),
         ..Options::default()
     })
     .await;
@@ -459,19 +458,10 @@ async fn a_proposed_host_name_is_recorded_as_given_and_bound_by_name() {
 
     assert_eq!(recorded.host, host("gpu-box.example.ts.net"));
     assert_eq!(recorded.manager_host, None);
-    assert_eq!(
-        joined.private_bind_address.to_string(),
-        "gpu-box.example.ts.net:7443"
-    );
-    assert_eq!(
-        joined.address_translation_warning(resolver.as_ref()).await,
-        None
-    );
+    let bind = format!("gpu-box.example.ts.net:{}", worker_port());
+    assert_eq!(joined.private_bind_address.to_string(), bind);
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("valid node folder");
-    assert_eq!(
-        folder.private_bind_address().to_string(),
-        "gpu-box.example.ts.net:7443"
-    );
+    assert_eq!(folder.private_bind_address().to_string(), bind);
     let node = harness
         .site()
         .nodes
@@ -486,117 +476,45 @@ async fn a_proposed_host_name_is_recorded_as_given_and_bound_by_name() {
 }
 
 #[tokio::test]
-async fn an_implicit_loopback_observation_is_rejected_with_the_unusable_host_reason() {
-    let harness = Harness::start(Options::default()).await;
-    let site_before = harness.site_bytes();
-    let node_root = harness.node_root();
-    let key = NodeKey::generate().expect("key");
-    let mut connection = harness.connect().await;
+async fn an_observed_loopback_host_is_recorded_when_the_manager_reaches_the_node_there() {
+    // The manager is declared by name, so the node's observed loopback address is not its host.
+    let harness = Harness::start(Options {
+        manager_host: Some("localhost"),
+        ..Options::default()
+    })
+    .await;
     let mut observed = proposal("worker", WORKER_HOST);
     observed.host = None;
-
-    let error = connection
-        .join(&observed, &key, &node_root)
-        .await
-        .expect_err("observed loopback address");
-    let NodeJoinError::UnusableHost(status) = &error else {
-        panic!("{error:?}");
-    };
-    assert_eq!(status.code(), Code::InvalidArgument);
-    assert_eq!(
-        status.message(),
-        "the manager observed this node at 127.0.0.1, which it cannot record as the node \
-         address; provide the address the manager reaches this node at"
-    );
-    assert!(!node_root.exists());
-    assert_eq!(harness.site_bytes(), site_before);
-    assert!(harness.approval.reviews().is_empty());
-
-    connection
-        .join(&proposal("worker", WORKER_HOST), &key, &node_root)
-        .await
-        .expect("an explicit host joins");
-    harness.finish().await.expect("host result");
-}
-
-#[tokio::test]
-async fn a_loopback_host_from_another_machine_is_refused_and_the_token_stays_usable() {
-    let resolver = Arc::new(
-        FakeHostResolver::default().with("gpu-box.example.ts.net", [Ipv4Addr::new(127, 0, 0, 2)]),
-    );
-    let harness = Harness::start(Options {
-        resolver: Some(resolver),
-        local_peers: LocalPeers::only([]),
-        ..Options::default()
-    })
-    .await;
-    let site_before = harness.site_bytes();
-    let node_root = harness.node_root();
-    let key = NodeKey::generate().expect("key");
-    let mut connection = harness.connect().await;
-
-    for (loopback_host, message) in [
-        (
-            "127.0.0.1",
-            "the node host 127.0.0.1 is a loopback address, which the manager cannot reach this \
-             node at: the node joined from 127.0.0.1, another machine",
-        ),
-        (
-            "gpu-box.example.ts.net",
-            "the node host gpu-box.example.ts.net is a loopback address, which the manager cannot \
-             reach this node at: the node joined from 127.0.0.1, another machine",
-        ),
-    ] {
-        let error = connection
-            .join(&proposal("worker", loopback_host), &key, &node_root)
-            .await
-            .expect_err("loopback host from another machine");
-        let NodeJoinError::UnusableHost(status) = &error else {
-            panic!("{loopback_host}: {error:?}");
-        };
-        assert_eq!(status.code(), Code::InvalidArgument, "{loopback_host}");
-        assert_eq!(status.message(), message);
-    }
-    assert!(!node_root.exists());
-    assert_eq!(harness.site_bytes(), site_before);
-    assert!(harness.approval.reviews().is_empty());
-
-    connection
-        .join(&proposal("worker", WORKER_HOST), &key, &node_root)
-        .await
-        .expect("a reachable host joins on the same token");
-    let recorded = harness.finish().await.expect("host result");
-    assert_eq!(recorded.host, host(WORKER_HOST));
-}
-
-#[tokio::test]
-async fn a_loopback_host_from_an_address_of_the_manager_machine_is_recorded() {
-    // The peer counts as the manager's machine through its interface addresses, as a same-machine
-    // node dialing the manager's non-loopback address does.
-    const HOST: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 5);
-    if !loopback_addresses_usable(&[HOST]) {
-        return;
-    }
-    let harness = Harness::start(Options {
-        local_peers: LocalPeers::only([Ipv4Addr::LOCALHOST.into()]),
-        ..Options::default()
-    })
-    .await;
 
     let joined = harness
         .connect()
         .await
         .join(
-            &proposal("worker", "127.0.0.5"),
+            &observed,
             &NodeKey::generate().expect("key"),
             &harness.node_root(),
         )
         .await
-        .expect("join");
+        .expect("observed loopback host");
     let recorded = harness.finish().await.expect("host result");
 
-    assert_eq!(joined.host, ipv4_host(HOST));
-    assert_eq!(recorded.host, ipv4_host(HOST));
+    assert_eq!(recorded.host, SiteNodeHost::LOOPBACK);
+    assert_eq!(
+        joined.private_bind_address.to_string(),
+        format!("127.0.0.1:{}", worker_port())
+    );
+    assert_eq!(
+        harness.approval.dials(),
+        [format!(
+            "127.0.0.1:{} reached at 127.0.0.1:{}",
+            worker_port(),
+            worker_port()
+        )]
+    );
+    assert_eq!(
+        harness.approval.reviews()[0].host_source,
+        JoinHostSource::Observed
+    );
 }
 
 #[tokio::test]
@@ -756,6 +674,9 @@ async fn rejected_proposals_change_nothing_and_a_corrected_retry_succeeds() {
         assert_eq!(harness.site_bytes(), site_before, "{label}");
         assert!(harness.pins().is_empty(), "{label}");
     }
+    // Only the proposal the operator rejected was dialed back; the duplicate name and host were
+    // refused before any dial.
+    assert_eq!(harness.approval.dials().len(), 1);
 
     connection
         .join(&proposal("worker", WORKER_HOST), &key, &node_root)
@@ -766,11 +687,319 @@ async fn rejected_proposals_change_nothing_and_a_corrected_retry_succeeds() {
 }
 
 #[tokio::test]
+async fn a_node_the_manager_cannot_reach_by_its_key_is_refused_and_a_reachable_retry_joins() {
+    let harness = Harness::start(Options {
+        timing: JoinTiming {
+            connect_timeout: Duration::from_millis(300),
+            ..test_timing()
+        },
+        limits: JoinHostLimits {
+            max_failed_dial_backs: 10,
+            ..JoinHostLimits::default()
+        },
+        ..Options::default()
+    })
+    .await;
+    let site_before = harness.site_bytes();
+    let mut client = harness.raw_client().await;
+    let closed = reserve_port();
+    let silent_port = reserve_port();
+    let _silent = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, silent_port.port()))
+        .expect("a listener that never answers");
+    let join_port = harness.host_address.port();
+
+    for (label, port, cause) in [
+        ("nothing listens", closed.port(), "connection refused"),
+        ("no answer", silent_port.port(), "timed out"),
+        // The manager's own join listener answers there with the manager's key.
+        ("another key", join_port, "another key answered"),
+    ] {
+        let status = client
+            .join(harness.raw_request_to(WORKER_HOST, port))
+            .await
+            .expect_err(label);
+        assert_eq!(status.code(), Code::FailedPrecondition, "{label}");
+        assert_eq!(
+            status.message(),
+            format!("the manager could not reach this node at {WORKER_HOST}:{port}: {cause}"),
+            "{label}"
+        );
+        assert_eq!(
+            status
+                .metadata()
+                .get(super::proposal::REJECTION_METADATA_KEY)
+                .and_then(|value| value.to_str().ok()),
+            Some("unreachable-node"),
+            "{label}"
+        );
+    }
+
+    // The joining side adds where it listened, here its route to the manager since this machine
+    // does not resolve the name.
+    let node_root = harness.node_root();
+    let key = NodeKey::generate().expect("key");
+    let mut connection = harness.connect().await;
+    let error = connection
+        .join(&proposal("worker", "unknown.example"), &key, &node_root)
+        .await
+        .expect_err("a name the manager cannot resolve");
+    assert!(
+        matches!(&error, NodeJoinError::UnreachableNode { listened, routed: true, .. }
+            if *listened == SocketAddr::from((Ipv4Addr::LOCALHOST, worker_port()))),
+        "{error:?}"
+    );
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "the manager could not reach this node at unknown.example:{port}: {UNRESOLVED}; this \
+             node listened at 127.0.0.1:{port}, so the \
+             network must forward that host and port to it",
+            port = worker_port()
+        )
+    );
+
+    assert!(!node_root.exists());
+    assert_eq!(harness.site_bytes(), site_before);
+    assert!(harness.pins().is_empty());
+    assert!(harness.approval.reviews().is_empty());
+    assert!(harness.site_writer.signed_requests().is_empty());
+
+    connection
+        .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+        .await
+        .expect("a reachable host joins on the same token");
+    assert_eq!(
+        harness.finish().await.expect("host").host,
+        host(WORKER_HOST)
+    );
+    assert_eq!(
+        harness.approval.dials(),
+        [
+            format!("{WORKER_HOST}:{} failed: connection refused", closed.port()),
+            format!("{WORKER_HOST}:{} failed: timed out", silent_port.port()),
+            format!("{WORKER_HOST}:{join_port} failed: another key answered"),
+            format!("unknown.example:{} failed: {UNRESOLVED}", worker_port()),
+            format!(
+                "{WORKER_HOST}:{port} reached at 127.0.0.1:{port}",
+                port = worker_port()
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn a_join_abandoned_during_its_dial_back_still_counts_toward_the_limit() {
+    let harness = Harness::start(Options {
+        timing: JoinTiming {
+            connect_timeout: Duration::from_secs(30),
+            ..test_timing()
+        },
+        limits: JoinHostLimits {
+            max_failed_dial_backs: 1,
+            ..JoinHostLimits::default()
+        },
+        ..Options::default()
+    })
+    .await;
+    let site_before = harness.site_bytes();
+    let silent_port = reserve_port();
+    let _silent = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, silent_port.port()))
+        .expect("a listener that never answers");
+    let mut client = harness.raw_client().await;
+    let request = harness.raw_request_to(WORKER_HOST, silent_port.port());
+    let pending = tokio::spawn(async move { client.join(request).await });
+    retry_until(|| !harness.approval.dials_started().is_empty()).await;
+    assert_eq!(
+        harness.approval.dials_started(),
+        [format!("{WORKER_HOST}:{}", silent_port.port())]
+    );
+
+    // The joining side gives up mid-dial, closing its connection.
+    pending.abort();
+    let _ = pending.await;
+    for _ in 0..200 {
+        let status = harness
+            .raw_client()
+            .await
+            .join(harness.raw_request("worker"))
+            .await
+            .expect_err("the token is spent once the abandoned dial counted");
+        if !status
+            .message()
+            .contains("another node join is in progress")
+        {
+            assert_eq!(status.message(), "this join token is no longer accepted");
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    assert!(matches!(
+        harness.finish().await,
+        Err(JoinHostError::TooManyFailedDialBacks)
+    ));
+    // The abandoned dial never reported an outcome, and the refused join was never dialed.
+    assert!(harness.approval.dials().is_empty());
+    assert_eq!(harness.approval.dials_started().len(), 1);
+    assert_eq!(harness.site_bytes(), site_before);
+}
+
+#[tokio::test]
+async fn a_signing_request_not_signed_by_its_key_is_refused_before_any_dial() {
+    let harness = Harness::start(Options::default()).await;
+    // A sender copies the raw node's public key, which a listener answers with, into a request
+    // signed by another key.
+    let copied_key = super::node_key::csr_public_key(&harness.raw_node.csr_der).expect("key");
+    let mut forged = NodeKey::generate()
+        .expect("sender key")
+        .csr_der()
+        .expect("csr");
+    let own_key = super::node_key::csr_public_key(&forged).expect("own key");
+    let at = forged
+        .windows(own_key.len())
+        .position(|window| window == own_key.as_slice())
+        .expect("public key inside the request");
+    forged[at..at + own_key.len()].copy_from_slice(&copied_key);
+    let mut request = harness.raw_request("worker");
+    request.csr_der = forged;
+
+    let status = harness
+        .raw_client()
+        .await
+        .join(request)
+        .await
+        .expect_err("a forged signing request");
+
+    assert_eq!(status.code(), Code::InvalidArgument);
+    assert_eq!(
+        status.message(),
+        "the certificate signing request is not signed by its own key"
+    );
+    assert!(harness.approval.dials_started().is_empty());
+    assert!(harness.approval.reviews().is_empty());
+}
+
+#[tokio::test]
+async fn failed_dial_backs_stop_the_host_at_the_limit() {
+    let harness = Harness::start(Options {
+        limits: JoinHostLimits {
+            max_failed_dial_backs: 2,
+            ..JoinHostLimits::default()
+        },
+        ..Options::default()
+    })
+    .await;
+    let site_before = harness.site_bytes();
+    let mut client = harness.raw_client().await;
+    let closed = reserve_port();
+
+    client
+        .join(harness.raw_request_to(WORKER_HOST, closed.port()))
+        .await
+        .expect_err("first unreachable node");
+    assert!(harness.approval.reviews().is_empty());
+    client
+        .join(harness.raw_request_to(WORKER_HOST, closed.port()))
+        .await
+        .expect_err("second unreachable node");
+
+    assert!(matches!(
+        harness.finish().await,
+        Err(JoinHostError::TooManyFailedDialBacks)
+    ));
+    assert_eq!(harness.site_bytes(), site_before);
+    assert!(harness.pins().is_empty());
+}
+
+#[tokio::test]
+async fn a_host_name_joins_when_any_of_its_addresses_reaches_the_node() {
+    // Nothing listens on the first address; the node listens on the second.
+    const FIRST: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 5);
+    if !loopback_addresses_usable(&[FIRST]) {
+        return;
+    }
+    let harness = Harness::start(Options {
+        resolver: Some(Arc::new(
+            worker_resolver().with("multi.example", [FIRST, Ipv4Addr::LOCALHOST]),
+        )),
+        ..Options::default()
+    })
+    .await;
+
+    let joined = harness
+        .connect()
+        .await
+        .with_host_resolver(Arc::new(
+            worker_resolver().with("multi.example", [Ipv4Addr::LOCALHOST]),
+        ))
+        .join(
+            &proposal("worker", "multi.example"),
+            &NodeKey::generate().expect("key"),
+            &harness.node_root(),
+        )
+        .await
+        .expect("join at a name with several addresses");
+    harness.finish().await.expect("host result");
+
+    assert_eq!(joined.host, host("multi.example"));
+    assert_eq!(
+        harness.approval.dials(),
+        [format!(
+            "multi.example:{port} reached at 127.0.0.1:{port}",
+            port = worker_port()
+        )]
+    );
+}
+
+#[tokio::test]
+async fn a_taken_private_port_fails_the_join_before_the_manager_hears_of_it() {
+    let harness = Harness::start(Options::default()).await;
+    let site_before = harness.site_bytes();
+    let node_root = harness.node_root();
+    let key = NodeKey::generate().expect("key");
+    let mut connection = harness.connect().await;
+    let taken = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, worker_port()))
+        .expect("take the private port");
+
+    let error = connection
+        .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+        .await
+        .expect_err("the private port is taken");
+    let NodeJoinError::PrivateListener { address, source } = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(
+        *address,
+        SocketAddr::from((Ipv4Addr::LOCALHOST, worker_port()))
+    );
+    assert_eq!(source.kind(), std::io::ErrorKind::AddrInUse);
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "could not listen on the node's private port {} at 127.0.0.1; nothing was sent to \
+             the manager",
+            worker_port()
+        )
+    );
+    assert!(!node_root.exists());
+    assert_eq!(harness.site_bytes(), site_before);
+    assert!(harness.approval.reviews().is_empty());
+    assert!(harness.site_writer.signed_requests().is_empty());
+
+    drop(taken);
+    connection
+        .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+        .await
+        .expect("the untouched token joins once the port is free");
+    harness.finish().await.expect("host result");
+}
+
+#[tokio::test]
 async fn an_abandoned_offer_leaves_the_site_unchanged_and_frees_the_join() {
     let harness = Harness::start(Options::default()).await;
     let site_before = harness.site_bytes();
     let mut abandoned = harness.raw_client().await;
-    let offer = request_offer(&mut abandoned, &harness.token, "worker").await;
+    let offer = request_offer(&mut abandoned, harness.raw_request("worker")).await;
     assert!(!offer.offer_id.is_empty());
     assert_eq!(offer.node_host, WORKER_HOST);
     assert_eq!(offer.manager_private_endpoint, "https://127.0.0.1:7443/");
@@ -801,11 +1030,7 @@ async fn one_offer_at_a_time_and_commits_only_on_its_own_connection() {
     let harness = Harness::start(Options::default()).await;
     let mut first = harness.raw_client().await;
     let offer = first
-        .join(proposal("worker", WORKER_HOST).to_request(
-            &harness.token.secret,
-            &SiteNodeHost::LOOPBACK,
-            NodeKey::generate().expect("key").csr_der().expect("csr"),
-        ))
+        .join(harness.raw_request("worker"))
         .await
         .expect("offer")
         .into_inner();
@@ -912,23 +1137,27 @@ async fn idle_connections_close_but_reviews_in_progress_do_not() {
     .await;
     // The held client never commits; the host closes its idle connection and frees the join.
     let mut held = harness.raw_client().await;
-    let _offer = request_offer(&mut held, &harness.token, "held").await;
+    let _offer = request_offer(&mut held, harness.raw_request("held")).await;
 
-    let node_root = harness.node_root();
-    let key = NodeKey::generate().expect("key");
-    let joined = retry_while_busy(|| async {
-        harness
-            .connect()
+    // The worker commits right after its offer: a real join installs its node folder in between,
+    // which can outlast the short idle timeout on a busy disk.
+    let (mut worker, offer) = retry_while_busy(|| async {
+        let mut worker = harness.raw_client().await;
+        let offer = request_offer_result(&mut worker, harness.raw_request("worker"))
             .await
-            .join(&proposal("worker", WORKER_HOST), &key, &node_root)
-            .await
+            .map_err(NodeJoinError::Join)?;
+        Ok((worker, offer))
     })
     .await
-    .expect("a review longer than the idle timeout still completes the join");
-    assert_eq!(
-        harness.finish().await.expect("host").node_id,
-        joined.node_id
-    );
+    .expect("a review longer than the idle timeout still yields an offer");
+    worker
+        .commit(CommitRequest {
+            join_secret: harness.token.secret.as_bytes().to_vec(),
+            offer_id: offer.offer_id,
+        })
+        .await
+        .expect("the offer's connection is still open to commit it");
+    assert_eq!(harness.finish().await.expect("host").node_id, offer.node_id);
     assert_eq!(harness.site().nodes.len(), 2);
     drop(held);
 }
@@ -947,9 +1176,9 @@ async fn a_review_is_cancelled_when_its_connection_closes_or_the_host_stops() {
     let site_before = harness.site_bytes();
 
     let mut abandoned = harness.raw_client().await;
-    let token = harness.token.clone();
+    let request = harness.raw_request("worker");
     let pending = tokio::spawn(async move {
-        let _ = request_offer_result(&mut abandoned, &token, "worker").await;
+        let _ = request_offer_result(&mut abandoned, request).await;
     });
     retry_until(|| !harness.approval.reviews().is_empty()).await;
     pending.abort();
@@ -957,14 +1186,13 @@ async fn a_review_is_cancelled_when_its_connection_closes_or_the_host_stops() {
     harness.approval.wait_cancelled(0).await;
 
     let mut held = harness.raw_client().await;
-    let token = harness.token.clone();
-    let pending =
-        tokio::spawn(async move { request_offer_result(&mut held, &token, "worker").await });
+    let request = harness.raw_request("worker");
+    let pending = tokio::spawn(async move { request_offer_result(&mut held, request).await });
     retry_until(|| harness.approval.reviews().len() == 2).await;
     let mut wrong = harness.raw_client().await;
     let mut wrong_token = harness.token.clone();
     wrong_token.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    request_offer_result(&mut wrong, &wrong_token, "other")
+    request_offer_result(&mut wrong, harness.raw_request_with(&wrong_token, "other"))
         .await
         .expect_err("wrong secret");
     harness.approval.wait_cancelled(1).await;
@@ -1007,7 +1235,7 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
     })
     .await;
     let mut committing = harness.raw_client().await;
-    let offer = request_offer_result(&mut committing, &harness.token, "worker")
+    let offer = request_offer_result(&mut committing, harness.raw_request("worker"))
         .await
         .expect("offer");
     let secret = harness.token.secret.as_bytes().to_vec();
@@ -1030,7 +1258,7 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
     let mut wrong = harness.raw_client().await;
     let mut wrong_token = harness.token.clone();
     wrong_token.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    request_offer_result(&mut wrong, &wrong_token, "other")
+    request_offer_result(&mut wrong, harness.raw_request_with(&wrong_token, "other"))
         .await
         .expect_err("wrong secret during the commit");
     release.send(()).expect("release the publication");
@@ -1147,11 +1375,11 @@ async fn the_host_stops_when_the_token_expires() {
 #[tokio::test]
 async fn a_rejoin_with_a_new_host_keeps_the_node_and_changes_only_its_addresses() {
     let resolver =
-        Arc::new(FakeHostResolver::default().with("gpu-box.example.ts.net", [Ipv4Addr::LOCALHOST]));
+        Arc::new(worker_resolver().with("gpu-box.example.ts.net", [Ipv4Addr::LOCALHOST]));
     let harness = rejoin_harness(
         &apple_proposal("worker", WORKER_HOST),
         Options {
-            resolver: Some(Arc::clone(&resolver)),
+            resolver: Some(resolver),
             ..Options::default()
         },
     )
@@ -1165,7 +1393,7 @@ async fn a_rejoin_with_a_new_host_keeps_the_node_and_changes_only_its_addresses(
 
     let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
     assert_eq!(folder.node_id(), installed.worker_node_id());
-    assert_eq!(folder.private_port(), 7443);
+    assert_eq!(folder.private_port(), worker_port());
     let joined = harness
         .connect_at(Some("localhost"))
         .await
@@ -1222,7 +1450,7 @@ async fn a_rejoin_with_a_new_host_keeps_the_node_and_changes_only_its_addresses(
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("rejoined folder");
     assert_eq!(
         folder.private_bind_address().to_string(),
-        "gpu-box.example.ts.net:7443"
+        format!("gpu-box.example.ts.net:{}", worker_port())
     );
     assert_eq!(folder.stored_declared_machine(), None);
     assert_eq!(
@@ -1251,7 +1479,7 @@ async fn a_rejoin_with_a_new_host_keeps_the_node_and_changes_only_its_addresses(
             rejoined,
             installed_observation: installed.observation_configuration().clone(),
             observation: installed.observation_configuration().clone(),
-            private_port: 7443,
+            private_port: worker_port(),
             deployments: 0,
         })
     );
@@ -1300,13 +1528,15 @@ async fn a_same_host_rejoin_leaves_the_site_unchanged() {
 #[tokio::test]
 async fn a_rejoin_without_a_host_keeps_the_declared_host_name() {
     // The declared name resolves to another address than the loopback the node connects from.
-    let resolver = Arc::new(
-        FakeHostResolver::default().with("gpu-box.example.ts.net", [Ipv4Addr::new(192, 0, 2, 7)]),
-    );
+    const DECLARED: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 5);
+    if !loopback_addresses_usable(&[DECLARED]) {
+        return;
+    }
+    let resolver = Arc::new(worker_resolver().with("gpu-box.example.ts.net", [DECLARED]));
     let harness = rejoin_harness(
         &proposal("worker", "gpu-box.example.ts.net"),
         Options {
-            resolver: Some(Arc::clone(&resolver)),
+            resolver: Some(resolver),
             ..Options::default()
         },
     )
@@ -1332,6 +1562,10 @@ async fn a_rejoin_without_a_host_keeps_the_declared_host_name() {
 
     assert_eq!(joined.host, host("gpu-box.example.ts.net"));
     assert_eq!(recorded.host, host("gpu-box.example.ts.net"));
+    assert_eq!(
+        joined.private_bind_address.to_string(),
+        format!("gpu-box.example.ts.net:{}", worker_port())
+    );
     assert_eq!(harness.site_bytes(), site_bytes);
     let reviews = harness.approval.reviews();
     assert_eq!(reviews[0].host, host("gpu-box.example.ts.net"));
@@ -1344,85 +1578,117 @@ async fn a_rejoin_without_a_host_keeps_the_declared_host_name() {
 }
 
 #[tokio::test]
-async fn a_rejoin_from_another_machine_is_refused_a_proposed_loopback_host() {
-    let harness = rejoin_harness(
-        &proposal("worker", WORKER_HOST),
-        Options {
-            local_peers: LocalPeers::only([]),
-            ..Options::default()
-        },
-    )
-    .await;
+async fn a_rejoin_listens_on_its_new_host_and_private_port() {
+    let harness = rejoin_harness(&proposal("worker", WORKER_HOST), Options::default()).await;
     let node_root = harness.node_root();
     let site_bytes = harness.site_bytes();
-
-    let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
-    let error = harness
-        .connect()
-        .await
-        .rejoin(
-            &RejoinProposal {
-                host: Some(host("127.0.0.2")),
-                private_port: folder.private_port(),
-            },
-            &folder,
-        )
-        .await
-        .expect_err("loopback rejoin host");
-
-    let NodeJoinError::UnusableHost(status) = &error else {
-        panic!("{error:?}");
+    let new_port = reserve_port();
+    let moved = RejoinProposal {
+        host: Some(host(MOVED_WORKER_HOST)),
+        private_port: new_port.port(),
     };
-    assert_eq!(
-        status.message(),
-        "the node host 127.0.0.2 is a loopback address, which the manager cannot reach this node \
-         at: the node joined from 127.0.0.1, another machine"
+    let mut connection = harness.connect().await;
+
+    // Taking the new port fails the rejoin before the manager hears of it.
+    let taken = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, new_port.port()))
+        .expect("take the new port");
+    let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
+    let error = connection
+        .rejoin(&moved, &folder)
+        .await
+        .expect_err("the new port is taken");
+    assert!(
+        matches!(
+            &error,
+            NodeJoinError::PrivateListener { address, .. }
+                if *address == SocketAddr::from((Ipv4Addr::LOCALHOST, new_port.port()))
+        ),
+        "{error:?}"
     );
     assert_eq!(harness.site_bytes(), site_bytes);
     assert!(harness.approval.reviews().is_empty());
+    drop(taken);
+
+    // Taking the old port does not, since the rejoin listens on the new one only.
+    let _old = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, worker_port()))
+        .expect("take the old port");
+    let joined = connection
+        .rejoin(&moved, &folder)
+        .await
+        .expect("rejoin on the new host and port");
+    drop(folder);
+    harness.finish().await.expect("host result");
+
+    let bind = format!("{MOVED_WORKER_HOST}:{}", new_port.port());
+    assert_eq!(joined.private_bind_address.to_string(), bind);
+    let folder = NodeFolderValidator::validate_declared(&node_root).expect("rejoined folder");
+    assert_eq!(folder.private_bind_address().to_string(), bind);
 }
 
 #[tokio::test]
-async fn a_rejoin_from_another_machine_is_refused_a_declared_loopback_host() {
-    const DECLARED: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 5);
-    if !loopback_addresses_usable(&[DECLARED]) {
-        return;
-    }
-    let harness = rejoin_harness(
-        &proposal("worker", "127.0.0.5"),
-        Options {
-            local_peers: LocalPeers::only([]),
-            ..Options::default()
-        },
-    )
-    .await;
+async fn a_rejoin_the_manager_cannot_reach_is_refused_and_keeps_the_recorded_hosts() {
+    let harness = rejoin_harness(&proposal("worker", WORKER_HOST), Options::default()).await;
     let node_root = harness.node_root();
     let site_bytes = harness.site_bytes();
+    let pins = harness.pins();
+    let installed = NodeFolderValidator::validate_declared(&node_root).expect("installed folder");
+    let key = NodeKey::from_pkcs8(installed.worker_private_key_pkcs8_der()).expect("node key");
+    let certificate = installed.worker_certificate_der().to_vec();
+    drop(installed);
 
+    // A new host the manager cannot resolve.
     let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
     let error = harness
         .connect()
         .await
-        .rejoin(
-            &RejoinProposal {
-                host: None,
-                private_port: folder.private_port(),
-            },
-            &folder,
-        )
+        .rejoin(&rejoin_proposal("unknown.example"), &folder)
         .await
-        .expect_err("declared loopback host");
-
-    let NodeJoinError::UnusableHost(status) = &error else {
+        .expect_err("an unreachable new host");
+    drop(folder);
+    let NodeJoinError::UnreachableNode { status, .. } = &error else {
         panic!("{error:?}");
     };
     assert_eq!(
         status.message(),
-        "the node host 127.0.0.5 is a loopback address, which the manager cannot reach this node \
-         at: the node joined from 127.0.0.1, another machine"
+        format!(
+            "the manager could not reach this node at unknown.example:{}: {UNRESOLVED}",
+            worker_port()
+        )
     );
+
+    // The declared host, where nothing answers on the proposed port.
+    let closed = reserve_port();
+    let status = harness
+        .raw_client()
+        .await
+        .join(
+            RejoinProposal {
+                host: None,
+                private_port: closed.port(),
+            }
+            .to_request(
+                &harness.token.secret,
+                &SiteNodeHost::LOOPBACK,
+                key.rejoin_csr_der(&harness.token.secret)
+                    .expect("rejoin csr"),
+                certificate,
+                NodeObservationConfiguration::default(),
+            ),
+        )
+        .await
+        .expect_err("an unreachable declared host");
+    assert_eq!(
+        status.message(),
+        format!(
+            "the manager could not reach this node at {WORKER_HOST}:{}: connection refused",
+            closed.port()
+        )
+    );
+
     assert_eq!(harness.site_bytes(), site_bytes);
+    assert_eq!(harness.pins(), pins);
     assert!(harness.approval.reviews().is_empty());
+    assert_eq!(harness.approval.dials().len(), 2);
 }
 
 #[tokio::test]
@@ -1688,7 +1954,7 @@ async fn rejoin_refusals_leave_the_site_and_pins_unchanged() {
 
     let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
     connection
-        .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
+        .rejoin(&rejoin_proposal(MOVED_WORKER_HOST), &folder)
         .await
         .expect("the token still admits a valid rejoin");
     drop(folder);
@@ -1706,7 +1972,7 @@ async fn a_failed_folder_rewrite_after_the_commit_is_completed_by_rejoining_agai
         .connect_at(Some("localhost"))
         .await
         .with_file_system(Arc::new(FailingRename))
-        .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
+        .rejoin(&rejoin_proposal(MOVED_WORKER_HOST), &folder)
         .await
         .expect_err("the folder rewrite fails");
     drop(folder);
@@ -1723,7 +1989,7 @@ async fn a_failed_folder_rewrite_after_the_commit_is_completed_by_rejoining_agai
     let node = declared_node(&harness.site(), &rejoined_node_id(&harness));
     assert_eq!(
         (node.host.as_str(), node.manager_host.as_str()),
-        ("192.0.2.8", "localhost")
+        (MOVED_WORKER_HOST, "localhost")
     );
 
     let harness = harness.restart(Options::default()).await;
@@ -1731,7 +1997,7 @@ async fn a_failed_folder_rewrite_after_the_commit_is_completed_by_rejoining_agai
     harness
         .connect_at(Some("localhost"))
         .await
-        .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
+        .rejoin(&rejoin_proposal(MOVED_WORKER_HOST), &folder)
         .await
         .expect("a repeated rejoin");
     drop(folder);
@@ -1775,7 +2041,8 @@ async fn an_unknown_rejoin_commit_outcome_keeps_the_folder_and_rejoining_again_c
     let error = JoinConnection::connect(token, Some(host("localhost")), Timing::test().join)
         .await
         .expect("connect through the proxy")
-        .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
+        .with_host_resolver(Arc::clone(&harness.resolver))
+        .rejoin(&rejoin_proposal(MOVED_WORKER_HOST), &folder)
         .await
         .expect_err("the commit reply is lost");
     drop(folder);
@@ -1801,7 +2068,7 @@ async fn an_unknown_rejoin_commit_outcome_keeps_the_folder_and_rejoining_again_c
     harness
         .connect_at(Some("localhost"))
         .await
-        .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
+        .rejoin(&rejoin_proposal(MOVED_WORKER_HOST), &folder)
         .await
         .expect("a repeated rejoin");
     drop(folder);
@@ -1825,7 +2092,7 @@ async fn a_rewrite_that_may_not_be_durable_is_reported_as_uncertain() {
         .connect_at(Some("localhost"))
         .await
         .with_file_system(Arc::new(FailingDirectorySync))
-        .rejoin(&rejoin_proposal("192.0.2.8"), &folder)
+        .rejoin(&rejoin_proposal(MOVED_WORKER_HOST), &folder)
         .await
         .expect_err("the folder rewrite is not confirmed");
     drop(folder);
@@ -1953,15 +2220,43 @@ enum Rejection {
 /// Changes one pinned value of a token.
 type TokenEdit = fn(&mut JoinToken, &CertificateFingerprint);
 
-/// Proposed worker host; 192.0.2.0/24 is reserved for documentation, so it is never an address
-/// of the test machine.
-const WORKER_HOST: &str = "192.0.2.7";
+/// Proposed worker host, a name both sides resolve to this machine's loopback address, where the
+/// joining node listens and the manager reaches it without any loopback alias.
+const WORKER_HOST: &str = "worker.example";
+
+/// Why a dial-back to `unknown.example` fails, with the fake resolver's cause.
+const UNRESOLVED: &str = "the name does not resolve on the manager's machine: could not resolve \
+                          host name unknown.example; check that the network providing it is up: \
+                          unknown.example is unknown";
+
+/// Host a worker moves to when it joins again, resolved like [`WORKER_HOST`].
+const MOVED_WORKER_HOST: &str = "worker-moved.example";
+
+thread_local! {
+    /// Private port joining nodes of the running test listen on, held for the whole test. Each
+    /// test runs on its own thread or process, so tests never share it.
+    static WORKER_PORT: ReservedPort = reserve_port();
+}
+
+/// Returns the private port joining nodes of the running test propose and listen on.
+fn worker_port() -> u16 {
+    WORKER_PORT.with(ReservedPort::port)
+}
+
+/// Resolver of the worker host names, and of `localhost` as the system resolves it, for both the
+/// joining node and the join host; tests add the names they need.
+fn worker_resolver() -> FakeHostResolver {
+    FakeHostResolver::default()
+        .with(WORKER_HOST, [Ipv4Addr::LOCALHOST])
+        .with(MOVED_WORKER_HOST, [Ipv4Addr::LOCALHOST])
+        .with("localhost", [Ipv4Addr::LOCALHOST])
+}
 
 fn proposal(display_name: &str, proposed_host: &str) -> JoinProposal {
     JoinProposal {
         display_name: display_name.to_owned(),
         host: Some(host(proposed_host)),
-        private_port: 7443,
+        private_port: worker_port(),
         targets: simulated_targets(),
     }
 }
@@ -2023,12 +2318,8 @@ struct Options {
     /// Host the site declares for the manager and the token names; the listener's loopback
     /// address when `None`.
     manager_host: Option<&'static str>,
-    /// Resolver both sides look host names up with; the system resolver when `None`.
+    /// Resolver both sides look host names up with; [`worker_resolver`] when `None`.
     resolver: Option<Arc<FakeHostResolver>>,
-    allow_observed_loopback: bool,
-    /// Connection sources the host treats as the manager's machine; every loopback address by
-    /// default, as on a real manager.
-    local_peers: LocalPeers,
     /// Binds the join listener on a reserved port, for tests that bind the same number on
     /// another address.
     reserved_listener_port: bool,
@@ -2046,8 +2337,6 @@ impl Default for Options {
             timing: test_timing(),
             manager_host: None,
             resolver: None,
-            allow_observed_loopback: false,
-            local_peers: LocalPeers::machine([]),
             reserved_listener_port: false,
             decisions: Vec::new(),
             review_delay: Duration::ZERO,
@@ -2070,6 +2359,31 @@ struct Harness {
     resolver: Arc<dyn HostResolver>,
     host: Mutex<Option<JoinHandle<Result<JoinedNode, JoinHostError>>>>,
     client_directory: tempfile::TempDir,
+    raw_node: RawNode,
+}
+
+/// The joining node behind raw requests: its signing request, and its dial-back listener on a
+/// private port of its own, so raw requests pass the dial-back next to the harness's real joins.
+struct RawNode {
+    csr_der: Vec<u8>,
+    port: ReservedPort,
+    _listener: DialBackListener,
+}
+
+impl RawNode {
+    async fn start() -> Self {
+        let key = NodeKey::generate().expect("raw node key");
+        let port = reserve_port();
+        let listener =
+            DialBackListener::start(SocketAddr::from((Ipv4Addr::LOCALHOST, port.port())), &key)
+                .await
+                .expect("raw node dial-back listener");
+        Self {
+            csr_der: key.csr_der().expect("raw node csr"),
+            port,
+            _listener: listener,
+        }
+    }
 }
 
 impl Harness {
@@ -2130,21 +2444,21 @@ impl Harness {
             .expect("token");
         let resolver: Arc<dyn HostResolver> = match options.resolver {
             Some(resolver) => resolver,
-            None => Arc::new(SystemHostResolver),
+            None => Arc::new(worker_resolver()),
         };
         let approval = Arc::new(ApprovalScript {
             delay: options.review_delay,
             hold: options.hold_reviews,
             decisions: Mutex::new(options.decisions.into()),
             reviews: Mutex::default(),
+            dials_started: Mutex::default(),
+            dials: Mutex::default(),
         });
         let host = JoinHost::new(
             JoinHostSettings {
                 identity,
                 token: token.clone(),
                 manager_private_port: 7443,
-                allow_observed_loopback: options.allow_observed_loopback,
-                local_peers: options.local_peers,
                 limits: options.limits,
             },
             Arc::clone(&site_writer) as Arc<dyn JoinSiteWriter>,
@@ -2162,7 +2476,40 @@ impl Harness {
             resolver,
             host: Mutex::new(Some(tokio::spawn(host.serve(listener)))),
             client_directory,
+            raw_node: RawNode::start().await,
         }
+    }
+
+    /// A join request of the raw node, proposing `display_name` at [`WORKER_HOST`].
+    fn raw_request(&self, display_name: &str) -> JoinRequest {
+        self.raw_request_with(&self.token, display_name)
+    }
+
+    /// A join request of the raw node proposing `proposed_host` and `private_port`, where nothing
+    /// may answer with its key.
+    fn raw_request_to(&self, proposed_host: &str, private_port: u16) -> JoinRequest {
+        JoinProposal {
+            private_port,
+            ..proposal("worker", proposed_host)
+        }
+        .to_request(
+            &self.token.secret,
+            &SiteNodeHost::LOOPBACK,
+            self.raw_node.csr_der.clone(),
+        )
+    }
+
+    /// Like [`Self::raw_request`], with the secret of `token`.
+    fn raw_request_with(&self, token: &JoinToken, display_name: &str) -> JoinRequest {
+        JoinProposal {
+            private_port: self.raw_node.port.port(),
+            ..proposal(display_name, WORKER_HOST)
+        }
+        .to_request(
+            &token.secret,
+            &SiteNodeHost::LOOPBACK,
+            self.raw_node.csr_der.clone(),
+        )
     }
 
     async fn connect(&self) -> JoinConnection {
@@ -2270,9 +2617,27 @@ struct ApprovalScript {
     hold: bool,
     decisions: Mutex<VecDeque<JoinDecision>>,
     reviews: Mutex<Vec<(JoinReview, CancellationToken)>>,
+    dials_started: Mutex<Vec<String>>,
+    dials: Mutex<Vec<String>>,
 }
 
 impl ApprovalScript {
+    /// Every dial-back shown to the operator as it started, as `host:port`.
+    fn dials_started(&self) -> Vec<String> {
+        self.dials_started
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Every dial-back shown to the operator, as `host:port` and its outcome.
+    fn dials(&self) -> Vec<String> {
+        self.dials
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
     fn reviews(&self) -> Vec<JoinReview> {
         self.reviews
             .lock()
@@ -2296,6 +2661,26 @@ impl ApprovalScript {
 struct ScriptedApproval(Arc<ApprovalScript>);
 
 impl JoinApproval for ScriptedApproval {
+    fn dialing_back(&self, host: &SiteNodeHost, port: u16) {
+        self.0
+            .dials_started
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(format!("{host}:{port}"));
+    }
+
+    fn dialed_back(&self, dial: &DialBack) {
+        let outcome = match &dial.outcome {
+            Ok(address) => format!("reached at {address}"),
+            Err(error) => format!("failed: {}", error.detailed()),
+        };
+        self.0
+            .dials
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(format!("{}:{} {outcome}", dial.host, dial.port));
+    }
+
     fn review(
         &self,
         review: JoinReview,
@@ -2530,6 +2915,17 @@ async fn start_source_forwarder(listen: SocketAddr, source: Ipv4Addr, target: So
     });
 }
 
+/// Returns the local address this machine connects from toward `destination`.
+fn route_address_toward(destination: Ipv4Addr) -> Ipv4Addr {
+    let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("route socket");
+    // Connecting a UDP socket sends nothing; it only selects the route and its local address.
+    socket.connect((destination, 9)).expect("route");
+    match socket.local_addr().expect("route address") {
+        SocketAddr::V4(address) => *address.ip(),
+        SocketAddr::V6(address) => panic!("an IPv6 route to {destination}: {address}"),
+    }
+}
+
 /// Reports whether every loopback address can be bound. Linux routes all of 127.0.0.0/8 to the
 /// loopback interface; macOS needs an `lo0` alias per address, for example
 /// `sudo ifconfig lo0 alias 127.0.0.2`.
@@ -2644,27 +3040,16 @@ async fn assert_connect_refused(token: JoinToken, reason: &str) {
 
 async fn request_offer(
     client: &mut NodeJoinServiceClient<Channel>,
-    token: &JoinToken,
-    display_name: &str,
+    request: JoinRequest,
 ) -> JoinResponse {
-    request_offer_result(client, token, display_name)
-        .await
-        .expect("offer")
+    request_offer_result(client, request).await.expect("offer")
 }
 
 async fn request_offer_result(
     client: &mut NodeJoinServiceClient<Channel>,
-    token: &JoinToken,
-    display_name: &str,
+    request: JoinRequest,
 ) -> Result<JoinResponse, tonic::Status> {
-    client
-        .join(proposal(display_name, WORKER_HOST).to_request(
-            &token.secret,
-            &SiteNodeHost::LOOPBACK,
-            NodeKey::generate().expect("key").csr_der().expect("csr"),
-        ))
-        .await
-        .map(tonic::Response::into_inner)
+    client.join(request).await.map(tonic::Response::into_inner)
 }
 
 /// Waits until `condition` holds, polling briefly.
@@ -2741,7 +3126,7 @@ async fn rejoin_harness(first: &JoinProposal, options: Options) -> Harness {
 fn rejoin_proposal(proposed_host: &str) -> RejoinProposal {
     RejoinProposal {
         host: Some(host(proposed_host)),
-        private_port: 7443,
+        private_port: worker_port(),
     }
 }
 

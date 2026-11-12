@@ -47,6 +47,7 @@ tempfile = "3.20.0"
 thiserror = "2.0.19"
 time = { version = "0.3.55", default-features = false, features = ["formatting", "parsing"] }
 tokio = "1.48.0"
+tokio-rustls = { version = "0.26.6", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.19"
 tonic = { version = "0.14.6", features = ["tls-ring"] }

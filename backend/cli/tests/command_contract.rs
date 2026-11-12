@@ -2405,14 +2405,16 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(text(&joined.stderr), "");
     assert_eq!(added.status.code(), Some(0), "{}", text(&added.stderr));
-    // The non-default manager private port is called out first, then the loopback manager host.
-    // The loopback test node proposes 127.0.0.3 but connects from the source address the host
-    // picks toward the 127.0.0.2 listener: 127.0.0.1 on Linux, 127.0.0.2 on macOS.
+    // The non-default manager private port is called out first, then the loopback manager host,
+    // then the dial-back to the node. The loopback test node proposes 127.0.0.3 but connects
+    // from the source address the host picks toward the 127.0.0.2 listener: 127.0.0.1 on Linux,
+    // 127.0.0.2 on macOS.
     assert_eq!(
         text(&added.stderr),
         format!(
-            "Warning: nodes will reach the manager on port 9443; start the manager with DOTCORE_PRIVATE_ADDR=127.0.0.2:9443 (or dotcore --private-addr 127.0.0.2:9443)\nWarning: the manager host 127.0.0.2 is a loopback address, which only this machine reaches; a remote node must join with --manager-host <address it reaches this machine at>, and this command and the manager need DOTCORE_PRIVATE_ADDR=<that address>:9443 (or dotcore --private-addr <that address>:9443); for the node's apps to reach inference, the manager also needs DOTCORE_INFERENCE_ADDR=<that address>:50052\nWarning: the node proposes host 127.0.0.3 but connected from {}; confirm that other nodes reach it at the proposed host\n",
-            loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2))
+            "Warning: nodes will reach the manager on port 9443; start the manager with DOTCORE_PRIVATE_ADDR=127.0.0.2:9443 (or dotcore --private-addr 127.0.0.2:9443)\nWarning: the manager host 127.0.0.2 is a loopback address, which only this machine reaches; a remote node must join with --manager-host <address it reaches this machine at>, and this command and the manager need DOTCORE_PRIVATE_ADDR=<that address>:9443 (or dotcore --private-addr <that address>:9443); for the node's apps to reach inference, the manager also needs DOTCORE_INFERENCE_ADDR=<that address>:50052\nNotice: dialing the node back at 127.0.0.3:{port}\nNotice: reached the node at 127.0.0.3:{port}\nWarning: the node proposes host 127.0.0.3 but connected from {}; confirm that other nodes reach it at the proposed host\n",
+            loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2)),
+            port = node_private_port(),
         )
     );
     let node_id = record(&text(&added.stdout), "DOTCORE_NODE_ID=");
@@ -2427,7 +2429,8 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
     assert_eq!(
         text(&joined.stdout),
         format!(
-            "Node joined\nDOTCORE_SITE_ID=cli-test-site\nDOTCORE_NODE_ID={node_id}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.3\nDOTCORE_PRIVATE_ADDR=127.0.0.3:50053\nDOTCORE_START_COMMAND=dotcore --site-dir {}\n",
+            "Node joined\nDOTCORE_SITE_ID=cli-test-site\nDOTCORE_NODE_ID={node_id}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.3\nDOTCORE_PRIVATE_ADDR=127.0.0.3:{}\nDOTCORE_START_COMMAND=dotcore --site-dir {}\n",
+            node_private_port(),
             node_dir.display()
         )
     );
@@ -2492,7 +2495,10 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
         manifest.contains("privateEndpoint: https://127.0.0.2:9443/"),
         "{manifest}"
     );
-    assert!(manifest.contains("127.0.0.3:50053"), "{manifest}");
+    assert!(
+        manifest.contains(&format!("127.0.0.3:{}", node_private_port())),
+        "{manifest}"
+    );
     assert!(!manifest.contains("privateKey"));
 }
 
@@ -2745,30 +2751,27 @@ fn rejected_joins_leave_the_site_unchanged_and_the_token_usable_for_a_corrected_
         text(&duplicate_host.stderr)
     );
 
-    // Without --host the manager observes a loopback address it cannot record.
-    let observed_host = dotc()
-        .args([
-            "node",
-            "join",
-            "--yes",
-            "--name",
-            "Worker two",
-            "--site-dir",
-        ])
-        .arg(nodes.root.join("observed"))
-        .arg("--token-file")
-        .arg(&token_file)
-        .args(["--inference", "simulated", "--applications", "simulated"])
-        .clear_test_environment()
-        .output()
-        .expect("join without a host");
-    assert_eq!(observed_host.status.code(), Some(1));
+    // The manager cannot reach a host its machine does not resolve.
+    let unreachable = node_join(
+        &token_file,
+        &nodes.root.join("unreachable"),
+        "Worker two",
+        "unreachable.invalid",
+    )
+    .output()
+    .expect("join with an unreachable host");
+    assert_eq!(unreachable.status.code(), Some(1));
     assert!(
-        text(&observed_host.stderr).contains(
-            "node join failed; set this machine's address with --host: the manager observed this node at 127."
-        ),
+        text(&unreachable.stderr).contains(&format!(
+            "node join failed; make sure the manager's machine reaches this node at that host \
+             and port, then join again; repeated failures revoke the token, so you may need a new \
+             one from `dotc node add`: the manager could not reach this node at \
+             unreachable.invalid:{}: the name does not resolve on the manager's machine: could \
+             not resolve host name unreachable.invalid",
+            node_private_port()
+        )) && text(&unreachable.stderr).contains("; this node listened at "),
         "{}",
-        text(&observed_host.stderr)
+        text(&unreachable.stderr)
     );
 
     assert_eq!(
@@ -2776,7 +2779,7 @@ fn rejected_joins_leave_the_site_unchanged_and_the_token_usable_for_a_corrected_
         site_before
     );
     assert!(pin_files(fixture.site_path()).is_empty());
-    for rejected in ["wrong", "name", "host", "observed"] {
+    for rejected in ["wrong", "name", "host", "unreachable"] {
         assert!(!nodes.root.join(rejected).exists(), "{rejected}");
     }
 
@@ -3170,7 +3173,8 @@ fn a_node_joins_again_from_its_intact_folder_on_a_new_host() {
     assert_eq!(
         text(&joined.stdout),
         format!(
-            "Node rejoined\nDOTCORE_SITE_ID=cli-test-site\nDOTCORE_NODE_ID={WORKER_NODE_ID}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.4\nDOTCORE_PRIVATE_ADDR=127.0.0.4:50053\nDOTCORE_START_COMMAND=dotcore --site-dir {}\n",
+            "Node rejoined\nDOTCORE_SITE_ID=cli-test-site\nDOTCORE_NODE_ID={WORKER_NODE_ID}\nDOTCORE_NODE_NAME=Worker two\nDOTCORE_NODE_HOST=127.0.0.4\nDOTCORE_PRIVATE_ADDR=127.0.0.4:{}\nDOTCORE_START_COMMAND=dotcore --site-dir {}\n",
+            node_private_port(),
             node_dir.display()
         )
     );
@@ -3994,6 +3998,8 @@ fn node_join_in_the_default_folder_prints_the_plain_start_command() {
             "simulated",
             "--applications",
             "simulated",
+            "--private-port",
+            &node_private_port(),
         ])
         .clear_test_environment()
         .env("XDG_STATE_HOME", &state)
@@ -4030,6 +4036,8 @@ fn node_join_in_a_folder_from_the_environment_prints_the_plain_start_command() {
             "simulated",
             "--applications",
             "simulated",
+            "--private-port",
+            &node_private_port(),
         ])
         .clear_test_environment()
         .env("DOTCORE_SITE_DIR", &node_dir)
@@ -4087,11 +4095,10 @@ fn the_printed_start_command_starts_the_joined_node() {
     let nodes = TemporarySite::empty();
     let node_dir = nodes.root.join("joined-node");
     let token_file = nodes.root.join("join.token");
-    let private_port = dotcore::testing::reserve_port();
     let add = NodeAdd::start(fixture.site_path(), &token_file);
-    let mut join = node_join(&token_file, &node_dir, "Started node", "127.0.0.3");
-    join.args(["--private-port", &private_port.port().to_string()]);
-    let joined = join.output().expect("run node join");
+    let joined = node_join(&token_file, &node_dir, "Started node", "127.0.0.3")
+        .output()
+        .expect("run node join");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(add.finish().status.code(), Some(0));
     let printed = record(&text(&joined.stdout), "DOTCORE_START_COMMAND=");
@@ -4132,7 +4139,7 @@ fn the_printed_start_command_starts_the_joined_node() {
         lines,
         format!(
             "Dotcore server starting\nDOTCORE_PRIVATE_ADDRESS=https://127.0.0.3:{}\n",
-            private_port.port()
+            node_private_port()
         )
     );
 }
@@ -4231,14 +4238,15 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
         .arg("--token-file")
         .arg(&token_file)
         .args(["--inference", "simulated", "--applications", "simulated"])
+        .args(["--private-port", &node_private_port()])
         .clear_test_environment()
-        .env("DOTCORE_MACHINE_HOST", "node.example")
+        .env("DOTCORE_MACHINE_HOST", "localhost")
         .output()
         .expect("join with the host variable");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(
         record(&text(&joined.stdout), "DOTCORE_NODE_HOST="),
-        "node.example"
+        "localhost"
     );
     assert_eq!(add.finish().status.code(), Some(0));
 
@@ -4251,7 +4259,7 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
         "Flag node",
         "127.0.0.3",
     );
-    join.env("DOTCORE_MACHINE_HOST", "node.example");
+    join.env("DOTCORE_MACHINE_HOST", "localhost");
     let joined = join.output().expect("join with the host flag and variable");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(
@@ -4260,13 +4268,12 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
     );
     assert_eq!(add.finish().status.code(), Some(0));
 
-    // The retired DOTCORE_DEV_HOST name is not read: without a host the join falls back to the
-    // observed loopback address, which the manager refuses to record. The observed address is the
-    // source address the host picks toward the 127.0.0.2 listener: 127.0.0.1 on Linux, 127.0.0.2
-    // on macOS.
+    // The retired DOTCORE_DEV_HOST name is not read: without a host the manager records the
+    // observed address, the source address the host picks toward the 127.0.0.2 listener:
+    // 127.0.0.1 on Linux, 127.0.0.2 on macOS.
     let token_file = nodes.root.join("retired.token");
     let add = NodeAdd::start(fixture.site_path(), &token_file);
-    let refused = dotc()
+    let observed = dotc()
         .args([
             "node",
             "join",
@@ -4279,22 +4286,25 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
         .arg("--token-file")
         .arg(&token_file)
         .args(["--inference", "simulated", "--applications", "simulated"])
+        .args(["--private-port", &node_private_port()])
         .clear_test_environment()
         .env("DOTCORE_DEV_HOST", "retired.example")
         .output()
         .expect("join with the retired host variable");
-    assert_eq!(refused.status.code(), Some(1));
     assert_eq!(
-        text(&refused.stderr),
-        format!(
-            "node join failed; set this machine's address with --host: the manager observed this node at {}, which it cannot record as the node address; provide the address the manager reaches this node at\n",
-            loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2))
-        )
+        observed.status.code(),
+        Some(0),
+        "{}",
+        text(&observed.stderr)
     );
-    drop(add);
+    assert_eq!(
+        record(&text(&observed.stdout), "DOTCORE_NODE_HOST="),
+        loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2)).to_string()
+    );
+    assert_eq!(add.finish().status.code(), Some(0));
 
     let site = std::fs::read_to_string(fixture.site_path().join("site.yaml")).expect("Site");
-    assert!(site.contains("host: node.example"), "{site}");
+    assert!(site.contains("host: localhost"), "{site}");
     assert!(site.contains("host: 127.0.0.3"), "{site}");
     assert!(!site.contains("retired.example"), "{site}");
 }
@@ -4405,6 +4415,8 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
             "simulated",
             "--applications",
             "simulated",
+            "--private-port",
+            &node_private_port(),
         ])
         .clear_test_environment();
     let pasted = format!("{token}\n").into_bytes().leak();
@@ -5568,9 +5580,22 @@ fn node_join_without_token(node_dir: &Path, name: &str, host: &str) -> Command {
             "simulated",
             "--applications",
             "simulated",
+            "--private-port",
+            &node_private_port(),
         ])
         .clear_test_environment();
     command
+}
+
+thread_local! {
+    /// Private port joining nodes of the running test listen on while they join, held for the
+    /// whole test. Each test runs on its own thread or process, so tests never share it.
+    static NODE_PRIVATE_PORT: dotcore::testing::ReservedPort = dotcore::testing::reserve_port();
+}
+
+/// Returns the private port joining nodes of the running test propose and listen on.
+fn node_private_port() -> String {
+    NODE_PRIVATE_PORT.with(|port| port.port().to_string())
 }
 
 /// Adds one simulated node to the fixture site through the two real commands.

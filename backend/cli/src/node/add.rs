@@ -27,8 +27,8 @@ use dotcore_site::{
     membership::{
         OfflineSite,
         join::{
-            JoinApproval, JoinDecision, JoinHost, JoinHostError, JoinHostLimits, JoinHostSettings,
-            JoinHostSource, JoinReview, JoinSiteWriter, JoinedNode, LocalPeers, NodeRejoin,
+            DialBack, JoinApproval, JoinDecision, JoinHost, JoinHostError, JoinHostLimits,
+            JoinHostSettings, JoinHostSource, JoinReview, JoinSiteWriter, JoinedNode, NodeRejoin,
             ReviewedJoin, blocking_review,
         },
     },
@@ -41,10 +41,8 @@ use url::Url;
 use super::{Notices, boxed, parse_timeout, record_value, write_records};
 use crate::{
     RootPathArgs,
-    hosts::{
-        HostEnvironment, InterfaceAddress, SystemHostEnvironment, inference_address_remedy,
-        private_address_remedy,
-    },
+    failure::capitalize,
+    hosts::{inference_address_remedy, private_address_remedy},
     site::parse_absolute_path,
     terminal::{
         ConfirmPrompt, Message, PromptError, Terminal, TerminalCondition,
@@ -159,8 +157,6 @@ pub(crate) async fn node_add(paths: &RootPathArgs, arguments: NodeAddArgs) -> an
             identity,
             token,
             manager_private_port: private_port,
-            allow_observed_loopback: false,
-            local_peers: local_join_peers(&SystemHostEnvironment)?,
             limits: JoinHostLimits {
                 overall_timeout: arguments.timeout,
                 ..JoinHostLimits::default()
@@ -199,17 +195,6 @@ fn announce_ready(
     terminal.message(&Message::Command(join_command.to_owned()))?;
     terminal.message(&Message::Hint("Waiting for the node...".to_owned()))?;
     Ok(None)
-}
-
-/// Returns the join connection sources that come from this machine: every loopback address and
-/// the addresses on its network interfaces.
-fn local_join_peers(environment: &dyn HostEnvironment) -> anyhow::Result<LocalPeers> {
-    let interfaces = environment
-        .interface_addresses()
-        .context("read this machine's network addresses")?;
-    Ok(LocalPeers::machine(
-        interfaces.iter().map(InterfaceAddress::address),
-    ))
 }
 
 /// Tells the operator to start the manager with the private port given to joining nodes when it
@@ -272,6 +257,15 @@ struct CliApproval {
 }
 
 impl JoinApproval for CliApproval {
+    fn dialing_back(&self, host: &SiteNodeHost, port: u16) {
+        self.show_dial(true, &format!("dialing the node back at {host}:{port}"));
+    }
+
+    fn dialed_back(&self, dial: &DialBack) {
+        let (reached, text) = dial_back_text(dial);
+        self.show_dial(reached, &text);
+    }
+
     fn review(
         &self,
         review: JoinReview,
@@ -295,10 +289,47 @@ impl JoinApproval for CliApproval {
     }
 }
 
+/// Describes one dial-back to the joining node, and whether it reached the node.
+fn dial_back_text(dial: &DialBack) -> (bool, String) {
+    let target = format!("{}:{}", dial.host, dial.port);
+    match &dial.outcome {
+        Ok(address) if address.to_string() == target => {
+            (true, format!("reached the node at {target}"))
+        }
+        Ok(address) => (true, format!("reached the node at {target} ({address})")),
+        Err(error) => (
+            false,
+            format!("could not reach the node at {target}: {}", error.detailed()),
+        ),
+    }
+}
+
+impl CliApproval {
+    /// Shows one dial-back line: a notice, or a warning when the node was not reached; on stderr
+    /// when unattended, else on the terminal.
+    fn show_dial(&self, notice: bool, text: &str) {
+        if self.yes {
+            let label = if notice { "Notice" } else { "Warning" };
+            eprintln!("{label}: {text}");
+            return;
+        }
+        let message = if notice {
+            Message::Info(capitalize(text))
+        } else {
+            Message::Warning(capitalize(text))
+        };
+        if let Err(error) = open_terminal().message(&message) {
+            eprintln!("cannot show the dial-back to the node: {error:#}");
+        }
+    }
+}
+
 /// Adds the command the operator should run next to a host failure.
 fn host_failure(error: JoinHostError, site_dir: &Path) -> anyhow::Error {
     let hint = match &error {
-        JoinHostError::Expired | JoinHostError::TooManyFailedAttempts => {
+        JoinHostError::Expired
+        | JoinHostError::TooManyFailedAttempts
+        | JoinHostError::TooManyFailedDialBacks => {
             "run `dotc node add` again for a new token".to_owned()
         }
         JoinHostError::PublicationUncertain(_) => format!(
@@ -580,31 +611,45 @@ mod tests {
             inputs::{ApplicationTargetChoice, ModelTargetChoice, NodeTargetChoices},
             request::InitialApplicationRuntime,
         },
-        membership::join::{JoinHostSource, JoinProposal},
+        membership::join::{DialBackError, JoinHostSource, JoinProposal},
         node::folder::CertificateFingerprint,
     };
 
     use super::*;
-    use crate::{
-        hosts::test_support::FakeHostEnvironment,
-        terminal::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal},
-    };
+    use crate::terminal::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
 
     #[test]
-    fn join_peers_from_this_machine_are_loopback_and_its_interface_addresses() {
-        let environment = FakeHostEnvironment::on_tailnet();
+    fn each_dial_back_names_the_host_the_port_and_the_outcome() {
+        let dial = |host: &str, outcome| DialBack {
+            host: SiteNodeHost::parse(host).expect("host"),
+            port: 50053,
+            outcome,
+        };
 
-        let peers = local_join_peers(&environment).expect("local peers");
-
-        for local in ["127.0.0.1", "127.0.0.2", "100.101.102.103", "192.168.1.20"] {
-            assert!(peers.contains(local.parse().expect("address")), "{local}");
-        }
-        for remote in ["192.0.2.7", "100.101.102.104"] {
-            assert!(
-                !peers.contains(remote.parse().expect("address")),
-                "{remote}"
-            );
-        }
+        assert_eq!(
+            dial_back_text(&dial(
+                "10.0.0.7",
+                Ok("10.0.0.7:50053".parse().expect("address"))
+            )),
+            (true, "reached the node at 10.0.0.7:50053".to_owned())
+        );
+        assert_eq!(
+            dial_back_text(&dial(
+                "gpu-box.example",
+                Ok("10.0.0.7:50053".parse().expect("address"))
+            )),
+            (
+                true,
+                "reached the node at gpu-box.example:50053 (10.0.0.7:50053)".to_owned()
+            )
+        );
+        assert_eq!(
+            dial_back_text(&dial("10.0.0.7", Err(DialBackError::AnotherKey))),
+            (
+                false,
+                "could not reach the node at 10.0.0.7:50053: another key answered".to_owned()
+            )
+        );
     }
 
     #[test]

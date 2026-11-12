@@ -298,7 +298,7 @@ env -u DOTCORE_PRIVATE_ADDR -u DOTCORE_MANAGEMENT_ADDR -u DOTCORE_INFERENCE_ADDR
   --site-dir "$port_site" --host 127.0.0.1 --inference simulated --applications simulated \
   >"$work/port-init.out" 2>"$work/port-init.err" ||
   fail "site init failed: $(cat "$work/port-init.err")"
-read -r private_port _ _ < <(ports)
+read -r private_port node_private_port _ < <(ports)
 
 DOTCORE_PRIVATE_ADDR="127.0.0.1:$private_port" "$dotc" node add --site-dir "$port_site" --yes \
   --token-file "$port_token" --timeout 120s >"$work/port-add.out" 2>"$work/port-add.err" &
@@ -308,8 +308,11 @@ for ((attempt = 0; attempt < 300; attempt++)); do
   sleep .1
 done
 [[ -s "$port_token" ]] || fail "node add published no token: $(cat "$work/port-add.err")"
+# The node listens on its own private port while it joins, at a host every platform resolves to
+# 127.0.0.1, since a Nix build can't add loopback aliases.
 env -u DOTCORE_PRIVATE_ADDR "$dotc" node join --yes --site-dir "$port_node" --name 'Port node' \
-  --host 127.0.0.3 --inference simulated --applications simulated --token-file "$port_token" \
+  --host localhost --private-port "$node_private_port" --inference simulated \
+  --applications simulated --token-file "$port_token" \
   >"$work/port-join.out" 2>"$work/port-join.err" ||
   fail "node join failed: $(cat "$work/port-join.err")"
 wait "$add_pid" || fail "node add failed: $(cat "$work/port-add.err")"

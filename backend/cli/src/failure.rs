@@ -250,6 +250,19 @@ fn typed_failure(cause: &(dyn Error + 'static)) -> Option<Typed> {
             NodeJoinError::CertificateNotYetValid(_) => {
                 return Some(early_certificate());
             }
+            NodeJoinError::PrivateListener { address, source } => {
+                return Some((
+                    format!(
+                        "Can't listen on private port {} at {}",
+                        address.port(),
+                        address.ip()
+                    ),
+                    vec![Message::Info(format!("  {source}"))],
+                    vec![NextStep::new(
+                        "Free that port, or join with another --private-port",
+                    )],
+                ));
+            }
             NodeJoinError::FolderRewrite { root, .. } => {
                 return Some(rewritten_folder(
                     "The site recorded the node's new addresses, but its folder wasn't updated",
@@ -609,7 +622,7 @@ pub(crate) fn shell_word(word: &str) -> String {
     }
 }
 
-fn capitalize(text: &str) -> String {
+pub(crate) fn capitalize(text: &str) -> String {
     let mut chars = text.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
@@ -865,6 +878,25 @@ mod tests {
                 "      dotc node leave",
                 "  › Then, on the manager, get a new token to join as a new node:",
                 "      dotc node add",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_taken_private_port_names_the_port_the_address_and_the_flag() {
+        let error = anyhow::Error::new(NodeJoinError::PrivateListener {
+            address: "127.0.0.3:50053".parse().expect("address"),
+            source: std::io::Error::from(std::io::ErrorKind::AddrInUse),
+        })
+        .context("node join failed");
+
+        assert_eq!(
+            lines(&Failure::from_error(&error), false),
+            [
+                "✘ Can't listen on private port 50053 at 127.0.0.3",
+                "  address in use",
+                "Next",
+                "  › Free that port, or join with another --private-port",
             ]
         );
     }
