@@ -38,6 +38,21 @@ test("join local builds, records the target, hands the token over and records th
   assert.deepEqual(await f.calls(), []);
 });
 
+test("a worker join without --host drops a loopback machine host and keeps a real one", async (t) => {
+  const f = await fixture(t);
+  const joinMachineHost = async (machineHost, ...args) => {
+    const env = { ...f.env, DOTCORE_MACHINE_HOST: machineHost };
+    const joined = spawnSync("just", ["dev::cluster::_worker-join", "--token", "secret-token", "--name", "Worker one", ...args], { cwd: f.root, encoding: "utf8", env });
+    assert.equal(joined.status, 0, joined.stderr);
+    return (await readFile(f.env.TEST_JOIN_MACHINE_HOST, "utf8")).trim();
+  };
+
+  assert.equal(await joinMachineHost("127.0.0.1"), "unset");
+  assert.equal(await joinMachineHost("localhost"), "unset");
+  assert.equal(await joinMachineHost("192.0.2.10"), "192.0.2.10");
+  assert.equal(await joinMachineHost("127.0.0.1", "--host", "192.0.2.10"), "127.0.0.1");
+});
+
 test("join refuses while the manager runs without a terminal, before anything is built or recorded", async (t) => {
   const f = await fixture(t);
   await f.setLiveSocket(f.env.PC_SOCKET_PATH, { stoppable: true });
@@ -520,6 +535,7 @@ case "$*" in
     echo "$id" >> "$TEST_NODES"
     printf 'Node added\\nDOTCORE_NODE_ID=%s\\n' "$id" ;;
   "node join"*)
+    printf '%s\\n' "\${DOTCORE_MACHINE_HOST-unset}" > "$TEST_JOIN_MACHINE_HOST"
     mkdir -m 700 -p "$site_dir"
     printf 'joined node\\n' > "$site_dir/worker.yaml"
     touch "$TEST_JOINED" ;;
@@ -573,6 +589,7 @@ printf 'process-compose site=%s args=%s\\n' "$DOTCORE_SITE_DIR" "$*" >> "$TEST_C
     PC_SOCKET_PATH: path.join(root, "pc.sock"),
     TEST_CALLS: callsFile,
     TEST_JOINED: path.join(root, "joined"),
+    TEST_JOIN_MACHINE_HOST: path.join(root, "join-machine-host"),
     TEST_NODES: path.join(root, "nodes"),
     TEST_REMOTE_COMMAND: path.join(root, "remote-command"),
   };
