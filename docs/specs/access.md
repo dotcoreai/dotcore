@@ -111,6 +111,9 @@ flowchart TB
 
 - Users, machine identities, roles, permissions, sessions, API keys, identity provider configuration
   and access policy, all owned by the identity and access manager.
+- Per-user preferences, such as how one person's console looks, wait for this manager. Until then,
+  console settings are site-wide, not per user, and the site manager owns them
+  ([sites](sites.md#site-manager)).
 
 ### Secrets
 
