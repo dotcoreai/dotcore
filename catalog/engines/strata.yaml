@@ -11,7 +11,7 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Context memory the server holds from the start. Each parallel request keeps its own part of it, as large as the context per request, so it is always the parallel requests times the context per request."
+      description: "Memory the model holds for all requests at once. Each parallel request gets its own share as large as the context per request, so it is always the parallel requests times the context per request; change those two instead."
       unsignedInteger:
         minimum: "1024"
         maximum: "2097152"
@@ -20,7 +20,7 @@ parameterSchema:
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Largest context one request may use. The server holds this much context for each parallel request from the start, whether a request uses it or not."
+      description: "Largest context one request may use. The server sets this much aside for every parallel request from the start, used or not, so keep it as small as your longest request needs."
       unsignedInteger:
         minimum: "1024"
         maximum: "262144"
@@ -28,7 +28,7 @@ parameterSchema:
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Requests the server generates at the same time; further requests wait for a free one. Each one holds its own context per request."
+      description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
       unsignedInteger:
         minimum: "1"
         maximum: "8"
@@ -37,7 +37,7 @@ parameterSchema:
     - parameterId: "expert-vram-mib"
       displayName: "Expert accelerator memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Accelerator memory the model's experts may use; the experts that don't fit stay in host memory. The model's sizing sets it unless you do."
+      description: "Accelerator memory the model's experts may use; experts that don't fit stay in host memory and run slower. The model's sizing sets it; raise it to speed up generation if memory allows, or lower it to free accelerator memory."
       unsignedInteger:
         minimum: "1"
         maximum: "1048576"

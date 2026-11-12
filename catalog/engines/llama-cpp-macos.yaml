@@ -12,7 +12,7 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones."
+      description: "Memory the model holds for all requests at once; each active request stores its tokens in it, even when prompts start the same. Raise it to serve longer or more simultaneous conversations; when it fills, idle requests are dropped first, then active ones fail."
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
@@ -21,7 +21,7 @@ parameterSchema:
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the start of an earlier prompt from an idle request or the prompt cache, but not from requests running at the same time."
+      description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
@@ -29,7 +29,7 @@ parameterSchema:
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Requests the server generates at the same time; further requests wait in a queue. All of them share the total context, so each added request only adds its own small state."
+      description: "Requests generated at once; more wait in a queue. They share the total context, so raising it adds little memory; raise it when several people or agents use the model together."
       unsignedInteger:
         minimum: "1"
         maximum: "64"
@@ -38,7 +38,7 @@ parameterSchema:
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Memory kept to reuse repeated prompts, such as agent system prompts, without processing them again. Idle conversations move here and free their accelerator memory. It uses host memory, which unified-memory machines share with the model; 0 turns the cache off."
+      description: "Host memory used to reuse repeated prompts, such as agent system prompts, without processing them again. Raise it if the same long prompts come back often; on unified-memory machines it competes with the model, and 0 turns it off."
       unsignedInteger:
         minimum: "0"
         maximum: "65536"
