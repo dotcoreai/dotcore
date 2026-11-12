@@ -10,7 +10,7 @@ parameterSchema:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Context memory the server holds from the start and shares among the requests it generates at once. Requests that start with the same prompt share its memory instead of holding their own copy. When it fills, the server pauses the newest requests and processes them again once memory frees up."
       unsignedInteger:
         minimum: "1024"
@@ -19,7 +19,7 @@ parameterSchema:
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the memory of a matching prompt start, from a running request, a finished one still held in the total context, or the KV offloading memory."
       unsignedInteger:
         minimum: "1024"
@@ -27,7 +27,7 @@ parameterSchema:
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests the server generates at the same time; further requests wait in a queue. They share the total context, and each one also holds model state of its own, so every added request adds memory."
       unsignedInteger:
         minimum: "1"
@@ -36,7 +36,7 @@ parameterSchema:
         defaultValue: "4"
     - parameterId: "maximum-batched-tokens"
       displayName: "Maximum batched tokens"
-      exposed: false
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       description: "Maximum tokens processed across one scheduled batch."
       unsignedInteger:
         minimum: "1"
@@ -44,7 +44,7 @@ parameterSchema:
         unit: "tokens"
     - parameterId: "maximum-cudagraph-capture-size"
       displayName: "Maximum CUDA graph capture size"
-      exposed: false
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       description: "Largest sequence batch captured in a CUDA graph."
       unsignedInteger:
         minimum: "1"
@@ -52,7 +52,7 @@ parameterSchema:
         unit: "sequences"
     - parameterId: "kv-cache-memory-bytes"
       displayName: "KV cache memory"
-      exposed: false
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       description: "Accelerator memory reserved for the total context, in bytes."
       unsignedInteger:
         minimum: "1"
@@ -60,7 +60,7 @@ parameterSchema:
         unit: "bytes"
     - parameterId: "kv-offloading-size-gib"
       displayName: "KV offloading size"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Host memory where context evicted from the total context is kept, so a later request with the same prompt start reuses it instead of processing it again, in GiB. 0 turns it off."
       unsignedInteger:
         minimum: "0"

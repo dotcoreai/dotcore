@@ -12,14 +12,13 @@ notes: |-
 version: "0.42.5"
 graph:
   parameters:
-    - advanced: true
-      definition:
-        parameterId: "vram-mode"
-        displayName: "VRAM mode"
-        description: "How ComfyUI keeps models in GPU memory. Auto loads and offloads on demand; modes other than auto need a GPU target."
-        stringEnum:
-          values: ["auto", "highvram", "gpu-only", "novram"]
-          defaultValue: "auto"
+    - parameterId: "vram-mode"
+      displayName: "VRAM mode"
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      description: "How ComfyUI keeps models in GPU memory. Auto loads and offloads on demand; modes other than auto need a GPU target."
+      stringEnum:
+        values: ["auto", "highvram", "gpu-only", "novram"]
+        defaultValue: "auto"
   services:
     - serviceName: "comfyui"
       # The image and its digests are pinned by `apps/comfyui/docker-image.nix`.
