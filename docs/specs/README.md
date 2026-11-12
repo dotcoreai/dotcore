@@ -26,6 +26,36 @@ Read this page first, then the page for the subject you work on. Terms from the
 | [CLI](cli.md) | `dotc`, the command-line client | (client) |
 | [Console](console.md) | The web client | (client) |
 
+## Architecture
+
+```mermaid
+flowchart TB
+  subgraph Clients
+    CON["Console and CLI"]
+    IC["Inference clients"]
+    AU["App users"]
+  end
+  subgraph M["Site manager node"]
+    MM["Model deployments"]
+    MA["App deployments"]
+  end
+  subgraph W["Worker nodes"]
+    WM["Model deployments"]
+    WA["App deployments"]
+  end
+  Clients --> M
+  M <--> W
+```
+
+- A site is one or more machines, each a node. One node, the site manager node, holds the site's
+  authority and the entry points clients use. A site may have no worker nodes.
+- Every node, the site manager node included, runs model and app deployments.
+- Clients own no product state. The management API, the inference API and app access are separate
+  entry points. They aren't extra components or required network hops.
+- These are logical boundaries. Packaging, which process hosts a component, and where an adapter
+  runs don't change them.
+- [How it works](#how-it-works) zooms into each part.
+
 ## Users
 
 - Platform admins look after infrastructure health, workload placement, capacity and maintenance.
@@ -70,34 +100,25 @@ and app access. Inference clients include SDKs, applications and evaluation harn
 - Agentic workloads, scheduling across sites, federation and a memory service are outside the
   architecture's scope. A site works with its own machines.
 
-## Architecture
+## Site shapes
 
-```mermaid
-flowchart TB
-  subgraph Clients
-    CON["Console and CLI"]
-    IC["Inference clients"]
-    AU["App users"]
-  end
-  subgraph M["Site manager node"]
-    MM["Model deployments"]
-    MA["App deployments"]
-  end
-  subgraph W["Worker nodes"]
-    WM["Model deployments"]
-    WA["App deployments"]
-  end
-  Clients --> M
-  M <--> W
-```
+- Single node. One machine may host site management, the node agent, the workload controllers,
+  platform services, execution targets and workloads. The cloud connector is optional.
+- Clustered site. One process, bound to the `site_manager` node, holds the site's authority and its
+  public management and inference entry points. Every node, that one included, may host execution
+  targets and run node-local reconciliation. There's no separate head or master role, and no high
+  availability.
+- Mac host. An Apple Silicon Mac runs Dotcore as a single node, or as the site manager or a worker
+  of a clustered site. Models run on the native runtime and apps in Docker Desktop
+  ([runtime](runtime.md)).
+- Every Dotcore host requires Nix, which builds the Nix artifacts the host runs, including the
+  loaders of Docker-delivered Nix artifacts. Host software and dependencies move toward Nix
+  management.
+- Co-locating or distributing components never moves their logical responsibility.
 
-- A site is one or more machines, each a node. One node, the site manager node, holds the site's
-  authority and the entry points clients use. A site may have no worker nodes.
-- Every node, the site manager node included, runs model and app deployments.
-- Clients own no product state. The management API, the inference API and app access are separate
-  entry points. They aren't extra components or required network hops.
-- These are logical boundaries. Packaging, which process hosts a component, and where an adapter
-  runs don't change them.
+## How it works
+
+Zoomed diagrams for the parts of a site, then the flows that cross them.
 
 ### On the site manager node
 
@@ -218,22 +239,6 @@ it, accepts it, and drives reality toward it. Observations flow back to the owne
 2. The router picks an eligible deployment in the route and invokes it on its hosting node, or calls
    its upstream endpoint ([inference](inference.md)).
 3. The answer streams back, and the router records request metrics.
-
-## Site shapes
-
-- Single node. One machine may host site management, the node agent, the workload controllers,
-  platform services, execution targets and workloads. The cloud connector is optional.
-- Clustered site. One process, bound to the `site_manager` node, holds the site's authority and its
-  public management and inference entry points. Every node, that one included, may host execution
-  targets and run node-local reconciliation. There's no separate head or master role, and no high
-  availability.
-- Mac host. An Apple Silicon Mac runs Dotcore as a single node, or as the site manager or a worker
-  of a clustered site. Models run on the native runtime and apps in Docker Desktop
-  ([runtime](runtime.md)).
-- Every Dotcore host requires Nix, which builds the Nix artifacts the host runs, including the
-  loaders of Docker-delivered Nix artifacts. Host software and dependencies move toward Nix
-  management.
-- Co-locating or distributing components never moves their logical responsibility.
 
 ## Future direction
 
