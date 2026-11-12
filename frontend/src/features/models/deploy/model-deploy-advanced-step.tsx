@@ -30,7 +30,7 @@ import type {
 import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 
-interface ModelDeployRuntimeStepProps {
+interface ModelDeployAdvancedStepProps {
   artifactRef: RefObject<HTMLInputElement | null>;
   bindingId: string;
   customArgumentTokens: readonly string[];
@@ -45,6 +45,7 @@ interface ModelDeployRuntimeStepProps {
   engineParameterRefs: RefObject<Map<string, HTMLElement | null>>;
   /** The engine releases the deployment may run: the target's selected one, or every approved one. */
   engineReleases: readonly string[];
+  /** The advanced engine parameters outside the context. */
   exposedParameters: readonly ParameterDefinition[];
   fieldErrors: FieldErrors;
   inputs: ReadonlyMap<string, string>;
@@ -68,6 +69,8 @@ interface ModelDeployRuntimeStepProps {
   profile?: ModelProfile;
   /** The errors of the latest blocked navigation; a new value opens the sections it flags. */
   revealedErrors: FieldErrors;
+  /** Whether the profile shows any engine parameter, on this step or the Settings step. */
+  schemaExposesParameters: boolean;
   speculative: {
     choice: SpeculativeChoice;
     countRef: RefObject<HTMLInputElement | null>;
@@ -80,13 +83,14 @@ interface ModelDeployRuntimeStepProps {
 }
 
 /**
- * The advanced Runtime step of the model deploy dialog, driven by the selected profile's engine
- * parameter schema and options: parallel requests, a host memory group, the KV cache precision and
+ * The Advanced step of the model deploy dialog, driven by the selected profile's advanced engine
+ * parameters and options: parallel requests, a host memory group, the KV cache precision and
  * speculative decoding choices, and the remaining parameters, model artifact, and custom arguments
- * in collapsed sections. The context sizes belong to the Context step. A collapsed section opens
- * when a blocked navigation flags one of its fields, so the field can take focus.
+ * in collapsed sections. The context sizes and basic parameters belong to the Settings step. A
+ * collapsed section opens when a blocked navigation flags one of its fields, so the field can take
+ * focus.
  */
-export function ModelDeployRuntimeStep({
+export function ModelDeployAdvancedStep({
   artifactRef,
   bindingId,
   customArgumentTokens,
@@ -110,8 +114,9 @@ export function ModelDeployRuntimeStep({
   previewPending,
   profile,
   revealedErrors,
+  schemaExposesParameters,
   speculative,
-}: ModelDeployRuntimeStepProps) {
+}: ModelDeployAdvancedStepProps) {
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
@@ -135,8 +140,8 @@ export function ModelDeployRuntimeStep({
 
   return (
     <DeploymentForm className="gap-4">
-      <DeploymentStepHeading>Runtime</DeploymentStepHeading>
-      {exposedParameters.length ? null : (
+      <DeploymentStepHeading>Advanced</DeploymentStepHeading>
+      {schemaExposesParameters ? null : (
         <Notice role="alert" tone="destructive">
           The selected engine release schema has no exposed parameters.
         </Notice>
@@ -177,7 +182,7 @@ export function ModelDeployRuntimeStep({
         />
       ) : null}
       {groups.other.length ? (
-        <RuntimeSection
+        <AdvancedSection
           count={groups.other.length}
           errors={fieldErrors}
           fields={groups.other.map((parameter) => parameter.parameterId)}
@@ -185,9 +190,9 @@ export function ModelDeployRuntimeStep({
           title="Other parameters"
         >
           {parametersForm(groups.other)}
-        </RuntimeSection>
+        </AdvancedSection>
       ) : null}
-      <RuntimeSection
+      <AdvancedSection
         errors={fieldErrors}
         fields={["artifact"]}
         revealedErrors={revealedErrors}
@@ -217,8 +222,8 @@ export function ModelDeployRuntimeStep({
             />
           ) : null}
         </DetailList>
-      </RuntimeSection>
-      <RuntimeSection
+      </AdvancedSection>
+      <AdvancedSection
         errors={fieldErrors}
         revealedErrors={revealedErrors}
         title="Custom arguments and command"
@@ -240,12 +245,12 @@ export function ModelDeployRuntimeStep({
         >
           {previewPending ? "Previewing…" : "Preview resolved command"}
         </Button>
-      </RuntimeSection>
+      </AdvancedSection>
     </DeploymentForm>
   );
 }
 
-interface RuntimeSectionProps {
+interface AdvancedSectionProps {
   children: ReactNode;
   /** The number of fields inside, shown after the title. */
   count?: number;
@@ -258,7 +263,7 @@ interface RuntimeSectionProps {
 
 /**
  * The model artifact choices of a configuration, each named by the profile that launches it by
- * default, since the Runtime step shows the artifact's quantization beside the choice. An artifact
+ * default, since the Advanced step shows the artifact's quantization beside the choice. An artifact
  * no profile defaults to, or one whose name another choice shares, is named by its artifact ID.
  */
 function artifactOptions(model: Model, configuration: ModelEngineConfiguration | undefined) {
@@ -281,18 +286,18 @@ function artifactOptions(model: Model, configuration: ModelEngineConfiguration |
 }
 
 /**
- * A Runtime section, collapsed unless one of its fields is invalid when it mounts. A new blocked
+ * An Advanced section, collapsed unless one of its fields is invalid when it mounts. A new blocked
  * navigation that flags one of its fields opens it, so the field renders before the dialog moves
  * focus to it; the operator can collapse it again.
  */
-function RuntimeSection({
+function AdvancedSection({
   children,
   count,
   errors,
   fields = [],
   revealedErrors,
   title,
-}: RuntimeSectionProps) {
+}: AdvancedSectionProps) {
   const [open, setOpen] = useState(() => fields.some((field) => errors.has(field)));
   const [shownReveal, setShownReveal] = useState(revealedErrors);
 

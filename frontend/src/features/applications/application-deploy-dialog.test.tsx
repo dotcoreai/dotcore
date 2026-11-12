@@ -60,6 +60,12 @@ async function openDeploy(user: UserEvent) {
   expect(screen.getByText("Step 2 of 2 — Deploy")).toBeVisible();
 }
 
+// A route-less application without basic parameters opens on Deploy, its only basic step.
+function expectDeployOnly() {
+  expect(screen.queryByRole("list", { name: "Deployment progress" })).not.toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Deployment name" })).toBeVisible();
+}
+
 /** Label and value of each Deploy summary row, in display order. */
 /** Renders under a resource watch, which answers no execution targets unless a test gives one. */
 function render(
@@ -392,12 +398,11 @@ describe("Application deployment dialog", () => {
       />,
     );
 
-    await openDeploy(user);
+    expectDeployOnly();
     await waitFor(() => expect(screen.getByRole("button", { name: "Deploy" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     const nameControl = screen.getByRole("textbox", { name: "Deployment name" });
-    expect(screen.getByText("Step 2 of 2 — Deploy")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Advanced" })).not.toBeChecked();
     expect(nameControl).toHaveFocus();
     expect(nameControl).toHaveAccessibleDescription("Deployment name is required.");
@@ -533,7 +538,7 @@ describe("Application deployment dialog", () => {
       />,
     );
 
-    await openDeploy(user);
+    expectDeployOnly();
     await waitFor(() => expect(screen.getByRole("button", { name: "Deploy" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -570,7 +575,7 @@ describe("Application deployment dialog", () => {
         ),
       },
     );
-    await openDeploy(user);
+    expectDeployOnly();
     await waitFor(() => expect(screen.getByRole("button", { name: "Deploy" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -582,7 +587,7 @@ describe("Application deployment dialog", () => {
     expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByText("Step 2 of 3 — Target")).toBeVisible();
+    expect(screen.getByText("Step 1 of 2 — Target")).toBeVisible();
     expect(screen.getByLabelText("Execution target")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
@@ -621,10 +626,11 @@ describe("Application deployment dialog", () => {
       />,
     );
 
-    await openAdvanced(user);
+    // Two deployable targets: basic mode opens on Target.
+    expect(stepLabels()).toEqual(["1. Target", "2. Deploy"]);
     const targetControl = screen.getByLabelText("Execution target");
     // The remote node sorts first, but the site manager's target stays the default.
-    expect(targetControl).toHaveValue("local-app");
+    await waitFor(() => expect(targetControl).toHaveValue("local-app"));
     expect(
       screen.getByRole("option", {
         name: "Name of alpha-worker / Docker applications — linux/arm64",
@@ -664,8 +670,7 @@ describe("Application deployment dialog", () => {
     );
   });
 
-  it("names a node's targets by their display names, without their IDs", async () => {
-    const user = setupUser();
+  it("names a node's targets by their display names, without their IDs", () => {
     render(
       <ApplicationDeployDialog
         application={application}
@@ -691,7 +696,6 @@ describe("Application deployment dialog", () => {
       />,
     );
 
-    await openAdvanced(user);
     const options = within(screen.getByLabelText("Execution target")).getAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
       "Select an eligible execution target",
@@ -718,7 +722,7 @@ describe("Application deployment dialog", () => {
       />,
     );
 
-    await openDeploy(user);
+    expectDeployOnly();
     await waitFor(() => expect(screen.getByRole("button", { name: "Deploy" })).toBeEnabled());
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -840,7 +844,7 @@ describe("Application deployment dialog", () => {
     expect(within(dialog).queryByLabelText("Execution target")).not.toBeInTheDocument();
     expect(summaryRows()).toEqual([
       ["Inference route", "None"],
-      ["Execution target", "local / Docker applications"],
+      ["Target", "local / Docker applications"],
       ["GPU devices", "none"],
     ]);
   });
@@ -956,7 +960,7 @@ describe("Application deployment dialog", () => {
       />,
     );
 
-    await openDeploy(user);
+    expectDeployOnly();
     view.rerender(
       <ApplicationDeployDialog
         application={application}
@@ -972,11 +976,11 @@ describe("Application deployment dialog", () => {
     ).toHaveTextContent(
       "The selected execution target is no longer eligible. Turn on Advanced to select an eligible execution target.",
     );
-    await waitFor(() => expect(summaryRows()).toEqual([["Execution target", "Unavailable"]]));
+    await waitFor(() => expect(summaryRows()).toEqual([["Target", "Unavailable"]]));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
-    expect(screen.getByText("Step 2 of 3 — Target")).toBeVisible();
+    expect(screen.getByText("Step 1 of 2 — Target")).toBeVisible();
     const machineControl = screen.getByLabelText("Execution target");
     expect(machineControl).toHaveFocus();
     expect(machineControl).toHaveAccessibleDescription("Select an eligible execution target.");
@@ -989,7 +993,7 @@ describe("Application deployment dialog", () => {
     const onSubmit = vi.fn();
     const dialog = (executionTargets: ReturnType<typeof applicationTarget>[]) => (
       <ApplicationDeployDialog
-        application={application}
+        application={appWithOptionalRoute}
         onSubmit={onSubmit}
         onOpenChange={vi.fn()}
         open
@@ -999,7 +1003,7 @@ describe("Application deployment dialog", () => {
     );
     const view = render(dialog([machine, applicationTarget("spare")]));
 
-    expect(stepLabels()).toEqual(["1. Quick deploy", "2. Target", "3. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Inference route", "2. Target", "3. Deploy"]);
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByLabelText("Execution target")).toHaveValue("local");
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1010,14 +1014,14 @@ describe("Application deployment dialog", () => {
     ).toHaveTextContent(
       "The selected execution target is no longer eligible. Return to Target and select an eligible execution target.",
     );
-    expect(stepLabels()).toEqual(["1. Quick deploy", "2. Target", "3. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Inference route", "2. Target", "3. Deploy"]);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     expect(screen.getByText("Step 2 of 3 — Target")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Advanced" })).not.toBeChecked();
     expect(onSubmit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(stepLabels()).toEqual(["1. Quick deploy", "2. Deploy"]);
+    expect(stepLabels()).toEqual(["1. Inference route", "2. Deploy"]);
   });
 
   it("summarizes resolved values and keeps advanced values when Back returns to the first step", async () => {
@@ -1047,7 +1051,7 @@ describe("Application deployment dialog", () => {
     const summary = screen.getByRole("region", { name: "Summary" });
     expect(summaryRows()).toEqual([
       ["Inference route", "PrimaryAvailable"],
-      ["Execution target", "remote / Docker applications"],
+      ["Target", "remote / Docker applications"],
       ["GPU devices", "none"],
     ]);
     expect(within(summary).getByText("Available")).toBeVisible();
@@ -1119,7 +1123,7 @@ describe("Application deployment dialog", () => {
     await openDeploy(user);
     expect(summaryRows()).toEqual([
       ["Inference route", "None"],
-      ["Execution target", "local / Docker applications"],
+      ["Target", "local / Docker applications"],
       ["GPU devices", "none"],
     ]);
   });
@@ -1163,7 +1167,7 @@ describe("Application deployment dialog", () => {
     await waitFor(() =>
       expect(summaryRows()).toEqual([
         ["Inference route", "PrimaryUnavailable"],
-        ["Execution target", "Unavailable"],
+        ["Target", "Unavailable"],
       ]),
     );
 
@@ -1228,18 +1232,17 @@ describe("Application deployment dialog", () => {
     );
 
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-    expect(stepLabels()).toEqual(["1. Quick deploy", "2. Deploy"]);
-    const quickDeploy = screen.getByRole("region", { name: "Quick deploy" });
+    expectDeployOnly();
+    expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("OpenWebUI");
     await waitFor(() =>
-      expect([...quickDeploy.querySelectorAll("dd")].map((value) => value.textContent)).toEqual([
-        "local / Docker applications",
+      expect(summaryRows()).toEqual([
+        ["Target", "local / Docker applications"],
+        ["GPU devices", "none"],
       ]),
     );
     expect(screen.queryByText(/Turn on Advanced to choose/)).not.toBeInTheDocument();
-    await openDeploy(user);
-    expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("OpenWebUI");
     expect(summaryRows()).toEqual([
-      ["Execution target", "local / Docker applications"],
+      ["Target", "local / Docker applications"],
       ["GPU devices", "none"],
     ]);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -1268,7 +1271,7 @@ describe("Application deployment dialog", () => {
       />,
     );
 
-    await openDeploy(user);
+    expectDeployOnly();
     await user.click(screen.getByRole("textbox", { name: "Deployment name" }));
     await user.keyboard("{Enter}");
 
@@ -1289,7 +1292,7 @@ describe("Application deployment dialog", () => {
         executionTargets={[machine]}
       />,
     );
-    await openDeploy(user);
+    expectDeployOnly();
     view.rerender(
       <ApplicationDeployDialog
         application={application}
@@ -1322,9 +1325,9 @@ describe("Application deployment dialog GPU devices", () => {
     );
   }
 
+  // The default target applies once the dialog has rendered.
   async function summaryRows() {
-    const user = setupUser();
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await act(async () => {});
     return detailTexts(screen.getByRole("dialog"));
   }
 
@@ -1334,7 +1337,7 @@ describe("Application deployment dialog GPU devices", () => {
     renderDialog(target);
 
     expect(await summaryRows()).toEqual([
-      ["Execution target", "local / Docker applications"],
+      ["Target", "local / Docker applications"],
       ["GPU devices", "nvidia.com/gpu=0, nvidia.com/gpu=1"],
     ]);
   });
@@ -1343,7 +1346,7 @@ describe("Application deployment dialog GPU devices", () => {
     renderDialog(applicationTarget("local"));
 
     expect(await summaryRows()).toEqual([
-      ["Execution target", "local / Docker applications"],
+      ["Target", "local / Docker applications"],
       ["GPU devices", "none"],
     ]);
   });
@@ -1395,10 +1398,16 @@ describe("Application deployment dialog parameters", () => {
     }),
   });
 
-  function renderDialog(onSubmit = vi.fn()) {
+  // ComfyUI's catalog shape: one advanced parameter and no basic one.
+  const advancedOnly = create(ApplicationSchema, {
+    ...parameterized,
+    graph: create(ApplicationGraphSchema, { parameters: [parameterized.graph!.parameters[0]] }),
+  });
+
+  function renderDialog(onSubmit = vi.fn(), app = parameterized) {
     render(
       <ApplicationDeployDialog
-        application={parameterized}
+        application={app}
         onSubmit={onSubmit}
         onOpenChange={vi.fn()}
         open
@@ -1409,22 +1418,30 @@ describe("Application deployment dialog parameters", () => {
     return onSubmit;
   }
 
-  it("shows advanced parameters only in Advanced and submits only changed values", async () => {
+  it("shows basic parameters on Settings, advanced ones on Advanced, and submits only changed values", async () => {
     const user = setupUser();
     const onSubmit = renderDialog();
 
-    const parameters = screen.getByRole("region", { name: "Parameters" });
-    const workers = within(parameters).getByRole("textbox", { name: "Workers" });
+    expect(stepLabels()).toEqual(["1. Settings", "2. Deploy"]);
+    expect(screen.getByRole("heading", { level: 2, name: "Settings" })).toBeInTheDocument();
+    const workers = screen.getByRole("textbox", { name: "Workers" });
     expect(workers).toHaveValue("2");
-    await user.click(within(parameters).getByRole("button", { name: "About Workers" }));
+    await user.click(screen.getByRole("button", { name: "About Workers" }));
     expect(await screen.findByRole("dialog", { name: "About Workers" })).toHaveTextContent(
       "Range 1–8",
     );
     await user.keyboard("{Escape}");
-    expect(within(parameters).queryByRole("combobox", { name: "VRAM mode" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "VRAM mode" })).toBeNull();
+    await user.clear(workers);
+    await user.type(workers, "4");
 
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    const vramMode = within(parameters).getByRole("combobox", { name: "VRAM mode" });
+    expect(stepLabels()).toEqual(["1. Target", "2. Settings", "3. Advanced", "4. Deploy"]);
+    expect(screen.getByText("Step 2 of 4 — Settings")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("Step 3 of 4 — Advanced")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Workers" })).toBeNull();
+    const vramMode = screen.getByRole("combobox", { name: "VRAM mode" });
     expect(vramMode).toHaveValue("auto");
     expect(
       within(vramMode)
@@ -1433,11 +1450,11 @@ describe("Application deployment dialog parameters", () => {
     ).toEqual(["auto", "highvram"]);
     await user.selectOptions(vramMode, "highvram");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
     expect(summaryRows()).toEqual([
-      ["Execution target", "local / Docker applications"],
+      ["Target", "local / Docker applications"],
       ["GPU devices", "none"],
       ["VRAM mode", "highvram"],
+      ["Workers", "4"],
     ]);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -1452,9 +1469,69 @@ describe("Application deployment dialog parameters", () => {
             parameterId: "vram-mode",
             value: { case: "string", value: "highvram" },
           }),
+          create(ParameterValueSchema, {
+            parameterId: "workers",
+            value: { case: "unsignedInteger", value: 4n },
+          }),
         ],
       },
     );
+  });
+
+  it("opens an application with only advanced parameters on Deploy, and on Target in Advanced", async () => {
+    const user = setupUser();
+    renderDialog(vi.fn(), advancedOnly);
+
+    expectDeployOnly();
+    expect(screen.queryByRole("combobox", { name: "VRAM mode" })).toBeNull();
+
+    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    expect(stepLabels()).toEqual(["1. Target", "2. Advanced", "3. Deploy"]);
+    expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByText("Step 2 of 3 — Advanced")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "VRAM mode" })).toHaveValue("auto");
+
+    // Turning Advanced off removes the step under the operator, who falls forward to Deploy.
+    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    expectDeployOnly();
+  });
+
+  it("turns Advanced on and focuses an invalid advanced parameter when Deploy finds it", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    const withoutDefault = create(ApplicationSchema, {
+      ...parameterized,
+      graph: create(ApplicationGraphSchema, {
+        parameters: [
+          create(ParameterDefinitionSchema, {
+            parameterId: "cache-size",
+            displayName: "Cache size",
+            visibility: ParameterVisibility.ADVANCED,
+            parameterType: {
+              case: "unsignedInteger",
+              value: { minimum: 1n, maximum: 64n, unit: "GiB" },
+            },
+          }),
+        ],
+      }),
+    });
+    renderDialog(onSubmit, withoutDefault);
+
+    expectDeployOnly();
+    await waitFor(() =>
+      expect(summaryRows()[0]).toEqual(["Target", "local / Docker applications"]),
+    );
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    expect(screen.getByText("Step 2 of 3 — Advanced")).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
+    expect(screen.getByText("Advanced on to fix advanced settings")).toBeInTheDocument();
+    const cacheSize = screen.getByRole("textbox", { name: "Cache size" });
+    await waitFor(() => expect(cacheSize).toHaveFocus());
+    expect(cacheSize).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("Cache size must be an integer from 1 to 64 GiB.")).toBeVisible();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("blocks Next on an out-of-range value and focuses its field", async () => {
@@ -1471,6 +1548,6 @@ describe("Application deployment dialog parameters", () => {
     expect(screen.getByText("Workers must be an integer from 1 to 8.")).toBeVisible();
     expect(workers).toHaveFocus();
     expect(workers).toHaveAttribute("aria-invalid", "true");
-    expect(stepLabels()[0]).toBe("1. Quick deploy");
+    expect(screen.getByText("Step 1 of 2 — Settings")).toBeVisible();
   });
 });

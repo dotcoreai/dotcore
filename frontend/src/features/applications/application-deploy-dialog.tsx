@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { parameterDisplayValue } from "@/components/parameters/parameter-view";
 import { ParametersForm } from "@/components/parameters/parameters";
-import { Detail, DetailList } from "@/components/ui/detail-list";
+import { Detail } from "@/components/ui/detail-list";
 import { Field } from "@/components/ui/field";
 import { FieldError } from "@/components/ui/field-error";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -22,7 +22,6 @@ import { projectRouteHealth } from "@/domain/route-projection";
 import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
 import {
   DeploymentForm,
-  DeploymentFormSection,
   DeploymentStepHeading,
 } from "@/features/deployments/deployment-form-layout";
 import { DeploymentSummaryStep } from "@/features/deployments/deployment-summary-step";
@@ -46,6 +45,7 @@ import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/f
 
 import { formatGpuDevices } from "./application-gpu-devices";
 import {
+  type ApplicationParameterField,
   applicationParameterFields,
   changedParameterValues,
   defaultParameterInputs,
@@ -83,10 +83,11 @@ export interface ApplicationDeployDialogProps {
 }
 
 /**
- * Deploys a catalog application. Basic mode asks for the inference route link, when the application
- * takes one, and the deployment name, adding the Target step only when several execution targets
- * can take the deployment; otherwise it deploys on the default target. The Advanced checkbox always
- * adds the Target step without discarding entered values.
+ * Deploys a catalog application through the shared step shape: Inference route when the application
+ * takes one, Target, Settings with the basic parameters, Advanced with the advanced parameters, and
+ * Deploy, each shown only when it has fields. Basic mode adds the Target step only when several
+ * execution targets can take the deployment, otherwise it deploys on the default target; the
+ * Advanced checkbox always adds Target and Advanced without discarding entered values.
  */
 export function ApplicationDeployDialog({
   application,
@@ -133,7 +134,6 @@ export function ApplicationDeployDialog({
       orderedExecutionTargets.filter((target) => executionTargetPresentation(target).deployable),
     [orderedExecutionTargets],
   );
-  const firstStep = routeBindings.length ? "Inference route" : "Quick deploy";
   const advancedMode = useAdvancedMode(open);
   const { advanced } = advancedMode;
   const dirtyFields = useDirtyFields<DeployField>(open);
@@ -141,7 +141,8 @@ export function ApplicationDeployDialog({
     () => applicationParameterFields(application.graph?.parameters),
     [application],
   );
-  const visibleParameterFields = parameterFields.filter((field) => advanced || !field.advanced);
+  const basicParameterFields = parameterFields.filter((field) => !field.advanced);
+  const advancedParameterFields = parameterFields.filter((field) => field.advanced);
   const [parameterInputs, setParameterInputs] = useState(() =>
     defaultParameterInputs(parameterFields),
   );
@@ -152,15 +153,28 @@ export function ApplicationDeployDialog({
   const [lockedTargetStep, setLockedTargetStep] = useState<boolean>();
   // Basic mode asks for the target only when several can take the deployment.
   const liveTargetStep = deployableExecutionTargets.length > 1;
-  const stepsFor = (advancedSteps: boolean) =>
-    advancedSteps || (lockedTargetStep ?? liveTargetStep)
-      ? [firstStep, "Target", "Deploy"]
-      : [firstStep, "Deploy"];
+  const stepsFor = (advancedSteps: boolean): ApplicationDeployStep[] =>
+    APPLICATION_DEPLOY_STEPS.filter(
+      (candidate) =>
+        (candidate === "Inference route" && routeBindings.length > 0) ||
+        (candidate === "Target" && (advancedSteps || (lockedTargetStep ?? liveTargetStep))) ||
+        (candidate === "Settings" && basicParameterFields.length > 0) ||
+        (candidate === "Advanced" && advancedSteps && advancedParameterFields.length > 0) ||
+        candidate === "Deploy",
+    );
   const steps = stepsFor(advanced);
-  const wizard = useWizardSteps(steps, fallbackStep);
-  const step = wizard.current;
+  const firstStep = steps[0];
+  // A vanished step falls forward to the next step that still shows.
+  const wizard = useWizardSteps(
+    steps,
+    (missingStep) =>
+      APPLICATION_DEPLOY_STEPS.slice(
+        APPLICATION_DEPLOY_STEPS.indexOf(missingStep as ApplicationDeployStep) + 1,
+      ).find((candidate) => steps.includes(candidate)) ?? "Deploy",
+  );
+  const step = wizard.current as ApplicationDeployStep;
   const targetStepShown = steps.includes("Target");
-  const goToStep = (nextStep: string) => {
+  const goToStep = (nextStep: ApplicationDeployStep) => {
     const leavingFirstStep = step === firstStep && nextStep !== firstStep;
     setLockedTargetStep(
       nextStep === firstStep ? undefined : leavingFirstStep ? liveTargetStep : lockedTargetStep,
@@ -224,20 +238,28 @@ export function ApplicationDeployDialog({
     )
       ? undefined
       : "Select an eligible execution target.";
-  const stepErrors = (activeStep: string): FieldErrors => {
-    if (activeStep === firstStep)
-      return toFieldErrors([
-        ["inferenceRoute", routeBindings.length ? routeSelectionError : undefined],
-        ...parameterFields.map((field): [string, string | undefined] => [
-          parameterErrorKey(field.view.id),
-          parameterInputError(field.view, parameterInputs.get(field.view.id) ?? ""),
-        ]),
-      ]);
-    if (activeStep === "Target")
-      return toFieldErrors([
-        ["placement", targetIsEligible ? undefined : "Select an eligible execution target."],
-      ]);
-    return toFieldErrors([["name", validateDeploymentName(deploymentName)]]);
+  const parameterErrors = (
+    fields: readonly ApplicationParameterField[],
+  ): [string, string | undefined][] =>
+    fields.map((field) => [
+      parameterErrorKey(field.view.id),
+      parameterInputError(field.view, parameterInputs.get(field.view.id) ?? ""),
+    ]);
+  const stepErrors = (activeStep: ApplicationDeployStep): FieldErrors => {
+    switch (activeStep) {
+      case "Inference route":
+        return toFieldErrors([["inferenceRoute", routeSelectionError]]);
+      case "Target":
+        return toFieldErrors([
+          ["placement", targetIsEligible ? undefined : "Select an eligible execution target."],
+        ]);
+      case "Settings":
+        return toFieldErrors(parameterErrors(basicParameterFields));
+      case "Advanced":
+        return toFieldErrors(parameterErrors(advancedParameterFields));
+      case "Deploy":
+        return toFieldErrors([["name", validateDeploymentName(deploymentName)]]);
+    }
   };
   const fieldControls = () =>
     new Map<string, HTMLElement | null>([
@@ -249,31 +271,16 @@ export function ApplicationDeployDialog({
       ["name", deploymentNameRef.current],
       ["placement", executionTargetRef.current],
     ]);
-  // Turns Advanced on when an error belongs to a hidden advanced parameter, deferring the focus
-  // until the field renders.
-  const revealHiddenParameters = (errors: FieldErrors): boolean => {
-    const hidden =
-      !advanced &&
-      parameterFields.some(
-        (field) => field.advanced && errors.has(parameterErrorKey(field.view.id)),
-      );
-    if (hidden) {
-      advancedMode.enable("Advanced on to fix parameters");
-      pendingFocusRef.current = errors;
-    }
-    return hidden;
-  };
   const exposeErrors = (errors: FieldErrors): boolean => {
     setFieldErrors(errors);
     if (!errors.size) return true;
-    if (!revealHiddenParameters(errors)) focusFirstInvalidField(errors, fieldControls());
+    focusFirstInvalidField(errors, fieldControls());
     return false;
   };
   // Opens the step that owns the errors, turning Advanced on when that step is hidden, and focuses
   // the first invalid field once the step renders.
-  const revealErrors = (owner: string, errors: FieldErrors) => {
+  const revealErrors = (owner: ApplicationDeployStep, errors: FieldErrors) => {
     setFieldErrors(errors);
-    revealHiddenParameters(errors);
     if (!steps.includes(owner))
       advancedMode.enable(`Advanced on to fix ${owner.toLocaleLowerCase()} settings`);
     pendingFocusRef.current = errors;
@@ -327,8 +334,9 @@ export function ApplicationDeployDialog({
   const toggleAdvanced = (nextAdvanced: boolean) =>
     advancedMode.toggle(nextAdvanced, stepsFor(nextAdvanced).length);
   const handleStepChange = (nextStep: string) => {
-    if (steps.indexOf(nextStep) > steps.indexOf(step) && !exposeErrors(stepErrors(step))) return;
-    goToStep(nextStep);
+    const target = nextStep as ApplicationDeployStep;
+    if (steps.indexOf(target) > steps.indexOf(step) && !exposeErrors(stepErrors(step))) return;
+    goToStep(target);
   };
   const handlePrimary = () => {
     if (step === "Deploy") {
@@ -345,44 +353,42 @@ export function ApplicationDeployDialog({
   // ineligible target leaves Deploy enabled, so Deploy opens the Target step to choose another.
   const primaryDisabled =
     pending ||
-    (step === firstStep
+    (step === "Inference route"
       ? routeUnavailable
       : step === "Target"
         ? targetsUnavailable
-        : targetValidationPending || targetsUnavailable || routeUnavailable);
-  const parametersSection = visibleParameterFields.length ? (
-    <DeploymentFormSection title="Parameters">
-      <ParametersForm
-        errors={
-          new Map(
-            parameterFields.flatMap((field) => {
-              const fieldError = fieldErrors.get(parameterErrorKey(field.view.id));
-              return fieldError ? [[field.view.id, fieldError]] : [];
-            }),
-          )
-        }
-        idPrefix="application-parameter"
-        inputRefs={parameterRefs}
-        inputs={parameterInputs}
-        onBlur={(parameterId) => {
-          const view = parameterView(parameterId);
-          const key = parameterErrorKey(parameterId);
-          if (view && dirtyFields.isDirty(key))
-            setTimeout(() =>
-              setFieldError(key, parameterInputError(view, parameterInputs.get(parameterId) ?? "")),
-            );
-        }}
-        onChange={(parameterId, input) => {
-          const key = parameterErrorKey(parameterId);
-          dirtyFields.markDirty(key);
-          setParameterInputs((current) => new Map(current).set(parameterId, input));
-          const view = parameterView(parameterId);
-          if (view && fieldErrors.has(key)) setFieldError(key, parameterInputError(view, input));
-        }}
-        parameters={visibleParameterFields.map((field) => field.view)}
-      />
-    </DeploymentFormSection>
-  ) : null;
+        : step === "Deploy" && (targetValidationPending || targetsUnavailable || routeUnavailable));
+  const parametersForm = (fields: readonly ApplicationParameterField[]) => (
+    <ParametersForm
+      errors={
+        new Map(
+          parameterFields.flatMap((field) => {
+            const fieldError = fieldErrors.get(parameterErrorKey(field.view.id));
+            return fieldError ? [[field.view.id, fieldError]] : [];
+          }),
+        )
+      }
+      idPrefix="application-parameter"
+      inputRefs={parameterRefs}
+      inputs={parameterInputs}
+      onBlur={(parameterId) => {
+        const view = parameterView(parameterId);
+        const key = parameterErrorKey(parameterId);
+        if (view && dirtyFields.isDirty(key))
+          setTimeout(() =>
+            setFieldError(key, parameterInputError(view, parameterInputs.get(parameterId) ?? "")),
+          );
+      }}
+      onChange={(parameterId, input) => {
+        const key = parameterErrorKey(parameterId);
+        dirtyFields.markDirty(key);
+        setParameterInputs((current) => new Map(current).set(parameterId, input));
+        const view = parameterView(parameterId);
+        if (view && fieldErrors.has(key)) setFieldError(key, parameterInputError(view, input));
+      }}
+      parameters={fields.map((field) => field.view)}
+    />
+  );
   const targetNotice = !effectiveExecutionTargetsCurrent
     ? undefined
     : !orderedExecutionTargets.length
@@ -425,19 +431,10 @@ export function ApplicationDeployDialog({
           {routeError}
         </Notice>
       ) : null}
-      {step === firstStep && !routeBindings.length ? (
+      {step === "Inference route" ? (
         <DeploymentForm>
-          <DeploymentFormSection focusTarget title="Quick deploy">
-            <DetailList>
-              <Detail label="Execution target" value={selectedExecutionTargetLabel} />
-            </DetailList>
-          </DeploymentFormSection>
-          {parametersSection}
-        </DeploymentForm>
-      ) : null}
-      {step === firstStep && routeBindings.length ? (
-        <DeploymentForm>
-          <DeploymentFormSection focusTarget title="Inference route">
+          <DeploymentStepHeading>Inference route</DeploymentStepHeading>
+          <div className="grid gap-3">
             <Field
               controlId="application-inference-route"
               describedBy={
@@ -487,8 +484,7 @@ export function ApplicationDeployDialog({
                 </p>
               ) : null}
             </div>
-          </DeploymentFormSection>
-          {parametersSection}
+          </div>
         </DeploymentForm>
       ) : null}
       {step === "Target" ? (
@@ -559,6 +555,18 @@ export function ApplicationDeployDialog({
           ) : null}
         </div>
       ) : null}
+      {step === "Settings" ? (
+        <DeploymentForm>
+          <DeploymentStepHeading>Settings</DeploymentStepHeading>
+          {parametersForm(basicParameterFields)}
+        </DeploymentForm>
+      ) : null}
+      {step === "Advanced" ? (
+        <DeploymentForm>
+          <DeploymentStepHeading>Advanced</DeploymentStepHeading>
+          {parametersForm(advancedParameterFields)}
+        </DeploymentForm>
+      ) : null}
       {step === "Deploy" ? (
         <DeploymentSummaryStep
           disabled={pending}
@@ -607,7 +615,7 @@ export function ApplicationDeployDialog({
               }
             />
           ) : null}
-          <Detail label="Execution target" value={selectedExecutionTargetLabel} />
+          <Detail label="Target" value={selectedExecutionTargetLabel} />
           {selectedExecutionTarget ? (
             <Detail
               label="GPU devices"
@@ -625,11 +633,6 @@ export function ApplicationDeployDialog({
       ) : null}
     </DeploymentWizardShell>
   );
-}
-
-// A vanished step falls forward: Target precedes Deploy.
-function fallbackStep(): string {
-  return "Deploy";
 }
 
 /**
@@ -678,6 +681,17 @@ function validateApplicationRouteSelection(
   if (!routeId || route) return undefined;
   return "The selected inference route no longer exists. Select another route or no route.";
 }
+
+/** Every step in flow order; the dialog shows those with fields, and Target and Advanced per mode. */
+const APPLICATION_DEPLOY_STEPS = [
+  "Inference route",
+  "Target",
+  "Settings",
+  "Advanced",
+  "Deploy",
+] as const;
+
+type ApplicationDeployStep = (typeof APPLICATION_DEPLOY_STEPS)[number];
 
 // Fields whose dirty state gates validation: the fixed fields and one key per parameter.
 type DeployField = "name" | "placement" | `parameter:${string}`;

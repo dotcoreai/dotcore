@@ -14,12 +14,13 @@ import {
   maximumContext,
   runtimeParameterGroups,
 } from "@/features/models/runtime/engine-parameter-values";
+import { EngineParametersForm } from "@/features/models/runtime/engine-parameters";
 import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
-interface ModelDeployContextStepProps {
+interface ModelDeploySettingsStepProps {
   /** The largest total context that fits the selected target, shown in the total context's help. */
   contextHint?: string;
   disabled: boolean;
@@ -35,15 +36,21 @@ interface ModelDeployContextStepProps {
   onParameterBlur: (parameter: ParameterDefinition) => void;
   /** Receives each change, and whether it is settled, as a slider or preset is, or typed. */
   onParameterChange: (parameter: ParameterDefinition, input: string, settled?: boolean) => void;
+  /** The basic engine parameters outside the context, which follow the context fields. */
+  parameters: {
+    onBlur: (parameter: ParameterDefinition) => void;
+    onChange: (parameter: ParameterDefinition, input: string) => void;
+    shown: readonly ParameterDefinition[];
+  };
   profile?: ModelProfile;
 }
 
 /**
- * The Context step of the model deploy dialog: the total context the deployment holds and the
- * context one request may use, which follows the total until set. Each field shows only when the
- * selected profile exposes its engine parameter.
+ * The Settings step of the model deploy dialog: the total context the deployment holds and the
+ * context one request may use, which follows the total until set, then the profile's other basic
+ * engine parameters. Each field shows only when the selected profile exposes its engine parameter.
  */
-export function ModelDeployContextStep({
+export function ModelDeploySettingsStep({
   contextHint,
   disabled,
   engineParameterRefs,
@@ -55,8 +62,9 @@ export function ModelDeployContextStep({
   model,
   onParameterBlur,
   onParameterChange,
+  parameters,
   profile,
-}: ModelDeployContextStepProps) {
+}: ModelDeploySettingsStepProps) {
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
@@ -92,7 +100,7 @@ export function ModelDeployContextStep({
 
   return (
     <DeploymentForm className="gap-5">
-      <DeploymentStepHeading>Context</DeploymentStepHeading>
+      <DeploymentStepHeading>Settings</DeploymentStepHeading>
       {totalContext || contextPerRequest ? null : (
         <p className="text-xs text-muted-foreground" role="status">
           This profile sets its context itself.
@@ -130,6 +138,16 @@ export function ModelDeployContextStep({
             help: contextPerRequest.description,
           })
         : null}
+      {parameters.shown.length ? (
+        <EngineParametersForm
+          errors={fieldErrors}
+          inputRefs={engineParameterRefs}
+          inputs={inputs}
+          onBlur={parameters.onBlur}
+          onChange={parameters.onChange}
+          parameters={parameters.shown}
+        />
+      ) : null}
     </DeploymentForm>
   );
 }

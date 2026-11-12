@@ -23,7 +23,7 @@ export const CONTEXT_PER_REQUEST_PARAMETER_ID = "context-per-request";
 /** The shared engine parameter setting how many requests an engine generates at once. */
 export const PARALLEL_REQUESTS_PARAMETER_ID = "parallel-requests";
 
-/** The context size parameters, which a launch sets on its own step apart from the runtime. */
+/** The context size parameters, which lead the deploy dialog's Settings step. */
 export const CONTEXT_PARAMETER_IDS: ReadonlySet<string> = new Set([
   TOTAL_CONTEXT_PARAMETER_ID,
   CONTEXT_PER_REQUEST_PARAMETER_ID,
@@ -31,7 +31,7 @@ export const CONTEXT_PARAMETER_IDS: ReadonlySet<string> = new Set([
 
 /**
  * A profile's exposed engine parameters, grouped as the deploy dialog presents them: the context
- * sizes form the context group of the Context step. On the Runtime step, parallel requests come
+ * sizes form the context group of the Settings step. On the Advanced step, parallel requests come
  * first, host-memory parameters form their own group, and every other parameter stays in the
  * generic form.
  */
@@ -49,7 +49,7 @@ export interface ContextParameterGroup {
 }
 
 /**
- * Groups exposed engine parameters for the Context and Runtime steps. Host-memory parameters are
+ * Groups exposed engine parameters for the Settings and Advanced steps. Host-memory parameters are
  * the ones the model configuration's engine settings declare as host budgets (vLLM KV offload,
  * ninfer host context), so an engine without such a declaration keeps every parameter in the
  * generic group.
@@ -101,16 +101,20 @@ export function effectiveEngineParameters(
   release: EngineRelease | undefined,
   profile: ModelProfile | undefined,
 ): ParameterDefinition[] {
-  const overrides = new Map(
-    (profile?.engineParameterVisibilityOverrides ?? []).map((override) => [
-      override.parameterId,
-      override.visibility,
-    ]),
-  );
-
   return (release?.parameterSchema?.parameters ?? []).filter(
-    (parameter) =>
-      (overrides.get(parameter.parameterId) ?? parameter.visibility) !== ParameterVisibility.HIDDEN,
+    (parameter) => effectiveVisibility(parameter, profile) !== ParameterVisibility.HIDDEN,
+  );
+}
+
+/** A parameter's visibility for `profile`: the profile's override, else the engine's. */
+export function effectiveVisibility(
+  parameter: ParameterDefinition,
+  profile: ModelProfile | undefined,
+): ParameterVisibility {
+  return (
+    profile?.engineParameterVisibilityOverrides.find(
+      (override) => override.parameterId === parameter.parameterId,
+    )?.visibility ?? parameter.visibility
   );
 }
 
