@@ -44,6 +44,8 @@ import {
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
 import { productionTiming, setTiming } from "@/lib/timing";
+import { useFakeTimersWithWaits } from "@/test/fake-timers";
+import { readFieldHelpFacts } from "@/test/field-help";
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
@@ -801,16 +803,15 @@ describe("ModelDeployDialog largest fitting total context", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
     const hint = "Up to 124k on node / NVIDIA GeForce RTX 5090";
-    expect(screen.getByText(hint)).toBeVisible();
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveAccessibleDescription(
-      new RegExp(`^${hint} `),
-    );
+    expect(await readFieldHelpFacts("Total context")).toContain(hint);
 
     await user.click(screen.getByRole("button", { name: /Target/ }));
     await pickTarget(user, /^Worker \/ NVIDIA GB10/);
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Up to 400k on Worker / NVIDIA GB10")).toBeVisible();
-    expect(screen.queryByText(hint)).not.toBeInTheDocument();
+    expect(await readFieldHelpFacts("Total context")).toContain(
+      "Up to 400k on Worker / NVIDIA GB10",
+    );
+    expect(await readFieldHelpFacts("Total context")).not.toContain(hint);
   });
 });
 
@@ -839,13 +840,13 @@ describe("ModelDeployDialog largest fit under a new scenario", () => {
     const chip = `Runs on filter: this site, ${sizedFor}`;
     await screen.findByRole("button", { name: chip });
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(await screen.findByText(/^Up to 124k on /)).toBeVisible();
+    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 124k on /m);
 
     await user.click(screen.getByRole("button", { name: "Back" }));
     await chooseSizedFor(user, chip, "Defaults");
     await user.click(screen.getByRole("button", { name: "Next" }));
 
-    expect(await screen.findByText(/^Up to 96k on /)).toBeVisible();
+    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("98304");
   });
 });
@@ -920,7 +921,9 @@ describe("ModelDeployDialog shared context", () => {
       await screen.findByRole("button", { name: "Runs on filter: this site" });
       await user.click(screen.getByRole("button", { name: "Next" }));
       // Only a starting value from the largest fit is hinted and offered as the last chip.
-      expect(screen.queryByText(/^Up to .* on /)?.textContent).toBe(hint);
+      expect(
+        (await readFieldHelpFacts("Total context")).find((fact) => /^Up to .* on /.test(fact)),
+      ).toBe(hint);
       expect(screen.queryByRole("button", { name: /, largest fit$/ })?.textContent).toBe(chip);
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -1027,7 +1030,9 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(largestFitChip("889k"));
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Up to 889k on node / NVIDIA GeForce RTX 5090")).toBeVisible();
+    expect(await readFieldHelpFacts("Total context")).toContain(
+      "Up to 889k on node / NVIDIA GeForce RTX 5090",
+    );
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("button", { name: "Runs on filter: this site" })).toBeVisible();
   });
@@ -1290,7 +1295,9 @@ describe("ModelDeployDialog shared context", () => {
     await pickTarget(user, /^node/);
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Step 3 of 4 — Context")).toBeVisible();
-    expect(screen.getByText("Up to 889k on node / NVIDIA GeForce RTX 5090")).toBeVisible();
+    expect(await readFieldHelpFacts("Total context")).toContain(
+      "Up to 889k on node / NVIDIA GeForce RTX 5090",
+    );
     const total = screen.getByRole("textbox", { name: "Total context" });
     await user.clear(total);
     await user.type(total, "65536");
@@ -1299,7 +1306,9 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Back" }));
     await pickTarget(user, /^Worker/);
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Up to 400k on Worker / NVIDIA GB10")).toBeVisible();
+    expect(await readFieldHelpFacts("Total context")).toContain(
+      "Up to 400k on Worker / NVIDIA GB10",
+    );
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("65536");
 
     await user.click(screen.getByRole("button", { name: /Profile/ }));
@@ -1460,7 +1469,7 @@ describe("ModelDeployDialog scenario polling", () => {
 
   it("keeps the first read's starting total context when later reads report another", async () => {
     setTiming(productionTiming);
-    vi.useFakeTimers();
+    useFakeTimersWithWaits();
     let reads = 0;
     const listProfileCompatibility = vi.fn(() => {
       const startingTotalContextTokens = reads++ > 0 ? 98304 : 126976;
@@ -1475,17 +1484,17 @@ describe("ModelDeployDialog scenario polling", () => {
     renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility });
     await advance();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    const expectFirstFit = () => {
+    const expectFirstFit = async () => {
       expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("126976");
-      expect(screen.getByText(/^Up to 124k on /)).toBeVisible();
+      expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 124k on /m);
       expect(largestFitChip("124k")).toHaveAttribute("aria-pressed", "true");
     };
-    expectFirstFit();
+    await expectFirstFit();
 
     await advance(productionTiming.profileCompatibilityRefreshMs);
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
-    expectFirstFit();
+    await expectFirstFit();
   });
 
   it("shows the selected profile's frozen starting total context in the table, and other rows live", async () => {
@@ -1519,7 +1528,7 @@ describe("ModelDeployDialog scenario polling", () => {
 
   it("applies the live starting total context on choosing the largest fit chip, and keeps it from then on", async () => {
     setTiming(productionTiming);
-    vi.useFakeTimers();
+    useFakeTimersWithWaits();
     // What every read reports from now on, as free memory changes.
     let live = 126976;
     const listProfileCompatibility = vi.fn(() =>
@@ -1556,19 +1565,19 @@ describe("ModelDeployDialog scenario polling", () => {
     fireEvent.click(largestFitChip("96k"));
     await advance();
     expect(total()).toHaveValue("98304");
-    expect(screen.getByText(/^Up to 96k on /)).toBeVisible();
+    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
     expect(largestFitChip("96k")).toHaveAttribute("aria-pressed", "true");
 
     // The corrected value is frozen in turn.
     live = 65536;
     await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(total()).toHaveValue("98304");
-    expect(screen.getByText(/^Up to 96k on /)).toBeVisible();
+    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
   });
 
   it("stays on the engine default when the first read has no fit and a later one does", async () => {
     setTiming(productionTiming);
-    vi.useFakeTimers();
+    useFakeTimersWithWaits();
     let reads = 0;
     const listProfileCompatibility = vi.fn(() => {
       const fit = reads++ > 0 ? 126976 : undefined;
@@ -1595,7 +1604,7 @@ describe("ModelDeployDialog scenario polling", () => {
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
-    expect(screen.queryByText(/^Up to /)).not.toBeInTheDocument();
+    expect((await readFieldHelpFacts("Total context")).join("\n")).not.toMatch(/Up to /);
   });
 
   it("keeps the operator's Runs on chip, place and selection across a refresh", async () => {

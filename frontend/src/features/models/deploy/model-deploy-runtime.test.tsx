@@ -26,6 +26,7 @@ import {
   ExecutionTargetWorkloadKind,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
+import { readFieldHelpFacts } from "@/test/field-help";
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
@@ -46,21 +47,26 @@ describe("ModelDeployDialog Context step", () => {
       ["engine-parameter-context-per-request", ""],
     ]);
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveAccessibleDescription(
-      "Memory the model holds for all requests at once.",
+      "Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones.",
     );
     const perRequest = screen.getByRole("textbox", { name: "Context per request" });
     expect(perRequest).toHaveAccessibleDescription(
-      "Filled from the total context, up to the model maximum.",
+      "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the start of an earlier prompt from an idle request or the prompt cache, but not from requests running at the same time.",
     );
+    await user.click(screen.getByRole("button", { name: "About Context per request" }));
+    expect(
+      await screen.findByRole("dialog", { name: "About Context per request" }),
+    ).toHaveTextContent("Left empty, it follows the total context.");
+    await user.keyboard("{Escape}");
 
     // A set context per request offers to follow the total again.
     await user.type(perRequest, "8192");
     await user.tab();
     await user.click(screen.getByRole("button", { name: "Follow the total" }));
     expect(perRequest).toHaveValue("");
-    expect(
-      screen.getByText("Filled from the total context, up to the model maximum."),
-    ).toBeVisible();
+    expect(await readFieldHelpFacts("Context per request")).toContain(
+      "Left empty, it follows the total context.",
+    );
 
     await user.click(preset("64k"));
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
@@ -104,7 +110,7 @@ describe("ModelDeployDialog Context step", () => {
     expect(await screen.findByText(error)).toBeVisible();
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription(
-      `Memory the model holds for all requests at once. ${error}`,
+      `Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones. ${error}`,
     );
   });
 
@@ -118,8 +124,10 @@ describe("ModelDeployDialog Context step", () => {
     await user.click(preset("64k"));
     await user.click(screen.getByRole("button", { name: "Next" }));
     const hostMemory = screen.getByRole("region", { name: "Host memory" });
-    expect(hostMemory).toHaveTextContent("Accelerator memory is unchanged.");
     const kvOffload = within(hostMemory).getByRole("textbox", { name: "KV offloading size" });
+    expect(kvOffload).toHaveAccessibleDescription(
+      "Host memory used to offload the KV cache, in GiB.",
+    );
     expect(kvOffload).toHaveValue("0");
     // Parameters the schema does not expose stay out of the form, so no other parameter remains.
     expect(screen.queryByRole("button", { name: /^Other parameters/ })).toBeNull();
@@ -279,7 +287,11 @@ describe("ModelDeployDialog Context step", () => {
     await openAdvancedContext(user);
     const perRequest = screen.getByRole("textbox", { name: "Context per request" });
     expect(perRequest).toHaveAttribute("placeholder", "16384");
-    expect(screen.getByText("Up to 16k (model maximum)")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "About Context per request" }));
+    expect(
+      await screen.findByRole("dialog", { name: "About Context per request" }),
+    ).toHaveTextContent("Up to 16k (model maximum)");
+    await user.keyboard("{Escape}");
     await user.click(preset("8k"));
     expect(perRequest).toHaveAttribute("placeholder", "8192");
   });
@@ -295,12 +307,14 @@ describe("ModelDeployDialog Runtime step", () => {
     expect(parallel).toHaveAccessibleName("Parallel requests");
     expect(parallel).toHaveValue("4");
     expect(parallel).toHaveAccessibleDescription(
-      "Requests generated at once; more wait in a queue. requests",
+      "Requests the server generates at the same time; further requests wait in a queue.",
     );
     const hostMemory = screen.getByRole("region", { name: "Host memory" });
     const hostContext = within(hostMemory).getByRole("textbox", { name: "Host context memory" });
     expect(hostContext).toHaveValue("20480");
-    expect(hostContext).toHaveAccessibleDescription("MiB");
+    expect(hostContext).toHaveAccessibleDescription(
+      "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
+    );
 
     // No parameter is left for the other parameters section, and the context sizes sit on the
     // Context step.
@@ -475,7 +489,12 @@ describe("ModelDeployDialog Runtime step", () => {
       expect(speculativeMethod()).toHaveValue("mtp");
       expect(optionLabels(speculativeMethod())).toEqual(["Off", "MTP"]);
       expect(speculativeCount()).toHaveValue("3");
-      expect(speculativeCount()).toHaveAccessibleDescription("Draft tokens per step. 1–5");
+      expect(speculativeCount()).toHaveAccessibleDescription("Draft tokens per step.");
+      await user.click(screen.getByRole("button", { name: "About Speculative decoding" }));
+      expect(
+        await screen.findByRole("dialog", { name: "About Speculative decoding" }),
+      ).toHaveTextContent("Range 1–5 tokens");
+      await user.keyboard("{Escape}");
 
       await deployFromRuntime(user);
       expect(screen.queryByText(/Customized/)).not.toBeInTheDocument();

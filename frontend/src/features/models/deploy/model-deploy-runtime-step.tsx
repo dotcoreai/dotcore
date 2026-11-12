@@ -147,11 +147,6 @@ export function ModelDeployRuntimeStep({
           className="min-w-0 rounded-lg border border-border bg-card p-4"
           title="Host memory"
         >
-          {hostKvOffloadSharesMemory ? null : (
-            <p className="text-xs text-muted-foreground">
-              Reserved in host memory. Accelerator memory is unchanged.
-            </p>
-          )}
           {parametersForm(groups.hostMemory)}
         </DeploymentFormSection>
       ) : null}

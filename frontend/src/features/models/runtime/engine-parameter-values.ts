@@ -210,22 +210,8 @@ export function engineParameterError(
   return `${parameter.displayName} must be enabled or disabled.`;
 }
 
-/**
- * The short line under a parameter's field, a fixed one for the shared parameters every engine
- * declares; undefined for the others, whose unit the field shows. The schema description
- * documents the engine and stays out of the field.
- */
-export function engineParameterHelp(parameter: ParameterDefinition): string | undefined {
-  return sharedParameterHelp.get(parameter.parameterId);
-}
-
 /** Common context sizes, in tokens, offered as presets wherever a context size is entered. */
 export const contextSizePresets: readonly number[] = [8192, 32768, 65536, 131072, 262144, 1048576];
-
-const sharedParameterHelp: ReadonlyMap<string, string> = new Map([
-  [TOTAL_CONTEXT_PARAMETER_ID, "Memory the model holds for all requests at once."],
-  [PARALLEL_REQUESTS_PARAMETER_ID, "Requests generated at once; more wait in a queue."],
-]);
 
 function hostMemoryParameterIds(configuration: ModelEngineConfiguration | undefined): Set<string> {
   const engine = configuration?.engineConfiguration?.configuration;

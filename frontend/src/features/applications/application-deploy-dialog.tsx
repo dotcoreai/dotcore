@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { parameterDisplayValue } from "@/components/parameters/parameter-view";
 import { ParametersForm } from "@/components/parameters/parameters";
 import { Detail, DetailList } from "@/components/ui/detail-list";
+import { Field } from "@/components/ui/field";
 import { FieldError } from "@/components/ui/field-error";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
@@ -437,55 +438,44 @@ export function ApplicationDeployDialog({
       {step === firstStep && routeBindings.length ? (
         <DeploymentForm>
           <DeploymentFormSection focusTarget title="Inference route">
-            <div>
-              <label className="block text-xs font-medium" htmlFor="application-inference-route">
-                Inference route
-              </label>
-              <NativeSelect
-                ref={routeRef}
-                aria-describedby={[
-                  "application-inference-route-help",
-                  routeSelectionError ? "application-inference-route-error" : undefined,
-                  selectedRouteServingNotice ? "application-inference-route-serving" : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                aria-invalid={routeSelectionError ? "true" : undefined}
-                className="mt-1 w-full"
-                disabled={!routesCurrent || pending}
-                id="application-inference-route"
-                onChange={(event) => setSelectedRouteId(event.target.value)}
-                value={selectedRouteId}
-              >
-                <NativeSelectOption value="">No inference route</NativeSelectOption>
-                {chatRoutes.map((view) =>
-                  view.route ? (
-                    <NativeSelectOption
-                      key={view.route.inferenceRouteId}
-                      value={view.route.inferenceRouteId}
-                    >
-                      {routeOptionLabel(view)}
+            <Field
+              controlId="application-inference-route"
+              describedBy={
+                selectedRouteServingNotice ? "application-inference-route-serving" : undefined
+              }
+              error={routeSelectionError}
+              help="Optional. A linked route passes its current name to the application. Without one, the application still reaches the inference API."
+              label="Inference route"
+            >
+              {(control) => (
+                <NativeSelect
+                  {...control}
+                  ref={routeRef}
+                  className="w-full"
+                  disabled={!routesCurrent || pending}
+                  onChange={(event) => setSelectedRouteId(event.target.value)}
+                  value={selectedRouteId}
+                >
+                  <NativeSelectOption value="">No inference route</NativeSelectOption>
+                  {chatRoutes.map((view) =>
+                    view.route ? (
+                      <NativeSelectOption
+                        key={view.route.inferenceRouteId}
+                        value={view.route.inferenceRouteId}
+                      >
+                        {routeOptionLabel(view)}
+                      </NativeSelectOption>
+                    ) : null,
+                  )}
+                  {selectedRouteId && !selectedRoute ? (
+                    <NativeSelectOption disabled value={selectedRouteId}>
+                      Removed route
                     </NativeSelectOption>
-                  ) : null,
-                )}
-                {selectedRouteId && !selectedRoute ? (
-                  <NativeSelectOption disabled value={selectedRouteId}>
-                    Removed route
-                  </NativeSelectOption>
-                ) : null}
-              </NativeSelect>
-              <p
-                className="mt-2 text-xs text-muted-foreground"
-                id="application-inference-route-help"
-              >
-                Optional. A linked route passes its current name to the application. Without one,
-                the application still reaches the inference API.
-              </p>
-              {routeSelectionError ? (
-                <FieldError className="mt-2" id="application-inference-route-error">
-                  {routeSelectionError}
-                </FieldError>
-              ) : null}
+                  ) : null}
+                </NativeSelect>
+              )}
+            </Field>
+            <div>
               {selectedRouteServingNotice ? (
                 <Notice className="mt-3" id="application-inference-route-serving" tone="warning">
                   {selectedRouteServingNotice}

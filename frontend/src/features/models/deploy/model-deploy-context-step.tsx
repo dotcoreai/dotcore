@@ -11,7 +11,6 @@ import type {
   ContextSizeRange,
 } from "@/features/models/runtime/context-size-input";
 import {
-  engineParameterHelp,
   maximumContext,
   runtimeParameterGroups,
 } from "@/features/models/runtime/engine-parameter-values";
@@ -21,7 +20,7 @@ import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
 interface ModelDeployContextStepProps {
-  /** The largest total context that fits the selected target, shown beside the total context. */
+  /** The largest total context that fits the selected target, shown in the total context's help. */
   contextHint?: string;
   disabled: boolean;
   engineParameterRefs: RefObject<Map<string, HTMLElement | null>>;
@@ -71,9 +70,10 @@ export function ModelDeployContextStep({
   const contextField = (
     parameter: ParameterDefinition,
     field: {
+      actions?: ReactNode;
       emptyValue?: number;
-      help?: ReactNode;
-      hint?: string;
+      facts?: readonly string[];
+      help?: string;
       largestFit?: ContextSizeLargestFit;
     } = {},
   ) => (
@@ -100,15 +100,14 @@ export function ModelDeployContextStep({
       )}
       {totalContext
         ? contextField(totalContext, {
-            help: engineParameterHelp(totalContext),
-            hint: contextHint,
+            facts: contextHint ? [contextHint] : undefined,
+            help: totalContext.description,
             largestFit,
           })
         : null}
       {contextPerRequest
         ? contextField(contextPerRequest, {
-            emptyValue: filledContextPerRequest,
-            help: inputs.get(contextPerRequest.parameterId) ? (
+            actions: inputs.get(contextPerRequest.parameterId) ? (
               <Button
                 className="h-auto p-0 text-xs"
                 disabled={disabled}
@@ -118,13 +117,17 @@ export function ModelDeployContextStep({
               >
                 Follow the total
               </Button>
-            ) : (
-              "Filled from the total context, up to the model maximum."
-            ),
-            hint:
-              maximum === undefined
-                ? undefined
-                : `Up to ${formatCompactCount(maximum)} (model maximum)`,
+            ) : undefined,
+            emptyValue: filledContextPerRequest,
+            facts: [
+              ...(maximum === undefined
+                ? []
+                : [`Up to ${formatCompactCount(maximum)} (model maximum)`]),
+              ...(inputs.get(contextPerRequest.parameterId)
+                ? []
+                : ["Left empty, it follows the total context."]),
+            ],
+            help: contextPerRequest.description,
           })
         : null}
     </DeploymentForm>

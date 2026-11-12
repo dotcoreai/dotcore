@@ -1416,7 +1416,11 @@ describe("Application deployment dialog parameters", () => {
     const parameters = screen.getByRole("region", { name: "Parameters" });
     const workers = within(parameters).getByRole("textbox", { name: "Workers" });
     expect(workers).toHaveValue("2");
-    expect(workers).toHaveAccessibleDescription("1–8");
+    await user.click(within(parameters).getByRole("button", { name: "About Workers" }));
+    expect(await screen.findByRole("dialog", { name: "About Workers" })).toHaveTextContent(
+      "Range 1–8",
+    );
+    await user.keyboard("{Escape}");
     expect(within(parameters).queryByRole("combobox", { name: "VRAM mode" })).toBeNull();
 
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
