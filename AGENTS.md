@@ -206,11 +206,12 @@ in the same change that adds, removes or renames a folder it lists.
   An **engine artifact** is one runnable build of it.
 - **hardware class**: a kind of execution hardware, nothing model-specific. **Hardware support** is
   a configuration's memory minimums and sizing constants for one class.
-- **use case**: what an operator runs models for (coding and agents, general assistant,
-  translation, decision making); a fixed list, distinct from inference request kinds.
+- **use case**: what an operator runs Dotcore for (chat assistant, coding, image generation); a
+  fixed list, distinct from inference request kinds. Each use case has at most one app; models
+  serve the use cases that have model lists.
 - **model recommendation**: a master-catalog entry naming a model profile to run on a hardware
-  class for a use case, in priority order, with optional memory minimums; advisory, never used for
-  admission or placement.
+  class for a use case, in priority order, with optional memory minimums and an optional context
+  per request (the profile still holds none); advisory, never used for admission or placement.
 - **maximum context**: the largest context one request can use with the model's weights; a
   configuration may lower it. No "effective" variant.
 - **total context** (`total-context`): the KV pool an engine holds, shared by active requests.
