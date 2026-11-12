@@ -4,6 +4,7 @@ import { Detail } from "@/components/ui/detail-list";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { SecretValue, ValueTag } from "@/components/ui/secret-value";
 import { Switch } from "@/components/ui/switch";
 
 import {
@@ -92,7 +93,11 @@ export function ParametersForm({
       <Field
         {...field}
         facts={
-          parameter.type.kind === "unsignedInteger" ? <RangeFact type={parameter.type} /> : null
+          parameter.type.kind === "unsignedInteger" ? (
+            <RangeFact type={parameter.type} />
+          ) : parameter.type.kind === "text" || parameter.type.kind === "secret" ? (
+            <LengthFact type={parameter.type} />
+          ) : null
         }
         key={parameter.id}
       >
@@ -100,7 +105,10 @@ export function ParametersForm({
           const input = (
             <Input
               {...control}
-              inputMode="numeric"
+              autoComplete="off"
+              inputMode={parameter.type.kind === "unsignedInteger" ? "numeric" : undefined}
+              placeholder={parameter.type.kind === "secret" ? "Generated at deploy" : undefined}
+              spellCheck={false}
               onBlur={() => onBlur(parameter.id)}
               onChange={(event) => onChange(parameter.id, event.target.value)}
               ref={register}
@@ -121,6 +129,17 @@ export function ParametersForm({
   });
 }
 
+/** The accepted length of a text or secret parameter. */
+function LengthFact({ type }: { type: { maximumLength?: number; minimumLength: number } }) {
+  return (
+    <p>
+      {type.maximumLength === undefined
+        ? `At least ${type.minimumLength} characters`
+        : `${type.minimumLength}–${type.maximumLength} characters`}
+    </p>
+  );
+}
+
 /** The accepted range of a number parameter, with its unit when it has one. */
 function RangeFact({ type }: { type: { maximum: bigint; minimum: bigint; unit: string } }) {
   return (
@@ -131,18 +150,59 @@ function RangeFact({ type }: { type: { maximum: bigint; minimum: bigint; unit: s
   );
 }
 
-/** Detail rows for retained parameter values, in view order; a missing or mistyped value is skipped. */
+/**
+ * Detail rows for retained parameter values, in view order; a missing or mistyped value is skipped.
+ * A value equal to its default is tagged `default`, a secret is masked until revealed, and the IDs
+ * in `generatedIds` are tagged `generated`.
+ */
 export function ParametersDetails({
+  defaults,
+  generatedIds,
   parameters,
   values,
 }: {
+  defaults?: ReadonlyMap<string, ParameterViewValue | undefined>;
+  generatedIds?: ReadonlySet<string>;
   parameters: readonly ParameterView[];
   values: ReadonlyMap<string, ParameterViewValue>;
 }) {
   return parameters.map((parameter) => {
-    const displayValue = parameterDisplayValue(parameter, values.get(parameter.id));
-    return displayValue === undefined ? null : (
-      <Detail key={parameter.id} label={parameter.label} value={displayValue} />
+    const value = values.get(parameter.id);
+    const displayValue = parameterDisplayValue(parameter, value);
+    if (displayValue === undefined) return null;
+
+    const isDefault = value !== undefined && defaults?.get(parameter.id) === value;
+    const tag = isDefault ? <ValueTag>default</ValueTag> : null;
+    if (parameter.type.kind === "secret") {
+      return (
+        <Detail
+          key={parameter.id}
+          label={parameter.label}
+          value={
+            <SecretValue
+              label={parameter.label}
+              tags={generatedIds?.has(parameter.id) ? <ValueTag>generated</ValueTag> : null}
+              value={displayValue}
+            />
+          }
+        />
+      );
+    }
+    return (
+      <Detail
+        key={parameter.id}
+        label={parameter.label}
+        value={
+          <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+            {tag}
+            {parameter.type.kind === "text" && displayValue === "" ? (
+              <span className="text-muted-foreground">Empty</span>
+            ) : (
+              displayValue
+            )}
+          </span>
+        }
+      />
     );
   });
 }
