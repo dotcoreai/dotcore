@@ -1,9 +1,10 @@
 //! Reset of a site to a fresh one.
 //!
-//! After the operator approves removing the site's runtime resources, its resources, state and
-//! trust are removed and new inputs are written in their place. The new inputs are collected the
-//! same way initialization collects them, before anything is removed, and the site stays locked
-//! against a running server for the whole reset. Declining or missing approval changes nothing.
+//! The site is locked against a running server for the whole reset. The operator first approves
+//! removing the runtime resources the site owns, then the new inputs are collected the same way
+//! initialization collects them, and only then are the site's resources, state and trust removed
+//! and the new inputs written in their place. Declining or missing approval stops the reset before
+//! the new inputs are asked for, and changes nothing.
 
 use std::path::Path;
 
@@ -60,7 +61,8 @@ pub(super) async fn reset(arguments: SiteResetArgs, paths: &RootPathArgs) -> any
     .await
 }
 
-/// Locks the site, collects its new inputs, then removes and republishes it once approved.
+/// Locks the site and gets approval to remove its runtime resources, then collects its new inputs
+/// and removes and republishes it.
 async fn reset_site(
     arguments: SiteResetArgs,
     location: &SiteLocation,
@@ -87,6 +89,15 @@ async fn reset_site(
         non_interactive: arguments.configuration.non_interactive,
         skip_runtime_cleanup,
     };
+    let transaction = approve_removal(
+        &session,
+        select_runtime,
+        terminal,
+        &approval,
+        location.catalog_dir.as_deref(),
+    )
+    .await?;
+
     let mode = CollectionMode::select(&arguments.configuration, || &mut *terminal)?;
     let collected = collect_initial_site(
         &arguments.configuration,
@@ -97,14 +108,11 @@ async fn reset_site(
         adapters,
     )
     .await?;
-    execute_reset(
+    remove_and_republish(
         session,
-        select_runtime,
-        terminal,
-        &approval,
+        transaction,
         &collected.prepared.inputs,
         &collected.prepared.request,
-        location.catalog_dir.as_deref(),
     )
     .await?;
     if let Some(host) = &collected.unreported_host {
@@ -113,30 +121,40 @@ async fn reset_site(
     Ok(())
 }
 
-/// Lists and confirms the site's runtime resources, then cleans, wipes and republishes the site.
-/// Nothing changes when the operator declines or approval is missing.
-async fn execute_reset(
-    session: SiteResetSession,
+/// Lists the site's runtime resources and obtains the operator's approval to remove them. Nothing
+/// changes, whether the operator declines or approval is missing.
+async fn approve_removal(
+    session: &SiteResetSession,
     select_runtime: impl FnOnce(&SiteResetSession) -> anyhow::Result<Box<dyn SiteRuntimeCleanup>>,
     terminal: &mut dyn Terminal,
     approval: &RuntimeRemovalApproval<'_>,
-    inputs: &InitialSiteInputs,
-    request: &InitialSiteRequest,
     catalog_dir: Option<&Path>,
-) -> anyhow::Result<()> {
-    let site_dir = session.site_root().to_owned();
+) -> anyhow::Result<SiteResetTransaction> {
+    let site_dir = session.site_root();
     let persistence = SitePersistenceReset::new(session.cleanups());
     let transaction = SiteResetTransaction::new(
-        select_runtime(&session)?,
+        select_runtime(session)?,
         Box::new(persistence),
         InitialSiteInputWriter::new(validator(catalog_dir)),
     );
 
     let inventory = transaction
-        .inventory(&session)
+        .inventory(session)
         .await
-        .map_err(|error| reset_transaction_failure(error, &site_dir))?;
-    approve_runtime_removal(terminal, &site_dir, &inventory, approval)?;
+        .map_err(|error| reset_transaction_failure(error, site_dir))?;
+    approve_runtime_removal(terminal, site_dir, &inventory, approval)?;
+    Ok(transaction)
+}
+
+/// Cleans, wipes and republishes the site with its new inputs, then warns when joined nodes lost
+/// their trust.
+async fn remove_and_republish(
+    session: SiteResetSession,
+    transaction: SiteResetTransaction,
+    inputs: &InitialSiteInputs,
+    request: &InitialSiteRequest,
+) -> anyhow::Result<()> {
+    let site_dir = session.site_root().to_owned();
     let provisioned_workers = session.provisioned_workers().with_context(|| {
         format!(
             "read provisioned workers of the site at {}",
@@ -489,6 +507,96 @@ mod tests {
     }
 
     #[test]
+    fn guided_reset_asks_for_removal_approval_before_any_new_site_prompt() {
+        let fixture = ResetFixture::new(&["model-one"]);
+        let mut arguments =
+            reset_arguments(InferenceChoice::Simulated, ApplicationsChoice::Simulated);
+        arguments.configuration.host = None;
+        arguments.configuration.non_interactive = false;
+        arguments.configuration.interactive = true;
+        let mut terminal = ScriptedTerminal::interactive([
+            ScriptedAnswer::Confirm(true),
+            ScriptedAnswer::Input(String::new()),
+            ScriptedAnswer::Confirm(true),
+        ]);
+
+        fixture
+            .run_with(
+                arguments,
+                Some(&listener_host("100.64.0.1:6402")),
+                &mut terminal,
+            )
+            .expect("guided reset");
+
+        assert!(matches!(
+            terminal.prompts().first(),
+            Some(ScriptedPrompt::Confirm(prompt))
+                if prompt.title() == "Remove them and reset the site?"
+        ));
+        assert_eq!(terminal.prompts().len(), 3);
+        assert!(fixture.runtime.resources().is_empty());
+    }
+
+    #[test]
+    fn declined_guided_reset_probes_and_asks_nothing_for_the_new_site() {
+        let fixture = ResetFixture::new(&["model-one"]);
+        let before = fixture.site_tree();
+        let docker_calls = Arc::new(AtomicUsize::new(0));
+        let nvidia_calls = Arc::new(AtomicUsize::new(0));
+        let prober = InitialSiteProber::new(
+            Box::new(CountingDocker(Arc::clone(&docker_calls))),
+            Box::new(CountingNvidia(Arc::clone(&nvidia_calls))),
+        );
+        let mut arguments = reset_arguments(InferenceChoice::Nvidia, ApplicationsChoice::Docker);
+        arguments.configuration.non_interactive = false;
+        arguments.configuration.interactive = true;
+        let mut terminal = ScriptedTerminal::interactive([ScriptedAnswer::Confirm(false)]);
+
+        let error = fixture
+            .run_probed(arguments, None, &mut terminal, &prober)
+            .expect_err("declined reset");
+
+        assert!(matches!(
+            error.downcast_ref::<PromptError>(),
+            Some(PromptError::Cancelled)
+        ));
+        assert!(matches!(
+            terminal.prompts(),
+            [ScriptedPrompt::Confirm(prompt)]
+                if prompt.title() == "Remove them and reset the site?"
+        ));
+        assert_eq!(docker_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(nvidia_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(fixture.site_tree(), before);
+        assert_eq!(fixture.runtime.calls(), ["inventory:retained-site"]);
+        assert_eq!(fixture.runtime.resources(), ["model-one"]);
+    }
+
+    #[test]
+    fn reset_refused_for_missing_yes_probes_nothing() {
+        let fixture = ResetFixture::new(&["model-one"]);
+        let before = fixture.site_tree();
+        let docker_calls = Arc::new(AtomicUsize::new(0));
+        let nvidia_calls = Arc::new(AtomicUsize::new(0));
+        let prober = InitialSiteProber::new(
+            Box::new(CountingDocker(Arc::clone(&docker_calls))),
+            Box::new(CountingNvidia(Arc::clone(&nvidia_calls))),
+        );
+        let arguments = reset_arguments(InferenceChoice::Nvidia, ApplicationsChoice::Docker);
+        let mut terminal = ScriptedTerminal::new(TerminalCondition::NonInteractive, []);
+
+        let error = fixture
+            .run_probed(arguments, None, &mut terminal, &prober)
+            .expect_err("refused without --yes");
+
+        assert!(error.to_string().contains("pass --yes to reset"));
+        assert_eq!(docker_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(nvidia_calls.load(Ordering::Relaxed), 0);
+        assert!(terminal.prompts().is_empty());
+        assert_eq!(fixture.site_tree(), before);
+    }
+
+    #[test]
     fn busy_reset_error_retains_typed_lock_context() {
         let site_dir = Path::new("/tmp/typed-busy-site");
         let error = reset_transaction_failure(
@@ -586,6 +694,16 @@ mod tests {
             terminal: &mut ScriptedTerminal,
         ) -> anyhow::Result<()> {
             let prober = InitialSiteProber::new(Box::new(FakeDocker), Box::new(UnavailableNvidia));
+            self.run_probed(arguments, listener, terminal, &prober)
+        }
+
+        fn run_probed(
+            &self,
+            arguments: SiteResetArgs,
+            listener: Option<&ListenerHost>,
+            terminal: &mut ScriptedTerminal,
+            prober: &InitialSiteProber,
+        ) -> anyhow::Result<()> {
             let runtime = self.runtime.clone();
             crate::build_runtime()
                 .expect("runtime")
@@ -595,7 +713,7 @@ mod tests {
                     None,
                     listener,
                     terminal,
-                    adapters(&prober, &mut named_identities(None)),
+                    adapters(prober, &mut named_identities(None)),
                     move |_| Ok(Box::new(runtime)),
                 ))
         }

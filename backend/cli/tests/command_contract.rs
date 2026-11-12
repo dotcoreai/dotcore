@@ -1136,11 +1136,11 @@ fn site_reset_of_a_simulated_site_skips_unreachable_docker_with_a_notice() {
     let stderr = text(&output.stderr);
     let lines: Vec<&str> = stderr.lines().collect();
     assert_eq!(lines.len(), 2, "{stderr}");
-    assert_eq!(format!("{}\n", lines[0]), LOOPBACK_FLAG_STDERR, "{stderr}");
     assert!(
-        lines[1].starts_with("Notice: skipped Docker runtime cleanup because it is unreachable; the site does not bind it"),
+        lines[0].starts_with("Notice: skipped Docker runtime cleanup because it is unreachable; the site does not bind it"),
         "{stderr}"
     );
+    assert_eq!(format!("{}\n", lines[1]), LOOPBACK_FLAG_STDERR, "{stderr}");
     assert_generated_simulated_bundle(&site_dir, "reset-site", "reset-node");
     assert!(!site_dir.join("state.pb").exists());
 }
@@ -1389,11 +1389,11 @@ fn site_init_replace_force_is_the_same_operation_as_site_reset() {
     let stderr = text(&output.stderr);
     let lines: Vec<&str> = stderr.lines().collect();
     assert_eq!(lines.len(), 2, "{stderr}");
-    assert_eq!(format!("{}\n", lines[0]), LOOPBACK_FLAG_STDERR, "{stderr}");
     assert!(
-        lines[1].starts_with("Notice: skipped Docker runtime cleanup because it is unreachable"),
+        lines[0].starts_with("Notice: skipped Docker runtime cleanup because it is unreachable"),
         "{stderr}"
     );
+    assert_eq!(format!("{}\n", lines[1]), LOOPBACK_FLAG_STDERR, "{stderr}");
     assert_generated_simulated_bundle(&site_dir, "reset-site", "reset-node");
     assert!(!site_dir.join("state.pb").exists());
 }
