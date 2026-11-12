@@ -1,16 +1,32 @@
 # Immutable n8n graph running the unmodified upstream image. The command seeds
 # one OpenAI-compatible credential that points at the configured Inference
 # endpoint, then starts n8n. The owner account is created from environment
-# values with a fixed POC login (admin@dotcore.local / admin).
+# values: the email and password come from parameters, and n8n takes the password as a bcrypt hash.
 applicationId: "n8n"
 displayName: "n8n"
 description: "Workflow automation with an Inference endpoint credential already configured."
 notes: |-
-  Sign in with admin@dotcore.local / admin (fixed POC login).
+  Sign in with the email and password in this deployment's sidebar.
   A Dotcore Inference credential points at this Site's Inference endpoint; pick it in OpenAI nodes.
   OpenAI node "Message a model": under Options, add Store and turn it off. Dotcore does not keep responses.
 version: "2.43.5"
 graph:
+  parameters:
+    - parameterId: "owner-email"
+      displayName: "Owner email"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The email address for logging in to n8n as its owner."
+      text:
+        minimumLength: 3
+        maximumLength: 254
+        defaultValue: "admin@dotcore.local"
+    - parameterId: "owner-password"
+      displayName: "Owner password"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The password for logging in to n8n as its owner. Leave it empty to generate a random one, which you can read in the deployment's sidebar."
+      secret:
+        generatedLength: 32
+        minimumLength: 12
   services:
     - serviceName: "web"
       # The image and its digests are pinned by `apps/n8n/docker-image.nix`.
@@ -51,17 +67,13 @@ graph:
           literalValue: "true"
         - bindingName: "owner-email"
           environmentVariable: "N8N_INSTANCE_OWNER_EMAIL"
-          literalValue: "admin@dotcore.local"
+          parameterId: "owner-email"
         - bindingName: "owner-first-name"
           environmentVariable: "N8N_INSTANCE_OWNER_FIRST_NAME"
           literalValue: "Admin"
         - bindingName: "owner-last-name"
           environmentVariable: "N8N_INSTANCE_OWNER_LAST_NAME"
           literalValue: "Dotcore"
-        # bcrypt (cost 10) of the fixed POC password "admin"; not a secret.
-        - bindingName: "owner-password-hash"
-          environmentVariable: "N8N_INSTANCE_OWNER_PASSWORD_HASH"
-          literalValue: "$2a$10$lb16z8Ce.cqruLzF5coJ1OsaP9zYd7ZZbBgjj6it/cWwnRcKWcjPm"
         - bindingName: "secure-cookie"
           environmentVariable: "N8N_SECURE_COOKIE"
           literalValue: "false"
@@ -90,6 +102,12 @@ graph:
         - bindingName: "editor-base-url"
           environmentVariable: "N8N_EDITOR_BASE_URL"
           resolvedValueName: "published-endpoint-url"
+      secretBindings:
+        # n8n accepts only a bcrypt hash of the owner password.
+        - bindingName: "owner-password-hash"
+          environmentVariable: "N8N_INSTANCE_OWNER_PASSWORD_HASH"
+          parameterId: "owner-password"
+          form: "APPLICATION_SECRET_FORM_BCRYPT"
       storageBindings:
         - bindingName: "data"
           mountPath: "/home/node/.n8n"
