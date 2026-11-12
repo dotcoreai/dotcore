@@ -1,4 +1,5 @@
-import { ExternalLink } from "lucide-react";
+import { Code, ExternalLink } from "lucide-react";
+import { useState } from "react";
 
 import { consoleInferenceOrigin } from "@/api/inference-origin";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -7,6 +8,7 @@ import { CodeCopyControl } from "@/components/ui/copy-control";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { AppsSectionIcon, ModelsSectionIcon } from "@/components/ui/section-icons";
+import { SegmentedControl } from "@/components/ui/segmented-control";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
 import {
@@ -22,7 +24,10 @@ import {
 import { placementMachine, placementMachineName } from "@/domain/placement";
 import { deploymentChatTarget } from "@/features/chat/chattable-route";
 import { useChatAction } from "@/features/chat/use-chat-action";
-import { buildModelConnectionExamples } from "@/features/inference-routes/model-connection";
+import {
+  buildModelConnectionExamples,
+  type ModelConnectionExamples,
+} from "@/features/inference-routes/model-connection";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
 import { UseCase } from "@/gen/dotcore/catalog/v1/recommendation_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
@@ -73,12 +78,7 @@ export function ReadyStep({
         ) : null}
         {applicationDeployment ? <ReadyApp deployment={applicationDeployment} /> : null}
       </Card>
-      {useCase === UseCase.CODING && examples ? (
-        <Card aria-label="Coding agent" className="gap-3 px-5 py-4.5" role="region">
-          <AgentCommand label="OpenCode" value={examples.opencodeCommand} />
-          <AgentCommand label="Pi" value={examples.piCommand} />
-        </Card>
-      ) : null}
+      {useCase === UseCase.CODING && examples ? <CodingAgent examples={examples} /> : null}
     </div>
   );
 }
@@ -172,16 +172,41 @@ function ReadyApp({ deployment }: { deployment: ApplicationDeployment }) {
   );
 }
 
-function AgentCommand({ label, value }: { label: string; value: string }) {
+/** The command that starts a coding agent on the model's route, for the agent the operator picks. */
+function CodingAgent({ examples }: { examples: ModelConnectionExamples }) {
+  const [agent, setAgent] = useState<CodingAgentId>("opencode");
+  const { command, label } =
+    codingAgents.find((option) => option.value === agent) ?? codingAgents[0];
+
   return (
-    <div className="grid gap-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[13px] font-medium">{label}</span>
-        <CodeCopyControl label={label} value={value} />
-      </div>
-      <code className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs whitespace-pre">
-        {value}
-      </code>
-    </div>
+    <Card className="gap-0 px-5 py-4.5">
+      <Item icon={Code} kind="Coding agent">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <SegmentedControl
+            aria-label="Coding agent"
+            onValueChange={setAgent}
+            options={codingAgents}
+            value={agent}
+          />
+          <CodeCopyControl label={`${label} command`} value={command(examples)} />
+        </div>
+        <code className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-xs whitespace-pre">
+          {command(examples)}
+        </code>
+      </Item>
+    </Card>
   );
 }
+
+type CodingAgentId = "codex" | "opencode" | "pi";
+
+/** The coding agents the ready step offers, each with its command among the connection examples. */
+const codingAgents: readonly {
+  command: (examples: ModelConnectionExamples) => string;
+  label: string;
+  value: CodingAgentId;
+}[] = [
+  { command: (examples) => examples.opencodeCommand, label: "OpenCode", value: "opencode" },
+  { command: (examples) => examples.piCommand, label: "Pi", value: "pi" },
+  { command: (examples) => examples.codexCommand, label: "Codex", value: "codex" },
+];
