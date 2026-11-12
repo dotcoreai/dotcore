@@ -62,12 +62,17 @@ flowchart LR
 
 - Draw what the server answers: owner reads, capacity verdicts, previews, recommendations and
   metrics.
+- Hide Get started for the whole site once a ready step shows or the operator dismisses it. The
+  profile menu reopens it. The choice is a site-wide console setting, read from and updated through
+  the site manager ([sites](sites.md#site-manager)).
 - Explain the impact of actions, confirm destructive ones, and show actionable failures
   ([README](README.md#principles)).
 
 #### Boundaries
 
-- Owns no product state.
+- Owns no product state. Site-wide console settings belong to the site manager, not the console.
+- Browser storage holds only per-browser preferences and drafts, never a setting the whole site
+  shares.
 - Holds no fit, headroom, sizing or starting-value rule ([machines](machines.md)). Each figure has
   one source, so two screens never disagree.
 - Never shows representative or fixture data as infrastructure-backed.

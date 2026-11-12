@@ -180,6 +180,9 @@ What tells one server process which declared node it is.
 
 - Own site identity, membership, topology and runtime configuration, and the reconciled inventory,
   health and maintenance view.
+- Own the site-wide console settings: operator choices about how the console behaves for everyone
+  on the site, such as whether Get started is hidden. They are desired configuration of the site,
+  kept with it and never mixed with observations or history.
 - Hold authoritative site intent and owner-controlled management in the process bound to the
   site manager node.
 - Request node facts and supported administrative actions from node agents.
@@ -204,6 +207,8 @@ What tells one server process which declared node it is.
 - Provide: node views, view republication and acknowledgements.
 - Provide: the reconciled inventory, read by the management API, owner admission and the capacity
   component, instead of node-local transport.
+- Receive and provide: the console settings, read by the console and updated by it one setting at a
+  time. Updating them never wakes controllers or changes any node's view.
 
 ### Node agent
 
