@@ -2,9 +2,10 @@
 //!
 //! A release must declare well-formed unsigned-integer parameters, at most the parallel requests
 //! Strata's start wrapper accepts, Linux artifacts only, and the deployment's data folder the
-//! wrapper writes to. A configuration must bind single GGUF files, run text-only on exactly one
-//! NVIDIA accelerator, declare no options, and reference every other release parameter. Launch
-//! values must give Strata a total context that is exactly what its parallel requests hold.
+//! wrapper writes to. A configuration must bind model artifacts shaped as its fixed settings say,
+//! with the draft layer they name, run text-only on exactly one NVIDIA accelerator, declare no
+//! options, and reference every other release parameter. Launch values must give Strata a total
+//! context that is exactly what its parallel requests hold.
 
 use std::collections::BTreeSet;
 
@@ -16,13 +17,17 @@ use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineParameterSchema, EngineParameterValue, EngineParameterValues, EngineRelease,
-        HardwareClass, Model, ModelEngineConfiguration, ModelInputModality, ModelParallelShape,
-        StorageScope, engine_parameter_definition::ParameterType,
+        HardwareClass, HuggingFaceArtifactSource, Model, ModelEngineConfiguration,
+        ModelInputModality, ModelParallelShape, StorageScope,
+        engine_parameter_definition::ParameterType,
         engine_parameter_value::Value as EngineParameterValueKind,
         hugging_face_artifact_source::Content as HuggingFaceContent,
     },
     engine::{
-        strata::v1::{StrataFixedModelSettings, StrataModelConfiguration},
+        strata::v1::{
+            StrataFixedModelSettings, StrataModelConfiguration, StrataReadyPack,
+            strata_fixed_model_settings::ModelFiles,
+        },
         v1::{EngineKind, engine_model_configuration::Configuration},
     },
 };
@@ -30,6 +35,7 @@ use dotcore_proto::dotcore::{
 use crate::model::engine::{
     declaration::classes_outside_vendors,
     definition::{unsigned_parameter_maximum, unsigned_parameter_value},
+    split_gguf::split_gguf_entry,
 };
 
 /// Largest parallel request count Strata's start wrapper accepts.
@@ -38,6 +44,10 @@ const MAXIMUM_PARALLEL_REQUESTS: u64 = 8;
 /// configuration and engine log.
 const DATA_MOUNT_PATH: &str = "/data";
 const MODEL_FILE_EXTENSION: &str = ".gguf";
+/// Files Strata's engine reads from a draft layer's folder.
+const DRAFT_LAYER_FILES: [&str; 3] = ["dense.bin", "dense.txt", "experts.bin"];
+/// Files within a ready-made pack's folder the start wrapper needs.
+const READY_PACK_FILES: [&str; 2] = ["native_experts.txt", "tokenizer/vocab.json"];
 
 /// Context per request for values that leave it out: the total context split evenly among the
 /// parallel requests, capped by the maximum context, since Strata holds a full context per request
@@ -222,15 +232,17 @@ fn validate_payload(
     };
     if !super::valid_fixed_settings(fixed) {
         errors.push(anyhow::anyhow!(
-            "configuration {:?} has invalid fixed Strata settings: the architecture takes lowercase \
-             letters, digits and '_', and the MTP draft depth is 1 to {}",
+            "configuration {:?} has invalid fixed Strata settings: the architecture takes \
+             lowercase letters, digits and '_', the MTP draft depth is 1 to {}, the model files \
+             are declared, a pack path names its draft layer, and a ready-made pack names plain \
+             relative paths",
             configuration.configuration_id,
             super::MAXIMUM_MTP_DRAFT_TOKENS
         ));
     }
 
     validate_parameters(configuration, engine, fixed, errors);
-    validate_artifacts(model, configuration, errors);
+    validate_artifacts(model, configuration, fixed, errors);
     validate_execution_shape(configuration, errors);
     validate_inputs_and_options(configuration, errors);
 }
@@ -276,32 +288,85 @@ fn validate_parameters(
     }
 }
 
+/// Accepts bindings whose model artifacts have the shape the fixed settings' model files declare,
+/// each selecting exactly the draft layer the settings name, if any.
 fn validate_artifacts(
     model: &Model,
     configuration: &ModelEngineConfiguration,
+    fixed: &StrataFixedModelSettings,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    let valid = !configuration.artifact_bindings.is_empty()
-        && configuration.artifact_bindings.iter().all(|binding| {
-            binding.auxiliary_artifact_ids.is_empty()
-                && model
-                    .artifacts
-                    .iter()
-                    .find(|artifact| artifact.artifact_id == binding.model_artifact_id)
-                    .and_then(|artifact| artifact.source.as_ref())
-                    .and_then(|source| source.content.as_ref())
-                    .is_some_and(|content| {
-                        matches!(
-                            content,
-                            HuggingFaceContent::File(file)
-                                if file.path.ends_with(MODEL_FILE_EXTENSION)
-                        )
-                    })
-        });
-    if !valid {
+    let Some(model_files) = fixed.model_files.as_ref() else {
+        return;
+    };
+    let draft_layer = super::draft_layer_artifact_id(fixed);
+    if configuration.artifact_bindings.is_empty() {
         errors.push(anyhow::anyhow!(
-            "configuration {:?} requires single-file GGUF model artifacts without auxiliary artifacts",
+            "configuration {:?} binds no model artifact",
             configuration.configuration_id
+        ));
+    }
+    for binding in &configuration.artifact_bindings {
+        if binding
+            .auxiliary_artifact_ids
+            .iter()
+            .map(String::as_str)
+            .ne(draft_layer)
+        {
+            errors.push(anyhow::anyhow!(
+                "configuration {:?} binding {:?} must select exactly the draft layer its fixed \
+                 Strata settings name, if any",
+                configuration.configuration_id,
+                binding.binding_id
+            ));
+        }
+        let content = model
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.artifact_id == binding.model_artifact_id)
+            .and_then(|artifact| artifact.source.as_ref())
+            .and_then(|source| source.content.as_ref());
+        let valid = match (model_files, content) {
+            (ModelFiles::SingleGguf(_), Some(HuggingFaceContent::File(file))) => {
+                file.path.ends_with(MODEL_FILE_EXTENSION)
+            }
+            (ModelFiles::SplitGguf(_), Some(HuggingFaceContent::Snapshot(snapshot))) => {
+                split_gguf_entry(snapshot.files.iter().map(|file| file.path.as_str())).is_ok()
+            }
+            (ModelFiles::ReadyPack(pack), Some(HuggingFaceContent::Snapshot(snapshot))) => {
+                ready_pack_files(pack)
+                    .all(|path| snapshot.files.iter().any(|file| file.path == path))
+            }
+            _ => false,
+        };
+        let shape = match model_files {
+            ModelFiles::SingleGguf(_) => "a single GGUF file",
+            ModelFiles::SplitGguf(_) => "one complete set of split GGUF shards",
+            ModelFiles::ReadyPack(_) => {
+                "a snapshot holding the ready-made pack and the GGUF files its fixed settings name"
+            }
+        };
+        if !valid {
+            errors.push(anyhow::anyhow!(
+                "configuration {:?} binding {:?} requires a model artifact that is {shape}",
+                configuration.configuration_id,
+                binding.binding_id
+            ));
+        }
+    }
+    if let Some(draft_layer) = draft_layer
+        && !model
+            .auxiliary_artifacts
+            .iter()
+            .find(|artifact| artifact.auxiliary_artifact_id == draft_layer)
+            .and_then(|artifact| artifact.source.as_ref())
+            .is_some_and(valid_draft_layer)
+    {
+        errors.push(anyhow::anyhow!(
+            "configuration {:?} draft layer {draft_layer:?} must be a model auxiliary artifact \
+             holding {} in one folder",
+            configuration.configuration_id,
+            DRAFT_LAYER_FILES.join(", ")
         ));
     }
 }
@@ -353,6 +418,36 @@ fn validate_inputs_and_options(
     }
 }
 
+/// The files a ready-made pack's snapshot must hold: its GGUF files and its pack's own files.
+fn ready_pack_files(pack: &StrataReadyPack) -> impl Iterator<Item = String> + '_ {
+    [
+        &pack.dense_gguf_path,
+        &pack.lookup_table_gguf_path,
+        &pack.token_embedding_gguf_path,
+    ]
+    .into_iter()
+    .cloned()
+    .chain(
+        READY_PACK_FILES
+            .iter()
+            .map(|file| format!("{}/{file}", pack.pack_path)),
+    )
+}
+
+/// Whether a draft layer is a snapshot whose files sit in one folder and include every file the
+/// engine reads from it.
+fn valid_draft_layer(source: &HuggingFaceArtifactSource) -> bool {
+    let Some(HuggingFaceContent::Snapshot(snapshot)) = source.content.as_ref() else {
+        return false;
+    };
+    let (folders, names): (BTreeSet<_>, BTreeSet<_>) = snapshot
+        .files
+        .iter()
+        .map(|file| file.path.rsplit_once('/').unwrap_or(("", &file.path)))
+        .unzip();
+    folders.len() == 1 && DRAFT_LAYER_FILES.iter().all(|name| names.contains(name))
+}
+
 #[cfg(test)]
 mod tests {
     use dotcore_catalog::{CatalogModelId, test_support::vendor_hardware_class};
@@ -375,7 +470,10 @@ mod tests {
             ModelLaunchResolutionError, apply_profile_defaults, resolve_local_launch,
         },
         test_support::{
-            strata::{EXPERT_VRAM_MIB_PARAMETER_ID, configuration, model, release},
+            strata::{
+                DRAFT_LAYER_ARTIFACT_ID, EXPERT_VRAM_MIB_PARAMETER_ID, configuration, model,
+                ready_pack_configuration, release, split_gguf_configuration,
+            },
             unsigned_parameter_values,
         },
     };
@@ -387,11 +485,22 @@ mod tests {
             "{:?}",
             validate_engine_release(&release())
         );
-        assert!(
-            validate_model_configuration(&model(), &configuration(), &release()).is_empty(),
-            "{:?}",
-            validate_model_configuration(&model(), &configuration(), &release())
-        );
+        for configuration in [
+            configuration(),
+            split_gguf_configuration(),
+            ready_pack_configuration(),
+        ] {
+            assert_eq!(
+                messages(validate_model_configuration(
+                    &model(),
+                    &configuration,
+                    &release()
+                )),
+                Vec::<String>::new(),
+                "{}",
+                configuration.configuration_id
+            );
+        }
     }
 
     #[test]
@@ -520,11 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_other_than_single_gguf_artifacts() {
-        let expected = [
-            "configuration \"strata-nvidia\" requires single-file GGUF model artifacts without auxiliary artifacts",
-        ];
-
+    fn rejects_model_artifacts_outside_the_declared_model_files() {
         let mut ninfer = model();
         ninfer.artifacts[0].source = Some(file_source("weights.ninfer"));
         assert_eq!(
@@ -533,21 +638,103 @@ mod tests {
                 &configuration(),
                 &release()
             )),
-            expected
+            [
+                "configuration \"strata-nvidia\" binding \"fixture-strata-artifact\" requires a model artifact that is a single GGUF file"
+            ]
         );
 
-        let mut auxiliary = configuration();
-        auxiliary.artifact_bindings[0]
-            .auxiliary_artifact_ids
-            .push("template".to_owned());
+        let mut single_bound_to_split = configuration();
+        single_bound_to_split.artifact_bindings[0].model_artifact_id =
+            "fixture-split-gguf".to_owned();
         assert_eq!(
             messages(validate_model_configuration(
                 &model(),
-                &auxiliary,
+                &single_bound_to_split,
                 &release()
             )),
-            expected
+            [
+                "configuration \"strata-nvidia\" binding \"fixture-strata-artifact\" requires a model artifact that is a single GGUF file"
+            ]
         );
+
+        let mut missing_shard = model();
+        snapshot_files(&mut missing_shard.artifacts[1].source).pop();
+        assert_eq!(
+            messages(validate_model_configuration(
+                &missing_shard,
+                &split_gguf_configuration(),
+                &release()
+            )),
+            [
+                "configuration \"strata-fixture-split-gguf\" binding \"fixture-split-gguf\" requires a model artifact that is one complete set of split GGUF shards"
+            ]
+        );
+
+        let mut no_tokenizer = model();
+        snapshot_files(&mut no_tokenizer.artifacts[2].source)
+            .retain(|file| file.path != "pack/tokenizer/vocab.json");
+        assert_eq!(
+            messages(validate_model_configuration(
+                &no_tokenizer,
+                &ready_pack_configuration(),
+                &release()
+            )),
+            [
+                "configuration \"strata-fixture-ready-pack\" binding \"fixture-ready-pack\" requires a model artifact that is a snapshot holding the ready-made pack and the GGUF files its fixed settings name"
+            ]
+        );
+    }
+
+    #[test]
+    fn bindings_select_exactly_the_declared_draft_layer() {
+        let mut single_with_draft = configuration();
+        single_with_draft.artifact_bindings[0]
+            .auxiliary_artifact_ids
+            .push(DRAFT_LAYER_ARTIFACT_ID.to_owned());
+        let mut split_without_draft = split_gguf_configuration();
+        split_without_draft.artifact_bindings[0]
+            .auxiliary_artifact_ids
+            .clear();
+
+        for configuration in [single_with_draft, split_without_draft] {
+            let binding = &configuration.artifact_bindings[0].binding_id;
+            assert_eq!(
+                messages(validate_model_configuration(
+                    &model(),
+                    &configuration,
+                    &release()
+                )),
+                [format!(
+                    "configuration {:?} binding {binding:?} must select exactly the draft layer its fixed Strata settings name, if any",
+                    configuration.configuration_id
+                )]
+            );
+        }
+    }
+
+    #[test]
+    fn the_draft_layer_holds_the_engine_files_in_one_folder() {
+        let mut missing = model();
+        snapshot_files(&mut missing.auxiliary_artifacts[0].source)
+            .retain(|file| file.path != "mtp/dense.txt");
+        let mut two_folders = model();
+        snapshot_files(&mut two_folders.auxiliary_artifacts[0].source)[0].path =
+            "other/dense.bin".to_owned();
+        let mut file = model();
+        file.auxiliary_artifacts[0].source = Some(file_source("mtp/experts.bin"));
+
+        for model in [missing, two_folders, file] {
+            assert_eq!(
+                messages(validate_model_configuration(
+                    &model,
+                    &split_gguf_configuration(),
+                    &release()
+                )),
+                [
+                    "configuration \"strata-fixture-split-gguf\" draft layer \"fixture-draft-layer\" must be a model auxiliary artifact holding dense.bin, dense.txt, experts.bin in one folder"
+                ]
+            );
+        }
     }
 
     #[test]
@@ -888,6 +1075,7 @@ configurations:
           expertVramMibParameterId: "expert-vram-mib"
           architecture: "qwen35moe"
           mtpDraftTokens: 2
+          singleGguf: {}
     executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
     requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
     inputCapabilities:
@@ -1024,6 +1212,15 @@ profiles:
                 path: path.to_owned(),
                 provenance_digest: "0".repeat(64),
             })),
+        }
+    }
+
+    fn snapshot_files(
+        source: &mut Option<HuggingFaceArtifactSource>,
+    ) -> &mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile> {
+        match source.as_mut().and_then(|source| source.content.as_mut()) {
+            Some(HuggingFaceContent::Snapshot(snapshot)) => &mut snapshot.files,
+            _ => panic!("snapshot source"),
         }
     }
 

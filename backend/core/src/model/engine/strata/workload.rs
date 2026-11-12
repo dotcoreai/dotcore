@@ -1,14 +1,14 @@
 //! Materializes a resolved Strata model launch into the OCI workload the runtime runs.
 //!
 //! The workload runs the retained engine image identity with the command materialized from the
-//! portable launch plan, the GGUF mounted read-only, one NVIDIA accelerator, isolated IPC, and the
-//! HTTP service port 8080. The deployment's data folder comes from the engine release's storage,
+//! portable launch plan, the model's files and any draft layer mounted read-only, one NVIDIA
+//! accelerator, isolated IPC, and the HTTP service port 8080. The deployment's data folder comes from the engine release's storage,
 //! which the engine registry adds. Strata runs only on Linux with NVIDIA, so other engine platforms
 //! are rejected.
 
 use std::collections::BTreeMap;
 
-use dotcore_artifact::PreparedModelArtifacts;
+use dotcore_artifact::{ModelArtifactSource, PreparedModelArtifacts};
 use dotcore_domain::{ExecutionPlatform, WorkloadArtifactKind};
 use dotcore_proto::dotcore::{
     engine::v1::{EngineKind, resolved_engine_model_state::State},
@@ -23,15 +23,19 @@ use dotcore_runtime::{
 
 use super::{
     SERVICE_PORT,
-    plan::{MODEL_BINDING_ID, PLAN_FORMAT_VERSION},
+    plan::{DRAFT_LAYER_BINDING_ID, MODEL_BINDING_ID, PLAN_FORMAT_VERSION},
 };
 use crate::model::resolved::ResolvedModelLaunch;
 
 /// Executable artifact kinds a Strata engine artifact can provide.
 pub(super) const ARTIFACT_KINDS: &[WorkloadArtifactKind] = &[WorkloadArtifactKind::Oci];
 
-/// Container path at which the Strata start wrapper reads the model binding.
+/// Container path at which the Strata start wrapper reads a single-file model binding.
 pub(super) const CONTAINER_MODEL_PATH: &str = "/opt/dotcore/models/model.gguf";
+/// Container path at which the Strata start wrapper reads a model binding holding several files.
+pub(super) const CONTAINER_MODEL_FOLDER: &str = "/opt/dotcore/models/model";
+/// Container path at which the Strata start wrapper reads the draft layer binding.
+pub(super) const CONTAINER_DRAFT_LAYER_FOLDER: &str = "/opt/dotcore/models/draft-layer";
 const SERVICE_PORT_NAME: &str = "http";
 
 /// Builds the literal container workload spec by materializing the stored portable plan.
@@ -41,7 +45,11 @@ pub(crate) fn workload(
     artifacts: &PreparedModelArtifacts,
 ) -> Result<WorkloadSpec, StrataWorkloadError> {
     validate_runtime_constraints(model, target)?;
-    let (command, mounts) = materialize_plan(&model.plan, artifacts)?;
+    let model_folder = matches!(
+        model.artifacts.get(MODEL_BINDING_ID),
+        Some(ModelArtifactSource::HuggingFaceSnapshot { .. })
+    );
+    let (command, mounts) = materialize_plan(&model.plan, model_folder, artifacts)?;
     let required_platform = ExecutionPlatform::normalize(
         &model.engine.platform.operating_system,
         &model.engine.platform.architecture,
@@ -112,48 +120,67 @@ fn validate_runtime_constraints(
     Ok(())
 }
 
-/// Resolves binding tokens to container paths and returns the command and read-only mounts.
+/// Resolves binding tokens to container paths and returns the command and read-only mounts. The
+/// model binding is a folder when `model_folder` is set, and a single GGUF file otherwise.
 fn materialize_plan(
     plan: &PortableModelLaunchPlan,
+    model_folder: bool,
     artifacts: &PreparedModelArtifacts,
 ) -> Result<(Vec<String>, Vec<WorkloadArtifactBinding>), StrataWorkloadError> {
     if plan.format_version != PLAN_FORMAT_VERSION {
         return Err(StrataWorkloadError::UnsupportedPlan);
     }
-    let [binding] = plan.artifact_bindings.as_slice() else {
-        return Err(StrataWorkloadError::InvalidPlan);
-    };
-    if binding.binding_id != MODEL_BINDING_ID || !binding.read_only || binding.artifact.is_none() {
+    let mut mounts = BTreeMap::new();
+    for binding in &plan.artifact_bindings {
+        let destination = match binding.binding_id.as_str() {
+            MODEL_BINDING_ID if model_folder => CONTAINER_MODEL_FOLDER,
+            MODEL_BINDING_ID => CONTAINER_MODEL_PATH,
+            DRAFT_LAYER_BINDING_ID => CONTAINER_DRAFT_LAYER_FOLDER,
+            _ => return Err(StrataWorkloadError::InvalidPlan),
+        };
+        if !binding.read_only || binding.artifact.is_none() {
+            return Err(StrataWorkloadError::InvalidPlan);
+        }
+        let source = artifacts
+            .artifacts
+            .get(&binding.binding_id)
+            .ok_or(StrataWorkloadError::MissingPreparedArtifact)?;
+        let mount = WorkloadArtifactBinding {
+            name: binding.binding_id.clone(),
+            source: source.clone(),
+            destination: destination.to_owned(),
+            read_only: true,
+        };
+        if mounts.insert(binding.binding_id.clone(), mount).is_some() {
+            return Err(StrataWorkloadError::InvalidPlan);
+        }
+    }
+    if !mounts.contains_key(MODEL_BINDING_ID) {
         return Err(StrataWorkloadError::InvalidPlan);
     }
-    let source = artifacts
+    if artifacts
         .artifacts
-        .get(&binding.binding_id)
-        .ok_or(StrataWorkloadError::MissingPreparedArtifact)?;
-    if artifacts.artifacts.len() != 1 {
+        .keys()
+        .any(|binding_id| !mounts.contains_key(binding_id))
+    {
         return Err(StrataWorkloadError::UnexpectedPreparedArtifact);
     }
-    let mount = WorkloadArtifactBinding {
-        name: binding.binding_id.clone(),
-        source: source.clone(),
-        destination: CONTAINER_MODEL_PATH.to_owned(),
-        read_only: true,
-    };
     let command = plan
         .arguments
         .iter()
         .map(|argument| match argument.value.as_ref() {
             Some(ArgumentValue::Literal(value)) => Ok(value.clone()),
-            Some(ArgumentValue::ArtifactBindingId(id)) if *id == mount.name => {
-                Ok(mount.destination.clone())
-            }
+            Some(ArgumentValue::ArtifactBindingId(id)) => mounts
+                .get(id)
+                .map(|mount| mount.destination.clone())
+                .ok_or(StrataWorkloadError::InvalidPlan),
             _ => Err(StrataWorkloadError::InvalidPlan),
         })
         .collect::<Result<Vec<_>, _>>()?;
     if command.first().is_none_or(String::is_empty) {
         return Err(StrataWorkloadError::InvalidPlan);
     }
-    Ok((command, vec![mount]))
+    Ok((command, mounts.into_values().collect()))
 }
 
 fn valid_device_id(value: &str) -> bool {
@@ -261,6 +288,58 @@ mod tests {
     }
 
     #[test]
+    fn pack_path_mounts_the_model_folder_and_the_draft_layer() {
+        let model = ResolvedModelLaunch::from_snapshot(
+            &crate::test_support::strata::local_model_snapshot_with(
+                "qwen3-8-flash-next",
+                &crate::test_support::strata::split_gguf_configuration(),
+            ),
+        )
+        .expect("resolved Strata launch");
+        let prepared = PreparedModelArtifacts {
+            artifacts: BTreeMap::from([
+                ("model".to_owned(), PathBuf::from("/cache/iq2-xs")),
+                ("draft-layer".to_owned(), PathBuf::from("/cache/mtp")),
+            ]),
+        };
+
+        let spec = workload(&model, &target(&["GPU-0"]), &prepared).expect("workload");
+
+        assert_eq!(
+            spec.arguments[1..6],
+            [
+                "/usr/local/bin/dotcore-strata-start",
+                "--model",
+                "/opt/dotcore/models/model",
+                "--draft-layer",
+                "/opt/dotcore/models/draft-layer",
+            ]
+            .map(WorkloadValue::literal)
+        );
+        assert_eq!(
+            spec.artifacts,
+            [
+                WorkloadArtifactBinding {
+                    name: "draft-layer".to_owned(),
+                    source: PathBuf::from("/cache/mtp"),
+                    destination: "/opt/dotcore/models/draft-layer".to_owned(),
+                    read_only: true,
+                },
+                WorkloadArtifactBinding {
+                    name: "model".to_owned(),
+                    source: PathBuf::from("/cache/iq2-xs"),
+                    destination: "/opt/dotcore/models/model".to_owned(),
+                    read_only: true,
+                },
+            ]
+        );
+        assert_eq!(
+            workload(&model, &target(&["GPU-0"]), &prepared_model_only()).expect_err("no draft"),
+            StrataWorkloadError::MissingPreparedArtifact
+        );
+    }
+
+    #[test]
     fn workload_rejects_other_engines_and_multiple_devices() {
         let mut apple = resolved();
         apple.engine.platform.accelerator = "apple".to_owned();
@@ -311,6 +390,12 @@ mod tests {
         ExecutionTarget {
             managed_node_id: SiteNodeId::for_test("node"),
             accelerator_device_ids: devices.iter().map(|device| (*device).to_owned()).collect(),
+        }
+    }
+
+    fn prepared_model_only() -> PreparedModelArtifacts {
+        PreparedModelArtifacts {
+            artifacts: BTreeMap::from([("model".to_owned(), PathBuf::from("/cache/iq2-xs"))]),
         }
     }
 

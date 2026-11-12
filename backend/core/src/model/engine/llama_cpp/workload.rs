@@ -25,14 +25,14 @@ use dotcore_runtime::{
     WorkloadIpcMode, WorkloadPort, WorkloadSpec, WorkloadToken, WorkloadValue,
 };
 
-use super::{
-    declaration::split_gguf_entry,
-    plan::{
-        MODEL_BINDING_ID, PLAN_FORMAT_VERSION, PROJECTOR_BINDING_ID, SERVICE_NAME,
-        SPECULATIVE_DRAFT_BINDING_ID,
-    },
+use super::plan::{
+    MODEL_BINDING_ID, PLAN_FORMAT_VERSION, PROJECTOR_BINDING_ID, SERVICE_NAME,
+    SPECULATIVE_DRAFT_BINDING_ID,
 };
-use crate::model::resolved::{ResolvedEngineSource, ResolvedModelLaunch};
+use crate::model::{
+    engine::split_gguf::split_gguf_entry,
+    resolved::{ResolvedEngineSource, ResolvedModelLaunch},
+};
 
 /// Executable artifact kinds a llama.cpp engine artifact can provide: a Linux CUDA image or a
 /// Nix package for native runtimes.

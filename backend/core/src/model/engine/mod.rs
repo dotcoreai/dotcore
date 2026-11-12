@@ -7,6 +7,7 @@ mod probe;
 mod realization;
 mod registry;
 mod speculative_draft;
+mod split_gguf;
 pub(crate) mod startup_facts;
 pub(crate) mod startup_refusal;
 

@@ -1,9 +1,10 @@
-//! In-code Strata fixtures for backend unit tests, shaped like the Qwen3.6 35B-A3B Strata profile.
+//! In-code Strata fixtures for backend unit tests, shaped like the Qwen3.6 35B-A3B and Qwen3.8
+//! Flash-Next Strata profiles.
 //!
-//! They provide a text-only model with one GGUF artifact, one valid Strata configuration, and an
-//! accepted deployment snapshot whose launch plan is the canonical plan for the profile: a
-//! 32,768-token total context and context per request for one parallel request, and an 8 GiB
-//! expert accelerator memory cap.
+//! They provide a text-only model with a single GGUF, a split GGUF set and a ready-made pack, plus
+//! a draft layer; a valid Strata configuration for each; and accepted deployment snapshots whose
+//! launch plan is the canonical plan for the profile: a 32,768-token total context and context per
+//! request for one parallel request, and an 8 GiB expert accelerator memory cap.
 
 use dotcore_catalog::shared_parameters::{
     CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID,
@@ -12,14 +13,18 @@ use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineParameterDefinition, EngineParameterSchema, EngineParameterValue,
         EngineParameterValues, EngineRelease, HardwareRequirements, HardwareSupport,
-        HuggingFaceArtifactSource, HuggingFaceFileArtifact, InferenceRequestKind, Model,
-        ModelArtifact, ModelArtifactBinding, ModelEngineConfiguration, ModelExecutionCapabilities,
+        HuggingFaceArtifactSource, HuggingFaceFileArtifact, HuggingFaceSnapshotArtifact,
+        HuggingFaceSnapshotFile, InferenceRequestKind, Model, ModelArtifact, ModelArtifactBinding,
+        ModelAuxiliaryArtifact, ModelEngineConfiguration, ModelExecutionCapabilities,
         ModelInputCapabilities, ModelInputModality, ModelParallelShape, StorageBinding,
         StorageKind, StorageScope, UnsignedIntegerEngineParameterSchema,
         engine_parameter_definition, engine_parameter_value, hugging_face_artifact_source,
     },
     engine::{
-        strata::v1::{StrataFixedModelSettings, StrataModelConfiguration},
+        strata::v1::{
+            StrataFixedModelSettings, StrataModelConfiguration, StrataReadyPack, StrataSingleGguf,
+            StrataSplitGguf, strata_fixed_model_settings::ModelFiles,
+        },
         v1::{EngineKind, EngineModelConfiguration, engine_model_configuration::Configuration},
     },
     model::v1::{
@@ -30,6 +35,9 @@ use dotcore_proto::dotcore::{
 /// Engine parameter holding the accelerator memory cap of the model's experts, in MiB.
 pub(crate) const EXPERT_VRAM_MIB_PARAMETER_ID: &str = "expert-vram-mib";
 
+/// Auxiliary artifact holding the fixture model's separate draft layer.
+pub(crate) const DRAFT_LAYER_ARTIFACT_ID: &str = "fixture-draft-layer";
+
 /// Resolved engine parameter values of the profile: the engine's default total context, the
 /// context per request filled from it, one parallel request and the expert cap from sizing.
 const PROFILE_PARAMETERS: [(&str, u64); 4] = [
@@ -39,17 +47,22 @@ const PROFILE_PARAMETERS: [(&str, u64); 4] = [
     (EXPERT_VRAM_MIB_PARAMETER_ID, 8_192),
 ];
 
-/// Returns an accepted Strata snapshot for the profile values, serving `model_id`.
+/// Returns an accepted single-GGUF Strata snapshot for the profile values, serving `model_id`.
 pub(crate) fn local_model_snapshot(model_id: &str) -> ModelDeploymentSnapshot {
+    local_model_snapshot_with(model_id, &configuration())
+}
+
+/// Returns an accepted Strata snapshot of `configuration`'s first binding for the profile values,
+/// serving `model_id`.
+pub(crate) fn local_model_snapshot_with(
+    model_id: &str,
+    configuration: &ModelEngineConfiguration,
+) -> ModelDeploymentSnapshot {
     let model = model();
-    let configuration = configuration();
-    let selection = crate::model::engine::strata::realize_model(
-        &model,
-        &configuration,
-        &configuration.artifact_bindings[0],
-        &[],
-    )
-    .expect("Strata fixture realization");
+    let binding = &configuration.artifact_bindings[0];
+    let selection =
+        crate::model::engine::strata::realize_model(&model, configuration, binding, &[])
+            .expect("Strata fixture realization");
 
     let mut snapshot = super::local_model_snapshot(model_id);
     let Some(model_deployment_snapshot::Source::Local(local)) = snapshot.source.as_mut() else {
@@ -58,7 +71,21 @@ pub(crate) fn local_model_snapshot(model_id: &str) -> ModelDeploymentSnapshot {
     let engine = local.engine_artifact.as_mut().expect("engine artifact");
     engine.engine_release_id = "fixture-strata".to_owned();
     engine.engine_kind = EngineKind::Strata as i32;
-    local.model_artifact = Some(model.artifacts[0].clone());
+    local.model_artifact = model
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.artifact_id == binding.model_artifact_id)
+        .cloned();
+    local.auxiliary_artifacts = model
+        .auxiliary_artifacts
+        .iter()
+        .filter(|artifact| {
+            selection
+                .auxiliary_artifact_ids
+                .contains(&artifact.auxiliary_artifact_id)
+        })
+        .cloned()
+        .collect();
     local
         .hardware_support
         .as_mut()
@@ -179,25 +206,58 @@ pub(crate) fn release() -> EngineRelease {
     }
 }
 
-/// Returns a model with one GGUF artifact and no options.
+/// Returns a model with a single GGUF, a split GGUF set, a ready-made pack and a draft layer, and
+/// no options.
 pub(crate) fn model() -> Model {
     Model {
         model_id: "fixture-strata-model".to_owned(),
-        artifacts: vec![ModelArtifact {
-            artifact_id: "fixture-strata-artifact".to_owned(),
-            weight_quantization: "Q4_K_XL".to_owned(),
-            source: Some(HuggingFaceArtifactSource {
-                repository: "dotcore/fixture-strata".to_owned(),
-                revision: "0123456789abcdef0123456789abcdef01234567".to_owned(),
-                content: Some(hugging_face_artifact_source::Content::File(
-                    HuggingFaceFileArtifact {
-                        path: "fixture-Q4_K_XL.gguf".to_owned(),
-                        provenance_digest:
-                            "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
-                                .to_owned(),
-                    },
-                )),
-            }),
+        artifacts: vec![
+            ModelArtifact {
+                artifact_id: "fixture-strata-artifact".to_owned(),
+                weight_quantization: "Q4_K_XL".to_owned(),
+                source: Some(HuggingFaceArtifactSource {
+                    repository: "dotcore/fixture-strata".to_owned(),
+                    revision: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+                    content: Some(hugging_face_artifact_source::Content::File(
+                        HuggingFaceFileArtifact {
+                            path: "fixture-Q4_K_XL.gguf".to_owned(),
+                            provenance_digest:
+                                "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
+                                    .to_owned(),
+                        },
+                    )),
+                }),
+            },
+            ModelArtifact {
+                artifact_id: "fixture-split-gguf".to_owned(),
+                weight_quantization: "IQ2_XS".to_owned(),
+                source: Some(snapshot_source([
+                    "IQ2_XS/fixture-IQ2_XS-00001-of-00002.gguf",
+                    "IQ2_XS/fixture-IQ2_XS-00002-of-00002.gguf",
+                ])),
+            },
+            ModelArtifact {
+                artifact_id: "fixture-ready-pack".to_owned(),
+                weight_quantization: "NVFP4".to_owned(),
+                source: Some(snapshot_source([
+                    "pack/dense.bin",
+                    "pack/experts.bin",
+                    "pack/index.txt",
+                    "pack/native_experts.txt",
+                    "pack/tokenizer/vocab.json",
+                    "dense.gguf",
+                    "lookup-table.gguf",
+                    "token-embedding.gguf",
+                ])),
+            },
+        ],
+        auxiliary_artifacts: vec![ModelAuxiliaryArtifact {
+            auxiliary_artifact_id: DRAFT_LAYER_ARTIFACT_ID.to_owned(),
+            source: Some(snapshot_source([
+                "mtp/dense.bin",
+                "mtp/dense.txt",
+                "mtp/experts.bin",
+            ])),
         }],
         ..Default::default()
     }
@@ -226,6 +286,7 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
                     expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
                     architecture: "qwen35moe".to_owned(),
                     mtp_draft_tokens: 2,
+                    model_files: Some(ModelFiles::SingleGguf(StrataSingleGguf {})),
                 }),
             })),
         }),
@@ -238,5 +299,75 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
             image_input_capacity: None,
         }),
         ..Default::default()
+    }
+}
+
+/// Returns a valid Strata configuration that packs the fixture's split GGUF set and drafts with
+/// its draft layer.
+pub(crate) fn split_gguf_configuration() -> ModelEngineConfiguration {
+    pack_configuration(
+        "fixture-split-gguf",
+        ModelFiles::SplitGguf(StrataSplitGguf {
+            draft_layer_auxiliary_artifact_id: DRAFT_LAYER_ARTIFACT_ID.to_owned(),
+        }),
+    )
+}
+
+/// Returns a valid Strata configuration that runs the fixture's ready-made pack and drafts with
+/// its draft layer.
+pub(crate) fn ready_pack_configuration() -> ModelEngineConfiguration {
+    pack_configuration(
+        "fixture-ready-pack",
+        ModelFiles::ReadyPack(StrataReadyPack {
+            draft_layer_auxiliary_artifact_id: DRAFT_LAYER_ARTIFACT_ID.to_owned(),
+            pack_path: "pack".to_owned(),
+            dense_gguf_path: "dense.gguf".to_owned(),
+            lookup_table_gguf_path: "lookup-table.gguf".to_owned(),
+            token_embedding_gguf_path: "token-embedding.gguf".to_owned(),
+        }),
+    )
+}
+
+/// Returns [`configuration`] binding `artifact_id` with the draft layer, for the pack path.
+fn pack_configuration(artifact_id: &str, model_files: ModelFiles) -> ModelEngineConfiguration {
+    let mut configuration = configuration();
+    configuration.configuration_id = format!("strata-{artifact_id}");
+    configuration.artifact_bindings = vec![ModelArtifactBinding {
+        binding_id: artifact_id.to_owned(),
+        model_artifact_id: artifact_id.to_owned(),
+        auxiliary_artifact_ids: vec![DRAFT_LAYER_ARTIFACT_ID.to_owned()],
+    }];
+    configuration.engine_configuration = Some(EngineModelConfiguration {
+        engine_kind: EngineKind::Strata as i32,
+        configuration: Some(Configuration::Strata(StrataModelConfiguration {
+            fixed_settings: Some(StrataFixedModelSettings {
+                expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+                architecture: "qwen4exp".to_owned(),
+                mtp_draft_tokens: 4,
+                model_files: Some(model_files),
+            }),
+        })),
+    });
+    configuration
+}
+
+/// Returns a pinned snapshot source of `paths`.
+fn snapshot_source<const N: usize>(paths: [&str; N]) -> HuggingFaceArtifactSource {
+    HuggingFaceArtifactSource {
+        repository: "dotcore/fixture-strata".to_owned(),
+        revision: "0123456789abcdef0123456789abcdef01234567".to_owned(),
+        content: Some(hugging_face_artifact_source::Content::Snapshot(
+            HuggingFaceSnapshotArtifact {
+                files: paths
+                    .into_iter()
+                    .map(|path| HuggingFaceSnapshotFile {
+                        path: path.to_owned(),
+                        provenance_digest:
+                            "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
+                                .to_owned(),
+                    })
+                    .collect(),
+            },
+        )),
     }
 }

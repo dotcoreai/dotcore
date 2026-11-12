@@ -1,8 +1,9 @@
 //! Materializes the resolved Strata engine selection from a model configuration.
 //!
 //! The retained state is the configuration's fixed settings. Strata configurations declare no
-//! options and Strata loads a single GGUF file, so no option values or auxiliary artifacts are
-//! ever selected, and the input capabilities are the configuration's own.
+//! options, so no option values are ever selected, and the input capabilities are the
+//! configuration's own. The only auxiliary artifact is the draft layer the fixed settings name,
+//! which a binding selects exactly when the model's files need one.
 
 use dotcore_proto::dotcore::{
     catalog::v1::{Model, ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues},
@@ -17,7 +18,7 @@ use dotcore_proto::dotcore::{
 
 use crate::model::engine::realization::ResolvedEngineSelection;
 
-pub(crate) const SEMANTICS_VERSION: u32 = 1;
+pub(crate) const SEMANTICS_VERSION: u32 = 2;
 
 pub(crate) fn realize_model(
     _model: &Model,
@@ -38,8 +39,13 @@ pub(crate) fn realize_model(
         .fixed_settings
         .clone()
         .ok_or_else(|| anyhow::anyhow!("configuration has no fixed Strata settings"))?;
-    if !binding.auxiliary_artifact_ids.is_empty() {
-        anyhow::bail!("Strata binding selects auxiliary artifacts");
+    let auxiliary_artifact_ids = super::draft_layer_artifact_id(&fixed_settings)
+        .map(|id| vec![id.to_owned()])
+        .unwrap_or_default();
+    if binding.auxiliary_artifact_ids != auxiliary_artifact_ids {
+        anyhow::bail!(
+            "Strata binding must select exactly the draft layer its fixed settings name, if any"
+        );
     }
     if !option_values.is_empty() {
         anyhow::bail!("Strata configuration has no options to resolve");
@@ -57,7 +63,7 @@ pub(crate) fn realize_model(
                 fixed_settings: Some(fixed_settings),
             })),
         },
-        auxiliary_artifact_ids: Vec::new(),
+        auxiliary_artifact_ids,
         input_capabilities,
     })
 }
@@ -65,7 +71,10 @@ pub(crate) fn realize_model(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::strata::{configuration, model};
+    use crate::test_support::strata::{
+        DRAFT_LAYER_ARTIFACT_ID, configuration, model, ready_pack_configuration,
+        split_gguf_configuration,
+    };
 
     #[test]
     fn state_keeps_the_fixed_settings_and_the_configuration_input() {
@@ -127,7 +136,38 @@ mod tests {
                 .err()
                 .expect("auxiliary artifact")
                 .to_string(),
-            "Strata binding selects auxiliary artifacts"
+            "Strata binding must select exactly the draft layer its fixed settings name, if any"
         );
+
+        let split = split_gguf_configuration();
+        let mut no_draft = split.artifact_bindings[0].clone();
+        no_draft.auxiliary_artifact_ids.clear();
+        assert_eq!(
+            realize_model(&model(), &split, &no_draft, &[])
+                .err()
+                .expect("missing draft layer")
+                .to_string(),
+            "Strata binding must select exactly the draft layer its fixed settings name, if any"
+        );
+    }
+
+    #[test]
+    fn pack_paths_select_their_draft_layer() {
+        for configuration in [split_gguf_configuration(), ready_pack_configuration()] {
+            let selection = realize_model(
+                &model(),
+                &configuration,
+                &configuration.artifact_bindings[0],
+                &[],
+            )
+            .expect("Strata selection");
+
+            assert_eq!(
+                selection.auxiliary_artifact_ids,
+                [DRAFT_LAYER_ARTIFACT_ID],
+                "{}",
+                configuration.configuration_id
+            );
+        }
     }
 }
