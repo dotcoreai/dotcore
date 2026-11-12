@@ -35,6 +35,7 @@ export function ChatRoutePicker({
       <span className="text-sm font-medium">Route</span>
       <Combobox
         className="min-w-0 flex-1"
+        clearable={false}
         hideLabel
         label="Route"
         loading={session.loading}

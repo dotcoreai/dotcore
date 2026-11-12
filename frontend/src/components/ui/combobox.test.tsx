@@ -13,11 +13,13 @@ const options: ComboboxOption[] = [
 ];
 
 function SingleCombobox({
+  clearable,
   loading = false,
   loadingMessageVisible,
   options: availableOptions = options,
   searchable,
 }: {
+  clearable?: boolean;
   loading?: boolean;
   loadingMessageVisible?: boolean;
   options?: ComboboxOption[];
@@ -29,6 +31,7 @@ function SingleCombobox({
     <>
       <Combobox
         label="Deployment"
+        clearable={clearable}
         options={availableOptions}
         value={value}
         onValueChange={setValue}
@@ -188,6 +191,18 @@ describe("Combobox", () => {
     expect(screen.getByTestId("value")).toHaveTextContent("alpha-01");
     await user.click(screen.getByRole("button", { name: "Clear Deployment" }));
     expect(screen.getByTestId("value")).toHaveTextContent("none");
+  });
+
+  it("shows no clear button on a single combobox that is not clearable", async () => {
+    const user = setupUser();
+    render(<SingleCombobox clearable={false} />);
+
+    await user.click(screen.getByRole("combobox", { name: "Deployment" }));
+    await user.click(screen.getByRole("option", { name: /Alpha alpha-01/i }));
+
+    expect(screen.getByTestId("value")).toHaveTextContent("alpha-01");
+    expect(screen.queryByRole("button", { name: "Clear Deployment" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show Deployment options" })).toBeInTheDocument();
   });
 
   it("selects with the pointer and does not select disabled options", async () => {

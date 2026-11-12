@@ -45,6 +45,8 @@ type ComboboxSharedProps = {
 
 type SingleComboboxProps = ComboboxSharedProps & {
   multiple?: false;
+  /** Whether a clear button empties the value. On by default; off where a pick is always required. */
+  clearable?: boolean;
   /**
    * Whether typing filters the options. A short list reads better as a plain pick list, so callers
    * turn it off there; the field keeps its role and name and still opens on click and keyboard.
@@ -74,6 +76,7 @@ function Combobox(props: ComboboxProps) {
 function SingleCombobox({
   ariaInvalid,
   className,
+  clearable = true,
   description,
   disabled,
   errorDescriptionId,
@@ -121,7 +124,7 @@ function SingleCombobox({
             readOnly={!searchable}
             ref={inputRef}
           />
-          <ClearButton label={label} />
+          {clearable ? <ClearButton label={label} /> : null}
           <ComboboxPrimitive.Trigger
             aria-label={`Show ${label} options`}
             className="flex size-control-sm shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
