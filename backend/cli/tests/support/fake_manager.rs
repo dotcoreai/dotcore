@@ -47,10 +47,11 @@ use dotcore_proto::dotcore::{
         model_deployment_snapshot,
     },
     site::v1::{
-        ConfiguredExecutionTarget, ExecutionTargetWorkloadKind,
-        ListConfiguredExecutionTargetsRequest, ListConfiguredExecutionTargetsResponse,
-        ListHardwareSnapshotsRequest, ListHardwareSnapshotsResponse, ListMachinesRequest,
-        ListMachinesResponse,
+        ConfiguredExecutionTarget, ExecutionTargetWorkloadKind, GetConsoleSettingsRequest,
+        GetConsoleSettingsResponse, ListConfiguredExecutionTargetsRequest,
+        ListConfiguredExecutionTargetsResponse, ListHardwareSnapshotsRequest,
+        ListHardwareSnapshotsResponse, ListMachinesRequest, ListMachinesResponse,
+        UpdateConsoleSettingsRequest, UpdateConsoleSettingsResponse,
         site_service_server::{SiteService, SiteServiceServer},
     },
 };
@@ -769,6 +770,20 @@ impl SiteService for FakeSite {
         &self,
         _request: Request<ListHardwareSnapshotsRequest>,
     ) -> Result<Response<ListHardwareSnapshotsResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn get_console_settings(
+        &self,
+        _request: Request<GetConsoleSettingsRequest>,
+    ) -> Result<Response<GetConsoleSettingsResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn update_console_settings(
+        &self,
+        _request: Request<UpdateConsoleSettingsRequest>,
+    ) -> Result<Response<UpdateConsoleSettingsResponse>, Status> {
         Err(not_faked())
     }
 }

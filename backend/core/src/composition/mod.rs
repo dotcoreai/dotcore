@@ -375,6 +375,7 @@ where
         )?;
         let site_service = Arc::new(SiteService::new(
             Arc::new(inputs.site_repository.clone()),
+            Arc::new(inputs.site_repository.clone()),
             bound_node.node_id.clone(),
             manager_node_registry.clone(),
         ));

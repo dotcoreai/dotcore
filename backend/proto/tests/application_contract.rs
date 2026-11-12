@@ -437,6 +437,7 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "inference_routes",
             "hardware_observation",
             "model_deployment_identity_allocator",
+            "console_settings",
         ]
     );
     let deployment = descriptor_file(&descriptor, "dotcore/application/v1/deployment.proto");

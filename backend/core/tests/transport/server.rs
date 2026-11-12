@@ -57,17 +57,18 @@ use dotcore_proto::{
             RuntimeObservation, accelerator_observation, host_observation, runtime_observation,
         },
         site::v1::{
-            CurrentHardwareSnapshotAvailability, HardwareRefreshState,
-            ListHardwareSnapshotsResponse, ListMachinesResponse, Machine, MachineHardwareSnapshot,
-            NodeObservationFreshness, NodeObservationState, Site, SiteNode,
-            current_hardware_snapshot_availability, hardware_refresh_state,
+            ConsoleSettings, CurrentHardwareSnapshotAvailability, GetConsoleSettingsResponse,
+            HardwareRefreshState, ListHardwareSnapshotsResponse, ListMachinesResponse, Machine,
+            MachineHardwareSnapshot, NodeObservationFreshness, NodeObservationState, Site,
+            SiteNode, UpdateConsoleSettingsRequest, current_hardware_snapshot_availability,
+            hardware_refresh_state, site_service_client::SiteServiceClient,
         },
         watch::v1::{
             KeyedResource, ResourceSubscription, WatchResourcesRequest, WatchResourcesResponse,
             keyed_resource::Payload, resource_subscription, watch_resources_response,
         },
     },
-    google::protobuf::{Empty, Timestamp},
+    google::protobuf::{Empty, FieldMask, Timestamp},
 };
 use dotcore_runtime_backends::simulated::{
     SimulatedRuntimeCallCounts, SimulatedRuntimeTestSupport,
@@ -1437,6 +1438,10 @@ async fn manager_backend_server_streams_resource_watches() {
                 "routes",
                 resource_subscription::Kind::Routes(Default::default()),
             ),
+            subscription(
+                "console",
+                resource_subscription::Kind::ConsoleSettings(Default::default()),
+            ),
         ],
     };
     let mut watch = GrpcWebStream::open(
@@ -1465,7 +1470,7 @@ async fn manager_backend_server_streams_resource_watches() {
     // The first round is read on open, before any tick.
     assert_eq!(first_tick, 0);
     first_round.sort_by(|left, right| left.key.cmp(&right.key));
-    let [models_round, routes_round] = first_round.as_slice() else {
+    let [console_round, models_round, routes_round] = first_round.as_slice() else {
         panic!("one payload per key in the first round: {first_round:?}");
     };
     assert_eq!(models_round.key, "models");
@@ -1483,6 +1488,15 @@ async fn manager_backend_server_streams_resource_watches() {
         &KeyedResource {
             key: "routes".to_owned(),
             payload: Some(Payload::Routes(Default::default())),
+        }
+    );
+    assert_eq!(
+        console_round,
+        &KeyedResource {
+            key: "console".to_owned(),
+            payload: Some(Payload::ConsoleSettings(GetConsoleSettingsResponse {
+                settings: Some(ConsoleSettings::default()),
+            })),
         }
     );
 
@@ -1514,6 +1528,44 @@ async fn manager_backend_server_streams_resource_watches() {
         "update tick {update} follows {first_tick}"
     );
 
+    // A console settings update reaches the watch as the accepted settings.
+    let hidden = ConsoleSettings {
+        get_started_hidden: true,
+    };
+    let accepted = SiteServiceClient::connect(format!("http://{address}"))
+        .await
+        .expect("site API connection")
+        .update_console_settings(UpdateConsoleSettingsRequest {
+            settings: Some(hidden),
+            update_mask: Some(FieldMask {
+                paths: vec!["get_started_hidden".to_owned()],
+            }),
+        })
+        .await
+        .expect("update console settings")
+        .into_inner();
+    assert_eq!(accepted.settings, Some(hidden));
+    let console_update = loop {
+        let response = next_resource_event(&mut watch, &clock).await;
+        let Some(watch_resources_response::Event::Resource(resource)) = response.event else {
+            panic!("a console settings update follows: {response:?}");
+        };
+        assert_ne!(resource.key, "routes", "routes are unchanged");
+        if resource.key == "console" {
+            assert_eq!(
+                resource.payload,
+                Some(Payload::ConsoleSettings(GetConsoleSettingsResponse {
+                    settings: Some(hidden),
+                }))
+            );
+            break response.tick_sequence;
+        }
+    };
+    assert!(
+        console_update > update,
+        "console update tick {console_update} follows {update}"
+    );
+
     // An idle stream heartbeats once fifteen seconds pass without an event.
     clock.advance(Duration::from_secs(15));
     let heartbeat = loop {
@@ -1523,7 +1575,7 @@ async fn manager_backend_server_streams_resource_watches() {
         }
     };
     assert_eq!(heartbeat.manager_session_id, session_id);
-    assert!(heartbeat.tick_sequence >= update);
+    assert!(heartbeat.tick_sequence >= console_update);
 
     drop(watch);
     shutdown.send(()).expect("server shutdown");
