@@ -37,6 +37,13 @@ flowchart TB
   W -->|"inference base URL"| R["Linked inference route"]
 ```
 
+- The apps controller owns app deployments: intent, placement, lifecycle, readiness and exposure
+  policy.
+- The app proxy enforces access policy and forwards allowed traffic to ready workloads.
+- The identity and access manager decides who may reach an app ([access](access.md)).
+- The hosting node runs the app's workload through its runtime backend and reports its status
+  ([sites](sites.md), [runtime](runtime.md)).
+
 ### Reaching an app
 
 ```mermaid

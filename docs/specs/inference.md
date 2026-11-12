@@ -39,6 +39,12 @@ flowchart TB
   R -->|"request metrics"| OBS["Observability"]
 ```
 
+- The route manager owns routes: identity, callable names, membership, routing policy and
+  availability. It stays off the live request path.
+- The inference router carries live requests from the inference API. It applies the route policy to
+  the eligible targets, dispatches to a node-hosted or upstream target, and records request metrics.
+- The inference controller publishes the deployments a route can use ([models](models.md)).
+
 ### Serving a request
 
 ```mermaid

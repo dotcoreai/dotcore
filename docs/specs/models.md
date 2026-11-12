@@ -45,6 +45,14 @@ flowchart TB
   IC -->|"upstream verification"| UP["Upstream endpoint"]
 ```
 
+- The inference controller owns model deployments, from intent to serving eligibility.
+- The capacity component judges whether a configuration fits and previews its memory use. Nothing
+  reserves capacity ([machines](machines.md)).
+- The hosting node runs a deployment and reports its status, readiness and attributed memory
+  ([sites](sites.md), [runtime](runtime.md)).
+- The controller publishes serving eligibility to the route manager and eligible targets to the
+  inference router ([inference](inference.md)).
+
 ### Resolving a deployment
 
 ```mermaid

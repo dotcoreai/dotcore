@@ -52,6 +52,14 @@ flowchart TB
   IC["Inference controller, development tooling"] -->|"telemetry sink"| TS
 ```
 
+- The artifact manager verifies, stores and transfers artifacts, and keeps their caches and Nix
+  roots on each node.
+- The site store keeps the owners' records, each owner in its own repository.
+- The node store keeps each node's realization state ([runtime](runtime.md)).
+- Observability collects and retains metrics, logs, traces and diagnostics. The site-wide metric
+  store lives with the site manager.
+- The backups manager owns backup sets. The components it protects stay authoritative.
+
 ### Preparing an artifact
 
 ```mermaid

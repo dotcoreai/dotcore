@@ -42,6 +42,14 @@ flowchart TB
   RES -->|"sizing estimates"| CAP
 ```
 
+- The artifact manager owns the immutable catalog declarations of the master, site and development
+  catalogs ([storage](storage.md)).
+- Engine adapters validate each engine's payloads. The artifact manager never interprets them
+  ([runtime](runtime.md)).
+- Model deployment resolution builds a deployment's configuration from the declarations and sends
+  sizing estimates to the capacity component ([models](models.md), [machines](machines.md)).
+- Apps take their service graphs from the declarations ([apps](apps.md)).
+
 ```mermaid
 flowchart LR
   M["Model"] --> C["Model-local engine configuration"]

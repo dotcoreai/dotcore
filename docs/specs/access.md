@@ -27,6 +27,15 @@ flowchart LR
   CC["Cloud connector"] <-->|"remote management"| DS["Dotcore services"]
 ```
 
+- The identity and access manager owns identities, roles, sessions and access policy. It gives the
+  entry points and the app proxy their authentication and authorization decisions.
+- The metering and entitlement manager owns local entitlement policy and usage and request
+  accounting. Serving and enforcement consume its decisions.
+- The cloud connector provides controlled remote-management connectivity to Dotcore's services. It
+  owns no product state and never overrides local owners.
+- The site manager, as the site's authority, issues a joining node's identity
+  ([sites](sites.md)).
+
 ### Joining a node
 
 ```mermaid
