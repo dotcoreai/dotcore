@@ -31,7 +31,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { useGetStartedDismissed } from "@/hooks/use-get-started-dismissed";
+import { useGetStartedHidden } from "@/features/get-started/use-get-started-hidden";
 import { timing } from "@/lib/timing";
 import { usePanelNavigationPending } from "@/panels/panel-navigation-pending";
 
@@ -102,9 +102,11 @@ export function ConsoleSidebar({
   onChatToggle?: () => void;
 } = {}) {
   const { pathname } = useLocation();
-  const [getStartedDismissed] = useGetStartedDismissed();
+  const { hidden: getStartedHidden } = useGetStartedHidden();
+  // Until the site's settings load the item stays out: a site that hid it never sees it flash.
   const navItems =
-    items ?? primaryNavItems.filter((item) => !(getStartedDismissed && item === getStartedNavItem));
+    items ??
+    primaryNavItems.filter((item) => !(getStartedHidden !== false && item === getStartedNavItem));
   const { state } = useSidebar();
   const { hovering, onPointerEnter, onPointerLeave, suppressHover } = useHoverPeek();
   const { focusWithin, onBlur, onFocus, onKeyDown, onPointerDown, suppressFocus } =

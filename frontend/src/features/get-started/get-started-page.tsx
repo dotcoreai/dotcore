@@ -14,7 +14,6 @@ import type { LocalDeploymentValues } from "@/features/models/deploy/model-deplo
 import { useSharedModelsPolling } from "@/features/models/polling/models-polling-context";
 import { UseCase } from "@/gen/dotcore/catalog/v1/recommendation_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
-import { useGetStartedDismissed } from "@/hooks/use-get-started-dismissed";
 import { useWatchedModelDeployments } from "@/resource-watch/resource-watch";
 
 import { CustomizeModelDialog } from "./customize-model-dialog";
@@ -27,16 +26,17 @@ import { ProposalCard } from "./proposal-card";
 import { UseCaseCards } from "./use-case-cards";
 import { useGetStartedData } from "./use-get-started-data";
 import { useGetStartedDeploy } from "./use-get-started-deploy";
+import { useGetStartedHidden } from "./use-get-started-hidden";
 import { useProposalMemory } from "./use-proposal-memory";
 
 /**
  * The Get started page: a guided path from the site's machines to a running model and app. The
- * operator picks a use case, reviews its proposal and deploys it. Dismissing the page hides its
- * sidebar item until the profile menu reopens it.
+ * operator picks a use case, reviews its proposal and deploys it. Dismissing the page, or showing
+ * a ready step, hides its sidebar item for the site until the profile menu reopens it.
  */
 export function GetStartedPage() {
   const navigate = useNavigate();
-  const [, setDismissed] = useGetStartedDismissed();
+  const { error: hiddenError, hideOnce, setHidden } = useGetStartedHidden();
   const { applicationClient, modelClient, siteClient } = useClients();
   const data = useGetStartedData({ applicationClient, modelClient });
   const deployer = useGetStartedDeploy({ applicationClient, modelClient });
@@ -168,8 +168,9 @@ export function GetStartedPage() {
         <PageActions>
           <Button
             onClick={() => {
-              setDismissed(true);
-              void navigate("/overview");
+              void setHidden(true).then((saved) => {
+                if (saved) void navigate("/overview");
+              });
             }}
             size="console"
             type="button"
@@ -180,6 +181,7 @@ export function GetStartedPage() {
           </Button>
         </PageActions>
       </PageHeader>
+      {hiddenError ? <Notice tone="destructive">{hiddenError}</Notice> : null}
       {data.error ? <Notice tone="destructive">{data.error}</Notice> : null}
       {data.loading && loadingVisible && !data.error ? (
         <p className="text-sm text-muted-foreground" role="status">
@@ -195,6 +197,7 @@ export function GetStartedPage() {
             machines={data.machines}
             modelClient={modelClient}
             onBack={back}
+            onReady={hideOnce}
             useCase={useCase}
           />
         ) : proposal ? (

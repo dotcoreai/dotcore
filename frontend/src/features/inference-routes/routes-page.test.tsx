@@ -75,6 +75,7 @@ import { productionTiming, setTiming } from "@/lib/timing";
 import { PanelLink } from "@/panels/panel-navigation";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { rejectConsoleSettingsUpdate } from "@/test/fake-site-client";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { chooseMoreAction, moreActionNames, waitForInspectorFocus } from "@/test/inspector-actions";
 import { clientsWrapper, testClients } from "@/test/render-with-clients";
@@ -270,6 +271,7 @@ function renderConsoleAt(
 
 /** A site with no machines or execution targets. */
 const emptySiteClient: SiteClient = {
+  updateConsoleSettings: rejectConsoleSettingsUpdate,
   listConfiguredExecutionTargets: () =>
     Promise.resolve(create(ListConfiguredExecutionTargetsResponseSchema)),
 };

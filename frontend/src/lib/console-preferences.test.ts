@@ -14,17 +14,14 @@ import {
   MAX_LATENCY_MS,
   readColorScheme,
   readDeveloperSettings,
-  readGetStartedDismissed,
   readMemoryView,
   readSidebarCollapsed,
   subscribeToColorScheme,
   subscribeToDeveloperSettings,
-  subscribeToGetStartedDismissed,
   subscribeToMemoryView,
   subscribeToSidebarCollapsed,
   writeColorScheme,
   writeDeveloperSettings,
-  writeGetStartedDismissed,
   writeMemoryView,
   writeSidebarCollapsed,
 } from "@/lib/console-preferences";
@@ -417,45 +414,6 @@ describe("Console preferences", () => {
       );
       expect(subscriber).toHaveBeenCalledTimes(1);
     });
-  });
-});
-
-describe("Get started dismissed preference", () => {
-  it("reads as shown by default and as dismissed once written, keeping sibling fields", () => {
-    const storage = new MapStorage();
-    expect(readGetStartedDismissed(storage)).toBe(false);
-
-    writeSidebarCollapsed(storage, true);
-    writeGetStartedDismissed(storage, true);
-    expect(readGetStartedDismissed(storage)).toBe(true);
-    expect(readSidebarCollapsed(storage)).toBe(true);
-
-    writeGetStartedDismissed(storage, false);
-    expect(readGetStartedDismissed(storage)).toBe(false);
-    expect(readSidebarCollapsed(storage)).toBe(true);
-  });
-
-  it("notifies same-tab writes and other-tab storage events, and stops after unsubscribe", () => {
-    const storage = new MapStorage();
-    const eventTarget = new EventTarget();
-    const subscriber = vi.fn();
-    const unsubscribe = subscribeToGetStartedDismissed(eventTarget, storage, subscriber);
-
-    writeGetStartedDismissed(storage, true);
-    expect(subscriber).toHaveBeenLastCalledWith(true);
-
-    eventTarget.dispatchEvent(
-      new StorageEvent("storage", {
-        key: CONSOLE_PREFERENCES_STORAGE_KEY,
-        newValue: encodeBytes(toBinary(ConsolePreferencesSchema, create(ConsolePreferencesSchema))),
-      }),
-    );
-    expect(subscriber).toHaveBeenLastCalledWith(false);
-    expect(subscriber).toHaveBeenCalledTimes(2);
-
-    unsubscribe();
-    writeGetStartedDismissed(storage, true);
-    expect(subscriber).toHaveBeenCalledTimes(2);
   });
 });
 

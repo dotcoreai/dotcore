@@ -61,6 +61,11 @@ export function useWatchedNodeMemory(options?: WatchOptions) {
   return useWatchedResource("nodeMemory", options);
 }
 
+/** The site-wide console settings, watched while mounted and `enabled`. */
+export function useWatchedConsoleSettings(options?: WatchOptions) {
+  return useWatchedResource("consoleSettings", options);
+}
+
 /** Inference routes, watched while mounted and `enabled`. */
 export function useWatchedRoutes(options?: WatchOptions) {
   return useWatchedResource("routes", options);

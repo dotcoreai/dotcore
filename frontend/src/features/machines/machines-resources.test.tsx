@@ -34,6 +34,7 @@ import {
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
 import { hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
+import { rejectConsoleSettingsUpdate } from "@/test/fake-site-client";
 import { expectResourceMarker } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
 import { getResourceColor } from "@/theme/resource-color";
@@ -391,6 +392,7 @@ function renderPage(
   read: Promise<void> = Promise.resolve(),
 ) {
   const client: MachinesSite = {
+    updateConsoleSettings: rejectConsoleSettingsUpdate,
     listConfiguredExecutionTargets: vi.fn(() =>
       Promise.resolve(create(ListConfiguredExecutionTargetsResponseSchema)),
     ),

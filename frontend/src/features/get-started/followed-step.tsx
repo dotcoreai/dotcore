@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { ApplicationClient } from "@/api/application-client";
 import type { ModelClient } from "@/api/model-client";
@@ -30,6 +30,7 @@ export function FollowedStep({
   machines,
   modelClient,
   onBack,
+  onReady,
   useCase,
 }: {
   applicationClient: ApplicationClient;
@@ -38,6 +39,8 @@ export function FollowedStep({
   modelClient: ModelClient;
   /** Returns to the use case's proposal. */
   onBack: () => void;
+  /** Called while the ready step shows, and again when the callback changes. */
+  onReady: () => void;
   useCase: UseCase;
 }) {
   const modelId = deployments.model?.id;
@@ -75,7 +78,12 @@ export function FollowedStep({
       deploymentStatus(modelDeployment) === ModelDeploymentStatus.READY);
   const applicationReady = !deployments.application || isApplicationReady(applicationDeployment);
 
-  if (modelReady && applicationReady) {
+  const ready = modelReady && applicationReady;
+  useEffect(() => {
+    if (ready) onReady();
+  }, [onReady, ready]);
+
+  if (ready) {
     return (
       <ReadyStep
         applicationDeployment={applicationDeployment}
