@@ -137,6 +137,9 @@ What an application deployment keeps from creation:
 - Own app configuration resolution and endpoint projection, including the site inference base URL
   and optional route links.
 - Own typed app parameter resolution.
+- Answer an advisory read of the application targets that can run an app now, best first: targets
+  with the app already running or starting, then targets matching its preferred accelerators. It
+  never changes admission or placement; a deployment still names its exact target.
 - Keep the target's GPU set in the snapshot at creation and pass that whole set to every unit at
   each launch.
 - Before compiling any launch, recheck the kept GPU set against the target's current configured

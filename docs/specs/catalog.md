@@ -161,8 +161,10 @@ minimums.
 
 - Only the master catalog declares recommendations. Site and development catalogs can't add or
   replace them.
-- Validation keeps each entry runnable on its class and serving its use case's request kind, and
-  keeps the classes that declare lists disjoint or nested.
+- An entry may set its own context per request, within the model's minimum and maximum context.
+  Recommendations size every entry with it.
+- Validation keeps each entry runnable on its class and accepting chat requests, and keeps the
+  classes that declare lists disjoint or nested.
 - A site turns them into advisory recommendations per use case
   ([models](models.md#advisory-reads)).
 
@@ -170,6 +172,9 @@ minimums.
 
 - Carries the app's portable artifact, configuration, storage, secret, dependency, readiness and
   endpoint requirements, and its typed deployment parameters, shown as basic or advanced.
+- May name the use cases it serves (at most one master-catalog app per use case) and the
+  accelerator vendors it prefers. Both are recommendation and display metadata, with no admission,
+  placement or fit authority. Site and development catalogs can't claim a use case.
 - Engine releases and apps declare the storage they need. Deployments keep that declaration
   ([runtime](runtime.md)).
 
@@ -193,7 +198,7 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 
 - Catalog declarations are immutable. Deployments keep what they resolved
   ([models](models.md#deployment-snapshot)).
-- Scores, licences and recommendations never affect admission, placement or fit.
+- Scores, licences, app use cases, preferred accelerators and recommendations never affect admission, placement or fit.
 
 ## Future direction
 
