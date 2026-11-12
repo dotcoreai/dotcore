@@ -31,7 +31,7 @@ base64 = "0.22.1"
 clap = { version = "4.5.53", features = ["derive", "env"] }
 fs4 = "0.13.1"
 futures-util = "0.3.31"
-getrandom = "0.3.4"
+getrandom = "0.4.3"
 libc = "0.2.189"
 pbjson = "0.8.0"
 prost = "0.14.4"
