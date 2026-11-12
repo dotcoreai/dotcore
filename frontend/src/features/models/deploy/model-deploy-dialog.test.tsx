@@ -46,8 +46,8 @@ import {
   EngineArtifactReferenceSchema,
   EngineReleaseSchema,
 } from "@/gen/dotcore/catalog/v1/engine_release_pb";
-import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
-import { ParameterValueSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { ModelSchema, type ParameterVisibilityOverride } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterValueSchema, ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
 import {
@@ -238,6 +238,30 @@ describe("ModelDeployDialog", () => {
       await waitFor(() =>
         expect(screen.getByRole("heading", { level: 2, name: "Deploy" })).toHaveFocus(),
       );
+    });
+
+    it("follows the profile's visibility overrides on the Context and Runtime steps", async () => {
+      const user = setupUser();
+      const overridden = clone(ModelSchema, multiParameterModel);
+      overridden.profiles[0].engineParameterVisibilityOverrides = [
+        { parameterId: "total-context", visibility: ParameterVisibility.HIDDEN },
+        { parameterId: "parallel-requests", visibility: ParameterVisibility.ADVANCED },
+        { parameterId: "enable-prefix-caching", visibility: ParameterVisibility.HIDDEN },
+      ] as ParameterVisibilityOverride[];
+      renderDialog({ engineReleases: multiParameterReleases, model: overridden });
+
+      await screen.findByText("Step 1 of 3 — Profile");
+      await enableAdvanced(user);
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+      expect(screen.getByText("This profile sets its context itself.")).toBeVisible();
+      expect(screen.queryByText("Total context")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+      expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("4");
+      expect(screen.queryByText(/Other parameters/)).not.toBeInTheDocument();
     });
 
     it("reveals invalid parallel requests with Advanced instead of deploying", async () => {

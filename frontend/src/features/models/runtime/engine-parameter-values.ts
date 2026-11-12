@@ -93,18 +93,25 @@ export function maximumContext(
   return known.length ? Math.min(...known) : undefined;
 }
 
+/**
+ * The engine parameters the deploy dialog shows for `profile`, in schema order: each parameter's
+ * visibility is the engine's unless the profile overrides it, and hidden ones are left out.
+ */
 export function effectiveEngineParameters(
   release: EngineRelease | undefined,
   profile: ModelProfile | undefined,
 ): ParameterDefinition[] {
-  const parameters = release?.parameterSchema?.parameters ?? [];
-  if (!profile?.exposedParameterIds.length)
-    return parameters.filter((parameter) => parameter.visibility !== ParameterVisibility.HIDDEN);
+  const overrides = new Map(
+    (profile?.engineParameterVisibilityOverrides ?? []).map((override) => [
+      override.parameterId,
+      override.visibility,
+    ]),
+  );
 
-  return profile.exposedParameterIds.flatMap((parameterId) => {
-    const parameter = parameters.find((candidate) => candidate.parameterId === parameterId);
-    return parameter ? [parameter] : [];
-  });
+  return (release?.parameterSchema?.parameters ?? []).filter(
+    (parameter) =>
+      (overrides.get(parameter.parameterId) ?? parameter.visibility) !== ParameterVisibility.HIDDEN,
+  );
 }
 
 /**
