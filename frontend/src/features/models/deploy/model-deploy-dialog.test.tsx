@@ -1489,7 +1489,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
       expect(route).toHaveAttribute("aria-invalid", "true");
       expect(route).toHaveAccessibleDescription(
-        'An inference route named "test-model" already exists. Change the route or the deployment name. Follows the deployment name.',
+        'An inference route named "test-model" already exists. Change the route or the deployment name.',
       );
 
       await user.type(screen.getByRole("textbox", { name: "Deployment name" }), " 2");
@@ -1521,9 +1521,7 @@ describe("ModelDeployDialog", () => {
       await user.clear(route);
       await user.type(route, "taken");
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
-      expect(route).toHaveAccessibleDescription(
-        'An inference route named "taken" already exists. Custom route name. Use deployment name',
-      );
+      expect(route).toHaveAccessibleDescription('An inference route named "taken" already exists.');
     });
 
     it("shows a backend route conflict on the route field until the route changes", async () => {
@@ -1535,7 +1533,7 @@ describe("ModelDeployDialog", () => {
       const route = screen.getByRole("textbox", { name: "Route name" });
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
       expect(route).toHaveAccessibleDescription(
-        'An inference route named "test-model" already exists. Change the route or the deployment name. Follows the deployment name.',
+        'An inference route named "test-model" already exists. Change the route or the deployment name.',
       );
 
       await user.clear(route);
@@ -1608,13 +1606,19 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
       expect(screen.getByRole("radio", { name: "Hidden" })).toBeChecked();
       expect(route).toBeDisabled();
-      expect(screen.queryByText("Follows the deployment name.")).not.toBeInTheDocument();
-      expect(route).not.toHaveAccessibleDescription();
+      expect(screen.queryByRole("button", { name: "Follow the deployment name" })).toBeNull();
+      expect(route).toHaveAccessibleDescription(
+        "Hidden: no route of its own. Reachable only through other routes.",
+      );
 
       await user.click(screen.getByRole("radio", { name: "Direct" }));
       expect(screen.queryByRole("radio", { name: "Hidden" })).not.toBeInTheDocument();
+      expect(route).not.toHaveAccessibleDescription();
       expect(route).toBeEnabled();
-      expect(route).toHaveAccessibleDescription("Follows the deployment name.");
+      expect(screen.getByRole("button", { name: "Follow the deployment name" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
     });
 
     it("follows the deployment name until edited, then keeps the custom value", async () => {
@@ -1623,7 +1627,10 @@ describe("ModelDeployDialog", () => {
 
       expect(route).toHaveValue("test-model");
       expect(route).toHaveClass("text-muted-foreground");
-      expect(route).toHaveAccessibleDescription("Follows the deployment name.");
+      expect(screen.getByRole("button", { name: "Follow the deployment name" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
 
       const name = screen.getByRole("textbox", { name: "Deployment name" });
       await user.clear(name);
@@ -1633,27 +1640,48 @@ describe("ModelDeployDialog", () => {
       await user.clear(route);
       await user.type(route, "support");
       expect(route).not.toHaveClass("text-muted-foreground");
-      expect(route).toHaveAccessibleDescription("Custom route name. Use deployment name");
+      expect(screen.getByRole("button", { name: "Follow the deployment name" })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
 
       await user.type(name, " v2");
       expect(route).toHaveValue("support");
     });
 
-    it("returns to following with the link and when emptied on blur", async () => {
+    it("returns to following with the toggle and when emptied on blur", async () => {
       const user = await openDeploy();
       const route = screen.getByRole("textbox", { name: "Route name" });
+      const toggle = screen.getByRole("button", { name: "Follow the deployment name" });
 
       await user.clear(route);
       await user.type(route, "support");
-      await user.click(screen.getByRole("button", { name: "Use deployment name" }));
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      await user.click(toggle);
       expect(route).toHaveValue("test-model");
-      expect(screen.getByText("Follows the deployment name.")).toBeVisible();
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
 
       await user.clear(route);
       expect(route).toHaveValue("");
       await user.tab();
       expect(route).toHaveValue("test-model");
-      expect(screen.getByText("Follows the deployment name.")).toBeVisible();
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+    });
+
+    it("keeps the shown name as a custom value and focuses the input when unlinked", async () => {
+      const user = await openDeploy();
+      const route = screen.getByRole("textbox", { name: "Route name" });
+      const toggle = screen.getByRole("button", { name: "Follow the deployment name" });
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+      await user.click(toggle);
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(route).toHaveValue("test-model");
+      expect(route).not.toHaveClass("text-muted-foreground");
+      expect(route).toHaveFocus();
+
+      await user.type(screen.getByRole("textbox", { name: "Deployment name" }), " v2");
+      expect(route).toHaveValue("test-model");
     });
 
     it("flags the route name on blur only after it changes", async () => {
@@ -1669,11 +1697,11 @@ describe("ModelDeployDialog", () => {
       await user.tab();
       expect(route).toHaveAttribute("aria-invalid", "true");
       expect(route).toHaveAccessibleDescription(
-        "Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods. Custom route name. Use deployment name",
+        "Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods.",
       );
     });
 
-    it("shows the exposure choice above the route name in advanced mode", async () => {
+    it("shows the exposure choice in the route name label row in advanced mode", async () => {
       const user = setupUser();
       renderDialog();
       await screen.findByText("Step 1 of 3 — Profile");
@@ -1681,10 +1709,18 @@ describe("ModelDeployDialog", () => {
       for (let step = 0; step < 4; step += 1)
         await user.click(screen.getByRole("button", { name: "Next" }));
 
-      const direct = screen.getByRole("radio", { name: "Direct" });
       const route = screen.getByRole("textbox", { name: "Route name" });
-      expect(direct).toBeChecked();
-      expect(direct.compareDocumentPosition(route) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const labelRow = screen.getByText("Route name").parentElement!;
+      const group = within(labelRow).getByRole("radiogroup", { name: "Exposure" });
+      expect(within(group).getByRole("radio", { name: "Direct" })).toBeChecked();
+      expect(within(group).getByRole("radio", { name: "Hidden" })).not.toBeChecked();
+      expect(
+        within(labelRow).getByRole("button", { name: "Follow the deployment name" }),
+      ).toBeVisible();
+      expect(screen.queryByText("Exposure")).not.toBeInTheDocument();
+      expect(
+        labelRow.compareDocumentPosition(route) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
     });
 
     it("disables the route name and clears its error while the deployment is hidden", async () => {
