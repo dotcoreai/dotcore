@@ -11,7 +11,7 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Context memory the server holds from the start and shares among the requests it generates at once. Requests that start with the same prompt share its memory instead of holding their own copy. When it fills, the server first moves cached prompts to host memory, then pauses the newest requests until memory frees up."
+      description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. Raise it to serve longer or more simultaneous conversations; when it fills, cached prompts move to host memory, then the newest requests pause."
       unsignedInteger:
         minimum: "1024"
         maximum: "2097152"
@@ -20,7 +20,7 @@ parameterSchema:
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the memory of a matching prompt start, from a running request, an idle conversation or the host context."
+      description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
       unsignedInteger:
         minimum: "1024"
         maximum: "262144"
@@ -28,7 +28,7 @@ parameterSchema:
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Requests the server generates at the same time; further requests wait in a queue, and the server refuses new ones once the queue is full. Each added request also adds its own state on the accelerator."
+      description: "Requests generated at once; more wait in a queue, and new ones are refused when the queue is full. Each added request uses some extra accelerator memory, so raise it only when several callers use the model together."
       unsignedInteger:
         minimum: "1"
         maximum: "8"
@@ -37,7 +37,7 @@ parameterSchema:
     - parameterId: "host-context-mib"
       displayName: "Host context memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off."
+      description: "Host memory that keeps idle conversations and paused requests so they resume without processing their prompt again. Raise it for many long conversations that come back; 0 turns it off."
       unsignedInteger:
         minimum: "0"
         maximum: "1048576"

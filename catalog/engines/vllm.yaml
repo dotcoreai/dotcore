@@ -11,7 +11,7 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Context memory the server holds from the start and shares among the requests it generates at once. Requests that start with the same prompt share its memory instead of holding their own copy. When it fills, the server pauses the newest requests and processes them again once memory frees up."
+      description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. Raise it to serve longer or more simultaneous conversations; when it fills, the newest requests pause and are processed again once memory frees up."
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
@@ -20,7 +20,7 @@ parameterSchema:
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the memory of a matching prompt start, from a running request, a finished one still held in the total context, or the KV offloading memory."
+      description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
       unsignedInteger:
         minimum: "1024"
         maximum: "1048576"
@@ -28,7 +28,7 @@ parameterSchema:
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Requests the server generates at the same time; further requests wait in a queue. They share the total context, and each one also holds model state of its own, so every added request adds memory."
+      description: "Requests generated at once; more wait in a queue. Each one also holds model state of its own, so every added request uses more memory; raise it when several callers use the model together."
       unsignedInteger:
         minimum: "1"
         maximum: "1024"
@@ -37,7 +37,7 @@ parameterSchema:
     - parameterId: "maximum-batched-tokens"
       displayName: "Maximum batched tokens"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
-      description: "Maximum tokens processed across one scheduled batch."
+      description: "Most tokens processed in one step across all requests. Higher values read long prompts faster but use more memory; lower them if the model runs out of memory while reading prompts."
       unsignedInteger:
         minimum: "1"
         maximum: "1048576"
@@ -45,7 +45,7 @@ parameterSchema:
     - parameterId: "maximum-cudagraph-capture-size"
       displayName: "Maximum CUDA graph capture size"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
-      description: "Largest sequence batch captured in a CUDA graph."
+      description: "Largest group of requests whose GPU work is recorded ahead of time for faster generation. Lower it to save a little memory and start-up time if you never run that many requests at once."
       unsignedInteger:
         minimum: "1"
         maximum: "1024"
@@ -53,7 +53,7 @@ parameterSchema:
     - parameterId: "kv-cache-memory-bytes"
       displayName: "KV cache memory"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
-      description: "Accelerator memory reserved for the total context, in bytes."
+      description: "Accelerator memory set aside for the total context. The model's sizing sets it from the total context, so change it only to override that estimate."
       unsignedInteger:
         minimum: "1"
         maximum: "1099511627776"
@@ -61,7 +61,7 @@ parameterSchema:
     - parameterId: "kv-offloading-size-gib"
       displayName: "KV offloading size"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Host memory where context evicted from the total context is kept, so a later request with the same prompt start reuses it instead of processing it again, in GiB. 0 turns it off."
+      description: "Host memory that keeps context evicted from the total context, so a later request with the same prompt start reuses it instead of processing it again. Raise it for long prompts that repeat; 0 turns it off."
       unsignedInteger:
         minimum: "0"
         maximum: "1024"
