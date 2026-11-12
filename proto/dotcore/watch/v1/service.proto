@@ -75,6 +75,9 @@ message ResourceSubscription {
 
     // Every site node's memory pools with what occupies them, as ListNodeMemory answers.
     dotcore.capacity.v1.ListNodeMemoryRequest node_memory = 8;
+
+    // Site-wide console settings, as GetConsoleSettings answers.
+    dotcore.site.v1.GetConsoleSettingsRequest console_settings = 9;
   }
 }
 
@@ -106,5 +109,8 @@ message KeyedResource {
 
     // Every site node's memory pools with what occupies them.
     dotcore.capacity.v1.ListNodeMemoryResponse node_memory = 8;
+
+    // Site-wide console settings.
+    dotcore.site.v1.GetConsoleSettingsResponse console_settings = 9;
   }
 }
