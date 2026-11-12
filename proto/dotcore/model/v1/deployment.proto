@@ -8,6 +8,7 @@ import "dotcore/catalog/v1/hardware_class.proto";
 import "dotcore/catalog/v1/model.proto";
 import "dotcore/catalog/v1/model_capabilities.proto";
 import "dotcore/catalog/v1/oci.proto";
+import "dotcore/catalog/v1/parameter.proto";
 import "dotcore/catalog/v1/selector.proto";
 import "dotcore/catalog/v1/storage.proto";
 import "dotcore/catalog/v1/upstream_model_template.proto";
@@ -153,7 +154,7 @@ message ResolvedLocalModelDeploymentSnapshot {
   repeated dotcore.catalog.v1.InferenceRequestKind request_kinds = 22;
 
   // Complete exact resolved typed engine parameter values.
-  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 13;
+  dotcore.catalog.v1.ParameterValues engine_parameter_values = 13;
 
   // Engine parameter schema identity used for resolution.
   string engine_parameter_schema_id = 14;
