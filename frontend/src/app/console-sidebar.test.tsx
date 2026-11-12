@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConsoleLayout } from "@/app/console-layout";
 import { productionTiming, setTiming } from "@/lib/timing";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { FakeConsoleSettings } from "@/test/fake-console-settings";
 import { useFakeTimersWithWaits } from "@/test/fake-timers";
 import { renderWithClients } from "@/test/render-with-clients";
 import { setupUser } from "@/test/user";
@@ -67,6 +68,7 @@ function renderNavigation(initialEntry = "/models", pending = false) {
     >
       <RouterProvider router={router} />
     </ThemeProvider>,
+    { resourceWatchClient: new FakeConsoleSettings().resourceWatchClient() },
   );
 
   return router;
@@ -99,9 +101,10 @@ async function openMobileNavigation(user: UserEvent) {
 }
 
 describe("ConsoleSidebar primary destinations", () => {
-  it("groups the Models and Catalog links under Models, followed by Routes", () => {
+  it("groups the Models and Catalog links under Models, followed by Routes", async () => {
     setViewportWidth(1280);
     renderNavigation();
+    await screen.findByRole("link", { name: "Get started" });
 
     const group = screen.getByRole("button", { name: "Models" });
     const groupRow = group.closest('[data-slot="sidebar-menu-item"]')!;

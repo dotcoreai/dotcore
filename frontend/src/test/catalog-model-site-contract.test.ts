@@ -193,6 +193,8 @@ describe("separate catalog and model read contracts", () => {
       "ListMachines",
       "ListConfiguredExecutionTargets",
       "ListHardwareSnapshots",
+      "GetConsoleSettings",
+      "UpdateConsoleSettings",
     ]);
     expect(file_dotcore_site_v1_service.messages.map(({ name }) => name)).toEqual([
       "ListMachinesRequest",
@@ -209,6 +211,10 @@ describe("separate catalog and model read contracts", () => {
       "Machine",
       "NodeObservationFreshness",
       "CurrentHardwareSnapshotAvailability",
+      "GetConsoleSettingsRequest",
+      "GetConsoleSettingsResponse",
+      "UpdateConsoleSettingsRequest",
+      "UpdateConsoleSettingsResponse",
     ]);
     expect(file_dotcore_site_v1_service.enums.map(({ name }) => name)).toEqual([
       "AcceleratorResolutionStatus",
@@ -383,6 +389,7 @@ describe("desired site and current-state contracts", () => {
       "inference_routes",
       "hardware_observation",
       "model_deployment_identity_allocator",
+      "console_settings",
     ]);
     expect(fieldNames(executionTarget)).toEqual([
       "execution_target_id",

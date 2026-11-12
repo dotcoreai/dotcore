@@ -12,15 +12,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { GetStartedSectionIcon, PreferencesSectionIcon } from "@/components/ui/section-icons";
 import { DiagnosticLogViewer } from "@/features/diagnostic-logs/diagnostic-log-viewer";
+import { useGetStartedHidden } from "@/features/get-started/use-get-started-hidden";
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
-import { useGetStartedDismissed } from "@/hooks/use-get-started-dismissed";
 import { useTheme } from "@/theme/theme-context";
 
 export function ProfileMenu() {
   const { diagnosticLogOperations: diagnostics } = useClients();
   const { colorScheme, setColorScheme } = useTheme();
   const navigate = useNavigate();
-  const [, setGetStartedDismissed] = useGetStartedDismissed();
+  const { setHidden: setGetStartedHidden } = useGetStartedHidden();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const openLogsAfterMenuCloseRef = useRef(false);
@@ -67,8 +67,8 @@ export function ProfileMenu() {
         >
           <DropdownMenuItem
             onClick={() => {
-              setGetStartedDismissed(false);
-              void navigate("/get-started");
+              // The page opens either way; it shows why the item stays hidden when saving fails.
+              void setGetStartedHidden(false).then(() => navigate("/get-started"));
             }}
           >
             <GetStartedSectionIcon aria-hidden="true" />

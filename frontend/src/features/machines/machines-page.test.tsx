@@ -83,6 +83,7 @@ import { productionTiming, setTiming } from "@/lib/timing";
 import { usePanelNavigation } from "@/panels/panel-navigation";
 import type { ResourcePayload } from "@/resource-watch/resource-watch";
 import { failedSnapshot, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
+import { rejectConsoleSettingsUpdate } from "@/test/fake-site-client";
 import { useFakeTimersWithWaits } from "@/test/fake-timers";
 import { expectHeadingOutline } from "@/test/heading-outline";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
@@ -213,6 +214,7 @@ function snapshotFor(hostName = "machine-host") {
 /** A site listing `machines`, whose readable machines have a failed first hardware refresh. */
 function clientFor(machines: ReturnType<typeof availableMachine>[]): MachinesSite {
   return {
+    updateConsoleSettings: rejectConsoleSettingsUpdate,
     listConfiguredExecutionTargets: vi.fn(() =>
       Promise.resolve(create(ListConfiguredExecutionTargetsResponseSchema)),
     ),

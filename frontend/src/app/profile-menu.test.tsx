@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
 import { ProfileMenu } from "@/app/profile-menu";
 import { renderWithClients } from "@/test/render-with-clients";
+import { StaticGetStartedHidden } from "@/test/static-get-started-hidden";
 import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
@@ -27,7 +28,9 @@ function renderProfileMenu(diagnostics?: DiagnosticLogOperations) {
         eventTarget={new EventTarget()}
         storage={new FakeStorage()}
       >
-        <ProfileMenu />
+        <StaticGetStartedHidden>
+          <ProfileMenu />
+        </StaticGetStartedHidden>
       </ThemeProvider>
     </MemoryRouter>,
     { diagnosticLogOperations: diagnostics },

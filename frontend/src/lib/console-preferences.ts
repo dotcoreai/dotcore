@@ -14,7 +14,6 @@ export const CONSOLE_PREFERENCES_STORAGE_KEY = "dotcore.console.preferences.v1";
 export type ColorSchemeSubscriber = (colorScheme: ColorScheme) => void;
 export type SidebarCollapsedSubscriber = (collapsed: boolean) => void;
 export type MemoryViewSubscriber = (memoryView: MemoryView) => void;
-export type GetStartedDismissedSubscriber = (dismissed: boolean) => void;
 export type DeveloperSettingsSubscriber = (settings: DeveloperSettings) => void;
 
 /** Synthetic latency applied to every Console API call while enabled. */
@@ -35,7 +34,6 @@ export const DEFAULT_DEVELOPER_SETTINGS: DeveloperSettings = {
 
 // Same-tab writes fire no `storage` event, so writers notify in-process listeners directly.
 const developerSettingsListeners = new Set<() => void>();
-const getStartedDismissedListeners = new Set<() => void>();
 
 export function readColorScheme(storage = getBrowserStorage()): ColorScheme {
   try {
@@ -194,69 +192,6 @@ export function subscribeToMemoryView(
   return () => eventTarget.removeEventListener("storage", handleStorage);
 }
 
-/** Reports whether the operator dismissed Get started; it reads as shown until dismissed. */
-export function readGetStartedDismissed(storage = getBrowserStorage()): boolean {
-  try {
-    return decodeGetStartedDismissed(storage?.getItem(CONSOLE_PREFERENCES_STORAGE_KEY) ?? null);
-  } catch {
-    return false;
-  }
-}
-
-/** Stores whether Get started is dismissed and notifies same-tab listeners. */
-export function writeGetStartedDismissed(
-  storage: StorageLike | undefined,
-  dismissed: boolean,
-): void {
-  try {
-    // Decode-modify-encode keeps the sibling fields, as the other writers do.
-    const preferences =
-      decodePreferences(storage?.getItem(CONSOLE_PREFERENCES_STORAGE_KEY) ?? null) ??
-      create(ConsolePreferencesSchema);
-    preferences.getStartedDismissed = dismissed;
-
-    storage?.setItem(CONSOLE_PREFERENCES_STORAGE_KEY, encodePreferences(preferences));
-  } catch {
-    // Browser storage is an optional convenience; listeners still observe the selection below.
-  }
-
-  for (const listener of [...getStartedDismissedListeners]) {
-    listener();
-  }
-}
-
-/** Subscribes to the dismissed preference changed by this tab's writers or by another tab. */
-export function subscribeToGetStartedDismissed(
-  eventTarget: EventTarget | undefined,
-  storage: StorageLike | undefined,
-  subscriber: GetStartedDismissedSubscriber,
-): () => void {
-  const handleLocalWrite = () => subscriber(readGetStartedDismissed(storage));
-  getStartedDismissedListeners.add(handleLocalWrite);
-
-  const handleStorage = (event: Event) => {
-    const storageEvent = event as StorageEvent;
-
-    if (
-      storageEvent.key !== CONSOLE_PREFERENCES_STORAGE_KEY ||
-      (storageEvent.storageArea !== null &&
-        storage !== undefined &&
-        storageEvent.storageArea !== storage)
-    ) {
-      return;
-    }
-
-    subscriber(decodeGetStartedDismissed(storageEvent.newValue));
-  };
-
-  eventTarget?.addEventListener("storage", handleStorage);
-
-  return () => {
-    getStartedDismissedListeners.delete(handleLocalWrite);
-    eventTarget?.removeEventListener("storage", handleStorage);
-  };
-}
-
 /** Reports whether both bounds are whole milliseconds with 0 <= min <= max <= MAX_LATENCY_MS. */
 export function isValidDeveloperSettings(settings: DeveloperSettings): boolean {
   const { latencyMinMs: min, latencyMaxMs: max } = settings;
@@ -380,10 +315,6 @@ function decodeMemoryView(value: string | null): MemoryView {
   return preferences?.memoryView === MemoryView.BY_MACHINE
     ? MemoryView.BY_MACHINE
     : MemoryView.ALL_MACHINES;
-}
-
-function decodeGetStartedDismissed(value: string | null): boolean {
-  return decodePreferences(value)?.getStartedDismissed ?? false;
 }
 
 function decodeDeveloperSettings(value: string | null): DeveloperSettings {

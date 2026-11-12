@@ -1,6 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, Outlet, RouterProvider } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -85,17 +85,21 @@ import {
 import {
   ConfiguredExecutionTargetSchema,
   ExecutionTargetWorkloadKind,
+  GetConsoleSettingsResponseSchema,
   ListConfiguredExecutionTargetsResponseSchema,
   ListMachinesResponseSchema,
   MachineSchema,
   NodeObservationState,
+  UpdateConsoleSettingsRequestSchema,
 } from "@/gen/dotcore/site/v1/service_pb";
 import * as clipboard from "@/lib/clipboard";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
+import { FakeConsoleSettings } from "@/test/fake-console-settings";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { renderWithClients } from "@/test/render-with-clients";
 import { setupUser } from "@/test/user";
 
+import { GetStartedHiddenProvider } from "./get-started-hidden";
 import { GetStartedPage } from "./get-started-page";
 
 const { CHAT_ASSISTANT, CODING, IMAGE_GENERATION } = UseCase;
@@ -116,6 +120,10 @@ interface Site {
   /** How many memory estimate reads fail before they answer. */
   failedEstimates?: number;
   routes?: InferenceRouteView[];
+  /** Whether the site already hides Get started. */
+  getStartedHidden?: boolean;
+  /** Whether saving the console settings fails. */
+  failSettings?: boolean;
   /** Targets per app id, as `[machine, matches preference, deployment id?]`. */
   targets: Record<string, [string, boolean, string?][]>;
 }
@@ -132,6 +140,12 @@ const estimates: Record<string, number> = {
 };
 
 let compatibilityReads: ListModelProfileCompatibilityRequest[];
+const hiddenRequest = (hidden: boolean) =>
+  create(UpdateConsoleSettingsRequestSchema, {
+    settings: { getStartedHidden: hidden },
+    updateMask: { paths: ["get_started_hidden"] },
+  });
+
 const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
 
 beforeEach(() => {
@@ -854,6 +868,103 @@ describe("GetStartedPage", () => {
       expect(await screen.findByRole("region", { name: "Ready" })).toBeVisible();
     });
 
+    it("hides Get started for the site once, when a step becomes ready", async () => {
+      const user = setupUser();
+      const { settings, site, watch } = await renderPage({
+        applicationDeployments: [startingApp(ApplicationLifecycleState.STARTING, 1)],
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
+        routes: [routeView("qwen3.8-27b", ["dep-1"])],
+        rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
+        targets: { "open-webui": [["gpu1", true, "app-new"]] },
+      });
+      await user.click(await screen.findByRole("button", { name: "Continue" }));
+      await waitFor(() => expect(progressItems()[1]).toMatchObject({ status: "Starting" }));
+      expect(settings.updates).toEqual([]);
+
+      site.applicationDeployments!.splice(0, 1, readyApp());
+      await act(() => watch.tick());
+      expect(await screen.findByRole("region", { name: "Ready" })).toBeVisible();
+      await waitFor(() => expect(settings.updates).toEqual([hiddenRequest(true)]));
+
+      await act(() => watch.tick());
+      await act(() => watch.tick());
+      expect(settings.updates).toEqual([hiddenRequest(true)]);
+    });
+
+    it("hides Get started when a served use case opens on its ready step, and never when already hidden", async () => {
+      const served = {
+        applicationDeployments: [readyApp()],
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
+        routes: [routeView("qwen3.8-27b", ["dep-1"])],
+        rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
+        targets: { "open-webui": [["gpu1", true, "app-new"]] },
+      } as Site;
+
+      const visible = await renderPage({ ...served });
+      expect(await screen.findByRole("region", { name: "Ready" })).toBeVisible();
+      await waitFor(() => expect(visible.settings.updates).toEqual([hiddenRequest(true)]));
+      cleanup();
+
+      const hidden = await renderPage({ ...served, getStartedHidden: true });
+      expect(await screen.findByRole("region", { name: "Ready" })).toBeVisible();
+      await act(() => hidden.watch.tick());
+      expect(hidden.settings.updates).toEqual([]);
+    });
+
+    it("shows why a ready step could not hide Get started and does not retry", async () => {
+      const { settings, watch } = await renderPage({
+        applicationDeployments: [readyApp()],
+        getStartedHidden: false,
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
+        routes: [routeView("qwen3.8-27b", ["dep-1"])],
+        rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
+        targets: { "open-webui": [["gpu1", true, "app-new"]] },
+        failSettings: true,
+      });
+
+      expect(
+        await screen.findByText(/Saving the Get started setting outcome is uncertain/),
+      ).toBeVisible();
+      await act(() => watch.tick());
+      expect(settings.updates).toEqual([hiddenRequest(true)]);
+      expect(screen.getByRole("region", { name: "Ready" })).toBeVisible();
+    });
+
+    it("writes hidden on Dismiss and goes to the overview", async () => {
+      const user = setupUser();
+      const { settings } = await renderPage({
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        rows: {},
+        targets: {},
+      });
+
+      await user.click(screen.getByRole("button", { name: "Dismiss" }));
+
+      expect(settings.updates).toEqual([hiddenRequest(true)]);
+      expect(await screen.findByText("Overview")).toBeVisible();
+    });
+
+    it("stays on the page with the reason when Dismiss cannot be saved", async () => {
+      const user = setupUser();
+      const { settings } = await renderPage({
+        failSettings: true,
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        rows: {},
+        targets: {},
+      });
+
+      await user.click(screen.getByRole("button", { name: "Dismiss" }));
+
+      expect(
+        await screen.findByText(/Saving the Get started setting outcome is uncertain/),
+      ).toBeVisible();
+      expect(screen.getByRole("heading", { name: "Get started" })).toBeVisible();
+      expect(settings.updates).toEqual([hiddenRequest(true)]);
+    });
+
     it("opens served coding on its ready step and picks the agent whose command to copy", async () => {
       const user = setupUser();
       await renderPage({
@@ -947,12 +1058,20 @@ async function renderPage(site: Site) {
   const modelDeployments = (site.modelDeployments ??= []);
   const applicationDeployments = (site.applicationDeployments ??= []);
   const routes = (site.routes ??= []);
+  const settings = new FakeConsoleSettings(site.getStartedHidden);
+  settings.failing = site.failSettings ?? false;
   const watch = new FakeResourceWatch({
     sources: {
       applicationDeployments: () =>
         Promise.resolve(
           create(ListApplicationDeploymentsResponseSchema, {
             deployments: applicationDeployments,
+          }),
+        ),
+      consoleSettings: () =>
+        Promise.resolve(
+          create(GetConsoleSettingsResponseSchema, {
+            settings: { getStartedHidden: settings.getStartedHidden },
           }),
         ),
       executionTargets: () =>
@@ -1116,14 +1235,17 @@ async function renderPage(site: Site) {
         children: [
           { element: <GetStartedPage />, path: "/get-started" },
           { element: <p>Models</p>, path: "/models" },
+          { element: <p>Overview</p>, path: "/overview" },
         ],
         element: (
           <ResourceWatchProvider client={watch.client()}>
-            <ModelsPollingProvider client={modelClient}>
-              <ChatOpenerContext.Provider value={openChat}>
-                <Outlet />
-              </ChatOpenerContext.Provider>
-            </ModelsPollingProvider>
+            <GetStartedHiddenProvider>
+              <ModelsPollingProvider client={modelClient}>
+                <ChatOpenerContext.Provider value={openChat}>
+                  <Outlet />
+                </ChatOpenerContext.Provider>
+              </ModelsPollingProvider>
+            </GetStartedHiddenProvider>
           </ResourceWatchProvider>
         ),
       },
@@ -1131,6 +1253,7 @@ async function renderPage(site: Site) {
     { initialEntries: ["/get-started"] },
   );
   const siteClient = {
+    updateConsoleSettings: vi.fn(settings.updateConsoleSettings),
     listConfiguredExecutionTargets: vi.fn(() =>
       Promise.resolve(create(ListConfiguredExecutionTargetsResponseSchema, { executionTargets })),
     ),
@@ -1147,7 +1270,9 @@ async function renderPage(site: Site) {
     createLocalModelDeployment,
     logRead,
     openChat,
+    settings,
     site,
+    siteClient,
     watch,
   };
 }

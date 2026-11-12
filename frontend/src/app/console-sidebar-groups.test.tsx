@@ -13,6 +13,7 @@ import {
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/console-preferences";
 import { productionTiming, setTiming } from "@/lib/timing";
+import { StaticGetStartedHidden } from "@/test/static-get-started-hidden";
 import { setupUser } from "@/test/user";
 
 afterEach(() => {
@@ -314,7 +315,9 @@ function renderGroups(initialEntry = "/models", storage = new FakeStorage()) {
         path: "*",
         element: (
           <SidebarPreferenceProvider eventTarget={new EventTarget()} storage={storage}>
-            <GroupSidebar />
+            <StaticGetStartedHidden>
+              <GroupSidebar />
+            </StaticGetStartedHidden>
           </SidebarPreferenceProvider>
         ),
       },
