@@ -1,9 +1,6 @@
-import type {
-  EngineParameterDefinition,
-  EngineParameterValues,
-  EngineRelease,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { Model, ModelOptionValues, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterDefinition, ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { formatQuantity } from "@/lib/format";
 
 import {
@@ -19,7 +16,7 @@ import {
 /** The configuration of one local model deployment, as the create, preview, and estimate requests carry it. */
 export interface LocalDeploymentConfigurationValues {
   customArgumentTokens: string[];
-  engineParameterValues: EngineParameterValues;
+  engineParameterValues: ParameterValues;
   modelArtifactBindingId: string;
   /** Sparse option values layered over the profile's option defaults. */
   optionOverrides: ModelOptionValues[];
@@ -30,7 +27,7 @@ export interface LocalDeploymentConfigurationEdits {
   bindingId: string;
   customArgumentTokens?: string[];
   /** Engine parameter values replacing the profile's defaults, such as those of a sizing scenario. */
-  declaredValues?: EngineParameterValues;
+  declaredValues?: ParameterValues;
   /** Parameters catalog sizing derives for the profile, which an empty input leaves to it. */
   derivedParameterIds?: ReadonlySet<string>;
   inputs: ReadonlyMap<string, string>;
@@ -197,7 +194,7 @@ function editedParameterLabels(
 // Formats valid values and keeps an invalid input as typed, so a summary never rounds a value the
 // form still rejects into a plausible one.
 function engineParameterInputLabel(
-  parameter: EngineParameterDefinition,
+  parameter: ParameterDefinition,
   inputs: ReadonlyMap<string, string>,
 ): string {
   const input = inputs.get(parameter.parameterId) ?? "";

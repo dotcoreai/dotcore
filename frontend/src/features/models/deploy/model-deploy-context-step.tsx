@@ -15,8 +15,8 @@ import {
   maximumContext,
   runtimeParameterGroups,
 } from "@/features/models/runtime/engine-parameter-values";
-import type { EngineParameterDefinition } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
@@ -25,7 +25,7 @@ interface ModelDeployContextStepProps {
   contextHint?: string;
   disabled: boolean;
   engineParameterRefs: RefObject<Map<string, HTMLElement | null>>;
-  exposedParameters: readonly EngineParameterDefinition[];
+  exposedParameters: readonly ParameterDefinition[];
   fieldErrors: FieldErrors;
   /** The context per request the backend fills while the input is empty, from the latest estimate. */
   filledContextPerRequest?: number;
@@ -33,13 +33,9 @@ interface ModelDeployContextStepProps {
   /** The largest total context that fits the selected target, offered as the total's last chip. */
   largestFit?: ContextSizeLargestFit;
   model: Model;
-  onParameterBlur: (parameter: EngineParameterDefinition) => void;
+  onParameterBlur: (parameter: ParameterDefinition) => void;
   /** Receives each change, and whether it is settled, as a slider or preset is, or typed. */
-  onParameterChange: (
-    parameter: EngineParameterDefinition,
-    input: string,
-    settled?: boolean,
-  ) => void;
+  onParameterChange: (parameter: ParameterDefinition, input: string, settled?: boolean) => void;
   profile?: ModelProfile;
 }
 
@@ -73,7 +69,7 @@ export function ModelDeployContextStep({
   // Total context and context per request follow each other, so their sliders share one scale.
   const sliderRange = contextSliderRange([totalContext, contextPerRequest]);
   const contextField = (
-    parameter: EngineParameterDefinition,
+    parameter: ParameterDefinition,
     field: {
       emptyValue?: number;
       help?: ReactNode;
@@ -137,7 +133,7 @@ export function ModelDeployContextStep({
 
 /** The range spanning every given context size parameter's schema range, if any is present. */
 function contextSliderRange(
-  parameters: readonly (EngineParameterDefinition | undefined)[],
+  parameters: readonly (ParameterDefinition | undefined)[],
 ): ContextSizeRange | undefined {
   const ranges = parameters.flatMap((parameter) =>
     parameter?.parameterType.case === "unsignedInteger"

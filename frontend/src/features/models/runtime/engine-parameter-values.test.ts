@@ -3,12 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import { EngineReleaseSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelProfileSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
 import { engineKindLabel } from "../profiles/model-row";
 import {
   effectiveEngineParameters,
   engineParameterError,
   engineParameterValues,
+  profileStartingValues,
 } from "./engine-parameter-values";
 
 describe("engineKindLabel", () => {
@@ -21,7 +23,7 @@ describe("sizing-derived parameters", () => {
   const unsigned = (parameterId: string, defaultValue?: bigint) => ({
     parameterId,
     displayName: parameterId,
-    exposed: true,
+    visibility: ParameterVisibility.ADVANCED,
     parameterType: {
       case: "unsignedInteger" as const,
       value: { minimum: 1n, maximum: 1000n, unit: "MiB", defaultValue },
@@ -66,5 +68,78 @@ describe("sizing-derived parameters", () => {
     expect(
       engineParameterValues(undefined, parameters, new Map([["parallel-requests", "1"]])),
     ).toBeUndefined();
+  });
+});
+
+describe("starting values", () => {
+  const release = create(EngineReleaseSchema, {
+    parameterSchema: {
+      parameters: [
+        {
+          parameterId: "total-context",
+          displayName: "Total context",
+          visibility: ParameterVisibility.BASIC,
+          parameterType: {
+            case: "unsignedInteger",
+            value: { minimum: 1n, maximum: 1000n, unit: "tokens", defaultValue: 100n },
+          },
+        },
+        {
+          parameterId: "prefix-caching",
+          displayName: "Prefix caching",
+          visibility: ParameterVisibility.HIDDEN,
+          parameterType: { case: "boolean", value: { defaultValue: true } },
+        },
+        {
+          parameterId: "flash-attention",
+          displayName: "Flash attention",
+          visibility: ParameterVisibility.ADVANCED,
+          parameterType: { case: "boolean", value: { defaultValue: false } },
+        },
+        {
+          parameterId: "no-default",
+          displayName: "No default",
+          visibility: ParameterVisibility.ADVANCED,
+          parameterType: { case: "boolean", value: {} },
+        },
+      ],
+    },
+  });
+
+  it("takes the engine default of every typed parameter, booleans included, in schema order", () => {
+    const values = profileStartingValues(release, create(ModelProfileSchema, {}));
+
+    expect(values?.values.map(({ parameterId, value }) => [parameterId, value])).toEqual([
+      ["total-context", { case: "unsignedInteger", value: 100n }],
+      ["prefix-caching", { case: "boolean", value: true }],
+      ["flash-attention", { case: "boolean", value: false }],
+    ]);
+  });
+
+  it("keeps a profile's own value over the engine default", () => {
+    const profile = create(ModelProfileSchema, {
+      engineParameterDefaults: {
+        values: [{ parameterId: "prefix-caching", value: { case: "boolean", value: false } }],
+      },
+    });
+
+    expect(
+      profileStartingValues(release, profile)?.values.map(({ parameterId, value }) => [
+        parameterId,
+        value,
+      ]),
+    ).toEqual([
+      ["prefix-caching", { case: "boolean", value: false }],
+      ["total-context", { case: "unsignedInteger", value: 100n }],
+      ["flash-attention", { case: "boolean", value: false }],
+    ]);
+  });
+
+  it("shows every parameter that isn't hidden", () => {
+    expect(
+      effectiveEngineParameters(release, create(ModelProfileSchema, {})).map(
+        (parameter) => parameter.parameterId,
+      ),
+    ).toEqual(["total-context", "flash-attention", "no-default"]);
   });
 });

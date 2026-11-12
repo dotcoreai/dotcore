@@ -29,8 +29,8 @@ import {
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import { deploymentKvCachePrecisionLabel } from "@/features/models/runtime/kv-cache-precision";
-import { type EngineParameterValues } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type Model } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   type ModelDeployment,
   type ResolvedLocalModelDeploymentSnapshot,
@@ -332,7 +332,7 @@ function ContextDetail({
 }
 
 function resolvedEngineParameterValue(
-  values: EngineParameterValues | undefined,
+  values: ParameterValues | undefined,
   parameterId: string,
 ): bigint | undefined {
   const parameter = values?.values.find(

@@ -19,11 +19,9 @@ import {
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import { defaultSpeculativeChoice } from "@/features/models/runtime/speculative-choice";
-import {
-  type EngineParameterValues,
-  type EngineRelease,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type Model, type ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   type ExactPlacement,
   ExactPlacementSchema,
@@ -73,7 +71,7 @@ export const launchRejectionField = "launchRejection";
  * context follows the starting value of the target's largest fit until chosen.
  */
 export function useLaunchEngineValues(
-  scenarioValues: EngineParameterValues | undefined,
+  scenarioValues: ParameterValues | undefined,
   engineRelease: EngineRelease | undefined,
   profile: ModelProfile | undefined,
   edits: ReadonlyMap<string, string>,
@@ -133,9 +131,9 @@ export function scenarioInput(parameterId: string): ScenarioInput | undefined {
 }
 
 export function withoutUnsetContextPerRequest(
-  values: EngineParameterValues | undefined,
+  values: ParameterValues | undefined,
   scenario: SizingScenario | undefined,
-): EngineParameterValues | undefined {
+): ParameterValues | undefined {
   if (!values || scenario?.contextTokensPerRequest !== undefined) return values;
 
   return {

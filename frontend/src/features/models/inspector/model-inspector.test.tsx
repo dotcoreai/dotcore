@@ -13,8 +13,8 @@ import {
 } from "@/features/models/model-test-support";
 import { projectModelRows } from "@/features/models/profiles/model-row";
 import { modelWithKvCachePrecision } from "@/features/models/runtime/runtime-schema-test-support";
-import { EngineParameterValuesSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelSchema, SpeculativeDecodingMethod } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterValuesSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   type ModelDeployment,
   ModelDeploymentDesiredState,
@@ -186,7 +186,7 @@ describe("model inspectors", () => {
     const withOffload = create(ResolvedLocalModelDeploymentSnapshotSchema, {
       ...snapshot,
       engineParameterSchema: kvOffloadReleases[0].parameterSchema,
-      engineParameterValues: create(EngineParameterValuesSchema, {
+      engineParameterValues: create(ParameterValuesSchema, {
         values: [
           { parameterId: "total-context", value: { case: "unsignedInteger", value: 8192n } },
           { parameterId: "kv-offloading-size-gib", value: { case: "unsignedInteger", value: 16n } },
@@ -235,7 +235,7 @@ describe("model inspectors", () => {
     const withBoolean = create(ResolvedLocalModelDeploymentSnapshotSchema, {
       ...snapshot,
       engineParameterSchema: multiParameterReleases[0].parameterSchema,
-      engineParameterValues: create(EngineParameterValuesSchema, {
+      engineParameterValues: create(ParameterValuesSchema, {
         values: [
           { parameterId: "total-context", value: { case: "unsignedInteger", value: 8192n } },
           {
@@ -570,7 +570,7 @@ describe("model inspectors", () => {
     ({ derived, perRequest, shown }) => {
       const resolved = create(ResolvedLocalModelDeploymentSnapshotSchema, {
         ...snapshot,
-        engineParameterValues: create(EngineParameterValuesSchema, {
+        engineParameterValues: create(ParameterValuesSchema, {
           values: [
             { parameterId: "total-context", value: { case: "unsignedInteger", value: 131072n } },
             {

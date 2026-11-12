@@ -24,6 +24,7 @@ import {
   driverTooOld,
   targetCompatibility,
 } from "@/features/models/profiles/profile-compatibility-test-support";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   ModelDeploymentIntentSchema,
   ModelDeploymentSchema,
@@ -362,7 +363,7 @@ describe("ModelCatalogPage deploy", () => {
   it("shows the service's reason when it rejects the total context", async () => {
     const user = setupUser();
     const release = llamaRelease();
-    release.parameterSchema!.parameters[0].exposed = true;
+    release.parameterSchema!.parameters[0].visibility = ParameterVisibility.BASIC;
     const { client } = renderModelsSection({
       engineReleases: [release],
       initialEntry: "/models/catalog",

@@ -74,13 +74,10 @@ import {
   speculativeOptionOverrides,
 } from "@/features/models/runtime/speculative-choice";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
-import {
-  type EngineParameterDefinition,
-  type EngineParameterValues,
-  type EngineRelease,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
 import type { Model } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterDefinition, ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import {
   type ModelDeployment,
@@ -287,9 +284,7 @@ export function useModelDeployForm({
     : withoutUnsetContextPerRequest(defaultReadValues, undefined);
   // The values of a profile's first read under each scenario stay for the dialog's life, so later
   // reads never swap them under the operator; a new "Sized for" starts from its own read.
-  const [frozenValues, setFrozenValues] = useState<ReadonlyMap<string, EngineParameterValues>>(
-    new Map(),
-  );
+  const [frozenValues, setFrozenValues] = useState<ReadonlyMap<string, ParameterValues>>(new Map());
   const frozenKey = profile ? `${profile.profileId}\0${sizingScenarioKey(scenario)}` : undefined;
   if (frozenKey && readValues && !frozenValues.has(frozenKey))
     setFrozenValues(new Map(frozenValues).set(frozenKey, readValues));
@@ -538,11 +533,7 @@ export function useModelDeployForm({
   // chosen ones, starting from what the step shows. A settled change, from a slider or preset, also
   // moves the other of the two to keep the edited one, and sizes "Sized for" when valid; typing
   // waits until the input is left.
-  const changeContext = (
-    parameter: EngineParameterDefinition,
-    nextInput: string,
-    settled?: boolean,
-  ) => {
+  const changeContext = (parameter: ParameterDefinition, nextInput: string, settled?: boolean) => {
     const edited = scenarioInput(parameter.parameterId);
     if (!edited) return;
 
@@ -579,7 +570,7 @@ export function useModelDeployForm({
     invalidatePreview();
   };
   // A typed context settles once left, as a settled change does.
-  const blurContext = (parameter: EngineParameterDefinition) => {
+  const blurContext = (parameter: ParameterDefinition) => {
     if (!dirtyFields.isDirty(parameter.parameterId)) return;
     const edited = scenarioInput(parameter.parameterId);
     if (edited) setContext((previous) => settledContext(previous, edited));
@@ -605,7 +596,7 @@ export function useModelDeployForm({
   const validateRoute = (values = exposureValues, deploymentName = name): string | undefined =>
     validateDeploymentExposure(values, deploymentName, existingRouteNames);
   const parameterErrors = (
-    parameters: readonly EngineParameterDefinition[],
+    parameters: readonly ParameterDefinition[],
   ): [string, string | undefined][] =>
     parameters.map((parameter) => [
       parameter.parameterId,

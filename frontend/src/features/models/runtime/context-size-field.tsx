@@ -1,7 +1,7 @@
 import type { ReactNode, RefObject } from "react";
 
 import { FieldError } from "@/components/ui/field-error";
-import type { EngineParameterDefinition } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
 import {
   ContextSizeInput,
@@ -22,11 +22,11 @@ interface ContextSizeFieldProps {
   inputRefs: RefObject<Map<string, HTMLElement | null>>;
   /** The largest size that fits the selected target, offered as the input's last chip. */
   largestFit?: ContextSizeLargestFit;
-  onBlur: (parameter: EngineParameterDefinition) => void;
+  onBlur: (parameter: ParameterDefinition) => void;
   /** Receives each change, and whether it is settled rather than typing in progress. */
-  onChange: (parameter: EngineParameterDefinition, input: string, settled: boolean) => void;
+  onChange: (parameter: ParameterDefinition, input: string, settled: boolean) => void;
   /** An unsigned-integer context size parameter; its schema range bounds every control. */
-  parameter: EngineParameterDefinition;
+  parameter: ParameterDefinition;
   /** The range the slider is drawn over, shared with other context fields so they line up. */
   sliderRange?: ContextSizeRange;
 }

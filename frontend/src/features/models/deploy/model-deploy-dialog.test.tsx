@@ -44,10 +44,10 @@ import {
 } from "@/features/models/runtime/runtime-schema-test-support";
 import {
   EngineArtifactReferenceSchema,
-  EngineParameterValueSchema,
   EngineReleaseSchema,
 } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterValueSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
 import {
@@ -1884,11 +1884,11 @@ describe("ModelDeployDialog", () => {
         engineParameterValues: {
           values: [
             { parameterId: "total-context", value: { case: "unsignedInteger", value: 65536n } },
-            create(EngineParameterValueSchema, {
+            create(ParameterValueSchema, {
               parameterId: "parallel-requests",
               value: { case: "unsignedInteger", value: 4n },
             }),
-            create(EngineParameterValueSchema, {
+            create(ParameterValueSchema, {
               parameterId: "kv-cache-memory-bytes",
               value: { case: "unsignedInteger", value: 7400000000n },
             }),
