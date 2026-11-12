@@ -3,12 +3,12 @@
 
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineArtifact, EngineParameterDefinition, EngineParameterSchema, EngineParameterValue,
-        EngineParameterValues, HardwareRequirements, HuggingFaceArtifactSource,
+        EngineArtifact, EngineParameterSchema, HardwareRequirements, HuggingFaceArtifactSource,
         HuggingFaceFileArtifact, InferenceRequestKind, ModelArtifact, ModelExecutionCapabilities,
-        ModelInputCapabilities, ModelInputModality, ModelParallelShape, OciPlatform, Selector,
-        UnsignedIntegerEngineParameterSchema, engine_parameter_definition, engine_parameter_value,
-        hugging_face_artifact_source,
+        ModelInputCapabilities, ModelInputModality, ModelParallelShape, OciPlatform,
+        ParameterDefinition, ParameterValue, ParameterValues, ParameterVisibility, Selector,
+        UnsignedIntegerParameterSchema, hugging_face_artifact_source, parameter_definition,
+        parameter_value,
     },
     deployment::v1::ArtifactPreparationPolicy,
     engine::{
@@ -217,13 +217,13 @@ pub fn local_model_configuration() -> LocalModelDeploymentConfiguration {
     }
 }
 
-fn unsigned_values(values: &[(&str, u64)]) -> EngineParameterValues {
-    EngineParameterValues {
+fn unsigned_values(values: &[(&str, u64)]) -> ParameterValues {
+    ParameterValues {
         values: values
             .iter()
-            .map(|(parameter_id, value)| EngineParameterValue {
+            .map(|(parameter_id, value)| ParameterValue {
                 parameter_id: (*parameter_id).to_owned(),
-                value: Some(engine_parameter_value::Value::UnsignedInteger(*value)),
+                value: Some(parameter_value::Value::UnsignedInteger(*value)),
             })
             .collect(),
     }
@@ -255,19 +255,22 @@ fn unsigned_parameter(
     minimum: u64,
     maximum: u64,
     unit: &str,
-) -> EngineParameterDefinition {
-    EngineParameterDefinition {
+) -> ParameterDefinition {
+    ParameterDefinition {
         parameter_id: parameter_id.to_owned(),
         display_name: display_name.to_owned(),
-        parameter_type: Some(engine_parameter_definition::ParameterType::UnsignedInteger(
-            UnsignedIntegerEngineParameterSchema {
+        parameter_type: Some(parameter_definition::ParameterType::UnsignedInteger(
+            UnsignedIntegerParameterSchema {
                 minimum,
                 maximum,
                 unit: unit.to_owned(),
                 default_value: None,
             },
         )),
-        exposed: true,
+        visibility: match parameter_id {
+            "total-context" | "context-per-request" => ParameterVisibility::Basic,
+            _ => ParameterVisibility::Advanced,
+        } as i32,
         description: String::new(),
     }
 }

@@ -6,8 +6,7 @@ use dotcore_domain::{
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineArtifact, NixArtifact, engine_artifact::Kind as EngineArtifactKind,
-        engine_parameter_value,
+        EngineArtifact, NixArtifact, engine_artifact::Kind as EngineArtifactKind, parameter_value,
     },
     deployment::v1::ArtifactPreparationPolicy,
     engine::v1::resolved_engine_model_state,
@@ -78,7 +77,7 @@ pub(crate) fn apple_metal_snapshot(model_id: &str) -> ModelDeploymentSnapshot {
         .iter_mut()
         .find(|value| value.parameter_id == "prompt-cache-memory-mib")
         .expect("prompt cache value")
-        .value = Some(engine_parameter_value::Value::UnsignedInteger(2048));
+        .value = Some(parameter_value::Value::UnsignedInteger(2048));
 
     local.desired_launch_plan = Some(
         crate::model::engine::EngineIntegrationRegistry::production()

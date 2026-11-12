@@ -29,7 +29,6 @@ pub(super) fn resolve_parameter_values(
         let definition = graph
             .parameters
             .iter()
-            .filter_map(|parameter| parameter.definition.as_ref())
             .find(|definition| definition.parameter_id == value.parameter_id)
             .ok_or_else(|| reject(ParameterRejection::Unknown))?;
         let inner = value
@@ -43,11 +42,7 @@ pub(super) fn resolve_parameter_values(
     graph
         .parameters
         .iter()
-        .map(|parameter| {
-            let definition = parameter
-                .definition
-                .as_ref()
-                .ok_or_else(|| configuration("Application parameter definition is missing"))?;
+        .map(|definition| {
             let value = match supplied
                 .iter()
                 .find(|value| value.parameter_id == definition.parameter_id)

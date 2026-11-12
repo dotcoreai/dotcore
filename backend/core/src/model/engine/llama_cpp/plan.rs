@@ -14,7 +14,7 @@ use dotcore_catalog::{
 };
 use dotcore_proto::{
     dotcore::{
-        catalog::v1::{ModelOptionValues, engine_parameter_value::Value as EngineParameterValue},
+        catalog::v1::{ModelOptionValues, parameter_value::Value as EngineParameterValueKind},
         engine::{
             llama_cpp::v1::{
                 LlamaCppFixedModelSettings, LlamaCppResolvedModelState, LlamaCppSpeculativeMethod,
@@ -431,7 +431,7 @@ fn unsigned_parameter(
                 .find(|value| value.parameter_id == parameter_id)
         })
         .and_then(|value| match value.value.as_ref() {
-            Some(EngineParameterValue::UnsignedInteger(value)) => Some(*value),
+            Some(EngineParameterValueKind::UnsignedInteger(value)) => Some(*value),
             _ => None,
         })
 }
@@ -628,7 +628,7 @@ pub(crate) enum LlamaCppPlanError {
 #[cfg(test)]
 mod tests {
     use dotcore_proto::dotcore::catalog::v1::{
-        EngineParameterDefinition, EngineParameterValue as EngineParameterValueMessage,
+        ParameterDefinition, ParameterValue as EngineParameterValueMessage, ParameterVisibility,
     };
 
     use super::*;
@@ -910,7 +910,7 @@ mod tests {
                 .retain(|value| value.parameter_id != PROMPT_CACHE_MEMORY_PARAMETER_ID);
             values.values.push(EngineParameterValueMessage {
                 parameter_id: PROMPT_CACHE_MEMORY_PARAMETER_ID.to_owned(),
-                value: Some(EngineParameterValue::UnsignedInteger(mib)),
+                value: Some(EngineParameterValueKind::UnsignedInteger(mib)),
             });
 
             assert_eq!(
@@ -951,11 +951,11 @@ mod tests {
             .as_mut()
             .expect("engine parameter schema")
             .parameters
-            .push(EngineParameterDefinition {
+            .push(ParameterDefinition {
                 parameter_id: PROMPT_CACHE_MEMORY_PARAMETER_ID.to_owned(),
                 display_name: "Prompt cache memory".to_owned(),
                 parameter_type: None,
-                exposed: true,
+                visibility: ParameterVisibility::Advanced as i32,
                 description: String::new(),
             });
         for token in tokens {
@@ -1753,7 +1753,7 @@ mod tests {
             .retain(|value| value.parameter_id != parameter_id);
         values.values.push(EngineParameterValueMessage {
             parameter_id: parameter_id.to_owned(),
-            value: Some(EngineParameterValue::UnsignedInteger(value)),
+            value: Some(EngineParameterValueKind::UnsignedInteger(value)),
         });
     }
 

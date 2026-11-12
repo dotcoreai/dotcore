@@ -16,8 +16,8 @@ use dotcore_domain::{
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineArtifact, EngineParameterValues, EngineRelease, HardwareRequirements,
-        HuggingFaceArtifactSource, ModelInputCapabilities, StorageBinding,
+        EngineArtifact, EngineRelease, HardwareRequirements, HuggingFaceArtifactSource,
+        ModelInputCapabilities, ParameterValues, StorageBinding,
         engine_artifact::Kind as EngineArtifactKind,
         hugging_face_artifact_source::Content as HuggingFaceContent, nix_artifact::Provides,
     },
@@ -624,7 +624,7 @@ pub(crate) fn selected_target_memory_architecture(
 /// Requires every derived parameter id to name one retained engine parameter value.
 fn validate_sizing(
     sizing: Option<&ResolvedSizing>,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> Result<(), CatalogError> {
     let Some(sizing) = sizing else {
         return Ok(());

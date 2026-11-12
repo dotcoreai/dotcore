@@ -31,8 +31,8 @@ use dotcore_node_hardware::vram::{
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterValue, EngineParameterValues, ModelOptionParameterValue, ModelOptionValues,
-        engine_parameter_value, model_option_parameter_value,
+        ModelOptionParameterValue, ModelOptionValues, ParameterValue, ParameterValues,
+        model_option_parameter_value, parameter_value,
     },
     telemetry::v1::WorkloadResourceRecord,
 };
@@ -290,7 +290,7 @@ async fn launch(paths: &RootPathArgs, args: LaunchArgs) -> Result<()> {
     merge_parameter_overrides(
         configuration
             .engine_parameter_values
-            .get_or_insert_with(EngineParameterValues::default),
+            .get_or_insert_with(ParameterValues::default),
         args.engine_parameter
             .into_iter()
             .map(parse_parameter)
@@ -831,10 +831,7 @@ fn accelerator_device_ids(
     ]
 }
 
-fn merge_parameter_overrides(
-    defaults: &mut EngineParameterValues,
-    overrides: Vec<EngineParameterValue>,
-) {
+fn merge_parameter_overrides(defaults: &mut ParameterValues, overrides: Vec<ParameterValue>) {
     for parameter in overrides {
         match defaults
             .values
@@ -926,7 +923,7 @@ fn merge_option_overrides(
     }
 }
 
-fn parse_parameter(value: String) -> Result<EngineParameterValue> {
+fn parse_parameter(value: String) -> Result<ParameterValue> {
     let (id, typed) = value
         .split_once('=')
         .ok_or_else(|| anyhow::anyhow!("engine parameter must be ID=TYPE:VALUE"))?;
@@ -934,12 +931,12 @@ fn parse_parameter(value: String) -> Result<EngineParameterValue> {
         .split_once(':')
         .ok_or_else(|| anyhow::anyhow!("engine parameter must be ID=TYPE:VALUE"))?;
     let value = match kind {
-        "unsigned" => engine_parameter_value::Value::UnsignedInteger(
+        "unsigned" => parameter_value::Value::UnsignedInteger(
             raw.parse().context("invalid unsigned parameter")?,
         ),
         _ => bail!("unsupported engine parameter type: {kind}"),
     };
-    Ok(EngineParameterValue {
+    Ok(ParameterValue {
         parameter_id: id.to_owned(),
         value: Some(value),
     })
@@ -972,8 +969,8 @@ mod tests {
     };
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            EngineParameterValue, EngineParameterValues, ModelOptionParameterValue,
-            ModelOptionValues, engine_parameter_value, model_option_parameter_value,
+            ModelOptionParameterValue, ModelOptionValues, ParameterValue, ParameterValues,
+            model_option_parameter_value, parameter_value,
         },
         telemetry::v1::WorkloadResourceRecord,
     };
@@ -982,7 +979,7 @@ mod tests {
     use super::{
         CommonArgs, DevSubcommand, HandleArgs, Runtime, Transport, WorkloadAction,
         accelerator_device_ids, accounting_payload, gpu_memory_payload, handle_root,
-        merge_option_overrides, merge_parameter_overrides, parse_option_overrides,
+        merge_option_overrides, merge_parameter_overrides, parse_option_overrides, parse_parameter,
         record_measurement, resolve_handle, vram_payload, write_log_content_to,
     };
     use crate::RootPathArgs;
@@ -1508,16 +1505,16 @@ mod tests {
 
     #[test]
     fn explicit_parameter_values_override_profile_defaults() {
-        let mut values = EngineParameterValues {
+        let mut values = ParameterValues {
             values: vec![unsigned_parameter("total-context", 30_000)],
         };
 
         merge_parameter_overrides(
             &mut values,
-            vec![
-                unsigned_parameter("total-context", 8_192),
-                unsigned_parameter("new-parameter", 7),
-            ],
+            ["total-context=unsigned:8192", "new-parameter=unsigned:7"]
+                .into_iter()
+                .map(|flag| parse_parameter(flag.to_owned()).expect("engine parameter flag"))
+                .collect(),
         );
 
         assert_eq!(
@@ -1566,10 +1563,10 @@ mod tests {
         }
     }
 
-    fn unsigned_parameter(id: &str, value: u64) -> EngineParameterValue {
-        EngineParameterValue {
+    fn unsigned_parameter(id: &str, value: u64) -> ParameterValue {
+        ParameterValue {
             parameter_id: id.to_owned(),
-            value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+            value: Some(parameter_value::Value::UnsignedInteger(value)),
         }
     }
 }

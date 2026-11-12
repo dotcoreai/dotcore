@@ -30,9 +30,9 @@ use dotcore_proto::dotcore::{
         EngineArtifactReference, EngineRelease, HardwareSupport, HuggingFaceSnapshotArtifact,
         HuggingFaceSnapshotFile, IntelligenceScore, License, ListEngineReleasesRequest,
         ListModelsRequest, ListUpstreamModelTemplatesRequest, Model, NixSystemStorePath,
-        OciPlatform, Selector, UpstreamModelTemplate, UpstreamWireProtocol,
-        engine_artifact::Kind as EngineArtifactKind, engine_parameter_value,
-        hugging_face_artifact_source::Content as HuggingFaceContent,
+        OciPlatform, ParameterVisibility, Selector, UpstreamModelTemplate, UpstreamWireProtocol,
+        engine_artifact::Kind as EngineArtifactKind,
+        hugging_face_artifact_source::Content as HuggingFaceContent, parameter_value,
     },
     deployment::v1::ArtifactPreparationPolicy,
     engine::v1::EngineKind,
@@ -678,7 +678,7 @@ fn catalog_sizing_resolves_estimates_into_the_deployment_snapshot() {
                 .iter_mut()
                 .find(|default| default.parameter_id == *parameter_id)
                 .unwrap_or_else(|| panic!("{parameter_id} default"))
-                .value = Some(engine_parameter_value::Value::UnsignedInteger(*value));
+                .value = Some(parameter_value::Value::UnsignedInteger(*value));
         }
         resolve_local_launch_with_placeholder_identity(
             &catalog,
@@ -2127,11 +2127,11 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
     let catalog = synthetic_local_catalog();
     let model_id = CatalogModelId("fixture-model".to_owned());
     let (target, inventory) = target_capabilities(ExecutionPlatform::linux_amd64());
-    let invalid = dotcore_proto::dotcore::catalog::v1::EngineParameterValues {
-        values: vec![dotcore_proto::dotcore::catalog::v1::EngineParameterValue {
+    let invalid = dotcore_proto::dotcore::catalog::v1::ParameterValues {
+        values: vec![dotcore_proto::dotcore::catalog::v1::ParameterValue {
             parameter_id: "total-context".to_owned(),
             value: Some(
-                dotcore_proto::dotcore::catalog::v1::engine_parameter_value::Value::UnsignedInteger(
+                dotcore_proto::dotcore::catalog::v1::parameter_value::Value::UnsignedInteger(
                     16_777_217,
                 ),
             ),
@@ -2218,8 +2218,8 @@ fn llama_cpp_launch_rejects_a_context_per_request_above_the_model_maximum() {
                     .iter()
                     .find(|value| value.parameter_id == "context-per-request")
             })
-            .and_then(|value| value.value),
-        Some(engine_parameter_value::Value::UnsignedInteger(262_144))
+            .and_then(|value| value.value.clone()),
+        Some(parameter_value::Value::UnsignedInteger(262_144))
     );
     let arguments = filled
         .desired_launch_plan
@@ -2424,7 +2424,7 @@ fn catalog_retains_boolean_engine_parameters_and_their_schema() {
             .iter()
             .find(|value| value.parameter_id == "feature-enabled")
             .and_then(|value| value.value.as_ref()),
-        Some(&dotcore_proto::dotcore::catalog::v1::engine_parameter_value::Value::Boolean(false))
+        Some(&dotcore_proto::dotcore::catalog::v1::parameter_value::Value::Boolean(false))
     );
     assert_eq!(
         snapshot
@@ -2449,9 +2449,8 @@ fn catalog_rejects_mismatched_boolean_values_and_invalid_profile_exposure() {
         .iter_mut()
         .find(|value| value.parameter_id == "feature-enabled")
         .expect("feature-enabled default")
-        .value = Some(
-        dotcore_proto::dotcore::catalog::v1::engine_parameter_value::Value::UnsignedInteger(1),
-    );
+        .value =
+        Some(dotcore_proto::dotcore::catalog::v1::parameter_value::Value::UnsignedInteger(1));
     let error = catalog_builder()
         .engine_validator(&ACCEPT_ENGINE_DECLARATIONS)
         .engine_release("engine.yaml", synthetic_boolean_engine_release())
@@ -2539,7 +2538,7 @@ fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (
     use dotcore_catalog::shared_parameters::{
         CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID,
     };
-    use dotcore_proto::dotcore::catalog::v1::engine_parameter_definition::ParameterType;
+    use dotcore_proto::dotcore::catalog::v1::parameter_definition::ParameterType;
 
     let profile = model
         .profiles
@@ -2575,7 +2574,7 @@ fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (
         .flat_map(|defaults| &defaults.values)
         .find(|value| value.parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID)
         .and_then(|value| match value.value {
-            Some(engine_parameter_value::Value::UnsignedInteger(tokens)) => Some(tokens),
+            Some(parameter_value::Value::UnsignedInteger(tokens)) => Some(tokens),
             _ => None,
         });
     let lowest = context_per_request.map_or(smallest_total, |tokens| tokens.max(smallest_total));
@@ -3022,18 +3021,16 @@ fn repository_catalog_root() -> std::path::PathBuf {
 }
 
 /// Builds unsigned engine parameter values from parameter id and value pairs.
-fn unsigned_values(
-    values: &[(&str, u64)],
-) -> dotcore_proto::dotcore::catalog::v1::EngineParameterValues {
-    dotcore_proto::dotcore::catalog::v1::EngineParameterValues {
+fn unsigned_values(values: &[(&str, u64)]) -> dotcore_proto::dotcore::catalog::v1::ParameterValues {
+    dotcore_proto::dotcore::catalog::v1::ParameterValues {
         values: values
             .iter()
-            .map(|(parameter_id, value)| {
-                dotcore_proto::dotcore::catalog::v1::EngineParameterValue {
+            .map(
+                |(parameter_id, value)| dotcore_proto::dotcore::catalog::v1::ParameterValue {
                     parameter_id: (*parameter_id).to_owned(),
-                    value: Some(engine_parameter_value::Value::UnsignedInteger(*value)),
-                }
-            })
+                    value: Some(parameter_value::Value::UnsignedInteger(*value)),
+                },
+            )
             .collect(),
     }
 }
@@ -3183,15 +3180,15 @@ fn synthetic_boolean_engine_release() -> EngineRelease {
         .as_mut()
         .expect("fixture schema")
         .parameters
-        .push(dotcore_proto::dotcore::catalog::v1::EngineParameterDefinition {
+        .push(dotcore_proto::dotcore::catalog::v1::ParameterDefinition {
             parameter_id: "feature-enabled".to_owned(),
             display_name: "Feature enabled".to_owned(),
             parameter_type: Some(
-                dotcore_proto::dotcore::catalog::v1::engine_parameter_definition::ParameterType::Boolean(
-                    dotcore_proto::dotcore::catalog::v1::BooleanEngineParameterSchema {},
+                dotcore_proto::dotcore::catalog::v1::parameter_definition::ParameterType::Boolean(
+                    dotcore_proto::dotcore::catalog::v1::BooleanParameterSchema::default(),
                 ),
             ),
-            exposed: true,
+            visibility: ParameterVisibility::Advanced as i32,
             description: "Enables the synthetic feature.".to_owned(),
         });
     engine
@@ -3205,10 +3202,10 @@ fn synthetic_boolean_model() -> Model {
         .as_mut()
         .expect("fixture defaults")
         .values
-        .push(dotcore_proto::dotcore::catalog::v1::EngineParameterValue {
+        .push(dotcore_proto::dotcore::catalog::v1::ParameterValue {
             parameter_id: "feature-enabled".to_owned(),
             value: Some(
-                dotcore_proto::dotcore::catalog::v1::engine_parameter_value::Value::Boolean(false),
+                dotcore_proto::dotcore::catalog::v1::parameter_value::Value::Boolean(false),
             ),
         });
     profile.exposed_parameter_ids = vec!["total-context".to_owned(), "feature-enabled".to_owned()];
@@ -3225,7 +3222,7 @@ parameterSchema:
   parameters:
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
@@ -3233,14 +3230,14 @@ parameterSchema:
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       unsignedInteger:
         minimum: "1"
         maximum: "64"
@@ -3248,6 +3245,7 @@ parameterSchema:
         defaultValue: "4"
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger:
         minimum: "0"
         maximum: "65536"

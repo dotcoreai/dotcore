@@ -14,18 +14,18 @@ use dotcore_catalog::{
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        BooleanModelOptionParameterSchema, EngineParameterDefinition, EngineParameterSchema,
-        EngineParameterValue, EngineParameterValues, EngineRelease, HardwareRequirements,
-        HardwareSupport, HuggingFaceArtifactSource, HuggingFaceFileArtifact, InferenceRequestKind,
-        Model, ModelArtifact, ModelArtifactBinding, ModelConfigurationOption,
+        BooleanModelOptionParameterSchema, EngineParameterSchema, EngineRelease,
+        HardwareRequirements, HardwareSupport, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
+        InferenceRequestKind, Model, ModelArtifact, ModelArtifactBinding, ModelConfigurationOption,
         ModelEngineConfiguration, ModelExecutionCapabilities, ModelImageDetail,
         ModelImageInputCapacity, ModelImageMediaType, ModelInputCapabilities, ModelInputModality,
         ModelOption, ModelOptionParameterDefinition, ModelOptionParameterValue, ModelOptionValues,
-        ModelParallelShape, SpeculativeDecodingMethod, SpeculativeDecodingModelOption,
-        UnsignedIntegerEngineParameterSchema, UnsignedIntegerModelOptionParameterSchema,
-        VisionModelOption, engine_parameter_definition, engine_parameter_value,
-        hugging_face_artifact_source, model_option, model_option_parameter_definition,
-        model_option_parameter_value,
+        ModelParallelShape, ParameterDefinition, ParameterValue, ParameterValues,
+        ParameterVisibility, SpeculativeDecodingMethod, SpeculativeDecodingModelOption,
+        UnsignedIntegerModelOptionParameterSchema, UnsignedIntegerParameterSchema,
+        VisionModelOption, hugging_face_artifact_source, model_option,
+        model_option_parameter_definition, model_option_parameter_value, parameter_definition,
+        parameter_value,
     },
     engine::{
         ninfer::v1::{
@@ -116,13 +116,13 @@ pub(crate) fn refresh_launch_plan(local: &mut ResolvedLocalModelDeploymentSnapsh
 }
 
 /// Returns ninfer engine parameter values for the given pairs.
-pub(crate) fn parameter_values<const N: usize>(values: [(&str, u64); N]) -> EngineParameterValues {
-    EngineParameterValues {
+pub(crate) fn parameter_values<const N: usize>(values: [(&str, u64); N]) -> ParameterValues {
+    ParameterValues {
         values: values
             .into_iter()
-            .map(|(parameter_id, value)| EngineParameterValue {
+            .map(|(parameter_id, value)| ParameterValue {
                 parameter_id: parameter_id.to_owned(),
-                value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+                value: Some(parameter_value::Value::UnsignedInteger(value)),
             })
             .collect(),
     }
@@ -173,20 +173,21 @@ pub(crate) fn release() -> EngineRelease {
             .into_iter()
             .map(
                 |(parameter_id, display_name, minimum, maximum, unit, default_value)| {
-                    EngineParameterDefinition {
+                    ParameterDefinition {
                         parameter_id: parameter_id.to_owned(),
                         display_name: display_name.to_owned(),
-                        parameter_type: Some(
-                            engine_parameter_definition::ParameterType::UnsignedInteger(
-                                UnsignedIntegerEngineParameterSchema {
-                                    minimum,
-                                    maximum,
-                                    unit: unit.to_owned(),
-                                    default_value,
-                                },
-                            ),
-                        ),
-                        exposed: true,
+                        parameter_type: Some(parameter_definition::ParameterType::UnsignedInteger(
+                            UnsignedIntegerParameterSchema {
+                                minimum,
+                                maximum,
+                                unit: unit.to_owned(),
+                                default_value,
+                            },
+                        )),
+                        visibility: match parameter_id {
+                            "total-context" | "context-per-request" => ParameterVisibility::Basic,
+                            _ => ParameterVisibility::Advanced,
+                        } as i32,
                         description: parameter_id.to_owned(),
                     }
                 },

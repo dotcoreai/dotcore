@@ -19,14 +19,15 @@ use dotcore_proto::{
             ApplicationEndpointProtocol, ApplicationGraph, ApplicationHttpReadiness,
             ApplicationPrimaryEndpoint, ApplicationService, ApplicationServiceArtifact,
             ApplicationServiceDependency, ApplicationServicePort, ApplicationServiceReadiness,
-            EngineArtifact, EngineParameterDefinition, EngineParameterSchema, EngineParameterValue,
-            EngineParameterValues, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
-            ModelArtifact, ModelExecutionCapabilities, ModelInputCapabilities, ModelInputModality,
-            ModelParallelShape, OciDigest, OciImageReference, OciPlatform, OciRegistryLocation,
-            OciRepository, Selector, StorageBinding, StorageEnvironmentVariable, StorageKind,
-            StorageScope, UnsignedIntegerEngineParameterSchema, application_configuration_binding,
+            EngineArtifact, EngineParameterSchema, HuggingFaceArtifactSource,
+            HuggingFaceFileArtifact, ModelArtifact, ModelExecutionCapabilities,
+            ModelInputCapabilities, ModelInputModality, ModelParallelShape, OciDigest,
+            OciImageReference, OciPlatform, OciRegistryLocation, OciRepository,
+            ParameterDefinition, ParameterValue, ParameterValues, ParameterVisibility, Selector,
+            StorageBinding, StorageEnvironmentVariable, StorageKind, StorageScope,
+            UnsignedIntegerParameterSchema, application_configuration_binding,
             application_service_artifact, application_service_readiness, engine_artifact,
-            engine_parameter_definition, engine_parameter_value, hugging_face_artifact_source,
+            hugging_face_artifact_source, parameter_definition, parameter_value,
         },
         deployment::v1::{ArtifactPreparationPolicy, NodeResolvedLaunchIdentity},
         engine::{
@@ -450,21 +451,21 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                     supported_modalities: vec![ModelInputModality::Text as i32],
                     image_input_capacity: None,
                 }),
-                engine_parameter_values: Some(EngineParameterValues {
-                    values: vec![EngineParameterValue {
+                engine_parameter_values: Some(ParameterValues {
+                    values: vec![ParameterValue {
                         parameter_id: "total-context".to_owned(),
-                        value: Some(engine_parameter_value::Value::UnsignedInteger(8_192)),
+                        value: Some(parameter_value::Value::UnsignedInteger(8_192)),
                     }],
                 }),
                 engine_parameter_schema_id: "schema-one".to_owned(),
                 engine_parameter_schema: Some(EngineParameterSchema {
                     schema_id: "schema-one".to_owned(),
-                    parameters: vec![EngineParameterDefinition {
+                    parameters: vec![ParameterDefinition {
                         parameter_id: "total-context".to_owned(),
                         display_name: "Total context".to_owned(),
                         parameter_type: Some(
-                            engine_parameter_definition::ParameterType::UnsignedInteger(
-                                UnsignedIntegerEngineParameterSchema {
+                            parameter_definition::ParameterType::UnsignedInteger(
+                                UnsignedIntegerParameterSchema {
                                     minimum: 1,
                                     maximum: 131_072,
                                     unit: "tokens".to_owned(),
@@ -472,7 +473,7 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                                 },
                             ),
                         ),
-                        exposed: true,
+                        visibility: ParameterVisibility::Basic as i32,
                         description: "Maximum prompt and generation context.".to_owned(),
                     }],
                 }),

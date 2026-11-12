@@ -26,9 +26,7 @@ use dotcore_catalog::{
     shared_parameters::TOTAL_CONTEXT_PARAMETER_ID,
 };
 use dotcore_proto::dotcore::{
-    catalog::v1::{
-        EngineParameterValues, ModelEngineConfiguration, ModelOptionValues, engine_parameter_value,
-    },
+    catalog::v1::{ModelEngineConfiguration, ModelOptionValues, ParameterValues, parameter_value},
     telemetry::v1::{
         VllmStartupFacts, WorkloadResourceObservationKind, WorkloadResourceRecord,
         workload_resource_observation::EngineFacts,
@@ -134,7 +132,7 @@ impl ObservedQuantity {
                 .iter()
                 .find(|value| &value.parameter_id == parameter)
                 .and_then(|value| match value.value {
-                    Some(engine_parameter_value::Value::UnsignedInteger(value)) => Some(value),
+                    Some(parameter_value::Value::UnsignedInteger(value)) => Some(value),
                     _ => None,
                 }),
         }
@@ -934,7 +932,7 @@ fn predict(
 fn record_inputs(
     configuration: &ModelEngineConfiguration,
     record: &WorkloadResourceRecord,
-) -> (EngineParameterValues, Vec<ModelOptionValues>) {
+) -> (ParameterValues, Vec<ModelOptionValues>) {
     let (engine_values, mut option_values) = record
         .inputs
         .as_ref()
@@ -1113,7 +1111,7 @@ fn total_context(record: &WorkloadResourceRecord) -> Option<u64> {
         .iter()
         .find(|value| value.parameter_id == TOTAL_CONTEXT_PARAMETER_ID)
         .and_then(|value| match value.value {
-            Some(engine_parameter_value::Value::UnsignedInteger(value)) => Some(value),
+            Some(parameter_value::Value::UnsignedInteger(value)) => Some(value),
             _ => None,
         })
 }

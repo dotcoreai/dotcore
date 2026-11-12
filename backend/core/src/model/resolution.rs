@@ -13,12 +13,12 @@ use dotcore_catalog::{
 use dotcore_domain::deployment::artifact::immutable_remote_launch_identity;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineArtifact, EngineParameterSchema, EngineParameterValue, EngineParameterValues,
-        EngineRelease, Model, ModelArtifact, ModelArtifactBinding, ModelEngineConfiguration,
-        ModelOptionValues, ModelProfile, NixArtifact, engine_artifact::Kind as EngineArtifactKind,
-        engine_parameter_definition::ParameterType as EngineParameterType,
-        engine_parameter_value::Value as EngineParameterValueKind,
+        EngineArtifact, EngineParameterSchema, EngineRelease, Model, ModelArtifact,
+        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ModelProfile,
+        NixArtifact, ParameterValue, ParameterValues, engine_artifact::Kind as EngineArtifactKind,
         model_option_parameter_value::Value as OptionParameterValueKind,
+        parameter_definition::ParameterType as EngineParameterType,
+        parameter_value::Value as EngineParameterValueKind,
     },
     deployment::v1::ArtifactPreparationPolicy,
     model::v1::{
@@ -53,8 +53,8 @@ use crate::{
 /// Only resource estimates keep values a launch would reject, with the reason beside them.
 pub(crate) struct ResolvedLocalModelValues {
     pub(crate) selection: LocalModelSelection,
-    pub(crate) engine_parameter_values: EngineParameterValues,
-    pub(crate) derived_engine_parameter_values: EngineParameterValues,
+    pub(crate) engine_parameter_values: ParameterValues,
+    pub(crate) derived_engine_parameter_values: ParameterValues,
     pub(crate) engine_parameter_schema: EngineParameterSchema,
     pub(crate) engine_parameter_schema_id: String,
     pub(crate) option_values: Vec<ModelOptionValues>,
@@ -753,14 +753,14 @@ fn evaluate_selected_values(
         )
         .map_err(|error| sizing_unavailable(anyhow::Error::new(error)))?
         .into_iter()
-        .map(|(parameter_id, value)| EngineParameterValue {
+        .map(|(parameter_id, value)| ParameterValue {
             parameter_id,
             value: Some(EngineParameterValueKind::UnsignedInteger(value)),
         })
         .chain(filled_context_per_request)
         .collect::<Vec<_>>();
     derived_values.sort_by(|left, right| left.parameter_id.cmp(&right.parameter_id));
-    let derived_engine_parameter_values = EngineParameterValues {
+    let derived_engine_parameter_values = ParameterValues {
         values: derived_values,
     };
     validate_derived_ranges(&derived_engine_parameter_values, &schema)?;
@@ -1055,7 +1055,7 @@ impl ModelLaunchResolutionError {
 /// Rejects complete engine parameter values, each in range, that a launch can't start together.
 fn validate_launch_values(
     selection: &LocalModelSelection,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> Result<(), ModelLaunchResolutionError> {
     validate_context_per_request(selection, values)?;
     crate::model::engine::validate_parameter_values(
@@ -1071,7 +1071,7 @@ fn validate_launch_values(
 /// maximum context: the model's maximum context, or the configuration's lower maximum.
 fn validate_context_per_request(
     selection: &LocalModelSelection,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> Result<(), ModelLaunchResolutionError> {
     let Some(context_tokens) = crate::model::engine::unsigned_parameter_value(
         values,
@@ -1094,7 +1094,7 @@ fn validate_context_per_request(
 
 /// Rejects derived values outside their unsigned schema range with the offending value.
 fn validate_derived_ranges(
-    derived: &EngineParameterValues,
+    derived: &ParameterValues,
     schema: &EngineParameterSchema,
 ) -> Result<(), ModelLaunchResolutionError> {
     for value in &derived.values {
@@ -1163,10 +1163,9 @@ mod tests {
     };
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            EngineParameterValue, EngineParameterValues, HardwareRequirements,
-            ModelOptionParameterValue, ModelOptionValues, NixSystemStorePath, Selector,
-            StorageBinding, StorageEnvironmentVariable, StorageKind, StorageScope,
-            engine_parameter_value, model_option_parameter_value,
+            HardwareRequirements, ModelOptionParameterValue, ModelOptionValues, NixSystemStorePath,
+            ParameterValue, ParameterValues, Selector, StorageBinding, StorageEnvironmentVariable,
+            StorageKind, StorageScope, model_option_parameter_value, parameter_value,
         },
         engine::{
             llama_cpp::v1::LlamaCppResolvedModelState, v1::resolved_engine_model_state::State,
@@ -1199,7 +1198,7 @@ mod tests {
             "fixture-profile",
             &LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "fixture-artifact".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: [prompt_cache_value(30_000)]
                         .into_iter()
                         .chain(context_and_request_values())
@@ -1261,7 +1260,7 @@ mod tests {
                     "fixture-profile",
                     &LocalModelDeploymentConfiguration {
                         model_artifact_binding_id: "fixture-artifact".to_owned(),
-                        engine_parameter_values: Some(EngineParameterValues {
+                        engine_parameter_values: Some(ParameterValues {
                             values: [prompt_cache_value(30_000)]
                                 .into_iter()
                                 .chain(context_and_request_values())
@@ -1295,7 +1294,7 @@ mod tests {
                 "fixture-profile",
                 &LocalModelDeploymentConfiguration {
                     model_artifact_binding_id: "fixture-artifact".to_owned(),
-                    engine_parameter_values: Some(EngineParameterValues {
+                    engine_parameter_values: Some(ParameterValues {
                         values: [prompt_cache_value(30_000)]
                             .into_iter()
                             .chain(context_and_request_values())
@@ -1365,7 +1364,7 @@ mod tests {
             "fixture-profile",
             &LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "fixture-artifact".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: [prompt_cache_value(30_000)]
                         .into_iter()
                         .chain(context_and_request_values())
@@ -1422,7 +1421,7 @@ mod tests {
         );
         let configuration = LocalModelDeploymentConfiguration {
             model_artifact_binding_id: "sized".to_owned(),
-            engine_parameter_values: Some(EngineParameterValues {
+            engine_parameter_values: Some(ParameterValues {
                 values: context_and_request_values(),
             }),
             custom_argument_tokens: vec!["--verbose".to_owned()],
@@ -1443,7 +1442,7 @@ mod tests {
             resolve_local_values(&catalog, &derived_model_id(), "balanced", &configuration)
                 .expect("derived values");
 
-        let expected_values = EngineParameterValues {
+        let expected_values = ParameterValues {
             values: context_and_request_values()
                 .into_iter()
                 .chain([filled_context_per_request(), prompt_cache_value(4096)])
@@ -1467,7 +1466,7 @@ mod tests {
         assert_eq!(values.engine_parameter_values, expected_values);
         assert_eq!(
             values.derived_engine_parameter_values,
-            EngineParameterValues {
+            ParameterValues {
                 values: vec![filled_context_per_request(), prompt_cache_value(4096)],
             }
         );
@@ -1720,7 +1719,7 @@ mod tests {
             "balanced",
             &LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "sized".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: [prompt_cache_value(30_000)]
                         .into_iter()
                         .chain(context_and_request_values())
@@ -1736,7 +1735,7 @@ mod tests {
 
         assert_eq!(
             snapshot.engine_parameter_values,
-            Some(EngineParameterValues {
+            Some(ParameterValues {
                 values: [prompt_cache_value(30_000)]
                     .into_iter()
                     .chain(context_and_request_values())
@@ -1772,7 +1771,7 @@ mod tests {
                 "balanced",
                 &LocalModelDeploymentConfiguration {
                     model_artifact_binding_id: "sized".to_owned(),
-                    engine_parameter_values: Some(EngineParameterValues {
+                    engine_parameter_values: Some(ParameterValues {
                         values: context_and_request_values(),
                     }),
                     ..Default::default()
@@ -1803,7 +1802,7 @@ mod tests {
             completed,
             LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "sized".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: [prompt_cache_value(30_000)]
                         .into_iter()
                         .chain(context_and_request_values())
@@ -1815,7 +1814,7 @@ mod tests {
         );
         assert_eq!(
             values.engine_parameter_values,
-            EngineParameterValues {
+            ParameterValues {
                 values: [prompt_cache_value(30_000)]
                     .into_iter()
                     .chain(context_and_request_values())
@@ -1825,7 +1824,7 @@ mod tests {
         );
         assert_eq!(
             values.derived_engine_parameter_values,
-            EngineParameterValues {
+            ParameterValues {
                 values: vec![filled_context_per_request()],
             }
         );
@@ -1841,7 +1840,7 @@ mod tests {
 
         let complete = LocalModelDeploymentConfiguration {
             model_artifact_binding_id: "second".to_owned(),
-            engine_parameter_values: Some(EngineParameterValues {
+            engine_parameter_values: Some(ParameterValues {
                 values: [prompt_cache_value(8)]
                     .into_iter()
                     .chain(context_and_request_values())
@@ -1852,7 +1851,7 @@ mod tests {
         assert_eq!(completed(complete.clone()), complete);
 
         let partial = completed(LocalModelDeploymentConfiguration {
-            engine_parameter_values: Some(EngineParameterValues {
+            engine_parameter_values: Some(ParameterValues {
                 values: vec![prompt_cache_value(8)],
             }),
             ..Default::default()
@@ -1861,7 +1860,7 @@ mod tests {
             partial,
             LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "sized".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: [prompt_cache_value(8)]
                         .into_iter()
                         .chain(context_and_request_values())
@@ -1874,7 +1873,7 @@ mod tests {
             resolve_local_values(&catalog, &derived_model_id(), "balanced", &partial)
                 .expect("overlaid values")
                 .derived_engine_parameter_values,
-            EngineParameterValues {
+            ParameterValues {
                 values: vec![filled_context_per_request()],
             }
         );
@@ -2081,7 +2080,7 @@ mod tests {
         assert_eq!(values.selection.binding.binding_id, "second");
         assert_eq!(
             values.engine_parameter_values,
-            EngineParameterValues {
+            ParameterValues {
                 values: [prompt_cache_value(30_000)]
                     .into_iter()
                     .chain(context_and_request_values())
@@ -2136,7 +2135,7 @@ mod tests {
             "fixture-profile",
             &LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "fixture-artifact".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: [prompt_cache_value(30_000)]
                         .into_iter()
                         .chain(context_and_request_values())
@@ -2712,7 +2711,7 @@ mod tests {
             "balanced",
             &LocalModelDeploymentConfiguration {
                 model_artifact_binding_id: "sized".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: context_and_request_values(),
                 }),
                 ..Default::default()
@@ -2799,7 +2798,7 @@ mod tests {
     fn context_and_request_configuration() -> LocalModelDeploymentConfiguration {
         LocalModelDeploymentConfiguration {
             model_artifact_binding_id: "sized".to_owned(),
-            engine_parameter_values: Some(EngineParameterValues {
+            engine_parameter_values: Some(ParameterValues {
                 values: context_and_request_values(),
             }),
             ..Default::default()
@@ -2926,7 +2925,7 @@ mod tests {
             .iter()
             .find(|value| value.parameter_id == TOTAL_CONTEXT_PARAMETER_ID)
             .and_then(|value| match value.value {
-                Some(engine_parameter_value::Value::UnsignedInteger(value)) => Some(value),
+                Some(parameter_value::Value::UnsignedInteger(value)) => Some(value),
                 _ => None,
             })
             .expect("resolved total context"))
@@ -2969,13 +2968,13 @@ mod tests {
         root
     }
 
-    fn unsigned_values(values: &[(&str, u64)]) -> EngineParameterValues {
-        EngineParameterValues {
+    fn unsigned_values(values: &[(&str, u64)]) -> ParameterValues {
+        ParameterValues {
             values: values
                 .iter()
-                .map(|(parameter_id, value)| EngineParameterValue {
+                .map(|(parameter_id, value)| ParameterValue {
                     parameter_id: (*parameter_id).to_owned(),
-                    value: Some(engine_parameter_value::Value::UnsignedInteger(*value)),
+                    value: Some(parameter_value::Value::UnsignedInteger(*value)),
                 })
                 .collect(),
         }
@@ -2985,29 +2984,29 @@ mod tests {
         CatalogModelId("fixture-model".to_owned())
     }
 
-    fn prompt_cache_value(value: u64) -> EngineParameterValue {
-        EngineParameterValue {
+    fn prompt_cache_value(value: u64) -> ParameterValue {
+        ParameterValue {
             parameter_id: "prompt-cache-memory-mib".to_owned(),
-            value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+            value: Some(parameter_value::Value::UnsignedInteger(value)),
         }
     }
 
     /// The context per request resolution fills from the fixtures' total context.
-    fn filled_context_per_request() -> EngineParameterValue {
-        EngineParameterValue {
+    fn filled_context_per_request() -> ParameterValue {
+        ParameterValue {
             parameter_id: "context-per-request".to_owned(),
-            value: Some(engine_parameter_value::Value::UnsignedInteger(32_768)),
+            value: Some(parameter_value::Value::UnsignedInteger(32_768)),
         }
     }
 
     /// Total context and parallel request values the derivation fixtures supply, since their
     /// sizing derives the prompt cache instead.
-    fn context_and_request_values() -> Vec<EngineParameterValue> {
+    fn context_and_request_values() -> Vec<ParameterValue> {
         [("total-context", 32_768), ("parallel-requests", 4)]
             .into_iter()
-            .map(|(parameter_id, value)| EngineParameterValue {
+            .map(|(parameter_id, value)| ParameterValue {
                 parameter_id: parameter_id.to_owned(),
-                value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+                value: Some(parameter_value::Value::UnsignedInteger(value)),
             })
             .collect()
     }

@@ -11,14 +11,14 @@ use dotcore_catalog::shared_parameters::{
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterDefinition, EngineParameterSchema, EngineParameterValue,
-        EngineParameterValues, EngineRelease, HardwareRequirements, HardwareSupport,
+        EngineParameterSchema, EngineRelease, HardwareRequirements, HardwareSupport,
         HuggingFaceArtifactSource, HuggingFaceFileArtifact, HuggingFaceSnapshotArtifact,
         HuggingFaceSnapshotFile, InferenceRequestKind, Model, ModelArtifact, ModelArtifactBinding,
         ModelAuxiliaryArtifact, ModelEngineConfiguration, ModelExecutionCapabilities,
-        ModelInputCapabilities, ModelInputModality, ModelParallelShape, StorageBinding,
-        StorageKind, StorageScope, UnsignedIntegerEngineParameterSchema,
-        engine_parameter_definition, engine_parameter_value, hugging_face_artifact_source,
+        ModelInputCapabilities, ModelInputModality, ModelParallelShape, ParameterDefinition,
+        ParameterValue, ParameterValues, ParameterVisibility, StorageBinding, StorageKind,
+        StorageScope, UnsignedIntegerParameterSchema, hugging_face_artifact_source,
+        parameter_definition, parameter_value,
     },
     engine::{
         strata::v1::{
@@ -109,13 +109,13 @@ pub(crate) fn refresh_launch_plan(local: &mut ResolvedLocalModelDeploymentSnapsh
 }
 
 /// Returns Strata engine parameter values for the given pairs.
-pub(crate) fn parameter_values<const N: usize>(values: [(&str, u64); N]) -> EngineParameterValues {
-    EngineParameterValues {
+pub(crate) fn parameter_values<const N: usize>(values: [(&str, u64); N]) -> ParameterValues {
+    ParameterValues {
         values: values
             .into_iter()
-            .map(|(parameter_id, value)| EngineParameterValue {
+            .map(|(parameter_id, value)| ParameterValue {
                 parameter_id: parameter_id.to_owned(),
-                value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+                value: Some(parameter_value::Value::UnsignedInteger(value)),
             })
             .collect(),
     }
@@ -166,20 +166,21 @@ pub(crate) fn release() -> EngineRelease {
             .into_iter()
             .map(
                 |(parameter_id, display_name, minimum, maximum, unit, default_value)| {
-                    EngineParameterDefinition {
+                    ParameterDefinition {
                         parameter_id: parameter_id.to_owned(),
                         display_name: display_name.to_owned(),
-                        parameter_type: Some(
-                            engine_parameter_definition::ParameterType::UnsignedInteger(
-                                UnsignedIntegerEngineParameterSchema {
-                                    minimum,
-                                    maximum,
-                                    unit: unit.to_owned(),
-                                    default_value,
-                                },
-                            ),
-                        ),
-                        exposed: true,
+                        parameter_type: Some(parameter_definition::ParameterType::UnsignedInteger(
+                            UnsignedIntegerParameterSchema {
+                                minimum,
+                                maximum,
+                                unit: unit.to_owned(),
+                                default_value,
+                            },
+                        )),
+                        visibility: match parameter_id {
+                            "total-context" | "context-per-request" => ParameterVisibility::Basic,
+                            _ => ParameterVisibility::Advanced,
+                        } as i32,
                         description: parameter_id.to_owned(),
                     }
                 },

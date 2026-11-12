@@ -1491,10 +1491,10 @@ version: "1"
 parameterSchema:
   schemaId: "llama-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", exposed: true, unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "prompt-cache-memory-mib", displayName: "Prompt cache memory", unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "prompt-cache-memory-mib", displayName: "Prompt cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" } }
 artifacts:
   - artifactId: "linux"
     oci:
@@ -1601,13 +1601,13 @@ version: "1"
 parameterSchema:
   schemaId: "vllm-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", exposed: true, unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, unsignedInteger: { minimum: "1024", maximum: "1048576", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
-    - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
-    - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", unsignedInteger: { minimum: "1", maximum: "68719476736", unit: "bytes" } }
-    - { parameterId: "kv-offloading-size-gib", displayName: "KV offloading size", unsignedInteger: { minimum: "0", maximum: "1024", unit: "GiB" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "1048576", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
+    - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
+    - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "68719476736", unit: "bytes" } }
+    - { parameterId: "kv-offloading-size-gib", displayName: "KV offloading size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "0", maximum: "1024", unit: "GiB" } }
 artifacts:
   - artifactId: "linux"
     oci:
@@ -1695,10 +1695,10 @@ version: "1"
 parameterSchema:
   schemaId: "ninfer-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", exposed: true, unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "host-context-mib", displayName: "Host context memory", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "host-context-mib", displayName: "Host context memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
 artifacts:
   - artifactId: "linux"
     oci:

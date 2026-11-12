@@ -46,8 +46,8 @@ use dotcore_node_hardware::hardware::{
 use dotcore_proto::dotcore::{
     capacity::v1::{MemoryPoolKind, MemorySegmentSource},
     catalog::v1::{
-        EngineArtifact, EngineParameterValue, engine_artifact::Kind as EngineArtifactKind,
-        engine_parameter_value, nix_artifact::Provides,
+        EngineArtifact, ParameterValue, engine_artifact::Kind as EngineArtifactKind,
+        nix_artifact::Provides, parameter_value,
     },
     deployment::v1::{
         ArtifactPreparationPolicy, ExactPlacement, NodeResolvedLaunchIdentity,
@@ -959,9 +959,9 @@ fn configuration_at(
     values
         .values
         .retain(|value| value.parameter_id != "total-context");
-    values.values.push(EngineParameterValue {
+    values.values.push(ParameterValue {
         parameter_id: "total-context".to_owned(),
-        value: Some(engine_parameter_value::Value::UnsignedInteger(u64::from(
+        value: Some(parameter_value::Value::UnsignedInteger(u64::from(
             total_context,
         ))),
     });

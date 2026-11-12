@@ -17,10 +17,10 @@ use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineRelease, HardwareClass, Model, ModelConfigurationOption, ModelEngineConfiguration,
         ModelInputModality, ModelParallelShape, SpeculativeDecodingMethod,
-        engine_parameter_definition::ParameterType,
         hugging_face_artifact_source::Content as HuggingFaceContent,
         model_option::Kind as ModelOptionKind,
         model_option_parameter_definition::ParameterType as ModelOptionParameterType,
+        parameter_definition::ParameterType,
     },
     engine::{
         v1::engine_model_configuration::Configuration,
@@ -62,7 +62,7 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
                             range.maximum >= range.minimum && !range.unit.is_empty()
                         }
                         Some(ParameterType::Boolean(_)) => true,
-                        None => false,
+                        Some(ParameterType::StringEnum(_)) | None => false,
                     }
             })
     });
@@ -431,10 +431,10 @@ mod tests {
 
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            BooleanEngineParameterSchema, EngineParameterDefinition, EngineParameterSchema,
-            EngineRelease, HuggingFaceArtifactSource, Model, ModelArtifactBinding,
-            ModelAuxiliaryArtifact, ModelExecutionCapabilities, SpeculativeDecodingModelOption,
-            UnsignedIntegerEngineParameterSchema,
+            BooleanParameterSchema, EngineParameterSchema, EngineRelease,
+            HuggingFaceArtifactSource, Model, ModelArtifactBinding, ModelAuxiliaryArtifact,
+            ModelExecutionCapabilities, ParameterDefinition, SpeculativeDecodingModelOption,
+            UnsignedIntegerParameterSchema,
         },
         engine::v1::{
             EngineKind, EngineModelConfiguration, engine_model_configuration::Configuration,
@@ -461,10 +461,10 @@ mod tests {
     };
 
     fn release(kind: EngineKind) -> EngineRelease {
-        let unsigned = |parameter_id: &str, maximum: u64, unit: &str| EngineParameterDefinition {
+        let unsigned = |parameter_id: &str, maximum: u64, unit: &str| ParameterDefinition {
             parameter_id: parameter_id.to_owned(),
             parameter_type: Some(ParameterType::UnsignedInteger(
-                UnsignedIntegerEngineParameterSchema {
+                UnsignedIntegerParameterSchema {
                     minimum: 1,
                     maximum,
                     unit: unit.to_owned(),
@@ -497,10 +497,10 @@ mod tests {
             .as_mut()
             .expect("schema")
             .parameters
-            .push(EngineParameterDefinition {
+            .push(ParameterDefinition {
                 parameter_id: "feature-enabled".to_owned(),
                 display_name: "Feature enabled".to_owned(),
-                parameter_type: Some(ParameterType::Boolean(BooleanEngineParameterSchema {})),
+                parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema::default())),
                 ..Default::default()
             });
         assert!(validate_engine_release(&with_boolean).is_empty());
@@ -1041,13 +1041,13 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-vllm-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", exposed: true, unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, unsignedInteger: { minimum: "1024", maximum: "1048576", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
-    - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
-    - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", unsignedInteger: { minimum: "1", maximum: "1099511627776", unit: "bytes" } }
-    - { parameterId: "kv-offloading-size-gib", displayName: "KV offloading size", exposed: true, unsignedInteger: { minimum: "0", maximum: "1024", unit: "GiB" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "1048576", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
+    - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
+    - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1099511627776", unit: "bytes" } }
+    - { parameterId: "kv-offloading-size-gib", displayName: "KV offloading size", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "0", maximum: "1024", unit: "GiB" } }
 artifacts:
   - artifactId: "linux-amd64-cuda"
     oci:

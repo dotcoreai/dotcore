@@ -12,7 +12,7 @@ use dotcore_catalog::{
     shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID},
 };
 use dotcore_proto::dotcore::{
-    catalog::v1::engine_parameter_value::Value as EngineParameterValue,
+    catalog::v1::parameter_value::Value as EngineParameterValueKind,
     engine::{
         v1::{EngineKind, resolved_engine_model_state::State},
         vllm::v1::{
@@ -443,7 +443,7 @@ fn unsigned_integer_parameter(
                 .find(|value| value.parameter_id == parameter_id)
         })
         .and_then(|value| match value.value.as_ref() {
-            Some(EngineParameterValue::UnsignedInteger(value)) => Some(*value),
+            Some(EngineParameterValueKind::UnsignedInteger(value)) => Some(*value),
             _ => None,
         })
         .ok_or_else(|| VllmPlanError::ParameterNotConfigured(parameter_id.to_owned()))
@@ -595,8 +595,8 @@ pub(crate) enum VllmPlanError {
 mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            EngineParameterValue, EngineParameterValues, ModelArtifact, ModelAuxiliaryArtifact,
-            ModelOptionParameterValue, ModelOptionValues, engine_parameter_value::Value,
+            ModelArtifact, ModelAuxiliaryArtifact, ModelOptionParameterValue, ModelOptionValues,
+            ParameterValue, ParameterValues, parameter_value::Value,
         },
         engine::v1::{ResolvedEngineModelState, resolved_engine_model_state::State},
         engine::vllm::v1::{
@@ -657,7 +657,7 @@ mod tests {
                 semantics_version: super::super::realization::SEMANTICS_VERSION,
                 state: Some(State::Vllm(state)),
             }),
-            engine_parameter_values: Some(EngineParameterValues {
+            engine_parameter_values: Some(ParameterValues {
                 values: [
                     ("bytes", 7000_u64),
                     (PARALLEL_REQUESTS_PARAMETER_ID, 8),
@@ -667,7 +667,7 @@ mod tests {
                     (CONTEXT_PER_REQUEST_PARAMETER_ID, 32768),
                 ]
                 .into_iter()
-                .map(|(parameter_id, value)| EngineParameterValue {
+                .map(|(parameter_id, value)| ParameterValue {
                     parameter_id: parameter_id.to_owned(),
                     value: Some(Value::UnsignedInteger(value)),
                 })

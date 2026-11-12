@@ -5,7 +5,7 @@
 //! and check the response structure and error shapes. Model probabilities are never asserted.
 
 use dotcore_proto::dotcore::{
-    catalog::v1::engine_parameter_value, model::v1::LocalModelDeploymentConfiguration,
+    catalog::v1::parameter_value, model::v1::LocalModelDeploymentConfiguration,
 };
 use serde_json::{Value, json};
 
@@ -39,7 +39,7 @@ pub fn decision_model_configuration() -> LocalModelDeploymentConfiguration {
         .iter_mut()
         .find(|value| value.parameter_id == "parallel-requests")
         .expect("parallel requests parameter value")
-        .value = Some(engine_parameter_value::Value::UnsignedInteger(1));
+        .value = Some(parameter_value::Value::UnsignedInteger(1));
     configuration
 }
 

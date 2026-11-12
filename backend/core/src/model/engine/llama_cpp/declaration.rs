@@ -12,13 +12,12 @@ use dotcore_catalog::{
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterDefinition, EngineParameterValue, EngineParameterValues, EngineRelease,
-        HardwareClass, Model, ModelConfigurationOption, ModelEngineConfiguration,
-        ModelInputModality, SpeculativeDecodingMethod, engine_parameter_definition::ParameterType,
-        engine_parameter_value::Value as EngineParameterValueKind,
-        hugging_face_artifact_source::Content as HuggingFaceContent,
+        EngineRelease, HardwareClass, Model, ModelConfigurationOption, ModelEngineConfiguration,
+        ModelInputModality, ParameterDefinition, ParameterValue, ParameterValues,
+        SpeculativeDecodingMethod, hugging_face_artifact_source::Content as HuggingFaceContent,
         model_option::Kind as ModelOptionKind,
         model_option_parameter_definition::ParameterType as ModelOptionParameterType,
+        parameter_definition::ParameterType, parameter_value::Value as EngineParameterValueKind,
     },
     engine::{
         llama_cpp::v1::{
@@ -130,12 +129,12 @@ pub(crate) fn validate_hardware_support(
 pub(crate) fn parameter_defaults(
     model: &Model,
     configuration: &ModelEngineConfiguration,
-) -> EngineParameterValues {
+) -> ParameterValues {
     if !uses_single_micro_batch(configuration) {
-        return EngineParameterValues::default();
+        return ParameterValues::default();
     }
-    EngineParameterValues {
-        values: vec![EngineParameterValue {
+    ParameterValues {
+        values: vec![ParameterValue {
             parameter_id: TOTAL_CONTEXT_PARAMETER_ID.to_owned(),
             value: Some(EngineParameterValueKind::UnsignedInteger(u64::from(
                 maximum_context_tokens(model, configuration),
@@ -176,7 +175,7 @@ pub(crate) fn validate_total_context_default(
 pub(crate) fn validate_parameter_values(
     model: &Model,
     configuration: &ModelEngineConfiguration,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> anyhow::Result<()> {
     if !uses_single_micro_batch(configuration) {
         return Ok(());
@@ -661,7 +660,7 @@ pub(crate) enum LlamaCppSamplingError {
 
 /// Accepts a shared parameter bounded by llama.cpp's own limit. The bound on the total context is
 /// high enough that a large pool exceeds memory before it exceeds the bound.
-fn is_bounded(definition: &EngineParameterDefinition, parameter_id: &str, maximum: u64) -> bool {
+fn is_bounded(definition: &ParameterDefinition, parameter_id: &str, maximum: u64) -> bool {
     definition.parameter_id == parameter_id
         && matches!(
             definition.parameter_type.as_ref(),
@@ -669,7 +668,7 @@ fn is_bounded(definition: &EngineParameterDefinition, parameter_id: &str, maximu
         )
 }
 
-fn is_prompt_cache_memory(definition: &EngineParameterDefinition) -> bool {
+fn is_prompt_cache_memory(definition: &ParameterDefinition) -> bool {
     definition.parameter_id == PROMPT_CACHE_MEMORY_PARAMETER_ID
         && definition.display_name == "Prompt cache memory"
         && matches!(
@@ -686,12 +685,12 @@ mod tests {
     use dotcore_catalog::{Catalog, OciArtifactPolicy, test_support::vendor_hardware_class};
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            EngineParameterDefinition, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
-            HuggingFaceSnapshotArtifact, HuggingFaceSnapshotFile, Model, ModelArtifact,
-            ModelArtifactBinding, ModelAuxiliaryArtifact, ModelConfigurationOption,
-            ModelEngineConfiguration, SpeculativeDecodingMethod, SpeculativeDecodingModelOption,
-            VisionModelOption, engine_parameter_definition::ParameterType,
-            hugging_face_artifact_source::Content as HuggingFaceContent, model_option,
+            HuggingFaceArtifactSource, HuggingFaceFileArtifact, HuggingFaceSnapshotArtifact,
+            HuggingFaceSnapshotFile, Model, ModelArtifact, ModelArtifactBinding,
+            ModelAuxiliaryArtifact, ModelConfigurationOption, ModelEngineConfiguration,
+            ParameterDefinition, SpeculativeDecodingMethod, SpeculativeDecodingModelOption,
+            VisionModelOption, hugging_face_artifact_source::Content as HuggingFaceContent,
+            model_option, parameter_definition::ParameterType,
         },
         engine::{
             llama_cpp::v1::{
@@ -837,7 +836,7 @@ mod tests {
             .find(|release| release.engine_kind == EngineKind::LlamaCpp as i32)
             .expect("llama.cpp release");
         assert!(validate_engine_release(&release).is_empty());
-        let rejection = |edit: &dyn Fn(&mut Vec<EngineParameterDefinition>)| {
+        let rejection = |edit: &dyn Fn(&mut Vec<ParameterDefinition>)| {
             let mut release = release.clone();
             edit(
                 &mut release
@@ -851,7 +850,7 @@ mod tests {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
         };
-        let maximum = |parameters: &mut Vec<EngineParameterDefinition>, index: usize, value| {
+        let maximum = |parameters: &mut Vec<ParameterDefinition>, index: usize, value| {
             if let Some(ParameterType::UnsignedInteger(range)) =
                 parameters[index].parameter_type.as_mut()
             {
@@ -1252,9 +1251,7 @@ mod tests {
     #[test]
     fn a_single_micro_batch_maximum_context_must_be_a_valid_total_context() {
         use dotcore_proto::dotcore::{
-            catalog::v1::{
-                EngineParameterSchema, EngineRelease, UnsignedIntegerEngineParameterSchema,
-            },
+            catalog::v1::{EngineParameterSchema, EngineRelease, UnsignedIntegerParameterSchema},
             engine::{
                 llama_cpp::v1::{LlamaCppFixedModelSettings, LlamaCppModelConfiguration},
                 v1::EngineModelConfiguration,
@@ -1267,10 +1264,10 @@ mod tests {
         };
         let engine = EngineRelease {
             parameter_schema: Some(EngineParameterSchema {
-                parameters: vec![EngineParameterDefinition {
+                parameters: vec![ParameterDefinition {
                     parameter_id: "total-context".to_owned(),
                     parameter_type: Some(ParameterType::UnsignedInteger(
-                        UnsignedIntegerEngineParameterSchema {
+                        UnsignedIntegerParameterSchema {
                             minimum: 1024,
                             maximum: 8192,
                             ..Default::default()

@@ -8,10 +8,10 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use dotcore_domain::test_support::{canonical_temp_dir, unique_suffix};
 use dotcore_proto::dotcore::catalog::v1::{
-    Application, EngineParameterValue, EngineRelease, HardwareClass, HardwareSupport, Model,
-    ModelEngineConfiguration, ModelOptionParameterValue, ModelOptionValues, ModelProfile, Selector,
-    UpstreamModelTemplate, UpstreamWireProtocol, engine_parameter_value,
-    model_option_parameter_definition, model_option_parameter_value,
+    Application, EngineRelease, HardwareClass, HardwareSupport, Model, ModelEngineConfiguration,
+    ModelOptionParameterValue, ModelOptionValues, ModelProfile, ParameterValue, Selector,
+    UpstreamModelTemplate, UpstreamWireProtocol, model_option_parameter_definition,
+    model_option_parameter_value, parameter_value,
 };
 
 use crate::{
@@ -290,7 +290,7 @@ pub fn write_sizing_engine(root: &std::path::Path) {
   parameters:
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
@@ -298,14 +298,14 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       unsignedInteger:
         minimum: "1"
         maximum: "64"
@@ -313,6 +313,7 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         defaultValue: "4"
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger:
         minimum: "0"
         maximum: "65536"
@@ -578,9 +579,9 @@ fn choice_combinations(
     combinations
 }
 
-fn unsigned_value(parameter_id: &str, value: u64) -> EngineParameterValue {
-    EngineParameterValue {
+fn unsigned_value(parameter_id: &str, value: u64) -> ParameterValue {
+    ParameterValue {
         parameter_id: parameter_id.to_owned(),
-        value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+        value: Some(parameter_value::Value::UnsignedInteger(value)),
     }
 }

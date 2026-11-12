@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
     ApplicationDependencyCondition, ApplicationEndpointProtocol, ApplicationGraph,
-    ApplicationService, application_configuration_binding, parameter_definition::ParameterType,
+    ApplicationService, ParameterVisibility, application_configuration_binding,
+    parameter_definition::ParameterType,
 };
 
 use super::application::valid_configuration_value;
@@ -179,17 +180,12 @@ fn validate_primary_endpoint(
     }
 }
 
-/// Checks parameter definitions and that bindings and parameters reference each other exactly:
-/// every binding names a declared parameter and every parameter supplies at least one binding.
+/// Checks parameter definitions, each with a default and shown as basic or advanced, and that
+/// bindings and parameters reference each other exactly: every binding names a declared parameter
+/// and every parameter supplies at least one binding.
 fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>) {
     let mut parameter_ids = BTreeSet::new();
-    for parameter in &graph.parameters {
-        let Some(definition) = parameter.definition.as_ref() else {
-            errors.push(anyhow::anyhow!(
-                "application parameter requires a definition"
-            ));
-            continue;
-        };
+    for definition in &graph.parameters {
         let id = &definition.parameter_id;
         if !parameter_ids.insert(id.as_str()) {
             errors.push(anyhow::anyhow!("duplicate application parameter {id:?}"));
@@ -200,6 +196,12 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
         if valid_definition && default_value(definition).is_none() {
             errors.push(anyhow::anyhow!(
                 "application parameter {id:?} requires a default"
+            ));
+        }
+        // A value the operator never sees belongs in the graph as a literal.
+        if definition.visibility() == ParameterVisibility::Hidden {
+            errors.push(anyhow::anyhow!(
+                "application parameter {id:?} must be basic or advanced, not hidden"
             ));
         }
         // Enum values are projected verbatim into environment variables.

@@ -37,15 +37,15 @@ pub(crate) fn host_process_load_guard() -> std::sync::MutexGuard<'static, ()> {
 /// Unsigned engine parameter values for the given parameter and value pairs, in order.
 pub(crate) fn unsigned_parameter_values<'a>(
     values: impl IntoIterator<Item = (&'a str, u64)>,
-) -> dotcore_proto::dotcore::catalog::v1::EngineParameterValues {
+) -> dotcore_proto::dotcore::catalog::v1::ParameterValues {
     use dotcore_proto::dotcore::catalog::v1::{
-        EngineParameterValue, EngineParameterValues, engine_parameter_value::Value,
+        ParameterValue, ParameterValues, parameter_value::Value,
     };
 
-    EngineParameterValues {
+    ParameterValues {
         values: values
             .into_iter()
-            .map(|(parameter_id, value)| EngineParameterValue {
+            .map(|(parameter_id, value)| ParameterValue {
                 parameter_id: parameter_id.to_owned(),
                 value: Some(Value::UnsignedInteger(value)),
             })
