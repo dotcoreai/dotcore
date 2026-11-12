@@ -20,6 +20,7 @@ import { DecisionEditor, DecisionFooter } from "@/features/chat/decisions/decisi
 import { DecisionWorkspace } from "@/features/chat/decisions/decision-workspace";
 import type { Chat } from "@/features/chat/use-chat";
 import { InferenceRequestKind } from "@/gen/dotcore/catalog/v1/model_capabilities_pb";
+import { cn } from "@/lib/utils";
 
 /** The chat session's route picker, labelled "Route" beside it. */
 export function ChatRoutePicker({
@@ -30,7 +31,7 @@ export function ChatRoutePicker({
   const session = useChatRouteSession();
 
   return (
-    <div className="flex min-w-64 flex-1 items-center gap-2">
+    <div className="flex min-w-40 flex-1 items-center gap-2">
       <span className="text-sm font-medium">Route</span>
       <Combobox
         className="min-w-0 flex-1"
@@ -47,15 +48,18 @@ export function ChatRoutePicker({
   );
 }
 
-/** The Chat / Decisions switch of a route serving both kinds; nothing for other routes. */
-export function ChatModeSwitch() {
+/**
+ * The Chat / Decisions switch of a route serving both kinds; nothing for other routes. The header
+ * passes `className` to place it after the buttons where the header is narrow.
+ */
+export function ChatModeSwitch({ className }: { className?: string }) {
   const session = useChatRouteSession();
   if (!session.modeSwitchable) return null;
 
   return (
     <SegmentedControl
       aria-label="Request kind"
-      className="shrink-0"
+      className={cn("shrink-0", className)}
       onValueChange={session.selectMode}
       options={modeOptions}
       value={session.mode}
