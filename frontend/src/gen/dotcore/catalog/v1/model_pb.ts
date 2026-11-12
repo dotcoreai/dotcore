@@ -12,7 +12,7 @@ import type { HardwareRequirements } from "./hardware_class_pb";
 import { file_dotcore_catalog_v1_hardware_class } from "./hardware_class_pb";
 import type { InferenceRequestKind, ModelInputCapabilities } from "./model_capabilities_pb";
 import { file_dotcore_catalog_v1_model_capabilities } from "./model_capabilities_pb";
-import type { ParameterValues } from "./parameter_pb";
+import type { ParameterValues, ParameterVisibility } from "./parameter_pb";
 import { file_dotcore_catalog_v1_parameter } from "./parameter_pb";
 import type { EngineModelConfiguration } from "../../engine/v1/engine_pb";
 import { file_dotcore_engine_v1_engine } from "../../engine/v1/engine_pb";
@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/model.proto.
  */
 export const file_dotcore_catalog_v1_model: GenFile = /*@__PURE__*/
-  fileDesc("Ch5kb3Rjb3JlL2NhdGFsb2cvdjEvbW9kZWwucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSL2AwoFTW9kZWwSEAoIbW9kZWxfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSHgoWbWF4aW11bV9jb250ZXh0X3Rva2VucxgMIAEoDRI0CglhcnRpZmFjdHMYBCADKAsyIS5kb3Rjb3JlLmNhdGFsb2cudjEuTW9kZWxBcnRpZmFjdBIyCghwcm9maWxlcxgFIAMoCzIgLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbFByb2ZpbGUSRwoTYXV4aWxpYXJ5X2FydGlmYWN0cxgHIAMoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbEF1eGlsaWFyeUFydGlmYWN0EkQKDmNvbmZpZ3VyYXRpb25zGAggAygLMiwuZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsRW5naW5lQ29uZmlndXJhdGlvbhIwCgdvcHRpb25zGAkgAygLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsT3B0aW9uEjsKDGludGVsbGlnZW5jZRgKIAEoCzIlLmRvdGNvcmUuY2F0YWxvZy52MS5JbnRlbGxpZ2VuY2VTY29yZRIsCgdsaWNlbnNlGAsgASgLMhsuZG90Y29yZS5jYXRhbG9nLnYxLkxpY2Vuc2UiJAoRSW50ZWxsaWdlbmNlU2NvcmUSDwoHb3ZlcmFsbBgBIAEoASIoCgdMaWNlbnNlEgoKAmlkGAEgASgJEhEKCXRlcm1zX3VybBgCIAEoCSKAAQoNTW9kZWxBcnRpZmFjdBI9CgZzb3VyY2UYASABKAsyLS5kb3Rjb3JlLmNhdGFsb2cudjEuSHVnZ2luZ0ZhY2VBcnRpZmFjdFNvdXJjZRITCgthcnRpZmFjdF9pZBgCIAEoCRIbChN3ZWlnaHRfcXVhbnRpemF0aW9uGAMgASgJInYKFk1vZGVsQXV4aWxpYXJ5QXJ0aWZhY3QSHQoVYXV4aWxpYXJ5X2FydGlmYWN0X2lkGAEgASgJEj0KBnNvdXJjZRgCIAEoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5IdWdnaW5nRmFjZUFydGlmYWN0U291cmNlIs4BChlIdWdnaW5nRmFjZUFydGlmYWN0U291cmNlEhIKCnJlcG9zaXRvcnkYASABKAkSEAoIcmV2aXNpb24YAiABKAkSOwoEZmlsZRgDIAEoCzIrLmRvdGNvcmUuY2F0YWxvZy52MS5IdWdnaW5nRmFjZUZpbGVBcnRpZmFjdEgAEkMKCHNuYXBzaG90GAQgASgLMi8uZG90Y29yZS5jYXRhbG9nLnYxLkh1Z2dpbmdGYWNlU25hcHNob3RBcnRpZmFjdEgAQgkKB2NvbnRlbnQiQgoXSHVnZ2luZ0ZhY2VGaWxlQXJ0aWZhY3QSDAoEcGF0aBgBIAEoCRIZChFwcm92ZW5hbmNlX2RpZ2VzdBgCIAEoCSJZChtIdWdnaW5nRmFjZVNuYXBzaG90QXJ0aWZhY3QSOgoFZmlsZXMYASADKAsyKy5kb3Rjb3JlLmNhdGFsb2cudjEuSHVnZ2luZ0ZhY2VTbmFwc2hvdEZpbGUiQgoXSHVnZ2luZ0ZhY2VTbmFwc2hvdEZpbGUSDAoEcGF0aBgBIAEoCRIZChFwcm92ZW5hbmNlX2RpZ2VzdBgCIAEoCSKiBQoYTW9kZWxFbmdpbmVDb25maWd1cmF0aW9uEhgKEGNvbmZpZ3VyYXRpb25faWQYASABKAkSRQoQZW5naW5lX2FydGlmYWN0cxgCIAMoCzIrLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVBcnRpZmFjdFJlZmVyZW5jZRJDChFhcnRpZmFjdF9iaW5kaW5ncxgDIAMoCzIoLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbEFydGlmYWN0QmluZGluZxI9ChBoYXJkd2FyZV9zdXBwb3J0GAkgAygLMiMuZG90Y29yZS5jYXRhbG9nLnYxLkhhcmR3YXJlU3VwcG9ydBJJChRlbmdpbmVfY29uZmlndXJhdGlvbhgFIAEoCzIrLmRvdGNvcmUuZW5naW5lLnYxLkVuZ2luZU1vZGVsQ29uZmlndXJhdGlvbhJOChZleGVjdXRpb25fY2FwYWJpbGl0aWVzGAYgASgLMi4uZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsRXhlY3V0aW9uQ2FwYWJpbGl0aWVzEkYKEmlucHV0X2NhcGFiaWxpdGllcxgHIAEoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbElucHV0Q2FwYWJpbGl0aWVzEj8KDXJlcXVlc3Rfa2luZHMYCyADKA4yKC5kb3Rjb3JlLmNhdGFsb2cudjEuSW5mZXJlbmNlUmVxdWVzdEtpbmQSPQoHb3B0aW9ucxgIIAMoCzIsLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbENvbmZpZ3VyYXRpb25PcHRpb24SIwoWbWF4aW11bV9jb250ZXh0X3Rva2VucxgKIAEoDUgAiAEBQhkKF19tYXhpbXVtX2NvbnRleHRfdG9rZW5zImUKFE1vZGVsQXJ0aWZhY3RCaW5kaW5nEhIKCmJpbmRpbmdfaWQYASABKAkSGQoRbW9kZWxfYXJ0aWZhY3RfaWQYAiABKAkSHgoWYXV4aWxpYXJ5X2FydGlmYWN0X2lkcxgDIAMoCSK5AgoMTW9kZWxQcm9maWxlEhIKCnByb2ZpbGVfaWQYASABKAkSGAoQY29uZmlndXJhdGlvbl9pZBgCIAEoCRIpCiFkZWZhdWx0X21vZGVsX2FydGlmYWN0X2JpbmRpbmdfaWQYAyABKAkSRgoZZW5naW5lX3BhcmFtZXRlcl9kZWZhdWx0cxgEIAEoCzIjLmRvdGNvcmUuY2F0YWxvZy52MS5QYXJhbWV0ZXJWYWx1ZXMSFAoMZGlzcGxheV9uYW1lGAUgASgJEhMKC2Rlc2NyaXB0aW9uGAYgASgJEj4KD29wdGlvbl9kZWZhdWx0cxgHIAMoCzIlLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbE9wdGlvblZhbHVlcxIdChVleHBvc2VkX3BhcmFtZXRlcl9pZHMYCCADKAkimgIKC01vZGVsT3B0aW9uEhEKCW9wdGlvbl9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSNwoGdmlzaW9uGAMgASgLMiUuZG90Y29yZS5jYXRhbG9nLnYxLlZpc2lvbk1vZGVsT3B0aW9uSAASUgoUc3BlY3VsYXRpdmVfZGVjb2RpbmcYBCABKAsyMi5kb3Rjb3JlLmNhdGFsb2cudjEuU3BlY3VsYXRpdmVEZWNvZGluZ01vZGVsT3B0aW9uSAASTQoSa3ZfY2FjaGVfcHJlY2lzaW9uGAUgASgLMi8uZG90Y29yZS5jYXRhbG9nLnYxLkt2Q2FjaGVQcmVjaXNpb25Nb2RlbE9wdGlvbkgAQgYKBGtpbmQiEwoRVmlzaW9uTW9kZWxPcHRpb24iXwoeU3BlY3VsYXRpdmVEZWNvZGluZ01vZGVsT3B0aW9uEj0KBm1ldGhvZBgBIAEoDjItLmRvdGNvcmUuY2F0YWxvZy52MS5TcGVjdWxhdGl2ZURlY29kaW5nTWV0aG9kIh0KG0t2Q2FjaGVQcmVjaXNpb25Nb2RlbE9wdGlvbiLsAQoYTW9kZWxDb25maWd1cmF0aW9uT3B0aW9uEhEKCW9wdGlvbl9pZBgBIAEoCRJGCgpwYXJhbWV0ZXJzGAIgAygLMjIuZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsT3B0aW9uUGFyYW1ldGVyRGVmaW5pdGlvbhI9Cg5kZWZhdWx0X3ZhbHVlcxgDIAEoCzIlLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbE9wdGlvblZhbHVlcxIdChVzdXBwb3J0ZWRfYmluZGluZ19pZHMYBCADKAkSFwoPY29tcGF0aWJsZV93aGVuGAUgASgJItQCCh5Nb2RlbE9wdGlvblBhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRJICgdib29sZWFuGAMgASgLMjUuZG90Y29yZS5jYXRhbG9nLnYxLkJvb2xlYW5Nb2RlbE9wdGlvblBhcmFtZXRlclNjaGVtYUgAElkKEHVuc2lnbmVkX2ludGVnZXIYBCABKAsyPS5kb3Rjb3JlLmNhdGFsb2cudjEuVW5zaWduZWRJbnRlZ2VyTW9kZWxPcHRpb25QYXJhbWV0ZXJTY2hlbWFIABJPCgtzdHJpbmdfZW51bRgFIAEoCzI4LmRvdGNvcmUuY2F0YWxvZy52MS5TdHJpbmdFbnVtTW9kZWxPcHRpb25QYXJhbWV0ZXJTY2hlbWFIAEIQCg5wYXJhbWV0ZXJfdHlwZSIjCiFCb29sZWFuTW9kZWxPcHRpb25QYXJhbWV0ZXJTY2hlbWEiWwopVW5zaWduZWRJbnRlZ2VyTW9kZWxPcHRpb25QYXJhbWV0ZXJTY2hlbWESDwoHbWluaW11bRgBIAEoBBIPCgdtYXhpbXVtGAIgASgEEgwKBHVuaXQYAyABKAkiNgokU3RyaW5nRW51bU1vZGVsT3B0aW9uUGFyYW1ldGVyU2NoZW1hEg4KBnZhbHVlcxgBIAMoCSJlChFNb2RlbE9wdGlvblZhbHVlcxIRCglvcHRpb25faWQYASABKAkSPQoGdmFsdWVzGAIgAygLMi0uZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsT3B0aW9uUGFyYW1ldGVyVmFsdWUiewoZTW9kZWxPcHRpb25QYXJhbWV0ZXJWYWx1ZRIUCgxwYXJhbWV0ZXJfaWQYASABKAkSEQoHYm9vbGVhbhgCIAEoCEgAEhoKEHVuc2lnbmVkX2ludGVnZXIYAyABKARIABIQCgZzdHJpbmcYBCABKAlIAEIHCgV2YWx1ZSJnChpNb2RlbEV4ZWN1dGlvbkNhcGFiaWxpdGllcxJJChlzdXBwb3J0ZWRfcGFyYWxsZWxfc2hhcGVzGAEgAygOMiYuZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsUGFyYWxsZWxTaGFwZSJ1Cg9IYXJkd2FyZVN1cHBvcnQSGQoRaGFyZHdhcmVfY2xhc3NfaWQYASABKAkSRwoVaGFyZHdhcmVfcmVxdWlyZW1lbnRzGAIgASgLMiguZG90Y29yZS5jYXRhbG9nLnYxLkhhcmR3YXJlUmVxdWlyZW1lbnRzKm0KGVNwZWN1bGF0aXZlRGVjb2RpbmdNZXRob2QSKwonU1BFQ1VMQVRJVkVfREVDT0RJTkdfTUVUSE9EX1VOU1BFQ0lGSUVEEAASIwofU1BFQ1VMQVRJVkVfREVDT0RJTkdfTUVUSE9EX01UUBABYgZwcm90bzM", [file_dotcore_catalog_v1_engine_release, file_dotcore_catalog_v1_execution, file_dotcore_catalog_v1_hardware_class, file_dotcore_catalog_v1_model_capabilities, file_dotcore_catalog_v1_parameter, file_dotcore_engine_v1_engine]);
+  fileDesc("Ch5kb3Rjb3JlL2NhdGFsb2cvdjEvbW9kZWwucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSL2AwoFTW9kZWwSEAoIbW9kZWxfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEg8KB3ZlcnNpb24YAyABKAkSHgoWbWF4aW11bV9jb250ZXh0X3Rva2VucxgMIAEoDRI0CglhcnRpZmFjdHMYBCADKAsyIS5kb3Rjb3JlLmNhdGFsb2cudjEuTW9kZWxBcnRpZmFjdBIyCghwcm9maWxlcxgFIAMoCzIgLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbFByb2ZpbGUSRwoTYXV4aWxpYXJ5X2FydGlmYWN0cxgHIAMoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbEF1eGlsaWFyeUFydGlmYWN0EkQKDmNvbmZpZ3VyYXRpb25zGAggAygLMiwuZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsRW5naW5lQ29uZmlndXJhdGlvbhIwCgdvcHRpb25zGAkgAygLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsT3B0aW9uEjsKDGludGVsbGlnZW5jZRgKIAEoCzIlLmRvdGNvcmUuY2F0YWxvZy52MS5JbnRlbGxpZ2VuY2VTY29yZRIsCgdsaWNlbnNlGAsgASgLMhsuZG90Y29yZS5jYXRhbG9nLnYxLkxpY2Vuc2UiJAoRSW50ZWxsaWdlbmNlU2NvcmUSDwoHb3ZlcmFsbBgBIAEoASIoCgdMaWNlbnNlEgoKAmlkGAEgASgJEhEKCXRlcm1zX3VybBgCIAEoCSKAAQoNTW9kZWxBcnRpZmFjdBI9CgZzb3VyY2UYASABKAsyLS5kb3Rjb3JlLmNhdGFsb2cudjEuSHVnZ2luZ0ZhY2VBcnRpZmFjdFNvdXJjZRITCgthcnRpZmFjdF9pZBgCIAEoCRIbChN3ZWlnaHRfcXVhbnRpemF0aW9uGAMgASgJInYKFk1vZGVsQXV4aWxpYXJ5QXJ0aWZhY3QSHQoVYXV4aWxpYXJ5X2FydGlmYWN0X2lkGAEgASgJEj0KBnNvdXJjZRgCIAEoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5IdWdnaW5nRmFjZUFydGlmYWN0U291cmNlIs4BChlIdWdnaW5nRmFjZUFydGlmYWN0U291cmNlEhIKCnJlcG9zaXRvcnkYASABKAkSEAoIcmV2aXNpb24YAiABKAkSOwoEZmlsZRgDIAEoCzIrLmRvdGNvcmUuY2F0YWxvZy52MS5IdWdnaW5nRmFjZUZpbGVBcnRpZmFjdEgAEkMKCHNuYXBzaG90GAQgASgLMi8uZG90Y29yZS5jYXRhbG9nLnYxLkh1Z2dpbmdGYWNlU25hcHNob3RBcnRpZmFjdEgAQgkKB2NvbnRlbnQiQgoXSHVnZ2luZ0ZhY2VGaWxlQXJ0aWZhY3QSDAoEcGF0aBgBIAEoCRIZChFwcm92ZW5hbmNlX2RpZ2VzdBgCIAEoCSJZChtIdWdnaW5nRmFjZVNuYXBzaG90QXJ0aWZhY3QSOgoFZmlsZXMYASADKAsyKy5kb3Rjb3JlLmNhdGFsb2cudjEuSHVnZ2luZ0ZhY2VTbmFwc2hvdEZpbGUiQgoXSHVnZ2luZ0ZhY2VTbmFwc2hvdEZpbGUSDAoEcGF0aBgBIAEoCRIZChFwcm92ZW5hbmNlX2RpZ2VzdBgCIAEoCSKiBQoYTW9kZWxFbmdpbmVDb25maWd1cmF0aW9uEhgKEGNvbmZpZ3VyYXRpb25faWQYASABKAkSRQoQZW5naW5lX2FydGlmYWN0cxgCIAMoCzIrLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVBcnRpZmFjdFJlZmVyZW5jZRJDChFhcnRpZmFjdF9iaW5kaW5ncxgDIAMoCzIoLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbEFydGlmYWN0QmluZGluZxI9ChBoYXJkd2FyZV9zdXBwb3J0GAkgAygLMiMuZG90Y29yZS5jYXRhbG9nLnYxLkhhcmR3YXJlU3VwcG9ydBJJChRlbmdpbmVfY29uZmlndXJhdGlvbhgFIAEoCzIrLmRvdGNvcmUuZW5naW5lLnYxLkVuZ2luZU1vZGVsQ29uZmlndXJhdGlvbhJOChZleGVjdXRpb25fY2FwYWJpbGl0aWVzGAYgASgLMi4uZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsRXhlY3V0aW9uQ2FwYWJpbGl0aWVzEkYKEmlucHV0X2NhcGFiaWxpdGllcxgHIAEoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbElucHV0Q2FwYWJpbGl0aWVzEj8KDXJlcXVlc3Rfa2luZHMYCyADKA4yKC5kb3Rjb3JlLmNhdGFsb2cudjEuSW5mZXJlbmNlUmVxdWVzdEtpbmQSPQoHb3B0aW9ucxgIIAMoCzIsLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbENvbmZpZ3VyYXRpb25PcHRpb24SIwoWbWF4aW11bV9jb250ZXh0X3Rva2VucxgKIAEoDUgAiAEBQhkKF19tYXhpbXVtX2NvbnRleHRfdG9rZW5zImUKFE1vZGVsQXJ0aWZhY3RCaW5kaW5nEhIKCmJpbmRpbmdfaWQYASABKAkSGQoRbW9kZWxfYXJ0aWZhY3RfaWQYAiABKAkSHgoWYXV4aWxpYXJ5X2FydGlmYWN0X2lkcxgDIAMoCSL6AgoMTW9kZWxQcm9maWxlEhIKCnByb2ZpbGVfaWQYASABKAkSGAoQY29uZmlndXJhdGlvbl9pZBgCIAEoCRIpCiFkZWZhdWx0X21vZGVsX2FydGlmYWN0X2JpbmRpbmdfaWQYAyABKAkSRgoZZW5naW5lX3BhcmFtZXRlcl9kZWZhdWx0cxgEIAEoCzIjLmRvdGNvcmUuY2F0YWxvZy52MS5QYXJhbWV0ZXJWYWx1ZXMSXgolZW5naW5lX3BhcmFtZXRlcl92aXNpYmlsaXR5X292ZXJyaWRlcxgJIAMoCzIvLmRvdGNvcmUuY2F0YWxvZy52MS5QYXJhbWV0ZXJWaXNpYmlsaXR5T3ZlcnJpZGUSFAoMZGlzcGxheV9uYW1lGAUgASgJEhMKC2Rlc2NyaXB0aW9uGAYgASgJEj4KD29wdGlvbl9kZWZhdWx0cxgHIAMoCzIlLmRvdGNvcmUuY2F0YWxvZy52MS5Nb2RlbE9wdGlvblZhbHVlcyJwChtQYXJhbWV0ZXJWaXNpYmlsaXR5T3ZlcnJpZGUSFAoMcGFyYW1ldGVyX2lkGAEgASgJEjsKCnZpc2liaWxpdHkYAiABKA4yJy5kb3Rjb3JlLmNhdGFsb2cudjEuUGFyYW1ldGVyVmlzaWJpbGl0eSKaAgoLTW9kZWxPcHRpb24SEQoJb3B0aW9uX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRI3CgZ2aXNpb24YAyABKAsyJS5kb3Rjb3JlLmNhdGFsb2cudjEuVmlzaW9uTW9kZWxPcHRpb25IABJSChRzcGVjdWxhdGl2ZV9kZWNvZGluZxgEIAEoCzIyLmRvdGNvcmUuY2F0YWxvZy52MS5TcGVjdWxhdGl2ZURlY29kaW5nTW9kZWxPcHRpb25IABJNChJrdl9jYWNoZV9wcmVjaXNpb24YBSABKAsyLy5kb3Rjb3JlLmNhdGFsb2cudjEuS3ZDYWNoZVByZWNpc2lvbk1vZGVsT3B0aW9uSABCBgoEa2luZCITChFWaXNpb25Nb2RlbE9wdGlvbiJfCh5TcGVjdWxhdGl2ZURlY29kaW5nTW9kZWxPcHRpb24SPQoGbWV0aG9kGAEgASgOMi0uZG90Y29yZS5jYXRhbG9nLnYxLlNwZWN1bGF0aXZlRGVjb2RpbmdNZXRob2QiHQobS3ZDYWNoZVByZWNpc2lvbk1vZGVsT3B0aW9uIuwBChhNb2RlbENvbmZpZ3VyYXRpb25PcHRpb24SEQoJb3B0aW9uX2lkGAEgASgJEkYKCnBhcmFtZXRlcnMYAiADKAsyMi5kb3Rjb3JlLmNhdGFsb2cudjEuTW9kZWxPcHRpb25QYXJhbWV0ZXJEZWZpbml0aW9uEj0KDmRlZmF1bHRfdmFsdWVzGAMgASgLMiUuZG90Y29yZS5jYXRhbG9nLnYxLk1vZGVsT3B0aW9uVmFsdWVzEh0KFXN1cHBvcnRlZF9iaW5kaW5nX2lkcxgEIAMoCRIXCg9jb21wYXRpYmxlX3doZW4YBSABKAki1AIKHk1vZGVsT3B0aW9uUGFyYW1ldGVyRGVmaW5pdGlvbhIUCgxwYXJhbWV0ZXJfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEkgKB2Jvb2xlYW4YAyABKAsyNS5kb3Rjb3JlLmNhdGFsb2cudjEuQm9vbGVhbk1vZGVsT3B0aW9uUGFyYW1ldGVyU2NoZW1hSAASWQoQdW5zaWduZWRfaW50ZWdlchgEIAEoCzI9LmRvdGNvcmUuY2F0YWxvZy52MS5VbnNpZ25lZEludGVnZXJNb2RlbE9wdGlvblBhcmFtZXRlclNjaGVtYUgAEk8KC3N0cmluZ19lbnVtGAUgASgLMjguZG90Y29yZS5jYXRhbG9nLnYxLlN0cmluZ0VudW1Nb2RlbE9wdGlvblBhcmFtZXRlclNjaGVtYUgAQhAKDnBhcmFtZXRlcl90eXBlIiMKIUJvb2xlYW5Nb2RlbE9wdGlvblBhcmFtZXRlclNjaGVtYSJbCilVbnNpZ25lZEludGVnZXJNb2RlbE9wdGlvblBhcmFtZXRlclNjaGVtYRIPCgdtaW5pbXVtGAEgASgEEg8KB21heGltdW0YAiABKAQSDAoEdW5pdBgDIAEoCSI2CiRTdHJpbmdFbnVtTW9kZWxPcHRpb25QYXJhbWV0ZXJTY2hlbWESDgoGdmFsdWVzGAEgAygJImUKEU1vZGVsT3B0aW9uVmFsdWVzEhEKCW9wdGlvbl9pZBgBIAEoCRI9CgZ2YWx1ZXMYAiADKAsyLS5kb3Rjb3JlLmNhdGFsb2cudjEuTW9kZWxPcHRpb25QYXJhbWV0ZXJWYWx1ZSJ7ChlNb2RlbE9wdGlvblBhcmFtZXRlclZhbHVlEhQKDHBhcmFtZXRlcl9pZBgBIAEoCRIRCgdib29sZWFuGAIgASgISAASGgoQdW5zaWduZWRfaW50ZWdlchgDIAEoBEgAEhAKBnN0cmluZxgEIAEoCUgAQgcKBXZhbHVlImcKGk1vZGVsRXhlY3V0aW9uQ2FwYWJpbGl0aWVzEkkKGXN1cHBvcnRlZF9wYXJhbGxlbF9zaGFwZXMYASADKA4yJi5kb3Rjb3JlLmNhdGFsb2cudjEuTW9kZWxQYXJhbGxlbFNoYXBlInUKD0hhcmR3YXJlU3VwcG9ydBIZChFoYXJkd2FyZV9jbGFzc19pZBgBIAEoCRJHChVoYXJkd2FyZV9yZXF1aXJlbWVudHMYAiABKAsyKC5kb3Rjb3JlLmNhdGFsb2cudjEuSGFyZHdhcmVSZXF1aXJlbWVudHMqbQoZU3BlY3VsYXRpdmVEZWNvZGluZ01ldGhvZBIrCidTUEVDVUxBVElWRV9ERUNPRElOR19NRVRIT0RfVU5TUEVDSUZJRUQQABIjCh9TUEVDVUxBVElWRV9ERUNPRElOR19NRVRIT0RfTVRQEAFiBnByb3RvMw", [file_dotcore_catalog_v1_engine_release, file_dotcore_catalog_v1_execution, file_dotcore_catalog_v1_hardware_class, file_dotcore_catalog_v1_model_capabilities, file_dotcore_catalog_v1_parameter, file_dotcore_engine_v1_engine]);
 
 /**
  * An immutable artifact-manager catalog declaration. The inference controller
@@ -517,6 +517,13 @@ export type ModelProfile = Message<"dotcore.catalog.v1.ModelProfile"> & {
   engineParameterDefaults?: ParameterValues;
 
   /**
+   * Engine parameters this profile shows differently from the engine, at most one per parameter.
+   *
+   * @generated from field: repeated dotcore.catalog.v1.ParameterVisibilityOverride engine_parameter_visibility_overrides = 9;
+   */
+  engineParameterVisibilityOverrides: ParameterVisibilityOverride[];
+
+  /**
    * Optional human-readable name for this profile.
    *
    * @generated from field: string display_name = 5;
@@ -536,13 +543,6 @@ export type ModelProfile = Message<"dotcore.catalog.v1.ModelProfile"> & {
    * @generated from field: repeated dotcore.catalog.v1.ModelOptionValues option_defaults = 7;
    */
   optionDefaults: ModelOptionValues[];
-
-  /**
-   * Exact ordered engine parameters exposed by this profile; empty uses engine defaults.
-   *
-   * @generated from field: repeated string exposed_parameter_ids = 8;
-   */
-  exposedParameterIds: string[];
 };
 
 /**
@@ -551,6 +551,35 @@ export type ModelProfile = Message<"dotcore.catalog.v1.ModelProfile"> & {
  */
 export const ModelProfileSchema: GenMessage<ModelProfile> = /*@__PURE__*/
   messageDesc(file_dotcore_catalog_v1_model, 11);
+
+/**
+ * Sets where the console shows one engine parameter for a profile, in place of the engine's
+ * visibility.
+ *
+ * @generated from message dotcore.catalog.v1.ParameterVisibilityOverride
+ */
+export type ParameterVisibilityOverride = Message<"dotcore.catalog.v1.ParameterVisibilityOverride"> & {
+  /**
+   * Engine parameter identity.
+   *
+   * @generated from field: string parameter_id = 1;
+   */
+  parameterId: string;
+
+  /**
+   * Visibility the profile gives the parameter.
+   *
+   * @generated from field: dotcore.catalog.v1.ParameterVisibility visibility = 2;
+   */
+  visibility: ParameterVisibility;
+};
+
+/**
+ * Describes the message dotcore.catalog.v1.ParameterVisibilityOverride.
+ * Use `create(ParameterVisibilityOverrideSchema)` to create a new message.
+ */
+export const ParameterVisibilityOverrideSchema: GenMessage<ParameterVisibilityOverride> = /*@__PURE__*/
+  messageDesc(file_dotcore_catalog_v1_model, 12);
 
 /**
  * Declares one stable semantic option that configurations may implement.
@@ -607,7 +636,7 @@ export type ModelOption = Message<"dotcore.catalog.v1.ModelOption"> & {
  * Use `create(ModelOptionSchema)` to create a new message.
  */
 export const ModelOptionSchema: GenMessage<ModelOption> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 12);
+  messageDesc(file_dotcore_catalog_v1_model, 13);
 
 /**
  * Identifies the semantic vision option kind.
@@ -622,7 +651,7 @@ export type VisionModelOption = Message<"dotcore.catalog.v1.VisionModelOption"> 
  * Use `create(VisionModelOptionSchema)` to create a new message.
  */
 export const VisionModelOptionSchema: GenMessage<VisionModelOption> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 13);
+  messageDesc(file_dotcore_catalog_v1_model, 14);
 
 /**
  * Identifies the semantic speculative-decoding option kind and the draft method it uses. Its
@@ -644,7 +673,7 @@ export type SpeculativeDecodingModelOption = Message<"dotcore.catalog.v1.Specula
  * Use `create(SpeculativeDecodingModelOptionSchema)` to create a new message.
  */
 export const SpeculativeDecodingModelOptionSchema: GenMessage<SpeculativeDecodingModelOption> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 14);
+  messageDesc(file_dotcore_catalog_v1_model, 15);
 
 /**
  * Identifies the semantic KV cache precision option kind. Its configuration options declare one
@@ -660,7 +689,7 @@ export type KvCachePrecisionModelOption = Message<"dotcore.catalog.v1.KvCachePre
  * Use `create(KvCachePrecisionModelOptionSchema)` to create a new message.
  */
 export const KvCachePrecisionModelOptionSchema: GenMessage<KvCachePrecisionModelOption> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 15);
+  messageDesc(file_dotcore_catalog_v1_model, 16);
 
 /**
  * Defines one option as implemented by a model-local engine configuration.
@@ -709,7 +738,7 @@ export type ModelConfigurationOption = Message<"dotcore.catalog.v1.ModelConfigur
  * Use `create(ModelConfigurationOptionSchema)` to create a new message.
  */
 export const ModelConfigurationOptionSchema: GenMessage<ModelConfigurationOption> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 16);
+  messageDesc(file_dotcore_catalog_v1_model, 17);
 
 /**
  * Defines one typed configuration-local option parameter.
@@ -766,7 +795,7 @@ export type ModelOptionParameterDefinition = Message<"dotcore.catalog.v1.ModelOp
  * Use `create(ModelOptionParameterDefinitionSchema)` to create a new message.
  */
 export const ModelOptionParameterDefinitionSchema: GenMessage<ModelOptionParameterDefinition> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 17);
+  messageDesc(file_dotcore_catalog_v1_model, 18);
 
 /**
  * Defines a boolean option parameter.
@@ -781,7 +810,7 @@ export type BooleanModelOptionParameterSchema = Message<"dotcore.catalog.v1.Bool
  * Use `create(BooleanModelOptionParameterSchemaSchema)` to create a new message.
  */
 export const BooleanModelOptionParameterSchemaSchema: GenMessage<BooleanModelOptionParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 18);
+  messageDesc(file_dotcore_catalog_v1_model, 19);
 
 /**
  * Defines bounds and units for an unsigned-integer option parameter.
@@ -816,7 +845,7 @@ export type UnsignedIntegerModelOptionParameterSchema = Message<"dotcore.catalog
  * Use `create(UnsignedIntegerModelOptionParameterSchemaSchema)` to create a new message.
  */
 export const UnsignedIntegerModelOptionParameterSchemaSchema: GenMessage<UnsignedIntegerModelOptionParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 19);
+  messageDesc(file_dotcore_catalog_v1_model, 20);
 
 /**
  * Defines the exact accepted values for a constrained string parameter.
@@ -837,7 +866,7 @@ export type StringEnumModelOptionParameterSchema = Message<"dotcore.catalog.v1.S
  * Use `create(StringEnumModelOptionParameterSchemaSchema)` to create a new message.
  */
 export const StringEnumModelOptionParameterSchemaSchema: GenMessage<StringEnumModelOptionParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 20);
+  messageDesc(file_dotcore_catalog_v1_model, 21);
 
 /**
  * Supplies typed values for one model option.
@@ -865,7 +894,7 @@ export type ModelOptionValues = Message<"dotcore.catalog.v1.ModelOptionValues"> 
  * Use `create(ModelOptionValuesSchema)` to create a new message.
  */
 export const ModelOptionValuesSchema: GenMessage<ModelOptionValues> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 21);
+  messageDesc(file_dotcore_catalog_v1_model, 22);
 
 /**
  * Supplies one typed option parameter value.
@@ -915,7 +944,7 @@ export type ModelOptionParameterValue = Message<"dotcore.catalog.v1.ModelOptionP
  * Use `create(ModelOptionParameterValueSchema)` to create a new message.
  */
 export const ModelOptionParameterValueSchema: GenMessage<ModelOptionParameterValue> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 22);
+  messageDesc(file_dotcore_catalog_v1_model, 23);
 
 /**
  * Execution shapes that a model profile supports.
@@ -936,7 +965,7 @@ export type ModelExecutionCapabilities = Message<"dotcore.catalog.v1.ModelExecut
  * Use `create(ModelExecutionCapabilitiesSchema)` to create a new message.
  */
 export const ModelExecutionCapabilitiesSchema: GenMessage<ModelExecutionCapabilities> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 23);
+  messageDesc(file_dotcore_catalog_v1_model, 24);
 
 /**
  * Declares that a configuration runs on one shared hardware class. The class selector supplies the
@@ -965,7 +994,7 @@ export type HardwareSupport = Message<"dotcore.catalog.v1.HardwareSupport"> & {
  * Use `create(HardwareSupportSchema)` to create a new message.
  */
 export const HardwareSupportSchema: GenMessage<HardwareSupport> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_model, 24);
+  messageDesc(file_dotcore_catalog_v1_model, 25);
 
 /**
  * Draft methods that propose tokens for speculative decoding.
