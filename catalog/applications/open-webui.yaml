@@ -4,6 +4,7 @@ applicationId: "open-webui"
 displayName: "Open WebUI"
 description: "Self-hosted chat interface for the models on this site."
 version: "0.11.4"
+useCases: ["USE_CASE_CHAT_ASSISTANT"]
 graph:
   services:
     - serviceName: "web"

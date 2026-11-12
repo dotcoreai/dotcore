@@ -10,6 +10,8 @@ notes: |-
   The app has no login. Anyone who can reach its published port can run workflows that load any custom node of the deployment, which run as root with the container's network and GPU access.
   The only access control is the address the node publishes applications on, plus the network in front of it, so publish ComfyUI on a trusted network only.
 version: "0.42.5"
+useCases: ["USE_CASE_IMAGE_GENERATION"]
+preferredAccelerators: ["nvidia"]
 graph:
   parameters:
     - advanced: true
