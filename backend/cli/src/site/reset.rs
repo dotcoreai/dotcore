@@ -1,23 +1,22 @@
 //! Reset of a site to a fresh one.
 //!
-//! The site is locked against a running server for the whole reset. The operator first approves
-//! removing the runtime resources the site owns, then the new inputs are collected the same way
-//! initialization collects them, and only then are the site's resources, state and trust removed
-//! and the new inputs written in their place. Declining or missing approval stops the reset before
-//! the new inputs are asked for, and changes nothing.
+//! The site is locked against a running server for the whole reset. After the operator approves
+//! removing the runtime resources the site owns, its resources, state and trust are removed, then
+//! the new inputs are collected the same way initialization collects them and written in their
+//! place. Declining or missing approval stops the reset before anything is removed or asked for.
+//! A failure while collecting leaves the site removed.
 
 use std::path::Path;
 
 use anyhow::Context;
 use dotcore_runtime::SiteRuntimeCleanup;
 use dotcore_site::{
-    initial::{
-        input_store::InitialSiteInputWriter, inputs::InitialSiteInputs, request::InitialSiteRequest,
-    },
+    initial::input_store::InitialSiteInputWriter,
     reset::{
         persistence::SitePersistenceReset,
         transaction::{
-            SiteResetLockError, SiteResetSession, SiteResetTransaction, SiteResetTransactionError,
+            RemovedSite, SiteResetLockError, SiteResetSession, SiteResetTransaction,
+            SiteResetTransactionError,
         },
     },
 };
@@ -61,8 +60,8 @@ pub(super) async fn reset(arguments: SiteResetArgs, paths: &RootPathArgs) -> any
     .await
 }
 
-/// Locks the site and gets approval to remove its runtime resources, then collects its new inputs
-/// and removes and republishes it.
+/// Locks the site and gets approval to remove its runtime resources, removes the site, then
+/// collects its new inputs and publishes them.
 async fn reset_site(
     arguments: SiteResetArgs,
     location: &SiteLocation,
@@ -97,8 +96,10 @@ async fn reset_site(
         location.catalog_dir.as_deref(),
     )
     .await?;
+    let removed = remove_site(session, &transaction).await?;
 
-    let mode = CollectionMode::select(&arguments.configuration, || &mut *terminal)?;
+    let mode = CollectionMode::select(&arguments.configuration, || &mut *terminal)
+        .context(REMOVED_BEFORE_COLLECTION)?;
     let collected = collect_initial_site(
         &arguments.configuration,
         location,
@@ -107,18 +108,20 @@ async fn reset_site(
         mode,
         adapters,
     )
-    .await?;
-    remove_and_republish(
-        session,
-        transaction,
-        &collected.prepared.inputs,
-        &collected.prepared.request,
-    )
-    .await?;
+    .await
+    .context(REMOVED_BEFORE_COLLECTION)?;
+    transaction
+        .publish_removed(removed, &collected.prepared.inputs)
+        .map_err(|error| reset_transaction_failure(error, site_dir))?;
     if let Some(host) = &collected.unreported_host {
         report_host(host);
     }
-    Ok(())
+    write_success(
+        "Site reset",
+        site_dir,
+        &collected.prepared.inputs,
+        &collected.prepared.request,
+    )
 }
 
 /// Lists the site's runtime resources and obtains the operator's approval to remove them. Nothing
@@ -146,14 +149,12 @@ async fn approve_removal(
     Ok(transaction)
 }
 
-/// Cleans, wipes and republishes the site with its new inputs, then warns when joined nodes lost
-/// their trust.
-async fn remove_and_republish(
+/// Cleans and wipes the site, then warns when joined nodes lost their trust. The new inputs are
+/// published later, so a failure in between leaves the site removed.
+async fn remove_site(
     session: SiteResetSession,
-    transaction: SiteResetTransaction,
-    inputs: &InitialSiteInputs,
-    request: &InitialSiteRequest,
-) -> anyhow::Result<()> {
+    transaction: &SiteResetTransaction,
+) -> anyhow::Result<RemovedSite> {
     let site_dir = session.site_root().to_owned();
     let provisioned_workers = session.provisioned_workers().with_context(|| {
         format!(
@@ -162,8 +163,8 @@ async fn remove_and_republish(
         )
     })?;
 
-    transaction
-        .reset_locked(session, inputs)
+    let removed = transaction
+        .remove_locked(session)
         .await
         .map_err(|error| reset_transaction_failure(error, &site_dir))?;
     if provisioned_workers > 0 {
@@ -183,8 +184,11 @@ async fn remove_and_republish(
             ),
         );
     }
-    write_success("Site reset", &site_dir, inputs, request)
+    Ok(removed)
 }
+
+/// Failure context for a reset that stopped after the site was removed.
+const REMOVED_BEFORE_COLLECTION: &str = "the site's resources and state were already removed; run the reset again to create the new site";
 
 fn reset_transaction_failure(error: SiteResetTransactionError, site_dir: &Path) -> anyhow::Error {
     let context = match &error {
@@ -274,7 +278,8 @@ mod tests {
         assert!(source.contains("site_runtime_cleanup"));
         assert!(source.contains("SitePersistenceReset::new"));
         assert!(source.contains("SiteResetTransaction::new"));
-        assert!(source.contains("reset_locked"));
+        assert!(source.contains("remove_locked"));
+        assert!(source.contains("publish_removed"));
     }
 
     #[test]
@@ -570,6 +575,33 @@ mod tests {
         assert_eq!(fixture.site_tree(), before);
         assert_eq!(fixture.runtime.calls(), ["inventory:retained-site"]);
         assert_eq!(fixture.runtime.resources(), ["model-one"]);
+    }
+
+    #[test]
+    fn approved_reset_removes_the_site_before_collecting_the_new_one() {
+        let fixture = ResetFixture::new(&["model-one"]);
+        let docker_calls = Arc::new(AtomicUsize::new(0));
+        let nvidia_calls = Arc::new(AtomicUsize::new(0));
+        let prober = InitialSiteProber::new(
+            Box::new(CountingDocker(Arc::clone(&docker_calls))),
+            Box::new(CountingNvidia(Arc::clone(&nvidia_calls))),
+        );
+        let mut arguments = reset_arguments(InferenceChoice::Nvidia, ApplicationsChoice::Docker);
+        arguments.removal.yes = true;
+        let mut terminal = ScriptedTerminal::new(TerminalCondition::NonInteractive, []);
+
+        let error = fixture
+            .run_probed(arguments, None, &mut terminal, &prober)
+            .expect_err("collection fails on the failing Docker probe");
+
+        assert!(docker_calls.load(Ordering::Relaxed) > 0, "{error:#}");
+        assert!(fixture.runtime.resources().is_empty());
+        assert!(!fixture.site_dir.join("site.yaml").exists());
+        assert!(!fixture.site_dir.join("state.pb").exists());
+        assert!(
+            format!("{error:#}").contains("state were already removed"),
+            "{error:#}"
+        );
     }
 
     #[test]

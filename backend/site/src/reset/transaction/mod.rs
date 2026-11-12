@@ -100,6 +100,17 @@ impl SiteResetTransaction {
         session: SiteResetSession,
         inputs: &InitialSiteInputs,
     ) -> Result<SiteRuntimeCleanupReport, SiteResetTransactionError> {
+        let removed = self.remove_locked(session).await?;
+        self.publish_removed(removed, inputs)
+    }
+
+    /// Removes the site's runtime resources, workload caches and persisted state, keeping the
+    /// exclusion in the returned [`RemovedSite`] so the fresh inputs can be collected and
+    /// published without another process taking the root in between.
+    pub async fn remove_locked(
+        &self,
+        session: SiteResetSession,
+    ) -> Result<RemovedSite, SiteResetTransactionError> {
         let SiteResetSession {
             site_root,
             identity,
@@ -115,8 +126,22 @@ impl SiteResetTransaction {
             identity,
         )
         .await?;
-        self.publish(&site_root, inputs, &lock)?;
-        Ok(report)
+        Ok(RemovedSite {
+            site_root,
+            lock,
+            _custody,
+            report,
+        })
+    }
+
+    /// Publishes the requested fresh inputs into a removed site and releases its exclusion.
+    pub fn publish_removed(
+        &self,
+        removed: RemovedSite,
+        inputs: &InitialSiteInputs,
+    ) -> Result<SiteRuntimeCleanupReport, SiteResetTransactionError> {
+        self.publish(&removed.site_root, inputs, &removed.lock)?;
+        Ok(removed.report)
     }
 
     fn publish(
@@ -135,6 +160,17 @@ impl SiteResetTransaction {
         self.publisher = publisher;
         self
     }
+}
+
+/// A site root whose runtime resources, caches and state were removed and that is still excluded
+/// from other processes, waiting for fresh inputs to be published.
+#[derive(Debug)]
+pub struct RemovedSite {
+    site_root: PathBuf,
+    lock: SiteResetLock,
+    /// Custody of a joined node folder, held until the fresh inputs are published.
+    _custody: Option<WorkerNodeCustody>,
+    report: SiteRuntimeCleanupReport,
 }
 
 /// Orchestrates one exclusive stopped-site deletion: runtime cleanup, then persistence removal.
