@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/ui/notice";
 import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
 import { GetStartedSectionIcon } from "@/components/ui/section-icons";
+import { modelDeploymentPresentationName } from "@/domain/model-projection";
 import { AddMachineDialog } from "@/features/machines/add-machine-dialog";
 import { useSiteMemory } from "@/features/memory/use-site-memory";
 import type { LocalDeploymentValues } from "@/features/models/deploy/model-deploy-launch";
@@ -17,6 +18,7 @@ import { useGetStartedDismissed } from "@/hooks/use-get-started-dismissed";
 import { useWatchedModelDeployments } from "@/resource-watch/resource-watch";
 
 import { CustomizeModelDialog } from "./customize-model-dialog";
+import type { FollowedDeployments } from "./deploying-step";
 import { FollowedStep } from "./followed-step";
 import { launchedProposal, proposalLaunch } from "./get-started-launch";
 import { type ModelProposal, modelProposalKey } from "./get-started-proposals";
@@ -24,7 +26,7 @@ import { MachinesCard } from "./machines-card";
 import { ProposalCard } from "./proposal-card";
 import { UseCaseCards } from "./use-case-cards";
 import { useGetStartedData } from "./use-get-started-data";
-import { type StartedDeployments, useGetStartedDeploy } from "./use-get-started-deploy";
+import { useGetStartedDeploy } from "./use-get-started-deploy";
 import { useProposalMemory } from "./use-proposal-memory";
 
 /**
@@ -49,7 +51,7 @@ export function GetStartedPage() {
   const [customizations, setCustomizations] = useState<ReadonlyMap<UseCase, Customization>>(
     new Map(),
   );
-  const [following, setFollowing] = useState<ReadonlyMap<UseCase, StartedDeployments>>(new Map());
+  const [following, setFollowing] = useState<ReadonlyMap<UseCase, FollowedDeployments>>(new Map());
   const [customizing, setCustomizing] = useState(false);
   const [addingMachine, setAddingMachine] = useState(false);
 
@@ -101,35 +103,57 @@ export function GetStartedPage() {
     }
     setCustomizing(false);
   };
-  const follow = (deployments: StartedDeployments | undefined) => {
-    if (deployments) setFollowing((current) => new Map(current).set(useCase, deployments));
+  const follow = (deployments: FollowedDeployments | undefined) =>
+    setFollowing((current) => {
+      const next = new Map(current);
+      if (deployments) next.set(useCase, deployments);
+      else next.delete(useCase);
+      return next;
+    });
+  // What the use case runs, named as the card shows it, with the ids of what already runs.
+  const planned = (): FollowedDeployments => {
+    const app = proposal?.app;
+    return {
+      application: app?.target?.target && {
+        id: app.target.applicationDeploymentId,
+        name: app.application.displayName || app.application.applicationId,
+      },
+      model: choice && {
+        id: choice.deploymentId,
+        name:
+          launch?.name ??
+          (choice.deployment
+            ? modelDeploymentPresentationName(choice.deployment)
+            : catalogModel?.displayName || choice.modelId),
+      },
+    };
   };
   // Leaves a failed or removed deployment's progress for the proposal, which can deploy afresh.
   const back = () => {
-    setFollowing((current) => {
-      const next = new Map(current);
-      next.delete(useCase);
-      return next;
-    });
+    follow(undefined);
     deployer.forget(useCase);
   };
+  // The progress shows at once, its deployments queued until their creates answer; a failed
+  // create returns to the proposal, which shows why.
   const deploy = async () => {
-    if (!proposal) return;
+    if (!proposal || deployer.pending !== undefined) return;
+    const { application, model } = planned();
+    follow({ application, model });
+    const started = await deployer.deploy({
+      app: proposal.app,
+      model: picked && launch ? { launch, proposal: picked } : undefined,
+      runningModelDeploymentId: choice?.deploymentId,
+      useCase,
+    });
     follow(
-      await deployer.deploy({
-        app: proposal.app,
-        model: picked && launch ? { launch, proposal: picked } : undefined,
-        runningModelDeploymentId: choice?.deploymentId,
-        useCase,
-      }),
+      started && {
+        application: application && { ...application, id: started.applicationDeploymentId },
+        model: model && { ...model, id: started.modelDeploymentId },
+      },
     );
   };
   // Continue has nothing to deploy: what the use case needs already runs.
-  const proceed = () =>
-    follow({
-      applicationDeploymentId: proposal?.app?.target?.applicationDeploymentId,
-      modelDeploymentId: choice?.deploymentId,
-    });
+  const proceed = () => follow(planned());
 
   return (
     <div className="flex w-full flex-col gap-6">

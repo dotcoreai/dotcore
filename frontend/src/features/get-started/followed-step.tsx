@@ -14,15 +14,15 @@ import {
   useWatchedRoutes,
 } from "@/resource-watch/resource-watch";
 
-import { DeployingStep } from "./deploying-step";
+import { DeployingStep, type FollowedDeployments } from "./deploying-step";
 import { isApplicationReady } from "./get-started-proposals";
 import { ReadyStep } from "./ready-step";
-import type { StartedDeployments } from "./use-get-started-deploy";
 
 /**
- * Follows the deployments a use case started: it shows their progress and, once every one is
- * ready, moves on to what the operator can do with them. A deployment that failed, or that the
- * watch stopped listing after it appeared, offers the way back to the proposal.
+ * Follows the deployments a use case started: it shows their progress from the moment Deploy is
+ * clicked and, once every one is ready, moves on to what the operator can do with them. A
+ * deployment that failed, or that the watch stopped listing after it appeared, offers the way back
+ * to the proposal.
  */
 export function FollowedStep({
   applicationClient,
@@ -33,18 +33,21 @@ export function FollowedStep({
   useCase,
 }: {
   applicationClient: ApplicationClient;
-  deployments: StartedDeployments;
+  deployments: FollowedDeployments;
   machines: readonly Machine[];
   modelClient: ModelClient;
   /** Returns to the use case's proposal. */
   onBack: () => void;
   useCase: UseCase;
 }) {
+  const modelId = deployments.model?.id;
+  const applicationId = deployments.application?.id;
   const modelDeployment = useWatchedModelDeployments()?.value?.deployments.find(
-    (deployment) => deployment.modelDeploymentId === deployments.modelDeploymentId,
+    (deployment) => modelId !== undefined && deployment.modelDeploymentId === modelId,
   );
   const applicationDeployment = useWatchedApplicationDeployments()?.value?.deployments.find(
-    (deployment) => deployment.applicationDeploymentId === deployments.applicationDeploymentId,
+    (deployment) =>
+      applicationId !== undefined && deployment.applicationDeploymentId === applicationId,
   );
   const routes = useWatchedRoutes()?.value?.routes ?? [];
   // A deployment counts as removed only once it was listed: a new one isn't listed at first.
@@ -57,8 +60,8 @@ export function FollowedStep({
   const removed = (id: string | undefined, deployment: object | undefined) =>
     Boolean(id && !deployment && seen.has(id));
   const removedKinds = [
-    ...(removed(deployments.modelDeploymentId, modelDeployment) ? ["model"] : []),
-    ...(removed(deployments.applicationDeploymentId, applicationDeployment) ? ["app"] : []),
+    ...(removed(modelId, modelDeployment) ? ["model"] : []),
+    ...(removed(applicationId, applicationDeployment) ? ["app"] : []),
   ];
   const failed =
     (modelDeployment !== undefined &&
@@ -67,11 +70,10 @@ export function FollowedStep({
       applicationDeploymentLifecycleState(applicationDeployment) ===
         ApplicationLifecycleState.FAILED);
   const modelReady =
-    !deployments.modelDeploymentId ||
+    !deployments.model ||
     (modelDeployment !== undefined &&
       deploymentStatus(modelDeployment) === ModelDeploymentStatus.READY);
-  const applicationReady =
-    !deployments.applicationDeploymentId || isApplicationReady(applicationDeployment);
+  const applicationReady = !deployments.application || isApplicationReady(applicationDeployment);
 
   if (modelReady && applicationReady) {
     return (
@@ -89,8 +91,10 @@ export function FollowedStep({
     <DeployingStep
       applicationClient={applicationClient}
       applicationDeployment={applicationDeployment}
+      application={deployments.application}
       modelClient={modelClient}
       modelDeployment={modelDeployment}
+      model={deployments.model}
       notice={
         removedKinds.length
           ? `The ${removedKinds.join(" and ")} ${removedKinds.length > 1 ? "deployments were" : "deployment was"} removed.`

@@ -1,5 +1,6 @@
+import { Collapsible } from "@base-ui/react/collapsible";
 import type { LucideIcon } from "lucide-react";
-import { Plus } from "lucide-react";
+import { ChevronRightIcon, Plus } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -209,54 +210,54 @@ function ModelItem({
         />
       </DetailList>
       {choices.length > 1 ? (
-        <Button
-          aria-expanded={showChoices}
-          className="h-auto justify-self-start p-0"
-          onClick={() => setShowChoices((shown) => !shown)}
-          size="sm"
-          type="button"
-          variant="link"
-        >
-          {showChoices ? "Hide other choices" : `Other choices (${choices.length - 1})`}
-        </Button>
-      ) : null}
-      {showChoices && choices.length > 1 ? (
-        <div aria-label="Model choices" className="grid gap-1.5" role="group">
-          {choices.map((choice) => {
-            const choiceNames = modelNames(models, choice);
-            const subtitle = [choiceNames.profile, choiceNames.engine].filter(Boolean).join(" · ");
-            return (
-              <button
-                aria-pressed={modelProposalKey(choice) === choiceKey}
-                className="group/choice flex w-full items-center gap-2.5 rounded-lg border-[1.5px] border-border bg-card px-2.5 py-2 text-left outline-none hover:border-foreground/25 focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:border-primary"
-                key={modelProposalKey(choice)}
-                onClick={() => onPick(choice)}
-                type="button"
-              >
-                <span
-                  aria-hidden="true"
-                  className="size-3.5 flex-none rounded-full border-[1.5px] border-foreground/30 group-aria-pressed/choice:border-4 group-aria-pressed/choice:border-primary"
-                />
-                <span className="grid min-w-0 flex-1">
-                  <strong className="text-sm font-semibold">
-                    <ResourceMarker colorKey={markerKey(choice)} />
-                    {choiceNames.model}
-                  </strong>
-                  <span className="text-xs text-muted-foreground">
-                    {subtitle} · <ResourceMarker colorKey={choice.target.siteNodeId} />
-                    {machineName(choice.target.siteNodeId)}
+        <Collapsible.Root className="grid gap-2" onOpenChange={setShowChoices} open={showChoices}>
+          <Collapsible.Trigger className="group/choices inline-flex items-center gap-1 justify-self-start rounded-md text-[12.5px] font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+            <ChevronRightIcon
+              aria-hidden="true"
+              className="size-3.5 shrink-0 transition-transform group-data-panel-open/choices:rotate-90 motion-reduce:transition-none"
+            />
+            Other choices ({choices.length - 1})
+          </Collapsible.Trigger>
+          <Collapsible.Panel aria-label="Model choices" className="grid gap-1.5" role="group">
+            {choices.map((choice) => {
+              const choiceNames = modelNames(models, choice);
+              const subtitle = [choiceNames.profile, choiceNames.engine]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <button
+                  aria-pressed={modelProposalKey(choice) === choiceKey}
+                  className="group/choice flex w-full items-center gap-2.5 rounded-lg border-[1.5px] border-border bg-card px-2.5 py-2 text-left outline-none hover:border-foreground/25 focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:border-primary"
+                  key={modelProposalKey(choice)}
+                  onClick={() => onPick(choice)}
+                  type="button"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="size-3.5 flex-none rounded-full border-[1.5px] border-foreground/30 group-aria-pressed/choice:border-4 group-aria-pressed/choice:border-primary"
+                  />
+                  <span className="grid min-w-0 flex-1">
+                    <strong className="text-sm font-semibold">
+                      <ResourceMarker colorKey={markerKey(choice)} />
+                      {choiceNames.model}
+                    </strong>
+                    <span className="text-xs text-muted-foreground">
+                      {subtitle} · <ResourceMarker colorKey={choice.target.siteNodeId} />
+                      {machineName(choice.target.siteNodeId)}
+                    </span>
                   </span>
-                </span>
-                <span className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {memoryText(choice)}
-                  {choice.deployment ? (
-                    <StatusBadge status={projectModelDeploymentStatus(choice.deployment)} />
-                  ) : null}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                  <span className="flex items-center gap-2 text-xs whitespace-nowrap text-muted-foreground">
+                    {formatCompactCount(Number(choice.contextTokensPerRequest))} context ·{" "}
+                    {memoryText(choice)}
+                    {choice.deployment ? (
+                      <StatusBadge status={projectModelDeploymentStatus(choice.deployment)} />
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })}
+          </Collapsible.Panel>
+        </Collapsible.Root>
       ) : null}
     </Item>
   );
@@ -313,6 +314,9 @@ function AppItem({
         </span>
         {application.version ? <Tag>{application.version}</Tag> : null}
       </div>
+      {application.description ? (
+        <p className="-mt-1 text-[12.5px] text-muted-foreground">{application.description}</p>
+      ) : null}
       {!target ? (
         <Notice tone="warning">
           No machine can run apps.
@@ -320,9 +324,10 @@ function AppItem({
         </Notice>
       ) : runsOnCpu ? (
         <Notice tone="warning">
-          No {acceleratorNames(application.preferredAccelerators)} machine can run {name}.
+          {name} is only supported on {acceleratorNames(application.preferredAccelerators)}{" "}
+          machines.
           <span className="block">
-            It runs on the CPU on {machineName(target.target?.siteNodeId ?? "")}, slowly.
+            It will run slowly on the CPU of {machineName(target.target?.siteNodeId ?? "")}.
           </span>
         </Notice>
       ) : null}

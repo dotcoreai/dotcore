@@ -167,7 +167,11 @@ describe("GetStartedPage", () => {
       head: ["Qwen3.8 27B", "NVFP4", "ninfer"],
       notice: undefined,
     });
-    expect(appItem()).toEqual({ head: ["Open WebUI", "0.11.4"], notice: undefined });
+    expect(appItem()).toEqual({
+      description: "Self-hosted chat interface for the models on this site.",
+      head: ["Open WebUI", "0.11.4"],
+      notice: undefined,
+    });
     expect(primaryAction()).toEqual({ disabled: false, name: "Deploy" });
     expect(compatibilityReads.map((read) => [read.modelId, read.scenario])).toEqual([
       [
@@ -184,35 +188,38 @@ describe("GetStartedPage", () => {
       rows: {
         [CHAT_ASSISTANT]: [
           ["qwen-27b", "nvfp4", 32768, "gpu1"],
-          ["qwen-27b", "q4", 32768, "gpu1"],
+          ["qwen-27b", "q4", 65536, "gpu1"],
         ],
       },
       targets: { "open-webui": [["gpu1", true]] },
     });
 
-    await user.click(await screen.findByRole("button", { name: "Other choices (1)" }));
+    const toggle = await screen.findByRole("button", { name: "Other choices (1)" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await user.click(toggle);
     const choices = within(screen.getByRole("group", { name: "Model choices" })).getAllByRole(
       "button",
     );
     expect(
       choices.map((choice) => [choice.textContent, choice.getAttribute("aria-pressed")]),
     ).toEqual([
-      ["Qwen3.8 27BNVFP4 · ninfer · gpu122 GiB", "true"],
-      ["Qwen3.8 27BUnsloth Q4_K_XL · llama.cpp · gpu121 GiB", "false"],
+      ["Qwen3.8 27BNVFP4 · ninfer · gpu132k context · 22 GiB", "true"],
+      ["Qwen3.8 27BUnsloth Q4_K_XL · llama.cpp · gpu164k context · 22 GiB", "false"],
     ]);
 
     await user.click(choices[1]);
 
     expect(modelItem()).toMatchObject({
-      choices: "Hide other choices",
+      choices: "Other choices (1)",
       details: [
         ["Machine", "gpu1"],
-        ["Memory", "21 GiB"],
-        ["Context per request", "32k"],
+        ["Memory", "22 GiB"],
+        ["Context per request", "64k"],
       ],
       head: ["Qwen3.8 27B", "Unsloth Q4_K_XL", "llama.cpp"],
     });
     expect(choices[1]).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
   it("shows a running model with its own context and memory, and continues when all runs", async () => {
@@ -254,7 +261,11 @@ describe("GetStartedPage", () => {
     );
     expect(within(item).getByRole("link", { name: "Models" })).toHaveAttribute("href", "/models");
     expect(within(item).getByRole("button", { name: "Add a machine" })).toBeEnabled();
-    expect(appItem()).toEqual({ head: ["Open WebUI", "0.11.4"], notice: undefined });
+    expect(appItem()).toEqual({
+      description: "Self-hosted chat interface for the models on this site.",
+      head: ["Open WebUI", "0.11.4"],
+      notice: undefined,
+    });
     expect(primaryAction()).toEqual({ disabled: true, name: "Deploy" });
   });
 
@@ -270,8 +281,9 @@ describe("GetStartedPage", () => {
 
     expect(screen.queryByRole("region", { name: "Model" })).not.toBeInTheDocument();
     expect(appItem()).toEqual({
+      description: "Node-based image and video generation.",
       head: ["ComfyUI", "0.42.5"],
-      notice: "No NVIDIA machine can run ComfyUI.It runs on the CPU on mac1, slowly.",
+      notice: "ComfyUI is only supported on NVIDIA machines.It will run slowly on the CPU of mac1.",
     });
     expect(primaryAction()).toEqual({ disabled: false, name: "Deploy" });
   });
@@ -286,6 +298,7 @@ describe("GetStartedPage", () => {
     await waitFor(() => expect(detailsOf("Model")).toContainEqual(["Memory", "26 GiB"]));
     expect(modelItem()).toMatchObject({ head: ["Qwen3.8 27B", "Unsloth Q5_K_XL", "llama.cpp"] });
     expect(appItem()).toEqual({
+      description: "Self-hosted chat interface for the models on this site.",
       head: ["Open WebUI", "0.11.4"],
       notice: "No machine can run apps.Install Docker on a machine to run Open WebUI.",
     });
@@ -442,8 +455,8 @@ describe("GetStartedPage", () => {
           .getAllByRole("button")
           .map((choice) => [choice.textContent, choice.getAttribute("aria-pressed")]),
       ).toEqual([
-        ["Qwen3.8 27BNVFP4 ninfer · ninfer · gpu124 GiB", "true"],
-        ["Qwen3.8 27BUnsloth Q4_K_XL · llama.cpp · gpu121 GiB", "false"],
+        ["Qwen3.8 27BNVFP4 ninfer · ninfer · gpu132k context · 24 GiB", "true"],
+        ["Qwen3.8 27BUnsloth Q4_K_XL · llama.cpp · gpu132k context · 21 GiB", "false"],
       ]);
     });
 
@@ -614,7 +627,7 @@ describe("GetStartedPage", () => {
       expect(createApplicationDeployment).toHaveBeenCalledTimes(2);
     });
 
-    it("holds Deploy on every use case while one deploys", async () => {
+    it("shows the deployments queued while the creates run, and holds Deploy on every use case", async () => {
       const user = setupUser();
       await renderPage({
         createModel: () => new Promise(() => {}),
@@ -627,7 +640,10 @@ describe("GetStartedPage", () => {
       });
 
       await user.click(screen.getByRole("button", { name: "Deploy" }));
-      expect(screen.getByRole("button", { name: "Deploying…" })).toBeDisabled();
+      expect(progressItems()).toEqual([
+        { kind: "Model", name: "Qwen3.8 27B", status: "Queued", steps: undefined },
+        { kind: "App", name: "Open WebUI", status: "Queued", steps: undefined },
+      ]);
       await user.click(screen.getByRole("button", { name: /Coding/ }));
 
       expect(screen.getByRole("button", { name: "Deploying…" })).toBeDisabled();
@@ -643,9 +659,15 @@ describe("GetStartedPage", () => {
 
     it("follows the model and the app through their steps, then moves to ready", async () => {
       const user = setupUser();
-      const { openChat, site, watch } = await renderPage(chatSite());
+      const { createApplicationDeployment, openChat, site, watch } = await renderPage(chatSite());
       await user.click(screen.getByRole("button", { name: "Deploy" }));
-      await screen.findByRole("status", { name: "Deployment progress" });
+      await waitFor(() => expect(createApplicationDeployment).toHaveBeenCalledOnce());
+      // Created but not listed by the watch yet: both wait in line, with no way back.
+      expect(progressItems()).toEqual([
+        { kind: "Model", name: "Qwen3.8 27B", status: "Queued", steps: undefined },
+        { kind: "App", name: "Open WebUI", status: "Queued", steps: undefined },
+      ]);
+      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
 
       const show = async (model: ModelDeployment, app: ApplicationDeployment) => {
         site.modelDeployments!.splice(0, 1, model);
@@ -745,7 +767,7 @@ describe("GetStartedPage", () => {
       await user.click(screen.getByRole("button", { name: "Deploy" }));
       site.modelDeployments!.push(startingModel(ModelDeploymentStatus.LOADING, 4));
       await act(() => watch.tick());
-      await waitFor(() => expect(progressItems()).toHaveLength(1));
+      await waitFor(() => expect(progressItems()[0].status).toBe("Loading"));
 
       site.modelDeployments!.splice(0);
       await act(() => watch.tick());
@@ -985,12 +1007,14 @@ async function renderPage(site: Site) {
             applications: [
               create(ApplicationSchema, {
                 applicationId: "open-webui",
+                description: "Self-hosted chat interface for the models on this site.",
                 displayName: "Open WebUI",
                 useCases: [CHAT_ASSISTANT],
                 version: "0.11.4",
               }),
               create(ApplicationSchema, {
                 applicationId: "comfyui",
+                description: "Node-based image and video generation.",
                 displayName: "ComfyUI",
                 preferredAccelerators: ["nvidia"],
                 useCases: [IMAGE_GENERATION],
@@ -1292,6 +1316,7 @@ function modelItem() {
 function appItem() {
   const item = screen.getByRole("region", { name: "App" });
   return {
+    description: item.querySelector("p")?.textContent ?? undefined,
     head: headParts(item.children[1]),
     notice: item.querySelector("[data-slot=notice]")?.textContent ?? undefined,
   };
