@@ -294,6 +294,40 @@ async fn absent_site_skips_runtime_cleanup_and_publishes_exact_fresh_inputs() {
 }
 
 #[tokio::test]
+async fn removed_site_stays_locked_and_unpublished_until_fresh_inputs_are_published() {
+    let fixture = SiteLockFixture::new_without_site();
+    let state = Arc::new(Mutex::new(ResetState::default()));
+    let transaction = transaction(Arc::clone(&state), RuntimeBehavior::Success, false);
+    let inputs = initial_site_inputs();
+    let session = SiteResetSession::begin(
+        &fixture.site_root,
+        crate::test_support::site_runtime_cleanups(),
+    )
+    .expect("reset session");
+
+    let removed = transaction
+        .remove_locked(session)
+        .await
+        .expect("removal before publication");
+
+    assert_eq!(state.lock().expect("reset state").calls, ["persistence"]);
+    assert!(matches!(
+        SiteResetLock::try_acquire(&fixture.site_root),
+        Err(SiteResetLockError::SiteRunning { .. })
+    ));
+
+    transaction
+        .publish_removed(removed, &inputs)
+        .expect("publication after removal");
+
+    assert_eq!(
+        state.lock().expect("reset state").calls,
+        ["persistence", "publish"]
+    );
+    SiteResetLock::try_acquire(&fixture.site_root).expect("publication releases the lock");
+}
+
+#[tokio::test]
 async fn reset_rotates_manager_trust_and_clears_worker_pins() {
     let fixture = SiteLockFixture::new_without_site();
     let inputs = initial_site_inputs();
