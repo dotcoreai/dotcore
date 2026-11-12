@@ -18,3 +18,4 @@ pub use controller::{
     InferenceRouteResolutionError, InferenceRouteResolver, ParameterRejection,
     ResolvedInferenceRoute, RetainedTargetMismatch, TargetIneligibility,
 };
+pub(crate) use recommendation::recommend_application_targets;

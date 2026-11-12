@@ -9,7 +9,8 @@ use dotcore_catalog::{Catalog, SupportedHardwareClass};
 use dotcore_domain::{real_time, timing::NodeControlTiming};
 use dotcore_node_hardware::{MachineDescription, MachineError};
 use dotcore_proto::dotcore::{
-    catalog::v1::{HardwareClass, UseCase},
+    application::v1::ApplicationTargetOption,
+    catalog::v1::{Application, HardwareClass, UseCase},
     site::v1::{ExecutionTarget, execution_target::RuntimeBinding},
 };
 use dotcore_site::{
@@ -23,6 +24,7 @@ use tracing::debug;
 
 use super::{UseCaseRecommendations, recommend_models};
 use crate::{
+    application::recommend_application_targets,
     hardware::selection::select_hardware_class,
     model::compatibility::{StaleTargets, check_targets, node_workloads},
 };
@@ -141,6 +143,23 @@ impl IdleMachine {
             use_cases,
             false,
         )
+    }
+
+    /// Returns the machine's application targets that can run `application`, best first, with
+    /// nothing deployed on them.
+    pub fn recommend_application(&self, application: &Application) -> Vec<ApplicationTargetOption> {
+        let targets = self
+            .targets
+            .iter()
+            .filter(|target| {
+                matches!(
+                    target.runtime_binding,
+                    Some(RuntimeBinding::ApplicationRuntime(_))
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        recommend_application_targets(application, &targets, None, &self.inventory, &[])
     }
 
     /// The targets that run models, which recommendations and hardware classes apply to.

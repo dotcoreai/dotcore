@@ -1,0 +1,26 @@
+applicationId: "fixture-art"
+displayName: "Fixture Art"
+description: "Image generation fixture that prefers NVIDIA."
+version: "1.0.0"
+useCases: ["USE_CASE_IMAGE_GENERATION"]
+preferredAccelerators: ["nvidia"]
+graph:
+  services:
+    - serviceName: "web"
+      artifact:
+        nix:
+          flake: "self"
+          package: "apps.fixture-art.docker"
+          dockerImage: {}
+        supportedPlatforms:
+          - operatingSystem: "linux"
+            architecture: "amd64"
+          - operatingSystem: "linux"
+            architecture: "arm64"
+      ports:
+        - portName: "http"
+          portNumber: 8080
+  primaryEndpoint:
+    serviceName: "web"
+    portName: "http"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"
