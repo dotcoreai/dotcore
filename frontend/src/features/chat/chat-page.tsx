@@ -69,8 +69,8 @@ export function ChatPage() {
       >
         <header className="flex flex-wrap items-center gap-2 border-b p-3">
           <ChatRoutePicker onRouteChange={changeRoute} />
-          <ChatModeSwitch />
-          <div className="ml-auto flex items-center gap-2">
+          <ChatModeSwitch className="max-lg:order-last" />
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {session.mode === "chat" ? (
               <ChatHeaderButton label="New chat" onClick={newChat}>
                 <MessageSquarePlus />

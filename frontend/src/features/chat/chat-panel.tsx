@@ -82,8 +82,9 @@ export function ChatPanel({ onOpenChange, open }: ChatPanelProps) {
       >
         <header className="flex flex-wrap items-center gap-2 border-b p-3">
           <ChatRoutePicker />
-          <ChatModeSwitch />
-          <div className="ml-auto flex items-center gap-2">
+          {/* The panel is narrow at any viewport, so the switch always takes the row below. */}
+          <ChatModeSwitch className="order-last" />
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {session.mode === "chat" ? (
               <ChatHeaderButton label="New chat" onClick={newChat}>
                 <MessageSquarePlus />
