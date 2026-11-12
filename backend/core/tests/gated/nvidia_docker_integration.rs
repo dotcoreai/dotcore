@@ -109,9 +109,28 @@ const RED_JPEG: &str = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDA
 const BLUE_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURQAA/////3vcmSwAAAABYktHRAH/Ai3eAAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
 const VALID_LLAMA_CPP_CUSTOM_ARGUMENTS: [&str; 2] = ["--reasoning-format", "none"];
 const INVALID_LLAMA_CPP_ARGUMENT: &str = "--dotcore-invalid-llama-argument";
-const STRATA_MODEL_ID: &str = "qwen3-6-35b-a3b";
-const STRATA_RTX_5090_PROFILE_ID: &str = "strata-q4-xl";
-const STRATA_GB10_PROFILE_ID: &str = "strata-gb10-q4-xl";
+const STRATA_RTX_5090_QWEN3_6: StrataCase = StrataCase {
+    model_id: "qwen3-6-35b-a3b",
+    profile_id: "strata-q4-xl",
+    minimum_free_bytes: STRATA_RTX_5090_MINIMUM_FREE_BYTES,
+    ready_timeout: DEPLOYMENT_TIMEOUT,
+    built_pack_path: None,
+};
+const STRATA_GB10_QWEN3_6: StrataCase = StrataCase {
+    model_id: "qwen3-6-35b-a3b",
+    profile_id: "strata-gb10-q4-xl",
+    minimum_free_bytes: STRATA_GB10_MINIMUM_FREE_BYTES,
+    ready_timeout: DEPLOYMENT_TIMEOUT,
+    built_pack_path: None,
+};
+/// The IQ2_XS profile builds its pack under the data storage on first start.
+const STRATA_RTX_5090_QWEN3_8_IQ2_XS: StrataCase = StrataCase {
+    model_id: "qwen3-8-flash-next",
+    profile_id: "iq2-xs",
+    minimum_free_bytes: STRATA_RTX_5090_QWEN3_8_MINIMUM_FREE_BYTES,
+    ready_timeout: STRATA_QWEN3_8_READY_TIMEOUT,
+    built_pack_path: Some("pack"),
+};
 /// Where Strata's deployment-scoped cache storage is mounted in its container.
 const STRATA_DATA_PATH: &str = "/data";
 /// The profile's default expert cap and context hold about 22.6 GB of the RTX 5090.
@@ -119,6 +138,11 @@ const STRATA_RTX_5090_MINIMUM_FREE_BYTES: u64 = 24_000_000_000;
 /// The profile's default context with every expert on the GB10 holds about 28 GB of host memory,
 /// and the host keeps room for the OS.
 const STRATA_GB10_MINIMUM_FREE_BYTES: u64 = 48_000_000_000;
+/// The IQ2_XS profile's default expert cap and total context hold about 26.8 GB of the RTX 5090.
+const STRATA_RTX_5090_QWEN3_8_MINIMUM_FREE_BYTES: u64 = 28_000_000_000;
+/// Covers the first start of the 68 GB model: the pack build and reading the weights through the
+/// host's page cache before the engine reports ready.
+const STRATA_QWEN3_8_READY_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia"]
@@ -320,11 +344,17 @@ async fn hw_nvidia_clef_flash_serves_decisions_and_rejects_oversized_requests() 
 #[ignore = "hardware: just backend::test-nvidia-5090"]
 async fn hw_nvidia5090_strata_serves_chat_through_the_router_and_removes_its_storage()
 -> anyhow::Result<()> {
-    qualify_strata_site(
-        STRATA_RTX_5090_PROFILE_ID,
-        STRATA_RTX_5090_MINIMUM_FREE_BYTES,
-    )
-    .await
+    qualify_strata_site(&STRATA_RTX_5090_QWEN3_6).await
+}
+
+/// Qualifies Qwen3.8 Flash Next IQ2_XS on Strata through the router on an RTX 5090: the deployment
+/// builds its pack and reaches Ready, a chat completion answers under the route's model name, and
+/// removal deletes the deployment's storage, pack included.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-nvidia-5090"]
+async fn hw_nvidia5090_strata_qwen3_8_iq2_xs_serves_chat_through_the_router_and_removes_its_storage()
+-> anyhow::Result<()> {
+    qualify_strata_site(&STRATA_RTX_5090_QWEN3_8_IQ2_XS).await
 }
 
 /// Qualifies Qwen3.6 35B A3B on Strata through the router on a GB10, whose GPU shares host memory:
@@ -334,7 +364,7 @@ async fn hw_nvidia5090_strata_serves_chat_through_the_router_and_removes_its_sto
 #[ignore = "hardware: just backend::test-gb10"]
 async fn hw_gb10_strata_serves_chat_through_the_router_and_removes_its_storage()
 -> anyhow::Result<()> {
-    qualify_strata_site(STRATA_GB10_PROFILE_ID, STRATA_GB10_MINIMUM_FREE_BYTES).await
+    qualify_strata_site(&STRATA_GB10_QWEN3_6).await
 }
 
 /// Pinned catalog provenance of one selected artifact. `file` is the GGUF file llama.cpp loads:
@@ -1566,29 +1596,25 @@ async fn qualify_decisions(
     Ok(())
 }
 
-/// Runs the Strata qualification of one profile on a fresh site once the GPU's pool has
-/// `minimum_free_bytes` free, skipping where the profile approves no engine artifact for the
-/// platform.
-async fn qualify_strata_site(
-    profile_id: &'static str,
-    minimum_free_bytes: u64,
-) -> anyhow::Result<()> {
+/// Runs the Strata qualification of one case on a fresh site once the GPU's pool has the case's
+/// minimum free bytes, skipping where the profile approves no engine artifact for the platform.
+async fn qualify_strata_site(case: &'static StrataCase) -> anyhow::Result<()> {
     dotcore::logging::initialize();
 
     let site = QualificationSite::new("ninfer-nvidia-site")
         .await
         .context("prepare Strata qualification site")?;
-    if let Some(reason) = site.unsupported_platform_reason(STRATA_MODEL_ID, profile_id)? {
+    if let Some(reason) = site.unsupported_platform_reason(case.model_id, case.profile_id)? {
         eprintln!("[nvidia-docker] skipped: {reason}");
         return site.cleanup().await;
     }
     let primary = async {
-        nvidia_qualification::ensure_free_gpu_memory("nvidia-docker", minimum_free_bytes)?;
+        nvidia_qualification::ensure_free_gpu_memory("nvidia-docker", case.minimum_free_bytes)?;
         let configuration = site.configuration.clone();
         let dotcore_sources = site.dotcore_sources.clone();
-        let profile = strata_profile_defaults(&site.catalog, profile_id)?;
+        let profile = strata_profile_defaults(&site.catalog, case)?;
         tokio::spawn(async move {
-            qualify_strata(&configuration, &dotcore_sources, profile_id, profile).await
+            qualify_strata(&configuration, &dotcore_sources, case, profile).await
         })
         .await
         .context("Strata harness failed")?
@@ -1608,20 +1634,20 @@ async fn qualify_strata_site(
 /// Selects the Strata profile's binding and parameter defaults without overrides.
 fn strata_profile_defaults(
     catalog: &Catalog,
-    profile_id: &str,
+    case: &StrataCase,
 ) -> anyhow::Result<dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration> {
     let profile = catalog
         .protobuf_records_without_sizing()
         .models
         .into_iter()
-        .find(|model| model.model_id == STRATA_MODEL_ID)
+        .find(|model| model.model_id == case.model_id)
         .and_then(|model| {
             model
                 .profiles
                 .into_iter()
-                .find(|profile| profile.profile_id == profile_id)
+                .find(|profile| profile.profile_id == case.profile_id)
         })
-        .ok_or_else(|| anyhow!("Master catalog has no profile {profile_id:?}"))?;
+        .ok_or_else(|| anyhow!("Master catalog has no profile {:?}", case.profile_id))?;
     Ok(
         dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration {
             model_artifact_binding_id: profile.default_model_artifact_binding_id,
@@ -1635,17 +1661,17 @@ fn strata_profile_defaults(
 async fn qualify_strata(
     configuration: &SitePaths,
     dotcore_sources: &DotcoreSources,
-    profile_id: &str,
+    case: &StrataCase,
     profile: dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration,
 ) -> anyhow::Result<()> {
-    let model_id = STRATA_MODEL_ID;
+    let model_id = case.model_id;
     let service =
         wait_for_released_backend(configuration, dotcore_sources, model_id, "backend release")
             .await;
     service.start_observer();
     let local = dotcore_proto::dotcore::model::v1::CreateLocalModelDeploymentRequest {
         model_id: model_id.to_owned(),
-        profile_id: profile_id.to_owned(),
+        profile_id: case.profile_id.to_owned(),
         placement: Some(support::exact_placement(
             "development-node",
             "nvidia-target",
@@ -1698,7 +1724,8 @@ async fn qualify_strata(
     .await
     .context("Strata engine preparation exceeded its deadline")??;
     pin.check(&prepared)?;
-    wait_for_lifecycle(
+    wait_for_lifecycle_within(
+        case.ready_timeout,
         &service,
         model_id,
         &deployment_id,
@@ -1730,6 +1757,14 @@ async fn qualify_strata(
         "Strata data storage {} is missing while the deployment runs",
         data_source.display()
     );
+    let built_pack = case.built_pack_path.map(|path| data_source.join(path));
+    if let Some(pack) = &built_pack {
+        anyhow::ensure!(
+            pack.is_dir(),
+            "Strata built no pack at {} while the deployment runs",
+            pack.display()
+        );
+    }
     let engine_port = endpoint
         .http_port
         .context("READY Strata deployment must publish its loopback host port")?;
@@ -1798,7 +1833,24 @@ async fn qualify_strata(
         "removed Strata deployment left its data storage {}",
         data_source.display()
     );
+    if let Some(pack) = built_pack {
+        anyhow::ensure!(
+            !pack.exists(),
+            "removed Strata deployment left its pack {}",
+            pack.display()
+        );
+    }
     Ok(())
+}
+
+/// One Strata model profile qualified on one machine. `built_pack_path` is the pack the engine
+/// builds under the data storage on first start, relative to it, for profiles that have one.
+struct StrataCase {
+    model_id: &'static str,
+    profile_id: &'static str,
+    minimum_free_bytes: u64,
+    ready_timeout: Duration,
+    built_pack_path: Option<&'static str>,
 }
 
 async fn assert_router_chat(
@@ -2574,12 +2626,31 @@ async fn wait_for_lifecycle(
     expected: ModelDeploymentStatus,
     operation: &str,
 ) -> dotcore_proto::dotcore::model::v1::ModelDeployment {
+    wait_for_lifecycle_within(
+        DEPLOYMENT_TIMEOUT,
+        service,
+        model_id,
+        deployment_id,
+        expected,
+        operation,
+    )
+    .await
+}
+
+async fn wait_for_lifecycle_within(
+    timeout: Duration,
+    service: &SelectedModelService,
+    model_id: &str,
+    deployment_id: &str,
+    expected: ModelDeploymentStatus,
+    operation: &str,
+) -> dotcore_proto::dotcore::model::v1::ModelDeployment {
     let started = Instant::now();
     let mut heartbeat = Instant::now();
     eprintln!(
         "[nvidia-docker] Model={model_id} operation={operation} phase=before expected_state={expected:?}"
     );
-    tokio::time::timeout(DEPLOYMENT_TIMEOUT, async {
+    tokio::time::timeout(timeout, async {
         loop {
             let deployment = read_deployment(service, deployment_id).await;
             let state = deployment.state.as_ref().expect("deployment state");
