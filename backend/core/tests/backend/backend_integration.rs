@@ -23,10 +23,10 @@ use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeployment, ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
         ApplicationDeploymentState, ApplicationLifecycleState, ApplicationReadinessState,
-        CreateApplicationDeploymentRequest, CurrentApplicationDeployment,
-        GetApplicationDeploymentRequest, ListApplicationDeploymentsRequest, PauseDeploymentRequest,
-        RemoveApplicationDeploymentRequest, ResumeDeploymentRequest,
-        UpdateApplicationDeploymentMetadataRequest,
+        ApplicationTargetOption, CreateApplicationDeploymentRequest, CurrentApplicationDeployment,
+        GetApplicationDeploymentRequest, ListApplicationDeploymentsRequest,
+        ListApplicationTargetsRequest, PauseDeploymentRequest, RemoveApplicationDeploymentRequest,
+        ResumeDeploymentRequest, UpdateApplicationDeploymentMetadataRequest,
         application_deployment_service_server::ApplicationDeploymentService as ApplicationServiceContract,
     },
     catalog::v1::{
@@ -1097,12 +1097,12 @@ async fn application_paused_snapshot_survives_catalog_removal_and_remove_never_s
     fs::create_dir_all(root.join("catalog/applications")).expect("Application catalog directory");
     fs::write(
         root.join("catalog/applications/open-webui.yaml"),
-        support::with_oci_service_images(
+        site_catalog_application(&support::with_oci_service_images(
             &fs::read_to_string(
                 support::workspace_root().join("catalog/applications/open-webui.yaml"),
             )
             .expect("local application catalog release"),
-        ),
+        )),
     )
     .expect("local application catalog release");
     let empty_master = root.join("empty-master-catalog");
@@ -2071,7 +2071,7 @@ fn configure_route_name_application(root: &Path) {
     let source =
         fs::read_to_string(support::workspace_root().join("catalog/applications/open-webui.yaml"))
             .expect("route-name application source");
-    let source = support::with_oci_service_images(&source);
+    let source = site_catalog_application(&support::with_oci_service_images(&source));
     let source = source
         .replace("applicationId: \"open-webui\"", "applicationId: \"route-test\"")
         .replace("displayName: \"Open WebUI\"", "displayName: \"Route Test\"")
@@ -2083,6 +2083,16 @@ fn configure_route_name_application(root: &Path) {
         .expect("route-name application directory");
     fs::write(root.join("catalog/applications/route-test.yaml"), source)
         .expect("route-name application fixture");
+}
+
+/// A master-catalog application declaration as a site catalog may declare it: without the use
+/// cases it serves, which only the master catalog names.
+fn site_catalog_application(source: &str) -> String {
+    source
+        .lines()
+        .filter(|line| !line.starts_with("useCases:"))
+        .map(|line| format!("{line}\n"))
+        .collect()
 }
 
 struct ApplicationHealthServer {
@@ -5176,6 +5186,57 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
         unspecified.message(),
         "Model recommendations require specified use cases"
     );
+}
+
+#[tokio::test]
+async fn application_targets_list_the_simulated_site_through_the_application_service() {
+    let root = support::temporary_fast_fixture();
+    support::declare_fixture_machine(&root, &["rtx-5090"]);
+    let service = application_service_for(&support::configuration(&root))
+        .await
+        .expect("application service");
+    let read = |application_id: &str| {
+        ApplicationServiceContract::list_application_targets(
+            &service,
+            Request::new(ListApplicationTargetsRequest {
+                application_id: application_id.to_owned(),
+            }),
+        )
+    };
+
+    // The manager's own node reports its first observation asynchronously after composition.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let targets = loop {
+        let targets = read("comfyui")
+            .await
+            .expect("application target read")
+            .into_inner()
+            .targets;
+        if !targets.is_empty() || Instant::now() >= deadline {
+            break targets;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+
+    // ComfyUI prefers NVIDIA, but the simulated application target holds no GPU of the machine.
+    assert_eq!(
+        targets,
+        [ApplicationTargetOption {
+            target: Some(support::exact_placement(
+                "fixture-node",
+                "fixture-application-target"
+            )),
+            matches_preference: false,
+            application_deployment_id: None,
+        }]
+    );
+
+    let unknown = read("missing-application")
+        .await
+        .expect_err("unknown application");
+    assert_eq!(unknown.code(), tonic::Code::NotFound);
+    let invalid = read("Invalid").await.expect_err("invalid application id");
+    assert_eq!(invalid.code(), tonic::Code::InvalidArgument);
 }
 
 #[tokio::test]

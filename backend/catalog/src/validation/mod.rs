@@ -183,6 +183,7 @@ pub(super) fn validate_catalog(
         &duplicate_recommendations,
         diagnostics,
     );
+    application::report_shared_use_cases(&applications, diagnostics);
     let application_index = validate_declarations(
         applications,
         |application| application.application_id.clone(),

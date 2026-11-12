@@ -2,6 +2,7 @@
 
 mod controller;
 mod published_port;
+mod recommendation;
 pub mod repository;
 pub mod service;
 pub(crate) mod workloads;

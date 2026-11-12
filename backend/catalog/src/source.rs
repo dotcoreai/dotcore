@@ -3,7 +3,8 @@
 //!
 //! It walks the model, engine, hardware class, recommendation, application, and upstream-template
 //! directories and parses every file into a typed record, extracting each configuration's private
-//! sizing layers along the way. Only the master catalog may declare model recommendations.
+//! sizing layers along the way. Only the master catalog may declare model recommendations and the
+//! use cases applications serve.
 //! A file that cannot be read or parsed is reported as a located diagnostic rather than
 //! aborting the whole load, so one bad file never hides the rest.
 
@@ -57,7 +58,13 @@ pub(super) fn load_catalog_source(
         &mut records.recommendations,
         diagnostics,
     );
-    load_applications(catalog_root, source, &mut records.applications, diagnostics);
+    load_applications(
+        catalog_root,
+        source,
+        role,
+        &mut records.applications,
+        diagnostics,
+    );
     load_upstream_model_templates(
         catalog_root,
         source,
@@ -294,14 +301,28 @@ fn load_recommendations(
     }
 }
 
+/// Loads the applications of one catalog source. Only the master catalog may say which use cases
+/// an application serves, since a layer's application would compete with the master's for its use
+/// case, so a layer application that names one is reported instead.
 fn load_applications(
     catalog_root: &Path,
     source: &str,
+    role: CatalogSourceRole,
     applications: &mut Vec<(String, Application)>,
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) {
     for file in optional_catalog_files(catalog_root, source, APPLICATION_DIRECTORY, diagnostics) {
-        match yaml::from_file(&file.path) {
+        match yaml::from_file::<Application>(&file.path) {
+            Ok(application)
+                if role == CatalogSourceRole::Layer && !application.use_cases.is_empty() =>
+            {
+                diagnostics.push(CatalogDiagnostic::new(
+                    file.location,
+                    anyhow::anyhow!(
+                        "application use cases can only be declared by the master catalog"
+                    ),
+                ));
+            }
             Ok(application) => applications.push((file.location, application)),
             Err(error) => diagnostics.push(CatalogDiagnostic::new(
                 file.location,

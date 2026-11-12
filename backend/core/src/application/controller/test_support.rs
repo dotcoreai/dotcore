@@ -1371,6 +1371,14 @@ where
         self.owner.get_deployment(deployment_id)
     }
 
+    fn list_targets(
+        &self,
+        application_id: String,
+    ) -> impl Future<Output = Result<ListApplicationTargetsResponse, ApplicationLifecycleError>> + Send
+    {
+        self.owner.list_targets(application_id)
+    }
+
     fn create_deployment(
         &self,
         request: CreateApplicationDeploymentRequest,
