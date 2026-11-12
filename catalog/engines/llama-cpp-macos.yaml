@@ -11,7 +11,7 @@ parameterSchema:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Context memory the server holds from the start and shares among the requests it generates at once. Each active request stores its own tokens in it, even when requests start with the same prompt. When it fills, the server frees idle requests first, then fails the active ones."
       unsignedInteger:
         minimum: "1024"
@@ -20,7 +20,7 @@ parameterSchema:
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the start of an earlier prompt from an idle request or the prompt cache, but not from requests running at the same time."
       unsignedInteger:
         minimum: "1024"
@@ -28,7 +28,7 @@ parameterSchema:
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests the server generates at the same time; further requests wait in a queue. All of them share the total context, so each added request only adds its own small state."
       unsignedInteger:
         minimum: "1"
@@ -37,7 +37,7 @@ parameterSchema:
         defaultValue: "4"
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Memory kept to reuse repeated prompts, such as agent system prompts, without processing them again. Idle conversations move here and free their accelerator memory. It uses host memory, which unified-memory machines share with the model; 0 turns the cache off."
       unsignedInteger:
         minimum: "0"
