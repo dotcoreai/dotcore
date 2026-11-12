@@ -59,10 +59,10 @@ mod tests {
         Application, ApplicationConfigurationBinding, ApplicationDependencyCondition,
         ApplicationDeploymentInput, ApplicationEndpointProtocol, ApplicationGraph,
         ApplicationHttpReadiness, ApplicationInferenceRouteInput,
-        ApplicationInferenceRouteProjection, ApplicationParameter, ApplicationPrimaryEndpoint,
-        ApplicationSecretBinding, ApplicationService, ApplicationServiceDependency,
-        ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact,
-        NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition, StorageBinding,
+        ApplicationInferenceRouteProjection, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
+        ApplicationService, ApplicationServiceDependency, ApplicationServicePort,
+        ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact, NixDockerImage,
+        NixSystemStorePath, OciPlatform, ParameterDefinition, ParameterVisibility, StorageBinding,
         StorageKind, StorageScope, StringEnumParameterSchema, UnsignedIntegerParameterSchema,
         application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
@@ -636,6 +636,28 @@ mod tests {
                 ),
                 "application parameter \"debug\" is not used by any configuration binding",
             ),
+            (
+                parameterized_application(
+                    vec![parameter_with_visibility(
+                        "mode",
+                        string_enum(&["auto"], Some("auto")),
+                        ParameterVisibility::Hidden,
+                    )],
+                    &["mode"],
+                ),
+                "application parameter \"mode\" must be basic or advanced, not hidden",
+            ),
+            (
+                parameterized_application(
+                    vec![parameter_with_visibility(
+                        "mode",
+                        string_enum(&["auto"], Some("auto")),
+                        ParameterVisibility::Unspecified,
+                    )],
+                    &["mode"],
+                ),
+                "parameter \"mode\" requires a basic, advanced or hidden visibility",
+            ),
         ];
 
         for (application, expected) in cases {
@@ -682,13 +704,12 @@ mod tests {
     fn application_yaml_declares_parameters_and_parameter_bindings() {
         let graph = dotcore_proto::yaml::from_str::<ApplicationGraph>(
             r#"parameters:
-  - advanced: true
-    definition:
-      parameterId: "mode"
-      displayName: "mode"
-      stringEnum:
-        values: ["auto", "highvram"]
-        defaultValue: "auto"
+  - parameterId: "mode"
+    displayName: "mode"
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
+    stringEnum:
+      values: ["auto", "highvram"]
+      defaultValue: "auto"
 services:
   - configurationBindings:
       - bindingName: "mode"
@@ -703,7 +724,7 @@ services:
             [parameter_with_visibility(
                 "mode",
                 string_enum(&["auto", "highvram"], Some("auto")),
-                true
+                ParameterVisibility::Advanced
             )]
         );
         assert_eq!(
@@ -747,7 +768,7 @@ services:
     }
 
     fn parameterized_application(
-        parameters: Vec<ApplicationParameter>,
+        parameters: Vec<ParameterDefinition>,
         bound_ids: &[&str],
     ) -> Application {
         let mut application = application();
@@ -768,23 +789,21 @@ services:
         application
     }
 
-    fn parameter(id: &str, parameter_type: ParameterType) -> ApplicationParameter {
-        parameter_with_visibility(id, parameter_type, false)
+    fn parameter(id: &str, parameter_type: ParameterType) -> ParameterDefinition {
+        parameter_with_visibility(id, parameter_type, ParameterVisibility::Basic)
     }
 
     fn parameter_with_visibility(
         id: &str,
         parameter_type: ParameterType,
-        advanced: bool,
-    ) -> ApplicationParameter {
-        ApplicationParameter {
-            definition: Some(ParameterDefinition {
-                parameter_id: id.to_owned(),
-                display_name: id.to_owned(),
-                description: String::new(),
-                parameter_type: Some(parameter_type),
-            }),
-            advanced,
+        visibility: ParameterVisibility,
+    ) -> ParameterDefinition {
+        ParameterDefinition {
+            parameter_id: id.to_owned(),
+            display_name: id.to_owned(),
+            description: String::new(),
+            visibility: visibility as i32,
+            parameter_type: Some(parameter_type),
         }
     }
 

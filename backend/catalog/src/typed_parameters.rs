@@ -1,20 +1,21 @@
-//! Owner-neutral typed parameters: definition validation, value checks against a definition,
-//! and the canonical text form a value takes when projected into configuration.
+//! Owner-neutral typed parameters: definition validation, defaults, value checks against a
+//! definition, and the canonical text form a value takes when projected into configuration.
 //!
-//! Application graphs use these definitions today; the model lane keeps its own engine and
-//! option parameter schemas until it adopts this one. Owners layer their own rules on top,
-//! such as whether a default is required.
+//! Application graphs and engine releases declare their parameters with these definitions. Owners
+//! layer their own rules on top, such as which types and visibilities they accept and whether a
+//! default is required.
 
 use std::collections::BTreeSet;
 
 use anyhow::anyhow;
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
-    ParameterDefinition, ParameterValue, parameter_definition::ParameterType,
+    ParameterDefinition, ParameterValue, ParameterVisibility, parameter_definition::ParameterType,
     parameter_value::Value,
 };
 
-/// Validates one definition's identity, label, and type constraints, including any default.
+/// Validates one definition's identity, label, visibility and type constraints, including any
+/// default.
 pub(crate) fn validate_parameter_definition(
     definition: &ParameterDefinition,
 ) -> Vec<anyhow::Error> {
@@ -27,6 +28,16 @@ pub(crate) fn validate_parameter_definition(
     }
     if definition.display_name.trim().is_empty() {
         errors.push(anyhow!("parameter {id:?} requires a display name"));
+    }
+    if !matches!(
+        ParameterVisibility::try_from(definition.visibility),
+        Ok(ParameterVisibility::Basic
+            | ParameterVisibility::Advanced
+            | ParameterVisibility::Hidden)
+    ) {
+        errors.push(anyhow!(
+            "parameter {id:?} requires a basic, advanced or hidden visibility"
+        ));
     }
     match definition.parameter_type.as_ref() {
         Some(ParameterType::Boolean(_)) => {}
@@ -208,6 +219,12 @@ mod tests {
         let mut untyped = enum_definition(&["auto"], None);
         untyped.parameter_type = None;
         assert_errors(&untyped, &["parameter \"mode\" requires a type"]);
+        let mut unplaced = enum_definition(&["auto"], Some("auto"));
+        unplaced.visibility = ParameterVisibility::Unspecified as i32;
+        assert_errors(
+            &unplaced,
+            &["parameter \"mode\" requires a basic, advanced or hidden visibility"],
+        );
         assert!(
             validate_parameter_definition(&enum_definition(&["auto"], Some("auto"))).is_empty()
         );
@@ -233,6 +250,7 @@ mod tests {
             parameter_id: "mode".into(),
             display_name: "Mode".into(),
             description: String::new(),
+            visibility: ParameterVisibility::Basic as i32,
             parameter_type: Some(parameter_type),
         }
     }

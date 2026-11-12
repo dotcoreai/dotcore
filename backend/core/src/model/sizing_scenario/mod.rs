@@ -19,8 +19,8 @@ use dotcore_catalog::{
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineParameterValue, EngineParameterValues, HardwareRequirements,
-        Model, ModelProfile, engine_parameter_value::Value as EngineParameterValueKind,
+        EngineParameterSchema, HardwareRequirements, Model, ModelProfile, ParameterValue,
+        ParameterValues, parameter_value::Value as EngineParameterValueKind,
     },
     deployment::v1::MemoryFit,
     model::v1::{
@@ -406,7 +406,7 @@ fn largest_fitting_total_context(
         set_unsigned_value(
             configuration
                 .engine_parameter_values
-                .get_or_insert_with(EngineParameterValues::default),
+                .get_or_insert_with(ParameterValues::default),
             TOTAL_CONTEXT_PARAMETER_ID,
             total_context,
         );
@@ -559,7 +559,7 @@ fn with_scenario_values(
 
     let values = configuration
         .engine_parameter_values
-        .get_or_insert_with(EngineParameterValues::default);
+        .get_or_insert_with(ParameterValues::default);
     set_unsigned_value(
         values,
         TOTAL_CONTEXT_PARAMETER_ID,
@@ -579,8 +579,8 @@ fn with_scenario_values(
 /// values are the ones a launch would resolve before sizing derivations.
 fn with_filled_context_per_request(
     declarations: &CatalogLocalModelDeclarations,
-    mut values: EngineParameterValues,
-) -> EngineParameterValues {
+    mut values: ParameterValues,
+) -> ParameterValues {
     if let Some(schema) = engine_parameter_schema(declarations) {
         let filled = crate::model::engine::filled_context_per_request(
             declarations.engine_kind,
@@ -599,7 +599,7 @@ fn with_filled_context_per_request(
 fn accepts_context_values(
     declarations: &CatalogLocalModelDeclarations,
     schema: &EngineParameterSchema,
-    complete: &EngineParameterValues,
+    complete: &ParameterValues,
 ) -> Option<bool> {
     let mut in_range = true;
     for parameter_id in [TOTAL_CONTEXT_PARAMETER_ID, CONTEXT_PER_REQUEST_PARAMETER_ID] {
@@ -658,8 +658,8 @@ fn engine_parameter_schema(
 }
 
 /// Replaces the value of one parameter, or adds it when the values leave it out.
-fn set_unsigned_value(values: &mut EngineParameterValues, parameter_id: &str, value: u64) {
-    let value = EngineParameterValue {
+fn set_unsigned_value(values: &mut ParameterValues, parameter_id: &str, value: u64) {
+    let value = ParameterValue {
         parameter_id: parameter_id.to_owned(),
         value: Some(EngineParameterValueKind::UnsignedInteger(value)),
     };

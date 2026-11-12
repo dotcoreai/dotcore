@@ -11,15 +11,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineArtifact, EngineParameterValue, EngineParameterValues, EngineRelease, HardwareClass,
-    HuggingFaceArtifactSource, InferenceRequestKind, IntelligenceScore, License, Model,
-    ModelArtifact, ModelConfigurationOption, ModelEngineConfiguration, ModelInputCapabilities,
-    ModelInputModality, ModelOptionParameterDefinition, SpeculativeDecodingMethod,
-    engine_parameter_definition::ParameterType as EngineParameterType,
-    engine_parameter_value::Value as EngineParameterValueKind,
+    EngineArtifact, EngineRelease, HardwareClass, HuggingFaceArtifactSource, InferenceRequestKind,
+    IntelligenceScore, License, Model, ModelArtifact, ModelConfigurationOption,
+    ModelEngineConfiguration, ModelInputCapabilities, ModelInputModality,
+    ModelOptionParameterDefinition, ParameterValue, ParameterValues, SpeculativeDecodingMethod,
     hugging_face_artifact_source::Content as HuggingFaceContent,
     model_option::Kind as ModelOptionKind,
     model_option_parameter_definition::ParameterType as ModelOptionParameterType,
+    parameter_definition::ParameterType as EngineParameterType,
+    parameter_value::Value as EngineParameterValueKind,
 };
 
 use super::common::lower_hex;
@@ -31,6 +31,7 @@ use crate::{
     },
     selector::{SelectorRelation, selector_relation},
     shared_parameters::profile_may_default,
+    typed_parameters::default_value,
     validation::{EngineDeclarationValidator, configuration_engine_release},
 };
 
@@ -891,7 +892,7 @@ fn validate_profile_option_defaults(
 
 /// Validates a complete set of engine parameter values against the engine schema.
 pub fn validate_parameter_values(
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     engine: &EngineRelease,
     profile_id: &str,
     errors: &mut Vec<anyhow::Error>,
@@ -910,7 +911,7 @@ pub fn validate_parameter_values(
 /// Validates supplied engine parameter values, which may omit parameters that sizing derives.
 /// Completeness is checked once derivations are known.
 pub fn validate_supplied_parameter_values(
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     engine: &EngineRelease,
     profile_id: &str,
     errors: &mut Vec<anyhow::Error>,
@@ -962,9 +963,9 @@ pub fn validate_supplied_parameter_values(
 /// Overlays defaults on supplied engine parameter values, per parameter: the supplied values
 /// keep their order, followed by each default whose parameter they leave out.
 pub fn overlay_parameter_defaults(
-    values: &EngineParameterValues,
-    defaults: &EngineParameterValues,
-) -> EngineParameterValues {
+    values: &ParameterValues,
+    defaults: &ParameterValues,
+) -> ParameterValues {
     let mut overlaid = values.clone();
     overlaid.values.extend(
         defaults
@@ -982,30 +983,24 @@ pub fn overlay_parameter_defaults(
 }
 
 /// Engine defaults the release declares for its parameters, in schema order.
-pub(super) fn engine_default_values(engine: &EngineRelease) -> EngineParameterValues {
-    EngineParameterValues {
+pub(super) fn engine_default_values(engine: &EngineRelease) -> ParameterValues {
+    ParameterValues {
         values: engine
             .parameter_schema
             .iter()
             .flat_map(|schema| &schema.parameters)
-            .filter_map(|definition| match definition.parameter_type.as_ref() {
-                Some(EngineParameterType::UnsignedInteger(range)) => {
-                    range.default_value.map(|default| EngineParameterValue {
-                        parameter_id: definition.parameter_id.clone(),
-                        value: Some(EngineParameterValueKind::UnsignedInteger(default)),
-                    })
-                }
-                _ => None,
+            .filter_map(|definition| {
+                default_value(definition).map(|default| ParameterValue {
+                    parameter_id: definition.parameter_id.clone(),
+                    value: Some(default),
+                })
             })
             .collect(),
     }
 }
 
 /// Engine schema parameter ids without a supplied value, in schema order.
-pub fn missing_parameter_ids(
-    values: &EngineParameterValues,
-    engine: &EngineRelease,
-) -> Vec<String> {
+pub fn missing_parameter_ids(values: &ParameterValues, engine: &EngineRelease) -> Vec<String> {
     engine
         .parameter_schema
         .as_ref()
@@ -1133,22 +1128,72 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use dotcore_proto::dotcore::catalog::v1::{
-        BooleanModelOptionParameterSchema, EngineArtifact, EngineArtifactReference,
-        EngineParameterValues, EngineRelease, HardwareClass, InferenceRequestKind,
-        KvCachePrecisionModelOption, Model, ModelArtifactBinding, ModelConfigurationOption,
-        ModelEngineConfiguration, ModelOption, ModelOptionParameterDefinition,
-        ModelOptionParameterValue, ModelOptionValues, ModelProfile, OciPlatform, Selector,
-        SpeculativeDecodingMethod, SpeculativeDecodingModelOption,
-        StringEnumModelOptionParameterSchema, UnsignedIntegerModelOptionParameterSchema,
-        model_option, model_option_parameter_definition::ParameterType,
-        model_option_parameter_value::Value,
+        BooleanModelOptionParameterSchema, EngineArtifact, EngineArtifactReference, EngineRelease,
+        HardwareClass, InferenceRequestKind, KvCachePrecisionModelOption, Model,
+        ModelArtifactBinding, ModelConfigurationOption, ModelEngineConfiguration, ModelOption,
+        ModelOptionParameterDefinition, ModelOptionParameterValue, ModelOptionValues, ModelProfile,
+        OciPlatform, ParameterValues, Selector, SpeculativeDecodingMethod,
+        SpeculativeDecodingModelOption, StringEnumModelOptionParameterSchema,
+        UnsignedIntegerModelOptionParameterSchema, model_option,
+        model_option_parameter_definition::ParameterType, model_option_parameter_value::Value,
     };
 
     use super::{
-        overlapping_artifacts, valid_request_kinds, validate_class_artifact_coverage,
-        validate_configuration_options, validate_model_options, validate_profiles,
+        engine_default_values, overlapping_artifacts, valid_request_kinds,
+        validate_class_artifact_coverage, validate_configuration_options, validate_model_options,
+        validate_profiles,
     };
     use crate::test_support::vendor_hardware_class;
+
+    #[test]
+    fn engine_defaults_cover_every_parameter_declaring_one_booleans_included() {
+        use dotcore_proto::dotcore::catalog::v1::{
+            BooleanParameterSchema, EngineParameterSchema, ParameterDefinition, ParameterValue,
+            UnsignedIntegerParameterSchema, parameter_definition::ParameterType as Type,
+            parameter_value::Value as ParameterValueKind,
+        };
+
+        let definition = |parameter_id: &str, parameter_type| ParameterDefinition {
+            parameter_id: parameter_id.to_owned(),
+            parameter_type: Some(parameter_type),
+            ..Default::default()
+        };
+        let unsigned = |default_value| {
+            Type::UnsignedInteger(UnsignedIntegerParameterSchema {
+                minimum: 0,
+                maximum: 64,
+                unit: "requests".to_owned(),
+                default_value,
+            })
+        };
+        let boolean = |default_value| Type::Boolean(BooleanParameterSchema { default_value });
+        let engine = EngineRelease {
+            parameter_schema: Some(EngineParameterSchema {
+                schema_id: "fixture".to_owned(),
+                parameters: vec![
+                    definition("parallel-requests", unsigned(Some(4))),
+                    definition("flash-attention", boolean(Some(false))),
+                    definition("cache-mib", unsigned(None)),
+                    definition("mlock", boolean(None)),
+                ],
+            }),
+            ..Default::default()
+        };
+        let value = |parameter_id: &str, value| ParameterValue {
+            parameter_id: parameter_id.to_owned(),
+            value: Some(value),
+        };
+
+        assert_eq!(
+            engine_default_values(&engine),
+            ParameterValues {
+                values: vec![
+                    value("parallel-requests", ParameterValueKind::UnsignedInteger(4)),
+                    value("flash-attention", ParameterValueKind::Boolean(false)),
+                ],
+            }
+        );
+    }
 
     #[test]
     fn request_kinds_must_be_non_empty_known_and_unique() {
@@ -1601,7 +1646,7 @@ mod tests {
                 profile_id: "balanced".to_owned(),
                 configuration_id: "local".to_owned(),
                 default_model_artifact_binding_id: "weights".to_owned(),
-                engine_parameter_defaults: Some(EngineParameterValues::default()),
+                engine_parameter_defaults: Some(ParameterValues::default()),
                 ..Default::default()
             }],
             ..Default::default()

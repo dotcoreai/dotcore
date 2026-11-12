@@ -2948,40 +2948,36 @@ pub(super) fn application_with_route_input() -> Application {
 /// an environment variable of its web service.
 pub(super) fn application_with_parameters() -> Application {
     use dotcore_proto::dotcore::catalog::v1::{
-        ApplicationParameter, ParameterDefinition, StringEnumParameterSchema,
+        ParameterDefinition, ParameterVisibility, StringEnumParameterSchema,
         UnsignedIntegerParameterSchema, parameter_definition::ParameterType,
     };
 
     let mut application = application();
     let graph = application.graph.as_mut().expect("graph");
     graph.parameters = vec![
-        ApplicationParameter {
-            definition: Some(ParameterDefinition {
-                parameter_id: "mode".to_owned(),
-                display_name: "Mode".to_owned(),
-                description: String::new(),
-                parameter_type: Some(ParameterType::StringEnum(StringEnumParameterSchema {
-                    values: vec!["auto".to_owned(), "highvram".to_owned()],
-                    default_value: Some("auto".to_owned()),
-                })),
-            }),
-            advanced: true,
+        ParameterDefinition {
+            parameter_id: "mode".to_owned(),
+            display_name: "Mode".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::StringEnum(StringEnumParameterSchema {
+                values: vec!["auto".to_owned(), "highvram".to_owned()],
+                default_value: Some("auto".to_owned()),
+            })),
+            visibility: ParameterVisibility::Advanced as i32,
         },
-        ApplicationParameter {
-            definition: Some(ParameterDefinition {
-                parameter_id: "workers".to_owned(),
-                display_name: "Workers".to_owned(),
-                description: String::new(),
-                parameter_type: Some(ParameterType::UnsignedInteger(
-                    UnsignedIntegerParameterSchema {
-                        minimum: 1,
-                        maximum: 8,
-                        unit: String::new(),
-                        default_value: Some(2),
-                    },
-                )),
-            }),
-            advanced: false,
+        ParameterDefinition {
+            parameter_id: "workers".to_owned(),
+            display_name: "Workers".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::UnsignedInteger(
+                UnsignedIntegerParameterSchema {
+                    minimum: 1,
+                    maximum: 8,
+                    unit: String::new(),
+                    default_value: Some(2),
+                },
+            )),
+            visibility: ParameterVisibility::Basic as i32,
         },
     ];
     graph.services[0].configuration_bindings = ["mode", "workers"]

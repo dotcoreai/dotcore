@@ -16,9 +16,9 @@ compile_error!("Dotcore supports only Linux and macOS targets");
 use std::{collections::BTreeMap, error::Error as StdError, fmt, path::Path};
 
 use dotcore_proto::dotcore::catalog::v1::{
-    Application, EngineArtifact, EngineParameterValues, EngineRelease, HardwareClass,
-    HardwareClassRecommendations, HardwareRequirements, Model, ModelArtifact, ModelArtifactBinding,
-    ModelEngineConfiguration, ModelOptionValues, ModelProfile, UpstreamModelTemplate,
+    Application, EngineArtifact, EngineRelease, HardwareClass, HardwareClassRecommendations,
+    HardwareRequirements, Model, ModelArtifact, ModelArtifactBinding, ModelEngineConfiguration,
+    ModelOptionValues, ModelProfile, ParameterValues, UpstreamModelTemplate,
 };
 #[cfg(test)]
 use dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot;
@@ -219,7 +219,7 @@ impl Catalog {
         &self,
         model_id: &CatalogModelId,
         profile_id: &str,
-    ) -> Option<(String, EngineParameterValues)> {
+    ) -> Option<(String, ParameterValues)> {
         let (model, profile) = self.selected_model_profile(model_id, profile_id)?;
         let engine_defaults = self
             .engine_defaults
@@ -357,7 +357,7 @@ impl Catalog {
         configuration_id: &str,
         hardware_class_id: &str,
         binding_id: &str,
-        engine_parameter_values: &EngineParameterValues,
+        engine_parameter_values: &ParameterValues,
         option_values: &[ModelOptionValues],
     ) -> Result<Vec<(String, u64)>, SizingError> {
         let key = SizingKey {
@@ -383,7 +383,7 @@ impl Catalog {
         binding_id: &str,
         resolved_model_artifact_id: Option<&str>,
         resolved_auxiliary_artifact_ids: &[String],
-        engine_parameter_values: &EngineParameterValues,
+        engine_parameter_values: &ParameterValues,
         option_values: &[ModelOptionValues],
     ) -> Result<Vec<ScalarResourceEstimate>, SizingError> {
         let key = SizingKey {
@@ -960,9 +960,8 @@ mod tests {
     use dotcore_domain::test_support::oci::ServiceArtifactOci as _;
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            ApplicationDependencyCondition, ApplicationServiceDependency, EngineParameterValue,
-            EngineParameterValues, EngineRelease, UpstreamWireProtocol, UseCase,
-            engine_parameter_value::Value as ParameterValue,
+            ApplicationDependencyCondition, ApplicationServiceDependency, EngineRelease,
+            ParameterValue, ParameterValues, UpstreamWireProtocol, UseCase, parameter_value::Value,
         },
         engine::v1::EngineKind,
         model::v1::ResolvedLocalModelDeploymentSnapshot,
@@ -1089,18 +1088,19 @@ parameterSchema:
   parameters:
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
     - parameterId: "cache-mib"
       displayName: "Cache"
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: {{ minimum: "0", maximum: "{cache_maximum}", unit: "MiB" }}
 artifacts:
   - artifactId: "linux-amd64"
@@ -1375,10 +1375,10 @@ artifacts:
             "Catalog sizing evaluation: resolved local selection does not match sizing binding"
         );
 
-        let expanded = EngineParameterValues {
-            values: vec![EngineParameterValue {
+        let expanded = ParameterValues {
+            values: vec![ParameterValue {
                 parameter_id: "total-context".to_owned(),
-                value: Some(ParameterValue::UnsignedInteger(50_177)),
+                value: Some(Value::UnsignedInteger(50_177)),
             }],
         };
         let expanded_local = resolved_fixture_snapshot("sized-weights", "nvidia", expanded);
@@ -1786,7 +1786,7 @@ artifacts:
                     "local",
                     "nvidia",
                     "second",
-                    &EngineParameterValues::default(),
+                    &ParameterValues::default(),
                     &[],
                 )
                 .expect("derivation evaluates"),
@@ -2575,9 +2575,7 @@ useCases:
             .expect("parameter defaults")
             .values[0]
             .value = Some(
-            dotcore_proto::dotcore::catalog::v1::engine_parameter_value::Value::UnsignedInteger(
-                1_000_000,
-            ),
+            dotcore_proto::dotcore::catalog::v1::parameter_value::Value::UnsignedInteger(1_000_000),
         );
         model.profiles.push(duplicate);
 
@@ -2910,18 +2908,19 @@ parameterSchema:
   parameters:
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
     - parameterId: "cache-mib"
       displayName: "Cache"
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: {{ minimum: "0", maximum: "{cache_maximum}", unit: "MiB" }}
 artifacts:
   - artifactId: "{id}-artifact"
@@ -3011,13 +3010,13 @@ profiles:
         )
     }
 
-    fn unsigned_values(values: &[(&str, u64)]) -> EngineParameterValues {
-        EngineParameterValues {
+    fn unsigned_values(values: &[(&str, u64)]) -> ParameterValues {
+        ParameterValues {
             values: values
                 .iter()
-                .map(|(parameter_id, value)| EngineParameterValue {
+                .map(|(parameter_id, value)| ParameterValue {
                     parameter_id: (*parameter_id).to_owned(),
-                    value: Some(ParameterValue::UnsignedInteger(*value)),
+                    value: Some(Value::UnsignedInteger(*value)),
                 })
                 .collect(),
         }
@@ -3035,7 +3034,7 @@ profiles:
     fn resolved_fixture_snapshot(
         model_artifact_id: &str,
         hardware_class_id: &str,
-        engine_parameter_values: EngineParameterValues,
+        engine_parameter_values: ParameterValues,
     ) -> ResolvedLocalModelDeploymentSnapshot {
         ResolvedLocalModelDeploymentSnapshot {
             model_id: "fixture-model".to_owned(),

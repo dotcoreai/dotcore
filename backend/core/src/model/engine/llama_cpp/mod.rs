@@ -17,8 +17,8 @@ use dotcore_artifact::PreparedModelArtifacts;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterValues, EngineRelease, HardwareClass, InferenceRequestKind, Model,
-        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues,
+        EngineRelease, HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding,
+        ModelEngineConfiguration, ModelOptionValues, ParameterValues,
     },
     engine::v1::{EngineKind, ResolvedEngineModelState},
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
@@ -82,7 +82,7 @@ impl EngineDefinition for LlamaCpp {
         &self,
         model: &Model,
         configuration: &ModelEngineConfiguration,
-    ) -> EngineParameterValues {
+    ) -> ParameterValues {
         declaration::parameter_defaults(model, configuration)
     }
 
@@ -90,7 +90,7 @@ impl EngineDefinition for LlamaCpp {
         &self,
         model: &Model,
         configuration: &ModelEngineConfiguration,
-        values: &EngineParameterValues,
+        values: &ParameterValues,
     ) -> anyhow::Result<()> {
         declaration::validate_parameter_values(model, configuration, values)
     }

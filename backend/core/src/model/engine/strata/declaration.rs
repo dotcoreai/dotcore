@@ -16,12 +16,11 @@ use dotcore_catalog::shared_parameters::{
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineParameterValue, EngineParameterValues, EngineRelease,
-        HardwareClass, HuggingFaceArtifactSource, Model, ModelEngineConfiguration,
-        ModelInputModality, ModelParallelShape, StorageScope,
-        engine_parameter_definition::ParameterType,
-        engine_parameter_value::Value as EngineParameterValueKind,
+        EngineParameterSchema, EngineRelease, HardwareClass, HuggingFaceArtifactSource, Model,
+        ModelEngineConfiguration, ModelInputModality, ModelParallelShape, ParameterValue,
+        ParameterValues, StorageScope,
         hugging_face_artifact_source::Content as HuggingFaceContent,
+        parameter_definition::ParameterType, parameter_value::Value as EngineParameterValueKind,
     },
     engine::{
         strata::v1::{
@@ -54,9 +53,9 @@ const READY_PACK_FILES: [&str; 2] = ["native_experts.txt", "tokenizer/vocab.json
 /// for each of them. Returns none when the shared rule would fill nothing.
 pub(crate) fn filled_context_per_request(
     schema: &EngineParameterSchema,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     maximum_context_tokens: u32,
-) -> Option<EngineParameterValue> {
+) -> Option<ParameterValue> {
     // The shared rule with no maximum yields the total context, or none when it fills nothing.
     let total_context = shared_parameters::filled_context_per_request(schema, values, u32::MAX)
         .and_then(|filled| match filled.value {
@@ -66,7 +65,7 @@ pub(crate) fn filled_context_per_request(
     let parallel_requests = unsigned_parameter_value(values, PARALLEL_REQUESTS_PARAMETER_ID)
         .unwrap_or(1)
         .max(1);
-    Some(EngineParameterValue {
+    Some(ParameterValue {
         parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
         value: Some(EngineParameterValueKind::UnsignedInteger(
             (total_context / parallel_requests).min(u64::from(maximum_context_tokens)),
@@ -80,7 +79,7 @@ pub(crate) fn filled_context_per_request(
 pub(crate) fn validate_parameter_values(
     model: &Model,
     configuration: &ModelEngineConfiguration,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> anyhow::Result<()> {
     let (Some(total_context), Some(context_per_request), Some(parallel_requests)) = (
         unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID),
@@ -454,9 +453,9 @@ mod tests {
     use dotcore_domain::ExecutionPlatform;
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            BooleanEngineParameterSchema, EngineParameterDefinition, HuggingFaceArtifactSource,
-            HuggingFaceFileArtifact, ModelConfigurationOption, ModelImageInputCapacity,
-            UnsignedIntegerEngineParameterSchema,
+            BooleanParameterSchema, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
+            ModelConfigurationOption, ModelImageInputCapacity, ParameterDefinition,
+            UnsignedIntegerParameterSchema,
         },
         model::v1::{
             LocalModelDeploymentConfiguration, ResolvedLocalModelDeploymentSnapshot,
@@ -514,7 +513,7 @@ mod tests {
 
         let mut boolean = release();
         parameter(&mut boolean, EXPERT_VRAM_MIB_PARAMETER_ID).parameter_type =
-            Some(ParameterType::Boolean(BooleanEngineParameterSchema {}));
+            Some(ParameterType::Boolean(BooleanParameterSchema::default()));
         assert_eq!(
             messages(validate_engine_release(&boolean)),
             ["Strata engine release requires non-empty unsigned-integer parameter definitions"]
@@ -609,7 +608,7 @@ mod tests {
             .as_mut()
             .expect("schema")
             .parameters
-            .push(EngineParameterDefinition {
+            .push(ParameterDefinition {
                 parameter_id: "kv-bits".to_owned(),
                 parameter_type: Some(unsigned(4, 16, "bits")),
                 ..Default::default()
@@ -1015,10 +1014,10 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-strata-v1"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", exposed: true, description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
-    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", exposed: true, description: "expert-vram-mib", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "MiB" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
+    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "MiB" } }
 storageBindings:
   - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", scope: "STORAGE_SCOPE_DEPLOYMENT" }
 artifacts:
@@ -1184,7 +1183,7 @@ profiles:
     fn parameter<'a>(
         release: &'a mut EngineRelease,
         parameter_id: &str,
-    ) -> &'a mut EngineParameterDefinition {
+    ) -> &'a mut ParameterDefinition {
         release
             .parameter_schema
             .as_mut()
@@ -1196,7 +1195,7 @@ profiles:
     }
 
     fn unsigned(minimum: u64, maximum: u64, unit: &str) -> ParameterType {
-        ParameterType::UnsignedInteger(UnsignedIntegerEngineParameterSchema {
+        ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
             minimum,
             maximum,
             unit: unit.to_owned(),

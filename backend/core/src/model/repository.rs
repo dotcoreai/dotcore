@@ -1022,9 +1022,9 @@ mod tests {
             ResolvedApplicationDeploymentSnapshot,
         },
         catalog::v1::{
-            EngineParameterValue, EngineParameterValues, OciPlatform, UpstreamModelBoundary,
+            OciPlatform, ParameterValue, ParameterValues, UpstreamModelBoundary,
             UpstreamModelDataEgressClass, UpstreamModelLocality,
-            engine_parameter_value::Value as EngineParameterValueKind,
+            parameter_value::Value as EngineParameterValueKind,
         },
         deployment::v1::ExactPlacement,
         inference::v1::{FallbackGroup, FallbackGroupSelection, InferenceRoute},
@@ -3120,7 +3120,7 @@ mod tests {
 
     /// Engine parameter values for a llama.cpp deployment: the total context, the prompt cache and
     /// the parallel requests that sizing never derives.
-    fn engine_values(total_context: u64) -> EngineParameterValues {
+    fn engine_values(total_context: u64) -> ParameterValues {
         unsigned_values(&[
             ("total-context", total_context),
             ("prompt-cache-memory-mib", 0),
@@ -3130,7 +3130,7 @@ mod tests {
 
     /// The fixture profile's engine parameter defaults: its prompt cache, then the engine defaults
     /// of the total context and the parallel requests.
-    fn profile_default_values() -> EngineParameterValues {
+    fn profile_default_values() -> ParameterValues {
         unsigned_values(&[
             ("prompt-cache-memory-mib", 0),
             ("total-context", 32_768),
@@ -3140,28 +3140,25 @@ mod tests {
 
     /// The context per request resolution fills from the total context, within the fixture
     /// model's maximum context.
-    fn filled_context_per_request(total_context: u64) -> EngineParameterValues {
+    fn filled_context_per_request(total_context: u64) -> ParameterValues {
         unsigned_values(&[("context-per-request", total_context.min(262_144))])
     }
 
     /// Values in the given order, followed by the filled context per request, as a resolved
     /// snapshot retains them.
-    fn resolved_values(
-        mut values: EngineParameterValues,
-        total_context: u64,
-    ) -> EngineParameterValues {
+    fn resolved_values(mut values: ParameterValues, total_context: u64) -> ParameterValues {
         values
             .values
             .extend(filled_context_per_request(total_context).values);
         values
     }
 
-    fn unsigned_values(values: &[(&str, u64)]) -> EngineParameterValues {
-        EngineParameterValues {
+    fn unsigned_values(values: &[(&str, u64)]) -> ParameterValues {
+        ParameterValues {
             values: values
                 .iter()
                 .copied()
-                .map(|(parameter_id, value)| EngineParameterValue {
+                .map(|(parameter_id, value)| ParameterValue {
                     parameter_id: parameter_id.to_owned(),
                     value: Some(EngineParameterValueKind::UnsignedInteger(value)),
                 })

@@ -30,9 +30,9 @@ use dotcore_proto::dotcore::{
         application_deployment_service_server::ApplicationDeploymentService as ApplicationServiceContract,
     },
     catalog::v1::{
-        EngineParameterValue, EngineParameterValues, ListApplicationsRequest,
-        ListEngineReleasesRequest, ListModelsRequest, UseCase,
-        catalog_service_server::CatalogService as CatalogServiceContract, engine_parameter_value,
+        ListApplicationsRequest, ListEngineReleasesRequest, ListModelsRequest, ParameterValue,
+        ParameterValues, UseCase, catalog_service_server::CatalogService as CatalogServiceContract,
+        parameter_value,
     },
     deployment::v1::MemoryFit,
     inference::v1::{DeleteRouteRequest, InferenceRoute, ListRoutesRequest, ReplaceRouteRequest},
@@ -4897,7 +4897,7 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                 .collect::<Vec<_>>(),
             [(
                 "fixture-profile",
-                Some(EngineParameterValues {
+                Some(ParameterValues {
                     values: [
                         ("prompt-cache-memory-mib", 0),
                         ("total-context", total_context),
@@ -4905,9 +4905,9 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                         ("context-per-request", context_per_request),
                     ]
                     .into_iter()
-                    .map(|(parameter_id, value)| EngineParameterValue {
+                    .map(|(parameter_id, value)| ParameterValue {
                         parameter_id: parameter_id.to_owned(),
-                        value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+                        value: Some(parameter_value::Value::UnsignedInteger(value)),
                     })
                     .collect(),
                 }),
@@ -5198,9 +5198,9 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
             .values;
         for (parameter_id, value) in values {
             parameters.retain(|parameter| parameter.parameter_id != *parameter_id);
-            parameters.push(EngineParameterValue {
+            parameters.push(ParameterValue {
                 parameter_id: (*parameter_id).to_owned(),
-                value: Some(engine_parameter_value::Value::UnsignedInteger(*value)),
+                value: Some(parameter_value::Value::UnsignedInteger(*value)),
             });
         }
         CreateLocalModelDeploymentRequest {

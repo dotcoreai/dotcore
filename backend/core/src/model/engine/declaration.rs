@@ -6,8 +6,8 @@ use dotcore_catalog::{
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineParameterValues, EngineRelease, HardwareClass, InferenceRequestKind, Model,
-    ModelEngineConfiguration, model_option,
+    EngineRelease, HardwareClass, InferenceRequestKind, Model, ModelEngineConfiguration,
+    ParameterValues, model_option,
 };
 
 use super::definition::{definition, unsigned_parameter_maximum};
@@ -67,7 +67,7 @@ impl EngineDeclarationValidator for EngineFacade {
         model: &Model,
         configuration: &ModelEngineConfiguration,
         engine: &EngineRelease,
-    ) -> EngineParameterValues {
+    ) -> ParameterValues {
         definition(engine.engine_kind)
             .map(|definition| definition.parameter_defaults(model, configuration))
             .unwrap_or_default()
@@ -185,9 +185,9 @@ mod tests {
     };
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            EngineParameterDefinition, EngineParameterSchema, EngineRelease, InferenceRequestKind,
-            Model, ModelEngineConfiguration, UnsignedIntegerEngineParameterSchema,
-            engine_parameter_definition::ParameterType,
+            EngineParameterSchema, EngineRelease, InferenceRequestKind, Model,
+            ModelEngineConfiguration, ParameterDefinition, UnsignedIntegerParameterSchema,
+            parameter_definition::ParameterType,
         },
         engine::v1::{EngineKind, EngineModelConfiguration},
     };
@@ -202,10 +202,10 @@ mod tests {
         };
         let release = EngineRelease {
             parameter_schema: Some(EngineParameterSchema {
-                parameters: vec![EngineParameterDefinition {
+                parameters: vec![ParameterDefinition {
                     parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
                     parameter_type: Some(ParameterType::UnsignedInteger(
-                        UnsignedIntegerEngineParameterSchema {
+                        UnsignedIntegerParameterSchema {
                             minimum: 1024,
                             maximum: 131_072,
                             unit: "tokens".to_owned(),

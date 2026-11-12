@@ -36,7 +36,7 @@ use dotcore_domain::{
 };
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{
-    catalog::v1::{EngineParameterValues, engine_artifact::Kind as EngineArtifactKind},
+    catalog::v1::{ParameterValues, engine_artifact::Kind as EngineArtifactKind},
     engine::v1::EngineKind,
     model::v1::{
         LocalModelDeploymentConfiguration, PortableModelLaunchPlan,
@@ -1386,7 +1386,7 @@ pub struct DevelopmentLaunchFacts {
     pub model_artifact_id: String,
     pub auxiliary_artifact_ids: Vec<String>,
     pub resolved_options: Vec<ResolvedModelOption>,
-    pub engine_parameter_values: EngineParameterValues,
+    pub engine_parameter_values: ParameterValues,
     pub engine_release_id: String,
     pub engine_artifact_id: String,
     pub engine_version: String,

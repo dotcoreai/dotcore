@@ -25,7 +25,7 @@ use dotcore_node_hardware::{
     hardware::{SystemHardwareSnapshotCollector, SystemNvidiaAcceleratorAdapter},
 };
 use dotcore_proto::dotcore::{
-    catalog::v1::engine_parameter_value,
+    catalog::v1::parameter_value,
     deployment::v1::accelerator_memory_observation,
     model::v1::{
         CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest, DirectRouteExposure,
@@ -646,7 +646,7 @@ fn model_configuration() -> LocalModelDeploymentConfiguration {
         .iter_mut()
         .find(|value| value.parameter_id == "prompt-cache-memory-mib")
         .expect("prompt cache parameter value");
-    prompt_cache.value = Some(engine_parameter_value::Value::UnsignedInteger(
+    prompt_cache.value = Some(parameter_value::Value::UnsignedInteger(
         PROMPT_CACHE_MEMORY_MIB,
     ));
     configuration

@@ -54,9 +54,9 @@ pub(crate) fn engine_artifact_kinds(kind: i32) -> &'static [dotcore_domain::Work
 pub(crate) fn filled_context_per_request(
     kind: i32,
     schema: &dotcore_proto::dotcore::catalog::v1::EngineParameterSchema,
-    values: &dotcore_proto::dotcore::catalog::v1::EngineParameterValues,
+    values: &dotcore_proto::dotcore::catalog::v1::ParameterValues,
     maximum_context_tokens: u32,
-) -> Option<dotcore_proto::dotcore::catalog::v1::EngineParameterValue> {
+) -> Option<dotcore_proto::dotcore::catalog::v1::ParameterValue> {
     match definition::definition(kind) {
         Some(engine) => engine.filled_context_per_request(schema, values, maximum_context_tokens),
         None => dotcore_catalog::shared_parameters::filled_context_per_request(
@@ -74,7 +74,7 @@ pub(crate) fn validate_parameter_values(
     kind: i32,
     model: &dotcore_proto::dotcore::catalog::v1::Model,
     configuration: &dotcore_proto::dotcore::catalog::v1::ModelEngineConfiguration,
-    values: &dotcore_proto::dotcore::catalog::v1::EngineParameterValues,
+    values: &dotcore_proto::dotcore::catalog::v1::ParameterValues,
 ) -> anyhow::Result<()> {
     validate_context_within_total(values)?;
     definition::definition(kind).map_or(Ok(()), |engine| {
@@ -85,7 +85,7 @@ pub(crate) fn validate_parameter_values(
 /// Rejects a context per request above the total context every request shares, since no request
 /// could use it.
 fn validate_context_within_total(
-    values: &dotcore_proto::dotcore::catalog::v1::EngineParameterValues,
+    values: &dotcore_proto::dotcore::catalog::v1::ParameterValues,
 ) -> anyhow::Result<()> {
     use dotcore_catalog::shared_parameters::{
         CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID,

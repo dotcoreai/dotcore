@@ -1052,10 +1052,10 @@ mod tests {
         },
         catalog::v1::{
             Application, ApplicationConfigurationBinding, ApplicationEndpointProtocol,
-            ApplicationGraph, ApplicationParameter, ApplicationPrimaryEndpoint, ApplicationService,
-            ApplicationServicePort, ParameterDefinition, ParameterValue, StringEnumParameterSchema,
-            application_configuration_binding, parameter_definition::ParameterType,
-            parameter_value,
+            ApplicationGraph, ApplicationPrimaryEndpoint, ApplicationService,
+            ApplicationServicePort, ParameterDefinition, ParameterValue, ParameterVisibility,
+            StringEnumParameterSchema, application_configuration_binding,
+            parameter_definition::ParameterType, parameter_value,
         },
         deployment::v1::{ArtifactPreparationPolicy, NodeResolvedLaunchIdentity},
     };
@@ -1234,17 +1234,15 @@ mod tests {
             let mut deployment = valid_deployment();
             let snapshot = deployment.snapshot.as_mut().expect("snapshot");
             let graph = snapshot.graph.as_mut().expect("graph");
-            graph.parameters = vec![ApplicationParameter {
-                definition: Some(ParameterDefinition {
-                    parameter_id: "mode".to_owned(),
-                    display_name: "Mode".to_owned(),
-                    description: String::new(),
-                    parameter_type: Some(ParameterType::StringEnum(StringEnumParameterSchema {
-                        values: vec!["auto".to_owned(), "highvram".to_owned()],
-                        default_value: Some("auto".to_owned()),
-                    })),
-                }),
-                advanced: true,
+            graph.parameters = vec![ParameterDefinition {
+                parameter_id: "mode".to_owned(),
+                display_name: "Mode".to_owned(),
+                description: String::new(),
+                parameter_type: Some(ParameterType::StringEnum(StringEnumParameterSchema {
+                    values: vec!["auto".to_owned(), "highvram".to_owned()],
+                    default_value: Some("auto".to_owned()),
+                })),
+                visibility: ParameterVisibility::Advanced as i32,
             }];
             graph.services[0].configuration_bindings = vec![ApplicationConfigurationBinding {
                 binding_name: "mode".to_owned(),

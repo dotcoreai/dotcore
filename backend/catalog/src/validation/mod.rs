@@ -10,8 +10,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_proto::dotcore::catalog::v1::{
-    Application, EngineParameterDefinition, EngineParameterValues, EngineRelease, HardwareClass,
-    HardwareClassRecommendations, Model, ModelEngineConfiguration, UpstreamModelTemplate,
+    Application, EngineRelease, HardwareClass, HardwareClassRecommendations, Model,
+    ModelEngineConfiguration, ParameterDefinition, ParameterValues, UpstreamModelTemplate,
 };
 
 use super::{
@@ -72,8 +72,8 @@ pub trait EngineDeclarationValidator: Send + Sync {
         _model: &Model,
         _configuration: &ModelEngineConfiguration,
         _engine: &EngineRelease,
-    ) -> EngineParameterValues {
-        EngineParameterValues::default()
+    ) -> ParameterValues {
+        ParameterValues::default()
     }
 }
 
@@ -218,7 +218,7 @@ pub(super) fn validate_catalog(
 }
 
 /// Engine parameter defaults of each configuration, keyed by model and configuration id.
-pub(super) type ConfigurationEngineDefaults = BTreeMap<(String, String), EngineParameterValues>;
+pub(super) type ConfigurationEngineDefaults = BTreeMap<(String, String), ParameterValues>;
 
 pub(super) struct ValidatedCatalog {
     pub(super) models: BTreeMap<String, Model>,
@@ -479,9 +479,9 @@ fn validate_sizing_coverage(
 }
 
 fn parameter_definition<'a>(
-    parameters: &'a [EngineParameterDefinition],
+    parameters: &'a [ParameterDefinition],
     parameter_id: &str,
-) -> Option<&'a EngineParameterDefinition> {
+) -> Option<&'a ParameterDefinition> {
     parameters
         .iter()
         .find(|parameter| parameter.parameter_id == parameter_id)

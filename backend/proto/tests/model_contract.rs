@@ -15,20 +15,19 @@ use dotcore_proto::{
         },
         catalog::v1::{
             ApplicationServiceArtifact, BooleanModelOptionParameterSchema, EngineArtifact,
-            EngineArtifactReference, EngineParameterDefinition, EngineParameterSchema,
-            EngineParameterValue, EngineParameterValues, EngineRelease, Model, ModelArtifact,
+            EngineArtifactReference, EngineParameterSchema, EngineRelease, Model, ModelArtifact,
             ModelArtifactBinding, ModelAuxiliaryArtifact, ModelConfigurationOption,
             ModelEngineConfiguration, ModelExecutionCapabilities, ModelInputCapabilities,
             ModelInputModality, ModelOption, ModelOptionParameterDefinition,
             ModelOptionParameterValue, ModelOptionValues, ModelParallelShape, ModelProfile,
-            OciImageReference, OciPlatform, Selector, StringEnumModelOptionParameterSchema,
-            UnsignedIntegerEngineParameterSchema, UnsignedIntegerModelOptionParameterSchema,
-            VisionModelOption, engine_artifact,
-            engine_parameter_definition::ParameterType as EngineParameterType,
-            engine_parameter_value::Value as EngineParameterValueKind,
-            model_option::Kind as ModelOptionKind,
+            OciImageReference, OciPlatform, ParameterDefinition, ParameterValue, ParameterValues,
+            ParameterVisibility, Selector, StringEnumModelOptionParameterSchema,
+            UnsignedIntegerModelOptionParameterSchema, UnsignedIntegerParameterSchema,
+            VisionModelOption, engine_artifact, model_option::Kind as ModelOptionKind,
             model_option_parameter_definition::ParameterType as ModelOptionParameterType,
             model_option_parameter_value::Value as ModelOptionValueKind,
+            parameter_definition::ParameterType as EngineParameterType,
+            parameter_value::Value as EngineParameterValueKind,
         },
         deployment::v1::{ArtifactPreparationPolicy, MemoryFit},
         engine::{
@@ -238,8 +237,8 @@ fn generated_bindings_preserve_typed_status_and_byte_progress() {
 
 #[test]
 fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_and_snapshot() {
-    let context_values = EngineParameterValues {
-        values: vec![EngineParameterValue {
+    let context_values = ParameterValues {
+        values: vec![ParameterValue {
             parameter_id: "total-context".to_owned(),
             value: Some(EngineParameterValueKind::UnsignedInteger(30_000)),
         }],
@@ -337,18 +336,18 @@ fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_a
         engine_parameter_schema_id: "llama-cpp-b10156-v1".to_owned(),
         engine_parameter_schema: Some(EngineParameterSchema {
             schema_id: "llama-cpp-b10156-v1".to_owned(),
-            parameters: vec![EngineParameterDefinition {
+            parameters: vec![ParameterDefinition {
                 parameter_id: "total-context".to_owned(),
                 display_name: "Total context".to_owned(),
                 parameter_type: Some(EngineParameterType::UnsignedInteger(
-                    UnsignedIntegerEngineParameterSchema {
+                    UnsignedIntegerParameterSchema {
                         minimum: 1,
                         maximum: 131_072,
                         unit: "tokens".to_owned(),
                         default_value: None,
                     },
                 )),
-                exposed: true,
+                visibility: ParameterVisibility::Basic as i32,
                 description: "Maximum prompt and generation context.".to_owned(),
             }],
         }),
@@ -427,8 +426,8 @@ fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_a
 fn generated_bindings_preserve_minimal_generic_resource_estimates() {
     let configuration = dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration {
         model_artifact_binding_id: "q4-k-m".to_owned(),
-        engine_parameter_values: Some(EngineParameterValues {
-            values: vec![EngineParameterValue {
+        engine_parameter_values: Some(ParameterValues {
+            values: vec![ParameterValue {
                 parameter_id: "total-context".to_owned(),
                 value: Some(EngineParameterValueKind::UnsignedInteger(30_000)),
             }],
@@ -466,8 +465,8 @@ fn generated_bindings_preserve_minimal_generic_resource_estimates() {
                     unit: "bytes".to_owned(),
                 },
             ],
-            derived_engine_parameter_values: Some(EngineParameterValues {
-                values: vec![EngineParameterValue {
+            derived_engine_parameter_values: Some(ParameterValues {
+                values: vec![ParameterValue {
                     parameter_id: "kv-cache-memory-bytes".to_owned(),
                     value: Some(EngineParameterValueKind::UnsignedInteger(5_443_884_300)),
                 }],
@@ -532,18 +531,18 @@ fn generated_bindings_preserve_minimal_generic_resource_estimates() {
 fn generated_bindings_round_trip_model_configurations_and_typed_context_schema() {
     let schema = EngineParameterSchema {
         schema_id: "llama-cpp-b10156-v1".to_owned(),
-        parameters: vec![EngineParameterDefinition {
+        parameters: vec![ParameterDefinition {
             parameter_id: "total-context".to_owned(),
             display_name: "Total context".to_owned(),
             parameter_type: Some(EngineParameterType::UnsignedInteger(
-                UnsignedIntegerEngineParameterSchema {
+                UnsignedIntegerParameterSchema {
                     minimum: 512,
                     maximum: 131_072,
                     unit: "tokens".to_owned(),
                     default_value: None,
                 },
             )),
-            exposed: true,
+            visibility: ParameterVisibility::Basic as i32,
             description: "Maximum prompt and generation context.".to_owned(),
         }],
     };
@@ -581,8 +580,8 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
         profile_id: "fast-start".to_owned(),
         configuration_id: "cuda".to_owned(),
         default_model_artifact_binding_id: "q4-k-m".to_owned(),
-        engine_parameter_defaults: Some(EngineParameterValues {
-            values: vec![EngineParameterValue {
+        engine_parameter_defaults: Some(ParameterValues {
+            values: vec![ParameterValue {
                 parameter_id: "total-context".to_owned(),
                 value: Some(EngineParameterValueKind::UnsignedInteger(30_000)),
             }],
@@ -867,6 +866,7 @@ parameterSchema:
   parameters:
     - parameterId: total-context
       displayName: Total context
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: { minimum: "1", maximum: "2", unit: tokens }
 "#,
     )
@@ -928,6 +928,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         .expect("the generated descriptor set must decode");
     let application = descriptor_file(&descriptor, "dotcore/catalog/v1/application.proto");
     let engine = descriptor_file(&descriptor, "dotcore/catalog/v1/engine_release.proto");
+    let parameter = descriptor_file(&descriptor, "dotcore/catalog/v1/parameter.proto");
     let nix = descriptor_file(&descriptor, "dotcore/catalog/v1/nix.proto");
     let selector = descriptor_file(&descriptor, "dotcore/catalog/v1/selector.proto");
     let catalog = descriptor_file(&descriptor, "dotcore/catalog/v1/model.proto");
@@ -996,34 +997,40 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         field_layout(engine, "EngineParameterSchema"),
         [
             ("schema_id", 1, "TYPE_STRING"),
-            (
-                "parameters",
-                2,
-                ".dotcore.catalog.v1.EngineParameterDefinition"
-            ),
+            ("parameters", 2, ".dotcore.catalog.v1.ParameterDefinition"),
         ]
     );
     assert_eq!(
-        field_layout(engine, "EngineParameterDefinition"),
+        field_layout(parameter, "ParameterDefinition"),
         [
             ("parameter_id", 1, "TYPE_STRING"),
             ("display_name", 2, "TYPE_STRING"),
+            ("description", 3, "TYPE_STRING"),
+            ("visibility", 7, ".dotcore.catalog.v1.ParameterVisibility"),
+            ("boolean", 4, ".dotcore.catalog.v1.BooleanParameterSchema"),
             (
                 "unsigned_integer",
-                3,
-                ".dotcore.catalog.v1.UnsignedIntegerEngineParameterSchema"
+                5,
+                ".dotcore.catalog.v1.UnsignedIntegerParameterSchema"
             ),
             (
-                "boolean",
-                4,
-                ".dotcore.catalog.v1.BooleanEngineParameterSchema",
+                "string_enum",
+                6,
+                ".dotcore.catalog.v1.StringEnumParameterSchema"
             ),
-            ("exposed", 5, "TYPE_BOOL"),
-            ("description", 6, "TYPE_STRING"),
         ]
     );
     assert_eq!(
-        field_numbers(engine, "UnsignedIntegerEngineParameterSchema"),
+        enum_values(parameter, "ParameterVisibility"),
+        [
+            ("PARAMETER_VISIBILITY_UNSPECIFIED", 0),
+            ("PARAMETER_VISIBILITY_BASIC", 1),
+            ("PARAMETER_VISIBILITY_ADVANCED", 2),
+            ("PARAMETER_VISIBILITY_HIDDEN", 3),
+        ]
+    );
+    assert_eq!(
+        field_numbers(parameter, "UnsignedIntegerParameterSchema"),
         [
             ("minimum", 1),
             ("maximum", 2),
@@ -1032,11 +1039,16 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         ]
     );
     assert_eq!(
-        field_layout(engine, "EngineParameterValue"),
+        field_layout(parameter, "ParameterValues"),
+        [("values", 1, ".dotcore.catalog.v1.ParameterValue")]
+    );
+    assert_eq!(
+        field_layout(parameter, "ParameterValue"),
         [
             ("parameter_id", 1, "TYPE_STRING"),
-            ("unsigned_integer", 2, "TYPE_UINT64"),
-            ("boolean", 3, "TYPE_BOOL"),
+            ("boolean", 2, "TYPE_BOOL"),
+            ("unsigned_integer", 3, "TYPE_UINT64"),
+            ("string", 4, "TYPE_STRING"),
         ]
     );
 
@@ -1439,7 +1451,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             (
                 "engine_parameter_values",
                 3,
-                ".dotcore.catalog.v1.EngineParameterValues"
+                ".dotcore.catalog.v1.ParameterValues"
             ),
             (
                 "hardware_class_estimates",

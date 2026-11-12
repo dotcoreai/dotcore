@@ -20,9 +20,9 @@ use dotcore_artifact::PreparedModelArtifacts;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineParameterValue, EngineParameterValues, EngineRelease,
-        HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding, ModelEngineConfiguration,
-        ModelOptionValues,
+        EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
+        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
+        ParameterValues,
     },
     engine::{
         strata::v1::{StrataFixedModelSettings, strata_fixed_model_settings::ModelFiles},
@@ -91,9 +91,9 @@ impl EngineDefinition for Strata {
     fn filled_context_per_request(
         &self,
         schema: &EngineParameterSchema,
-        values: &EngineParameterValues,
+        values: &ParameterValues,
         maximum_context_tokens: u32,
-    ) -> Option<EngineParameterValue> {
+    ) -> Option<ParameterValue> {
         declaration::filled_context_per_request(schema, values, maximum_context_tokens)
     }
 
@@ -101,7 +101,7 @@ impl EngineDefinition for Strata {
         &self,
         model: &Model,
         configuration: &ModelEngineConfiguration,
-        values: &EngineParameterValues,
+        values: &ParameterValues,
     ) -> anyhow::Result<()> {
         declaration::validate_parameter_values(model, configuration, values)
     }
