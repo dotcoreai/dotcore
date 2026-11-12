@@ -1,4 +1,5 @@
 import { executionTargetKey } from "@/domain/execution-target";
+import { CONTEXT_PER_REQUEST_PARAMETER_ID } from "@/features/models/runtime/engine-parameter-values";
 import type { EngineParameterValues } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { MemoryFit as ProtoMemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import {
@@ -79,6 +80,12 @@ export interface CompatibilityVerdict {
  */
 export interface ProfileCompatibility {
   /**
+   * Each profile's engine parameters that catalog sizing derives when a launch leaves them out,
+   * from the derived values of its estimates on any hardware class, the context per request aside.
+   * A profile the read couldn't size has no entry.
+   */
+  derivedParameterIds: ReadonlyMap<string, ReadonlySet<string>>;
+  /**
    * Each profile's engine parameter values: its defaults, with the scenario's values applied in a
    * read for a scenario, hidden parameters included and derived values left out. A profile the
    * scenario can't serve has no entry.
@@ -130,6 +137,20 @@ export function indexProfileCompatibility(
   );
 
   return {
+    derivedParameterIds: new Map(
+      response.profiles.flatMap(({ hardwareClassEstimates, modelId, profileId }) => {
+        const derived = new Set(
+          hardwareClassEstimates.flatMap((estimate) =>
+            (estimate.derivedEngineParameterValues?.values ?? [])
+              .map((value) => value.parameterId)
+              .filter((parameterId) => parameterId !== CONTEXT_PER_REQUEST_PARAMETER_ID),
+          ),
+        );
+        return hardwareClassEstimates.length
+          ? [[profileEstimateKey(modelId, profileId), derived] as const]
+          : [];
+      }),
+    ),
     engineValues: new Map(
       response.profiles.flatMap(({ engineParameterValues, modelId, profileId }) =>
         engineParameterValues

@@ -278,11 +278,12 @@ mod tests {
     }
 
     #[test]
-    fn only_vllm_launches_require_sizing() {
+    fn only_vllm_and_strata_launches_require_sizing() {
         for (engine_kind, expected) in [
             (EngineKind::Vllm, true),
             (EngineKind::LlamaCpp, false),
             (EngineKind::Ninfer, false),
+            (EngineKind::Strata, true),
             (EngineKind::Unspecified, false),
         ] {
             let release = EngineRelease {

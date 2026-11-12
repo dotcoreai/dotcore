@@ -8,6 +8,8 @@ import type { LlamaCppModelConfiguration, LlamaCppResolvedModelState } from "../
 import { file_dotcore_engine_llama_cpp_v1_model } from "../llama_cpp/v1/model_pb";
 import type { NinferModelConfiguration, NinferResolvedModelState } from "../ninfer/v1/model_pb";
 import { file_dotcore_engine_ninfer_v1_model } from "../ninfer/v1/model_pb";
+import type { StrataModelConfiguration, StrataResolvedModelState } from "../strata/v1/model_pb";
+import { file_dotcore_engine_strata_v1_model } from "../strata/v1/model_pb";
 import type { VllmModelConfiguration, VllmResolvedModelState } from "../vllm/v1/model_pb";
 import { file_dotcore_engine_vllm_v1_model } from "../vllm/v1/model_pb";
 import type { Message } from "@bufbuild/protobuf";
@@ -16,7 +18,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/engine/v1/engine.proto.
  */
 export const file_dotcore_engine_v1_engine: GenFile = /*@__PURE__*/
-  fileDesc("Ch5kb3Rjb3JlL2VuZ2luZS92MS9lbmdpbmUucHJvdG8SEWRvdGNvcmUuZW5naW5lLnYxIrMCChhFbmdpbmVNb2RlbENvbmZpZ3VyYXRpb24SMgoLZW5naW5lX2tpbmQYASABKA4yHS5kb3Rjb3JlLmVuZ2luZS52MS5FbmdpbmVLaW5kEkwKCWxsYW1hX2NwcBgCIAEoCzI3LmRvdGNvcmUuZW5naW5lLmxsYW1hX2NwcC52MS5MbGFtYUNwcE1vZGVsQ29uZmlndXJhdGlvbkgAEj4KBHZsbG0YAyABKAsyLi5kb3Rjb3JlLmVuZ2luZS52bGxtLnYxLlZsbG1Nb2RlbENvbmZpZ3VyYXRpb25IABJECgZuaW5mZXIYBCABKAsyMi5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyTW9kZWxDb25maWd1cmF0aW9uSABCDwoNY29uZmlndXJhdGlvbiLGAgoYUmVzb2x2ZWRFbmdpbmVNb2RlbFN0YXRlEjIKC2VuZ2luZV9raW5kGAEgASgOMh0uZG90Y29yZS5lbmdpbmUudjEuRW5naW5lS2luZBIZChFzZW1hbnRpY3NfdmVyc2lvbhgCIAEoDRJMCglsbGFtYV9jcHAYAyABKAsyNy5kb3Rjb3JlLmVuZ2luZS5sbGFtYV9jcHAudjEuTGxhbWFDcHBSZXNvbHZlZE1vZGVsU3RhdGVIABI+CgR2bGxtGAQgASgLMi4uZG90Y29yZS5lbmdpbmUudmxsbS52MS5WbGxtUmVzb2x2ZWRNb2RlbFN0YXRlSAASRAoGbmluZmVyGAUgASgLMjIuZG90Y29yZS5lbmdpbmUubmluZmVyLnYxLk5pbmZlclJlc29sdmVkTW9kZWxTdGF0ZUgAQgcKBXN0YXRlKnIKCkVuZ2luZUtpbmQSGwoXRU5HSU5FX0tJTkRfVU5TUEVDSUZJRUQQABIZChVFTkdJTkVfS0lORF9MTEFNQV9DUFAQARIUChBFTkdJTkVfS0lORF9WTExNEAISFgoSRU5HSU5FX0tJTkRfTklORkVSEANiBnByb3RvMw", [file_dotcore_engine_llama_cpp_v1_model, file_dotcore_engine_ninfer_v1_model, file_dotcore_engine_vllm_v1_model]);
+  fileDesc("Ch5kb3Rjb3JlL2VuZ2luZS92MS9lbmdpbmUucHJvdG8SEWRvdGNvcmUuZW5naW5lLnYxIvkCChhFbmdpbmVNb2RlbENvbmZpZ3VyYXRpb24SMgoLZW5naW5lX2tpbmQYASABKA4yHS5kb3Rjb3JlLmVuZ2luZS52MS5FbmdpbmVLaW5kEkwKCWxsYW1hX2NwcBgCIAEoCzI3LmRvdGNvcmUuZW5naW5lLmxsYW1hX2NwcC52MS5MbGFtYUNwcE1vZGVsQ29uZmlndXJhdGlvbkgAEj4KBHZsbG0YAyABKAsyLi5kb3Rjb3JlLmVuZ2luZS52bGxtLnYxLlZsbG1Nb2RlbENvbmZpZ3VyYXRpb25IABJECgZuaW5mZXIYBCABKAsyMi5kb3Rjb3JlLmVuZ2luZS5uaW5mZXIudjEuTmluZmVyTW9kZWxDb25maWd1cmF0aW9uSAASRAoGc3RyYXRhGAUgASgLMjIuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YU1vZGVsQ29uZmlndXJhdGlvbkgAQg8KDWNvbmZpZ3VyYXRpb24ijAMKGFJlc29sdmVkRW5naW5lTW9kZWxTdGF0ZRIyCgtlbmdpbmVfa2luZBgBIAEoDjIdLmRvdGNvcmUuZW5naW5lLnYxLkVuZ2luZUtpbmQSGQoRc2VtYW50aWNzX3ZlcnNpb24YAiABKA0STAoJbGxhbWFfY3BwGAMgASgLMjcuZG90Y29yZS5lbmdpbmUubGxhbWFfY3BwLnYxLkxsYW1hQ3BwUmVzb2x2ZWRNb2RlbFN0YXRlSAASPgoEdmxsbRgEIAEoCzIuLmRvdGNvcmUuZW5naW5lLnZsbG0udjEuVmxsbVJlc29sdmVkTW9kZWxTdGF0ZUgAEkQKBm5pbmZlchgFIAEoCzIyLmRvdGNvcmUuZW5naW5lLm5pbmZlci52MS5OaW5mZXJSZXNvbHZlZE1vZGVsU3RhdGVIABJECgZzdHJhdGEYBiABKAsyMi5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhUmVzb2x2ZWRNb2RlbFN0YXRlSABCBwoFc3RhdGUqigEKCkVuZ2luZUtpbmQSGwoXRU5HSU5FX0tJTkRfVU5TUEVDSUZJRUQQABIZChVFTkdJTkVfS0lORF9MTEFNQV9DUFAQARIUChBFTkdJTkVfS0lORF9WTExNEAISFgoSRU5HSU5FX0tJTkRfTklORkVSEAMSFgoSRU5HSU5FX0tJTkRfU1RSQVRBEARiBnByb3RvMw", [file_dotcore_engine_llama_cpp_v1_model, file_dotcore_engine_ninfer_v1_model, file_dotcore_engine_strata_v1_model, file_dotcore_engine_vllm_v1_model]);
 
 /**
  * Neutral wrapper for one engine-owned catalog model configuration payload.
@@ -58,6 +60,14 @@ export type EngineModelConfiguration = Message<"dotcore.engine.v1.EngineModelCon
      */
     value: NinferModelConfiguration;
     case: "ninfer";
+  } | {
+    /**
+     * Engine-owned Strata model configuration.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataModelConfiguration strata = 5;
+     */
+    value: StrataModelConfiguration;
+    case: "strata";
   } | { case: undefined; value?: undefined };
 };
 
@@ -115,6 +125,14 @@ export type ResolvedEngineModelState = Message<"dotcore.engine.v1.ResolvedEngine
      */
     value: NinferResolvedModelState;
     case: "ninfer";
+  } | {
+    /**
+     * Concrete resolved Strata state.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataResolvedModelState strata = 6;
+     */
+    value: StrataResolvedModelState;
+    case: "strata";
   } | { case: undefined; value?: undefined };
 };
 
@@ -158,6 +176,13 @@ export enum EngineKind {
    * @generated from enum value: ENGINE_KIND_NINFER = 3;
    */
   NINFER = 3,
+
+  /**
+   * The engine kind Strata value.
+   *
+   * @generated from enum value: ENGINE_KIND_STRATA = 4;
+   */
+  STRATA = 4,
 }
 
 /**

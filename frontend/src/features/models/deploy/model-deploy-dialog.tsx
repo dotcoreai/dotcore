@@ -12,7 +12,6 @@ import { profileTargetVerdict } from "@/features/models/profiles/profile-compati
 import { profileCompatibilityStatus } from "@/features/models/profiles/profile-compatibility-copy";
 import {
   engineParameterError,
-  filledContextPerRequest,
   PARALLEL_REQUESTS_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import {
@@ -221,6 +220,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           engineParameterRefs={form.engineParameterRefs}
           exposedParameters={form.contextParameters}
           fieldErrors={form.contextFieldErrors}
+          filledContextPerRequest={memory.estimate.filledContextPerRequest}
           inputs={form.engineParameterInputs}
           model={model}
           onParameterBlur={form.blurContext}
@@ -274,7 +274,11 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
               () =>
                 setFieldError(
                   parameter.parameterId,
-                  engineParameterError(parameter, form.engineParameterInputsRef.current),
+                  engineParameterError(
+                    parameter,
+                    form.engineParameterInputsRef.current,
+                    form.derivedParameterIds,
+                  ),
                 ),
               0,
             );
@@ -294,7 +298,10 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
                 new Map(inputs).set(parameter.parameterId, nextInput),
               );
             if (fieldErrors.has(parameter.parameterId))
-              setFieldError(parameter.parameterId, engineParameterError(parameter, nextInputs));
+              setFieldError(
+                parameter.parameterId,
+                engineParameterError(parameter, nextInputs, form.derivedParameterIds),
+              );
             commandPreview.invalidatePreview();
           }}
           onPreview={() => void form.runPreview()}
@@ -391,11 +398,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
               values={form.exposureValues}
             />
           }
-          filledContextPerRequest={filledContextPerRequest(
-            model,
-            form.configuration,
-            form.engineParameterInputs,
-          )}
+          filledContextPerRequest={memory.estimate.filledContextPerRequest}
           inputs={form.engineParameterInputs}
           launchValuesLoadingVisible={form.launchValuesLoadingVisible}
           memoryPreview={memory.memoryPreview}

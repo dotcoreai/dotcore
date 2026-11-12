@@ -274,6 +274,13 @@ impl RuntimeBackend for RecordingRuntime {
         self.calls.lock().expect("calls").push("remove");
         Box::pin(ready(Ok(())))
     }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 pub(super) struct CountingRuntime {
@@ -325,6 +332,13 @@ impl RuntimeBackend for CountingRuntime {
 
     fn remove_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
         Box::pin(ready(Err(test_runtime_error())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 
@@ -505,6 +519,15 @@ impl TestDesired {
                 model_id,
                 ModelDeploymentDesiredState::Present,
             ));
+    }
+
+    /// Declares one deployment as given.
+    pub(super) fn persist(&self, deployment: ModelDeploymentDeclaration) {
+        self.state
+            .lock()
+            .expect("desired state")
+            .model_deployments
+            .push(deployment);
     }
 
     pub(super) fn listener(&self) -> Arc<Notify> {
@@ -1026,6 +1049,14 @@ pub(super) fn test_desired_deployment(
 pub(super) fn test_ninfer_desired_deployment(model_id: &str) -> ModelDeploymentDeclaration {
     ModelDeploymentDeclaration {
         snapshot: Some(crate::test_support::ninfer::local_model_snapshot(model_id)),
+        ..test_desired_deployment(model_id, ModelDeploymentDesiredState::Present)
+    }
+}
+
+/// Returns a present deployment of the in-code Strata fixture serving `model_id`.
+pub(super) fn test_strata_desired_deployment(model_id: &str) -> ModelDeploymentDeclaration {
+    ModelDeploymentDeclaration {
+        snapshot: Some(crate::test_support::strata::local_model_snapshot(model_id)),
         ..test_desired_deployment(model_id, ModelDeploymentDesiredState::Present)
     }
 }
@@ -2230,6 +2261,13 @@ impl RuntimeBackend for AcquisitionRuntime {
             .expect("workloads")
             .retain(|_, workload| &workload.workload_id != workload_id);
         Box::pin(ready(Ok(())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 

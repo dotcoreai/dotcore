@@ -52,8 +52,7 @@ use dotcore_runtime::{
     ExecutionTarget, RuntimeBackend, RuntimeBackendError, RuntimeBackendId, RuntimeFuture,
     RuntimeLogFollowQuery, RuntimeLogHistory, RuntimeLogQuery, RuntimeLogSource, RuntimeLogStream,
     RuntimeWorkloadLogFollowQuery, RuntimeWorkloadLogQuery, WorkloadArtifactBinding,
-    WorkloadCorrelation, WorkloadId, WorkloadLaunch, WorkloadObservation, WorkloadStorageKey,
-    WorkloadStorageKind,
+    WorkloadCorrelation, WorkloadId, WorkloadLaunch, WorkloadObservation,
 };
 use dotcore_runtime_backends::{docker::ContainerTokens, registry::DOCKER_RUNTIME_BACKEND_ID};
 use dotcore_site::node::target_inventory::{
@@ -72,7 +71,7 @@ use crate::model::{
     },
     resolved::ResolvedModelLaunch,
 };
-use crate::storage::deployment_storage;
+use crate::storage::deployment_storage_keys;
 pub use handle::{DevelopmentOwnershipHandle, DevelopmentOwnershipState, OwnershipHandleError};
 use handle::{OwnershipHandleFile, ScopeLock};
 pub use telemetry::measurement_record;
@@ -820,8 +819,7 @@ impl DirectWorkloadFacade {
             [] => {
                 // A retry after an interrupted teardown still owes the runner's storage removal.
                 if transaction.handle().state != DevelopmentOwnershipState::Removed {
-                    self.remove_runner_storage(&transaction.handle().owner_id)
-                        .await?;
+                    self.remove_runner_storage(transaction.handle()).await?;
                 }
                 transition(
                     &mut transaction,
@@ -987,8 +985,7 @@ impl DirectWorkloadFacade {
                 "Runtime did not prove the owned workload absent after removal",
             );
         }
-        self.remove_runner_storage(&transaction.handle().owner_id)
-            .await?;
+        self.remove_runner_storage(transaction.handle()).await?;
         transition(
             &mut transaction,
             DevelopmentOwnershipState::Removed,
@@ -1000,12 +997,27 @@ impl DirectWorkloadFacade {
     }
 
     /// Removes the runner's deployment-scoped storage, keyed by its runtime owner id exactly as
-    /// launch attached it. Engine-artifact storage is shared across runs and stays.
-    async fn remove_runner_storage(&self, owner_id: &str) -> Result<(), RuntimeBackendError> {
-        for kind in [WorkloadStorageKind::Cache, WorkloadStorageKind::Data] {
-            self.runtime
-                .remove_storage(&deployment_storage(kind, owner_id))
-                .await?;
+    /// launch attached it from its engine release's storage bindings. Engine-artifact storage is
+    /// shared across runs and stays.
+    async fn remove_runner_storage(
+        &self,
+        handle: &DevelopmentOwnershipHandle,
+    ) -> Result<(), RuntimeBackendError> {
+        let release_id = &handle.launch_inputs.engine_release_id;
+        let Some(release) = self
+            .catalog
+            .list_engine_releases()
+            .into_iter()
+            .find(|release| &release.engine_release_id == release_id)
+        else {
+            return Err(RuntimeBackendError::invalid_launch(format!(
+                "engine release {release_id:?} of the runner is not in the catalog, so its storage can't be named"
+            )));
+        };
+        let storage = deployment_storage_keys(&release.storage_bindings, &handle.owner_id)
+            .map_err(|error| RuntimeBackendError::InvalidLaunch(anyhow::Error::new(error)))?;
+        for key in &storage {
+            self.runtime.remove_storage(key).await?;
         }
         Ok(())
     }
@@ -1179,8 +1191,10 @@ fn direct_target_capabilities(
             adapter: Some(adapter),
         })),
     };
+    // The target's accelerator selectors pick the observed devices whose models and memory the
+    // hardware class and capacity read.
     let inventory = TargetCapabilityReconciler::reconcile(
-        [(execution_target_id, target.managed_node_id.as_str())],
+        [&development_target],
         [RuntimePlatformObservation::available_at(
             execution_target_id,
             platform,
@@ -1424,12 +1438,6 @@ pub(crate) trait DevelopmentRuntime: RuntimeBackend {
         &'a self,
         workload_id: &'a WorkloadId,
     ) -> RuntimeFuture<'a, DevelopmentProcessFacts>;
-
-    /// Removes the storage folders under one owner key. Runtimes that retain no storage have
-    /// nothing to remove.
-    fn remove_storage<'a>(&'a self, _: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
-        Box::pin(std::future::ready(Ok(())))
-    }
 }
 
 impl DevelopmentRuntime for dotcore_runtime_backends::docker::DockerRuntimeBackend {
@@ -1442,10 +1450,6 @@ impl DevelopmentRuntime for dotcore_runtime_backends::docker::DockerRuntimeBacke
         workload: &'a WorkloadLaunch,
     ) -> RuntimeFuture<'a, WorkloadObservation> {
         Box::pin(self.create_development_workload(workload))
-    }
-
-    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
-        dotcore_runtime::WorkloadGroupBackend::remove_storage(self, storage)
     }
 
     fn inspect_process<'a>(

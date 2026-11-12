@@ -1,17 +1,18 @@
 //! Tears down a model deployment's runtime workload and removes its durable
 //! records once absence is confirmed.
 //!
-//! Teardown stops and removes the workload and confirms its absence before
-//! the current-state record and the desired declaration are deleted. A
-//! failed stop, remove, or absence confirmation records a failed lifecycle
-//! state with a retryable failure message instead of deleting state, so a
-//! later unload can retry.
+//! Teardown stops and removes the workload and confirms its absence, then
+//! deletes the storage scoped to the deployment alone, before the
+//! current-state record and the desired declaration are deleted. A failed
+//! stop, remove, absence confirmation, or storage removal records a failed
+//! lifecycle state with a retryable failure message instead of deleting
+//! state, so a later unload can retry.
 
 use dotcore_domain::{diagnostic::diagnostic_chain, timing::ReconcileOutcome};
 use dotcore_proto::dotcore::{
     model::v1::{
         CurrentModelDeployment, ModelDeploymentDeclaration, ModelDeploymentFailure,
-        ModelDeploymentStatus,
+        ModelDeploymentStatus, model_deployment_snapshot,
     },
     site::v1::Site,
 };
@@ -79,6 +80,18 @@ pub(super) enum TeardownError {
         #[source]
         source: ModelLifecycleError,
     },
+
+    #[error("Runtime teardown storage removal failed: {source}")]
+    StorageRemoval {
+        #[source]
+        source: crate::dispatch::model::RuntimeTargetError,
+    },
+
+    #[error("Runtime teardown could not name the deployment's storage: {source}")]
+    StorageBindings {
+        #[source]
+        source: crate::storage::StorageBindingError,
+    },
 }
 
 impl TeardownError {
@@ -88,11 +101,13 @@ impl TeardownError {
             | Self::Stop { source }
             | Self::Inspect { source }
             | Self::Remove { source }
-            | Self::AbsenceConfirmation { source } => Some(source),
+            | Self::AbsenceConfirmation { source }
+            | Self::StorageRemoval { source } => Some(source),
             Self::InconclusiveObservation
             | Self::InconclusiveInspection
             | Self::InvalidInspection { .. }
-            | Self::InvalidAbsenceConfirmation { .. } => None,
+            | Self::InvalidAbsenceConfirmation { .. }
+            | Self::StorageBindings { .. } => None,
         };
         matches!(
             source,
@@ -129,9 +144,17 @@ where
         let outcome = match unloading {
             Err(error) => TeardownOutcome::StateError(error),
             Ok(()) => {
-                let result = teardown_workload(&self.runtimes, site, desired, observation)
-                    .instrument(span.clone())
-                    .await;
+                let result = async {
+                    let completion =
+                        teardown_workload(&self.runtimes, site, desired, observation).await?;
+                    if completion.absent {
+                        remove_deployment_storage(&self.runtimes, desired, &completion.operation)
+                            .await?;
+                    }
+                    Ok::<_, TeardownError>(completion)
+                }
+                .instrument(span.clone())
+                .await;
                 match result {
                     Ok(completion) => {
                         let _operation = self.operation.lock().await;
@@ -366,6 +389,42 @@ async fn remove_and_confirm_absence(
     )
     .map_err(|source| TeardownError::InvalidAbsenceConfirmation { source })?;
     Ok(matches!(confirmation, WorkloadObservation::Absent(_)))
+}
+
+/// Deletes the storage scoped to the deployment alone once its workload is absent, whether this
+/// teardown removed the workload or found it already gone, on the deployment's placement target.
+///
+/// The folders are keyed by the deployment's id, unique in the site, under the namespace only
+/// deployment-scoped storage uses, and this node reconciles only deployments placed on its own
+/// targets. So whatever exists under those keys there was attached to this deployment alone,
+/// including storage left by a relaunch that failed before its workload existed.
+async fn remove_deployment_storage(
+    runtimes: &RuntimeTargetMap,
+    desired: &ModelDeploymentDeclaration,
+    operation: &LifecycleOperationToken,
+) -> Result<(), TeardownError> {
+    let Some(model_deployment_snapshot::Source::Local(local)) = desired
+        .snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.source.as_ref())
+    else {
+        return Ok(());
+    };
+    let Some(placement) = desired.placement.as_ref() else {
+        return Ok(());
+    };
+    let storage = crate::storage::deployment_storage_keys(
+        crate::model::resolved::engine_storage_bindings(local),
+        &desired.model_deployment_id,
+    )
+    .map_err(|source| TeardownError::StorageBindings { source })?;
+    for key in &storage {
+        runtimes
+            .remove_storage_admitted(operation, &placement.execution_target_id, key)
+            .await
+            .map_err(|source| TeardownError::StorageRemoval { source })?;
+    }
+    Ok(())
 }
 
 struct TeardownRemoval<'a> {
@@ -624,6 +683,13 @@ mod tests {
             } else {
                 Box::pin(ready(Ok(())))
             }
+        }
+
+        fn remove_storage<'a>(
+            &'a self,
+            _: &'a dotcore_runtime::WorkloadStorageKey,
+        ) -> RuntimeFuture<'a, ()> {
+            Box::pin(std::future::ready(Ok(())))
         }
     }
 

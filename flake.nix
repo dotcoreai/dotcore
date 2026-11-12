@@ -58,6 +58,7 @@
         engineImages = {
           llama-cpp = ./engines/llama-cpp/docker-image.nix;
           ninfer = ./engines/ninfer/docker-image.nix;
+          strata = ./engines/strata/docker-image.nix;
           vllm = ./engines/vllm/docker-image.nix;
         };
         appImages = {

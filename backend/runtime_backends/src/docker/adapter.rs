@@ -198,6 +198,10 @@ impl RuntimeBackend for DockerRuntimeBackend {
         Box::pin(self.inner.remove_workload(workload_id))
     }
 
+    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+        RuntimeBackend::remove_storage(&self.inner, storage)
+    }
+
     fn read_workload_logs<'a>(
         &'a self,
         workload_id: &'a WorkloadId,
@@ -263,12 +267,7 @@ impl WorkloadGroupBackend for DockerRuntimeBackend {
     }
 
     fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
-        Box::pin(async move {
-            let path = storage_key_path(&self.inner.config, storage)?;
-            remove_folder_tree(&path).await.map_err(|error| {
-                RuntimeBackendError::Docker(error.context("Workload storage removal failed"))
-            })
-        })
+        RuntimeBackend::remove_storage(&self.inner, storage)
     }
 
     fn ensure_workload_group_absent<'a>(
@@ -577,6 +576,15 @@ impl<C: DockerClient> RuntimeBackend for DockerAdapter<C> {
                 .expect("Docker workload registry")
                 .remove(&workload_id.0);
             Ok(())
+        })
+    }
+
+    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+        Box::pin(async move {
+            let path = storage_key_path(&self.config, storage)?;
+            remove_folder_tree(&path).await.map_err(|error| {
+                RuntimeBackendError::Docker(error.context("Workload storage removal failed"))
+            })
         })
     }
 }
@@ -985,7 +993,9 @@ mod tests {
         }
 
         assert!(backend.storage_exists(&group).await.expect("probe"));
-        backend.remove_storage(&group).await.expect("data removal");
+        RuntimeBackend::remove_storage(&backend, &group)
+            .await
+            .expect("data removal");
 
         assert!(!data_root.join("deployment/open-webui-1").exists());
         assert!(!backend.storage_exists(&group).await.expect("probe"));
@@ -1036,13 +1046,11 @@ mod tests {
         }
 
         assert!(backend.storage_exists(&group).await.expect("probe"));
-        backend
-            .remove_storage(&group)
+        RuntimeBackend::remove_storage(&backend, &group)
             .await
             .expect("root-owned data removal");
         assert!(!backend.storage_exists(&group).await.expect("probe"));
-        backend
-            .remove_storage(&group)
+        WorkloadGroupBackend::remove_storage(&backend, &group)
             .await
             .expect("absent data is already removed");
     }

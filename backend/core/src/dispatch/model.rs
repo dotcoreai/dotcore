@@ -8,7 +8,7 @@ use dotcore_runtime::{
     RuntimeBackendId, RuntimeFuture, RuntimeLogHistory, RuntimeLogStream,
     RuntimeWorkloadLogFollowQuery, RuntimeWorkloadLogQuery, WorkloadCorrelation, WorkloadId,
     WorkloadLaunch, WorkloadMaterializationRequirements, WorkloadObservation,
-    WorkloadStartupObserver, WorkloadStartupRequest,
+    WorkloadStartupObserver, WorkloadStartupRequest, WorkloadStorageKey,
 };
 use dotcore_site::view::fencing::{
     AcceptedNodeViewAuthority, ActionPermitError, LifecycleOperationAttempt,
@@ -438,6 +438,40 @@ impl RuntimeTargetMap {
         .await
     }
 
+    /// Removes one owner key's storage through only the runtime configured for
+    /// `execution_target_id`, under the operation's lifecycle fence; absent storage is already
+    /// removed.
+    pub(crate) async fn remove_storage_admitted(
+        &self,
+        token: &LifecycleOperationToken,
+        execution_target_id: &str,
+        storage: &WorkloadStorageKey,
+    ) -> Result<(), RuntimeTargetError> {
+        let adapter = self.adapter(execution_target_id)?;
+        dispatch_admitted(
+            &self.action_authority,
+            Admission::Operation(token),
+            commit_fencing_error,
+            || {
+                dispatch_adapter_action(
+                    execution_target_id,
+                    info_span!(
+                        "runtime_remove_storage",
+                        operation = "runtime_remove_storage",
+                        execution_target_id = %execution_target_id,
+                        namespace = %storage.namespace,
+                        key = %storage.key,
+                        outcome = field::Empty,
+                        error_kind = field::Empty,
+                    ),
+                    "remove_storage",
+                    adapter.remove_storage(storage),
+                )
+            },
+        )
+        .await
+    }
+
     /// Stops an owned workload whose deployment is absent from the controller's intent. The
     /// action starts only while no accepted deployment owns `workload`.
     pub(crate) async fn stop_orphan_workload(
@@ -810,6 +844,13 @@ mod tests {
             Box::pin(ready(Err(test_runtime_error())))
         }
 
+        fn remove_storage<'a>(
+            &'a self,
+            _: &'a dotcore_runtime::WorkloadStorageKey,
+        ) -> RuntimeFuture<'a, ()> {
+            Box::pin(std::future::ready(Ok(())))
+        }
+
         fn read_workload_logs<'a>(
             &'a self,
             _workload_id: &'a WorkloadId,
@@ -877,6 +918,13 @@ mod tests {
 
         fn remove_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
             Box::pin(ready(Err(test_runtime_error())))
+        }
+
+        fn remove_storage<'a>(
+            &'a self,
+            _: &'a dotcore_runtime::WorkloadStorageKey,
+        ) -> RuntimeFuture<'a, ()> {
+            Box::pin(std::future::ready(Ok(())))
         }
     }
 

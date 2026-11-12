@@ -330,7 +330,7 @@ fn resolved_state(
         .and_then(|state| state.state.as_ref())
         .and_then(|state| match state {
             State::Vllm(state) => Some(state),
-            State::LlamaCpp(_) | State::Ninfer(_) => None,
+            State::LlamaCpp(_) | State::Ninfer(_) | State::Strata(_) => None,
         })
         .ok_or(VllmPlanError::InvalidResolvedState)
 }

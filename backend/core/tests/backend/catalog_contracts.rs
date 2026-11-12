@@ -50,13 +50,25 @@ use dotcore_site::node::target_inventory::{
 };
 use tonic::Request;
 
-/// Engines whose releases build for one Linux platform only. Every other repository model
-/// configuration that declares a Linux platform must resolve on both linux/amd64 and linux/arm64.
-const SINGLE_PLATFORM_ENGINES: [SinglePlatformEngine; 1] = [SinglePlatformEngine {
-    engine_kind: EngineKind::Ninfer,
-    platform: ExecutionPlatform::linux_amd64(),
-    reason: "ninfer compiles only for sm_120a (RTX 5090), and no arm64 RTX 5090 host exists",
-}];
+/// Engines whose model configurations each approve one Linux platform only; a model's configurations
+/// of such an engine together cover all of its platforms. Every other repository model configuration
+/// that declares a Linux platform must resolve on both linux/amd64 and linux/arm64.
+const SINGLE_PLATFORM_ENGINES: [SinglePlatformEngine; 2] = [
+    SinglePlatformEngine {
+        engine_kind: EngineKind::Ninfer,
+        platforms: &[ExecutionPlatform::linux_amd64()],
+        reason: "ninfer compiles only for sm_120a (RTX 5090), and no arm64 RTX 5090 host exists",
+    },
+    SinglePlatformEngine {
+        engine_kind: EngineKind::Strata,
+        platforms: &[
+            ExecutionPlatform::linux_amd64(),
+            ExecutionPlatform::linux_arm64(),
+        ],
+        reason: "each Strata build carries kernels for its own GPUs, so each configuration pairs one \
+                 build with the hardware class it runs on",
+    },
+];
 
 /// Host memory pool of a 32 GiB unified-memory node, used by the GB10 and Docker Desktop targets.
 const HOST_POOL_BYTES: u64 = 34_190_917_632;
@@ -234,14 +246,13 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                 continue;
             }
             match single_platform_engine(&releases, model, &configuration.configuration_id) {
-                Some(entry) => assert_eq!(
-                    linux,
-                    BTreeSet::from([entry.platform.clone()]),
-                    "configuration {:?} of {:?} uses allowlisted {:?}, which must support {:?} only ({})",
+                Some(entry) => assert!(
+                    linux.len() == 1 && linux.is_subset(&entry.platform_set()),
+                    "configuration {:?} of {:?} uses allowlisted {:?}, which must support one of {:?} only, not {linux:?} ({})",
                     configuration.configuration_id,
                     model.model_id,
                     entry.engine_kind,
-                    entry.platform,
+                    entry.platforms,
                     entry.reason,
                 ),
                 None => assert_eq!(
@@ -255,6 +266,29 @@ fn repository_catalog_profiles_resolve_their_declared_defaults() {
                     model.model_id,
                 ),
             }
+        }
+
+        for entry in &SINGLE_PLATFORM_ENGINES {
+            let covered = model
+                .configurations
+                .iter()
+                .filter(|configuration| {
+                    single_platform_engine(&releases, model, &configuration.configuration_id)
+                        .is_some_and(|found| found.engine_kind == entry.engine_kind)
+                })
+                .flat_map(|configuration| {
+                    configuration_platforms(&releases, model, &configuration.configuration_id)
+                })
+                .filter(|platform| platform.is_linux())
+                .collect::<BTreeSet<_>>();
+            assert!(
+                covered.is_empty() || covered == entry.platform_set(),
+                "configurations of {:?} using allowlisted {:?} must together support {:?}, not {covered:?} ({})",
+                model.model_id,
+                entry.engine_kind,
+                entry.platforms,
+                entry.reason,
+            );
         }
     }
 
@@ -3004,11 +3038,18 @@ fn unsigned_values(
     }
 }
 
-/// Single-platform allowlist entry: the engine, the only platform its releases build for, and why.
+/// Single-platform allowlist entry: the engine, the Linux platforms its configurations approve one at
+/// a time, and why.
 struct SinglePlatformEngine {
     engine_kind: EngineKind,
-    platform: ExecutionPlatform,
+    platforms: &'static [ExecutionPlatform],
     reason: &'static str,
+}
+
+impl SinglePlatformEngine {
+    fn platform_set(&self) -> BTreeSet<ExecutionPlatform> {
+        self.platforms.iter().cloned().collect()
+    }
 }
 
 /// Returns the allowlist entry of the engine whose releases a model configuration approves, if any.

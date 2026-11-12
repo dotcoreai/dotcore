@@ -2028,6 +2028,13 @@ mod tests {
             self.runtime.remove_workload(workload_id)
         }
 
+        fn remove_storage<'a>(
+            &'a self,
+            _: &'a dotcore_runtime::WorkloadStorageKey,
+        ) -> RuntimeFuture<'a, ()> {
+            Box::pin(std::future::ready(Ok(())))
+        }
+
         fn read_workload_logs_by_correlation<'a>(
             &'a self,
             correlation: &'a dotcore_runtime::WorkloadCorrelation,

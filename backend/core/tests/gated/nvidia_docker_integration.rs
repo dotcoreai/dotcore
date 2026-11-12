@@ -109,6 +109,16 @@ const RED_JPEG: &str = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDA
 const BLUE_PNG: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABAAQMAAACQp+OdAAAAIGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAGUExURQAA/////3vcmSwAAAABYktHRAH/Ai3eAAAAD0lEQVQoz2NgGAWjgHwAAAJAAAGMxat3AAAAAElFTkSuQmCC";
 const VALID_LLAMA_CPP_CUSTOM_ARGUMENTS: [&str; 2] = ["--reasoning-format", "none"];
 const INVALID_LLAMA_CPP_ARGUMENT: &str = "--dotcore-invalid-llama-argument";
+const STRATA_MODEL_ID: &str = "qwen3-6-35b-a3b";
+const STRATA_RTX_5090_PROFILE_ID: &str = "strata-q4-xl";
+const STRATA_GB10_PROFILE_ID: &str = "strata-gb10-q4-xl";
+/// Where Strata's deployment-scoped cache storage is mounted in its container.
+const STRATA_DATA_PATH: &str = "/data";
+/// The profile's default expert cap and context hold about 22.6 GB of the RTX 5090.
+const STRATA_RTX_5090_MINIMUM_FREE_BYTES: u64 = 24_000_000_000;
+/// The profile's default context with every expert on the GB10 holds about 28 GB of host memory,
+/// and the host keeps room for the OS.
+const STRATA_GB10_MINIMUM_FREE_BYTES: u64 = 48_000_000_000;
 
 #[tokio::test]
 #[ignore = "hardware: just backend::test-nvidia"]
@@ -301,6 +311,30 @@ async fn hw_nvidia_clef_flash_serves_decisions_and_rejects_oversized_requests() 
             Err(primary.context(format!("cleanup also failed: {cleanup}")))
         }
     }
+}
+
+/// Qualifies Qwen3.6 35B A3B on Strata through the router on an RTX 5090: the deployment reaches
+/// Ready, a chat completion answers under the route's model name, and removal deletes the
+/// deployment's storage.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-nvidia-5090"]
+async fn hw_nvidia5090_strata_serves_chat_through_the_router_and_removes_its_storage()
+-> anyhow::Result<()> {
+    qualify_strata_site(
+        STRATA_RTX_5090_PROFILE_ID,
+        STRATA_RTX_5090_MINIMUM_FREE_BYTES,
+    )
+    .await
+}
+
+/// Qualifies Qwen3.6 35B A3B on Strata through the router on a GB10, whose GPU shares host memory:
+/// the deployment reaches Ready, a chat completion answers under the route's model name, and
+/// removal deletes the deployment's storage.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-gb10"]
+async fn hw_gb10_strata_serves_chat_through_the_router_and_removes_its_storage()
+-> anyhow::Result<()> {
+    qualify_strata_site(STRATA_GB10_PROFILE_ID, STRATA_GB10_MINIMUM_FREE_BYTES).await
 }
 
 /// Pinned catalog provenance of one selected artifact. `file` is the GGUF file llama.cpp loads:
@@ -597,7 +631,9 @@ fn llama_cpp_settings(
         .and_then(|state| state.state.as_ref())
         .and_then(|state| match state {
             ResolvedEngineState::LlamaCpp(state) => state.fixed_settings.clone(),
-            ResolvedEngineState::Vllm(_) | ResolvedEngineState::Ninfer(_) => None,
+            ResolvedEngineState::Vllm(_)
+            | ResolvedEngineState::Ninfer(_)
+            | ResolvedEngineState::Strata(_) => None,
         })
         .ok_or_else(|| anyhow!("Catalog snapshot has no llama.cpp fixed settings"))
 }
@@ -1527,6 +1563,241 @@ async fn qualify_decisions(
         "decision unload",
     )
     .await;
+    Ok(())
+}
+
+/// Runs the Strata qualification of one profile on a fresh site once the GPU's pool has
+/// `minimum_free_bytes` free, skipping where the profile approves no engine artifact for the
+/// platform.
+async fn qualify_strata_site(
+    profile_id: &'static str,
+    minimum_free_bytes: u64,
+) -> anyhow::Result<()> {
+    dotcore::logging::initialize();
+
+    let site = QualificationSite::new("ninfer-nvidia-site")
+        .await
+        .context("prepare Strata qualification site")?;
+    if let Some(reason) = site.unsupported_platform_reason(STRATA_MODEL_ID, profile_id)? {
+        eprintln!("[nvidia-docker] skipped: {reason}");
+        return site.cleanup().await;
+    }
+    let primary = async {
+        nvidia_qualification::ensure_free_gpu_memory("nvidia-docker", minimum_free_bytes)?;
+        let configuration = site.configuration.clone();
+        let dotcore_sources = site.dotcore_sources.clone();
+        let profile = strata_profile_defaults(&site.catalog, profile_id)?;
+        tokio::spawn(async move {
+            qualify_strata(&configuration, &dotcore_sources, profile_id, profile).await
+        })
+        .await
+        .context("Strata harness failed")?
+    }
+    .await;
+    let cleanup = site.cleanup().await;
+    match (primary, cleanup) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(primary), Ok(())) => Err(primary),
+        (Ok(()), Err(cleanup)) => Err(cleanup.context("Strata harness cleanup failed")),
+        (Err(primary), Err(cleanup)) => {
+            Err(primary.context(format!("cleanup also failed: {cleanup}")))
+        }
+    }
+}
+
+/// Selects the Strata profile's binding and parameter defaults without overrides.
+fn strata_profile_defaults(
+    catalog: &Catalog,
+    profile_id: &str,
+) -> anyhow::Result<dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration> {
+    let profile = catalog
+        .protobuf_records_without_sizing()
+        .models
+        .into_iter()
+        .find(|model| model.model_id == STRATA_MODEL_ID)
+        .and_then(|model| {
+            model
+                .profiles
+                .into_iter()
+                .find(|profile| profile.profile_id == profile_id)
+        })
+        .ok_or_else(|| anyhow!("Master catalog has no profile {profile_id:?}"))?;
+    Ok(
+        dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration {
+            model_artifact_binding_id: profile.default_model_artifact_binding_id,
+            engine_parameter_values: profile.engine_parameter_defaults,
+            custom_argument_tokens: Vec::new(),
+            option_overrides: Vec::new(),
+        },
+    )
+}
+
+async fn qualify_strata(
+    configuration: &SitePaths,
+    dotcore_sources: &DotcoreSources,
+    profile_id: &str,
+    profile: dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration,
+) -> anyhow::Result<()> {
+    let model_id = STRATA_MODEL_ID;
+    let service =
+        wait_for_released_backend(configuration, dotcore_sources, model_id, "backend release")
+            .await;
+    service.start_observer();
+    let local = dotcore_proto::dotcore::model::v1::CreateLocalModelDeploymentRequest {
+        model_id: model_id.to_owned(),
+        profile_id: profile_id.to_owned(),
+        placement: Some(support::exact_placement(
+            "development-node",
+            "nvidia-target",
+        )),
+        configuration: Some(profile),
+    };
+    let deployment = ModelServiceContract::create_model_deployment(
+        &service,
+        Request::new(qualification_load_request(local)),
+    )
+    .await
+    .context("load Strata model")?
+    .into_inner()
+    .deployment
+    .context("loaded Strata deployment")?;
+    let deployment_id = deployment.model_deployment_id.clone();
+    let Some(model_deployment_snapshot::Source::Local(snapshot)) = deployment
+        .snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.source.as_ref())
+    else {
+        anyhow::bail!("Strata deployment has no local snapshot");
+    };
+    let engine = snapshot
+        .engine_artifact
+        .as_ref()
+        .context("Strata deployment has no engine artifact")?;
+    anyhow::ensure!(
+        nvidia_qualification::development_source_docker_image(engine),
+        "Strata engine is not a development-source Docker-delivered Nix artifact: {engine:?}"
+    );
+    let pin = EnginePin::evaluate(dotcore_sources, engine).await?;
+
+    // Preparation builds or loads the engine image before the workload starts, on its own deadline.
+    let prepared = tokio::time::timeout(PREPARATION_TIMEOUT, async {
+        loop {
+            let current = read_deployment(&service, &deployment_id).await;
+            if nvidia_qualification::engine_prepared(configuration, &current).await? {
+                return Ok::<_, anyhow::Error>(current);
+            }
+            let state = current.state.as_ref().context("deployment state")?;
+            anyhow::ensure!(
+                state.status != ModelDeploymentStatus::Failed as i32,
+                "Strata engine preparation failed: {:?}",
+                state.failure
+            );
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    })
+    .await
+    .context("Strata engine preparation exceeded its deadline")??;
+    pin.check(&prepared)?;
+    wait_for_lifecycle(
+        &service,
+        model_id,
+        &deployment_id,
+        ModelDeploymentStatus::Ready,
+        "strata lifecycle wait",
+    )
+    .await;
+    let endpoint = runtime_endpoint(
+        configuration,
+        model_id,
+        &deployment_id,
+        "strata endpoint discovery",
+    )
+    .await?;
+    anyhow::ensure!(
+        endpoint.image == pin.launch_reference,
+        "Strata container runs {} instead of the loader's image {}",
+        endpoint.image,
+        pin.launch_reference
+    );
+    let data_source = endpoint
+        .mounts
+        .iter()
+        .find(|(_, destination, read_only)| destination == STRATA_DATA_PATH && !read_only)
+        .map(|(source, _, _)| PathBuf::from(source))
+        .context("Strata container has no writable data mount")?;
+    anyhow::ensure!(
+        data_source.is_dir(),
+        "Strata data storage {} is missing while the deployment runs",
+        data_source.display()
+    );
+    let engine_port = endpoint
+        .http_port
+        .context("READY Strata deployment must publish its loopback host port")?;
+    assert_exact_alias(engine_port, model_id).await;
+
+    // The router needs the backend's state lock back.
+    drop(service);
+    drop(
+        wait_for_released_backend(
+            configuration,
+            dotcore_sources,
+            model_id,
+            "backend release before router",
+        )
+        .await,
+    );
+    let router = start_router(configuration, dotcore_sources, model_id, engine_port).await;
+    let body = serde_json::to_vec(&serde_json::json!({
+        "model": model_id,
+        "messages": [{"role": "user", "content": "Compute 17 + 25. Reply with only the number."}],
+        "temperature": 0,
+        "max_completion_tokens": 4096,
+    }))?;
+    let response = router_request(router.inference_address, &http_post(&body)).await;
+    router.stop().await;
+    anyhow::ensure!(
+        response.starts_with(b"HTTP/1.1 200"),
+        "Strata router response failed: {}",
+        router_failure_diagnostics(&response)
+    );
+    let value = http_response_json(&response);
+    anyhow::ensure!(
+        value.get("model").and_then(Value::as_str) == Some(model_id),
+        "Strata response does not carry the model name {model_id:?}: {}",
+        completion_diagnostics(&value)
+    );
+    anyhow::ensure!(
+        value
+            .pointer("/choices/0/message/content")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            == Some("42"),
+        "Strata answered something other than 42: {}",
+        completion_diagnostics(&value)
+    );
+
+    let service = wait_for_released_backend(
+        configuration,
+        dotcore_sources,
+        model_id,
+        "backend release before unload",
+    )
+    .await;
+    // Removal completes through the observer's reconciliation.
+    service.start_observer();
+    unload_and_wait(
+        &service,
+        configuration,
+        model_id,
+        &deployment_id,
+        "strata unload",
+    )
+    .await;
+    anyhow::ensure!(
+        !data_source.exists(),
+        "removed Strata deployment left its data storage {}",
+        data_source.display()
+    );
     Ok(())
 }
 
@@ -3115,7 +3386,8 @@ async fn assert_exact_alias(port: u16, expected_alias: &str) {
         .expect("model alias response headers");
     let headers = std::str::from_utf8(&response[..header_end]).expect("model alias status");
     assert!(
-        headers.starts_with("HTTP/1.1 200"),
+        // Engines built on Python's HTTP server answer with HTTP/1.0.
+        headers.starts_with("HTTP/1.1 200") || headers.starts_with("HTTP/1.0 200"),
         "model alias failed: {headers}"
     );
     let value: Value =

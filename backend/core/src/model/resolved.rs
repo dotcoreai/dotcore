@@ -163,10 +163,7 @@ impl ResolvedModelLaunch {
 
     /// Storage bindings of the engine release, retained in the deployment snapshot.
     pub(crate) fn engine_storage_bindings(&self) -> &[StorageBinding] {
-        self.snapshot
-            .engine_artifact
-            .as_ref()
-            .map_or(&[], |engine| engine.storage_bindings.as_slice())
+        engine_storage_bindings(&self.snapshot)
     }
 
     /// Resolved launch inputs recorded with workload resource telemetry.
@@ -211,6 +208,17 @@ impl ResolvedModelLaunch {
             ),
         }
     }
+}
+
+/// Storage bindings of the engine release a local snapshot retains, read without validating the
+/// rest of the snapshot, so teardown can name the storage of a deployment that can't launch.
+pub(crate) fn engine_storage_bindings(
+    snapshot: &ResolvedLocalModelDeploymentSnapshot,
+) -> &[StorageBinding] {
+    snapshot
+        .engine_artifact
+        .as_ref()
+        .map_or(&[], |engine| engine.storage_bindings.as_slice())
 }
 
 /// Launch hardware requirements synthesized from the resolved hardware class and its support

@@ -1089,6 +1089,13 @@ impl RuntimeBackend for GatedMutationRuntime {
     fn remove_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
         Box::pin(ready(Err(test_runtime_error())))
     }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 impl RuntimeBackend for GatedSecondRuntime {
@@ -1136,6 +1143,13 @@ impl RuntimeBackend for GatedSecondRuntime {
 
     fn remove_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
         Box::pin(ready(Ok(())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 
@@ -1198,6 +1212,13 @@ impl RuntimeBackend for PausedRuntime {
     fn remove_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
         self.calls.lock().expect("calls").push("remove");
         Box::pin(ready(Ok(())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
     fn read_workload_logs<'a>(
         &'a self,
@@ -1267,6 +1288,13 @@ impl RuntimeBackend for ReplacingMissingRuntime {
         self.calls.lock().expect("calls").push("remove");
         Box::pin(ready(Ok(())))
     }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 impl RuntimeBackend for ReplacingStoppedRuntime {
@@ -1314,6 +1342,13 @@ impl RuntimeBackend for ReplacingStoppedRuntime {
         self.calls.lock().expect("calls").push("remove");
         Box::pin(ready(Ok(())))
     }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
+    }
 }
 
 impl RuntimeBackend for OwnedOrphanRuntime {
@@ -1356,6 +1391,13 @@ impl RuntimeBackend for OwnedOrphanRuntime {
     fn remove_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
         self.calls.lock().expect("calls").push("remove");
         Box::pin(ready(Ok(())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 
@@ -3089,6 +3131,213 @@ async fn simulated_start_without_a_download_passes_the_download_and_engine_steps
     assert_eq!(
         current.start_step_history("deployment"),
         [Some(0), Some(3), None]
+    );
+}
+
+#[tokio::test]
+async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_shared_storage() {
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+    use dotcore_runtime::{WorkloadStorageKey, WorkloadStorageKind};
+
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let desired = TestDesired::new(calls.clone());
+    let mut deployment = crate::model::controller::test_support::test_desired_deployment(
+        "fixture-model",
+        ModelDeploymentDesiredState::Present,
+    );
+    let Some(ModelDeploymentSnapshotSource::Local(local)) = deployment
+        .snapshot
+        .as_mut()
+        .and_then(|snapshot| snapshot.source.as_mut())
+    else {
+        panic!("local fixture snapshot");
+    };
+    local
+        .engine_artifact
+        .as_mut()
+        .expect("engine artifact")
+        .storage_bindings = [
+        ("data", "/data", StorageScope::Deployment),
+        ("compile-cache", "/cache", StorageScope::EngineArtifact),
+    ]
+    .map(|(binding_name, mount_path, scope)| StorageBinding {
+        binding_name: binding_name.to_owned(),
+        mount_path: mount_path.to_owned(),
+        kind: StorageKind::Cache as i32,
+        scope: scope as i32,
+        environment: Vec::new(),
+    })
+    .to_vec();
+    desired.persist(deployment);
+    let current = TestCurrent::new(calls);
+    let mut pending = current_deployment("deployment");
+    pending.state = Some(crate::model::controller::state::first_realization_pending_state());
+    current
+        .upsert(pending, None)
+        .expect("durable first-realization intent");
+    let runtime_support = SimulatedRuntimeTestSupport::with_stop_failures(0);
+    let mut runtime_builder = RuntimeTargetMapBuilder::new();
+    runtime_builder
+        .insert(
+            "target-one",
+            InMemoryRuntimeBackend::with_config(SimulatedRuntimeConfig {
+                test_support: Some(runtime_support.clone()),
+                ..Default::default()
+            }),
+        )
+        .expect("simulated runtime");
+    let controller =
+        crate::model::controller::test_support::TestRealizer::for_test_with_dependencies(
+            desired.clone(),
+            current.clone(),
+            runtime_builder.build().expect("Runtime map"),
+            Vec::new(),
+            "/test-cache".into(),
+            crate::model::controller::ModelControllerDependencies {
+                target_capabilities:
+                    crate::model::controller::test_support::test_target_capability_source(),
+                artifacts: ArtifactDependencies::default(),
+                engine_integrations:
+                    crate::model::controller::test_support::test_engine_integrations(),
+                accelerator_attribution: None,
+            },
+        )
+        .expect("controller");
+    let deployment_storage = WorkloadStorageKey {
+        kind: WorkloadStorageKind::Cache,
+        namespace: "deployment".to_owned(),
+        key: "deployment".to_owned(),
+    };
+    let shared_storage = runtime_support.storage_keys();
+    let reconcile = || async {
+        for _ in 0..3 {
+            controller.inner.reconcile().await.expect("reconciliation");
+        }
+    };
+
+    reconcile().await;
+    let attached = runtime_support.storage_keys();
+    assert_eq!(shared_storage, Vec::new());
+    assert_eq!(attached.len(), 2, "{attached:?}");
+    assert!(runtime_support.storage_exists(&deployment_storage));
+
+    desired.transition("deployment", ModelDeploymentDesiredState::Paused);
+    reconcile().await;
+    assert_eq!(
+        current.snapshot().expect("current state").model_deployments[0]
+            .state
+            .as_ref()
+            .expect("paused state")
+            .status,
+        ModelDeploymentStatus::Paused as i32
+    );
+    assert_eq!(
+        runtime_support.storage_keys(),
+        attached,
+        "pause keeps all storage"
+    );
+
+    desired.transition("deployment", ModelDeploymentDesiredState::Teardown);
+    reconcile().await;
+    assert!(desired.model_deployments().expect("desired").is_empty());
+    assert_eq!(
+        runtime_support.storage_keys(),
+        attached
+            .into_iter()
+            .filter(|key| *key != deployment_storage)
+            .collect::<Vec<_>>(),
+        "teardown deletes the deployment's own storage and keeps the engine artifact's"
+    );
+}
+
+#[tokio::test]
+async fn teardown_after_a_relaunch_that_failed_before_its_workload_deletes_only_its_own_storage() {
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+    use dotcore_runtime::{WorkloadStorageKey, WorkloadStorageKind};
+
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let desired = TestDesired::new(calls.clone());
+    let mut deployment = crate::model::controller::test_support::test_desired_deployment(
+        "fixture-model",
+        ModelDeploymentDesiredState::Teardown,
+    );
+    let Some(ModelDeploymentSnapshotSource::Local(local)) = deployment
+        .snapshot
+        .as_mut()
+        .and_then(|snapshot| snapshot.source.as_mut())
+    else {
+        panic!("local fixture snapshot");
+    };
+    local
+        .engine_artifact
+        .as_mut()
+        .expect("engine artifact")
+        .storage_bindings = vec![StorageBinding {
+        binding_name: "data".to_owned(),
+        mount_path: "/data".to_owned(),
+        kind: StorageKind::Cache as i32,
+        scope: StorageScope::Deployment as i32,
+        environment: Vec::new(),
+    }];
+    desired.persist(deployment);
+    // A relaunch removed the earlier workload and failed before creating the next one, so the
+    // deployment's storage remains with no workload holding it.
+    let mut failed = current_deployment("deployment");
+    failed.state = Some(crate::model::controller::state::first_realization_pending_state());
+    let current = TestCurrent::new(calls);
+    current
+        .upsert(failed, None)
+        .expect("failed relaunch record");
+    let runtime_support = SimulatedRuntimeTestSupport::with_stop_failures(0);
+    let key = |namespace: &str, key: &str| WorkloadStorageKey {
+        kind: WorkloadStorageKind::Cache,
+        namespace: namespace.to_owned(),
+        key: key.to_owned(),
+    };
+    let own = key("deployment", "deployment");
+    let others = [
+        key("deployment", "other-deployment"),
+        key("engine-artifact", "deployment"),
+    ];
+    runtime_support.insert_storage(own.clone());
+    for other in &others {
+        runtime_support.insert_storage(other.clone());
+    }
+    let mut runtime_builder = RuntimeTargetMapBuilder::new();
+    runtime_builder
+        .insert(
+            "target-one",
+            InMemoryRuntimeBackend::with_config(SimulatedRuntimeConfig {
+                test_support: Some(runtime_support.clone()),
+                ..Default::default()
+            }),
+        )
+        .expect("simulated runtime");
+    let controller =
+        crate::model::controller::test_support::TestRealizer::for_test_with_dependencies(
+            desired.clone(),
+            current.clone(),
+            runtime_builder.build().expect("Runtime map"),
+            Vec::new(),
+            "/test-cache".into(),
+            crate::model::controller::ModelControllerDependencies {
+                target_capabilities:
+                    crate::model::controller::test_support::test_target_capability_source(),
+                artifacts: ArtifactDependencies::default(),
+                engine_integrations:
+                    crate::model::controller::test_support::test_engine_integrations(),
+                accelerator_attribution: None,
+            },
+        )
+        .expect("controller");
+
+    controller.inner.reconcile().await.expect("reconciliation");
+
+    assert!(desired.model_deployments().expect("desired").is_empty());
+    assert_eq!(
+        runtime_support.storage_keys(),
+        others.to_vec(),
+        "the deployment's own storage is gone; another deployment's and the engine artifact's stay"
     );
 }
 
@@ -6068,6 +6317,13 @@ impl RuntimeBackend for OrphanRaceRuntime {
             .expect("calls")
             .push(("remove", workload_id.0.clone()));
         Box::pin(ready(Ok(())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 

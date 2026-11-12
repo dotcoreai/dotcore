@@ -80,23 +80,6 @@ export function runtimeParameterGroups(
 }
 
 /**
- * The context per request resolution fills in when the input is empty: the maximum context capped
- * by the total context. It mirrors resolution's fill for live input. Undefined while the total
- * context input isn't a number.
- */
-export function filledContextPerRequest(
-  model: Model,
-  configuration: ModelEngineConfiguration | undefined,
-  inputs: ReadonlyMap<string, string>,
-): number | undefined {
-  const total = inputs.get(TOTAL_CONTEXT_PARAMETER_ID) ?? "";
-  if (!/^\d+$/.test(total)) return undefined;
-
-  const maximum = maximumContext(model, configuration);
-  return maximum === undefined ? Number(total) : Math.min(Number(total), maximum);
-}
-
-/**
  * The model's maximum context, or its configuration's lower maximum. Undefined when neither is
  * known.
  */
@@ -172,11 +155,13 @@ export function engineParameterValues(
   declared: EngineParameterValues | undefined,
   parameters: readonly EngineParameterDefinition[],
   inputs: ReadonlyMap<string, string>,
+  derived: ReadonlySet<string> = noDerivedParameters,
 ): EngineParameterValues | undefined {
-  if (parameters.some((parameter) => engineParameterError(parameter, inputs))) return undefined;
+  if (parameters.some((parameter) => engineParameterError(parameter, inputs, derived)))
+    return undefined;
 
   const omitted = parameters.filter((parameter) =>
-    omitsOptionalValue(parameter, inputs.get(parameter.parameterId) ?? ""),
+    omitsOptionalValue(parameter, inputs.get(parameter.parameterId) ?? "", derived),
   );
   const edited = parameters
     .filter((parameter) => !omitted.includes(parameter))
@@ -198,14 +183,16 @@ export function engineParameterValues(
 
 /**
  * Why a parameter's input in `inputs` can't launch, or undefined when it can: a value outside the
- * schema range, or a context per request above the total context.
+ * schema range, or a context per request above the total context. An empty input of a parameter
+ * in `derived` is valid.
  */
 export function engineParameterError(
   parameter: EngineParameterDefinition,
   inputs: ReadonlyMap<string, string>,
+  derived: ReadonlySet<string> = noDerivedParameters,
 ): string | undefined {
   const input = inputs.get(parameter.parameterId) ?? "";
-  if (omitsOptionalValue(parameter, input)) return undefined;
+  if (omitsOptionalValue(parameter, input, derived)) return undefined;
 
   const value = editedEngineParameterValue(parameter, input);
   if (value) {
@@ -251,9 +238,19 @@ function hostMemoryParameterIds(configuration: ModelEngineConfiguration | undefi
   return new Set(id ? [id] : []);
 }
 
-// An empty context per request is left out rather than rejected.
-function omitsOptionalValue(parameter: EngineParameterDefinition, input: string): boolean {
-  return parameter.parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID && input === "";
+const noDerivedParameters: ReadonlySet<string> = new Set();
+
+// An empty context per request or sizing-derived parameter is left out rather than rejected.
+function omitsOptionalValue(
+  parameter: EngineParameterDefinition,
+  input: string,
+  derived: ReadonlySet<string>,
+): boolean {
+  return (
+    input === "" &&
+    (parameter.parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID ||
+      derived.has(parameter.parameterId))
+  );
 }
 
 function editedEngineParameterValue(

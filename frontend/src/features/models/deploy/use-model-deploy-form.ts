@@ -260,6 +260,12 @@ export function useModelDeployForm({
   // Resolution fills the context per request the scenario leaves unset; it stays empty here so it
   // isn't submitted as a supplied value and keeps following the total context.
   const profileReadKey = profile ? profileEstimateKey(model.modelId, profile.profileId) : undefined;
+  // The parameters sizing derives come from the backend's read of the profile; until it lands, an
+  // empty one reads as missing, and the deploy waits for the read anyway.
+  const derivedParameterIds =
+    (profileReadKey &&
+      profileCompatibility.compatibility?.derivedParameterIds.get(profileReadKey)) ||
+    noDerivedParameterIds;
   const ownReadValues = profileReadKey
     ? profileCompatibility.sizing?.engineValues.get(profileReadKey)
     : undefined;
@@ -514,7 +520,12 @@ export function useModelDeployForm({
   useEffect(() => {
     engineParameterInputsRef.current = engineParameterInputs;
   });
-  const values = engineParameterValues(declaredValues, exposedParameters, engineParameterInputs);
+  const values = engineParameterValues(
+    declaredValues,
+    exposedParameters,
+    engineParameterInputs,
+    derivedParameterIds,
+  );
   const setFieldError = (field: string, nextError: string | undefined) => {
     setFieldErrors((errors) => {
       const nextErrors = new Map(errors);
@@ -557,7 +568,10 @@ export function useModelDeployForm({
       .set(CONTEXT_PER_REQUEST_PARAMETER_ID, chosen.perRequest);
     for (const shownParameter of contextParameters)
       if (fieldErrors.has(shownParameter.parameterId))
-        setFieldError(shownParameter.parameterId, engineParameterError(shownParameter, nextInputs));
+        setFieldError(
+          shownParameter.parameterId,
+          engineParameterError(shownParameter, nextInputs, derivedParameterIds),
+        );
     invalidatePreview();
   };
   // Returns the total context and context per request to the default; the operator's parallel
@@ -579,7 +593,11 @@ export function useModelDeployForm({
         const nextErrors = new Map(errors);
         for (const shownParameter of contextParameters) {
           if (shownParameter !== parameter && !errors.has(shownParameter.parameterId)) continue;
-          const error = engineParameterError(shownParameter, engineParameterInputsRef.current);
+          const error = engineParameterError(
+            shownParameter,
+            engineParameterInputsRef.current,
+            derivedParameterIds,
+          );
           if (error) nextErrors.set(shownParameter.parameterId, error);
           else nextErrors.delete(shownParameter.parameterId);
         }
@@ -594,7 +612,7 @@ export function useModelDeployForm({
   ): [string, string | undefined][] =>
     parameters.map((parameter) => [
       parameter.parameterId,
-      engineParameterError(parameter, engineParameterInputs),
+      engineParameterError(parameter, engineParameterInputs, derivedParameterIds),
     ]);
   // A rejection spans the context values, so it shows as soon as it's known, on the context per
   // request once the operator set one, else on the first context field. A profile that sets its
@@ -701,6 +719,7 @@ export function useModelDeployForm({
     customArgumentTokens,
     declaredValues,
     deployments,
+    derivedParameterIds,
     engineParameterInputs,
     engineRelease,
     engineReleases,
@@ -884,6 +903,7 @@ export function useModelDeployForm({
     dirtyFields,
     effectiveTargetsError,
     engineParameterInputs,
+    derivedParameterIds,
     engineParameterInputsRef,
     engineParameterRefs,
     executionTargetRef,
@@ -996,3 +1016,5 @@ export interface ModelDeployFormOptions {
    */
   scenario?: SizingScenario;
 }
+
+const noDerivedParameterIds: ReadonlySet<string> = new Set();

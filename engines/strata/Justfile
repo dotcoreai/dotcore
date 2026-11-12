@@ -1,0 +1,57 @@
+import '../../nix/docker-images/dockerfile.just'
+
+# List Strata engine recipes.
+help:
+    @just --list
+
+# Load the image, check that the keyless start wrapper refuses bad inputs, then start Strata's server keyless and offline with its mock engine and wait for /health to report it loaded.
+[group('image')]
+image-test:
+    #!/usr/bin/env sh
+    set -eu
+    cd ../..
+    image=$(nix run .#{{image_package}} | jq -r .reference)
+    name=dotcore-strata-image-test
+    trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+
+    refuses() {
+      expected=$1
+      shift
+      if output=$(docker run --rm --network none "$image" dotcore-strata-start "$@" 2>&1); then
+        echo "wrapper accepted: $*" >&2
+        exit 1
+      fi
+      case $output in
+      *"$expected"*) echo "wrapper refuses: $expected" ;;
+      *) echo "wrapper refused $* without '$expected':" >&2; echo "$output" >&2; exit 1 ;;
+      esac
+    }
+    refuses "the following arguments are required" --model /bin/sh
+    ok="--model-name m --arch qwen35moe --mtp 2 --context 4096"
+    refuses "is not a file" --model /none.gguf $ok
+    refuses "--parallel must be 1 to 8" --model /bin/sh $ok --parallel 9
+    refuses "--model-name takes" --model /bin/sh --model-name 'a b' --arch qwen35moe --mtp 2 --context 4096
+    refuses "--arch takes" --model /bin/sh --model-name m --arch 'Qwen 3' --mtp 2 --context 4096
+    refuses "--mtp must be 1 to 8" --model /bin/sh --model-name m --arch qwen35moe --mtp 0 --context 4096
+    refuses "--expert-vram-mib must be at least 1" --model /bin/sh $ok --expert-vram-mib 0
+
+    docker run -d --name "$name" --network none "$image" \
+      /opt/strata/terminal/python/bin/python3 /opt/strata/terminal/serve/server.py \
+      --engine mock --host 0.0.0.0 --port 8080 --no-api-key --offline >/dev/null
+    deadline=$(($(date +%s) + 60))
+    health=""
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+      health=$(docker exec "$name" /opt/strata/terminal/python/bin/python3 -c \
+        'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=2).read().decode())' \
+        2>/dev/null || true)
+      case $health in *'"loaded": true'*) break ;; esac
+      sleep 1
+    done
+    case $health in
+    *'"loaded": true'*'"service": "strata"'*) ;;
+    *) echo "server not loaded within 60 s; last /health: ${health:-no answer}" >&2; docker logs "$name" >&2; exit 1 ;;
+    esac
+    case $health in
+    *'"api_key": false'*) echo "keyless server up: $health" ;;
+    *) echo "server reports an API key: $health" >&2; exit 1 ;;
+    esac

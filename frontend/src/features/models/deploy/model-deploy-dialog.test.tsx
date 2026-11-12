@@ -73,6 +73,7 @@ import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
+import { sharedContextEstimate } from "./resource-estimate-test-support";
 import { type LocalResourceEstimate } from "./use-resource-estimate";
 
 const unifiedKvOffloadWarning =
@@ -2930,6 +2931,7 @@ function dialog(
         hardwareClasses={[]}
         listConfiguredExecutionTargets={targetsLoader(poolTarget())}
         model={model}
+        onEstimate={sharedContextEstimate(props.model ?? model)}
         onOpenChange={vi.fn()}
         onPreview={vi.fn()}
         onSubmit={vi.fn()}

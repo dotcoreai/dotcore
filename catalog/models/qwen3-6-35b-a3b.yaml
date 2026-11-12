@@ -1,9 +1,5 @@
-# Immutable provenance for Qwen3.6 35B A3B's public GGUF tiers.
-# Qualification tier: q4-xl on Linux NVIDIA. Base sizing equations are measured for every tier; the llama.cpp
-# MTP terms and llama.cpp base terms after the MTP GGUF re-pin are estimates pending remeasurement.
-# MTP is exposed on vLLM and llama.cpp. The llama.cpp GGUFs come from Unsloth's MTP repository, which embeds the
-# MTP head in each main file, so the llama.cpp realization declares an embedded head. The vision projector stays
-# pinned to the original repository (identical tensor data). Vision and parallel slots work with MTP on b11429.
+# Qwen3.6 35B A3B's public GGUF and NVFP4 tiers. The GGUFs come from Unsloth's MTP repository, which
+# embeds the MTP head in each file; the vision projector comes from the original repository.
 modelId: "qwen3-6-35b-a3b"
 displayName: "Qwen3.6 35B A3B"
 version: "3.6-35b-a3b"
@@ -33,6 +29,22 @@ artifacts:
       file:
         path: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
         provenanceDigest: "55983c5a75a1ab969824077b3bb3de4146e82a9234072b48ad4e8f92ad3fe9f1"
+  - artifactId: "q6-xl"
+    weightQuantization: "Q6_K_XL"
+    source:
+      repository: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF"
+      revision: "5bc3e238d916f48a861bac2f8a1990a0e9b7e98d"
+      file:
+        path: "Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf"
+        provenanceDigest: "35fce994cd36104a7dc1bd8a4bdf13778145664c00fdef6773aebc9246e5019c"
+  - artifactId: "q8"
+    weightQuantization: "Q8_0"
+    source:
+      repository: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF"
+      revision: "5bc3e238d916f48a861bac2f8a1990a0e9b7e98d"
+      file:
+        path: "Qwen3.6-35B-A3B-Q8_0.gguf"
+        provenanceDigest: "c1283d8b80c3e38b2735ddbc9766d3b3126f44d6c484be419d4e101d09a76131"
   - artifactId: "q5-xl"
     weightQuantization: "Q5_K_XL"
     source:
@@ -98,8 +110,7 @@ auxiliaryArtifacts:
         path: "chat_template.jinja"
         provenanceDigest: "e84f32a23fdda27689f868aa4a1a5621f41133e51a48d7f3efcbea2839574259"
 configurations:
-  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
-  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  # One configuration for every platform: CUDA on Linux NVIDIA, Metal on macOS.
   - configurationId: "llama-cpp"
     engineArtifacts:
       - engineReleaseId: "llama-cpp-linux-2026-10-19"
@@ -113,24 +124,17 @@ configurations:
         modelArtifactId: "q4-xl"
       - bindingId: "q5-xl"
         modelArtifactId: "q5-xl"
-    # Sizing shared by every hardware class and binding. Each hardware support entry sets the class
-    # parameters once and the binding parameters for every binding. Each constant has exactly one home
-    # (shared, class or binding), so shared constants cannot be overridden.
     sizing:
       classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
       bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "mtpBaseBytes", "marginBytes"]
       parameters:
         mtpBytesPerContextToken: 2048
-        # Per-slot llama.cpp state: Gated DeltaNet recurrent state, sized from the Qwen/Qwen3.6-35B-A3B
-        # config.json (revision 995ad96): 30 linear-attention layers x (conv 3 x 8192 + state 32 heads
-        # x 128 x 128) f32 values. Each MTP draft token keeps one more copy per slot.
-        # baseAccelBytes values exclude it: each is the 4-slot measurement minus 4 x slotStateBytes.
+        # Recurrent state per request slot, from config.json; one more copy per MTP draft token.
+        # baseAccelBytes excludes it.
         slotStateBytes: 65863680
         visionBytes: 930807808
       estimates:
-        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
-        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
-        # estimate is unavailable.
+        # The prompt cache counts in accelerator memory when the accelerator shares the host pool.
         acceleratorMemory:
           unit: bytes
           equation: >-
@@ -156,37 +160,21 @@ configurations:
         parameters:
           promptCacheOnAccelerator: 1
           baseOffsetBytes: 0
+        # Measured on a GB10 before the MTP GGUF re-pin; the base terms since the re-pin and the MTP
+        # terms are estimates from the file sizes and RTX 5090 smoke runs.
         bindingSizing:
-          # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
-          # Estimated, not remeasured: off-mode base = old measured base + (re-pin file difference +382,057,792 B
-          # - MTP block 423,999,488 B, not loaded while MTP is off). MTP terms: mtpBase = block
-          # + 180 MiB draft compute and working-buffer growth observed after requests (RTX 5090 smoke),
-          # per-token = draft KV (1 layer, 2 KV heads x 256, f16), recurrent = off-mode recurrent state per
-          # slot (251.25 MiB measured at 4 slots / 4) per draft token, times the slot count (RTX 5090 smoke, b11429).
           - bindingId: "q3-xl"
             parameters:
               baseAccelBytes: 16571548976
               accelBytesPerContextToken: 21504
               mtpBaseBytes: 612743168
               marginBytes: 134217728
-          # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
-          # Estimated, not remeasured: off-mode base = old measured base + (re-pin file difference +493,206,848 B
-          # - MTP block 528,857,088 B, not loaded while MTP is off). MTP terms: mtpBase = block
-          # + 180 MiB draft compute and working-buffer growth observed after requests (RTX 5090 smoke),
-          # per-token = draft KV (1 layer, 2 KV heads x 256, f16), recurrent = off-mode recurrent state per
-          # slot (251.25 MiB measured at 4 slots / 4) per draft token, times the slot count (RTX 5090 smoke, b11429).
           - bindingId: "q4-xl"
             parameters:
               baseAccelBytes: 22092760362
               accelBytesPerContextToken: 21504
               mtpBaseBytes: 717600768
               marginBytes: 134217728
-          # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 4096-131072.
-          # Estimated, not remeasured: off-mode base = old measured base + (re-pin file difference +566,607,168 B
-          # - MTP block 631,617,536 B, not loaded while MTP is off). MTP terms: mtpBase = block
-          # + 180 MiB draft compute and working-buffer growth observed after requests (RTX 5090 smoke),
-          # per-token = draft KV (1 layer, 2 KV heads x 256, f16), recurrent = off-mode recurrent state per
-          # slot (251.25 MiB measured at 4 slots / 4) per draft token, times the slot count (RTX 5090 smoke, b11429).
           - bindingId: "q5-xl"
             parameters:
               baseAccelBytes: 26295452966
@@ -197,11 +185,9 @@ configurations:
         # The prompt cache stays in host memory, outside the GPU's own memory.
         parameters:
           promptCacheOnAccelerator: 0
-          # Derived, not measured: 400 MiB, since the GB10 base terms read 319-374 MiB low on
-          # the RTX 5090 smoke runs of the speculative decoding project (b11429).
+          # Estimated: the GB10 base terms read up to 374 MiB low on an RTX 5090.
           baseOffsetBytes: 419430400
-        # The binding parameters are the nvidia-unified (GB10) values verbatim until measured on
-        # dedicated memory, so a GB10 remeasurement updates both classes.
+        # The binding values copy nvidia-unified (GB10) until measured on dedicated memory.
         bindingSizing:
           - bindingId: "q3-xl"
             parameters:
@@ -226,40 +212,20 @@ configurations:
         parameters:
           promptCacheOnAccelerator: 1
           baseOffsetBytes: 0
+        # Estimated: the GB10 values adjusted to the macOS process footprint.
         bindingSizing:
-          # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
-          # footprint with the gemma-4-e2b Metal calibration.
-          # Estimated, not remeasured: off-mode base = old measured base + (re-pin file difference +382,057,792 B
-          # - MTP block 423,999,488 B, not loaded while MTP is off). MTP terms: mtpBase = block
-          # + 180 MiB draft compute and working-buffer growth observed after requests (RTX 5090 smoke),
-          # per-token = draft KV (1 layer, 2 KV heads x 256, f16), recurrent = off-mode recurrent state per
-          # slot (251.25 MiB measured at 4 slots / 4) per draft token, times the slot count (RTX 5090 smoke, b11429).
           - bindingId: "q3-xl"
             parameters:
               baseAccelBytes: 18570396246
               accelBytesPerContextToken: 24300
               mtpBaseBytes: 612743168
               marginBytes: 134217728
-          # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
-          # footprint with the gemma-4-e2b Metal calibration.
-          # Estimated, not remeasured: off-mode base = old measured base + (re-pin file difference +493,206,848 B
-          # - MTP block 528,857,088 B, not loaded while MTP is off). MTP terms: mtpBase = block
-          # + 180 MiB draft compute and working-buffer growth observed after requests (RTX 5090 smoke),
-          # per-token = draft KV (1 layer, 2 KV heads x 256, f16), recurrent = off-mode recurrent state per
-          # slot (251.25 MiB measured at 4 slots / 4) per draft token, times the slot count (RTX 5090 smoke, b11429).
           - bindingId: "q4-xl"
             parameters:
               baseAccelBytes: 24367353628
               accelBytesPerContextToken: 24300
               mtpBaseBytes: 717600768
               marginBytes: 134217728
-          # Derived, not measured: the GB10 nvidia-cuda equation adjusted to the macOS process
-          # footprint with the gemma-4-e2b Metal calibration.
-          # Estimated, not remeasured: off-mode base = old measured base + (re-pin file difference +566,607,168 B
-          # - MTP block 631,617,536 B, not loaded while MTP is off). MTP terms: mtpBase = block
-          # + 180 MiB draft compute and working-buffer growth observed after requests (RTX 5090 smoke),
-          # per-token = draft KV (1 layer, 2 KV heads x 256, f16), recurrent = off-mode recurrent state per
-          # slot (251.25 MiB measured at 4 slots / 4) per draft token, times the slot count (RTX 5090 smoke, b11429).
           - bindingId: "q5-xl"
             parameters:
               baseAccelBytes: 28781648869
@@ -327,12 +293,8 @@ configurations:
       - bindingId: "nvfp4"
         modelArtifactId: "nvfp4"
         auxiliaryArtifactIds: ["qwen-chat-template"]
-    # Non-KV terms measured with vLLM v0.32.0 on an NVIDIA RTX 5090 host (dedicated memory, linux/amd64)
-    # and an NVIDIA GB10 host (unified memory, linux/arm64), at 4 parallel requests and total contexts
-    # 16,384-98,304 (RTX 5090) and 16,384-131,072 (GB10), MTP off and 2 draft tokens, text and vision.
-    # Every launch was a first start: vLLM compiles anew for each new context per request and keeps that
-    # memory. The constants are the RTX 5090 fit, which reads above the GB10 for every term; vision points
-    # include an image request. marginBytes covers the largest growth under four concurrent long requests.
+    # Measured on an RTX 5090 and a GB10; the constants are the RTX 5090 fit, the higher of the two.
+    # marginBytes covers growth under four concurrent long requests.
     sizing:
       parameters:
         modelLoadingBaseBytes: 27050247319
@@ -344,12 +306,8 @@ configurations:
         kvMtpBlockBytes: 25051136
         kvMtpBytesPerToken: 14191
       derivedParameters:
-        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 2
-        # recurrent-state blocks per recurrent layer group (3 groups), one more per group for each MTP
-        # draft token, and one for rounding the request's context up; one more block is held back. With
-        # one request this is vLLM's start check at a context per request equal to the total context.
-        # Block bytes are those of the largest MTP draft count; per-token bytes are the larger of vLLM's
-        # block layout and the measurement.
+        # vLLM's KV pool in whole blocks: the total context plus each request's recurrent-state and
+        # rounding blocks, more for each MTP draft token.
         kv-cache-memory-bytes: >-
           if(${options.mtp.token-count} > 0, 1, 0)
           * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (7 + 3 * ${options.mtp.token-count}))
@@ -442,6 +400,162 @@ configurations:
           values:
             - parameterId: "token-count"
               unsignedInteger: "2"
+  # Strata reads the GGUF in place and drafts with its built-in MTP head on fully greedy requests
+  # only. It accepts only the Q4_K_XL, Q6_K_XL and Q8_0 files. Each engine build carries kernels for
+  # its own GPUs, so each Strata configuration pairs one build with one hardware class.
+  - configurationId: "strata-nvidia-cuda"
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-13"
+        engineArtifactId: "linux-amd64-cuda"
+    artifactBindings:
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+      - bindingId: "q6-xl"
+        modelArtifactId: "q6-xl"
+      - bindingId: "q8"
+        modelArtifactId: "q8"
+    sizing:
+      classParameters: ["workBytesPerToken"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "expertVramMib", "marginBytes"]
+      parameters:
+        # Strata's KV layout: 10 attention layers and the MTP block, 2 KV heads x 256, in f32.
+        kvBytesPerToken: 45056
+      derivedParameters:
+        # A fixed cap keeps accelerator memory independent of what is free at start.
+        expert-vram-mib: "${expertVramMib}"
+      estimates:
+        # Whole experts fill the GPU up to the cap.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${expert-vram-mib} * MiB < ${expertBytes}, ${expert-vram-mib} * MiB, ${expertBytes})
+            + ${kvBytesPerToken} * ${total-context}
+            + ${workBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+        # Every expert is pinned in host memory when they don't all fit under the cap.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            if(${expert-vram-mib} * MiB < ${expertBytes}, ${expertBytes}, 0)
+    hardwareSupport:
+      - hardwareClassId: "nvidia-gb202"
+        # The device minimum fits the default cap and context; the system minimum is upstream's.
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "24000000000"
+          minimumSystemMemoryBytes: "32000000000"
+        # Measured on an RTX 5090 with q4-xl at one request; 2-4 requests read below the estimate.
+        parameters:
+          workBytesPerToken: 6129
+        bindingSizing:
+          # Measured: residuals within 27 MB. expertBytes: the GGUF's routed expert tensors.
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 7934151998
+              expertBytes: 20122173440
+              expertVramMib: 12288
+              marginBytes: 134217728
+          # Estimated: q4-xl's constants (same non-expert size) with a larger margin.
+          - bindingId: "q6-xl"
+            parameters:
+              baseAccelBytes: 7934151998
+              expertBytes: 29880221696
+              expertVramMib: 12288
+              marginBytes: 536870912
+          # Estimated: q4-xl's constants (same non-expert size) with a larger margin.
+          - bindingId: "q8"
+            parameters:
+              baseAccelBytes: 7934151998
+              expertBytes: 35081158656
+              expertVramMib: 12288
+              marginBytes: 536870912
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen35moe"
+          mtpDraftTokens: 2
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+  # Strata on the GB10, with the arm64 build.
+  - configurationId: "strata-nvidia-gb10"
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-13"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "q4-xl"
+        modelArtifactId: "q4-xl"
+      - bindingId: "q6-xl"
+        modelArtifactId: "q6-xl"
+      - bindingId: "q8"
+        modelArtifactId: "q8"
+    sizing:
+      classParameters: ["workBytesPerToken"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "expertVramMib", "marginBytes"]
+      parameters:
+        kvBytesPerToken: 45056
+      derivedParameters:
+        expert-vram-mib: "${expertVramMib}"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${expert-vram-mib} * MiB < ${expertBytes}, ${expert-vram-mib} * MiB, ${expertBytes})
+            + ${kvBytesPerToken} * ${total-context}
+            + ${workBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+        hostMemory:
+          unit: bytes
+          equation: >-
+            if(${expert-vram-mib} * MiB < ${expertBytes}, ${expertBytes}, 0)
+    hardwareSupport:
+      # The GPU shares the host memory, so each cap holds every expert: a lower cap would also pin
+      # them in host memory, using the same memory twice.
+      - hardwareClassId: "nvidia-gb10"
+        # Measured on a GB10 with q4-xl at one request; 2-4 requests read below the estimate.
+        parameters:
+          workBytesPerToken: 6181
+        bindingSizing:
+          # Measured: residuals within 0.5 MB.
+          - bindingId: "q4-xl"
+            parameters:
+              baseAccelBytes: 6213899606
+              expertBytes: 20122173440
+              expertVramMib: 21504
+              marginBytes: 134217728
+          # Estimated: q4-xl's constants (same non-expert size) with a larger margin.
+          - bindingId: "q6-xl"
+            parameters:
+              baseAccelBytes: 6213899606
+              expertBytes: 29880221696
+              expertVramMib: 30720
+              marginBytes: 536870912
+          # Estimated: q4-xl's constants (same non-expert size) with a larger margin.
+          - bindingId: "q8"
+            parameters:
+              baseAccelBytes: 6213899606
+              expertBytes: 35081158656
+              expertVramMib: 35840
+              marginBytes: 536870912
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen35moe"
+          mtpDraftTokens: 2
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
 profiles:
   - profileId: "q3-xl"
     displayName: "Unsloth Q3_K_XL"
@@ -521,6 +635,42 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: true
+  - profileId: "strata-q4-xl"
+    displayName: "Unsloth Q4_K_XL on Strata"
+    description: "Runs the balanced Q4 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "q4-xl"
+    engineParameterDefaults: {}
+  - profileId: "strata-q6-xl"
+    displayName: "Unsloth Q6_K_XL on Strata"
+    description: "Runs the higher-precision Q6 weights through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "q6-xl"
+    engineParameterDefaults: {}
+  - profileId: "strata-q8"
+    displayName: "Q8_0 on Strata"
+    description: "Runs the 8-bit weights, the closest to the full model, through Strata on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "q8"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-q4-xl"
+    displayName: "Unsloth Q4_K_XL on Strata for GB10"
+    description: "Runs the balanced Q4 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "q4-xl"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-q6-xl"
+    displayName: "Unsloth Q6_K_XL on Strata for GB10"
+    description: "Runs the higher-precision Q6 weights through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "q6-xl"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-q8"
+    displayName: "Q8_0 on Strata for GB10"
+    description: "Runs the 8-bit weights, the closest to the full model, through Strata on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "q8"
+    engineParameterDefaults: {}
 intelligence:
   overall: 18
 license:

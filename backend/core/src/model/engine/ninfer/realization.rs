@@ -40,7 +40,7 @@ pub(crate) fn realize_model(
         .and_then(|payload| payload.configuration.as_ref())
         .and_then(|payload| match payload {
             Configuration::Ninfer(payload) => Some(payload),
-            Configuration::LlamaCpp(_) | Configuration::Vllm(_) => None,
+            Configuration::LlamaCpp(_) | Configuration::Vllm(_) | Configuration::Strata(_) => None,
         })
         .ok_or_else(|| anyhow::anyhow!("configuration has no ninfer payload"))?;
     let fixed_settings = payload

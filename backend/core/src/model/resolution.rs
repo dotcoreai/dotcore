@@ -732,7 +732,8 @@ fn evaluate_selected_values(
         .hardware_class_id
         .clone();
     // The filled context per request counts as derived, and sizing may read it.
-    let filled_context_per_request = shared_parameters::filled_context_per_request(
+    let filled_context_per_request = crate::model::engine::filled_context_per_request(
+        selection.engine_release.engine_kind,
         &schema,
         engine_parameter_values,
         shared_parameters::maximum_context_tokens(&selection.model, &selection.configuration),
@@ -2204,7 +2205,9 @@ mod tests {
             .expect("resolved llama.cpp state")
         {
             State::LlamaCpp(state) => state,
-            State::Vllm(_) | State::Ninfer(_) => panic!("resolved llama.cpp state"),
+            State::Vllm(_) | State::Ninfer(_) | State::Strata(_) => {
+                panic!("resolved llama.cpp state")
+            }
         }
     }
 

@@ -385,6 +385,13 @@ mod tests {
         fn remove_workload<'a>(&'a self, _: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
             unused_runtime_operation()
         }
+
+        fn remove_storage<'a>(
+            &'a self,
+            _: &'a dotcore_runtime::WorkloadStorageKey,
+        ) -> RuntimeFuture<'a, ()> {
+            Box::pin(std::future::ready(Ok(())))
+        }
     }
 
     #[derive(Debug)]

@@ -184,6 +184,6 @@ fn readiness_mode(state: &ResolvedEngineModelState) -> Option<i32> {
             .readiness_policy
             .as_ref()
             .map(|policy| policy.mode),
-        State::LlamaCpp(_) | State::Ninfer(_) => None,
+        State::LlamaCpp(_) | State::Ninfer(_) | State::Strata(_) => None,
     }
 }

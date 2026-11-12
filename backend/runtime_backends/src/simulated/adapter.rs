@@ -809,6 +809,13 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
         let mut state = self.state.lock().expect("simulated runtime state");
         if let Some(test_support) = &self.config.test_support {
             test_support.record_create();
+            test_support.record_storage(
+                workload
+                    .spec
+                    .storage
+                    .iter()
+                    .map(WorkloadStorageAttachment::storage_key),
+            );
         }
         if let Some(existing) = state.workloads.values_mut().find(|existing| {
             existing.identity.correlation.owner_id == workload.correlation.owner_id
@@ -962,6 +969,13 @@ impl RuntimeBackend for InMemoryRuntimeBackend {
             // Controller operations serialize removal and its immediate inspection.
             // One retained identity provides that absence confirmation without growth.
             state.absence_confirmation = Some(workload.identity);
+        }
+        Box::pin(std::future::ready(Ok(())))
+    }
+
+    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+        if let Some(test_support) = &self.config.test_support {
+            test_support.remove_storage(storage);
         }
         Box::pin(std::future::ready(Ok(())))
     }

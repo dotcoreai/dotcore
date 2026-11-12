@@ -5,7 +5,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use dotcore_artifact::{
@@ -14,14 +14,16 @@ use dotcore_artifact::{
 };
 use dotcore_catalog::{Catalog, CatalogModelId, OciArtifactPolicy};
 use dotcore_domain::SiteNodeId;
+use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        ModelOptionParameterValue, ModelOptionValues,
+        ModelOptionParameterValue, ModelOptionValues, Selector,
         model_option_parameter_value::Value as ModelOptionValue,
     },
     model::v1::{
         LocalModelDeploymentConfiguration, ModelDeploymentSnapshot, model_deployment_snapshot,
     },
+    observation::v1::AcceleratorMemoryArchitecture,
 };
 use dotcore_runtime::{
     ExecutionTarget, ObservedWorkload, RuntimeBackend, RuntimeBackendError, RuntimeBackendId,
@@ -32,6 +34,7 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::*;
+use crate::hardware::selection::{select_target_capabilities, selector_matches};
 use crate::model::{resolution::resolve_local_launch, resolved::ResolvedModelLaunch};
 
 #[tokio::test]
@@ -728,19 +731,21 @@ async fn teardown_removes_the_runner_deployment_storage_and_keeps_engine_artifac
         namespace: "deployment".to_owned(),
         key: runner.to_owned(),
     };
+    let attached_deployment_keys = launches[0]
+        .spec
+        .storage
+        .iter()
+        .filter(|storage| storage.namespace == "deployment")
+        .map(|storage| storage.storage_key())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        attached_deployment_keys,
+        [deployment_key(WorkloadStorageKind::Cache)]
+    );
     assert_eq!(
         runtime.removed_storage(),
-        [
-            deployment_key(WorkloadStorageKind::Cache),
-            deployment_key(WorkloadStorageKind::Data)
-        ]
-    );
-    assert!(
-        launches[0].spec.storage.iter().any(|storage| {
-            storage.namespace == "deployment"
-                && storage.storage_key() == deployment_key(storage.kind)
-        }),
-        "the removed key is the key launch attached"
+        attached_deployment_keys,
+        "teardown removes exactly the deployment-scoped keys launch attached"
     );
 
     // A repeated teardown of a removed handle removes nothing more.
@@ -748,7 +753,7 @@ async fn teardown_removes_the_runner_deployment_storage_and_keeps_engine_artifac
         .teardown(&handle_path)
         .await
         .expect("repeat teardown");
-    assert_eq!(runtime.removed_storage().len(), 2);
+    assert_eq!(runtime.removed_storage(), attached_deployment_keys);
     std::fs::remove_dir_all(cache_root).expect("cache cleanup");
 }
 
@@ -1332,6 +1337,40 @@ fn development_runtime_namespace_rejects_unsafe_caller_identities() {
     }
 }
 
+#[test]
+fn direct_targets_match_device_model_classes_through_their_selected_devices() {
+    let description =
+        MachineDescription::simulated(&["gb10".to_owned()], "arm64").expect("simulated machine");
+    let snapshot = description
+        .render(&[], SystemTime::now())
+        .expect("rendered snapshot");
+    let gb10_class = Selector {
+        accelerators: vec!["nvidia".to_owned()],
+        memory_architecture: AcceleratorMemoryArchitecture::Unified as i32,
+        device_models: vec!["NVIDIA GB10".to_owned()],
+        ..Default::default()
+    };
+    let target = ExecutionTarget {
+        managed_node_id: SiteNodeId::for_test("development-node"),
+        accelerator_device_ids: vec!["nvidia.com/gpu=0".to_owned()],
+    };
+
+    let (site_target, inventory) = direct_target_capabilities(
+        &target,
+        model_runtime_binding::Adapter::DockerRuntime(Default::default()),
+        description.platform().clone(),
+        NodeAcceleratorObservation::from_hardware_snapshot("development-node", &snapshot, false),
+        Timing::test().node_control.capability_max_age,
+        real_time::wall_now(),
+    );
+    let selected =
+        select_target_capabilities(&site_target, &inventory).expect("target capabilities");
+
+    // The selected GPU's model reaches the target, so the device model class matches it.
+    assert_eq!(selected.device_models, ["NVIDIA GB10"]);
+    assert!(selector_matches(&gb10_class, &selected));
+}
+
 #[tokio::test]
 async fn launch_preflight_rejects_unknown_and_wrongly_typed_model_options() {
     let runtime = Arc::new(RecordingDevelopmentRuntime::default());
@@ -1835,6 +1874,17 @@ impl RuntimeBackend for RecordingDevelopmentRuntime {
         RuntimeBackendId("runtime/docker".to_owned())
     }
 
+    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
+        if let Some(error) = self.injected_failure("remove-storage") {
+            return Box::pin(ready(Err(error)));
+        }
+        self.removed_storage
+            .lock()
+            .expect("removed storage")
+            .push(storage.clone());
+        Box::pin(ready(Ok(())))
+    }
+
     fn discover_workloads<'a>(&'a self) -> RuntimeFuture<'a, Vec<WorkloadObservation>> {
         if let Some(error) = self.injected_failure("discover") {
             return Box::pin(ready(Err(error)));
@@ -1943,17 +1993,6 @@ impl RuntimeBackend for RecordingDevelopmentRuntime {
 impl DevelopmentRuntime for RecordingDevelopmentRuntime {
     fn starts_on_create(&self) -> bool {
         self.starts_on_create
-    }
-
-    fn remove_storage<'a>(&'a self, storage: &'a WorkloadStorageKey) -> RuntimeFuture<'a, ()> {
-        if let Some(error) = self.injected_failure("remove-storage") {
-            return Box::pin(ready(Err(error)));
-        }
-        self.removed_storage
-            .lock()
-            .expect("removed storage")
-            .push(storage.clone());
-        Box::pin(ready(Ok(())))
     }
 
     fn namespace_evidence_count<'a>(&'a self) -> RuntimeFuture<'a, usize> {

@@ -47,6 +47,7 @@ import { productionTiming, setTiming } from "@/lib/timing";
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
+import { sharedContextEstimate } from "./resource-estimate-test-support";
 import { type ResourceEstimateLoader } from "./use-resource-estimate";
 
 const modelId = runtimeSchemaModel.modelId;
@@ -1734,6 +1735,7 @@ function dialog(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {
         hardwareClasses={[]}
         listConfiguredExecutionTargets={listConfiguredExecutionTargets}
         model={runtimeSchemaModel}
+        onEstimate={sharedContextEstimate(props.model ?? runtimeSchemaModel)}
         onOpenChange={vi.fn()}
         onPreview={vi.fn()}
         onSubmit={vi.fn()}

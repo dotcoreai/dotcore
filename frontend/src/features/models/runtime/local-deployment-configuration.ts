@@ -31,6 +31,8 @@ export interface LocalDeploymentConfigurationEdits {
   customArgumentTokens?: string[];
   /** Engine parameter values replacing the profile's defaults, such as those of a sizing scenario. */
   declaredValues?: EngineParameterValues;
+  /** Parameters catalog sizing derives for the profile, which an empty input leaves to it. */
+  derivedParameterIds?: ReadonlySet<string>;
   inputs: ReadonlyMap<string, string>;
   optionOverrides?: ModelOptionValues[];
 }
@@ -49,6 +51,7 @@ export function localDeploymentConfiguration(
     edits.declaredValues ?? profileStartingValues(engineRelease, profile),
     effectiveEngineParameters(engineRelease, profile),
     edits.inputs,
+    edits.derivedParameterIds,
   );
   if (!values || !edits.bindingId) return undefined;
 
