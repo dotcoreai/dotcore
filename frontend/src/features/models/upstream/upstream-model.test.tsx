@@ -439,7 +439,7 @@ describe("generic upstream endpoint UI", () => {
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
     expect(route).toHaveAttribute("aria-invalid", "true");
     expect(route).toHaveAccessibleDescription(
-      'An inference route named "private-model" already exists. Change the route or the deployment name. Follows the deployment name.',
+      'An inference route named "private-model" already exists. Change the route or the deployment name.',
     );
 
     const name = within(dialog).getByRole("textbox", { name: "Deployment name" });
@@ -495,7 +495,7 @@ describe("generic upstream endpoint UI", () => {
     const route = within(dialog).getByLabelText("Route name");
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
     expect(route).toHaveAccessibleDescription(
-      'An inference route named "private-model" already exists. Change the route or the deployment name. Follows the deployment name.',
+      'An inference route named "private-model" already exists. Change the route or the deployment name.',
     );
 
     await user.clear(route);
@@ -864,7 +864,8 @@ describe("generic upstream endpoint UI", () => {
 
     expect(route()).toHaveValue("provider-model");
     expect(route()).toHaveClass("text-muted-foreground");
-    expect(route()).toHaveAccessibleDescription("Follows the deployment name.");
+    const toggle = () => within(dialog).getByRole("button", { name: "Follow the deployment name" });
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
     expect(name().compareDocumentPosition(route()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(dialog).queryByRole("radio", { name: "Direct" })).not.toBeInTheDocument();
 
@@ -876,11 +877,11 @@ describe("generic upstream endpoint UI", () => {
     await user.type(route(), "public");
     await user.type(name(), " 2");
     expect(route()).toHaveValue("public");
-    expect(route()).toHaveAccessibleDescription("Custom route name. Use deployment name");
+    expect(toggle()).toHaveAttribute("aria-pressed", "false");
 
-    await user.click(within(dialog).getByRole("button", { name: "Use deployment name" }));
+    await user.click(toggle());
     expect(route()).toHaveValue("team-model-2");
-    expect(route()).toHaveAccessibleDescription("Follows the deployment name.");
+    expect(toggle()).toHaveAttribute("aria-pressed", "true");
   });
 
   it("shows a taken custom route on the route field and blocks Deploy", async () => {
@@ -902,9 +903,7 @@ describe("generic upstream endpoint UI", () => {
     await user.clear(route);
     await user.type(route, "taken");
 
-    expect(route).toHaveAccessibleDescription(
-      'An inference route named "taken" already exists. Custom route name. Use deployment name',
-    );
+    expect(route).toHaveAccessibleDescription('An inference route named "taken" already exists.');
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
   });
 
@@ -1170,7 +1169,9 @@ describe("generic upstream endpoint UI", () => {
     // Basic mode keeps showing the choice while the deployment is hidden.
     await user.click(within(dialog).getByRole("checkbox", { name: "Advanced" }));
     expect(within(dialog).getByRole("radio", { name: "Hidden" })).toBeChecked();
-    expect(within(dialog).queryByText(/Custom route name/)).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByRole("button", { name: "Follow the deployment name" }),
+    ).not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Deploy" }));
 

@@ -531,9 +531,9 @@ describe("ModelCatalogPage deploy", () => {
     );
 
     const takenLocal =
-      'An inference route named "test-model" already exists. Change the route or the deployment name. Follows the deployment name.';
+      'An inference route named "test-model" already exists. Change the route or the deployment name.';
     const takenUpstream =
-      'An inference route named "private-model" already exists. Change the route or the deployment name. Follows the deployment name.';
+      'An inference route named "private-model" already exists. Change the route or the deployment name.';
 
     it("shows the taken route on the route field and blocks Deploy after a rejected local deploy", async () => {
       const { dialog, user } = await openLocalDialog(conflict);
@@ -558,7 +558,7 @@ describe("ModelCatalogPage deploy", () => {
         expect(
           within(dialog).getByRole("textbox", { name: "Route name" }),
         ).toHaveAccessibleDescription(
-          "An inference route with this name already exists. Change the route or the deployment name. Follows the deployment name.",
+          "An inference route with this name already exists. Change the route or the deployment name.",
         ),
       );
     });

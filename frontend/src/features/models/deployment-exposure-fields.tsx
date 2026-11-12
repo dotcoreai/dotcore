@@ -4,6 +4,7 @@ import type { RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 import type { DeploymentExposureValues } from "./deployment-exposure";
@@ -12,8 +13,9 @@ import type { DeploymentExposureValues } from "./deployment-exposure";
  * The exposure fields of a Deploy step: the Direct / Hidden choice, in advanced mode or whenever
  * the deployment is Hidden so basic mode never hides that choice, then the route name input. While
  * `values.routeName` is undefined the input shows `defaultRouteName` in muted text and follows the
- * deployment name; typing makes it a custom value. A Hidden deployment keeps the route name,
- * disabled and without its follow helper.
+ * deployment name; typing makes it a custom value. A toggle beside the label shows that state and
+ * switches between following and custom. A Hidden deployment keeps the route name, disabled and
+ * without the toggle.
  */
 export function DeploymentExposureFields({
   advanced,
@@ -37,19 +39,17 @@ export function DeploymentExposureFields({
   const direct = values.exposure === "direct";
   const routeNameDisabled = disabled || !direct;
   const following = values.routeName === undefined;
-  const helperId = "deployment-route-name-helper";
-  const describedBy = [
-    routeNameError ? "deployment-route-name-error" : undefined,
-    direct ? helperId : undefined,
-  ]
-    .filter(Boolean)
-    .join(" ");
   const setExposure = (exposure: DeploymentExposureValues["exposure"]) =>
     onChange({ ...values, exposure });
   const followDeploymentName = () => {
     const next = { ...values, routeName: undefined };
     onChange(next);
     onRouteNameBlur?.(next);
+  };
+  // Unlinking keeps the shown name as the custom value, so the operator edits it in place.
+  const customizeRouteName = () => {
+    onChange({ ...values, routeName: defaultRouteName });
+    routeNameRef?.current?.focus();
   };
   // An emptied field returns to following instead of submitting an empty route name.
   const handleBlur = () => {
@@ -80,11 +80,38 @@ export function DeploymentExposureFields({
         </fieldset>
       ) : null}
       <div className="grid gap-1 text-sm">
-        <label htmlFor="deployment-route-name">Route name</label>
+        <div className="flex min-h-control-xs items-center gap-1">
+          <label htmlFor="deployment-route-name">Route name</label>
+          {direct ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    aria-label="Follow the deployment name"
+                    aria-pressed={following}
+                    className="text-muted-foreground"
+                    disabled={disabled}
+                    onClick={following ? customizeRouteName : followDeploymentName}
+                    size="icon-xs"
+                    type="button"
+                    variant="ghost"
+                  />
+                }
+              >
+                {following ? <Link2Icon aria-hidden="true" /> : <Unlink2Icon aria-hidden="true" />}
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {following
+                  ? "Follows the deployment name. Click to edit"
+                  : "Custom name. Click to follow deployment name"}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
+        </div>
         <Input
           required
           ref={routeNameRef}
-          aria-describedby={describedBy}
+          aria-describedby={routeNameError ? "deployment-route-name-error" : undefined}
           aria-invalid={routeNameError ? "true" : undefined}
           className={cn(following && "text-muted-foreground")}
           disabled={routeNameDisabled}
@@ -95,33 +122,6 @@ export function DeploymentExposureFields({
         />
         {routeNameError ? (
           <FieldError id="deployment-route-name-error">{routeNameError}</FieldError>
-        ) : null}
-        {direct ? (
-          <p
-            className="flex flex-wrap items-center gap-x-1.5 text-sm text-muted-foreground"
-            id={helperId}
-          >
-            {following ? (
-              <>
-                <Link2Icon aria-hidden="true" className="size-3.5" />
-                Follows the deployment name.
-              </>
-            ) : (
-              <>
-                <Unlink2Icon aria-hidden="true" className="size-3.5" />
-                Custom route name.
-                <Button
-                  className="h-auto p-0"
-                  disabled={routeNameDisabled}
-                  onClick={followDeploymentName}
-                  type="button"
-                  variant="link"
-                >
-                  Use deployment name
-                </Button>
-              </>
-            )}
-          </p>
         ) : null}
       </div>
     </>
