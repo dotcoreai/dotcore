@@ -2484,10 +2484,6 @@ fn catalog_rejects_mismatched_boolean_values_and_invalid_visibility_overrides() 
             vec![("context-per-request", Advanced)],
             "profile \"balanced\" engine parameter \"context-per-request\" may be hidden but not advanced",
         ),
-        (
-            vec![("feature-enabled", Basic)],
-            "profile \"balanced\" engine parameter \"feature-enabled\" may be advanced or hidden but not basic",
-        ),
     ] {
         let mut invalid = synthetic_boolean_model();
         invalid.profiles[0].engine_parameter_visibility_overrides =
@@ -2514,6 +2510,12 @@ fn catalog_rejects_mismatched_boolean_values_and_invalid_visibility_overrides() 
         ("feature-enabled", Hidden),
     ]);
     synthetic_boolean_catalog(valid);
+
+    // A profile may show any other parameter in the main view.
+    let mut promoted = synthetic_boolean_model();
+    promoted.profiles[0].engine_parameter_visibility_overrides =
+        visibility_overrides(&[("feature-enabled", Basic)]);
+    synthetic_boolean_catalog(promoted);
 }
 
 /// Returns a fresh target of the production runtime kind for `platform`: Docker with an NVIDIA
