@@ -24,7 +24,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use super::{
     sizing::{CatalogSizingSource, ConfigurationSizingSource, SupportSizingSource},
-    validation::CatalogDiagnostic,
+    validation::{CatalogDiagnostic, validate_sensitive_literals},
 };
 
 pub(super) fn load_catalog_source(
@@ -323,7 +323,18 @@ fn load_applications(
                     ),
                 ));
             }
-            Ok(application) => applications.push((file.location, application)),
+            Ok(application) => {
+                // Site and development additions belong to their operators; only the master
+                // catalog ships to every site.
+                if role == CatalogSourceRole::Master {
+                    diagnostics.extend(
+                        validate_sensitive_literals(&application)
+                            .into_iter()
+                            .map(|error| CatalogDiagnostic::new(file.location.clone(), error)),
+                    );
+                }
+                applications.push((file.location, application));
+            }
             Err(error) => diagnostics.push(CatalogDiagnostic::new(
                 file.location,
                 anyhow::Error::new(error),
