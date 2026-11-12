@@ -1606,10 +1606,13 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("radio", { name: "Hidden" })).toBeChecked();
       expect(route).toBeDisabled();
       expect(screen.queryByRole("button", { name: "Follow the deployment name" })).toBeNull();
-      expect(route).not.toHaveAccessibleDescription();
+      expect(route).toHaveAccessibleDescription(
+        "Hidden: no route of its own. Reachable only through other routes.",
+      );
 
       await user.click(screen.getByRole("radio", { name: "Direct" }));
       expect(screen.queryByRole("radio", { name: "Hidden" })).not.toBeInTheDocument();
+      expect(route).not.toHaveAccessibleDescription();
       expect(route).toBeEnabled();
       expect(screen.getByRole("button", { name: "Follow the deployment name" })).toHaveAttribute(
         "aria-pressed",
@@ -1697,7 +1700,7 @@ describe("ModelDeployDialog", () => {
       );
     });
 
-    it("shows the exposure choice above the route name in advanced mode", async () => {
+    it("shows the exposure choice in the route name label row in advanced mode", async () => {
       const user = setupUser();
       renderDialog();
       await screen.findByText("Step 1 of 3 — Profile");
@@ -1705,10 +1708,18 @@ describe("ModelDeployDialog", () => {
       for (let step = 0; step < 4; step += 1)
         await user.click(screen.getByRole("button", { name: "Next" }));
 
-      const direct = screen.getByRole("radio", { name: "Direct" });
       const route = screen.getByRole("textbox", { name: "Route name" });
-      expect(direct).toBeChecked();
-      expect(direct.compareDocumentPosition(route) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const labelRow = screen.getByText("Route name").parentElement!;
+      const group = within(labelRow).getByRole("radiogroup", { name: "Exposure" });
+      expect(within(group).getByRole("radio", { name: "Direct" })).toBeChecked();
+      expect(within(group).getByRole("radio", { name: "Hidden" })).not.toBeChecked();
+      expect(
+        within(labelRow).getByRole("button", { name: "Follow the deployment name" }),
+      ).toBeVisible();
+      expect(screen.queryByText("Exposure")).not.toBeInTheDocument();
+      expect(
+        labelRow.compareDocumentPosition(route) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
     });
 
     it("disables the route name and clears its error while the deployment is hidden", async () => {

@@ -1164,6 +1164,9 @@ describe("generic upstream endpoint UI", () => {
     await user.click(within(dialog).getByRole("radio", { name: "Hidden" }));
     expect(route).toBeDisabled();
     expect(route).not.toHaveAttribute("aria-invalid");
+    expect(route).toHaveAccessibleDescription(
+      "Hidden: no route of its own. Reachable only through other routes.",
+    );
     expect(within(dialog).queryByText(/Route name must start/)).not.toBeInTheDocument();
 
     // Basic mode keeps showing the choice while the deployment is hidden.
@@ -1177,6 +1180,26 @@ describe("generic upstream endpoint UI", () => {
 
     expect(onSubmit).toHaveBeenCalledOnce();
     expect(onSubmit.mock.calls[0][0]).toMatchObject({ exposure: "hidden" });
+  });
+
+  it("disables the exposure choice while the deployment is pending", async () => {
+    const user = setupUser();
+    const props = { open: true, onOpenChange: vi.fn(), onSubmit: vi.fn(), template };
+    const { rerender } = render(<UpstreamDeployDialog {...props} />);
+    const dialog = screen.getByRole("dialog", { name: "Upstream model — Deploy model" });
+    await user.type(within(dialog).getByLabelText("Base URL"), "https://endpoint.example/v1");
+    await user.type(within(dialog).getByLabelText("Upstream model ID"), "private-model");
+    await user.click(within(dialog).getByRole("checkbox", { name: "Advanced" }));
+    await openDeploy(dialog, user);
+    const direct = within(dialog).getByRole("radio", { name: "Direct" });
+    const hidden = within(dialog).getByRole("radio", { name: "Hidden" });
+    expect(direct).not.toHaveAttribute("aria-disabled", "true");
+
+    rerender(<UpstreamDeployDialog {...props} pending />);
+    expect(direct).toHaveAttribute("aria-disabled", "true");
+    await user.click(hidden);
+    expect(direct).toBeChecked();
+    expect(hidden).not.toBeChecked();
   });
 
   it("is full screen on small viewports and a centered card from sm with internal scrolling", () => {
