@@ -268,7 +268,7 @@ describe("ConsoleLayout", () => {
       await user.tab();
       expect(document.activeElement).toHaveAccessibleName("Open profile menu");
 
-      for (const path of ["/overview", "/machines"]) {
+      for (const path of ["/get-started", "/overview", "/machines"]) {
         await user.tab();
         expect(document.activeElement).toHaveAttribute("href", path);
       }

@@ -41,6 +41,11 @@ export interface Timing {
    * target observations, so verdicts stay current.
    */
   profileCompatibilityRefreshMs: number;
+  /**
+   * How long Get started waits after a deployment or machine change before it reads the
+   * recommendations again, so a burst of changes reads once.
+   */
+  recommendationReadMs: number;
 }
 
 /** The console's timing in production. */
@@ -56,6 +61,7 @@ export const productionTiming: Timing = Object.freeze({
   logReconnectMs: Object.freeze([250, 500, 1_000, 2_000, 4_000, 8_000]),
   resourceWatchReopenMs: 100,
   profileCompatibilityRefreshMs: 5_000,
+  recommendationReadMs: 300,
 });
 
 /** The timing in effect. */

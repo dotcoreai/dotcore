@@ -80,6 +80,7 @@ const deterministicModelClient: ModelClient = {
   },
   model: {
     listModelDeployments: () => Promise.resolve(create(ListModelDeploymentsResponseSchema)),
+    listModelRecommendations: () => Promise.reject(new Error("not faked")),
     createModelDeployment: () => Promise.reject(new Error("load not configured")),
     removeModelDeployment: () => Promise.reject(new Error("unload not configured")),
     updateModelDeployment: () => Promise.reject(new Error("update not configured")),
@@ -128,6 +129,7 @@ const deterministicApplicationClient: ApplicationClient = {
     listApplications: () => Promise.resolve(create(ListApplicationsResponseSchema)),
   },
   application: {
+    listApplicationTargets: () => Promise.reject(new Error("not faked")),
     listApplicationDeployments: () =>
       Promise.resolve(create(ListApplicationDeploymentsResponseSchema)),
     getApplicationDeployment: () => Promise.resolve(create(GetApplicationDeploymentResponseSchema)),

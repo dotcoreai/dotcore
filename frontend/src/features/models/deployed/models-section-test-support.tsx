@@ -144,6 +144,7 @@ export function renderModelsSection({
       ),
     },
     model: {
+      listModelRecommendations: vi.fn(),
       listModelDeployments: vi.fn(() =>
         Promise.resolve(create(ListModelDeploymentsResponseSchema, { deployments })),
       ),

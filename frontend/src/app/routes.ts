@@ -6,6 +6,7 @@ import { AppCatalogPage } from "@/features/applications/app-catalog-page";
 import { ApplicationsPage } from "@/features/applications/applications-page";
 import { ApplicationsSection } from "@/features/applications/applications-section";
 import { ChatPage } from "@/features/chat/chat-page";
+import { GetStartedPage } from "@/features/get-started/get-started-page";
 import { RoutesPage } from "@/features/inference-routes/routes-page";
 import { MachinesPage } from "@/features/machines/machines-page";
 import { ModelCatalogPage } from "@/features/models/catalog/model-catalog-page";
@@ -25,6 +26,10 @@ export const routes = [
       {
         path: "/overview",
         element: createElement(OverviewPage),
+      },
+      {
+        path: "/get-started",
+        element: createElement(GetStartedPage),
       },
       {
         path: "/models",

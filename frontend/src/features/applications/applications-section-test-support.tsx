@@ -229,6 +229,7 @@ export function clientFor(
       ),
     },
     application: {
+      listApplicationTargets: vi.fn(),
       listApplicationDeployments: vi.fn(() =>
         Promise.resolve(create(ListApplicationDeploymentsResponseSchema, { deployments })),
       ),

@@ -10,15 +10,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PreferencesSectionIcon } from "@/components/ui/section-icons";
+import { GetStartedSectionIcon, PreferencesSectionIcon } from "@/components/ui/section-icons";
 import { DiagnosticLogViewer } from "@/features/diagnostic-logs/diagnostic-log-viewer";
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
+import { useGetStartedDismissed } from "@/hooks/use-get-started-dismissed";
 import { useTheme } from "@/theme/theme-context";
 
 export function ProfileMenu() {
   const { diagnosticLogOperations: diagnostics } = useClients();
   const { colorScheme, setColorScheme } = useTheme();
   const navigate = useNavigate();
+  const [, setGetStartedDismissed] = useGetStartedDismissed();
   const [menuOpen, setMenuOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const openLogsAfterMenuCloseRef = useRef(false);
@@ -63,6 +65,15 @@ export function ProfileMenu() {
           className="w-[min(12rem,calc(100vw-16px))] border border-border"
           sideOffset={8}
         >
+          <DropdownMenuItem
+            onClick={() => {
+              setGetStartedDismissed(false);
+              void navigate("/get-started");
+            }}
+          >
+            <GetStartedSectionIcon aria-hidden="true" />
+            Get started
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => void navigate("/preferences")}>
             <PreferencesSectionIcon aria-hidden="true" />
             Preferences
