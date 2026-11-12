@@ -105,6 +105,7 @@ export const multiParameterReleases = [
         },
         {
           parameterId: "parallel-requests",
+          visibility: ParameterVisibility.HIDDEN,
           displayName: "Parallel requests",
           parameterType: {
             case: "unsignedInteger",
@@ -113,6 +114,7 @@ export const multiParameterReleases = [
         },
         {
           parameterId: "kv-cache-memory-bytes",
+          visibility: ParameterVisibility.HIDDEN,
           displayName: "KV cache memory",
           parameterType: {
             case: "unsignedInteger",
@@ -121,6 +123,7 @@ export const multiParameterReleases = [
         },
         {
           parameterId: "enable-prefix-caching",
+          visibility: ParameterVisibility.ADVANCED,
           displayName: "Prefix caching",
           description: "Caches reusable prompt prefixes.",
           parameterType: { case: "boolean", value: {} },
@@ -159,7 +162,6 @@ export const multiParameterModel = create(ModelSchema, {
       description: "Runs the model through vLLM for text inference.",
       configurationId: "vllm-cuda",
       defaultModelArtifactBindingId: "nvfp4-binding",
-      exposedParameterIds: ["enable-prefix-caching", "total-context"],
       engineParameterDefaults: {
         values: [
           { parameterId: "total-context", value: { case: "unsignedInteger", value: 32768n } },

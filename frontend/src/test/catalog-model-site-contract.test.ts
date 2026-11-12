@@ -418,10 +418,10 @@ describe("desired site and current-state contracts", () => {
       "configuration_id",
       "default_model_artifact_binding_id",
       "engine_parameter_defaults",
+      "engine_parameter_visibility_overrides",
       "display_name",
       "description",
       "option_defaults",
-      "exposed_parameter_ids",
     ]);
     expect(ModelParallelShape.ONE).toBe(1);
 

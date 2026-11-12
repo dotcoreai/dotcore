@@ -143,3 +143,62 @@ describe("starting values", () => {
     ).toEqual(["total-context", "flash-attention", "no-default"]);
   });
 });
+
+describe("effective visibility", () => {
+  const parameter = (parameterId: string, visibility: ParameterVisibility) => ({
+    parameterId,
+    displayName: parameterId,
+    visibility,
+    parameterType: {
+      case: "unsignedInteger" as const,
+      value: { minimum: 1n, maximum: 10n, unit: "" },
+    },
+  });
+  const release = create(EngineReleaseSchema, {
+    parameterSchema: {
+      parameters: [
+        parameter("total-context", ParameterVisibility.BASIC),
+        parameter("parallel-requests", ParameterVisibility.ADVANCED),
+        parameter("kv-offload", ParameterVisibility.HIDDEN),
+        parameter("cache", ParameterVisibility.ADVANCED),
+      ],
+    },
+  });
+  const shown = (overrides: Array<[string, ParameterVisibility]>) =>
+    effectiveEngineParameters(
+      release,
+      create(ModelProfileSchema, {
+        engineParameterVisibilityOverrides: overrides.map(([parameterId, visibility]) => ({
+          parameterId,
+          visibility,
+        })),
+      }),
+    ).map((candidate) => candidate.parameterId);
+
+  it("shows the engine's basic and advanced parameters in schema order", () => {
+    expect(shown([])).toEqual(["total-context", "parallel-requests", "cache"]);
+  });
+
+  it("lets a profile hide an advanced parameter", () => {
+    expect(shown([["parallel-requests", ParameterVisibility.HIDDEN]])).toEqual([
+      "total-context",
+      "cache",
+    ]);
+  });
+
+  it("lets a profile show a hidden parameter, in schema order", () => {
+    expect(shown([["kv-offload", ParameterVisibility.ADVANCED]])).toEqual([
+      "total-context",
+      "parallel-requests",
+      "kv-offload",
+      "cache",
+    ]);
+  });
+
+  it("lets a profile hide the total context", () => {
+    expect(shown([["total-context", ParameterVisibility.HIDDEN]])).toEqual([
+      "parallel-requests",
+      "cache",
+    ]);
+  });
+});
