@@ -1,13 +1,9 @@
-import { StatusBadge } from "@/components/ui/status-badge";
 import type { UseCase } from "@/gen/dotcore/catalog/v1/recommendation_pb";
 
 import type { UseCaseProposal } from "./get-started-proposals";
 import { useCaseCopy } from "./use-case-copy";
 
-/**
- * The use cases Get started offers, one pressable card each. A card is marked ready when the site
- * already serves its use case.
- */
+/** The use cases Get started offers, one pressable card each. */
 export function UseCaseCards({
   onSelect,
   proposals,
@@ -23,7 +19,7 @@ export function UseCaseCards({
       className="grid grid-cols-[repeat(auto-fit,minmax(190px,1fr))] gap-2.5"
       role="group"
     >
-      {proposals.map(({ ready, useCase }) => {
+      {proposals.map(({ useCase }) => {
         const { description, icon: Icon, label } = useCaseCopy[useCase];
         return (
           <button
@@ -36,11 +32,6 @@ export function UseCaseCards({
             <span className="flex items-center gap-2 text-sm font-semibold">
               <Icon aria-hidden="true" className="size-4" />
               {label}
-              {ready ? (
-                <span className="ml-auto">
-                  <StatusBadge status={{ label: "Ready", tone: "success" }} />
-                </span>
-              ) : null}
             </span>
             <span className="text-[12.5px] text-muted-foreground">{description}</span>
           </button>

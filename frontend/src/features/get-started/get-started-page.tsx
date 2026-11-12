@@ -110,24 +110,30 @@ export function GetStartedPage() {
       else next.delete(useCase);
       return next;
     });
-  // What the use case runs, named as the card shows it, with the ids of what already runs.
-  const planned = (): FollowedDeployments => {
+  // What the use case runs with `model`, named as the card shows it, with the ids of what
+  // already runs.
+  const planned = (model = choice): FollowedDeployments => {
     const app = proposal?.app;
     return {
       application: app?.target?.target && {
         id: app.target.applicationDeploymentId,
         name: app.application.displayName || app.application.applicationId,
       },
-      model: choice && {
-        id: choice.deploymentId,
+      model: model && {
+        id: model.deploymentId,
         name:
-          launch?.name ??
-          (choice.deployment
-            ? modelDeploymentPresentationName(choice.deployment)
-            : catalogModel?.displayName || choice.modelId),
+          (model === choice ? launch?.name : undefined) ??
+          (model.deployment
+            ? modelDeploymentPresentationName(model.deployment)
+            : catalogModel?.displayName || model.modelId),
       },
     };
   };
+  // A use case the site already serves opens on its ready step, which then follows what serves it
+  // like a deploy from this page.
+  if (!followed && proposal?.ready && deployer.pending === undefined) {
+    setFollowing((current) => new Map(current).set(useCase, planned(proposal.model)));
+  }
   // Leaves a failed or removed deployment's progress for the proposal, which can deploy afresh.
   const back = () => {
     follow(undefined);

@@ -90,6 +90,7 @@ import {
   MachineSchema,
   NodeObservationState,
 } from "@/gen/dotcore/site/v1/service_pb";
+import * as clipboard from "@/lib/clipboard";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch } from "@/test/fake-resource-watch";
 import { renderWithClients } from "@/test/render-with-clients";
@@ -131,9 +132,14 @@ const estimates: Record<string, number> = {
 };
 
 let compatibilityReads: ListModelProfileCompatibilityRequest[];
+const writeClipboard = vi.fn<typeof clipboard.writeClipboard>();
 
 beforeEach(() => {
   compatibilityReads = [];
+  writeClipboard.mockReset().mockResolvedValue(undefined);
+  vi.spyOn(clipboard, "writeClipboard").mockImplementation(writeClipboard);
+  // The inference origin comes from the environment; pin it so command assertions are deterministic.
+  vi.stubEnv("VITE_DOTCORE_INFERENCE_ORIGIN", "http://192.0.2.10:6208");
 });
 
 describe("GetStartedPage", () => {
@@ -151,9 +157,9 @@ describe("GetStartedPage", () => {
     });
 
     expect(useCaseCards()).toEqual([
-      { label: "Chat assistant", pressed: true, ready: false },
-      { label: "Coding", pressed: false, ready: false },
-      { label: "Image generation", pressed: false, ready: false },
+      { label: "Chat assistant", pressed: true },
+      { label: "Coding", pressed: false },
+      { label: "Image generation", pressed: false },
     ]);
     await waitFor(() => expect(detailsOf("Model")).toContainEqual(["Memory", "22 GiB"]));
     expect(modelItem()).toEqual({
@@ -222,16 +228,15 @@ describe("GetStartedPage", () => {
     expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("shows a running model with its own context and memory, and continues when all runs", async () => {
+  it("proposes the app next to a running model, shown with its own context and memory", async () => {
     await renderPage({
-      applicationDeployments: [applicationDeployment("app-1")],
       machines: [{ id: "gpu1", vramGib: 32 }],
       modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
       rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
-      targets: { "open-webui": [["gpu1", true, "app-1"]] },
+      targets: { "open-webui": [["gpu1", true]] },
     });
 
-    await waitFor(() => expect(useCaseCards()[0]).toMatchObject({ ready: true }));
+    await waitFor(() => expect(detailsOf("Model")).toContainEqual(["Memory", "23 GiB"]));
     expect(modelItem()).toEqual({
       choices: undefined,
       customize: false,
@@ -243,8 +248,39 @@ describe("GetStartedPage", () => {
       head: ["Qwen3.8 27B", "NVFP4", "ninfer", "Ready"],
       notice: undefined,
     });
-    expect(primaryAction()).toEqual({ disabled: false, name: "Continue" });
+    expect(appItem().head).toEqual(["Open WebUI", "0.11.4"]);
+    expect(primaryAction()).toEqual({ disabled: false, name: "Deploy" });
+    expect(screen.queryByRole("region", { name: "Ready" })).not.toBeInTheDocument();
     expect(compatibilityReads).toEqual([]);
+  });
+
+  it("opens a served use case on its ready step, with no ready marks on the use cases", async () => {
+    const { site, watch } = await renderPage({
+      applicationDeployments: [readyApp()],
+      machines: [{ id: "gpu1", vramGib: 32 }],
+      modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
+      routes: [routeView("qwen3.8-27b", ["dep-1"])],
+      rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
+      targets: { "open-webui": [["gpu1", true, "app-new"]] },
+    });
+
+    const ready = await screen.findByRole("region", { name: "Ready" });
+    expect(readyItems(ready)).toMatchObject([
+      { action: "Chat", kind: "Model", name: "Qwen3.8 27B", status: "Ready" },
+      { action: "Open", kind: "App", name: "Open WebUI", status: "Ready" },
+    ]);
+    expect(screen.queryByRole("button", { name: /^(Deploy|Continue)$/ })).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole("group", { name: "Use case" })).queryByText("Ready"),
+    ).not.toBeInTheDocument();
+
+    // The model stops being ready: the step follows it back to its progress.
+    site.modelDeployments!.splice(0, 1, {
+      ...modelDeployment("dep-1", "gpu1", 65536n, 23n * gib),
+      state: create(ModelDeploymentStateSchema, { status: ModelDeploymentStatus.LOADING }),
+    });
+    await act(() => watch.tick());
+    await waitFor(() => expect(progressItems()[0]).toMatchObject({ status: "Loading" }));
   });
 
   it("says why no machine has room for a model and keeps the app", async () => {
@@ -799,32 +835,78 @@ describe("GetStartedPage", () => {
       );
     });
 
-    it("continues to the coding commands when the model already runs", async () => {
+    it("continues to the progress when everything runs but is not ready yet", async () => {
+      const user = setupUser();
+      const { site, watch } = await renderPage({
+        applicationDeployments: [startingApp(ApplicationLifecycleState.STARTING, 1)],
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
+        routes: [routeView("qwen3.8-27b", ["dep-1"])],
+        rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
+        targets: { "open-webui": [["gpu1", true, "app-new"]] },
+      });
+
+      await user.click(await screen.findByRole("button", { name: "Continue" }));
+      await waitFor(() => expect(progressItems()[1]).toMatchObject({ status: "Starting" }));
+
+      site.applicationDeployments!.splice(0, 1, readyApp());
+      await act(() => watch.tick());
+      expect(await screen.findByRole("region", { name: "Ready" })).toBeVisible();
+    });
+
+    it("opens served coding on its ready step and picks the agent whose command to copy", async () => {
       const user = setupUser();
       await renderPage({
         machines: [{ id: "gpu1", vramGib: 32 }],
         modelDeployments: [modelDeployment("dep-1", "gpu1", 131072n, 23n * gib, "Qwen coder")],
         routes: [routeView("qwen-coder", ["dep-1"])],
-        rows: { [CODING]: [["qwen-27b", "nvfp4", 131072, "gpu1", "dep-1"]] },
-        targets: {},
+        rows: {
+          [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1"]],
+          [CODING]: [["qwen-27b", "nvfp4", 131072, "gpu1", "dep-1"]],
+        },
+        targets: { "open-webui": [["gpu1", true]] },
       });
+      expect(await screen.findByRole("region", { name: "Model" })).toBeVisible();
+
       await user.click(screen.getByRole("button", { name: /Coding/ }));
 
-      await user.click(await screen.findByRole("button", { name: "Continue" }));
-
-      const agent = await screen.findByRole("region", { name: "Coding agent" });
-      expect([...agent.querySelectorAll("code")].map((code) => code.textContent)).toEqual([
-        "dotc code opencode --model qwen-coder --inference-addr http://localhost:3000",
-        "dotc code pi --model qwen-coder --inference-addr http://localhost:3000",
-      ]);
-      expect(
-        within(agent)
-          .getAllByRole("button")
-          .map((button) => button.getAttribute("aria-label")),
-      ).toEqual(["Copy OpenCode", "Copy Pi"]);
       expect(readyItems(screen.getByRole("region", { name: "Ready" }))).toMatchObject([
         { action: "Chat", kind: "Model", name: "Qwen coder", status: "Ready" },
       ]);
+      const agent = screen.getByRole("region", { name: "Coding agent" });
+      const agents = within(agent).getByRole("radiogroup", { name: "Coding agent" });
+      expect(
+        within(agents)
+          .getAllByRole("radio")
+          .map((radio) => [radio.textContent, radio.getAttribute("aria-checked")]),
+      ).toEqual([
+        ["OpenCode", "true"],
+        ["Pi", "false"],
+        ["Codex", "false"],
+      ]);
+      const shown = () => [...agent.querySelectorAll("code")].map((code) => code.textContent);
+      expect(shown()).toEqual([
+        "dotc code opencode --model qwen-coder --inference-addr http://192.0.2.10:6208",
+      ]);
+      await user.click(within(agent).getByRole("button", { name: "Copy OpenCode command" }));
+      expect(writeClipboard).toHaveBeenLastCalledWith(
+        "dotc code opencode --model qwen-coder --inference-addr http://192.0.2.10:6208",
+      );
+
+      await user.click(within(agents).getByRole("radio", { name: "Pi" }));
+      expect(shown()).toEqual([
+        "dotc code pi --model qwen-coder --inference-addr http://192.0.2.10:6208",
+      ]);
+
+      await user.click(within(agents).getByRole("radio", { name: "Codex" }));
+      expect(shown()).toEqual([
+        "dotc code codex --model qwen-coder --inference-addr http://192.0.2.10:6208",
+      ]);
+      await user.click(within(agent).getByRole("button", { name: "Copy Codex command" }));
+      expect(writeClipboard).toHaveBeenLastCalledWith(
+        "dotc code codex --model qwen-coder --inference-addr http://192.0.2.10:6208",
+      );
+      expect(within(agent).getAllByRole("button")).toHaveLength(1);
     });
 
     it("opens the image generation app once it is ready", async () => {
@@ -1296,7 +1378,6 @@ function useCaseCards() {
     .map((card) => ({
       label: card.querySelector("span")?.firstChild?.nextSibling?.textContent,
       pressed: card.getAttribute("aria-pressed") === "true",
-      ready: within(card).queryByText("Ready") !== null,
     }));
 }
 
