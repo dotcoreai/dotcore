@@ -14,8 +14,8 @@ use dotcore_proto::dotcore::catalog::v1::{
     EngineArtifact, EngineRelease, HardwareClass, HuggingFaceArtifactSource, InferenceRequestKind,
     IntelligenceScore, License, Model, ModelArtifact, ModelConfigurationOption,
     ModelEngineConfiguration, ModelInputCapabilities, ModelInputModality,
-    ModelOptionParameterDefinition, ParameterValue, ParameterValues, SpeculativeDecodingMethod,
-    hugging_face_artifact_source::Content as HuggingFaceContent,
+    ModelOptionParameterDefinition, ModelProfile, ParameterValue, ParameterValues,
+    SpeculativeDecodingMethod, hugging_face_artifact_source::Content as HuggingFaceContent,
     model_option::Kind as ModelOptionKind,
     model_option_parameter_definition::ParameterType as ModelOptionParameterType,
     parameter_definition::ParameterType as EngineParameterType,
@@ -30,7 +30,7 @@ use crate::{
         valid_option_values,
     },
     selector::{SelectorRelation, selector_relation},
-    shared_parameters::profile_may_default,
+    shared_parameters::{profile_may_default, profile_visibility_problem},
     typed_parameters::default_value,
     validation::{EngineDeclarationValidator, configuration_engine_release},
 };
@@ -819,24 +819,7 @@ fn validate_profiles(
         let Some(engine) = configuration_engine_release(configuration, engines) else {
             continue;
         };
-        if !profile.exposed_parameter_ids.is_empty() {
-            let mut exposed_ids = BTreeSet::new();
-            let schema = engine.parameter_schema.as_ref();
-            if profile.exposed_parameter_ids.iter().any(|parameter_id| {
-                !exposed_ids.insert(parameter_id)
-                    || schema.is_none_or(|schema| {
-                        !schema
-                            .parameters
-                            .iter()
-                            .any(|definition| definition.parameter_id == *parameter_id)
-                    })
-            }) {
-                errors.push(anyhow::anyhow!(
-                    "profile {:?} has invalid exposed engine parameters",
-                    profile.profile_id
-                ));
-            }
-        }
+        validate_visibility_overrides(profile, engine, errors);
         match profile.engine_parameter_defaults.as_ref() {
             Some(values) => {
                 validate_supplied_parameter_values(values, engine, &profile.profile_id, errors);
@@ -863,6 +846,44 @@ fn validate_profiles(
             errors.push(anyhow::anyhow!(
                 "profile {:?} has invalid resolved model options: {error}",
                 profile.profile_id
+            ));
+        }
+    }
+}
+
+/// Validates a profile's engine parameter visibility overrides: each names a parameter of the
+/// engine release once, with a visibility the shared parameter rules allow for profiles.
+fn validate_visibility_overrides(
+    profile: &ModelProfile,
+    engine: &EngineRelease,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    let profile_id = &profile.profile_id;
+    let mut ids = BTreeSet::new();
+    for visibility_override in &profile.engine_parameter_visibility_overrides {
+        let parameter_id = &visibility_override.parameter_id;
+        if !engine
+            .parameter_schema
+            .iter()
+            .flat_map(|schema| &schema.parameters)
+            .any(|definition| &definition.parameter_id == parameter_id)
+        {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} overrides the visibility of engine parameter {parameter_id:?}, which is not a parameter of the engine release"
+            ));
+            continue;
+        }
+        if !ids.insert(parameter_id) {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} overrides the visibility of engine parameter {parameter_id:?} more than once"
+            ));
+            continue;
+        }
+        if let Some(problem) =
+            profile_visibility_problem(parameter_id, visibility_override.visibility())
+        {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} engine parameter {parameter_id:?} {problem}"
             ));
         }
     }

@@ -11,7 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_proto::dotcore::catalog::v1::{
     Application, EngineRelease, HardwareClass, HardwareClassRecommendations, Model,
-    ModelEngineConfiguration, ParameterDefinition, ParameterValues, UpstreamModelTemplate,
+    ModelEngineConfiguration, ParameterDefinition, ParameterValues, ParameterVisibility,
+    UpstreamModelTemplate,
 };
 
 use super::{
@@ -458,6 +459,29 @@ fn validate_sizing_coverage(
                     .into_iter()
                     .filter(|parameter_id| parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID)
                 {
+                    let hidden = profile.engine_parameter_visibility_overrides.iter().any(
+                        |visibility_override| {
+                            visibility_override.parameter_id == parameter_id
+                                && visibility_override.visibility() == ParameterVisibility::Hidden
+                        },
+                    );
+                    // A hidden parameter is one the operator can never set, so it needs a value
+                    // on every binding and class.
+                    if hidden
+                        && class_bindings().any(|(hardware_class_id, binding)| {
+                            !binding_sizing(hardware_class_id, &binding.binding_id)
+                                .is_some_and(|sizing| sizing.derives(&parameter_id))
+                        })
+                    {
+                        diagnostics.push(CatalogDiagnostic::new(
+                            &location,
+                            anyhow::anyhow!(
+                                "profile {:?} hides engine parameter {parameter_id:?}, which has no default and which sizing does not derive on every binding and hardware class",
+                                profile.profile_id
+                            ),
+                        ));
+                        continue;
+                    }
                     for (hardware_class_id, binding) in class_bindings() {
                         if !binding_sizing(hardware_class_id, &binding.binding_id)
                             .is_some_and(|sizing| sizing.derives(&parameter_id))

@@ -1795,6 +1795,57 @@ artifacts:
     }
 
     #[test]
+    fn a_profile_hides_only_parameters_with_a_default_or_a_derivation_on_every_binding() {
+        let hidden = r#"    engineParameterVisibilityOverrides:
+      - { parameterId: "prompt-cache-memory-mib", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
+"#;
+        let load = |case: &str, sizing: &str, binding_sizing: &str, values: &str| {
+            let root = temporary_catalog_root().join(case);
+            create_empty_catalog_source(&root);
+            write_sizing_engine(&root);
+            write_sizing_model_with(&root, sizing, binding_sizing, &format!("{values}{hidden}"));
+            Catalog::load_with_policy(
+                &root,
+                OciArtifactPolicy::Development,
+                &ACCEPT_ENGINE_DECLARATIONS,
+            )
+        };
+
+        let error = load("unset", "", "", "      values: []\n")
+            .expect_err("a hidden parameter without a value must reject")
+            .to_string();
+        assert!(
+            error.contains(
+                "profile \"balanced\" hides engine parameter \"prompt-cache-memory-mib\", which has no default and which sizing does not derive on every binding and hardware class"
+            ),
+            "{error}"
+        );
+        assert!(!error.contains("omits engine parameter"), "{error}");
+
+        load(
+            "defaulted",
+            "",
+            "",
+            &format!("      values:\n{}", SIZING_ENGINE_CACHE_DEFAULT),
+        )
+        .expect("a profile default gives the hidden parameter its value");
+        load(
+            "derived",
+            r#"    sizing:
+      derivedParameters:
+        prompt-cache-memory-mib: "4096"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: "${prompt-cache-memory-mib}"
+"#,
+            UNPARAMETERIZED_BINDING_SIZING,
+            "      values: []\n",
+        )
+        .expect("sizing gives the hidden parameter its value on every binding");
+    }
+
+    #[test]
     fn profile_defaults_overlay_the_engine_defaults_per_parameter() {
         let load = |profile_defaults: &str| {
             shared_parameter_catalog(

@@ -21,9 +21,10 @@ use dotcore_proto::{
             ModelInputModality, ModelOption, ModelOptionParameterDefinition,
             ModelOptionParameterValue, ModelOptionValues, ModelParallelShape, ModelProfile,
             OciImageReference, OciPlatform, ParameterDefinition, ParameterValue, ParameterValues,
-            ParameterVisibility, Selector, StringEnumModelOptionParameterSchema,
-            UnsignedIntegerModelOptionParameterSchema, UnsignedIntegerParameterSchema,
-            VisionModelOption, engine_artifact, model_option::Kind as ModelOptionKind,
+            ParameterVisibility, ParameterVisibilityOverride, Selector,
+            StringEnumModelOptionParameterSchema, UnsignedIntegerModelOptionParameterSchema,
+            UnsignedIntegerParameterSchema, VisionModelOption, engine_artifact,
+            model_option::Kind as ModelOptionKind,
             model_option_parameter_definition::ParameterType as ModelOptionParameterType,
             model_option_parameter_value::Value as ModelOptionValueKind,
             parameter_definition::ParameterType as EngineParameterType,
@@ -589,7 +590,10 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
         display_name: "Fast start".to_owned(),
         description: "Balances model quality and startup speed with Q4 weights.".to_owned(),
         option_defaults: Vec::new(),
-        exposed_parameter_ids: vec!["total-context".to_owned()],
+        engine_parameter_visibility_overrides: vec![ParameterVisibilityOverride {
+            parameter_id: "total-context".to_owned(),
+            visibility: ParameterVisibility::Hidden as i32,
+        }],
     };
     let model = Model {
         model_id: "gemma-4-e2b".to_owned(),
@@ -1153,10 +1157,17 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("configuration_id", 2),
             ("default_model_artifact_binding_id", 3),
             ("engine_parameter_defaults", 4),
+            ("engine_parameter_visibility_overrides", 9),
             ("display_name", 5),
             ("description", 6),
             ("option_defaults", 7),
-            ("exposed_parameter_ids", 8),
+        ]
+    );
+    assert_eq!(
+        field_layout(catalog, "ParameterVisibilityOverride"),
+        [
+            ("parameter_id", 1, "TYPE_STRING"),
+            ("visibility", 2, ".dotcore.catalog.v1.ParameterVisibility"),
         ]
     );
     assert_eq!(
