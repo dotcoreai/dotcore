@@ -16,11 +16,11 @@ use dotcore_domain::{SiteNodeHost, SiteNodeId};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
-        ApplicationStorageAttachment,
+        ApplicationSecretAttachment, ApplicationStorageAttachment,
     },
     catalog::v1::{
         Application, ApplicationDependencyCondition, ApplicationInferenceRouteProjection,
-        ParameterValue, StorageScope, application_configuration_binding,
+        ApplicationSecretForm, ParameterValue, StorageScope, application_configuration_binding,
         application_deployment_input, application_service_readiness,
     },
 };
@@ -92,7 +92,6 @@ fn deployment_storage_key(desired: &ApplicationDeploymentDeclaration) -> String 
     desired.application_deployment_id.clone()
 }
 
-#[derive(Debug)]
 struct LaunchPlan {
     deployment_id: String,
     site_node_id: SiteNodeId,
@@ -325,10 +324,12 @@ struct LaunchPrimaryEndpoint {
     port_name: String,
 }
 
-#[derive(Debug)]
+/// Retained attachment values keyed by service and binding name. It holds secret values, so it
+/// has no `Debug` form.
 struct AttachmentIndexes {
     storage: BTreeMap<(String, String), String>,
     configuration: BTreeMap<(String, String), String>,
+    secret: BTreeMap<(String, String), String>,
 }
 
 impl AttachmentIndexes {
@@ -361,19 +362,33 @@ impl AttachmentIndexes {
                 ))
             })
             .collect::<Result<BTreeMap<_, _>, ApplicationLifecycleError>>()?;
+        let secret = desired
+            .secret_attachments
+            .iter()
+            .map(|attachment| {
+                (
+                    (
+                        attachment.service_name.clone(),
+                        attachment.binding_name.clone(),
+                    ),
+                    attachment.value.clone(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
         if storage.len() != desired.storage_attachments.len()
             || configuration_values.len() != desired.configuration_attachments.len()
+            || secret.len() != desired.secret_attachments.len()
         {
             return Err(configuration("Application attachment is duplicated"));
         }
         Ok(Self {
             storage,
             configuration: configuration_values,
+            secret,
         })
     }
 }
 
-#[derive(Debug)]
 struct WorkloadUnitPlan {
     image: String,
     command: Vec<String>,
@@ -415,6 +430,17 @@ impl WorkloadUnitPlan {
                 Ok((binding.environment_variable.clone(), value))
             })
             .collect::<Result<_, ApplicationLifecycleError>>()?;
+        for binding in &service.secret_bindings {
+            let value = attachments
+                .secret
+                .get(&(service.service_name.clone(), binding.binding_name.clone()))
+                .cloned()
+                .ok_or_else(|| configuration("Application secret attachment is missing"))?;
+            environment.push((
+                binding.environment_variable.clone(),
+                LaunchEnvironmentValue::Fixed(value),
+            ));
+        }
         let host_aliases = service
             .configuration_bindings
             .iter()
@@ -543,7 +569,6 @@ impl WorkloadUnitPlan {
     }
 }
 
-#[derive(Debug)]
 enum LaunchEnvironmentValue {
     Fixed(String),
 
@@ -570,8 +595,14 @@ fn canonical_launch_generation(
     publication: &WorkloadPublicationRequest,
 ) -> u64 {
     let mut value = 0xcbf29ce484222325_u64;
+    // A unit's `Debug` form leaves out environment values, so they are hashed explicitly.
+    let environment = units
+        .values()
+        .flat_map(|unit| &unit.environment)
+        .map(|(name, value)| format!("{name}={value}\n"))
+        .collect::<String>();
     for byte in format!(
-        "{execution_target:?}:{execution_target_id}:{required_platform:?}:{units:?}:{publication:?}"
+        "{execution_target:?}:{execution_target_id}:{required_platform:?}:{units:?}:{publication:?}:{environment}"
     )
     .bytes()
     {
@@ -617,13 +648,6 @@ pub(super) fn configuration_attachments(
         .graph
         .as_ref()
         .ok_or_else(|| configuration("Application graph is missing"))?;
-    if graph
-        .services
-        .iter()
-        .any(|service| !service.secret_bindings.is_empty())
-    {
-        return Err(ApplicationLifecycleError::FailedPrecondition);
-    }
     let resolve = &resolve;
     graph
         .services
@@ -693,6 +717,47 @@ fn configuration_attachment_value(
         }
         None => Err(configuration("Application configuration source is invalid")),
     }
+}
+
+/// Resolves the retained secret attachments of a new deployment: each secret binding receives its
+/// parameter's resolved value in the binding's form.
+pub(super) fn secret_attachments(
+    application: &Application,
+    parameter_values: &[ParameterValue],
+) -> Result<Vec<ApplicationSecretAttachment>, ApplicationLifecycleError> {
+    let graph = application
+        .graph
+        .as_ref()
+        .ok_or_else(|| configuration("Application graph is missing"))?;
+    graph
+        .services
+        .iter()
+        .flat_map(|service| {
+            service.secret_bindings.iter().map(move |binding| {
+                let value = canonical_value_text(parameter_values, &binding.parameter_id)
+                    .ok_or_else(|| {
+                        configuration("Application secret parameter value is missing")
+                    })?;
+                let value = match ApplicationSecretForm::try_from(binding.form) {
+                    Ok(ApplicationSecretForm::Plain) => value,
+                    Ok(ApplicationSecretForm::Unspecified) | Err(_) => {
+                        return Err(configuration("Application secret binding form is invalid"));
+                    }
+                };
+                if !valid_configuration_value(&value) {
+                    return Err(configuration(
+                        "Application secret value cannot be represented safely",
+                    ));
+                }
+                Ok(ApplicationSecretAttachment {
+                    service_name: service.service_name.clone(),
+                    binding_name: binding.binding_name.clone(),
+                    environment_variable: binding.environment_variable.clone(),
+                    value,
+                })
+            })
+        })
+        .collect()
 }
 
 pub(super) fn storage_attachments(

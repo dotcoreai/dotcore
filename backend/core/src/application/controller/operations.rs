@@ -527,7 +527,8 @@ fn resolve_application<D, S>(
 }
 
 /// Builds the declaration of a new deployment on `placement`, with its immutable snapshot for
-/// the selected `platform`, the parameter values resolved from the request, and a published host
+/// the selected `platform`, the parameter values resolved from the request with missing secrets
+/// generated, the secret attachments derived from them once, and a published host
 /// port no other retained deployment holds, even one still tearing down. Local-development launch
 /// identities are left empty for the hosting node to pin once on its own image store.
 fn declaration<D, S>(
@@ -543,12 +544,13 @@ where
     D: ApplicationDeclarationRepository,
     S: CurrentApplicationRepository + ApplicationLifecycleGenerations,
 {
-    let parameter_values = super::parameters::resolve_parameter_values(
+    let parameters = super::parameters::resolve_parameter_values(
         application
             .graph
             .as_ref()
             .ok_or(ApplicationLifecycleError::FailedPrecondition)?,
         &request.parameter_values,
+        owner.secret_generator.as_ref(),
     )?;
     // The link is checked for identity and generation only; route availability never gates creation.
     if let Some(inference_route_id) = request.inference_route_id.as_deref() {
@@ -586,9 +588,10 @@ where
                 .configuration_sources
                 .resolve(name, site, &placement.site_node_id, published_port)
         },
-        &parameter_values,
+        &parameters.values,
         request.inference_route_id.is_some(),
     )?;
+    let secret_attachments = super::launch::secret_attachments(&application, &parameters.values)?;
     let storage_attachments = super::launch::storage_attachments(&application)?;
 
     Ok(ApplicationDeploymentDeclaration {
@@ -600,12 +603,14 @@ where
         .map_err(|_| ApplicationLifecycleError::InvalidName)?,
         placement: Some(placement.clone()),
         snapshot: Some(ResolvedApplicationDeploymentSnapshot {
-            parameter_values,
+            parameter_values: parameters.values,
+            generated_parameter_ids: parameters.generated_parameter_ids,
             ..resolve_snapshot(&application, site, placement, platform)?
         }),
         desired_state: ApplicationDeploymentDesiredState::Present as i32,
         storage_attachments,
         configuration_attachments,
+        secret_attachments,
         inference_route_id: request.inference_route_id,
         lifecycle_generation: 0,
         node_resolved_launch_identities: Vec::new(),
@@ -741,6 +746,7 @@ pub(super) fn resolve_snapshot(
         platform: Some(platform.clone()),
         service_selections,
         parameter_values: Vec::new(),
+        generated_parameter_ids: Vec::new(),
     })
 }
 

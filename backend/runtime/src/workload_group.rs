@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt,
     net::Ipv4Addr,
     num::NonZeroU16,
     time::{Duration, SystemTime},
@@ -245,8 +246,9 @@ pub struct WorkloadGroupLaunch {
     pub host_aliases: BTreeSet<dotcore_domain::SiteNodeHost>,
 }
 
-/// One named runtime-neutral OCI unit in a workload group.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One named runtime-neutral OCI unit in a workload group. Its environment may carry secrets, so
+/// its `Debug` form names the environment variables without their values.
+#[derive(Clone, PartialEq, Eq)]
 pub struct WorkloadUnitLaunch {
     /// Exact immutable image identity selected and retained by the owning controller.
     pub image: String,
@@ -262,6 +264,26 @@ pub struct WorkloadUnitLaunch {
     pub dependencies: Vec<WorkloadUnitDependency>,
     /// A bounded launch gate for READY dependents. It is not authoritative readiness.
     pub ready_launch_gate: Option<ReadyLaunchGate>,
+}
+
+impl fmt::Debug for WorkloadUnitLaunch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("WorkloadUnitLaunch")
+            .field("image", &self.image)
+            .field("command", &self.command)
+            .field("arguments", &self.arguments)
+            .field("environment", &self.environment.keys().collect::<Vec<_>>())
+            .field(
+                "reconfigurable_environment",
+                &self.reconfigurable_environment,
+            )
+            .field("storage", &self.storage)
+            .field("ports", &self.ports)
+            .field("dependencies", &self.dependencies)
+            .field("ready_launch_gate", &self.ready_launch_gate)
+            .finish()
+    }
 }
 
 /// One condition on another named unit in the same group.

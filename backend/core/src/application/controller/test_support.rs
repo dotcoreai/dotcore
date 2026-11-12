@@ -861,6 +861,7 @@ pub(super) fn manager_controller(
             target_capabilities,
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller")
@@ -1149,6 +1150,7 @@ where
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
         artifacts,
     )
@@ -1174,6 +1176,7 @@ where
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver,
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller")
@@ -1193,6 +1196,7 @@ where
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller")
@@ -2768,6 +2772,32 @@ pub(super) fn test_inference_route_resolver_with(
     Arc::new(TestInferenceRouteResolver { result })
 }
 
+/// A secret generator whose values tests can predict: the `n`th call returns `secret<n>` padded
+/// with `x` to the requested length.
+pub(super) fn test_secret_generator() -> Arc<dyn super::SecretGenerator> {
+    Arc::new(SequentialSecretGenerator::default())
+}
+
+/// The `n`th value [`test_secret_generator`] returns at `length`, counting from 1.
+pub(super) fn sequential_secret(n: usize, length: usize) -> String {
+    let mut value = format!("secret{n}");
+    value.extend(std::iter::repeat_n('x', length.saturating_sub(value.len())));
+    value.truncate(length);
+    value
+}
+
+#[derive(Default)]
+struct SequentialSecretGenerator {
+    calls: AtomicUsize,
+}
+
+impl super::SecretGenerator for SequentialSecretGenerator {
+    fn generate(&self, length: usize) -> anyhow::Result<String> {
+        let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        Ok(sequential_secret(n, length))
+    }
+}
+
 pub(super) fn resolved_route(route_name: &str) -> ResolvedInferenceRoute {
     ResolvedInferenceRoute {
         inference_route_id: "route-id".to_owned(),
@@ -2813,6 +2843,7 @@ pub(super) fn deployment(
         desired_state: desired_state as i32,
         storage_attachments: Vec::new(),
         configuration_attachments: Vec::new(),
+        secret_attachments: Vec::new(),
         inference_route_id: None,
         lifecycle_generation: 1,
         node_resolved_launch_identities: Vec::new(),
@@ -2865,6 +2896,7 @@ pub(super) fn controller_for_application_and_target_source(
             target_capabilities,
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller")
@@ -2992,6 +3024,69 @@ pub(super) fn application_with_parameters() -> Application {
         })
         .collect();
     application
+}
+
+/// The test application with a text `username` parameter bound to `USERNAME` and a secret
+/// `password` parameter bound in plain form to `PASSWORD`.
+pub(super) fn application_with_secret_parameters() -> Application {
+    use dotcore_proto::dotcore::catalog::v1::{
+        ApplicationSecretBinding, ApplicationSecretForm, ParameterDefinition, ParameterVisibility,
+        TextParameterSchema, parameter_definition::ParameterType,
+    };
+
+    let mut application = application();
+    let graph = application.graph.as_mut().expect("graph");
+    graph.parameters = vec![
+        ParameterDefinition {
+            parameter_id: "username".to_owned(),
+            display_name: "Username".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::Text(TextParameterSchema {
+                minimum_length: 1,
+                maximum_length: 64,
+                default_value: Some("admin".to_owned()),
+            })),
+            visibility: ParameterVisibility::Basic as i32,
+        },
+        secret_parameter("password"),
+    ];
+    let web = &mut graph.services[0];
+    web.configuration_bindings = vec![ApplicationConfigurationBinding {
+        binding_name: "username".to_owned(),
+        environment_variable: "USERNAME".to_owned(),
+        source: Some(application_configuration_binding::Source::ParameterId(
+            "username".to_owned(),
+        )),
+        input: None,
+    }];
+    web.secret_bindings = vec![ApplicationSecretBinding {
+        binding_name: "password".to_owned(),
+        environment_variable: "PASSWORD".to_owned(),
+        parameter_id: "password".to_owned(),
+        form: ApplicationSecretForm::Plain as i32,
+    }];
+    application
+}
+
+/// A basic secret parameter generated at 32 characters and accepted from 12.
+pub(super) fn secret_parameter(
+    id: &str,
+) -> dotcore_proto::dotcore::catalog::v1::ParameterDefinition {
+    use dotcore_proto::dotcore::catalog::v1::{
+        ParameterDefinition, ParameterVisibility, SecretParameterSchema,
+        parameter_definition::ParameterType,
+    };
+
+    ParameterDefinition {
+        parameter_id: id.to_owned(),
+        display_name: id.to_owned(),
+        description: String::new(),
+        parameter_type: Some(ParameterType::Secret(SecretParameterSchema {
+            generated_length: 32,
+            minimum_length: 12,
+        })),
+        visibility: ParameterVisibility::Basic as i32,
+    }
 }
 
 /// The test application with its web service bound to the hosting node's inference base URL.

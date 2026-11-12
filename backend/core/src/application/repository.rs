@@ -3,8 +3,9 @@
 use std::collections::BTreeSet;
 
 use dotcore_catalog::{
-    OciArtifactPolicy, typed_parameters::canonical_value_text, valid_configuration_value,
-    valid_environment_variable, validate_application_with_policy,
+    OciArtifactPolicy,
+    typed_parameters::{canonical_value_text, is_secret},
+    valid_configuration_value, valid_environment_variable, validate_application_with_policy,
 };
 use dotcore_domain::{
     deployment::{
@@ -17,11 +18,11 @@ use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
         ApplicationDeploymentDesiredState, ApplicationLifecycleState, ApplicationReadinessState,
-        ApplicationServiceLifecycleState, ApplicationStorageAttachment,
-        CurrentApplicationDeployment, ResolvedApplicationDeploymentSnapshot,
-        ResolvedApplicationServiceSelection,
+        ApplicationSecretAttachment, ApplicationServiceLifecycleState,
+        ApplicationStorageAttachment, CurrentApplicationDeployment,
+        ResolvedApplicationDeploymentSnapshot, ResolvedApplicationServiceSelection,
     },
-    catalog::v1::application_configuration_binding,
+    catalog::v1::{ApplicationSecretForm, application_configuration_binding},
     site::store::v1::SiteCurrentState,
 };
 use dotcore_site::{
@@ -589,6 +590,7 @@ pub(crate) fn validate_declaration(
     validate_storage_attachments(deployment)?;
     validate_inference_route_binding(deployment)?;
     validate_configuration_attachments(deployment)?;
+    validate_secret_attachments(deployment)?;
     Ok(())
 }
 
@@ -830,6 +832,79 @@ fn validate_configuration_attachments(
     Ok(())
 }
 
+/// Checks that every secret binding has exactly one attachment carrying its parameter's retained
+/// value in the binding's form, and that the generated parameters are distinct retained secrets.
+fn validate_secret_attachments(
+    deployment: &ApplicationDeploymentDeclaration,
+) -> Result<(), ApplicationRepositoryError> {
+    let snapshot = deployment
+        .snapshot
+        .as_ref()
+        .expect("Application declaration snapshot was validated");
+    let graph = snapshot
+        .graph
+        .as_ref()
+        .expect("Application snapshot was validated");
+    let mut expected = BTreeSet::new();
+    for service in &graph.services {
+        for binding in &service.secret_bindings {
+            let value = canonical_value_text(&snapshot.parameter_values, &binding.parameter_id)
+                .ok_or(ApplicationRepositoryError::InvalidState)?;
+            let value = match ApplicationSecretForm::try_from(binding.form) {
+                Ok(ApplicationSecretForm::Plain) => value,
+                Ok(ApplicationSecretForm::Unspecified) | Err(_) => {
+                    return Err(ApplicationRepositoryError::InvalidState);
+                }
+            };
+            expected.insert((
+                service.service_name.as_str(),
+                binding.binding_name.as_str(),
+                binding.environment_variable.as_str(),
+                value,
+            ));
+        }
+    }
+    let mut actual = BTreeSet::new();
+    for ApplicationSecretAttachment {
+        service_name,
+        binding_name,
+        environment_variable,
+        value,
+    } in &deployment.secret_attachments
+    {
+        if !valid_configuration_value(value)
+            || !actual.insert((
+                service_name.as_str(),
+                binding_name.as_str(),
+                environment_variable.as_str(),
+                value.clone(),
+            ))
+        {
+            return Err(ApplicationRepositoryError::InvalidState);
+        }
+    }
+    if actual != expected {
+        return Err(ApplicationRepositoryError::InvalidState);
+    }
+
+    let mut generated = BTreeSet::new();
+    for id in &snapshot.generated_parameter_ids {
+        let retained_secret = graph
+            .parameters
+            .iter()
+            .find(|definition| definition.parameter_id == *id)
+            .is_some_and(is_secret)
+            && snapshot
+                .parameter_values
+                .iter()
+                .any(|value| value.parameter_id == *id);
+        if !retained_secret || !generated.insert(id.as_str()) {
+            return Err(ApplicationRepositoryError::InvalidState);
+        }
+    }
+    Ok(())
+}
+
 fn validate_inference_route_binding(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> Result<(), ApplicationRepositoryError> {
@@ -1047,14 +1122,15 @@ mod tests {
     use dotcore_proto::dotcore::{
         application::v1::{
             ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
-            ApplicationDeploymentDesiredState, ResolvedApplicationDeploymentSnapshot,
-            ResolvedApplicationServiceSelection,
+            ApplicationDeploymentDesiredState, ApplicationSecretAttachment,
+            ResolvedApplicationDeploymentSnapshot, ResolvedApplicationServiceSelection,
         },
         catalog::v1::{
             Application, ApplicationConfigurationBinding, ApplicationEndpointProtocol,
-            ApplicationGraph, ApplicationPrimaryEndpoint, ApplicationService,
-            ApplicationServicePort, ParameterDefinition, ParameterValue, ParameterVisibility,
-            StringEnumParameterSchema, application_configuration_binding,
+            ApplicationGraph, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
+            ApplicationSecretForm, ApplicationService, ApplicationServicePort, ParameterDefinition,
+            ParameterValue, ParameterVisibility, SecretParameterSchema, StringEnumParameterSchema,
+            TextParameterSchema, application_configuration_binding,
             parameter_definition::ParameterType, parameter_value,
         },
         deployment::v1::{ArtifactPreparationPolicy, NodeResolvedLaunchIdentity},
@@ -1270,6 +1346,97 @@ mod tests {
             validate_declarations(&[with_attachment("auto")]),
             Err(ApplicationRepositoryError::InvalidState)
         ));
+    }
+
+    #[test]
+    fn secret_attachment_must_carry_its_retained_value_and_generated_ids_name_secrets() {
+        let with_secret = |attachment_value: &str, generated: &[&str]| {
+            let mut deployment = valid_deployment();
+            let snapshot = deployment.snapshot.as_mut().expect("snapshot");
+            let graph = snapshot.graph.as_mut().expect("graph");
+            graph.parameters = vec![
+                ParameterDefinition {
+                    parameter_id: "username".to_owned(),
+                    display_name: "Username".to_owned(),
+                    description: String::new(),
+                    parameter_type: Some(ParameterType::Text(TextParameterSchema {
+                        minimum_length: 1,
+                        maximum_length: 64,
+                        default_value: Some("admin".to_owned()),
+                    })),
+                    visibility: ParameterVisibility::Basic as i32,
+                },
+                ParameterDefinition {
+                    parameter_id: "password".to_owned(),
+                    display_name: "Password".to_owned(),
+                    description: String::new(),
+                    parameter_type: Some(ParameterType::Secret(SecretParameterSchema {
+                        generated_length: 32,
+                        minimum_length: 12,
+                    })),
+                    visibility: ParameterVisibility::Basic as i32,
+                },
+            ];
+            graph.services[0].configuration_bindings = vec![ApplicationConfigurationBinding {
+                binding_name: "username".to_owned(),
+                environment_variable: "USERNAME".to_owned(),
+                source: Some(application_configuration_binding::Source::ParameterId(
+                    "username".to_owned(),
+                )),
+                input: None,
+            }];
+            graph.services[0].secret_bindings = vec![ApplicationSecretBinding {
+                binding_name: "password".to_owned(),
+                environment_variable: "PASSWORD".to_owned(),
+                parameter_id: "password".to_owned(),
+                form: ApplicationSecretForm::Plain as i32,
+            }];
+            snapshot.parameter_values = vec![
+                ParameterValue {
+                    parameter_id: "username".to_owned(),
+                    value: Some(parameter_value::Value::String("admin".to_owned())),
+                },
+                ParameterValue {
+                    parameter_id: "password".to_owned(),
+                    value: Some(parameter_value::Value::String(
+                        "retained-password".to_owned(),
+                    )),
+                },
+            ];
+            snapshot.generated_parameter_ids =
+                generated.iter().map(|id| (*id).to_owned()).collect();
+            deployment.configuration_attachments = vec![ApplicationConfigurationAttachment {
+                service_name: "service".to_owned(),
+                binding_name: "username".to_owned(),
+                environment_variable: "USERNAME".to_owned(),
+                value: "admin".to_owned(),
+            }];
+            deployment.secret_attachments = vec![ApplicationSecretAttachment {
+                service_name: "service".to_owned(),
+                binding_name: "password".to_owned(),
+                environment_variable: "PASSWORD".to_owned(),
+                value: attachment_value.to_owned(),
+            }];
+            deployment
+        };
+
+        assert!(validate_declarations(&[with_secret("retained-password", &["password"])]).is_ok());
+        assert!(validate_declarations(&[with_secret("retained-password", &[])]).is_ok());
+        for invalid in [
+            with_secret("other-password-1", &["password"]),
+            with_secret("retained-password", &["username"]),
+            with_secret("retained-password", &["password", "password"]),
+            {
+                let mut missing = with_secret("retained-password", &[]);
+                missing.secret_attachments.clear();
+                missing
+            },
+        ] {
+            assert!(matches!(
+                validate_declarations(&[invalid]),
+                Err(ApplicationRepositoryError::InvalidState)
+            ));
+        }
     }
 
     #[test]
@@ -1515,6 +1682,7 @@ mod tests {
                 launch_identity: "example.test/application@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
             }],
             parameter_values: Vec::new(),
+            generated_parameter_ids: Vec::new(),
         }
     }
 

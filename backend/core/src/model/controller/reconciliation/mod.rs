@@ -3416,7 +3416,7 @@ fn protected_startup_values(
     // literal segment of a sensitive value is protected on its own.
     let values = environment
         .iter()
-        .filter(|(key, _)| crate::management_logs::is_sensitive_environment_name(key))
+        .filter(|(key, _)| dotcore_catalog::is_sensitive_name(key))
         .flat_map(|(_, value)| value.segments())
         .filter_map(|segment| match segment {
             dotcore_runtime::WorkloadValueSegment::Literal(literal) if !literal.is_empty() => {

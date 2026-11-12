@@ -1129,18 +1129,19 @@ mod tests {
             .await
             .expect("fresh protected values");
 
+        // Protected values are kept longest first.
         assert_eq!(
             first.values(),
             [
-                b"first-secret".to_vec(),
-                b"https://private.example/v1".to_vec()
+                b"https://private.example/v1".to_vec(),
+                b"first-secret".to_vec()
             ]
         );
         assert_eq!(
             replacement.values(),
             [
-                b"replacement-secret".to_vec(),
-                b"https://private.example/v1".to_vec()
+                b"https://private.example/v1".to_vec(),
+                b"replacement-secret".to_vec()
             ]
         );
         assert!(

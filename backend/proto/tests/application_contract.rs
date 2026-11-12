@@ -143,6 +143,7 @@ fn generated_bindings_preserve_application_graph_and_deployment_state() {
                     launch_identity: "example.test/web@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
                 }],
                 parameter_values: Vec::new(),
+                generated_parameter_ids: Vec::new(),
             }),
             desired_state: ApplicationDeploymentDesiredState::Present as i32,
             state: Some(ApplicationDeploymentState {
@@ -483,6 +484,7 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "desired_state",
             "storage_attachments",
             "configuration_attachments",
+            "secret_attachments",
             "inference_route_id",
             "lifecycle_generation",
             "node_resolved_launch_identities",
@@ -536,6 +538,7 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "notes",
             "graph",
             "parameter_values",
+            "generated_parameter_ids",
             "placement",
             "accelerator_device_ids",
             "platform",
@@ -579,6 +582,10 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
     assert!(
         !field_names(deployment, "ApplicationDeployment").contains(&"configuration_attachments"),
         "resolved configuration must remain private desired state"
+    );
+    assert!(
+        !field_names(deployment, "ApplicationDeployment").contains(&"secret_attachments"),
+        "secret attachments must remain private desired state"
     );
     assert_eq!(
         field_names(current, "SiteCurrentState"),

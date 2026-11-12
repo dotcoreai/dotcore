@@ -60,10 +60,11 @@ mod tests {
         ApplicationDeploymentInput, ApplicationEndpointProtocol, ApplicationGraph,
         ApplicationHttpReadiness, ApplicationInferenceRouteInput,
         ApplicationInferenceRouteProjection, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
-        ApplicationService, ApplicationServiceDependency, ApplicationServicePort,
-        ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact, NixDockerImage,
-        NixSystemStorePath, OciPlatform, ParameterDefinition, ParameterVisibility, StorageBinding,
-        StorageKind, StorageScope, StringEnumParameterSchema, UnsignedIntegerParameterSchema,
+        ApplicationSecretForm, ApplicationService, ApplicationServiceDependency,
+        ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact,
+        NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition, ParameterVisibility,
+        SecretParameterSchema, StorageBinding, StorageKind, StorageScope,
+        StringEnumParameterSchema, TextParameterSchema, UnsignedIntegerParameterSchema,
         application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
         parameter_definition::ParameterType,
@@ -442,6 +443,8 @@ mod tests {
         web.secret_bindings.push(ApplicationSecretBinding {
             binding_name: "secret".to_owned(),
             environment_variable: "DATABASE_URL".to_owned(),
+            parameter_id: "password".to_owned(),
+            form: ApplicationSecretForm::Plain as i32,
         });
 
         let errors = validate_application(&application)
@@ -634,7 +637,7 @@ mod tests {
                     ],
                     &["mode"],
                 ),
-                "application parameter \"debug\" is not used by any configuration binding",
+                "application parameter \"debug\" is not used by any binding",
             ),
             (
                 parameterized_application(
@@ -667,6 +670,172 @@ mod tests {
                 .collect::<Vec<_>>();
             assert_eq!(errors, [expected]);
         }
+    }
+
+    #[test]
+    fn application_validation_accepts_text_and_secret_parameters() {
+        let mut application = parameterized_application(
+            vec![
+                parameter("username", text(1, 64, Some("admin"))),
+                parameter("password", secret(32, 12)),
+            ],
+            &["username"],
+        );
+        bind_secret(&mut application, "password", "password");
+
+        assert!(validate_application(&application).is_empty());
+    }
+
+    #[test]
+    fn application_validation_rejects_invalid_text_and_secret_parameters() {
+        let with_secret_binding = |parameters, bound_ids: &[&str], secret_id: &str| {
+            let mut application = parameterized_application(parameters, bound_ids);
+            bind_secret(&mut application, "password", secret_id);
+            application
+        };
+        let cases = [
+            (
+                with_secret_binding(vec![parameter("password", secret(8, 12))], &[], "password"),
+                "parameter \"password\" minimum length must not exceed its generated length",
+            ),
+            (
+                with_secret_binding(vec![parameter("password", secret(32, 0))], &[], "password"),
+                "parameter \"password\" minimum length must be at least 1",
+            ),
+            (
+                parameterized_application(
+                    vec![parameter("username", text(1, 4, Some("administrator")))],
+                    &["username"],
+                ),
+                "parameter \"username\" default is invalid: it is longer than the maximum length of 4",
+            ),
+            (
+                parameterized_application(
+                    vec![parameter("username", text(6, 64, Some("admin")))],
+                    &["username"],
+                ),
+                "parameter \"username\" default is invalid: it is shorter than the minimum length of 6",
+            ),
+            (
+                parameterized_application(
+                    vec![parameter("username", text(1, 64, Some("a=b")))],
+                    &["username"],
+                ),
+                "parameter \"username\" default is invalid: it contains `=` or a control character",
+            ),
+            (
+                parameterized_application(
+                    vec![parameter("username", text(0, 0, Some("")))],
+                    &["username"],
+                ),
+                "parameter \"username\" maximum length must be at least 1",
+            ),
+            (
+                parameterized_application(
+                    vec![parameter("username", text(1, 64, None))],
+                    &["username"],
+                ),
+                "application parameter \"username\" requires a default",
+            ),
+            (
+                with_secret_binding(vec![parameter("password", secret(32, 12))], &[], "missing"),
+                "application secret binding \"password\" on service \"web\" references missing parameter \"missing\"",
+            ),
+            (
+                with_secret_binding(
+                    vec![
+                        parameter("username", text(1, 64, Some("admin"))),
+                        parameter("password", secret(32, 12)),
+                    ],
+                    &["password"],
+                    "username",
+                ),
+                "application configuration binding \"password\" on service \"web\" references secret parameter \"password\"; secrets use secret bindings",
+            ),
+        ];
+
+        for (application, expected) in cases {
+            let errors = validate_application(&application)
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>();
+            assert!(
+                errors.iter().any(|error| error == expected),
+                "expected {expected:?} in {errors:?}"
+            );
+        }
+
+        let not_secret = with_secret_binding(
+            vec![parameter("username", text(1, 64, Some("admin")))],
+            &[],
+            "username",
+        );
+        assert_eq!(
+            validate_application(&not_secret)
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>(),
+            [
+                "application secret binding \"password\" on service \"web\" references parameter \"username\", which is not a secret"
+            ]
+        );
+
+        let mut unknown_form =
+            parameterized_application(vec![parameter("password", secret(32, 12))], &[]);
+        bind_secret(&mut unknown_form, "password", "password");
+        unknown_form.graph.as_mut().expect("graph").services[1].secret_bindings[0].form =
+            ApplicationSecretForm::Unspecified as i32;
+        assert_eq!(
+            validate_application(&unknown_form)
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>(),
+            ["application secret binding \"password\" requires a known form"]
+        );
+    }
+
+    #[test]
+    fn application_yaml_declares_secret_parameters_without_a_default() {
+        let graph = dotcore_proto::yaml::from_str::<ApplicationGraph>(
+            r#"parameters:
+  - parameterId: "password"
+    displayName: "password"
+    visibility: "PARAMETER_VISIBILITY_BASIC"
+    secret:
+      generatedLength: 32
+      minimumLength: 12
+services:
+  - secretBindings:
+      - bindingName: "password"
+        environmentVariable: "PASSWORD"
+        parameterId: "password"
+        form: "APPLICATION_SECRET_FORM_PLAIN"
+"#,
+        )
+        .expect("secret graph decodes");
+
+        assert_eq!(graph.parameters, [parameter("password", secret(32, 12))]);
+        assert_eq!(
+            graph.services[0].secret_bindings,
+            [ApplicationSecretBinding {
+                binding_name: "password".to_owned(),
+                environment_variable: "PASSWORD".to_owned(),
+                parameter_id: "password".to_owned(),
+                form: ApplicationSecretForm::Plain as i32,
+            }]
+        );
+        dotcore_proto::yaml::from_str::<ApplicationGraph>(
+            r#"parameters:
+  - parameterId: "password"
+    displayName: "password"
+    visibility: "PARAMETER_VISIBILITY_BASIC"
+    secret:
+      generatedLength: 32
+      minimumLength: 12
+      defaultValue: "dotcore"
+"#,
+        )
+        .expect_err("a secret parameter cannot declare a default");
     }
 
     #[test]
@@ -789,6 +958,17 @@ services:
         application
     }
 
+    fn bind_secret(application: &mut Application, binding_name: &str, parameter_id: &str) {
+        application.graph.as_mut().expect("graph").services[1]
+            .secret_bindings
+            .push(ApplicationSecretBinding {
+                binding_name: binding_name.to_owned(),
+                environment_variable: binding_name.to_uppercase(),
+                parameter_id: parameter_id.to_owned(),
+                form: ApplicationSecretForm::Plain as i32,
+            });
+    }
+
     fn parameter(id: &str, parameter_type: ParameterType) -> ParameterDefinition {
         parameter_with_visibility(id, parameter_type, ParameterVisibility::Basic)
     }
@@ -817,6 +997,25 @@ services:
             maximum,
             unit: String::new(),
             default_value,
+        })
+    }
+
+    fn text(
+        minimum_length: u32,
+        maximum_length: u32,
+        default_value: Option<&str>,
+    ) -> ParameterType {
+        ParameterType::Text(TextParameterSchema {
+            minimum_length,
+            maximum_length,
+            default_value: default_value.map(str::to_owned),
+        })
+    }
+
+    fn secret(generated_length: u32, minimum_length: u32) -> ParameterType {
+        ParameterType::Secret(SecretParameterSchema {
+            generated_length,
+            minimum_length,
         })
     }
 

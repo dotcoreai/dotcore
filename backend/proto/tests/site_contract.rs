@@ -293,6 +293,7 @@ fn complete_site_contract_round_trips_restricted_yaml_and_rejects_unknown_fields
                 environment_variable: "ENDPOINT".to_owned(),
                 value: "http://192.0.2.1/v1".to_owned(),
             }],
+            secret_attachments: Vec::new(),
             inference_route_id: None,
             lifecycle_generation: 4,
             node_resolved_launch_identities: vec![NodeResolvedLaunchIdentity {
@@ -552,6 +553,7 @@ fn complete_application_snapshot() -> ResolvedApplicationDeploymentSnapshot {
             })
             .collect(),
         parameter_values: Vec::new(),
+        generated_parameter_ids: Vec::new(),
     }
 }
 

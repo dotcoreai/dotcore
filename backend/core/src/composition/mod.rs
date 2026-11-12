@@ -59,7 +59,7 @@ use tracing::{Instrument, Span, debug, error, field, info, info_span, warn};
 use crate::{
     application::{
         ApplicationConfigurationSources, ApplicationController, ApplicationControllerConfiguration,
-        service::ApplicationService,
+        RandomSecretGenerator, service::ApplicationService,
     },
     model::{controller::InferenceController, service::ModelDeploymentService},
     route_manager::{
@@ -370,6 +370,7 @@ where
                 ),
                 inference_route_resolver: inference_route_resolver(routing.route_manager.clone()),
                 target_capabilities,
+                secret_generator: Arc::new(RandomSecretGenerator),
             },
             log_admission,
         )?;

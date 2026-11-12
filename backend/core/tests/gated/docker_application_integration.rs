@@ -83,6 +83,9 @@ const PYTHON_DIGEST: &str = "b3575dcf816cdacc5292df77a6e3e59b8941631078373a045ef
 const ARM64_DEFAULT_VARIANT: &str = "v8";
 const LIFECYCLE_APPLICATION_ID: &str = "synthetic-lifecycle";
 const STORAGE_SCOPES_APPLICATION_ID: &str = "synthetic-storage-scopes";
+const SECRET_APPLICATION_ID: &str = "secret-fixture";
+/// A typed secret value no other site content contains.
+const SECRET_SENTINEL: &str = "SentinelQv8Rk2Ld7Wn4";
 const LOCAL_IMAGE_REPOSITORY: &str = "dotcore-test/synthetic-lifecycle";
 const UNROUTED_VALUE: &str = "unrouted";
 const SUPPORTED_PLATFORMS: &str = "        supportedPlatforms:\n          - operatingSystem: \"linux\"\n            architecture: \"amd64\"\n          - operatingSystem: \"linux\"\n            architecture: \"arm64\"\n";
@@ -1723,6 +1726,210 @@ async fn hw_docker_lightweight_application_logs_are_owned_filtered_and_cancellab
     }
 }
 
+#[tokio::test]
+#[ignore = "hardware: just backend::test-docker"]
+async fn hw_docker_secret_parameter_reaches_only_the_container_and_site_yaml() {
+    // Debug-level records reach the site's retained logs, which the sentinel search covers.
+    dotcore::logging::initialize_with_default_filter(
+        "info,dotcore=debug,dotcore_runtime=debug,dotcore_runtime_backends=debug,dotcore_site=debug",
+    );
+    let resources = TestResources::new_log_fixture()
+        .await
+        .expect("Docker preflight and temporary site");
+    resources
+        .write_secret_application()
+        .expect("secret application catalog declaration");
+    let backend = support::RunningBackend::start_at_with_simulated_runtime_test_support(
+        resources.configuration.clone(),
+        resources.publication_host.into(),
+        dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport::with_stop_failures(0),
+    )
+    .await;
+    let result = async {
+        let mut applications = backend.application_client();
+        let serving =
+            create_when_target_observed(&mut applications, secret_deployment_request("serve"))
+                .await?;
+        let serving_id = serving.application_deployment_id.clone();
+        let failing =
+            create_when_target_observed(&mut applications, secret_deployment_request("exit"))
+                .await?;
+        let failing_id = failing.application_deployment_id.clone();
+
+        wait_for_endpoint_client(&mut applications, &serving_id).await?;
+        let container = resources.running_container_id_for_group(&serving_id, "web")?;
+        let environment = container_environment(&container)?;
+        if !environment.contains(&format!("PASSWORD={SECRET_SENTINEL}"))
+            || !environment.contains(&"USERNAME=admin".to_owned())
+        {
+            return Err(format!(
+                "the container environment lacks the secret or the username: {} entries",
+                environment.len()
+            ));
+        }
+        // The serving unit prints the username and the secret; deployment logs redact every
+        // launch value.
+        let serving_logs = read_logs_containing(
+            &mut applications,
+            &serving_id,
+            "login [REDACTED] [REDACTED]",
+        )
+        .await?;
+        assert_no_sentinel("serving deployment logs", &serving_logs)?;
+
+        // The failing unit prints the secret, then exits before it ever serves.
+        let failing_logs =
+            read_logs_containing(&mut applications, &failing_id, "stopping with [REDACTED]")
+                .await?;
+        assert_no_sentinel("failing deployment logs", &failing_logs)?;
+        // An exiting unit leaves the deployment unavailable without a recorded failure.
+        let exited = applications
+            .get_application_deployment(GetApplicationDeploymentRequest {
+                application_deployment_id: failing_id.clone(),
+            })
+            .await
+            .map_err(|error| format!("read failing deployment: {error}"))?
+            .into_inner()
+            .deployment
+            .ok_or_else(|| "failing deployment read returned no deployment".to_owned())?;
+        let state = exited
+            .state
+            .as_ref()
+            .ok_or_else(|| "failing deployment has no state".to_owned())?;
+        if state.lifecycle_state == ApplicationLifecycleState::Ready as i32 {
+            return Err("the failing deployment became ready".to_owned());
+        }
+        assert_no_sentinel("failing deployment state", &format!("{state:?}"))?;
+        Ok::<_, String>((serving_id, failing_id, container))
+    }
+    .await;
+    backend.stop().await;
+    if result.is_ok() {
+        wait_for_backend_service_release(&resources.configuration)
+            .await
+            .expect("release backend repositories before the restart");
+    }
+    let result = match result {
+        Ok((serving_id, failing_id, container)) => {
+            let restarted = support::RunningBackend::start_at_with_simulated_runtime_test_support(
+                resources.configuration.clone(),
+                resources.publication_host.into(),
+                dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport::with_stop_failures(0),
+            )
+            .await;
+            let restart_result = async {
+                let mut applications = restarted.application_client();
+                let retained = wait_for_endpoint_client(&mut applications, &serving_id).await?;
+                let password = retained
+                    .snapshot
+                    .as_ref()
+                    .and_then(|snapshot| {
+                        snapshot
+                            .parameter_values
+                            .iter()
+                            .find(|value| value.parameter_id == "password")
+                    })
+                    .and_then(|value| value.value.clone());
+                if password
+                    != Some(
+                        dotcore_proto::dotcore::catalog::v1::parameter_value::Value::String(
+                            SECRET_SENTINEL.to_owned(),
+                        ),
+                    )
+                {
+                    return Err("the restart changed the retained secret".to_owned());
+                }
+                let restarted_container =
+                    resources.running_container_id_for_group(&serving_id, "web")?;
+                if restarted_container != container {
+                    return Err(format!(
+                        "the restart replaced the container {container} with {restarted_container}"
+                    ));
+                }
+                // A launch refused on a taken published port records failure text and its cause.
+                let port = endpoint_port(&endpoint_url(&retained)?)?;
+                applications
+                    .pause_deployment(PauseDeploymentRequest {
+                        application_deployment_id: serving_id.clone(),
+                    })
+                    .await
+                    .map_err(|error| format!("pause secret deployment: {error}"))?;
+                wait_for_application_lifecycle_client(
+                    &mut applications,
+                    &serving_id,
+                    ApplicationLifecycleState::Paused,
+                )
+                .await?;
+                let holder = std::net::TcpListener::bind((resources.publication_host, port))
+                    .map_err(|error| format!("hold published port {port}: {error}"))?;
+                applications
+                    .resume_deployment(ResumeDeploymentRequest {
+                        application_deployment_id: serving_id.clone(),
+                    })
+                    .await
+                    .map_err(|error| format!("resume secret deployment: {error}"))?;
+                let refused =
+                    wait_for_failure_code(&mut applications, &serving_id, "PublishedPortInUse")
+                        .await?;
+                drop(holder);
+                let failure = refused
+                    .state
+                    .and_then(|state| state.failure)
+                    .ok_or_else(|| "the refused launch recorded no failure".to_owned())?;
+                if failure.message.is_empty() {
+                    return Err("the refused launch recorded no failure text".to_owned());
+                }
+                assert_no_sentinel("refused launch failure", &format!("{failure:?}"))?;
+
+                // Every retained site file but the declarations, durable debug logs included,
+                // lacks the secret; the declarations keep it, which proves the search reads them.
+                let debug_records = support::retained_json_records(&resources.root)
+                    .iter()
+                    .filter(|record| record["level"] == "DEBUG")
+                    .count();
+                if debug_records == 0 {
+                    return Err("the site logs retained no debug records".to_owned());
+                }
+                let hits = files_containing(&resources.root, SECRET_SENTINEL.as_bytes())?;
+                if hits != [resources.root.join("site.yaml")] {
+                    return Err(format!(
+                        "the secret sentinel is retained in {hits:?}, not only site.yaml"
+                    ));
+                }
+                for deployment_id in [&serving_id, &failing_id] {
+                    applications
+                        .remove_application_deployment(RemoveApplicationDeploymentRequest {
+                            application_deployment_id: deployment_id.clone(),
+                        })
+                        .await
+                        .map_err(|error| format!("remove secret deployment: {error}"))?;
+                }
+                // The site-wide Docker check passes only once both groups are gone.
+                for deployment_id in [&serving_id, &failing_id] {
+                    wait_for_no_docker_resources_client(
+                        &resources,
+                        &mut applications,
+                        deployment_id,
+                    )
+                    .await?;
+                }
+                Ok(())
+            }
+            .await;
+            restarted.stop().await;
+            restart_result
+        }
+        Err(error) => Err(error),
+    };
+    let cleanup = resources.cleanup();
+    match (result, cleanup) {
+        (Ok(()), Ok(())) => {}
+        (Err(primary), Ok(())) => panic!("{primary}"),
+        (Ok(()), Err(cleanup)) => panic!("cleanup: {cleanup}"),
+        (Err(primary), Err(cleanup)) => panic!("{primary}; cleanup: {cleanup}"),
+    }
+}
+
 /// Configuration values the lifecycle application's container must render.
 struct ConfigurationExpectation {
     inference_base_url: String,
@@ -1784,6 +1991,141 @@ async fn create_when_target_observed(
     })
     .await
     .map_err(|_| "timed out waiting for the application target platform observation".to_owned())?
+}
+
+/// Requests a secret fixture deployment with the typed sentinel password and `outcome`.
+fn secret_deployment_request(outcome: &str) -> CreateApplicationDeploymentRequest {
+    let text = |id: &str, value: &str| dotcore_proto::dotcore::catalog::v1::ParameterValue {
+        parameter_id: id.to_owned(),
+        value: Some(
+            dotcore_proto::dotcore::catalog::v1::parameter_value::Value::String(value.to_owned()),
+        ),
+    };
+    CreateApplicationDeploymentRequest {
+        application_id: SECRET_APPLICATION_ID.to_owned(),
+        placement: Some(support::exact_placement(
+            "docker-apps",
+            "docker-apps-target",
+        )),
+        inference_route_id: None,
+        expected_inference_route_generation: 0,
+        application_deployment_name: None,
+        parameter_values: vec![text("password", SECRET_SENTINEL), text("outcome", outcome)],
+    }
+}
+
+async fn wait_for_endpoint_client(
+    client: &mut ApplicationClient,
+    deployment_id: &str,
+) -> Result<ApplicationDeployment, String> {
+    let deadline = Instant::now() + READY_TIMEOUT;
+    loop {
+        let deployment = client
+            .get_application_deployment(GetApplicationDeploymentRequest {
+                application_deployment_id: deployment_id.to_owned(),
+            })
+            .await
+            .map_err(|error| format!("read application deployment: {error}"))?
+            .into_inner()
+            .deployment
+            .ok_or_else(|| "Application read returned no deployment".to_owned())?;
+        if deployment
+            .state
+            .as_ref()
+            .and_then(|state| state.endpoint.as_ref())
+            .is_some()
+        {
+            return Ok(deployment);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for an application endpoint; last state {:?}",
+                deployment.state
+            ));
+        }
+        sleep(Duration::from_millis(250)).await;
+    }
+}
+
+/// Reads a deployment's log history until one entry contains `expected`, and returns every entry
+/// of that read joined by line breaks.
+async fn read_logs_containing(
+    client: &mut ApplicationClient,
+    deployment_id: &str,
+    expected: &str,
+) -> Result<String, String> {
+    let deadline = Instant::now() + LOG_HISTORY_TIMEOUT;
+    loop {
+        let history = client
+            .read_deployment_logs(ReadDeploymentLogsRequest {
+                application_deployment_id: deployment_id.to_owned(),
+                ..Default::default()
+            })
+            .await
+            .map_err(|error| format!("read deployment logs: {error}"))?
+            .into_inner();
+        let text = history
+            .entries
+            .iter()
+            .map(|entry| String::from_utf8_lossy(&entry.content).into_owned())
+            .collect::<Vec<_>>()
+            .join("\n");
+        if text.lines().any(|line| line.contains(expected)) {
+            return Ok(text);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for log line {expected:?}; last read {:?}",
+                text.replace(SECRET_SENTINEL, "<sentinel>")
+            ));
+        }
+        sleep(Duration::from_millis(250)).await;
+    }
+}
+
+fn assert_no_sentinel(surface: &str, text: &str) -> Result<(), String> {
+    if text.contains(SECRET_SENTINEL) {
+        Err(format!("the secret sentinel appears in the {surface}"))
+    } else {
+        Ok(())
+    }
+}
+
+/// Returns the environment of one container as `NAME=value` entries.
+fn container_environment(container: &str) -> Result<Vec<String>, String> {
+    serde_json::from_str(&command(
+        "docker",
+        ["inspect", "--format", "{{json .Config.Env}}", container],
+    )?)
+    .map_err(|error| format!("decode container environment: {error}"))
+}
+
+/// Returns every file under `root` whose bytes contain `needle`.
+fn files_containing(root: &Path, needle: &[u8]) -> Result<Vec<PathBuf>, String> {
+    let mut hits = Vec::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let entries = fs::read_dir(&directory)
+            .map_err(|error| format!("list {}: {error}", directory.display()))?;
+        for entry in entries {
+            let path = entry
+                .map_err(|error| format!("list {}: {error}", directory.display()))?
+                .path();
+            let file_type = fs::symlink_metadata(&path)
+                .map_err(|error| format!("inspect {}: {error}", path.display()))?
+                .file_type();
+            if file_type.is_dir() {
+                pending.push(path);
+            } else if file_type.is_file() {
+                let bytes =
+                    fs::read(&path).map_err(|error| format!("read {}: {error}", path.display()))?;
+                if bytes.windows(needle.len()).any(|window| window == needle) {
+                    hits.push(path);
+                }
+            }
+        }
+    }
+    Ok(hits)
 }
 
 async fn wait_for_lifecycle_runtime(
@@ -3236,6 +3578,70 @@ graph:
 "#,
                 artifact = python_image_artifact(),
                 allocation = GPU_FIXTURE_ALLOCATION_BYTES,
+            ),
+        )
+    }
+
+    /// Declares a one-service application with a text username, a secret password and an
+    /// outcome choice. Its unit prints the password, then serves, or exits when told to.
+    fn write_secret_application(&self) -> Result<(), String> {
+        self.write_site_catalog_application(
+            "secret-fixture.yaml",
+            &format!(
+                r#"applicationId: "{SECRET_APPLICATION_ID}"
+displayName: "Secret fixture"
+version: "1.0.0"
+graph:
+  parameters:
+    - parameterId: "username"
+      displayName: "Username"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      text:
+        minimumLength: 1
+        maximumLength: 64
+        defaultValue: "admin"
+    - parameterId: "password"
+      displayName: "Password"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      secret:
+        generatedLength: 32
+        minimumLength: 12
+    - parameterId: "outcome"
+      displayName: "Outcome"
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      stringEnum:
+        values: ["serve", "exit"]
+        defaultValue: "serve"
+  services:
+    - serviceName: "web"
+      artifact:
+{artifact}      command: ["sh", "-ec"]
+      arguments: ["trap 'exit 0' TERM; printf 'login %s %s\\n' \"$USERNAME\" \"$PASSWORD\"; if [ \"$OUTCOME\" = exit ]; then printf 'stopping with %s\\n' \"$PASSWORD\" >&2; exit 3; fi; mkdir -p /www; printf 'ready\\n' > /www/index.html; httpd -f -p 8080 -h /www & wait $!"]
+      configurationBindings:
+        - bindingName: "username"
+          environmentVariable: "USERNAME"
+          parameterId: "username"
+        - bindingName: "outcome"
+          environmentVariable: "OUTCOME"
+          parameterId: "outcome"
+      secretBindings:
+        - bindingName: "password"
+          environmentVariable: "PASSWORD"
+          parameterId: "password"
+          form: "APPLICATION_SECRET_FORM_PLAIN"
+      ports:
+        - portName: "http"
+          portNumber: 8080
+      readiness:
+        httpGet:
+          portName: "http"
+          path: "/"
+  primaryEndpoint:
+    serviceName: "web"
+    portName: "http"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"
+"#,
+                artifact = remote_image_artifact(),
             ),
         )
     }
