@@ -929,8 +929,8 @@ mod tests {
             },
         },
         catalog::v1::{
-            ApplicationHttpReadiness, ApplicationServiceReadiness, StorageBinding, StorageKind,
-            StorageScope, application_service_readiness,
+            ApplicationHttpReadiness, ApplicationServiceReadiness, ParameterValue, StorageBinding,
+            StorageKind, StorageScope, application_service_readiness, parameter_value,
         },
         deployment::private::v1::{
             DeploymentLogSourceOpening, DeploymentLogTarget, DeploymentLogUnavailableReason,
@@ -986,7 +986,7 @@ mod tests {
         application::{
             controller::test_support::{
                 application_execution_target, application_with_route_input, deployment,
-                resolved_snapshot, start_steps,
+                resolved_snapshot, secret_parameter, start_steps,
             },
             repository::CurrentApplicationRepository as _,
         },
@@ -1010,6 +1010,7 @@ mod tests {
         "sha256:1111111111111111111111111111111111111111111111111111111111111111";
     const REBUILT_IMAGE: &str =
         "sha256:2222222222222222222222222222222222222222222222222222222222222222";
+    const PASSWORD_HASH: &str = "$2b$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
 
     #[tokio::test]
     async fn node_realizes_its_valid_assignments_and_reports_each_typed_status() {
@@ -2481,13 +2482,26 @@ mod tests {
                 environment_variable: "TOKEN".to_owned(),
                 value: "secret-token".to_owned(),
             });
+        // The service receives the password as a hash; the retained password itself is never
+        // part of the launch, yet stays protected.
+        let snapshot = preparing.snapshot.as_mut().expect("snapshot");
+        snapshot
+            .graph
+            .as_mut()
+            .expect("graph")
+            .parameters
+            .push(secret_parameter("password"));
+        snapshot.parameter_values.push(ParameterValue {
+            parameter_id: "password".to_owned(),
+            value: Some(parameter_value::Value::String("secret-password".to_owned())),
+        });
         preparing
             .secret_attachments
             .push(ApplicationSecretAttachment {
                 service_name: "web".to_owned(),
                 binding_name: "password".to_owned(),
-                environment_variable: "PASSWORD".to_owned(),
-                value: "secret-password".to_owned(),
+                environment_variable: "PASSWORD_HASH".to_owned(),
+                value: PASSWORD_HASH.to_owned(),
             });
         fixture.install(1, vec![assignment(preparing, None)]);
         // Never reconciled, so the deployment's group does not exist yet.
@@ -2504,7 +2518,7 @@ mod tests {
         build.append(
             time(1),
             RuntimeLogStreamKind::Stderr,
-            b"building with secret-token and secret-password",
+            format!("building with secret-token, secret-password and {PASSWORD_HASH}").as_bytes(),
         );
         preparation
             .writer(
@@ -2564,7 +2578,11 @@ mod tests {
         ));
         assert_eq!(
             all.protected,
-            ProtectedLogValues::new(["secret-token".to_owned(), "secret-password".to_owned()])
+            ProtectedLogValues::new([
+                "secret-token".to_owned(),
+                PASSWORD_HASH.to_owned(),
+                "secret-password".to_owned(),
+            ])
         );
         let build_entry = all.sources[0]
             .result
@@ -2574,7 +2592,7 @@ mod tests {
             .clone();
         assert_eq!(
             filter_entry(build_entry, &all.protected).content,
-            b"building with [REDACTED] and [REDACTED]"
+            b"building with [REDACTED], [REDACTED] and [REDACTED]"
         );
         assert_eq!(
             filtered

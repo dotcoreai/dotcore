@@ -4,12 +4,14 @@
 //! its process and over the private deployment-log service otherwise. The node serves the output
 //! of each preparation step it ran for the deployment's services, resolves its own group from the
 //! installed assignment and its pinned launch identities, exactly as it launches it, and redacts
-//! the launch environment values from both before any entry leaves it.
+//! the launch environment values and the secret parameter values from both before any entry leaves
+//! it, so a secret is redacted in its plain form as well as in the form its service receives.
 
 use std::{future::Future, net::Ipv4Addr, sync::Arc};
 
 use anyhow::anyhow;
 use dotcore_artifact::PreparationStep;
+use dotcore_catalog::typed_parameters::{canonical_value_text, is_secret};
 use dotcore_proto::dotcore::{
     application::v1::{ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState},
     deployment::private::v1::DeploymentOwnerKind,
@@ -221,7 +223,7 @@ impl NodeApplicationLogs {
             steps: split.steps.clone(),
             known_steps: known_steps.clone(),
             workload: NodeGroupSource::NotCreated(selection),
-            protected: ProtectedLogValues::new(attachment_values(declaration)),
+            protected: protected_values(declaration, attachment_values(declaration)),
         };
         let Some(workload_names) = &split.workload else {
             return Ok(not_created(
@@ -486,7 +488,8 @@ fn local_group(
         .clone();
     let group = workload_group_launch(deployment, publication_host, inference_route_resolver)
         .map_err(map_lifecycle_error)?;
-    let protected = ProtectedLogValues::new(
+    let protected = protected_values(
+        deployment,
         group
             .units
             .values()
@@ -584,6 +587,34 @@ fn attachment_values(
                 .iter()
                 .map(|attachment| attachment.value.clone()),
         )
+}
+
+/// Protects `launch_values` and the deployment's secret parameter values. A secret bound in a
+/// derived form, such as a hash, never appears among the launch values as typed, yet stays
+/// protected.
+fn protected_values(
+    deployment: &ApplicationDeploymentDeclaration,
+    launch_values: impl IntoIterator<Item = String>,
+) -> ProtectedLogValues {
+    let mut protected = ProtectedLogValues::new(launch_values);
+    protected.extend(ProtectedLogValues::new(secret_parameter_values(deployment)));
+    protected
+}
+
+/// Returns the retained values of the deployment's secret parameters.
+fn secret_parameter_values(
+    deployment: &ApplicationDeploymentDeclaration,
+) -> impl Iterator<Item = String> {
+    deployment.snapshot.iter().flat_map(|snapshot| {
+        snapshot
+            .graph
+            .iter()
+            .flat_map(|graph| &graph.parameters)
+            .filter(|definition| is_secret(definition))
+            .filter_map(|definition| {
+                canonical_value_text(&snapshot.parameter_values, &definition.parameter_id)
+            })
+    })
 }
 
 /// Selects the requested sources among `declared`, or all of them.

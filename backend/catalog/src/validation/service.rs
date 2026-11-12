@@ -148,7 +148,7 @@ fn validate_bindings(service: &ApplicationService, errors: &mut Vec<anyhow::Erro
         );
         if !matches!(
             ApplicationSecretForm::try_from(binding.form),
-            Ok(ApplicationSecretForm::Plain)
+            Ok(ApplicationSecretForm::Plain | ApplicationSecretForm::Bcrypt)
         ) {
             errors.push(anyhow::anyhow!(
                 "application secret binding {:?} requires a known form",

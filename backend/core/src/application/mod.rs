@@ -4,6 +4,7 @@ mod controller;
 mod published_port;
 mod recommendation;
 pub mod repository;
+mod secret_form;
 pub mod service;
 pub(crate) mod workloads;
 

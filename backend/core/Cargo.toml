@@ -12,6 +12,7 @@ rust-version = "1.99"
 [dependencies]
 anyhow.workspace = true
 base64.workspace = true
+bcrypt = "0.19.3"
 dotcore-artifact.workspace = true
 dotcore-catalog.workspace = true
 dotcore-domain.workspace = true
