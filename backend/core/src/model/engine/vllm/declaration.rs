@@ -62,7 +62,12 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
                             range.maximum >= range.minimum && !range.unit.is_empty()
                         }
                         Some(ParameterType::Boolean(_)) => true,
-                        Some(ParameterType::StringEnum(_)) | None => false,
+                        Some(
+                            ParameterType::StringEnum(_)
+                            | ParameterType::Text(_)
+                            | ParameterType::Secret(_),
+                        )
+                        | None => false,
                     }
             })
     });

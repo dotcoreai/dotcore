@@ -16,6 +16,7 @@ pub use controller::{
     ApplicationConfigurationSources, ApplicationController, ApplicationControllerConfiguration,
     ApplicationDeploymentLogController, ApplicationLifecycleController, ApplicationLifecycleError,
     InferenceRouteResolutionError, InferenceRouteResolver, ParameterRejection,
-    ResolvedInferenceRoute, RetainedTargetMismatch, TargetIneligibility,
+    RandomSecretGenerator, ResolvedInferenceRoute, RetainedTargetMismatch, SecretGenerator,
+    TargetIneligibility,
 };
 pub(crate) use recommendation::recommend_application_targets;

@@ -19,7 +19,9 @@ use dotcore_domain::{
     },
     timing::{ReconcileCadence, ReconcileOutcome, Timing},
 };
-use dotcore_proto::dotcore::application::v1::ApplicationConfigurationAttachment;
+use dotcore_proto::dotcore::application::v1::{
+    ApplicationConfigurationAttachment, ApplicationSecretAttachment,
+};
 use dotcore_proto::dotcore::{
     application::private::v1::{ApplicationLifecycleObservation, ApplicationStatusStage},
     application::v1::{
@@ -34,10 +36,11 @@ use dotcore_proto::dotcore::{
     },
     catalog::v1::{
         ApplicationConfigurationBinding, ApplicationDependencyCondition, ApplicationHttpReadiness,
-        ApplicationInferenceRouteProjection, ApplicationSecretBinding, ApplicationService,
-        ApplicationServiceDependency, ApplicationServicePort, ApplicationServiceReadiness,
-        ParameterValue, StorageBinding, StorageEnvironmentVariable, StorageKind, StorageScope,
-        application_configuration_binding, application_service_readiness, parameter_value,
+        ApplicationInferenceRouteProjection, ApplicationSecretBinding, ApplicationSecretForm,
+        ApplicationService, ApplicationServiceDependency, ApplicationServicePort,
+        ApplicationServiceReadiness, ParameterValue, StorageBinding, StorageEnvironmentVariable,
+        StorageKind, StorageScope, application_configuration_binding,
+        application_service_readiness, parameter_value,
     },
     deployment::v1::{
         AcceleratorMemoryDeviceUsage, AcceleratorMemoryObservation, AcceleratorMemoryUnavailable,
@@ -66,7 +69,7 @@ use tokio::{io::AsyncWriteExt, sync::Notify};
 use tonic::Request;
 
 use super::identity::allocate_deployment_id;
-use super::launch::configuration_attachments;
+use super::launch::{configuration_attachments, secret_attachments};
 use super::launch::{deployment_data, workload_group_launch};
 use super::observation::{exact_owned_observation, stale_owned_group};
 use super::readiness::{
@@ -115,6 +118,7 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
         artifacts,
     )
@@ -2764,6 +2768,7 @@ async fn unknown_group_after_restart_is_rehydrated_before_present_or_absent_reco
                 target_capabilities: test_target_capability_source(),
                 configuration_sources: ApplicationConfigurationSources::default(),
                 inference_route_resolver: test_inference_route_resolver(),
+                secret_generator: test_secret_generator(),
             },
         )
         .expect("Apps controller");
@@ -2813,6 +2818,7 @@ async fn cold_absent_reconciliation_passes_stable_identity_to_runtime_cleanup() 
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -3007,6 +3013,7 @@ async fn teardown_startup_allows_target_drift_and_retains_missing_runtime_for_re
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("teardown controller without configured runtime");
@@ -3088,6 +3095,7 @@ async fn teardown_retries_exact_network_only_residue_and_finalizes_records() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -3620,6 +3628,7 @@ async fn present_completes_in_process_network_only_residue_after_failed_removal(
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -3834,6 +3843,7 @@ async fn created_deployment_retains_the_base_url_of_its_hosting_node() {
                 6421,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller");
@@ -3904,6 +3914,7 @@ async fn created_deployments_hold_distinct_published_ports_through_teardown_and_
                 6421,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller");
@@ -4004,6 +4015,7 @@ async fn created_deployment_snapshot_retains_the_application_notes() {
                 6421,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller");
@@ -4108,19 +4120,33 @@ fn launch_pins_only_site_host_names_from_site_host_sources() {
 }
 
 #[test]
-fn configuration_attachments_reject_secret_bindings() {
+fn secret_bindings_attach_apart_from_configuration() {
     let mut application = application();
-    application.graph.as_mut().expect("graph").services[0]
+    let graph = application.graph.as_mut().expect("graph");
+    graph.parameters.push(secret_parameter("password"));
+    graph.services[0]
         .secret_bindings
         .push(ApplicationSecretBinding {
-            binding_name: "secret".to_owned(),
+            binding_name: "password".to_owned(),
             environment_variable: "SECRET_VALUE".to_owned(),
+            parameter_id: "password".to_owned(),
+            form: ApplicationSecretForm::Plain as i32,
         });
+    let values = [string_parameter("password", "typed-password")];
 
-    assert!(matches!(
-        configuration_attachments(&application, |_| None, &[], false),
-        Err(ApplicationLifecycleError::FailedPrecondition)
-    ));
+    assert_eq!(
+        configuration_attachments(&application, |_| None, &values, false).expect("configuration"),
+        []
+    );
+    assert_eq!(
+        secret_attachments(&application, &values).expect("secrets"),
+        [ApplicationSecretAttachment {
+            service_name: "web".to_owned(),
+            binding_name: "password".to_owned(),
+            environment_variable: "SECRET_VALUE".to_owned(),
+            value: "typed-password".to_owned(),
+        }]
+    );
 }
 
 #[test]
@@ -4363,6 +4389,7 @@ async fn deployment_creation_persists_the_route_link_without_a_route_name_attach
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4439,6 +4466,7 @@ async fn route_input_uses_its_literal_without_a_route_link() {
             inference_route_resolver: test_inference_route_resolver_with(Err(
                 InferenceRouteResolutionError::Stale,
             )),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4506,6 +4534,7 @@ async fn invalid_route_binding_identity_or_generation_rejects_without_mutation()
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4582,6 +4611,7 @@ async fn route_binding_without_projection_rejects_before_resolution_or_mutation(
             inference_route_resolver: Arc::new(CountingCreateInferenceRouteResolver {
                 calls: route_resolution_calls.clone(),
             }),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4651,6 +4681,7 @@ async fn route_binding_failures_reject_before_site_store_or_runtime_mutation() {
                 target_capabilities: test_target_capability_source(),
                 configuration_sources: ApplicationConfigurationSources::default(),
                 inference_route_resolver: test_inference_route_resolver_with(Err(resolution)),
+                secret_generator: test_secret_generator(),
             },
         )
         .expect("Apps controller");
@@ -5980,6 +6011,7 @@ async fn invalid_persisted_oci_artifact_never_mutates_the_runtime() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -6029,6 +6061,7 @@ async fn unavailable_configuration_source_rejects_before_desired_or_runtime_muta
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -6109,6 +6142,7 @@ async fn controller_rejects_retained_declarations_without_an_eligible_target() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     ) {
         Ok(_) => panic!("declarations for an undeclared target must be rejected"),
@@ -6156,6 +6190,7 @@ async fn create_rejects_site_node_identity_outside_the_identifier_rule() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -6479,6 +6514,7 @@ async fn creation_failure_is_local_redacted_logged_retried_and_does_not_block_la
                 6470,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -7297,6 +7333,7 @@ fn controller_restart_rejects_a_retained_deployment_whose_target_is_undeclared()
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     );
 
@@ -7699,6 +7736,7 @@ async fn reconcile_after_target_change(
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -7957,8 +7995,218 @@ async fn invalid_parameter_values_reject_creation_without_mutation() {
     std::fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 
+#[tokio::test]
+async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones() {
+    let directory = test_directory();
+    let (controller, desired) =
+        secret_parameter_test_controller(&directory, test_secret_generator());
+
+    let generated = controller
+        .create_deployment(parameter_request(Vec::new()))
+        .await
+        .expect("deployment with a generated secret");
+    let typed = controller
+        .create_deployment(parameter_request(vec![
+            string_parameter("username", "operator"),
+            string_parameter("password", "typed-password-1"),
+        ]))
+        .await
+        .expect("deployment with a typed secret");
+
+    let generated_password = sequential_secret(1, 32);
+    assert_eq!(generated_password, "secret1xxxxxxxxxxxxxxxxxxxxxxxxx");
+    let snapshot = generated.snapshot.as_ref().expect("snapshot");
+    assert_eq!(
+        snapshot.parameter_values,
+        [
+            string_parameter("username", "admin"),
+            string_parameter("password", &generated_password),
+        ]
+    );
+    assert_eq!(snapshot.generated_parameter_ids, ["password"]);
+    let typed_snapshot = typed.snapshot.as_ref().expect("snapshot");
+    assert_eq!(
+        typed_snapshot.parameter_values,
+        [
+            string_parameter("username", "operator"),
+            string_parameter("password", "typed-password-1"),
+        ]
+    );
+    assert!(typed_snapshot.generated_parameter_ids.is_empty());
+
+    let declarations = desired
+        .snapshot()
+        .expect("persisted declarations")
+        .deployments;
+    let declaration = declarations
+        .iter()
+        .find(|declaration| {
+            declaration.application_deployment_id == generated.application_deployment_id
+        })
+        .expect("generated declaration")
+        .clone();
+    assert_eq!(
+        declaration.secret_attachments,
+        [ApplicationSecretAttachment {
+            service_name: "web".to_owned(),
+            binding_name: "password".to_owned(),
+            environment_variable: "PASSWORD".to_owned(),
+            value: generated_password.clone(),
+        }]
+    );
+    assert_eq!(
+        declaration
+            .configuration_attachments
+            .iter()
+            .map(|attachment| (
+                attachment.environment_variable.as_str(),
+                attachment.value.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("USERNAME", "admin")]
+    );
+    let launch = |declaration: &ApplicationDeploymentDeclaration| {
+        workload_group_launch(
+            declaration,
+            Ipv4Addr::LOCALHOST,
+            test_inference_route_resolver().as_ref(),
+        )
+        .expect("workload launch")
+    };
+    let first_launch = launch(&declaration);
+    assert_eq!(
+        first_launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        BTreeMap::from([
+            ("PASSWORD".to_owned(), generated_password.clone()),
+            ("USERNAME".to_owned(), "admin".to_owned()),
+        ])
+    );
+    assert_eq!(launch(&declaration), first_launch);
+    // Launch types never show a secret in their `Debug` form.
+    assert!(!format!("{first_launch:?}").contains(&generated_password));
+    drop(controller);
+
+    // A restarted control plane reads the retained value back and never generates again.
+    let path = directory.join("site.yaml");
+    let mut persisted_site = site();
+    persisted_site.application_deployments = declarations.clone();
+    fs::write(
+        &path,
+        dotcore_proto::yaml::to_string(&persisted_site).expect("site YAML"),
+    )
+    .expect("write site YAML");
+    let reloaded = ApplicationDeclarationRepository::snapshot(
+        &SiteRepository::load(&path, crate::test_support::site_declaration_rules())
+            .expect("reloaded site repository"),
+    )
+    .expect("validated declarations after reload");
+    assert_eq!(reloaded.deployments, declarations);
+    let reloaded_declaration = reloaded
+        .deployments
+        .iter()
+        .find(|declaration| {
+            declaration.application_deployment_id == generated.application_deployment_id
+        })
+        .expect("reloaded declaration");
+    let reloaded_launch = launch(reloaded_declaration);
+    assert_eq!(reloaded_launch, first_launch);
+    assert_eq!(
+        reloaded_launch.correlation.reconcile_generation,
+        first_launch.correlation.reconcile_generation
+    );
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn invalid_secret_and_text_values_reject_creation_without_quoting_them() {
+    let directory = test_directory();
+    let (controller, desired) =
+        secret_parameter_test_controller(&directory, test_secret_generator());
+    let cases = [
+        (
+            string_parameter("password", ""),
+            "Application parameter \"password\" has an invalid value: it is shorter than the minimum length of 12",
+        ),
+        (
+            string_parameter("password", "short-pass"),
+            "Application parameter \"password\" has an invalid value: it is shorter than the minimum length of 12",
+        ),
+        (
+            string_parameter("password", "typed=password-1"),
+            "Application parameter \"password\" has an invalid value: it contains `=` or a control character",
+        ),
+        (
+            string_parameter("password", "typed-password\n1"),
+            "Application parameter \"password\" has an invalid value: it contains `=` or a control character",
+        ),
+        (
+            string_parameter("username", ""),
+            "Application parameter \"username\" has an invalid value: it is shorter than the minimum length of 1",
+        ),
+        (
+            string_parameter("username", &"u".repeat(65)),
+            "Application parameter \"username\" has an invalid value: it is longer than the maximum length of 64",
+        ),
+    ];
+
+    for (value, expected) in cases {
+        let error = controller
+            .create_deployment(parameter_request(vec![value.clone()]))
+            .await
+            .expect_err("invalid parameter value");
+        assert!(matches!(
+            error,
+            ApplicationLifecycleError::InvalidParameter { .. }
+        ));
+        assert_eq!(error.to_string(), expected);
+        if let Some(parameter_value::Value::String(value)) = &value.value
+            && !value.is_empty()
+        {
+            assert!(!format!("{error:?}").contains(value.as_str()));
+        }
+    }
+    assert!(
+        desired
+            .snapshot()
+            .expect("declaration snapshot")
+            .deployments
+            .is_empty()
+    );
+    drop(controller);
+    std::fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+fn secret_parameter_test_controller(
+    directory: &Path,
+    secret_generator: Arc<dyn SecretGenerator>,
+) -> (
+    TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
+    TestApplicationDeclarationRepository,
+) {
+    test_controller_for(
+        directory,
+        application_with_secret_parameters(),
+        secret_generator,
+    )
+}
+
 fn parameter_test_controller(
     directory: &Path,
+) -> (
+    TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
+    TestApplicationDeclarationRepository,
+) {
+    test_controller_for(
+        directory,
+        application_with_parameters(),
+        test_secret_generator(),
+    )
+}
+
+fn test_controller_for(
+    directory: &Path,
+    application: dotcore_proto::dotcore::catalog::v1::Application,
+    secret_generator: Arc<dyn SecretGenerator>,
 ) -> (
     TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
     TestApplicationDeclarationRepository,
@@ -7979,7 +8227,7 @@ fn parameter_test_controller(
     let controller = TestController::new(
         Arc::new(
             CatalogBuilder::new()
-                .application("test", application_with_parameters())
+                .application("test", application)
                 .build()
                 .expect("Catalog"),
         ),
@@ -7990,6 +8238,7 @@ fn parameter_test_controller(
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator,
         },
     )
     .expect("Apps controller");

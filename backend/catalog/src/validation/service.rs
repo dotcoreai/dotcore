@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
-    ApplicationInferenceRouteProjection, ApplicationService, application_configuration_binding,
-    application_deployment_input, application_service_artifact::Kind as ServiceArtifactKind,
+    ApplicationInferenceRouteProjection, ApplicationSecretForm, ApplicationService,
+    application_configuration_binding, application_deployment_input,
+    application_service_artifact::Kind as ServiceArtifactKind,
 };
 
 use super::{
@@ -145,6 +146,15 @@ fn validate_bindings(service: &ApplicationService, errors: &mut Vec<anyhow::Erro
             "secret",
             errors,
         );
+        if !matches!(
+            ApplicationSecretForm::try_from(binding.form),
+            Ok(ApplicationSecretForm::Plain)
+        ) {
+            errors.push(anyhow::anyhow!(
+                "application secret binding {:?} requires a known form",
+                binding.binding_name
+            ));
+        }
     }
 }
 

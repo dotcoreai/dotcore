@@ -922,9 +922,10 @@ mod tests {
             v1::{
                 ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
                 ApplicationDeploymentDesiredState, ApplicationLifecycleState,
-                ApplicationReadinessState, ApplicationServiceAcceleratorMemory,
-                ApplicationStorageAttachment, CurrentApplicationDeployment,
-                ResolvedApplicationDeploymentSnapshot, ResolvedApplicationServiceSelection,
+                ApplicationReadinessState, ApplicationSecretAttachment,
+                ApplicationServiceAcceleratorMemory, ApplicationStorageAttachment,
+                CurrentApplicationDeployment, ResolvedApplicationDeploymentSnapshot,
+                ResolvedApplicationServiceSelection,
             },
         },
         catalog::v1::{
@@ -2480,6 +2481,14 @@ mod tests {
                 environment_variable: "TOKEN".to_owned(),
                 value: "secret-token".to_owned(),
             });
+        preparing
+            .secret_attachments
+            .push(ApplicationSecretAttachment {
+                service_name: "web".to_owned(),
+                binding_name: "password".to_owned(),
+                environment_variable: "PASSWORD".to_owned(),
+                value: "secret-password".to_owned(),
+            });
         fixture.install(1, vec![assignment(preparing, None)]);
         // Never reconciled, so the deployment's group does not exist yet.
         let logs = fixture.realizer().log_owner();
@@ -2495,7 +2504,7 @@ mod tests {
         build.append(
             time(1),
             RuntimeLogStreamKind::Stderr,
-            b"building with secret-token",
+            b"building with secret-token and secret-password",
         );
         preparation
             .writer(
@@ -2555,7 +2564,7 @@ mod tests {
         ));
         assert_eq!(
             all.protected,
-            ProtectedLogValues::new(["secret-token".to_owned()])
+            ProtectedLogValues::new(["secret-token".to_owned(), "secret-password".to_owned()])
         );
         let build_entry = all.sources[0]
             .result
@@ -2565,7 +2574,7 @@ mod tests {
             .clone();
         assert_eq!(
             filter_entry(build_entry, &all.protected).content,
-            b"building with [REDACTED]"
+            b"building with [REDACTED] and [REDACTED]"
         );
         assert_eq!(
             filtered

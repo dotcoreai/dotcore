@@ -1022,6 +1022,8 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
                 6,
                 ".dotcore.catalog.v1.StringEnumParameterSchema"
             ),
+            ("text", 8, ".dotcore.catalog.v1.TextParameterSchema"),
+            ("secret", 9, ".dotcore.catalog.v1.SecretParameterSchema"),
         ]
     );
     assert_eq!(

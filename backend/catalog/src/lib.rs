@@ -25,6 +25,7 @@ use dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot;
 
 pub mod options;
 mod selector;
+mod sensitive_names;
 pub mod service;
 pub mod shared_parameters;
 mod sizing;
@@ -35,6 +36,7 @@ pub mod typed_parameters;
 mod validation;
 
 pub use selector::{SelectorRelation, selector_relation};
+pub use sensitive_names::is_sensitive_name;
 pub use sizing::{
     ACCELERATOR_MEMORY_RESOURCE, HOST_MEMORY_RESOURCE, ScalarResourceEstimate, SizingError,
     SizingFitModel,

@@ -12,7 +12,7 @@ use dotcore_proto::dotcore::catalog::v1::{
 use super::application::valid_configuration_value;
 use super::service::validate_application_service;
 use crate::OciArtifactPolicy;
-use crate::typed_parameters::{default_value, validate_parameter_definition};
+use crate::typed_parameters::{default_value, is_secret, validate_parameter_definition};
 
 pub(super) fn validate_application_graph(
     graph: &ApplicationGraph,
@@ -180,9 +180,10 @@ fn validate_primary_endpoint(
     }
 }
 
-/// Checks parameter definitions, each with a default and shown as basic or advanced, and that
-/// bindings and parameters reference each other exactly: every binding names a declared parameter
-/// and every parameter supplies at least one binding.
+/// Checks parameter definitions, each shown as basic or advanced and, except a secret, with a
+/// default, and that bindings and parameters reference each other exactly: every binding names a
+/// declared parameter, secrets only through secret bindings and other parameters only through
+/// configuration bindings, and every parameter supplies at least one binding.
 fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>) {
     let mut parameter_ids = BTreeSet::new();
     for definition in &graph.parameters {
@@ -193,7 +194,7 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
         let definition_errors = validate_parameter_definition(definition);
         let valid_definition = definition_errors.is_empty();
         errors.extend(definition_errors);
-        if valid_definition && default_value(definition).is_none() {
+        if valid_definition && !is_secret(definition) && default_value(definition).is_none() {
             errors.push(anyhow::anyhow!(
                 "application parameter {id:?} requires a default"
             ));
@@ -217,6 +218,12 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
         }
     }
 
+    let secret_ids = graph
+        .parameters
+        .iter()
+        .filter(|definition| is_secret(definition))
+        .map(|definition| definition.parameter_id.as_str())
+        .collect::<BTreeSet<_>>();
     let mut referenced_ids = BTreeSet::new();
     for service in &graph.services {
         for binding in &service.configuration_bindings {
@@ -232,12 +239,35 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
                     binding.binding_name,
                     service.service_name
                 ));
+            } else if secret_ids.contains(id.as_str()) {
+                errors.push(anyhow::anyhow!(
+                    "application configuration binding {:?} on service {:?} references secret parameter {id:?}; secrets use secret bindings",
+                    binding.binding_name,
+                    service.service_name
+                ));
+            }
+        }
+        for binding in &service.secret_bindings {
+            let id = binding.parameter_id.as_str();
+            referenced_ids.insert(id);
+            if !parameter_ids.contains(id) {
+                errors.push(anyhow::anyhow!(
+                    "application secret binding {:?} on service {:?} references missing parameter {id:?}",
+                    binding.binding_name,
+                    service.service_name
+                ));
+            } else if !secret_ids.contains(id) {
+                errors.push(anyhow::anyhow!(
+                    "application secret binding {:?} on service {:?} references parameter {id:?}, which is not a secret",
+                    binding.binding_name,
+                    service.service_name
+                ));
             }
         }
     }
     for id in parameter_ids.difference(&referenced_ids) {
         errors.push(anyhow::anyhow!(
-            "application parameter {id:?} is not used by any configuration binding"
+            "application parameter {id:?} is not used by any binding"
         ));
     }
 }

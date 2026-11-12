@@ -569,8 +569,8 @@ fn step_sources(services: &[RuntimeLogSource]) -> Vec<PreparationStep> {
         .collect()
 }
 
-/// Returns the configuration values the deployment's launch receives, which step lines must
-/// not reveal either.
+/// Returns the configuration and secret values the deployment's launch receives, which step
+/// lines must not reveal either.
 fn attachment_values(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> impl Iterator<Item = String> {
@@ -578,6 +578,12 @@ fn attachment_values(
         .configuration_attachments
         .iter()
         .map(|attachment| attachment.value.clone())
+        .chain(
+            deployment
+                .secret_attachments
+                .iter()
+                .map(|attachment| attachment.value.clone()),
+        )
 }
 
 /// Selects the requested sources among `declared`, or all of them.
