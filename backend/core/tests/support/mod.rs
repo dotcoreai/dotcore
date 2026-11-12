@@ -76,8 +76,8 @@ use dotcore_site::{
         OfflineSite,
         join::{
             JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostLimits, JoinHostSettings,
-            JoinProposal, JoinReview, JoinToken, JoinedNodeFolder, NodeKey, RejoinProposal,
-            RejoiningNodeFolder,
+            JoinProposal, JoinReview, JoinToken, JoinedNodeFolder, LocalPeers, NodeKey,
+            RejoinProposal, RejoiningNodeFolder,
         },
     },
     node::{
@@ -2239,6 +2239,7 @@ where
                             token: token.clone(),
                             manager_private_port: manager_private_port(&manager_private_endpoint),
                             allow_observed_loopback: false,
+                            local_peers: LocalPeers::machine([]),
                             limits: JoinHostLimits::default(),
                         },
                         std::sync::Arc::new(site),

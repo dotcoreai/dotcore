@@ -28,8 +28,8 @@ use dotcore_site::{
         OfflineSite,
         join::{
             JoinApproval, JoinDecision, JoinHost, JoinHostError, JoinHostLimits, JoinHostSettings,
-            JoinHostSource, JoinReview, JoinSiteWriter, JoinedNode, NodeRejoin, ReviewedJoin,
-            blocking_review,
+            JoinHostSource, JoinReview, JoinSiteWriter, JoinedNode, LocalPeers, NodeRejoin,
+            ReviewedJoin, blocking_review,
         },
     },
 };
@@ -41,7 +41,10 @@ use url::Url;
 use super::{Notices, boxed, parse_timeout, record_value, write_records};
 use crate::{
     RootPathArgs,
-    hosts::{inference_address_remedy, private_address_remedy},
+    hosts::{
+        HostEnvironment, InterfaceAddress, SystemHostEnvironment, inference_address_remedy,
+        private_address_remedy,
+    },
     site::parse_absolute_path,
     terminal::{
         ConfirmPrompt, Message, PromptError, Terminal, TerminalCondition,
@@ -157,6 +160,7 @@ pub(crate) async fn node_add(paths: &RootPathArgs, arguments: NodeAddArgs) -> an
             token,
             manager_private_port: private_port,
             allow_observed_loopback: false,
+            local_peers: local_join_peers(&SystemHostEnvironment)?,
             limits: JoinHostLimits {
                 overall_timeout: arguments.timeout,
                 ..JoinHostLimits::default()
@@ -195,6 +199,17 @@ fn announce_ready(
     terminal.message(&Message::Command(join_command.to_owned()))?;
     terminal.message(&Message::Hint("Waiting for the node...".to_owned()))?;
     Ok(None)
+}
+
+/// Returns the join connection sources that come from this machine: every loopback address and
+/// the addresses on its network interfaces.
+fn local_join_peers(environment: &dyn HostEnvironment) -> anyhow::Result<LocalPeers> {
+    let interfaces = environment
+        .interface_addresses()
+        .context("read this machine's network addresses")?;
+    Ok(LocalPeers::machine(
+        interfaces.iter().map(InterfaceAddress::address),
+    ))
 }
 
 /// Tells the operator to start the manager with the private port given to joining nodes when it
@@ -570,7 +585,27 @@ mod tests {
     };
 
     use super::*;
-    use crate::terminal::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
+    use crate::{
+        hosts::test_support::FakeHostEnvironment,
+        terminal::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal},
+    };
+
+    #[test]
+    fn join_peers_from_this_machine_are_loopback_and_its_interface_addresses() {
+        let environment = FakeHostEnvironment::on_tailnet();
+
+        let peers = local_join_peers(&environment).expect("local peers");
+
+        for local in ["127.0.0.1", "127.0.0.2", "100.101.102.103", "192.168.1.20"] {
+            assert!(peers.contains(local.parse().expect("address")), "{local}");
+        }
+        for remote in ["192.0.2.7", "100.101.102.104"] {
+            assert!(
+                !peers.contains(remote.parse().expect("address")),
+                "{remote}"
+            );
+        }
+    }
 
     #[test]
     fn private_address_values_are_accepted_exactly_as_the_server_accepts_them() {
