@@ -8,22 +8,22 @@ recommendations), `backend/core/src/telemetry/` (workload resource records).
 
 ## Capabilities
 
+- Deploy, pause, resume and tear down each deployment.
 - Create independently managed deployments of the same model, each with its own configuration and
   execution target.
 - Use profiles as presets, and override typed options and engine parameters when you create a
   deployment. Existing deployments keep their resolved configuration when catalog defaults change.
-- Use expert launch arguments. Derived launch values still apply, and their fit is your risk.
-- See derived values before deploying and while inspecting a deployment, apart from the values you
-  supplied.
-- See advisory memory estimates for a configuration when measured evidence exists, and its fit on
-  each target.
-- See which configured targets can run each profile, and narrow the catalog to profiles whose fit
-  allows them there.
 - Get model recommendations for your use cases across the site's targets, through a guided quick
   start.
+- See which configured targets can run each profile, and narrow the catalog to profiles whose fit
+  allows them there.
+- See advisory memory estimates for a configuration when measured evidence exists, and its fit on
+  each target.
+- See derived values before deploying and while inspecting a deployment, apart from the values you
+  supplied.
 - Inspect a deployment's identity, configuration, lifecycle, readiness, progress, failures and
   diagnostics.
-- Deploy, pause, resume and tear down each deployment.
+- Use expert launch arguments. Derived launch values still apply, and their fit is your risk.
 - Add upstream models through one generic OpenAI-compatible template, beside local deployments. There's
   no provider-specific directory or automatic discovery of provider models.
 

@@ -12,17 +12,17 @@ transport).
 
 - See operational health, metrics, logs, traces and freshness, never implying observations that
   don't exist.
-- See artifact provenance, verification and cache use, and keep artifacts available while
-  deployments use them.
-- Reclaim image disk no deployment uses, and shared workload storage unused for a configurable time.
-- See metric history on one time axis across machines, devices, deployments and routes, with live
-  updates, gaps where nothing was observed, and where retained history begins.
 - Get a site-wide overview of inference and machine metrics over a chosen time range, leading to
   each deployment, route and machine.
+- See metric history on one time axis across machines, devices, deployments and routes, with live
+  updates, gaps where nothing was observed, and where retained history begins.
 - See hardware metrics (memory, CPU, GPU use, power, temperature, storage), per-deployment resource
   use, and request metrics, per site, machine, device, deployment and route.
 - Read workload and backend diagnostics, apart from platform telemetry. Access to logs doesn't imply
   durable retention or complete history.
+- See artifact provenance, verification and cache use, and keep artifacts available while
+  deployments use them.
+- Reclaim image disk no deployment uses, and shared workload storage unused for a configurable time.
 - See configured and observed protection honestly. Nothing implies a backup or recovery guarantee
   without support and configuration.
 
@@ -165,6 +165,18 @@ flowchart LR
   deployment. Development workload tooling pins its transient workload the same way on the node that
   runs it.
 
+### Site store
+
+- Site-local durability through owner-specific repositories. Each component keeps authority over its
+  own records.
+- Records are independent of the storage implementation.
+
+### Node store
+
+- The hosting node's disposable realization state, cleanup evidence, resolved launch identities and
+  bounded preparation logs, apart from site store records.
+- Owners learn of it only through accepted status and on-demand diagnostic reads.
+
 ### Nix roots
 
 - Every Nix artifact a node pins keeps a garbage-collector root while the node pins it. The root is
@@ -180,18 +192,6 @@ flowchart LR
   image a container uses.
 - The same machine cleanup removes shared workload storage, from any site on the machine, that no
   container mounts and no workload has used for a retention period.
-
-### Site store
-
-- Site-local durability through owner-specific repositories. Each component keeps authority over its
-  own records.
-- Records are independent of the storage implementation.
-
-### Node store
-
-- The hosting node's disposable realization state, cleanup evidence, resolved launch identities and
-  bounded preparation logs, apart from site store records.
-- Owners learn of it only through accepted status and on-demand diagnostic reads.
 
 ### Workload resource records
 

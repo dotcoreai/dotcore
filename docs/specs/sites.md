@@ -150,6 +150,14 @@ sequenceDiagram
 
 ## Resources
 
+### SiteNode
+
+A node's stable membership in the site, not its health or workloads.
+
+- The public node projection marks the `site_manager` node without giving it a separate connection
+  state.
+- Removing a node withdraws its membership and its identity pin together ([access](access.md)).
+
 ### Site configuration
 
 The site's declared machines, their execution targets, and its settings, authored before the server
@@ -163,14 +171,6 @@ starts.
 What tells one server process which declared node it is.
 
 - It selects declared membership. It can't declare membership or become site desired state.
-
-### SiteNode
-
-A node's stable membership in the site, not its health or workloads.
-
-- The public node projection marks the `site_manager` node without giving it a separate connection
-  state.
-- Removing a node withdraws its membership and its identity pin together ([access](access.md)).
 
 ## Components
 

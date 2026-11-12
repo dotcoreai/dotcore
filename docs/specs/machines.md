@@ -102,16 +102,6 @@ flowchart TB
 Hardware as data: platform, host memory, and each GPU's memory and architecture. Real readings,
 declared machines and tests all describe hardware in this one form.
 
-### Declared machine
-
-The description a node reports instead of its real hardware.
-
-- A node observes either its real hardware or a declared machine, never both.
-- It's resolved when the node is created, from GPU descriptions on a default simulated host or from
-  a whole named machine, and kept with the node.
-- The node reports it through the same observations as real readings, so reconciliation and
-  capacity treat it like a real machine.
-
 ### Hardware observations
 
 - Observations cover every production-supported GPU vendor on a node, independently of configured
@@ -171,6 +161,16 @@ What is in use in a pool.
 
 A resolved sizing estimate turned into bytes per pool on one target, so a launch across several GPUs
 needs no new shape.
+
+### Declared machine
+
+The description a node reports instead of its real hardware.
+
+- A node observes either its real hardware or a declared machine, never both.
+- It's resolved when the node is created, from GPU descriptions on a default simulated host or from
+  a whole named machine, and kept with the node.
+- The node reports it through the same observations as real readings, so reconciliation and
+  capacity treat it like a real machine.
 
 ## Components
 

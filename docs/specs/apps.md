@@ -10,13 +10,13 @@ Code: `backend/core/src/application/` (apps controller).
 - Discover approved catalog apps apart from their deployments.
 - Deploy a configured catalog app on a target you choose, on a managed machine, and inspect its
   retained configuration.
+- Pause, resume and tear it down. Teardown stays available while paused.
 - Set the app's typed parameters, basic or advanced, when you create a deployment.
 - Link the app to an inference route when it declares that dependency, so it uses the site's models.
 - Inspect its lifecycle, readiness, access information, resource use and workload diagnostics.
 - Run GPU apps, such as ComfyUI, on Linux with NVIDIA GPUs: the app gets its target's GPUs, and you
   see which GPUs it has and its measured GPU memory. The app downloads its own checkpoints into app
   storage, which later deployments of the app on that machine reuse.
-- Pause, resume and tear it down. Teardown stays available while paused.
 - Keep app data that its deployments on one machine share, until disk cleanup finds it unused for a
   configurable number of days, or the site is reset.
 

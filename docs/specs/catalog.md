@@ -13,12 +13,12 @@ Code: `backend/catalog/` (declarations, validation, sizing), `catalog/` (the mas
 - Serve local models through catalog-selected llama.cpp and vLLM profiles. You pick a profile, not
   an engine build.
 - Tell models you can discover or acquire from models you can deploy.
-- Compare models by the Dotcore Bench Intelligence Score, and see each model's upstream licence with
-  a link to its terms.
 - Set the same context parameters on every engine: total context, context per request and parallel
   requests, with engine defaults.
 - See catalog estimates per hardware class for a scenario you choose.
 - Get model recommendations for your use cases, from lists the catalog curates per hardware class.
+- Compare models by the Dotcore Bench Intelligence Score, and see each model's upstream licence with
+  a link to its terms.
 - Add your own entries through a site or development catalog.
 
 ## Architecture
