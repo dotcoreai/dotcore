@@ -30,19 +30,18 @@ export function applicationParameterFields(
           {
             advanced,
             defaultValue: type.value.defaultValue,
-            view: { ...base, hint: definition.description, type: { kind: "boolean" } },
+            view: { ...base, description: definition.description, type: { kind: "boolean" } },
           },
         ];
       case "unsignedInteger": {
         const { defaultValue, maximum, minimum, unit } = type.value;
-        const range = `${minimum}–${maximum}${unit ? ` ${unit}` : ""}`;
         return [
           {
             advanced,
             defaultValue,
             view: {
               ...base,
-              hint: definition.description ? `${definition.description} ${range}` : range,
+              description: definition.description,
               type: { kind: "unsignedInteger", maximum, minimum, unit },
             },
           },
@@ -55,7 +54,7 @@ export function applicationParameterFields(
             defaultValue: type.value.defaultValue,
             view: {
               ...base,
-              hint: definition.description,
+              description: definition.description,
               type: { kind: "stringEnum", values: type.value.values },
             },
           },

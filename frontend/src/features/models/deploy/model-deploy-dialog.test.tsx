@@ -69,6 +69,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { productionTiming, setTiming } from "@/lib/timing";
 import type { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { readFieldHelpFacts } from "@/test/field-help";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
 
@@ -1308,11 +1309,17 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
       expect(screen.getByRole("combobox", { name: "Execution target" })).toBeDisabled();
       expect(screen.queryByText("Loading configured execution targets…")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).not.toHaveAccessibleDescription();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
       });
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).toHaveAccessibleDescription("Loading configured execution targets…");
 
       await act(async () => {
         resolvePools({ executionTargets: [poolTarget(), workerTarget()] });
@@ -1320,6 +1327,9 @@ describe("ModelDeployDialog", () => {
       });
       expect(screen.getByRole("combobox", { name: "Execution target" })).toBeEnabled();
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).toHaveAccessibleDescription("Loading configured execution targets…");
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
@@ -1364,6 +1374,9 @@ describe("ModelDeployDialog", () => {
       expect(
         screen.getByText("Configured targets are visible, but none are deployable."),
       ).toBeVisible();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).toHaveAccessibleDescription("Configured targets are visible, but none are deployable.");
 
       await act(async () => {
         await watch.tick();
@@ -1371,6 +1384,9 @@ describe("ModelDeployDialog", () => {
       expect(
         screen.queryByText("Configured targets are visible, but none are deployable."),
       ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).not.toHaveAccessibleDescription();
       // The operator never chose, so the default target comes back with its availability.
       expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
         "node / NVIDIA GeForce RTX 5090",
@@ -1539,7 +1555,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
       expect(route).toHaveAttribute("aria-invalid", "true");
       expect(route).toHaveAccessibleDescription(
-        'An inference route named "test-model" already exists. Change the route or the deployment name.',
+        'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "test-model" already exists. Change the route or the deployment name.',
       );
 
       await user.type(screen.getByRole("textbox", { name: "Deployment name" }), " 2");
@@ -1571,7 +1587,9 @@ describe("ModelDeployDialog", () => {
       await user.clear(route);
       await user.type(route, "taken");
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
-      expect(route).toHaveAccessibleDescription('An inference route named "taken" already exists.');
+      expect(route).toHaveAccessibleDescription(
+        'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "taken" already exists.',
+      );
     });
 
     it("shows a backend route conflict on the route field until the route changes", async () => {
@@ -1583,7 +1601,7 @@ describe("ModelDeployDialog", () => {
       const route = screen.getByRole("textbox", { name: "Route name" });
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
       expect(route).toHaveAccessibleDescription(
-        'An inference route named "test-model" already exists. Change the route or the deployment name.',
+        'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "test-model" already exists. Change the route or the deployment name.',
       );
 
       await user.clear(route);
@@ -1658,16 +1676,18 @@ describe("ModelDeployDialog", () => {
       expect(route).toBeDisabled();
       expect(screen.queryByRole("button", { name: "Follow the deployment name" })).toBeNull();
       expect(route).toHaveAccessibleDescription(
-        "Hidden: no route of its own. Reachable only through other routes.",
+        "The model name callers send in requests. It follows the deployment name until you change it. Hidden: no route of its own. Reachable only through other routes.",
       );
 
       await user.click(screen.getByRole("radio", { name: "Direct" }));
       expect(screen.queryByRole("radio", { name: "Hidden" })).not.toBeInTheDocument();
-      expect(route).not.toHaveAccessibleDescription();
       expect(route).toBeEnabled();
       expect(screen.getByRole("button", { name: "Follow the deployment name" })).toHaveAttribute(
         "aria-pressed",
         "true",
+      );
+      expect(route).toHaveAccessibleDescription(
+        "The model name callers send in requests. It follows the deployment name until you change it.",
       );
     });
 
@@ -1747,7 +1767,7 @@ describe("ModelDeployDialog", () => {
       await user.tab();
       expect(route).toHaveAttribute("aria-invalid", "true");
       expect(route).toHaveAccessibleDescription(
-        "Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods.",
+        "The model name callers send in requests. It follows the deployment name until you change it. Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods.",
       );
     });
 
@@ -1925,8 +1945,7 @@ describe("ModelDeployDialog", () => {
       await expandSection(user, "Other parameters (1)");
       const prefixCaching = screen.getByRole("switch", { name: "Prefix caching" });
       expect(prefixCaching).not.toBeChecked();
-      // The schema description documents the engine and stays out of the field.
-      expect(prefixCaching).not.toHaveAccessibleDescription();
+      expect(prefixCaching).toHaveAccessibleDescription("Caches reusable prompt prefixes.");
       await user.click(prefixCaching);
 
       const expectedConfiguration = {
@@ -2171,7 +2190,7 @@ describe("ModelDeployDialog", () => {
       ).toBeVisible();
       expect(context).toHaveAttribute("aria-invalid", "true");
       expect(context).toHaveAccessibleDescription(
-        "Memory the model holds for all requests at once. Total context must be an integer from 1024 to 32768 tokens.",
+        "Total context must be an integer from 1024 to 32768 tokens.",
       );
 
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -2783,7 +2802,9 @@ describe("ModelDeployDialog", () => {
       ).toEqual(["fit"]);
 
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Up to 16k on node / NVIDIA GeForce RTX 5090")).toBeVisible();
+      expect(await readFieldHelpFacts("Total context")).toContain(
+        "Up to 16k on node / NVIDIA GeForce RTX 5090",
+      );
       expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16384");
       expect(screen.queryByRole("note")).not.toBeInTheDocument();
 

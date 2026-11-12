@@ -24,6 +24,8 @@ interface FieldProps {
   /** IDs of other elements describing the control, read after the help and before the error. */
   describedBy?: string;
   error?: string;
+  /** Facts about the value, such as its range and unit, shown only in the popover. */
+  facts?: ReactNode;
   /** What the field does and the facts that bound it, shown in the help popover. */
   help?: ReactNode;
   label: string;
@@ -43,6 +45,7 @@ function Field({
   controlId,
   describedBy,
   error,
+  facts,
   help,
   label,
   layout = "stacked",
@@ -60,8 +63,8 @@ function Field({
   const labelRow = (
     <div className="flex min-w-0 items-center gap-1.5">
       <label htmlFor={controlId}>{label}</label>
-      {help ? (
-        <FieldHelp descriptionId={descriptionId} label={label}>
+      {help || facts ? (
+        <FieldHelp descriptionId={descriptionId} facts={facts} label={label}>
           {help}
         </FieldHelp>
       ) : null}
@@ -95,10 +98,13 @@ function Field({
 function FieldHelp({
   children,
   descriptionId,
+  facts,
   label,
 }: {
-  children: ReactNode;
+  children?: ReactNode;
   descriptionId: string;
+  /** Facts shown after the help in the popover but left out of the accessible description. */
+  facts?: ReactNode;
   label: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -156,16 +162,20 @@ function FieldHelp({
           align="start"
           aria-label={`About ${label}`}
           className="w-auto max-w-xs gap-1.5 text-xs"
+          collisionPadding={16}
           finalFocus={false}
           initialFocus={false}
           side="top"
         >
           {children}
+          {facts ? <div className="text-muted-foreground">{facts}</div> : null}
         </PopoverContent>
       </Popover>
-      <div hidden id={descriptionId}>
-        {children}
-      </div>
+      {children ? (
+        <div hidden id={descriptionId}>
+          {children}
+        </div>
+      ) : null}
     </>
   );
 }

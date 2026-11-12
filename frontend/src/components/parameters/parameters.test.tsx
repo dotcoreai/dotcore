@@ -38,7 +38,7 @@ describe("ParametersForm", () => {
     const cache = screen.getByRole("textbox", { name: "Prompt cache memory" });
     expect(cache).toHaveValue("2048");
     expect(cache.parentElement?.textContent).toBe("MiB");
-    expect(cache).toHaveAccessibleDescription("MiB");
+    expect(cache).not.toHaveAccessibleDescription();
     const slots = screen.getByRole("textbox", { name: "Slots" });
     expect(slots.parentElement?.textContent).toBe("Slots");
     expect(slots).not.toHaveAccessibleDescription();

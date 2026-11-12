@@ -38,12 +38,11 @@ export function ParametersForm({
 }: ParametersFormProps) {
   return parameters.map((parameter) => {
     const controlId = `${idPrefix}-${parameter.id}`;
-    const unitId = `${controlId}-unit`;
     const unit = parameter.type.kind === "unsignedInteger" ? parameter.type.unit : "";
     const field = {
       controlId,
       error: errors.get(parameter.id),
-      help: parameter.hint,
+      help: parameter.description || undefined,
       label: parameter.label,
     };
     const register = (control: HTMLElement | null) => {
@@ -90,7 +89,13 @@ export function ParametersForm({
     }
 
     return (
-      <Field {...field} describedBy={unit ? unitId : undefined} key={parameter.id}>
+      <Field
+        {...field}
+        facts={
+          parameter.type.kind === "unsignedInteger" ? <RangeFact type={parameter.type} /> : null
+        }
+        key={parameter.id}
+      >
         {(control) => {
           const input = (
             <Input
@@ -105,9 +110,7 @@ export function ParametersForm({
           return unit ? (
             <div className="flex items-center gap-2">
               {input}
-              <span className="shrink-0 text-sm text-muted-foreground" id={unitId}>
-                {unit}
-              </span>
+              <span className="shrink-0 text-sm text-muted-foreground">{unit}</span>
             </div>
           ) : (
             input
@@ -116,6 +119,16 @@ export function ParametersForm({
       </Field>
     );
   });
+}
+
+/** The accepted range of a number parameter, with its unit when it has one. */
+function RangeFact({ type }: { type: { maximum: bigint; minimum: bigint; unit: string } }) {
+  return (
+    <p>
+      Range {`${type.minimum}–${type.maximum}`}
+      {type.unit ? ` ${type.unit}` : ""}
+    </p>
+  );
 }
 
 /** Detail rows for retained parameter values, in view order; a missing or mistyped value is skipped. */

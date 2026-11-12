@@ -2,8 +2,8 @@ import { formatQuantity } from "@/lib/format";
 
 /** One typed parameter as the shared form and details render it, independent of its owner. */
 export interface ParameterView {
-  /** A short line under the field; absent when the label and value say enough. */
-  hint?: string;
+  /** What the parameter does, shown in the field's help; absent when the label says enough. */
+  description?: string;
   id: string;
   label: string;
   type: ParameterViewType;

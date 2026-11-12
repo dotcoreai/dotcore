@@ -54,6 +54,28 @@ describe("Field", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a whole number.");
   });
 
+  it("shows facts only in the popover, not in the accessible description", async () => {
+    const user = setupUser();
+    render(
+      <Field
+        controlId="parallel"
+        facts={<p>Range 1–64 requests</p>}
+        help={help}
+        label="Parallel requests"
+      >
+        {(control) => <Input {...control} />}
+      </Field>,
+    );
+
+    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveAccessibleDescription(
+      help,
+    );
+    await user.click(helpButton());
+    expect(
+      await screen.findByRole("dialog", { name: "About Parallel requests" }),
+    ).toHaveTextContent(`${help}Range 1–64 requests`);
+  });
+
   it("opens the help on hover and closes it when the pointer leaves", async () => {
     const user = setupUser();
     render(<ParallelRequestsField />);

@@ -300,7 +300,9 @@ describe("generic upstream endpoint UI", () => {
     expect(within(dialog).getByText("Base URL is required.")).toBeVisible();
     expect(within(dialog).getByText("Upstream model ID is required.")).toBeVisible();
     expect(baseUrl).toHaveAttribute("aria-invalid", "true");
-    expect(baseUrl).toHaveAccessibleDescription("Base URL is required.");
+    expect(baseUrl).toHaveAccessibleDescription(
+      "Address of the OpenAI-compatible server that runs the model. Base URL is required.",
+    );
     expect(baseUrl).toHaveFocus();
     expect(onSubmit).not.toHaveBeenCalled();
   });
@@ -316,6 +318,7 @@ describe("generic upstream endpoint UI", () => {
 
     await user.click(baseUrl);
     await user.tab();
+    await user.tab();
     expect(modelId).toHaveFocus();
     await user.tab();
     await user.click(within(dialog).getByRole("checkbox", { name: "Advanced" }));
@@ -326,13 +329,17 @@ describe("generic upstream endpoint UI", () => {
     await user.clear(baseUrl);
     await user.tab();
     expect(await within(dialog).findByText("Base URL is required.")).toBeVisible();
-    expect(baseUrl).toHaveAccessibleDescription("Base URL is required.");
+    expect(baseUrl).toHaveAccessibleDescription(
+      "Address of the OpenAI-compatible server that runs the model. Base URL is required.",
+    );
     expect(modelId).not.toHaveAttribute("aria-invalid");
     expect(within(dialog).queryByText("Upstream model ID is required.")).not.toBeInTheDocument();
 
     await user.click(within(dialog).getByRole("button", { name: "Next" }));
     expect(within(dialog).getByText("Step 1 of 2 — Connection")).toBeVisible();
-    expect(modelId).toHaveAccessibleDescription("Upstream model ID is required.");
+    expect(modelId).toHaveAccessibleDescription(
+      "The model name that server expects in requests. Upstream model ID is required.",
+    );
     expect(baseUrl).toHaveFocus();
   });
 
@@ -439,7 +446,7 @@ describe("generic upstream endpoint UI", () => {
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
     expect(route).toHaveAttribute("aria-invalid", "true");
     expect(route).toHaveAccessibleDescription(
-      'An inference route named "private-model" already exists. Change the route or the deployment name.',
+      'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "private-model" already exists. Change the route or the deployment name.',
     );
 
     const name = within(dialog).getByRole("textbox", { name: "Deployment name" });
@@ -495,7 +502,7 @@ describe("generic upstream endpoint UI", () => {
     const route = within(dialog).getByLabelText("Route name");
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
     expect(route).toHaveAccessibleDescription(
-      'An inference route named "private-model" already exists. Change the route or the deployment name.',
+      'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "private-model" already exists. Change the route or the deployment name.',
     );
 
     await user.clear(route);
@@ -700,7 +707,9 @@ describe("generic upstream endpoint UI", () => {
     await user.tab();
     expect(await within(dialog).findByText("Base URL must not include a query.")).toBeVisible();
     expect(baseUrl).toHaveAttribute("aria-invalid", "true");
-    expect(baseUrl).toHaveAccessibleDescription("Base URL must not include a query.");
+    expect(baseUrl).toHaveAccessibleDescription(
+      "Address of the OpenAI-compatible server that runs the model. Base URL must not include a query.",
+    );
     await user.clear(baseUrl);
     await user.type(baseUrl, "https://endpoint.example/v1");
     expect(
@@ -866,6 +875,9 @@ describe("generic upstream endpoint UI", () => {
     expect(route()).toHaveClass("text-muted-foreground");
     const toggle = () => within(dialog).getByRole("button", { name: "Follow the deployment name" });
     expect(toggle()).toHaveAttribute("aria-pressed", "true");
+    expect(route()).toHaveAccessibleDescription(
+      "The model name callers send in requests. It follows the deployment name until you change it.",
+    );
     expect(name().compareDocumentPosition(route()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(dialog).queryByRole("radio", { name: "Direct" })).not.toBeInTheDocument();
 
@@ -903,7 +915,9 @@ describe("generic upstream endpoint UI", () => {
     await user.clear(route);
     await user.type(route, "taken");
 
-    expect(route).toHaveAccessibleDescription('An inference route named "taken" already exists.');
+    expect(route).toHaveAccessibleDescription(
+      'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "taken" already exists.',
+    );
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
   });
 
@@ -935,10 +949,9 @@ describe("generic upstream endpoint UI", () => {
     const endpointHeading = within(inspector).getByRole("heading", { name: "Endpoint" });
     const endpointSection = endpointHeading.closest("section");
     expect(endpointHeading).toBeVisible();
-    expect(within(endpointSection!).getByLabelText("Base URL").closest("label")).toHaveClass(
-      "grid",
-      "gap-1",
-    );
+    expect(
+      within(endpointSection!).getByLabelText("Base URL").closest('[data-slot="field"]'),
+    ).toHaveClass("grid", "gap-1");
     expect(endpointSection?.querySelector(":scope > .mt-4 > .grid.gap-4")).toBeInTheDocument();
     expect(within(endpointSection!).getByRole("button", { name: "Save endpoint" })).toHaveClass(
       "mt-4",
@@ -1165,7 +1178,7 @@ describe("generic upstream endpoint UI", () => {
     expect(route).toBeDisabled();
     expect(route).not.toHaveAttribute("aria-invalid");
     expect(route).toHaveAccessibleDescription(
-      "Hidden: no route of its own. Reachable only through other routes.",
+      "The model name callers send in requests. It follows the deployment name until you change it. Hidden: no route of its own. Reachable only through other routes.",
     );
     expect(within(dialog).queryByText(/Route name must start/)).not.toBeInTheDocument();
 

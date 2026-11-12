@@ -5,8 +5,6 @@ import { ParametersDetails, ParametersForm } from "@/components/parameters/param
 import type { EngineParameterSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { ParameterDefinition, ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
-import { engineParameterHelp } from "./engine-parameter-values";
-
 interface EngineParametersFormProps {
   errors: ReadonlyMap<string, string>;
   inputs: ReadonlyMap<string, string>;
@@ -66,7 +64,7 @@ export function EngineParametersDetails({
 function engineParameterViews(parameters: readonly ParameterDefinition[]): ParameterView[] {
   return parameters.flatMap((parameter): ParameterView[] => {
     const base = {
-      hint: engineParameterHelp(parameter),
+      description: parameter.description,
       id: parameter.parameterId,
       label: parameter.displayName,
     };
