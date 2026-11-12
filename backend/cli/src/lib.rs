@@ -8,7 +8,10 @@
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 compile_error!("Dotcore supports only Linux and macOS targets");
 
-use std::process::ExitCode;
+use std::{
+    io::{self, Write},
+    process::ExitCode,
+};
 
 use anyhow::bail;
 use anyhow::{Context, Result};
@@ -75,13 +78,13 @@ pub enum Command {
     /// node's machine.
     Node(node::NodeCommand),
 
-    /// Manage the model deployments of the running site: `list`, `show`, `pause`, `resume` and
-    /// `teardown`.
+    /// Manage the model deployments of the running site: `list`, `show`, `pause`, `resume`,
+    /// `teardown` and `logs`.
     #[command(alias = "models")]
     Model(model::ModelCommand),
 
-    /// Manage the application deployments of the running site: `list`, `show`, `pause`, `resume`
-    /// and `teardown`.
+    /// Manage the application deployments of the running site: `list`, `show`, `pause`, `resume`,
+    /// `teardown` and `logs`.
     #[command(visible_alias = "app", alias = "applications")]
     Application(application::ApplicationCommand),
 
@@ -168,10 +171,12 @@ pub fn report_failure(error: anyhow::Error, verbose: bool) -> ExitCode {
         return ExitCode::from(130);
     }
     let messages = failure::Failure::from_error(&error).messages(verbose);
-    match terminal::render_for_stderr(&messages) {
-        Some(text) => eprint!("{text}"),
-        None => eprintln!("{}", format_failure(&error)),
-    }
+    // A closed stderr loses the report; the exit code still tells the failure.
+    let mut stderr = io::stderr().lock();
+    let _ = match terminal::render_for_stderr(&messages) {
+        Some(text) => write!(stderr, "{text}"),
+        None => writeln!(stderr, "{}", format_failure(&error)),
+    };
     ExitCode::from(1)
 }
 

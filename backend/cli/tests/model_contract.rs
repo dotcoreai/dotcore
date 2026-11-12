@@ -2,9 +2,15 @@
 
 use std::process::{Command, Output, Stdio};
 
-use dotcore_proto::dotcore::model::v1::{
-    ModelDeployment, ModelDeploymentDesiredState, ModelDeploymentFailure, ModelDeploymentProgress,
-    ModelDeploymentStatus,
+use dotcore_proto::{
+    dotcore::model::v1::{
+        DeploymentLogEntry, DeploymentLogResumePosition, DeploymentLogSource,
+        DeploymentLogSourceEvent, DeploymentLogSourceState, FollowDeploymentLogsResponse,
+        ModelDeployment, ModelDeploymentDesiredState, ModelDeploymentFailure,
+        ModelDeploymentProgress, ModelDeploymentStatus, ReadDeploymentLogsResponse,
+        follow_deployment_logs_response::Event,
+    },
+    google::protobuf::Timestamp,
 };
 use tonic::Status;
 
@@ -238,7 +244,7 @@ fn the_manager_flag_overrides_the_environment_address() {
 }
 
 #[test]
-fn help_lists_the_five_verbs_and_the_manager_flag() {
+fn help_lists_the_six_verbs_and_the_manager_flag() {
     let group = isolated_dotc()
         .args(["model", "--help"])
         .output()
@@ -250,7 +256,7 @@ fn help_lists_the_five_verbs_and_the_manager_flag() {
 
     assert_eq!(group.status.code(), Some(0));
     let group = text(&group.stdout);
-    for verb in ["list", "show", "pause", "resume", "teardown"] {
+    for verb in ["list", "show", "pause", "resume", "teardown", "logs"] {
         assert!(
             group
                 .lines()
@@ -376,6 +382,249 @@ fn an_answer_without_the_asked_desired_state_is_not_accepted() {
         "the manager did not accept the request to pause Gemma; its desired state is Present; see `dotc model list`\n"
     );
     assert_eq!(manager.model_deployment("model-1").desired_state(), Present);
+}
+
+#[test]
+fn logs_print_the_recent_lines_with_their_source_and_report_unavailable_sources() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().model_logs.page = log_page(
+        vec![
+            log_source("server", DeploymentLogSourceState::Available),
+            log_source("proxy", DeploymentLogSourceState::Unavailable),
+        ],
+        vec![
+            log_entry("server", 10, b"loading weights"),
+            log_entry("proxy", 11, b"listening"),
+        ],
+    );
+
+    let output = run(&manager, &["logs", "Gemma", "--lines", "20"]);
+
+    assert_eq!(text(&output.stderr), "Proxy (proxy): unavailable\n");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        text(&output.stdout),
+        "[Server (server)] loading weights\n[Proxy (proxy)] listening\n"
+    );
+    let logs = &manager.state().model_logs;
+    assert_eq!(logs.reads.len(), 1);
+    assert_eq!(logs.reads[0].model_deployment_id, "model-1");
+    assert_eq!(logs.reads[0].page_size, 20);
+    assert!(logs.reads[0].source_names.is_empty());
+    assert!(logs.follows.is_empty());
+}
+
+#[test]
+fn logs_of_one_source_print_bare_lines_with_timestamps_and_keep_their_bytes() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().model_logs.page = log_page(
+        vec![log_source("server", DeploymentLogSourceState::Available)],
+        vec![
+            log_entry("server", 10, b"\x1b[32mready\x1b[0m"),
+            log_entry("server", 11, b"bad \xff byte"),
+        ],
+    );
+
+    let output = run(
+        &manager,
+        &["logs", "model-1", "--source", "server", "--timestamps"],
+    );
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        text(&output.stdout),
+        "2026-11-12T16:13:30Z \x1b[32mready\x1b[0m\n2026-11-12T16:13:31Z bad \u{fffd} byte\n"
+    );
+    let logs = &manager.state().model_logs;
+    assert_eq!(logs.reads[0].source_names, ["server"]);
+    assert_eq!(logs.reads[0].page_size, 100);
+}
+
+#[test]
+fn logs_with_follow_continue_after_the_read_and_report_source_changes() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    {
+        let mut state = manager.state();
+        state.model_logs.page = log_page(
+            vec![
+                log_source("server", DeploymentLogSourceState::Available),
+                log_source("proxy", DeploymentLogSourceState::Unavailable),
+            ],
+            vec![log_entry("server", 10, b"loading weights")],
+        );
+        state.model_logs.follow = vec![
+            Ok(follow_entry("server", 12, b"ready")),
+            Ok(follow_source("proxy", DeploymentLogSourceState::Available)),
+            Ok(follow_entry("proxy", 13, b"listening")),
+            Ok(follow_source("server", DeploymentLogSourceState::Ended)),
+        ];
+    }
+
+    let output = run(&manager, &["logs", "Gemma", "--follow"]);
+
+    assert_eq!(
+        text(&output.stderr),
+        "Proxy (proxy): unavailable\nProxy (proxy): available\nServer (server): ended\nthe log follow of model deployment Gemma ended\n"
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        text(&output.stdout),
+        "[Server (server)] loading weights\n[Server (server)] ready\n[Proxy (proxy)] listening\n"
+    );
+    let logs = &manager.state().model_logs;
+    assert_eq!(logs.follows.len(), 1);
+    assert_eq!(logs.follows[0].model_deployment_id, "model-1");
+    // Only the source that had lines resumes after them; the other one starts fresh.
+    assert_eq!(
+        logs.follows[0].resume_positions,
+        [DeploymentLogResumePosition {
+            source_name: "server".to_owned(),
+            latest_timestamp: Some(timestamp(10)),
+        }]
+    );
+}
+
+#[test]
+fn a_follow_the_manager_ends_with_an_error_fails() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    {
+        let mut state = manager.state();
+        state.model_logs.page = log_page(
+            vec![log_source("server", DeploymentLogSourceState::Available)],
+            Vec::new(),
+        );
+        state.model_logs.follow = vec![
+            Ok(follow_entry("server", 12, b"ready")),
+            Err(Status::unavailable(
+                "Deployment logs are unavailable right now; retry shortly",
+            )),
+        ];
+    }
+
+    let output = run(&manager, &["logs", "Gemma", "--follow"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(text(&output.stdout), "ready\n");
+    assert_eq!(
+        text(&output.stderr),
+        "cannot read the logs of model deployment Gemma: the manager returned Unavailable: Deployment logs are unavailable right now; retry shortly\n"
+    );
+}
+
+#[test]
+fn logs_stop_quietly_without_following_once_the_reader_of_the_lines_is_gone() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    {
+        let mut state = manager.state();
+        state.model_logs.page = log_page(
+            vec![log_source("server", DeploymentLogSourceState::Available)],
+            vec![log_entry("server", 10, b"loading weights")],
+        );
+        state.model_logs.follow = vec![Ok(follow_entry("server", 12, b"ready"))];
+    }
+    let (reader, writer) = std::io::pipe().expect("create the stdout pipe");
+    drop(reader);
+
+    let output = dotc_at(
+        "model",
+        &manager.address().to_string(),
+        &["logs", "Gemma", "--follow"],
+    )
+    .stdout(writer)
+    .output()
+    .expect("run dotc model");
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(output.status.code(), Some(0));
+    let logs = &manager.state().model_logs;
+    assert_eq!(logs.reads.len(), 1);
+    assert!(logs.follows.is_empty());
+}
+
+#[test]
+fn logs_fail_without_panicking_when_stderr_is_closed() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().model_logs.page = log_page(
+        vec![log_source("server", DeploymentLogSourceState::Unavailable)],
+        Vec::new(),
+    );
+    let (reader, writer) = std::io::pipe().expect("create the stderr pipe");
+    drop(reader);
+
+    let output = dotc_at("model", &manager.address().to_string(), &["logs", "Gemma"])
+        .stderr(writer)
+        .output()
+        .expect("run dotc model");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(text(&output.stdout), "");
+}
+
+#[test]
+fn logs_fail_when_every_source_is_unavailable_or_the_node_cannot_be_reached() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().model_logs.page = log_page(
+        vec![log_source("server", DeploymentLogSourceState::Unavailable)],
+        Vec::new(),
+    );
+
+    let unavailable = run(&manager, &["logs", "Gemma"]);
+
+    assert_eq!(unavailable.status.code(), Some(1));
+    assert_eq!(text(&unavailable.stdout), "");
+    assert_eq!(
+        text(&unavailable.stderr),
+        "Server (server): unavailable\nevery log source of model deployment Gemma is unavailable; its node may be unreachable\n"
+    );
+
+    manager.state().scripted.insert(
+        Rpc::ReadModelLogs,
+        Scripted::Fail(Status::unavailable(
+            "Deployment logs are unavailable right now; retry shortly",
+        )),
+    );
+    let unreachable = run(&manager, &["logs", "Gemma"]);
+
+    assert_eq!(unreachable.status.code(), Some(1));
+    assert_eq!(
+        text(&unreachable.stderr),
+        "cannot read the logs of model deployment Gemma: the manager returned Unavailable: Deployment logs are unavailable right now; retry shortly\n"
+    );
+}
+
+#[test]
+fn logs_of_an_unknown_source_fail_with_the_manager_reason_and_a_hint() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+    manager.state().scripted.insert(
+        Rpc::ReadModelLogs,
+        Scripted::Fail(Status::invalid_argument(
+            "Deployment log request contains an invalid source",
+        )),
+    );
+
+    let output = run(&manager, &["logs", "Gemma", "--source", "nope"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(text(&output.stdout), "");
+    assert_eq!(
+        text(&output.stderr),
+        "cannot read the logs of model deployment Gemma: the manager returned InvalidArgument: Deployment log request contains an invalid source; run the command without --source to see the source of each line\n"
+    );
+}
+
+#[test]
+fn logs_of_an_unknown_deployment_fail_before_reading_any_log() {
+    let manager = FakeManager::start(FakeState::with_models(mixed_deployments()));
+
+    let output = run(&manager, &["logs", "missing"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        text(&output.stderr),
+        "no model deployment is named or has id \"missing\"; see `dotc model list`\n"
+    );
+    assert!(manager.state().model_logs.reads.is_empty());
 }
 
 #[test]
@@ -553,6 +802,68 @@ fn mixed_deployments() -> Vec<ModelDeployment> {
     ]
 }
 
+fn log_page(
+    sources: Vec<DeploymentLogSource>,
+    entries: Vec<DeploymentLogEntry>,
+) -> ReadDeploymentLogsResponse {
+    let mut latest: Vec<DeploymentLogResumePosition> = Vec::new();
+    for entry in &entries {
+        latest.retain(|position| position.source_name != entry.source_name);
+        latest.push(DeploymentLogResumePosition {
+            source_name: entry.source_name.clone(),
+            latest_timestamp: entry.timestamp,
+        });
+    }
+    ReadDeploymentLogsResponse {
+        sources,
+        entries,
+        latest_positions: latest,
+        ..Default::default()
+    }
+}
+
+fn log_source(name: &str, state: DeploymentLogSourceState) -> DeploymentLogSource {
+    DeploymentLogSource {
+        source_name: name.to_owned(),
+        source_label: label_of(name),
+        state: state as i32,
+    }
+}
+
+/// A line of `source` written `second` seconds after 2026-11-12T16:13:20Z.
+fn log_entry(source: &str, second: i64, content: &[u8]) -> DeploymentLogEntry {
+    DeploymentLogEntry {
+        source_name: source.to_owned(),
+        source_label: label_of(source),
+        timestamp: Some(timestamp(second)),
+        content: content.to_vec(),
+        ..Default::default()
+    }
+}
+
+fn follow_entry(source: &str, second: i64, content: &[u8]) -> FollowDeploymentLogsResponse {
+    FollowDeploymentLogsResponse {
+        event: Some(Event::Entry(log_entry(source, second, content))),
+    }
+}
+
+fn follow_source(name: &str, state: DeploymentLogSourceState) -> FollowDeploymentLogsResponse {
+    FollowDeploymentLogsResponse {
+        event: Some(Event::SourceEvent(DeploymentLogSourceEvent {
+            source_name: name.to_owned(),
+            source_label: label_of(name),
+            state: state as i32,
+        })),
+    }
+}
+
+fn timestamp(second: i64) -> Timestamp {
+    Timestamp {
+        seconds: 1_794_500_000 + second,
+        nanos: 0,
+    }
+}
+
 fn call(rpc: Rpc, id: Option<&str>) -> Call {
     Call {
         rpc,
@@ -595,4 +906,13 @@ fn terminal_command(manager: &FakeManager, arguments: &[&str]) -> Command {
 
 fn text(value: &[u8]) -> String {
     String::from_utf8_lossy(value).into_owned()
+}
+
+/// The label the manager shows for a source, different from its name like real sources.
+fn label_of(name: &str) -> String {
+    let mut characters = name.chars();
+    characters
+        .next()
+        .map(|first| first.to_uppercase().chain(characters).collect())
+        .unwrap_or_default()
 }

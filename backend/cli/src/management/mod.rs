@@ -7,6 +7,7 @@
 //! deployments fails with their ids instead of picking one.
 
 mod deployment;
+mod logs;
 
 use std::{collections::HashMap, fmt, str::FromStr, time::Duration};
 
@@ -28,6 +29,10 @@ use tonic::{
 
 pub(crate) use deployment::{
     Lifecycle, ManagedDeployment, change_lifecycle, find_deployment, list_deployments, teardown,
+};
+pub(crate) use logs::{
+    LogEntry, LogEvent, LogEvents, LogPage, LogPosition, LogSource, LogSourceState,
+    LoggedDeployment, LogsArgs, deployment_logs,
 };
 
 /// How long connecting to the manager may take before the command reports it unreachable.

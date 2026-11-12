@@ -29,7 +29,7 @@ use dotcore_proto::dotcore::{
     },
     deployment::v1::ExactPlacement,
     model::v1::{
-        CreateModelDeploymentRequest, CreateModelDeploymentResponse,
+        self as model, CreateModelDeploymentRequest, CreateModelDeploymentResponse,
         EstimateLocalModelResourcesRequest, EstimateLocalModelResourcesResponse,
         FollowDeploymentLogsRequest, FollowDeploymentLogsResponse, ListModelDeploymentsRequest,
         ListModelDeploymentsResponse, ListModelProfileCompatibilityRequest,
@@ -193,6 +193,12 @@ pub struct FakeState {
     /// Execution targets that carry the node display names.
     pub execution_targets: Vec<ConfiguredExecutionTarget>,
 
+    /// Logs every model deployment serves, and the logs requests received.
+    pub model_logs: FakeModelLogs,
+
+    /// Logs every application deployment serves, and the logs requests received.
+    pub application_logs: FakeApplicationLogs,
+
     /// Scripted answers that replace the normal behavior of one call.
     pub scripted: HashMap<Rpc, Scripted>,
 
@@ -246,6 +252,33 @@ pub enum Rpc {
     RemoveApplicationDeployment,
 
     ListConfiguredExecutionTargets,
+
+    ReadModelLogs,
+
+    FollowModelLogs,
+
+    ReadApplicationLogs,
+
+    FollowApplicationLogs,
+}
+
+/// The logs the model deployment service answers with: one read page, then the events of a
+/// follow, which ends after them as when the deployment is removed.
+#[derive(Debug, Default)]
+pub struct FakeModelLogs {
+    pub page: model::ReadDeploymentLogsResponse,
+    pub follow: Vec<Result<model::FollowDeploymentLogsResponse, Status>>,
+    pub reads: Vec<model::ReadDeploymentLogsRequest>,
+    pub follows: Vec<model::FollowDeploymentLogsRequest>,
+}
+
+/// The logs the application deployment service answers with, as [`FakeModelLogs`].
+#[derive(Debug, Default)]
+pub struct FakeApplicationLogs {
+    pub page: application::ReadDeploymentLogsResponse,
+    pub follow: Vec<Result<application::FollowDeploymentLogsResponse, Status>>,
+    pub reads: Vec<application::ReadDeploymentLogsRequest>,
+    pub follows: Vec<application::FollowDeploymentLogsRequest>,
 }
 
 /// One received call and the deployment id it named, if any.
@@ -405,8 +438,9 @@ impl FakeModels {
 
 #[tonic::async_trait]
 impl ModelDeploymentService for FakeModels {
-    type FollowDeploymentLogsStream =
-        futures_util::stream::Empty<Result<FollowDeploymentLogsResponse, Status>>;
+    type FollowDeploymentLogsStream = futures_util::stream::Iter<
+        std::vec::IntoIter<Result<FollowDeploymentLogsResponse, Status>>,
+    >;
 
     async fn list_model_deployments(
         &self,
@@ -508,16 +542,34 @@ impl ModelDeploymentService for FakeModels {
 
     async fn read_deployment_logs(
         &self,
-        _request: Request<ReadDeploymentLogsRequest>,
+        request: Request<ReadDeploymentLogsRequest>,
     ) -> Result<Response<ReadDeploymentLogsResponse>, Status> {
-        Err(not_faked())
+        let request = request.into_inner();
+        let mut state = self.state.lock().expect("fake manager state");
+        record(
+            &mut state,
+            Rpc::ReadModelLogs,
+            Some(&request.model_deployment_id),
+        )?;
+        state.model_logs.reads.push(request);
+        Ok(Response::new(state.model_logs.page.clone()))
     }
 
     async fn follow_deployment_logs(
         &self,
-        _request: Request<FollowDeploymentLogsRequest>,
+        request: Request<FollowDeploymentLogsRequest>,
     ) -> Result<Response<Self::FollowDeploymentLogsStream>, Status> {
-        Err(not_faked())
+        let request = request.into_inner();
+        let mut state = self.state.lock().expect("fake manager state");
+        record(
+            &mut state,
+            Rpc::FollowModelLogs,
+            Some(&request.model_deployment_id),
+        )?;
+        state.model_logs.follows.push(request);
+        Ok(Response::new(futures_util::stream::iter(
+            state.model_logs.follow.clone(),
+        )))
     }
 
     async fn update_model_deployment_metadata(
@@ -567,8 +619,9 @@ impl FakeApplications {
 
 #[tonic::async_trait]
 impl ApplicationDeploymentService for FakeApplications {
-    type FollowDeploymentLogsStream =
-        futures_util::stream::Empty<Result<application::FollowDeploymentLogsResponse, Status>>;
+    type FollowDeploymentLogsStream = futures_util::stream::Iter<
+        std::vec::IntoIter<Result<application::FollowDeploymentLogsResponse, Status>>,
+    >;
 
     async fn list_application_deployments(
         &self,
@@ -642,16 +695,34 @@ impl ApplicationDeploymentService for FakeApplications {
 
     async fn read_deployment_logs(
         &self,
-        _request: Request<application::ReadDeploymentLogsRequest>,
+        request: Request<application::ReadDeploymentLogsRequest>,
     ) -> Result<Response<application::ReadDeploymentLogsResponse>, Status> {
-        Err(not_faked())
+        let request = request.into_inner();
+        let mut state = self.state.lock().expect("fake manager state");
+        record(
+            &mut state,
+            Rpc::ReadApplicationLogs,
+            Some(&request.application_deployment_id),
+        )?;
+        state.application_logs.reads.push(request);
+        Ok(Response::new(state.application_logs.page.clone()))
     }
 
     async fn follow_deployment_logs(
         &self,
-        _request: Request<application::FollowDeploymentLogsRequest>,
+        request: Request<application::FollowDeploymentLogsRequest>,
     ) -> Result<Response<Self::FollowDeploymentLogsStream>, Status> {
-        Err(not_faked())
+        let request = request.into_inner();
+        let mut state = self.state.lock().expect("fake manager state");
+        record(
+            &mut state,
+            Rpc::FollowApplicationLogs,
+            Some(&request.application_deployment_id),
+        )?;
+        state.application_logs.follows.push(request);
+        Ok(Response::new(futures_util::stream::iter(
+            state.application_logs.follow.clone(),
+        )))
     }
 
     async fn update_application_deployment_metadata(

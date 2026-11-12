@@ -13,17 +13,21 @@ mod show;
 use clap::{Args, Subcommand};
 use dotcore_proto::dotcore::{
     application::v1::{
-        ApplicationDeployment, ApplicationDeploymentDesiredState,
-        ListApplicationDeploymentsRequest, PauseDeploymentRequest,
+        ApplicationDeployment, ApplicationDeploymentDesiredState, DeploymentLogEntry,
+        DeploymentLogResumePosition, DeploymentLogSourceState, FollowDeploymentLogsRequest,
+        ListApplicationDeploymentsRequest, PauseDeploymentRequest, ReadDeploymentLogsRequest,
         RemoveApplicationDeploymentRequest, ResumeDeploymentRequest,
+        follow_deployment_logs_response,
     },
     deployment::v1::ExactPlacement,
 };
+use futures_util::StreamExt;
 use tonic::Status;
 
 use crate::management::{
-    DeploymentGroup, Lifecycle, ManagedDeployment, Manager, ManagerArgs, NodeNames,
-    change_lifecycle, teardown,
+    DeploymentGroup, Lifecycle, LogEntry, LogEvent, LogEvents, LogPage, LogPosition, LogSource,
+    LogSourceState, LoggedDeployment, LogsArgs, ManagedDeployment, Manager, ManagerArgs, NodeNames,
+    change_lifecycle, deployment_logs, teardown,
 };
 use list::{ApplicationListArgs, application_list};
 use projection::{desired_state_label, state_label};
@@ -56,6 +60,10 @@ enum ApplicationSubcommand {
 
     /// Remove an application deployment, its workloads and its data after confirmation.
     Teardown(ApplicationTeardownArgs),
+
+    /// Print the most recent log lines of an application deployment, on any node, and follow
+    /// new ones with --follow; lines go to stdout and source states to stderr.
+    Logs(LogsArgs),
 }
 
 impl ApplicationCommand {
@@ -87,6 +95,9 @@ impl ApplicationCommand {
                     arguments.yes,
                 )
                 .await
+            }
+            Some(ApplicationSubcommand::Logs(arguments)) => {
+                deployment_logs::<ApplicationDeployment>(arguments).await
             }
             None => anyhow::bail!("application command requires an action"),
         }
@@ -178,6 +189,109 @@ impl ManagedDeployment for ApplicationDeployment {
 
     fn desired_state_label(&self) -> &'static str {
         desired_state_label(self.desired_state())
+    }
+}
+
+impl LoggedDeployment for ApplicationDeployment {
+    async fn read_logs(
+        manager: &Manager,
+        id: String,
+        sources: Vec<String>,
+        page_size: u32,
+    ) -> Result<LogPage, Status> {
+        let page = manager
+            .applications()
+            .read_deployment_logs(ReadDeploymentLogsRequest {
+                application_deployment_id: id,
+                source_names: sources,
+                page_size,
+                before_timestamp: None,
+            })
+            .await?
+            .into_inner();
+        Ok(LogPage {
+            sources: page
+                .sources
+                .into_iter()
+                .map(|source| {
+                    let state = source.state();
+                    log_source(source.source_name, source.source_label, state)
+                })
+                .collect(),
+            entries: page.entries.into_iter().map(log_entry).collect(),
+            truncated: page.response_truncated,
+            positions: page
+                .latest_positions
+                .into_iter()
+                .map(|position| LogPosition {
+                    source_name: position.source_name,
+                    timestamp: position.latest_timestamp,
+                })
+                .collect(),
+        })
+    }
+
+    async fn follow_logs(
+        manager: &Manager,
+        id: String,
+        sources: Vec<String>,
+        positions: Vec<LogPosition>,
+    ) -> Result<LogEvents, Status> {
+        let events = manager
+            .applications()
+            .follow_deployment_logs(FollowDeploymentLogsRequest {
+                application_deployment_id: id,
+                source_names: sources,
+                resume_positions: positions
+                    .into_iter()
+                    .map(|position| DeploymentLogResumePosition {
+                        source_name: position.source_name,
+                        latest_timestamp: position.timestamp,
+                    })
+                    .collect(),
+            })
+            .await?
+            .into_inner();
+        Ok(Box::pin(events.filter_map(|response| async move {
+            match response.map(|response| response.event) {
+                Ok(Some(follow_deployment_logs_response::Event::SourceEvent(source))) => {
+                    let state = source.state();
+                    Some(Ok(LogEvent::Source(log_source(
+                        source.source_name,
+                        source.source_label,
+                        state,
+                    ))))
+                }
+                Ok(Some(follow_deployment_logs_response::Event::Entry(entry))) => {
+                    Some(Ok(LogEvent::Entry(log_entry(entry))))
+                }
+                Ok(None) => None,
+                Err(status) => Some(Err(status)),
+            }
+        })))
+    }
+}
+
+fn log_source(name: String, label: String, state: DeploymentLogSourceState) -> LogSource {
+    LogSource {
+        name,
+        label,
+        state: match state {
+            DeploymentLogSourceState::Available => LogSourceState::Available,
+            DeploymentLogSourceState::Unavailable => LogSourceState::Unavailable,
+            DeploymentLogSourceState::Ended => LogSourceState::Ended,
+            DeploymentLogSourceState::Unspecified => LogSourceState::Unknown,
+        },
+    }
+}
+
+fn log_entry(entry: DeploymentLogEntry) -> LogEntry {
+    LogEntry {
+        source_name: entry.source_name,
+        source_label: entry.source_label,
+        timestamp: entry.timestamp,
+        content: entry.content,
+        truncated: entry.truncated,
     }
 }
 

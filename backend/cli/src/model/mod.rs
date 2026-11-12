@@ -14,15 +14,19 @@ use clap::{Args, Subcommand};
 use dotcore_proto::dotcore::{
     deployment::v1::ExactPlacement,
     model::v1::{
-        ListModelDeploymentsRequest, ModelDeployment, ModelDeploymentDesiredState,
-        PauseModelRequest, RemoveModelDeploymentRequest, ResumeModelRequest,
+        DeploymentLogEntry, DeploymentLogResumePosition, DeploymentLogSourceState,
+        FollowDeploymentLogsRequest, ListModelDeploymentsRequest, ModelDeployment,
+        ModelDeploymentDesiredState, PauseModelRequest, ReadDeploymentLogsRequest,
+        RemoveModelDeploymentRequest, ResumeModelRequest, follow_deployment_logs_response,
     },
 };
+use futures_util::StreamExt;
 use tonic::Status;
 
 use crate::management::{
-    DeploymentGroup, Lifecycle, ManagedDeployment, Manager, ManagerArgs, NodeNames,
-    change_lifecycle, teardown,
+    DeploymentGroup, Lifecycle, LogEntry, LogEvent, LogEvents, LogPage, LogPosition, LogSource,
+    LogSourceState, LoggedDeployment, LogsArgs, ManagedDeployment, Manager, ManagerArgs, NodeNames,
+    change_lifecycle, deployment_logs, teardown,
 };
 use list::{ModelListArgs, model_list};
 use projection::{desired_state_label, state_label};
@@ -55,6 +59,10 @@ enum ModelSubcommand {
 
     /// Remove a model deployment and its running workload resources after confirmation.
     Teardown(ModelTeardownArgs),
+
+    /// Print the most recent log lines of a model deployment, on any node, and follow new ones
+    /// with --follow; lines go to stdout and source states to stderr.
+    Logs(LogsArgs),
 }
 
 impl ModelCommand {
@@ -82,6 +90,9 @@ impl ModelCommand {
             Some(ModelSubcommand::Teardown(arguments)) => {
                 teardown::<ModelDeployment>(&arguments.manager, &arguments.reference, arguments.yes)
                     .await
+            }
+            Some(ModelSubcommand::Logs(arguments)) => {
+                deployment_logs::<ModelDeployment>(arguments).await
             }
             None => anyhow::bail!("model command requires an action"),
         }
@@ -173,6 +184,109 @@ impl ManagedDeployment for ModelDeployment {
 
     fn desired_state_label(&self) -> &'static str {
         desired_state_label(self.desired_state())
+    }
+}
+
+impl LoggedDeployment for ModelDeployment {
+    async fn read_logs(
+        manager: &Manager,
+        id: String,
+        sources: Vec<String>,
+        page_size: u32,
+    ) -> Result<LogPage, Status> {
+        let page = manager
+            .models()
+            .read_deployment_logs(ReadDeploymentLogsRequest {
+                model_deployment_id: id,
+                source_names: sources,
+                page_size,
+                before_timestamp: None,
+            })
+            .await?
+            .into_inner();
+        Ok(LogPage {
+            sources: page
+                .sources
+                .into_iter()
+                .map(|source| {
+                    let state = source.state();
+                    log_source(source.source_name, source.source_label, state)
+                })
+                .collect(),
+            entries: page.entries.into_iter().map(log_entry).collect(),
+            truncated: page.response_truncated,
+            positions: page
+                .latest_positions
+                .into_iter()
+                .map(|position| LogPosition {
+                    source_name: position.source_name,
+                    timestamp: position.latest_timestamp,
+                })
+                .collect(),
+        })
+    }
+
+    async fn follow_logs(
+        manager: &Manager,
+        id: String,
+        sources: Vec<String>,
+        positions: Vec<LogPosition>,
+    ) -> Result<LogEvents, Status> {
+        let events = manager
+            .models()
+            .follow_deployment_logs(FollowDeploymentLogsRequest {
+                model_deployment_id: id,
+                source_names: sources,
+                resume_positions: positions
+                    .into_iter()
+                    .map(|position| DeploymentLogResumePosition {
+                        source_name: position.source_name,
+                        latest_timestamp: position.timestamp,
+                    })
+                    .collect(),
+            })
+            .await?
+            .into_inner();
+        Ok(Box::pin(events.filter_map(|response| async move {
+            match response.map(|response| response.event) {
+                Ok(Some(follow_deployment_logs_response::Event::SourceEvent(source))) => {
+                    let state = source.state();
+                    Some(Ok(LogEvent::Source(log_source(
+                        source.source_name,
+                        source.source_label,
+                        state,
+                    ))))
+                }
+                Ok(Some(follow_deployment_logs_response::Event::Entry(entry))) => {
+                    Some(Ok(LogEvent::Entry(log_entry(entry))))
+                }
+                Ok(None) => None,
+                Err(status) => Some(Err(status)),
+            }
+        })))
+    }
+}
+
+fn log_source(name: String, label: String, state: DeploymentLogSourceState) -> LogSource {
+    LogSource {
+        name,
+        label,
+        state: match state {
+            DeploymentLogSourceState::Available => LogSourceState::Available,
+            DeploymentLogSourceState::Unavailable => LogSourceState::Unavailable,
+            DeploymentLogSourceState::Ended => LogSourceState::Ended,
+            DeploymentLogSourceState::Unspecified => LogSourceState::Unknown,
+        },
+    }
+}
+
+fn log_entry(entry: DeploymentLogEntry) -> LogEntry {
+    LogEntry {
+        source_name: entry.source_name,
+        source_label: entry.source_label,
+        timestamp: entry.timestamp,
+        content: entry.content,
+        truncated: entry.truncated,
     }
 }
 

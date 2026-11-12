@@ -42,6 +42,7 @@ Each checkout, jj workspace or Git worktree is its own workspace. Each one gets 
 
 - `just dev::up` runs the stack in the foreground, `just dev::up-daemon` in the background, and `just dev::attach` opens it.
 - `just dev::logs <process>` shows recent logs. They go away with the stack. The backend also writes them to `logs/` in the site folder.
+- `dotc model logs <deployment>` and `dotc app logs <deployment>` show a deployment's own logs, whichever node runs it. Add `--follow` to keep watching.
 - `just dev::pc` controls the stack's processes.
 
 ## Adding models and apps
