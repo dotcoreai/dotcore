@@ -11,7 +11,7 @@ Dotcore runs AI on hardware you own. It loads models, fits them to your machines
 - **Apps next to your models.** Run apps on the same machines, for example Open WebUI for chat or ComfyUI for images.
 
 > [!IMPORTANT]
-> Dotcore is in alpha. Expect breaking changes, including to saved sites. Security is best effort for now and not guaranteed. See [SECURITY.md](SECURITY.md).
+> Dotcore is in alpha. Expect breaking changes, including to saved sites. Security is best effort for now. See [SECURITY.md](SECURITY.md).
 
 ## Quick start
 

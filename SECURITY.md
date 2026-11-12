@@ -1,6 +1,6 @@
 # Security policy
 
-Dotcore is in alpha. Security is best effort for now and not guaranteed.
+Dotcore is in alpha. Security is best effort for now.
 
 ## Supported versions
 

@@ -8,17 +8,21 @@ This guide starts with your first model and ends with a site on several machines
 2. Wait until it runs. The first deployment downloads the model, which can take a while.
 3. Open **Routes**, select the model's route and use **Chat** to try it.
 
+## Command line
+
+`dotc` manages your site from a terminal or a script. `dotc --help` lists its commands, and `dotc <command> --help` explains each one.
+
+- `dotc site` sets up, resets or deletes a site.
+- `dotc model` and `dotc app` list, pause, resume, observe and remove deployments.
+- `dotc hardware` prints this machine's hardware for bug reports (`show`) and recommends models for it (`recommend`), without a site.
+
 ## Use it from your tools
 
 Each route is an OpenAI-compatible endpoint, and its route name is the `model` your client asks for.
 
-- A route's **Connect** screen shows the address and commands to copy for curl, [OpenCode](https://opencode.ai), [Pi](https://github.com/earendil-works/pi) and [Codex](https://github.com/openai/codex).
-- `dotc code` starts OpenCode, Pi or Codex set up with your models. The agent must be installed already.
-- Codex limits:
-  - It offers only the route you chose, and it does not generate conversation titles.
-  - ChatGPT connectors and web search are off.
-  - Image tool results are not supported (image viewing, or an MCP tool that returns images).
-  - MCP servers from your Codex setup work.
+- A route's **Connect** screen shows its address and commands to copy, for curl and coding agents.
+- `dotc code` starts a coding agent set up with your models. The agent must be installed already.
+- [OpenCode](https://opencode.ai) and [Pi](https://github.com/earendil-works/pi) have full support. [Codex](https://github.com/openai/codex) works with some limits.
 
 ## Add apps
 
@@ -36,14 +40,3 @@ A site can span several machines that reach each other directly. The first one i
 
 - `dotc gc` removes engine and app images that no deployment needs anymore, and caches and app data shared across deployments that nothing has used for a week (`--unused-days` changes that). It asks before removing anything.
 - Nix garbage collection (`nix-store --gc`) reclaims models and engines that no deployment uses.
-
-## Command line
-
-`dotc` manages your site from a terminal or a script. `dotc --help` lists its commands, and `dotc <command> --help` explains each one.
-
-- `dotc site` sets up, resets or deletes a site.
-- `dotc node` adds, lists and removes machines.
-- `dotc model` and `dotc app` list, pause, resume, observe and remove deployments.
-- `dotc code` starts a coding agent.
-- `dotc gc` cleans up unused images and storage.
-- `dotc hardware` prints this machine's hardware for bug reports (`show`) and recommends models for it (`recommend`), without a site.

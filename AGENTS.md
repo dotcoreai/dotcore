@@ -28,9 +28,9 @@ to it instead of repeating it. This file owns the repository-wide rules and the 
   cluster. [`dev/AGENTS.md`](dev/AGENTS.md)
 - `ci/`: the recipes CI runs (`just ci::check`). The workflows live in `.github/workflows/`;
   [`.github/AGENTS.md`](.github/AGENTS.md) owns their rules.
-- `docs/`: the user guides, the development guides (`docs/development/`), and the product and
-  architecture specs (`docs/specs/`). [`docs/specs/AGENTS.md`](docs/specs/AGENTS.md) owns the
-  specs' rules.
+- `docs/`: the user guides, the development guides and the product and architecture specs.
+  [`docs/README.md`](docs/README.md) lists them and [`docs/AGENTS.md`](docs/AGENTS.md) says which
+  one holds what.
 - `utils/`: standalone tools with no build integration; each has its own README.
 - `.agents/skills/`: skills, linked from `.claude/skills/`.
 
@@ -145,9 +145,14 @@ in the same change that adds, removes or renames a folder it lists.
 
 - Write every document, README and `AGENTS.md` in plain English: short sentences, bullets and
   outlines over paragraphs, no jargon or internal shorthand.
-- Say what a task is and which command or console screen does it, then point to `--help`,
-  `just --list` or the code for detail. Don't copy flag lists, defaults, prompts or step-by-step
-  screens; they go stale.
+- Order every document, and a folder's documents, from overview to detail (progressive
+  disclosure). Open with what it is and the shortest path to using or understanding it; each
+  section then adds one level of detail, so a reader can stop at any point with a correct picture.
+  Put the common case before the exception.
+- A document is enough to start, not a reference or a changelog. Say what a task is and which
+  command or console screen does it, then point to `--help`, `just --list`, the code or another
+  page for the rest. Don't list every command, option or limit, and don't copy flag lists,
+  defaults, prompts or step-by-step screens; they go stale.
 - An `AGENTS.md` keeps the rules agents get wrong and the risky ones; everything else is a pointer
   to `--help`, a recipe or a doc. Title it `# <Area> agentic instructions`.
 - A README is for a person browsing: what the folder is, how it fits, where to go next. Procedures,
