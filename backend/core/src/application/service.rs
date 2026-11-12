@@ -89,12 +89,13 @@ where
 
     async fn list_application_targets(
         &self,
-        _request: Request<ListApplicationTargetsRequest>,
+        request: Request<ListApplicationTargetsRequest>,
     ) -> Result<Response<ListApplicationTargetsResponse>, Status> {
-        // TODO: answer from the apps controller's application target read.
-        Ok(Response::new(ListApplicationTargetsResponse {
-            targets: Vec::new(),
-        }))
+        self.controller
+            .list_targets(request.into_inner().application_id)
+            .await
+            .map(Response::new)
+            .map_err(|error| error.to_tonic_status())
     }
 
     async fn get_application_deployment(
@@ -547,8 +548,8 @@ mod tests {
     use dotcore_proto::{
         dotcore::application::v1::{
             ApplicationDeployment, CreateApplicationDeploymentRequest, DeploymentLogResumePosition,
-            ListApplicationDeploymentsResponse, ReadDeploymentLogsRequest,
-            UpdateApplicationDeploymentMetadataRequest,
+            ListApplicationDeploymentsResponse, ListApplicationTargetsResponse,
+            ReadDeploymentLogsRequest, UpdateApplicationDeploymentMetadataRequest,
         },
         google::protobuf::Timestamp,
     };
@@ -1071,6 +1072,15 @@ mod tests {
             Output = Result<ApplicationDeployment, ApplicationLifecycleError>,
         > + Send {
             ready(Ok(ApplicationDeployment::default()))
+        }
+
+        fn list_targets(
+            &self,
+            _application_id: String,
+        ) -> impl std::future::Future<
+            Output = Result<ListApplicationTargetsResponse, ApplicationLifecycleError>,
+        > + Send {
+            ready(Ok(ListApplicationTargetsResponse::default()))
         }
 
         fn create_deployment(

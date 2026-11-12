@@ -2248,6 +2248,108 @@ useCases:
     }
 
     #[test]
+    fn master_catalog_applications_serve_distinct_use_cases() {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        let mut chat = super::test_support::application();
+        chat.use_cases = vec![UseCase::ChatAssistant as i32];
+        let mut images = super::test_support::application();
+        images.application_id = "fixture-images".to_owned();
+        images.use_cases = vec![UseCase::ImageGeneration as i32];
+        images.preferred_accelerators = vec!["nvidia".to_owned()];
+        write_application(&root, "chat.yaml", &chat);
+        write_application(&root, "images.yaml", &images);
+
+        let catalog = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("applications serving distinct use cases load");
+        assert_eq!(
+            catalog
+                .list_application_releases()
+                .iter()
+                .map(|application| (
+                    application.application_id.as_str(),
+                    application.use_cases().collect::<Vec<_>>(),
+                    application.preferred_accelerators.clone(),
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "fixture-application",
+                    vec![UseCase::ChatAssistant],
+                    Vec::new()
+                ),
+                (
+                    "fixture-images",
+                    vec![UseCase::ImageGeneration],
+                    vec!["nvidia".to_owned()]
+                ),
+            ]
+        );
+
+        let mut second_chat = images;
+        second_chat.use_cases = vec![
+            UseCase::ImageGeneration as i32,
+            UseCase::ChatAssistant as i32,
+        ];
+        write_application(&root, "images.yaml", &second_chat);
+        let error = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("a use case served by two applications is rejected");
+        assert_eq!(
+            error.to_string(),
+            "Catalog diagnostics: applications/images.yaml: application \"fixture-images\" serves use case USE_CASE_CHAT_ASSISTANT, already served by application \"fixture-application\" in applications/chat.yaml"
+        );
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
+    fn catalog_layers_cannot_declare_application_use_cases() {
+        let root = temporary_catalog_root();
+        let master = root.join("master");
+        let layer = root.join("layer");
+        create_empty_catalog_source(&master);
+        create_empty_catalog_source(&layer);
+        let mut application = super::test_support::application();
+        application.use_cases = vec![UseCase::Coding as i32];
+        write_application(&layer, "coding.yaml", &application);
+
+        let development =
+            Catalog::load_development_sources(&master, &layer, &ACCEPT_ENGINE_DECLARATIONS)
+                .expect_err("a development layer must not declare application use cases");
+        let site = Catalog::load_sources_with_policy(
+            &master,
+            &layer,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("a site layer must not declare application use cases");
+
+        assert_eq!(
+            development.to_string(),
+            "Catalog diagnostics: development catalog applications/coding.yaml: application use cases can only be declared by the master catalog"
+        );
+        assert_eq!(
+            site.to_string(),
+            "Catalog diagnostics: site catalog applications/coding.yaml: application use cases can only be declared by the master catalog"
+        );
+
+        // A layer application that serves no use case still loads.
+        application.use_cases.clear();
+        application.preferred_accelerators = vec!["nvidia".to_owned()];
+        write_application(&layer, "coding.yaml", &application);
+        Catalog::load_development_sources(&master, &layer, &ACCEPT_ENGINE_DECLARATIONS)
+            .expect("a layer application without use cases loads");
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
     fn recommendations_on_wider_and_narrower_classes_than_the_supported_one_are_valid() {
         let root = recommendation_fixture("      - hardwareClassId: \"nvidia\"\n");
         for (class, selector) in [
