@@ -8,7 +8,7 @@ import {
   resolvedEngineParameterValue,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
-import { EngineParameterValuesSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { ParameterValuesSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
 import type { ModelProposal } from "./get-started-proposals";
 
@@ -23,7 +23,7 @@ export function proposalLaunch(proposal: ModelProposal, name: string): LocalDepl
   return {
     configuration: {
       customArgumentTokens: [],
-      engineParameterValues: create(EngineParameterValuesSchema, {
+      engineParameterValues: create(ParameterValuesSchema, {
         values: [
           {
             parameterId: CONTEXT_PER_REQUEST_PARAMETER_ID,

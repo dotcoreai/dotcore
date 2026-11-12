@@ -13,7 +13,6 @@ import {
   ApplicationConfigurationBindingSchema,
   ApplicationDeploymentInputSchema,
   ApplicationGraphSchema,
-  ApplicationParameterSchema,
   ApplicationSchema,
   ApplicationServiceSchema,
 } from "@/gen/dotcore/catalog/v1/application_pb";
@@ -24,6 +23,7 @@ import {
 import {
   ParameterDefinitionSchema,
   ParameterValueSchema,
+  ParameterVisibility,
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   InferenceRouteAvailabilitySchema,
@@ -1372,27 +1372,24 @@ describe("Application deployment dialog parameters", () => {
     version: "1.0.0",
     graph: create(ApplicationGraphSchema, {
       parameters: [
-        create(ApplicationParameterSchema, {
-          advanced: true,
-          definition: create(ParameterDefinitionSchema, {
-            parameterId: "vram-mode",
-            displayName: "VRAM mode",
-            description: "How models stay in GPU memory.",
-            parameterType: {
-              case: "stringEnum",
-              value: { values: ["auto", "highvram"], defaultValue: "auto" },
-            },
-          }),
+        create(ParameterDefinitionSchema, {
+          parameterId: "vram-mode",
+          displayName: "VRAM mode",
+          description: "How models stay in GPU memory.",
+          visibility: ParameterVisibility.ADVANCED,
+          parameterType: {
+            case: "stringEnum",
+            value: { values: ["auto", "highvram"], defaultValue: "auto" },
+          },
         }),
-        create(ApplicationParameterSchema, {
-          definition: create(ParameterDefinitionSchema, {
-            parameterId: "workers",
-            displayName: "Workers",
-            parameterType: {
-              case: "unsignedInteger",
-              value: { minimum: 1n, maximum: 8n, unit: "", defaultValue: 2n },
-            },
-          }),
+        create(ParameterDefinitionSchema, {
+          parameterId: "workers",
+          displayName: "Workers",
+          visibility: ParameterVisibility.BASIC,
+          parameterType: {
+            case: "unsignedInteger",
+            value: { minimum: 1n, maximum: 8n, unit: "", defaultValue: 2n },
+          },
         }),
       ],
     }),

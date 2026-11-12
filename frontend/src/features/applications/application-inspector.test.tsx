@@ -26,6 +26,7 @@ import {
   ApplicationSchema,
   ApplicationServiceSchema,
 } from "@/gen/dotcore/catalog/v1/application_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   type AcceleratorMemoryObservation,
   AcceleratorMemoryObservationSchema,
@@ -516,22 +517,19 @@ describe("Application deployment dialog", () => {
       graph: create(ApplicationGraphSchema, {
         parameters: [
           {
-            advanced: true,
-            definition: {
-              parameterId: "vram-mode",
-              displayName: "VRAM mode",
-              parameterType: {
-                case: "stringEnum",
-                value: { values: ["auto", "highvram"], defaultValue: "auto" },
-              },
+            parameterId: "vram-mode",
+            displayName: "VRAM mode",
+            visibility: ParameterVisibility.ADVANCED,
+            parameterType: {
+              case: "stringEnum",
+              value: { values: ["auto", "highvram"], defaultValue: "auto" },
             },
           },
           {
-            definition: {
-              parameterId: "preview",
-              displayName: "Previews",
-              parameterType: { case: "boolean", value: { defaultValue: false } },
-            },
+            parameterId: "preview",
+            displayName: "Previews",
+            visibility: ParameterVisibility.BASIC,
+            parameterType: { case: "boolean", value: { defaultValue: false } },
           },
         ],
       }),

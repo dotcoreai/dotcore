@@ -18,6 +18,7 @@ import {
   ModelSchema,
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { EngineKind } from "@/gen/dotcore/engine/v1/engine_pb";
 
 /**
@@ -95,14 +96,14 @@ function engineArtifact(artifactId: string, architecture: string) {
   };
 }
 
-// The engine exposes its total context to the profile only when `exposed` is set.
+// The engine shows its total context to the profile only when `exposed` is set.
 function contextParameterSchema(schemaId: string, exposed: boolean): ParameterSchemaInit {
   return {
     parameters: [
       {
         displayName: "Total context",
-        exposed,
         parameterId: "total-context",
+        visibility: exposed ? ParameterVisibility.BASIC : ParameterVisibility.HIDDEN,
         parameterType: {
           case: "unsignedInteger" as const,
           value: { maximum: 262144n, minimum: 1024n, unit: "tokens" },
@@ -111,6 +112,7 @@ function contextParameterSchema(schemaId: string, exposed: boolean): ParameterSc
       {
         displayName: "Prefix caching",
         parameterId: "prefix-caching",
+        visibility: ParameterVisibility.HIDDEN,
         parameterType: { case: "boolean" as const, value: {} },
       },
     ],

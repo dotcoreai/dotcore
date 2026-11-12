@@ -2,8 +2,12 @@ import { create } from "@bufbuild/protobuf";
 
 import type { ParameterView, ParameterViewValue } from "@/components/parameters/parameter-view";
 import type { ResolvedApplicationDeploymentSnapshot } from "@/gen/dotcore/application/v1/deployment_pb";
-import type { ApplicationParameter } from "@/gen/dotcore/catalog/v1/application_pb";
-import { type ParameterValue, ParameterValueSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import {
+  type ParameterDefinition,
+  type ParameterValue,
+  ParameterValueSchema,
+  ParameterVisibility,
+} from "@/gen/dotcore/catalog/v1/parameter_pb";
 
 /** One application parameter as the deploy dialog shows it, with its catalog default. */
 export interface ApplicationParameterField {
@@ -14,18 +18,17 @@ export interface ApplicationParameterField {
 
 /** The application's parameters in declaration order; malformed declarations are skipped. */
 export function applicationParameterFields(
-  parameters: readonly ApplicationParameter[] | undefined,
+  parameters: readonly ParameterDefinition[] | undefined,
 ): ApplicationParameterField[] {
-  return (parameters ?? []).flatMap((parameter): ApplicationParameterField[] => {
-    const definition = parameter.definition;
-    if (!definition) return [];
+  return (parameters ?? []).flatMap((definition): ApplicationParameterField[] => {
+    const advanced = definition.visibility === ParameterVisibility.ADVANCED;
     const base = { id: definition.parameterId, label: definition.displayName };
     const type = definition.parameterType;
     switch (type.case) {
       case "boolean":
         return [
           {
-            advanced: parameter.advanced,
+            advanced,
             defaultValue: type.value.defaultValue,
             view: { ...base, hint: definition.description, type: { kind: "boolean" } },
           },
@@ -35,7 +38,7 @@ export function applicationParameterFields(
         const range = `${minimum}–${maximum}${unit ? ` ${unit}` : ""}`;
         return [
           {
-            advanced: parameter.advanced,
+            advanced,
             defaultValue,
             view: {
               ...base,
@@ -48,7 +51,7 @@ export function applicationParameterFields(
       case "stringEnum":
         return [
           {
-            advanced: parameter.advanced,
+            advanced,
             defaultValue: type.value.defaultValue,
             view: {
               ...base,

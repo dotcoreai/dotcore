@@ -1,6 +1,6 @@
 import { executionTargetKey } from "@/domain/execution-target";
 import { CONTEXT_PER_REQUEST_PARAMETER_ID } from "@/features/models/runtime/engine-parameter-values";
-import type { EngineParameterValues } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import type { ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { MemoryFit as ProtoMemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import {
   type ListModelProfileCompatibilityResponse,
@@ -90,7 +90,7 @@ export interface ProfileCompatibility {
    * read for a scenario, hidden parameters included and derived values left out. A profile the
    * scenario can't serve has no entry.
    */
-  engineValues: ReadonlyMap<string, EngineParameterValues>;
+  engineValues: ReadonlyMap<string, ParameterValues>;
   /** Evaluated configured model execution targets, ordered by node then target. */
   targets: readonly TargetIdentity[];
   entries: ReadonlyMap<string, CompatibilityVerdict>;

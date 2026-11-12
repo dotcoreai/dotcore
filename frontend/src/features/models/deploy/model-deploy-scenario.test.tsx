@@ -28,8 +28,8 @@ import {
   runtimeSchemaReleases,
   unsignedValue,
 } from "@/features/models/runtime/runtime-schema-test-support";
-import type { EngineParameterValue } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
 import {
@@ -1710,12 +1710,12 @@ function summaryContext(): string | null | undefined {
 }
 
 interface EstimateCall {
-  configuration: { engineParameterValues: { values: EngineParameterValue[] } };
+  configuration: { engineParameterValues: { values: ParameterValue[] } };
   placement: unknown;
   profileId: string;
 }
 
-function pairs(values: readonly EngineParameterValue[]) {
+function pairs(values: readonly ParameterValue[]) {
   return values.map((value) => [value.parameterId, value.value.value]);
 }
 

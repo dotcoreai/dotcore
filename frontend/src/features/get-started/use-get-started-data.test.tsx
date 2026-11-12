@@ -19,7 +19,7 @@ import {
   ApplicationReadinessState,
 } from "@/gen/dotcore/application/v1/state_pb";
 import { ApplicationSchema } from "@/gen/dotcore/catalog/v1/application_pb";
-import { EngineParameterValuesSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { ParameterValuesSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { UseCase } from "@/gen/dotcore/catalog/v1/recommendation_pb";
 import { ListApplicationsResponseSchema } from "@/gen/dotcore/catalog/v1/service_pb";
 import {
@@ -409,7 +409,7 @@ function modelDeployment(id: string, status: ModelDeploymentStatus, contextPerRe
       source: {
         case: "local",
         value: {
-          engineParameterValues: create(EngineParameterValuesSchema, {
+          engineParameterValues: create(ParameterValuesSchema, {
             values: [
               {
                 parameterId: "context-per-request",

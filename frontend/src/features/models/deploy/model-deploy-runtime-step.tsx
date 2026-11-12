@@ -22,12 +22,12 @@ import type { KvCachePrecisionOption } from "@/features/models/runtime/kv-cache-
 import { KvCachePrecisionField } from "@/features/models/runtime/kv-cache-precision-field";
 import type { SpeculativeChoice } from "@/features/models/runtime/speculative-choice";
 import { SpeculativeDecodingField } from "@/features/models/runtime/speculative-decoding-field";
-import type { EngineParameterDefinition } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type {
   Model,
   ModelEngineConfiguration,
   ModelProfile,
 } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 
 interface ModelDeployRuntimeStepProps {
@@ -45,7 +45,7 @@ interface ModelDeployRuntimeStepProps {
   engineParameterRefs: RefObject<Map<string, HTMLElement | null>>;
   /** The engine releases the deployment may run: the target's selected one, or every approved one. */
   engineReleases: readonly string[];
-  exposedParameters: readonly EngineParameterDefinition[];
+  exposedParameters: readonly ParameterDefinition[];
   fieldErrors: FieldErrors;
   inputs: ReadonlyMap<string, string>;
   /** Warns that host KV offload shares the accelerator's memory pool on this target. */
@@ -59,8 +59,8 @@ interface ModelDeployRuntimeStepProps {
   model: Model;
   onArtifactBlur: () => void;
   onArtifactChange: (bindingId: string) => void;
-  onParameterBlur: (parameter: EngineParameterDefinition) => void;
-  onParameterChange: (parameter: EngineParameterDefinition, input: string) => void;
+  onParameterBlur: (parameter: ParameterDefinition) => void;
+  onParameterChange: (parameter: ParameterDefinition, input: string) => void;
   onPreview: () => void;
   previewButtonRef: RefObject<HTMLButtonElement | null>;
   previewDisabled: boolean;
@@ -122,7 +122,7 @@ export function ModelDeployRuntimeStep({
     (candidate) => candidate.artifactId === binding?.modelArtifactId,
   );
   const groups = runtimeParameterGroups(exposedParameters, configuration);
-  const parametersForm = (parameters: readonly EngineParameterDefinition[]) => (
+  const parametersForm = (parameters: readonly ParameterDefinition[]) => (
     <EngineParametersForm
       errors={fieldErrors}
       inputRefs={engineParameterRefs}
