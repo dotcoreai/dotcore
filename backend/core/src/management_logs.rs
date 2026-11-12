@@ -388,6 +388,10 @@ pub(crate) fn aggregate_history(
             .cmp(&right.timestamp)
             .then_with(|| left.source.name.cmp(&right.source.name))
     });
+
+    // Resume positions cover every source read, so a follow doesn't replay the lines of a source
+    // that the page trims below.
+    let latest_positions = latest_positions(&entries);
     if entries.len() > page_size {
         older_output_may_remain = true;
         entries.drain(..entries.len() - page_size);
@@ -398,6 +402,7 @@ pub(crate) fn aggregate_history(
         && encoded_history_response_bytes(
             &sources,
             &entries,
+            &latest_positions,
             older_output_may_remain,
             response_truncated,
         ) > MAX_LOG_RESPONSE_BYTES
@@ -406,7 +411,6 @@ pub(crate) fn aggregate_history(
         older_output_may_remain = true;
         entries.remove(0);
     }
-    let latest_positions = latest_positions(&entries);
     let next_before_timestamp = entries
         .first()
         .map(|entry| whole_second_before(entry.timestamp));
@@ -928,6 +932,7 @@ fn whole_second_before(timestamp: SystemTime) -> SystemTime {
 fn encoded_history_response_bytes(
     sources: &[DeploymentLogSourceStatus],
     entries: &[RuntimeLogEntry],
+    latest_positions: &BTreeMap<String, SystemTime>,
     older_output_may_remain: bool,
     response_truncated: bool,
 ) -> usize {
@@ -959,11 +964,11 @@ fn encoded_history_response_bytes(
             DeploymentLogHistoryState::NoOlderOutputObserved as i32
         },
         response_truncated,
-        latest_positions: latest_positions(entries)
-            .into_iter()
+        latest_positions: latest_positions
+            .iter()
             .map(|(source_name, timestamp)| DeploymentLogResumePosition {
-                source_name,
-                latest_timestamp: Some(protobuf_timestamp(timestamp)),
+                source_name: source_name.clone(),
+                latest_timestamp: Some(protobuf_timestamp(*timestamp)),
             })
             .collect(),
     }
@@ -1115,6 +1120,51 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_resumes_a_source_whose_lines_were_all_trimmed_from_the_page() {
+        let alpha = source("alpha");
+        let beta = source("beta");
+        let history = aggregate_history(
+            vec![
+                history(
+                    alpha.clone(),
+                    vec![
+                        entry(alpha.clone(), 1, b"older"),
+                        entry(alpha.clone(), 2, b"old"),
+                    ],
+                    false,
+                ),
+                history(
+                    beta.clone(),
+                    vec![
+                        entry(beta.clone(), 10, b"new"),
+                        entry(beta.clone(), 11, b"newer"),
+                    ],
+                    false,
+                ),
+            ],
+            2,
+            &ProtectedLogValues::default(),
+            &diagnostic_context("read_history"),
+        );
+
+        assert_eq!(
+            history
+                .entries
+                .iter()
+                .map(|entry| &entry.content)
+                .collect::<Vec<_>>(),
+            vec![&b"new".to_vec(), &b"newer".to_vec()]
+        );
+        assert_eq!(
+            history.latest_positions,
+            BTreeMap::from([
+                ("alpha".to_owned(), UNIX_EPOCH + Duration::from_secs(2)),
+                ("beta".to_owned(), UNIX_EPOCH + Duration::from_secs(11)),
+            ])
+        );
+    }
+
+    #[test]
     fn aggregate_enforces_exact_200_record_and_four_mib_response_bounds() {
         let source = source("web");
         let entries = (0..201)
@@ -1248,6 +1298,7 @@ mod tests {
             encoded_history_response_bytes(
                 &history.sources,
                 &history.entries,
+                &history.latest_positions,
                 history.older_output_may_remain,
                 history.response_truncated,
             ) <= MAX_LOG_RESPONSE_BYTES
@@ -1293,6 +1344,7 @@ mod tests {
             encoded_history_response_bytes(
                 &history.sources,
                 &history.entries,
+                &history.latest_positions,
                 history.older_output_may_remain,
                 history.response_truncated,
             ) <= MAX_LOG_RESPONSE_BYTES
