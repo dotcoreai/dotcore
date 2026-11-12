@@ -1204,6 +1204,16 @@ fn generated_descriptors_preserve_site_inventory_contracts() {
                 ".dotcore.site.v1.ListHardwareSnapshotsRequest",
                 ".dotcore.site.v1.ListHardwareSnapshotsResponse",
             ),
+            (
+                "GetConsoleSettings",
+                ".dotcore.site.v1.GetConsoleSettingsRequest",
+                ".dotcore.site.v1.GetConsoleSettingsResponse",
+            ),
+            (
+                "UpdateConsoleSettings",
+                ".dotcore.site.v1.UpdateConsoleSettingsRequest",
+                ".dotcore.site.v1.UpdateConsoleSettingsResponse",
+            ),
         ]
     ));
 }

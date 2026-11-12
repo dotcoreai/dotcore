@@ -17,7 +17,7 @@ use dotcore_proto::{
             ModelDeploymentDeclaration, ModelDeploymentDesiredState,
             ModelDeploymentLifecycleTransition,
         },
-        site::v1::Site,
+        site::v1::{ConsoleSettings, Site},
     },
     yaml,
 };
@@ -178,7 +178,7 @@ impl SiteRepository {
         &self,
         operation: impl FnOnce(&mut ModelSiteTransaction<'_>) -> Result<T, E>,
     ) -> Result<T, ScopedSiteMutationError<E>> {
-        self.mutate_deployment_metadata(|candidate| {
+        self.mutate_without_reconciliation(|candidate| {
             let mut transaction = ModelSiteTransaction {
                 deployments: &mut candidate.model_deployments,
             };
@@ -194,8 +194,25 @@ impl SiteRepository {
         &self,
         operation: impl FnOnce(&mut Vec<ApplicationDeploymentDeclaration>) -> Result<T, E>,
     ) -> Result<T, ScopedSiteMutationError<E>> {
-        self.mutate_deployment_metadata(|candidate| {
+        self.mutate_without_reconciliation(|candidate| {
             operation(&mut candidate.application_deployments)
+        })
+    }
+
+    /// Persists a site-wide console settings mutation without triggering reconciliation.
+    ///
+    /// Console settings are operator choices about the console only: no controller reads them
+    /// and they never enter a node's desired view, so their update wakes nothing.
+    pub fn mutate_console_settings<T, E: std::error::Error + 'static>(
+        &self,
+        operation: impl FnOnce(&mut ConsoleSettings) -> Result<T, E>,
+    ) -> Result<T, ScopedSiteMutationError<E>> {
+        self.mutate_without_reconciliation(|candidate| {
+            operation(
+                candidate
+                    .console_settings
+                    .get_or_insert_with(Default::default),
+            )
         })
     }
 
@@ -336,7 +353,9 @@ impl SiteRepository {
         })
     }
 
-    fn mutate_deployment_metadata<T, E: std::error::Error + 'static>(
+    /// Accepts and writes a mutation of sections no controller or node view projects, without
+    /// running change observers or waking listeners.
+    fn mutate_without_reconciliation<T, E: std::error::Error + 'static>(
         &self,
         operation: impl FnOnce(&mut Site) -> Result<T, E>,
     ) -> Result<T, ScopedSiteMutationError<E>> {

@@ -11,6 +11,7 @@
 compile_error!("Dotcore supports only Linux and macOS targets");
 
 pub mod atomic;
+pub mod console_settings;
 pub mod initial;
 pub mod manager_trust;
 pub mod membership;
