@@ -17,6 +17,9 @@ message ConsolePreferences {
 
   // Holds the tools that help develop and debug the Console itself.
   DeveloperSettings developer_settings = 4;
+
+  // Hides the Get started navigation item once dismissed; absent reads as shown.
+  bool get_started_dismissed = 5;
 }
 
 // Configures the synthetic latency the Console adds to its own API calls.
