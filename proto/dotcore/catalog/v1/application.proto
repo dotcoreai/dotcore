@@ -205,6 +205,9 @@ enum ApplicationSecretForm {
 
   // The value exactly as retained.
   APPLICATION_SECRET_FORM_PLAIN = 1;
+
+  // A bcrypt hash of the value, computed once with a random salt when the deployment is created.
+  APPLICATION_SECRET_FORM_BCRYPT = 2;
 }
 
 // The condition that a dependency service must meet before a dependent service starts.
