@@ -2439,7 +2439,7 @@ fn catalog_retains_boolean_engine_parameters_and_their_schema() {
 }
 
 #[test]
-fn catalog_rejects_mismatched_boolean_values_and_invalid_profile_exposure() {
+fn catalog_rejects_mismatched_boolean_values_and_invalid_visibility_overrides() {
     let mut mismatched = synthetic_boolean_model();
     mismatched.profiles[0]
         .engine_parameter_defaults
@@ -2465,24 +2465,55 @@ fn catalog_rejects_mismatched_boolean_values_and_invalid_profile_exposure() {
         "unexpected validation error: {error}"
     );
 
-    for exposed_parameter_ids in [
-        vec!["total-context".to_owned(), "missing".to_owned()],
-        vec!["total-context".to_owned(), "total-context".to_owned()],
+    use ParameterVisibility::{Advanced, Basic, Hidden};
+
+    for (overrides, expected) in [
+        (
+            vec![("missing", Hidden)],
+            "profile \"balanced\" overrides the visibility of engine parameter \"missing\", which is not a parameter of the engine release",
+        ),
+        (
+            vec![("feature-enabled", Hidden), ("feature-enabled", Advanced)],
+            "profile \"balanced\" overrides the visibility of engine parameter \"feature-enabled\" more than once",
+        ),
+        (
+            vec![("total-context", Advanced)],
+            "profile \"balanced\" engine parameter \"total-context\" may be hidden but not advanced",
+        ),
+        (
+            vec![("context-per-request", Advanced)],
+            "profile \"balanced\" engine parameter \"context-per-request\" may be hidden but not advanced",
+        ),
+        (
+            vec![("feature-enabled", Basic)],
+            "profile \"balanced\" engine parameter \"feature-enabled\" may be advanced or hidden but not basic",
+        ),
     ] {
         let mut invalid = synthetic_boolean_model();
-        invalid.profiles[0].exposed_parameter_ids = exposed_parameter_ids;
+        invalid.profiles[0].engine_parameter_visibility_overrides =
+            visibility_overrides(&overrides);
         let error = catalog_builder()
             .engine_validator(&ACCEPT_ENGINE_DECLARATIONS)
             .engine_release("engine.yaml", synthetic_boolean_engine_release())
             .model("model.yaml", invalid)
             .build()
-            .expect_err("invalid profile exposure")
+            .expect_err("invalid visibility override")
             .to_string();
         assert!(
-            error.contains("profile \"balanced\" has invalid exposed engine parameters"),
+            error.contains(expected),
             "unexpected validation error: {error}"
         );
     }
+
+    // A profile may hide the contexts, which the engine and resolution fill, and a parameter it
+    // defaults.
+    let mut valid = synthetic_boolean_model();
+    valid.profiles[0].engine_parameter_visibility_overrides = visibility_overrides(&[
+        ("total-context", Hidden),
+        ("context-per-request", Hidden),
+        ("feature-enabled", Hidden),
+    ]);
+    synthetic_boolean_catalog(valid);
 }
 
 /// Returns a fresh target of the production runtime kind for `platform`: Docker with an NVIDIA
@@ -3150,7 +3181,8 @@ fn synthetic_sizing_catalog() -> Catalog {
 "#,
         &format!(
             r#"      values:
-{SIZING_ENGINE_CACHE_DEFAULT}    exposedParameterIds: ["total-context", "prompt-cache-memory-mib", "parallel-requests"]
+{SIZING_ENGINE_CACHE_DEFAULT}    engineParameterVisibilityOverrides:
+      - {{ parameterId: "prompt-cache-memory-mib", visibility: "PARAMETER_VISIBILITY_ADVANCED" }}
 "#
         ),
     );
@@ -3208,8 +3240,22 @@ fn synthetic_boolean_model() -> Model {
                 dotcore_proto::dotcore::catalog::v1::parameter_value::Value::Boolean(false),
             ),
         });
-    profile.exposed_parameter_ids = vec!["total-context".to_owned(), "feature-enabled".to_owned()];
     model
+}
+
+/// Builds profile visibility overrides from parameter id and visibility pairs.
+fn visibility_overrides(
+    overrides: &[(&str, ParameterVisibility)],
+) -> Vec<dotcore_proto::dotcore::catalog::v1::ParameterVisibilityOverride> {
+    overrides
+        .iter()
+        .map(|(parameter_id, visibility)| {
+            dotcore_proto::dotcore::catalog::v1::ParameterVisibilityOverride {
+                parameter_id: (*parameter_id).to_owned(),
+                visibility: *visibility as i32,
+            }
+        })
+        .collect()
 }
 
 fn synthetic_engine_release() -> EngineRelease {

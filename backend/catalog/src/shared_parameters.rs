@@ -90,6 +90,33 @@ pub(crate) fn profile_may_default(parameter_id: &str) -> bool {
         .is_none_or(|shared| shared.profile_default)
 }
 
+/// Whether the parameter belongs to the main view: the context parameters do, and no other
+/// parameter may be shown there by an engine or a profile.
+pub(crate) fn in_main_view(parameter_id: &str) -> bool {
+    SHARED_PARAMETERS.iter().any(|shared| {
+        shared.parameter_id == parameter_id && shared.visibility == ParameterVisibility::Basic
+    })
+}
+
+/// Returns why a profile may not give the parameter this visibility, or none when it may. The
+/// context parameters belong to the main view: a profile may hide them but not move them to the
+/// advanced view. Every other parameter stays out of the main view, so a profile may show it as
+/// advanced or hide it.
+pub(crate) fn profile_visibility_problem(
+    parameter_id: &str,
+    visibility: ParameterVisibility,
+) -> Option<&'static str> {
+    let main_view = in_main_view(parameter_id);
+    match visibility {
+        ParameterVisibility::Unspecified => Some("requires a basic, advanced or hidden visibility"),
+        ParameterVisibility::Advanced if main_view => Some("may be hidden but not advanced"),
+        ParameterVisibility::Basic if !main_view => Some("may be advanced or hidden but not basic"),
+        ParameterVisibility::Basic
+        | ParameterVisibility::Advanced
+        | ParameterVisibility::Hidden => None,
+    }
+}
+
 /// Checks that an engine parameter schema declares every shared parameter with its fixed shape,
 /// returning one error per problem. Engine payloads are left to the engine's own validation.
 pub(crate) fn validate_shared_parameters(schema: &EngineParameterSchema) -> Vec<anyhow::Error> {
@@ -329,6 +356,32 @@ mod tests {
         assert!(!profile_may_default(CONTEXT_PER_REQUEST_PARAMETER_ID));
         assert!(profile_may_default(PARALLEL_REQUESTS_PARAMETER_ID));
         assert!(profile_may_default("prompt-cache-memory-mib"));
+    }
+
+    #[test]
+    fn profiles_may_hide_any_parameter_but_keep_the_contexts_basic_and_the_rest_out_of_basic() {
+        use ParameterVisibility::{Advanced, Basic, Hidden, Unspecified};
+
+        for parameter_id in [TOTAL_CONTEXT_PARAMETER_ID, CONTEXT_PER_REQUEST_PARAMETER_ID] {
+            assert_eq!(profile_visibility_problem(parameter_id, Basic), None);
+            assert_eq!(profile_visibility_problem(parameter_id, Hidden), None);
+            assert_eq!(
+                profile_visibility_problem(parameter_id, Advanced),
+                Some("may be hidden but not advanced")
+            );
+        }
+        for parameter_id in [PARALLEL_REQUESTS_PARAMETER_ID, "prompt-cache-memory-mib"] {
+            assert_eq!(profile_visibility_problem(parameter_id, Advanced), None);
+            assert_eq!(profile_visibility_problem(parameter_id, Hidden), None);
+            assert_eq!(
+                profile_visibility_problem(parameter_id, Basic),
+                Some("may be advanced or hidden but not basic")
+            );
+        }
+        assert_eq!(
+            profile_visibility_problem(TOTAL_CONTEXT_PARAMETER_ID, Unspecified),
+            Some("requires a basic, advanced or hidden visibility")
+        );
     }
 
     #[test]

@@ -9,15 +9,16 @@ use std::collections::BTreeSet;
 
 use dotcore_domain::{Accelerator, valid_id};
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineArtifact, EngineParameterSchema, EngineRelease, ParameterDefinition, Selector,
-    engine_artifact::Kind as EngineArtifactKind, parameter_definition::ParameterType,
+    EngineArtifact, EngineParameterSchema, EngineRelease, ParameterDefinition, ParameterVisibility,
+    Selector, engine_artifact::Kind as EngineArtifactKind, parameter_definition::ParameterType,
 };
 
 use super::common::{valid_selector_memory_architecture, validate_oci_reference};
 use super::nix::{AcceptedProvides, nix_systems, validate_nix_artifact};
 use super::storage::{StorageOwner, validate_storage_bindings};
 use crate::{
-    OciArtifactPolicy, shared_parameters::validate_shared_parameters,
+    OciArtifactPolicy,
+    shared_parameters::{in_main_view, validate_shared_parameters},
     typed_parameters::validate_parameter_definition as validate_shared_definition,
 };
 
@@ -233,7 +234,8 @@ fn validate_parameter_schema(
 }
 
 /// Validates one engine parameter definition: the shared definition rules, a unique id, and the
-/// engine owner rule that parameters are booleans or unsigned integers with a unit.
+/// engine owner rules that parameters are booleans or unsigned integers with a unit, and that only
+/// the context parameters are basic.
 fn validate_parameter_definition(
     definition: &ParameterDefinition,
     ids: &mut BTreeSet<String>,
@@ -253,14 +255,20 @@ fn validate_parameter_definition(
         )),
         Some(ParameterType::Boolean(_) | ParameterType::UnsignedInteger(_)) | None => {}
     }
+    // The shared parameter check reports a context parameter in the wrong view.
+    if definition.visibility() == ParameterVisibility::Basic && !in_main_view(id) {
+        errors.push(anyhow::anyhow!(
+            "engine parameter {id:?} must be advanced or hidden; only the context parameters are basic"
+        ));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            NixArtifact, NixDockerImage, ParameterVisibility, StorageBinding, StorageKind,
-            StorageScope, nix_artifact::Provides,
+            NixArtifact, NixDockerImage, StorageBinding, StorageKind, StorageScope,
+            nix_artifact::Provides,
         },
         observation::v1::AcceleratorMemoryArchitecture,
     };
@@ -431,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn engine_parameters_are_booleans_or_unsigned_integers_with_a_unit() {
+    fn engine_parameters_are_non_basic_booleans_or_unsigned_integers_with_a_unit() {
         let definition = |parameter_type| ParameterDefinition {
             parameter_id: "feature".to_owned(),
             display_name: "Feature".to_owned(),
@@ -474,6 +482,14 @@ mod tests {
                 },
             ))),
             ["engine parameter \"feature\" must be a boolean or an unsigned integer"]
+        );
+        let mut basic = definition(boolean.clone());
+        basic.visibility = ParameterVisibility::Basic as i32;
+        assert_eq!(
+            errors(&basic),
+            [
+                "engine parameter \"feature\" must be advanced or hidden; only the context parameters are basic"
+            ]
         );
         let mut unplaced = definition(boolean);
         unplaced.visibility = ParameterVisibility::Unspecified as i32;
