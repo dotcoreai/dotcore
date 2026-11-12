@@ -2564,6 +2564,53 @@ useCases:
     }
 
     #[test]
+    fn only_the_master_catalog_rejects_literals_on_sensitive_variables() {
+        let root = temporary_catalog_root();
+        let master = root.join("master");
+        let layer = root.join("layer");
+        create_empty_catalog_source(&master);
+        create_empty_catalog_source(&layer);
+        let mut application = super::test_support::application();
+        let binding =
+            &mut application.graph.as_mut().expect("graph").services[0].configuration_bindings[0];
+        binding.environment_variable = "FIXTURE_TOKEN".to_owned();
+        binding.source = Some(
+            dotcore_proto::dotcore::catalog::v1::application_configuration_binding::Source::LiteralValue(
+                "fixture-literal".to_owned(),
+            ),
+        );
+        write_application(&layer, "layer.yaml", &application);
+
+        let development =
+            Catalog::load_development_sources(&master, &layer, &ACCEPT_ENGINE_DECLARATIONS)
+                .expect("a development catalog may bind a literal to a sensitive variable");
+        let site = Catalog::load_sources_with_policy(
+            &master,
+            &layer,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("a site catalog may bind a literal to a sensitive variable");
+        write_application(&master, "master.yaml", &application);
+        let error = Catalog::load_with_policy(
+            &master,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("the master catalog must not bind a literal to a sensitive variable")
+        .to_string();
+
+        assert_eq!(development.list_application_releases().len(), 1);
+        assert_eq!(site.list_application_releases().len(), 1);
+        assert_eq!(
+            error,
+            "Catalog diagnostics: applications/master.yaml: application \"fixture-application\" service \"web\" configuration binding \"fixture-flag\" sets a catalog value on sensitive variable \"FIXTURE_TOKEN\"; bind a secret parameter instead"
+        );
+        assert!(!error.contains("fixture-literal"));
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
     fn complete_validation_prevents_partial_catalog_publication() {
         let valid = super::test_support::application();
         let mut invalid = valid.clone();

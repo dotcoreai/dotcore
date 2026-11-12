@@ -23,7 +23,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use super::{
     sizing::{CatalogSizingSource, ConfigurationSizingSource, SupportSizingSource},
-    validation::CatalogDiagnostic,
+    validation::{CatalogDiagnostic, validate_sensitive_literals},
 };
 
 pub(super) fn load_catalog_source(
@@ -57,7 +57,13 @@ pub(super) fn load_catalog_source(
         &mut records.recommendations,
         diagnostics,
     );
-    load_applications(catalog_root, source, &mut records.applications, diagnostics);
+    load_applications(
+        catalog_root,
+        source,
+        role,
+        &mut records.applications,
+        diagnostics,
+    );
     load_upstream_model_templates(
         catalog_root,
         source,
@@ -297,12 +303,24 @@ fn load_recommendations(
 fn load_applications(
     catalog_root: &Path,
     source: &str,
+    role: CatalogSourceRole,
     applications: &mut Vec<(String, Application)>,
     diagnostics: &mut Vec<CatalogDiagnostic>,
 ) {
     for file in optional_catalog_files(catalog_root, source, APPLICATION_DIRECTORY, diagnostics) {
         match yaml::from_file(&file.path) {
-            Ok(application) => applications.push((file.location, application)),
+            Ok(application) => {
+                // Site and development additions belong to their operators; only the master
+                // catalog ships to every site.
+                if role == CatalogSourceRole::Master {
+                    diagnostics.extend(
+                        validate_sensitive_literals(&application)
+                            .into_iter()
+                            .map(|error| CatalogDiagnostic::new(file.location.clone(), error)),
+                    );
+                }
+                applications.push((file.location, application));
+            }
             Err(error) => diagnostics.push(CatalogDiagnostic::new(
                 file.location,
                 anyhow::Error::new(error),

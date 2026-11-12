@@ -27,6 +27,7 @@ pub use model::{
     overlay_parameter_defaults, valid_pinned_hugging_face_artifact, validate_parameter_values,
     validate_supplied_parameter_values,
 };
+pub(super) use sensitive_literal::validate_sensitive_literals;
 pub use upstream_model_template::validate_upstream_model_template;
 
 mod application;
@@ -37,6 +38,7 @@ mod hardware_class;
 mod model;
 mod nix;
 mod recommendation;
+mod sensitive_literal;
 mod service;
 mod storage;
 mod upstream_model_template;
