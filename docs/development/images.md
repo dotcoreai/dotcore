@@ -7,7 +7,7 @@ Every Docker image the catalog uses is built by Nix. Each one has a folder under
 - `just image-load` loads the image into Docker.
 - `just image-info` shows what it is pinned to.
 - `just image-lock <repository>:<tag>` moves an upstream image to a new tag.
-- `just image-store` builds a Dockerfile image with Docker on this machine, saves it into the Nix store (kept from garbage collection), and records its hash for this platform in `docker-image.stored.json`. Other machines then get that copy from a binary cache instead of building it.
+- `just image-store` stores a Dockerfile image for other machines to copy. See [Dockerfile images](#dockerfile-images).
 
 ## Upstream images
 
@@ -15,7 +15,7 @@ An upstream image is pinned in `docker-image.lock.json`, per platform. Change it
 
 ## Dockerfile images
 
-A Dockerfile image is built from a pinned source. `docker-image.stored.json` records the build of each platform, so other machines can copy it instead of building it again.
+A Dockerfile image is built from a pinned source. `just image-store` builds it with Docker on this machine, saves it into the Nix store (kept from garbage collection), and records its hash for this platform in `docker-image.stored.json`. Other machines then get that copy from a binary cache instead of building it.
 
 - After changing a Dockerfile image's inputs, run `just image-store` on an x86_64 Linux machine and on an arm64 one (a Mac works), and commit both records. A [remote host](remote-hosts.md) can run it for you.
 - Until then, `just check` fails and loads fall back to a local build.
