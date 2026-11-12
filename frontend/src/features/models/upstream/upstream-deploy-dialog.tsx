@@ -202,12 +202,13 @@ export function UpstreamDeployDialog({
     if (exposeErrors(stepErrors(step))) wizard.goTo(steps[steps.indexOf(step) + 1]);
   };
 
-  // Runs after the shell focuses a new step heading, so the invalid field keeps focus.
+  // Runs after the shell focuses a new step heading, so the invalid field keeps focus. An
+  // intermediate render can precede the step's, so the request stays until a field takes focus.
   useEffect(() => {
     const errors = pendingFocusRef.current;
-    if (!errors) return;
-    pendingFocusRef.current = undefined;
-    focusFirstInvalidField(errors, fieldControls());
+    if (errors && focusFirstInvalidField(errors, fieldControls())) {
+      pendingFocusRef.current = undefined;
+    }
   });
 
   return (

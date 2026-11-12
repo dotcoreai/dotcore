@@ -212,7 +212,6 @@ describe("AppCatalogPage", () => {
         name: "Deploy",
       }),
     );
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Next" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Deploy" }));
 
     expect(client.application.createApplicationDeployment).toHaveBeenCalledWith({
@@ -257,7 +256,6 @@ describe("AppCatalogPage", () => {
         name: "Deploy",
       }),
     );
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Next" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Deploy" }));
     await waitFor(() =>
       expect(currentLocation(router)).toBe("/apps?panel=apps%2Fdeployment%3Aaccepted-deployment"),
@@ -288,7 +286,6 @@ describe("AppCatalogPage", () => {
         name: "Deploy",
       }),
     );
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Next" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Deploy" }));
     await act(() => router.navigate("/apps"));
     // Later deployment reads stay pending, so the installed list shows the accepted overlay.
@@ -345,7 +342,6 @@ describe("AppCatalogPage", () => {
         name: "Deploy",
       }),
     );
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Next" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Deploy" }));
     expect(await screen.findByText("accepted-deployment")).toBeVisible();
 
@@ -407,7 +403,6 @@ describe("AppCatalogPage", () => {
 
     await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
-    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Next" }));
     expect(
       within(screen.getByRole("dialog")).getByRole("button", { name: "Deploy" }),
     ).toBeDisabled();
@@ -430,7 +425,6 @@ describe("AppCatalogPage", () => {
     fireEvent.click(screen.getByRole("row", { name: "OpenWebUI" }));
     fireEvent.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = screen.getByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeDisabled();
 
     await act(async () => {
@@ -469,7 +463,6 @@ describe("AppCatalogPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = screen.getByRole("dialog");
     await act(async () => {});
-    fireEvent.click(within(dialog).getByRole("button", { name: "Next" }));
     expect(within(dialog).getByRole("button", { name: "Deploy" })).toBeEnabled();
 
     await act(async () => {
@@ -663,7 +656,7 @@ describe("AppCatalogPage", () => {
     expect(within(dialog).getByText("renamable-chat")).toBeVisible();
     expect(
       within(dialog)
-        .getAllByText("Execution target")
+        .getAllByText("Target")
         .map((label) => label.nextElementSibling?.textContent),
     ).toContain("local / Docker applications");
     await user.click(within(dialog).getByRole("button", { name: "Deploy" }));
@@ -823,7 +816,6 @@ describe("AppCatalogPage", () => {
     await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "Next" }));
     const deployButton = within(dialog).getByRole("button", { name: "Deploy" });
     await user.click(deployButton);
 
@@ -852,7 +844,6 @@ describe("AppCatalogPage", () => {
     await user.click(await screen.findByRole("row", { name: "OpenWebUI" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     const dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "Next" }));
     await user.click(within(dialog).getByRole("button", { name: "Deploy" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(expectedMessage);

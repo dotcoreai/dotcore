@@ -77,10 +77,9 @@ export function defaultLocalDeploymentConfiguration(
 }
 
 /**
- * Describes the runtime settings of a deployment draft that differ from its profile's defaults:
- * edited engine parameters in schema order, then a changed model artifact. The context sizes,
- * parallel requests and custom arguments belong to the launch rather than the profile, so a profile
- * change keeps them and callers describe them separately.
+ * Describes the settings of a deployment draft that a profile change resets: edited engine
+ * parameters in schema order, then a changed model artifact. The context sizes, parallel requests
+ * and custom arguments belong to the launch rather than the profile, so a profile change keeps them.
  */
 export function runtimeCustomizations(
   model: Model,
@@ -88,38 +87,55 @@ export function runtimeCustomizations(
   engineRelease: EngineRelease | undefined,
   edits: LocalDeploymentConfigurationEdits,
 ): string[] {
-  if (!profile) return [];
-
-  const customizations = editedParameterLabels(
-    profile,
-    engineRelease,
-    edits,
-    (parameterId) =>
-      !CONTEXT_PARAMETER_IDS.has(parameterId) && parameterId !== PARALLEL_REQUESTS_PARAMETER_ID,
-  );
-  if (edits.bindingId !== profile.defaultModelArtifactBindingId) {
-    const binding = model.configurations
-      .find((candidate) => candidate.configurationId === profile.configurationId)
-      ?.artifactBindings.find((candidate) => candidate.bindingId === edits.bindingId);
-    customizations.push(`Artifact ${binding?.modelArtifactId ?? "not selected"}`);
-  }
-  return customizations;
+  return [
+    ...changedEngineParameters(profile, engineRelease, edits)
+      .filter(({ parameter }) => parameter.parameterId !== PARALLEL_REQUESTS_PARAMETER_ID)
+      .map(({ parameter, value }) => `${parameter.displayName} ${value}`),
+    ...artifactCustomization(model, profile, edits.bindingId),
+  ];
 }
 
-/** Describes a deployment draft's parallel requests when they differ from its profile's default. */
-export function parallelRequestsCustomization(
+/** One engine parameter whose input differs from its profile's default, with the input as text. */
+export interface ChangedEngineParameter {
+  parameter: ParameterDefinition;
+  value: string;
+}
+
+/**
+ * The engine parameters of a deployment draft whose input differs from the profile's default, in
+ * schema order, leaving out the context sizes, which a launch describes on their own.
+ */
+export function changedEngineParameters(
   profile: ModelProfile | undefined,
   engineRelease: EngineRelease | undefined,
   edits: LocalDeploymentConfigurationEdits,
-): string[] {
+): ChangedEngineParameter[] {
   if (!profile) return [];
 
-  return editedParameterLabels(
-    profile,
-    engineRelease,
-    edits,
-    (parameterId) => parameterId === PARALLEL_REQUESTS_PARAMETER_ID,
+  const defaults = engineParameterInputs(
+    edits.declaredValues ?? profileStartingValues(engineRelease, profile),
   );
+  return effectiveEngineParameters(engineRelease, profile).flatMap((parameter) => {
+    const input = edits.inputs.get(parameter.parameterId) ?? "";
+    return CONTEXT_PARAMETER_IDS.has(parameter.parameterId) ||
+      input === (defaults.get(parameter.parameterId) ?? "")
+      ? []
+      : [{ parameter, value: engineParameterInputLabel(parameter, edits.inputs) }];
+  });
+}
+
+/** Describes a model artifact other than the profile's default, or nothing. */
+export function artifactCustomization(
+  model: Model,
+  profile: ModelProfile | undefined,
+  bindingId: string,
+): string[] {
+  if (!profile || bindingId === profile.defaultModelArtifactBindingId) return [];
+
+  const binding = model.configurations
+    .find((candidate) => candidate.configurationId === profile.configurationId)
+    ?.artifactBindings.find((candidate) => candidate.bindingId === bindingId);
+  return [`Artifact ${binding?.modelArtifactId ?? "not selected"}`];
 }
 
 /**
@@ -171,24 +187,6 @@ export function engineReleaseLabel({ engineReleaseId, version }: EngineReleaseRe
 export interface EngineReleaseRef {
   engineReleaseId: string;
   version: string;
-}
-
-/** Labels the profile's engine parameters the predicate selects whose input differs from its default. */
-function editedParameterLabels(
-  profile: ModelProfile,
-  engineRelease: EngineRelease | undefined,
-  edits: LocalDeploymentConfigurationEdits,
-  selected: (parameterId: string) => boolean,
-): string[] {
-  const defaults = engineParameterInputs(
-    edits.declaredValues ?? profileStartingValues(engineRelease, profile),
-  );
-  return effectiveEngineParameters(engineRelease, profile).flatMap((parameter) => {
-    const input = edits.inputs.get(parameter.parameterId) ?? "";
-    return !selected(parameter.parameterId) || input === (defaults.get(parameter.parameterId) ?? "")
-      ? []
-      : [`${parameter.displayName} ${engineParameterInputLabel(parameter, edits.inputs)}`];
-  });
 }
 
 // Formats valid values and keeps an invalid input as typed, so a summary never rounds a value the

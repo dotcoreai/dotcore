@@ -154,7 +154,7 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(screen.queryByText(/Estimate unavailable/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+    expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
     expect(screen.getByRole("textbox", { name: /Context per request/ })).toHaveFocus();
 
     await user.clear(perRequest);
@@ -182,7 +182,7 @@ describe("ModelDeployDialog scenario prefill", () => {
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
     expect(screen.getByRole("textbox", { name: /Context per request/ })).toHaveValue("");
     while (!screen.queryByRole("button", { name: "Deploy" }))
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -801,7 +801,7 @@ describe("ModelDeployDialog largest fitting total context", () => {
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     await pickTarget(user, /^node \/ NVIDIA GeForce RTX 5090/);
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
     const hint = "Up to 124k on node / NVIDIA GeForce RTX 5090";
     expect(await readFieldHelpFacts("Total context")).toContain(hint);
 
@@ -949,7 +949,7 @@ describe("ModelDeployDialog shared context", () => {
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
   });
 
-  it("keeps the default total context when parallel requests change on the Runtime step", async () => {
+  it("keeps the default total context when parallel requests change on the Advanced step", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
@@ -967,7 +967,7 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
     await waitFor(() =>
       expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336"),
     );
@@ -1178,7 +1178,7 @@ describe("ModelDeployDialog shared context", () => {
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("0");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText(parallelError)).toBeVisible();
-    expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+    expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
   });
 
   it('keeps the operator\'s parallel requests and their error when "Sized for" returns to defaults', async () => {
@@ -1221,10 +1221,10 @@ describe("ModelDeployDialog shared context", () => {
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("0");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText(parallelError)).toBeVisible();
-    expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+    expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
   });
 
-  it('shares the context between the Context step and "Sized for", with the fit verdicts following', async () => {
+  it('shares the context between the Settings step and "Sized for", with the fit verdicts following', async () => {
     const user = setupUser();
     const listProfileCompatibility = vi.fn((_id: string, requested?: SizingScenario) =>
       Promise.resolve(
@@ -1258,12 +1258,12 @@ describe("ModelDeployDialog shared context", () => {
     await waitFor(() => expect(profileRows()).toEqual(["Q4_K_XL"]));
     expect(totalContextCell("Q4_K_XL")).toBe("64k");
 
-    // "Sized for" back to defaults returns the Context step to its default.
+    // "Sized for" back to defaults returns the Settings step to its default.
     await chooseSizedFor(user, "Runs on filter: this site, 64k", "Defaults");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
 
-    // A custom "Sized for" shows on the Context step.
+    // A custom "Sized for" shows on the Settings step.
     await user.click(screen.getByRole("button", { name: "Back" }));
     await chooseSizedFor(user, "Runs on filter: this site", "Custom");
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1294,7 +1294,7 @@ describe("ModelDeployDialog shared context", () => {
     await screen.findByText("Step 1 of 4 — Profile");
     await pickTarget(user, /^node/);
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 4 — Context")).toBeVisible();
+    expect(screen.getByText("Step 3 of 4 — Settings")).toBeVisible();
     expect(await readFieldHelpFacts("Total context")).toContain(
       "Up to 889k on node / NVIDIA GeForce RTX 5090",
     );
@@ -1326,7 +1326,7 @@ describe("ModelDeployDialog shared context", () => {
     ).toEqual(["total-context", 65536n]);
   });
 
-  it("opens a catalog 128k scenario on the Context step and submits it", async () => {
+  it("opens a catalog 128k scenario on the Settings step and submits it", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     const catalogScenario: SizingScenario = { totalContextTokens: 131072 };

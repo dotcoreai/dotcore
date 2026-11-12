@@ -41,14 +41,14 @@ import { sharedContextEstimate } from "./resource-estimate-test-support";
 
 const poolPlacement = { executionTargetId: "pool", siteNodeId: "node" };
 
-describe("ModelDeployDialog Context step", () => {
+describe("ModelDeployDialog Settings step", () => {
   it("shows total context and context per request in both modes, with short help", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
     await screen.findByText("Step 1 of 3 — Profile");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+    expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
     expect(
       screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
     ).toEqual([
@@ -79,7 +79,7 @@ describe("ModelDeployDialog Context step", () => {
 
     await user.click(preset("64k"));
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
     expect(
       screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
     ).toEqual([
@@ -92,7 +92,7 @@ describe("ModelDeployDialog Context step", () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
-    await openAdvancedContext(user);
+    await openAdvancedSettings(user);
     const slider = screen.getByRole("slider", { name: "Total context" });
     const input = screen.getByRole("textbox", { name: "Total context" });
     expect(input).toHaveValue("32768");
@@ -128,7 +128,7 @@ describe("ModelDeployDialog Context step", () => {
     const onSubmit = vi.fn();
     renderDialog({ initialProfileId: "nvfp4-text", onSubmit });
 
-    await openAdvancedContext(user);
+    await openAdvancedSettings(user);
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
     await user.click(preset("64k"));
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -205,7 +205,7 @@ describe("ModelDeployDialog Context step", () => {
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: profileId, onSubmit });
 
-      await openAdvancedContext(user);
+      await openAdvancedSettings(user);
       expect(
         screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
       ).toEqual([
@@ -220,7 +220,7 @@ describe("ModelDeployDialog Context step", () => {
         "32,768 tokens",
       );
 
-      await deployFromContext(user);
+      await deployFromSettings(user);
       expect(screen.queryByText(/Customized/)).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -234,7 +234,7 @@ describe("ModelDeployDialog Context step", () => {
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: profileId, onSubmit });
 
-      await openAdvancedContext(user);
+      await openAdvancedSettings(user);
       const total = screen.getByRole("textbox", { name: "Total context" });
       const perRequest = screen.getByRole("textbox", { name: "Context per request" });
 
@@ -253,7 +253,7 @@ describe("ModelDeployDialog Context step", () => {
       expect(perRequest).toHaveValue("8192");
       expect(screen.queryByText(/must be at most the total context/)).not.toBeInTheDocument();
 
-      await deployFromContext(user);
+      await deployFromSettings(user);
       await user.click(screen.getByRole("button", { name: "Deploy" }));
       await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
       expect(submittedValues(onSubmit)).toEqual([
@@ -269,7 +269,7 @@ describe("ModelDeployDialog Context step", () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
-    await openAdvancedContext(user);
+    await openAdvancedSettings(user);
     const totalSlider = screen.getByRole("slider", { name: "Total context" });
     const perRequestSlider = screen.getByRole("slider", { name: "Context per request" });
     // 32768 tokens sits five elevenths along the log scale from 1024 to 2097152 tokens on both.
@@ -293,7 +293,7 @@ describe("ModelDeployDialog Context step", () => {
     model.configurations[0].maximumContextTokens = 16384;
     renderDialog({ initialProfileId: "q4-xl", model });
 
-    await openAdvancedContext(user);
+    await openAdvancedSettings(user);
     const perRequest = screen.getByRole("textbox", { name: "Context per request" });
     expect(perRequest).toHaveAttribute("placeholder", "16384");
     await user.click(screen.getByRole("button", { name: "About Context per request" }));
@@ -306,12 +306,12 @@ describe("ModelDeployDialog Context step", () => {
   });
 });
 
-describe("ModelDeployDialog Runtime step", () => {
+describe("ModelDeployDialog Advanced step", () => {
   it("leads with parallel requests and groups the ninfer host context as host memory", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
-    await openAdvancedRuntime(user);
+    await openAdvancedStep(user);
     const parallel = screen.getAllByRole("textbox")[0];
     expect(parallel).toHaveAccessibleName("Parallel requests");
     expect(parallel).toHaveValue("4");
@@ -326,7 +326,7 @@ describe("ModelDeployDialog Runtime step", () => {
     );
 
     // No parameter is left for the other parameters section, and the context sizes sit on the
-    // Context step.
+    // Settings step.
     expect(screen.queryByRole("button", { name: /^Other parameters/ })).toBeNull();
     for (const name of ["Total context", "Context per request"])
       expect(screen.queryByRole("textbox", { name })).not.toBeInTheDocument();
@@ -336,7 +336,7 @@ describe("ModelDeployDialog Runtime step", () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
-    await openAdvancedRuntime(user);
+    await openAdvancedStep(user);
     // llama.cpp declares no host-memory parameter; the prompt cache is its other parameter.
     expect(screen.queryByRole("region", { name: "Host memory" })).not.toBeInTheDocument();
     expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "false");
@@ -358,7 +358,7 @@ describe("ModelDeployDialog Runtime step", () => {
     renderDialog({ initialProfileId: "q4-xl", onSubmit });
     const error = "Prompt cache memory must be an integer from 0 to 65536 MiB.";
 
-    await openAdvancedRuntime(user);
+    await openAdvancedStep(user);
     await user.click(sectionToggle("Other parameters (1)"));
     const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
     await user.clear(promptCache);
@@ -370,9 +370,9 @@ describe("ModelDeployDialog Runtime step", () => {
       ).not.toBeInTheDocument(),
     );
 
-    // Leaving Runtime re-opens the section and focuses the field.
+    // Leaving Advanced re-opens the section and focuses the field.
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+    expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
     expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "true");
     await waitFor(() =>
       expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveFocus(),
@@ -389,7 +389,7 @@ describe("ModelDeployDialog Runtime step", () => {
     );
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
-    expect(await screen.findByText("Step 4 of 5 — Runtime")).toBeVisible();
+    expect(await screen.findByText("Step 4 of 5 — Advanced")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
     expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "true");
     const revealed = screen.getByRole("textbox", { name: "Prompt cache memory" });
@@ -404,7 +404,7 @@ describe("ModelDeployDialog Runtime step", () => {
       const user = setupUser();
       renderDialog({ initialProfileId: "q4-xl" });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(screen.queryByRole("combobox", { name: "KV cache precision" })).toBeNull();
     });
 
@@ -413,11 +413,11 @@ describe("ModelDeployDialog Runtime step", () => {
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", model: modelWithKvCachePrecision(), onSubmit });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(kvCachePrecision()).toHaveValue("f16");
       expect(optionLabels(kvCachePrecision())).toEqual(["f16", "q8_0"]);
 
-      await deployFromRuntime(user);
+      await deployFromAdvanced(user);
       expect(screen.queryByText(/Customized/)).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -434,11 +434,11 @@ describe("ModelDeployDialog Runtime step", () => {
         onSubmit,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(kvCachePrecision()).toHaveValue("q8_0");
 
       await user.selectOptions(kvCachePrecision(), "f16");
-      await deployFromRuntime(user);
+      await deployFromAdvanced(user);
       expect(screen.getByText("Customized: KV cache precision f16")).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -455,7 +455,7 @@ describe("ModelDeployDialog Runtime step", () => {
         onEstimate,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
       expect(estimatedOverrides(onEstimate, 0)).toEqual([]);
 
@@ -476,7 +476,7 @@ describe("ModelDeployDialog Runtime step", () => {
       const onPreview = vi.fn(() => new Promise<never>(() => undefined));
       renderDialog({ initialProfileId: "q4-xl", model: modelWithKvCachePrecision(), onPreview });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await user.selectOptions(kvCachePrecision(), "q8_0");
       await user.click(screen.getByRole("button", { name: "Custom arguments and command" }));
       await user.click(screen.getByRole("button", { name: "Preview resolved command" }));
@@ -494,7 +494,7 @@ describe("ModelDeployDialog Runtime step", () => {
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", onSubmit });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(speculativeMethod()).toHaveValue("mtp");
       expect(optionLabels(speculativeMethod())).toEqual(["Off", "MTP"]);
       expect(speculativeCount()).toHaveValue("3");
@@ -505,7 +505,7 @@ describe("ModelDeployDialog Runtime step", () => {
       ).toHaveTextContent("Range 1–5 tokens");
       await user.keyboard("{Escape}");
 
-      await deployFromRuntime(user);
+      await deployFromAdvanced(user);
       expect(screen.queryByText(/Customized/)).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -534,9 +534,9 @@ describe("ModelDeployDialog Runtime step", () => {
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", onSubmit });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await choose(user);
-      await deployFromRuntime(user);
+      await deployFromAdvanced(user);
       expect(screen.getByText(customized)).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -549,7 +549,7 @@ describe("ModelDeployDialog Runtime step", () => {
       const onEstimate = vi.fn(() => Promise.resolve({}));
       renderDialog({ initialProfileId: "q4-xl", onEstimate });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
       expect(estimatedOverrides(onEstimate, 0)).toEqual([]);
 
@@ -571,7 +571,7 @@ describe("ModelDeployDialog Runtime step", () => {
       const onEstimate = vi.fn(() => Promise.resolve({}));
       renderDialog({ initialProfileId: "q4-xl", onEstimate });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await waitFor(() => expect(onEstimate).toHaveBeenCalled());
       const [values] = onEstimate.mock.lastCall as unknown as [
         { placement?: { executionTargetId: string; siteNodeId: string } },
@@ -584,14 +584,14 @@ describe("ModelDeployDialog Runtime step", () => {
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl-no-mtp", onSubmit });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(speculativeMethod()).toHaveValue("");
       expect(screen.queryByRole("textbox", { name: "Speculative token count" })).toBeNull();
 
       await user.selectOptions(speculativeMethod(), "MTP");
       expect(speculativeCount()).toHaveValue("3");
       expect(speculativeCount()).not.toHaveAttribute("aria-invalid");
-      await deployFromRuntime(user);
+      await deployFromAdvanced(user);
       expect(screen.getByText("Customized: Speculative decoding MTP, 3 tokens")).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -604,14 +604,14 @@ describe("ModelDeployDialog Runtime step", () => {
       const onSubmit = vi.fn();
       renderDialog({ initialProfileId: "q4-xl", model: modelWithProfileMtpCount(), onSubmit });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(speculativeCount()).toHaveValue("4");
       await user.clear(speculativeCount());
       await user.selectOptions(speculativeMethod(), "Off");
       await user.selectOptions(speculativeMethod(), "MTP");
       expect(speculativeCount()).toHaveValue("4");
 
-      await deployFromRuntime(user);
+      await deployFromAdvanced(user);
       expect(screen.queryByText(/Customized/)).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -624,7 +624,7 @@ describe("ModelDeployDialog Runtime step", () => {
       renderDialog({ initialProfileId: "q4-xl", model: modelWithDflash() });
       const mtpError = "Speculative token count must be an integer from 1 to 5 tokens.";
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(optionLabels(speculativeMethod())).toEqual(["Off", "MTP", "DFlash"]);
       await user.selectOptions(speculativeMethod(), "DFlash");
       expect(speculativeCount()).toHaveValue("3");
@@ -649,13 +649,13 @@ describe("ModelDeployDialog Runtime step", () => {
         onSubmit,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await user.selectOptions(speculativeMethod(), "DFlash");
       rerender(dialog({ initialProfileId: "q4-xl", onSubmit }));
 
       expect(speculativeMethod()).toHaveValue("mtp");
       expect(speculativeCount()).toHaveValue("3");
-      await deployFromRuntime(user);
+      await deployFromAdvanced(user);
       expect(screen.queryByText(/Customized/)).not.toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -669,7 +669,7 @@ describe("ModelDeployDialog Runtime step", () => {
       renderDialog({ initialProfileId: "q4-xl", onSubmit });
       const error = "Speculative token count must be an integer from 1 to 5 tokens.";
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       // Passing through the untouched field flags nothing.
       await user.click(speculativeCount());
       await user.tab();
@@ -683,7 +683,7 @@ describe("ModelDeployDialog Runtime step", () => {
       expect(speculativeCount()).toHaveAttribute("aria-invalid", "true");
 
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
       expect(speculativeCount()).toHaveFocus();
 
       await user.clear(speculativeCount());
@@ -696,7 +696,7 @@ describe("ModelDeployDialog Runtime step", () => {
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
       expect(screen.queryByRole("combobox", { name: "Speculative decoding" })).toBeNull();
       expect(onSubmit).not.toHaveBeenCalled();
     });
@@ -730,7 +730,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
         /^Q4_K_XL(?! without)/,
       ),
     );
-    await openAdvancedRuntime(user);
+    await openAdvancedStep(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
     await user.click(sectionToggle("Other parameters (1)"));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("4096");
@@ -743,7 +743,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
     expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
 
-    await deployFromRuntime(user);
+    await deployFromAdvanced(user);
     expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
     expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("team-route");
     await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -765,7 +765,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
       ),
     );
     await user.click(screen.getByRole("radio", { name: /Q4_K_XL without MTP/ }));
-    await openAdvancedRuntime(user);
+    await openAdvancedStep(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
     await user.click(sectionToggle("Other parameters (1)"));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("8192");
@@ -777,7 +777,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
     expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
 
-    await deployFromRuntime(user);
+    await deployFromAdvanced(user);
     expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
     expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("team-route");
     await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -802,9 +802,9 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     const first = vi.fn();
     const { unmount } = renderDialog({ initialProfileId: "q4-xl", model, onSubmit: first });
 
-    await openAdvancedRuntime(user);
+    await openAdvancedStep(user);
     await user.selectOptions(speculativeMethod(), "Off");
-    await deployFromRuntime(user);
+    await deployFromAdvanced(user);
     await user.click(screen.getByRole("radio", { name: "Hidden" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(first).toHaveBeenCalledOnce());
@@ -813,9 +813,9 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
 
     const onSubmit = vi.fn();
     renderDialog({ ...reopenedOn(applied), model, onSubmit });
-    await openAdvancedRuntime(user);
+    await openAdvancedStep(user);
     expect(speculativeMethod()).toHaveValue("");
-    await deployFromRuntime(user);
+    await deployFromAdvanced(user);
     expect(screen.getByRole("radio", { name: "Hidden" })).toBeChecked();
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
@@ -912,7 +912,7 @@ async function applyEveryRuntimeEdit(
     onSubmit,
   });
 
-  await openAdvancedRuntime(user);
+  await openAdvancedStep(user);
   const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
   await user.clear(parallel);
   await user.type(parallel, "2");
@@ -932,7 +932,7 @@ async function applyEveryRuntimeEdit(
   await user.click(screen.getByRole("button", { name: "Add token" }));
   await user.type(screen.getByRole("textbox", { name: "Custom token 2" }), "bar");
 
-  await deployFromRuntime(user);
+  await deployFromAdvanced(user);
   const name = screen.getByRole("textbox", { name: "Deployment name" });
   await user.clear(name);
   await user.type(name, "Team model");
@@ -985,19 +985,19 @@ function poolTarget() {
   });
 }
 
-async function openAdvancedContext(user: UserEvent) {
+async function openAdvancedSettings(user: UserEvent) {
   await screen.findByText("Step 1 of 3 — Profile");
   await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+  expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
 }
 
-async function openAdvancedRuntime(user: UserEvent) {
-  await openAdvancedContext(user);
+async function openAdvancedStep(user: UserEvent) {
+  await openAdvancedSettings(user);
   await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+  expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
 }
 
 /** The engine parameter values of the first submitted deployment, as `[parameterId, value]`. */
@@ -1027,12 +1027,12 @@ function sectionToggle(name: string) {
   return screen.getByRole("button", { name });
 }
 
-async function deployFromContext(user: UserEvent) {
+async function deployFromSettings(user: UserEvent) {
   await user.click(screen.getByRole("button", { name: "Next" }));
-  await deployFromRuntime(user);
+  await deployFromAdvanced(user);
 }
 
-async function deployFromRuntime(user: UserEvent) {
+async function deployFromAdvanced(user: UserEvent) {
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 5 of 5 — Deploy")).toBeVisible();
 }

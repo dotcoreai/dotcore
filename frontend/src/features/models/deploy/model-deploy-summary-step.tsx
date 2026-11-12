@@ -10,6 +10,7 @@ import {
   CONTEXT_PER_REQUEST_PARAMETER_ID,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
+import type { ChangedEngineParameter } from "@/features/models/runtime/local-deployment-configuration";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 import { formatBytes, formatCompactCount } from "@/lib/format";
 
@@ -17,9 +18,11 @@ import type { LocalDeploymentMemoryPreview } from "./use-model-deploy-memory-pre
 
 /**
  * The deploy dialog's Deploy step: the deployment name and route, notices about the site and the
- * launch's memory, and a summary of the target, profile, context and runtime customizations.
+ * launch's memory, and a summary of the target, profile, context, each changed parameter and the
+ * other customized advanced settings.
  */
 export function ModelDeploySummaryStep({
+  changedParameters,
   customizations,
   disabled,
   exposureFields,
@@ -66,15 +69,24 @@ export function ModelDeploySummaryStep({
       <Detail label="Target" value={target ? executionTargetName(target) : "None"} />
       <Detail label="Profile" value={profileName} />
       <Detail label="Context" value={contextSummary(inputs, filledContextPerRequest)} />
+      {changedParameters.map(({ parameter, value }) => (
+        <Detail
+          key={parameter.parameterId}
+          label={parameter.displayName}
+          value={capitalized(value)}
+        />
+      ))}
       {customizations.length ? (
-        <Detail label="Runtime" value={`Customized: ${customizations.join(" · ")}`} />
+        <Detail label="Advanced" value={`Customized: ${customizations.join(" · ")}`} />
       ) : null}
     </DeploymentSummaryStep>
   );
 }
 
 export interface ModelDeploySummaryStepProps {
-  /** Runtime settings that differ from the defaults, in a few words each. */
+  /** The engine parameters outside the context whose values differ from the defaults. */
+  changedParameters: readonly ChangedEngineParameter[];
+  /** The other advanced settings that differ from the defaults, in a few words each. */
   customizations: readonly string[];
   disabled: boolean;
   /** The route fields shown under the name. */
@@ -116,6 +128,10 @@ function contextSummary(
   return [total && `${tokens(total)} total`, perRequest && `${tokens(perRequest)} per request`]
     .filter(Boolean)
     .join(" · ");
+}
+
+function capitalized(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
 
 /** The warning for system memory below the profile's minimum, with sizes when known. */

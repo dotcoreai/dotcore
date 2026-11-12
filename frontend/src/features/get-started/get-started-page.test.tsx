@@ -439,21 +439,21 @@ describe("GetStartedPage", () => {
         targets: { "open-webui": [["gpu1", true]] },
       });
 
-      // Opens Customize in advanced mode on the Runtime step.
-      const openRuntime = async () => {
+      // Opens Customize in advanced mode on the Advanced step.
+      const openAdvanced = async () => {
         await user.click(await screen.findByRole("button", { name: "Customize" }));
         const dialog = await screen.findByRole("dialog", { name: "Qwen3.8 27B — Customize model" });
         await user.click(await within(dialog).findByRole("checkbox", { name: "Advanced" }));
         for (let step = 0; step < 3; step += 1)
           await user.click(within(dialog).getByRole("button", { name: "Next" }));
-        expect(within(dialog).getByText("Step 4 of 5 — Runtime")).toBeVisible();
+        expect(within(dialog).getByText("Step 4 of 5 — Advanced")).toBeVisible();
         return {
           dialog,
           hostContext: within(dialog).getByRole("textbox", { name: "Host context memory" }),
           parallel: within(dialog).getByRole("textbox", { name: "Parallel requests" }),
         };
       };
-      const first = await openRuntime();
+      const first = await openAdvanced();
       expect(first.parallel).toHaveValue("4");
       expect(first.hostContext).toHaveValue("20480");
       await user.clear(first.parallel);
@@ -471,7 +471,7 @@ describe("GetStartedPage", () => {
       await user.click(within(first.dialog).getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(first.dialog).not.toBeInTheDocument());
 
-      const second = await openRuntime();
+      const second = await openAdvanced();
       expect(second.parallel).toHaveValue("2");
       expect(second.hostContext).toHaveValue("1024");
       await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
