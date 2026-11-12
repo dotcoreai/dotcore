@@ -129,14 +129,16 @@ A preset of defaults for one engine configuration.
 
 - Supplies defaults, never ongoing deployment authority.
 - Supplies no default for total context or context per request.
+- May override the default and the visibility of its engine's parameters. It may hide total context
+  and context per request, never make them advanced.
 - Carries no platform. The hardware class follows from the exact placement, so one profile serves
   every hardware class its configuration supports.
 
 ### Engine release
 
 - Declares the shared engine parameters (total context, context per request, parallel requests),
-  exposed, with a default on total context and parallel requests and none on context per request.
-  Each release sets its own bounds, defaults and descriptions.
+  with fixed visibilities, a default on total context and parallel requests and none on context per
+  request. Each release sets its own bounds, defaults and descriptions.
 - May declare parameter defaults within their bounds. A default on a parameter that sizing derives
   is rejected.
 
@@ -162,7 +164,8 @@ are on the [recommendations](recommendations.md) page.
 ### App graph
 
 - Carries the app's portable artifact, configuration, storage, secret, dependency, readiness and
-  endpoint requirements, and its typed deployment parameters, shown as basic or advanced.
+  endpoint requirements, and its typed deployment parameters, shown as basic or advanced, never
+  hidden.
 - May name the use cases it serves and the accelerator vendors it prefers
   ([recommendations](recommendations.md#app-use-case)).
 - Engine releases and apps declare the storage they need. Deployments keep that declaration
@@ -177,7 +180,8 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 #### Responsibilities
 
 - Own the immutable catalog declarations and their lifecycle.
-- Own the shape of the shared engine parameters.
+- Own the typed parameter definition engine releases and apps share, with its basic, advanced or
+  hidden visibility, and the shape of the shared engine parameters.
 - Validate catalogs as described above.
 
 #### Boundaries
