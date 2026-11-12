@@ -36,17 +36,9 @@ message ApplicationGraph {
   // The one service port that can be projected as the primary endpoint.
   ApplicationPrimaryEndpoint primary_endpoint = 2;
 
-  // Typed parameters operators may set at deployment creation, in display order.
-  repeated ApplicationParameter parameters = 3;
-}
-
-// One typed application parameter and how the console shows it.
-message ApplicationParameter {
-  // Typed definition; application parameters always declare a default.
-  ParameterDefinition definition = 1;
-
-  // Whether the console shows this parameter only in its advanced view.
-  bool advanced = 2;
+  // Typed parameters operators may set at deployment creation, in display order; each declares a
+  // default and is basic or advanced.
+  repeated ParameterDefinition parameters = 3;
 }
 
 // One named service in an immutable application graph.

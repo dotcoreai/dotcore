@@ -2,19 +2,20 @@
 // @generated from file dotcore/catalog/v1/parameter.proto (package dotcore.catalog.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file dotcore/catalog/v1/parameter.proto.
  */
 export const file_dotcore_catalog_v1_parameter: GenFile = /*@__PURE__*/
-  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEivQIKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI9Cgdib29sZWFuGAQgASgLMiouZG90Y29yZS5jYXRhbG9nLnYxLkJvb2xlYW5QYXJhbWV0ZXJTY2hlbWFIABJOChB1bnNpZ25lZF9pbnRlZ2VyGAUgASgLMjIuZG90Y29yZS5jYXRhbG9nLnYxLlVuc2lnbmVkSW50ZWdlclBhcmFtZXRlclNjaGVtYUgAEkQKC3N0cmluZ19lbnVtGAYgASgLMi0uZG90Y29yZS5jYXRhbG9nLnYxLlN0cmluZ0VudW1QYXJhbWV0ZXJTY2hlbWFIAEIQCg5wYXJhbWV0ZXJfdHlwZSJGChZCb29sZWFuUGFyYW1ldGVyU2NoZW1hEhoKDWRlZmF1bHRfdmFsdWUYASABKAhIAIgBAUIQCg5fZGVmYXVsdF92YWx1ZSJ+Ch5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWESDwoHbWluaW11bRgBIAEoBBIPCgdtYXhpbXVtGAIgASgEEgwKBHVuaXQYAyABKAkSGgoNZGVmYXVsdF92YWx1ZRgEIAEoBEgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIlkKGVN0cmluZ0VudW1QYXJhbWV0ZXJTY2hlbWESDgoGdmFsdWVzGAEgAygJEhoKDWRlZmF1bHRfdmFsdWUYAiABKAlIAIgBAUIQCg5fZGVmYXVsdF92YWx1ZSJwCg5QYXJhbWV0ZXJWYWx1ZRIUCgxwYXJhbWV0ZXJfaWQYASABKAkSEQoHYm9vbGVhbhgCIAEoCEgAEhoKEHVuc2lnbmVkX2ludGVnZXIYAyABKARIABIQCgZzdHJpbmcYBCABKAlIAEIHCgV2YWx1ZWIGcHJvdG8z");
+  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEi+gIKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI7Cgp2aXNpYmlsaXR5GAcgASgOMicuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZpc2liaWxpdHkSPQoHYm9vbGVhbhgEIAEoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Cb29sZWFuUGFyYW1ldGVyU2NoZW1hSAASTgoQdW5zaWduZWRfaW50ZWdlchgFIAEoCzIyLmRvdGNvcmUuY2F0YWxvZy52MS5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWFIABJECgtzdHJpbmdfZW51bRgGIAEoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5TdHJpbmdFbnVtUGFyYW1ldGVyU2NoZW1hSABCEAoOcGFyYW1ldGVyX3R5cGUiRgoWQm9vbGVhblBhcmFtZXRlclNjaGVtYRIaCg1kZWZhdWx0X3ZhbHVlGAEgASgISACIAQFCEAoOX2RlZmF1bHRfdmFsdWUifgoeVW5zaWduZWRJbnRlZ2VyUGFyYW1ldGVyU2NoZW1hEg8KB21pbmltdW0YASABKAQSDwoHbWF4aW11bRgCIAEoBBIMCgR1bml0GAMgASgJEhoKDWRlZmF1bHRfdmFsdWUYBCABKARIAIgBAUIQCg5fZGVmYXVsdF92YWx1ZSJZChlTdHJpbmdFbnVtUGFyYW1ldGVyU2NoZW1hEg4KBnZhbHVlcxgBIAMoCRIaCg1kZWZhdWx0X3ZhbHVlGAIgASgJSACIAQFCEAoOX2RlZmF1bHRfdmFsdWUiRQoPUGFyYW1ldGVyVmFsdWVzEjIKBnZhbHVlcxgBIAMoCzIiLmRvdGNvcmUuY2F0YWxvZy52MS5QYXJhbWV0ZXJWYWx1ZSJwCg5QYXJhbWV0ZXJWYWx1ZRIUCgxwYXJhbWV0ZXJfaWQYASABKAkSEQoHYm9vbGVhbhgCIAEoCEgAEhoKEHVuc2lnbmVkX2ludGVnZXIYAyABKARIABIQCgZzdHJpbmcYBCABKAlIAEIHCgV2YWx1ZSqfAQoTUGFyYW1ldGVyVmlzaWJpbGl0eRIkCiBQQVJBTUVURVJfVklTSUJJTElUWV9VTlNQRUNJRklFRBAAEh4KGlBBUkFNRVRFUl9WSVNJQklMSVRZX0JBU0lDEAESIQodUEFSQU1FVEVSX1ZJU0lCSUxJVFlfQURWQU5DRUQQAhIfChtQQVJBTUVURVJfVklTSUJJTElUWV9ISURERU4QA2IGcHJvdG8z");
 
 /**
- * Defines one owner-neutral typed parameter: its identity, label, guidance, and value constraints.
- * Owners decide whether a default is required and how the parameter is shown.
+ * Defines one owner-neutral typed parameter: its identity, label, guidance, visibility and value
+ * constraints. Owners decide which types and visibilities they accept and whether a default is
+ * required.
  *
  * @generated from message dotcore.catalog.v1.ParameterDefinition
  */
@@ -39,6 +40,13 @@ export type ParameterDefinition = Message<"dotcore.catalog.v1.ParameterDefinitio
    * @generated from field: string description = 3;
    */
   description: string;
+
+  /**
+   * Where the console shows this parameter.
+   *
+   * @generated from field: dotcore.catalog.v1.ParameterVisibility visibility = 7;
+   */
+  visibility: ParameterVisibility;
 
   /**
    * @generated from oneof dotcore.catalog.v1.ParameterDefinition.parameter_type
@@ -169,6 +177,27 @@ export const StringEnumParameterSchemaSchema: GenMessage<StringEnumParameterSche
   messageDesc(file_dotcore_catalog_v1_parameter, 3);
 
 /**
+ * Supplies a set of exact typed parameter values.
+ *
+ * @generated from message dotcore.catalog.v1.ParameterValues
+ */
+export type ParameterValues = Message<"dotcore.catalog.v1.ParameterValues"> & {
+  /**
+   * Exact values keyed by stable parameter identity.
+   *
+   * @generated from field: repeated dotcore.catalog.v1.ParameterValue values = 1;
+   */
+  values: ParameterValue[];
+};
+
+/**
+ * Describes the message dotcore.catalog.v1.ParameterValues.
+ * Use `create(ParameterValuesSchema)` to create a new message.
+ */
+export const ParameterValuesSchema: GenMessage<ParameterValues> = /*@__PURE__*/
+  messageDesc(file_dotcore_catalog_v1_parameter, 4);
+
+/**
  * Supplies one exact typed parameter value.
  *
  * @generated from message dotcore.catalog.v1.ParameterValue
@@ -216,5 +245,46 @@ export type ParameterValue = Message<"dotcore.catalog.v1.ParameterValue"> & {
  * Use `create(ParameterValueSchema)` to create a new message.
  */
 export const ParameterValueSchema: GenMessage<ParameterValue> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 4);
+  messageDesc(file_dotcore_catalog_v1_parameter, 5);
+
+/**
+ * Where the console shows a parameter.
+ *
+ * @generated from enum dotcore.catalog.v1.ParameterVisibility
+ */
+export enum ParameterVisibility {
+  /**
+   * Invalid; every parameter declares its visibility.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Shown in the main view.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_BASIC = 1;
+   */
+  BASIC = 1,
+
+  /**
+   * Shown only in the advanced view.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_ADVANCED = 2;
+   */
+  ADVANCED = 2,
+
+  /**
+   * Never shown; the value comes from its default, a profile or sizing.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_HIDDEN = 3;
+   */
+  HIDDEN = 3,
+}
+
+/**
+ * Describes the enum dotcore.catalog.v1.ParameterVisibility.
+ */
+export const ParameterVisibilitySchema: GenEnum<ParameterVisibility> = /*@__PURE__*/
+  enumDesc(file_dotcore_catalog_v1_parameter, 0);
 
