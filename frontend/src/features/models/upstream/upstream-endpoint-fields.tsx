@@ -1,8 +1,10 @@
 import type { RefObject } from "react";
 
+import { Detail, DetailList } from "@/components/ui/detail-list";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
+import { SecretValue } from "@/components/ui/secret-value";
 import type { FieldErrors } from "@/lib/form-validation";
 
 import type { UpstreamFormValues } from "./upstream-form";
@@ -13,6 +15,7 @@ export function UpstreamEndpointFields({
   onChange,
   error,
   editing = false,
+  storedApiKey,
   fieldErrors = new Map(),
   onFieldBlur,
   baseUrlRef,
@@ -22,6 +25,8 @@ export function UpstreamEndpointFields({
   onChange: (values: UpstreamFormValues) => void;
   error?: string;
   editing?: boolean;
+  /** The stored API key shown masked above the replace field; blank when none is configured. */
+  storedApiKey?: string;
   fieldErrors?: FieldErrors;
   onFieldBlur?: (field: "baseUrl" | "upstreamModelId") => void;
   baseUrlRef?: RefObject<HTMLInputElement | null>;
@@ -71,6 +76,20 @@ export function UpstreamEndpointFields({
           />
         )}
       </Field>
+      {editing && storedApiKey !== undefined ? (
+        <DetailList>
+          <Detail
+            label="Current API key"
+            value={
+              storedApiKey ? (
+                <SecretValue label="API key" value={storedApiKey} />
+              ) : (
+                <span className="text-muted-foreground">Not configured</span>
+              )
+            }
+          />
+        </DetailList>
+      ) : null}
       <Field controlId="upstream-api-key" label="API key">
         {(control) => (
           <Input

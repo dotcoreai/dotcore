@@ -633,6 +633,62 @@ describe("generic upstream endpoint UI", () => {
     );
   });
 
+  it("shows the stored API key masked above the replace field, revealed on request", async () => {
+    const user = setupUser();
+    render(
+      <MemoryRouter>
+        <UpstreamEditInspector
+          metadata={{ displayName: "Upstream model" }}
+          deployment={upstreamDeployment()}
+          onBack={vi.fn()}
+          onOpenChange={vi.fn()}
+          onSaveEndpoint={vi.fn()}
+          onSaveMetadata={() => Promise.resolve({ displayName: "Upstream model" })}
+          open
+          openerRef={createRef()}
+        />
+      </MemoryRouter>,
+    );
+    const inspector = screen.getByRole("complementary", { name: "Upstream model · Edit" });
+    await waitForInspectorFocus(inspector);
+    expect(within(inspector).getByText("Current API key")).toBeVisible();
+    expect(within(inspector).getByText("••••••••")).toBeVisible();
+    expect(inspector).not.toHaveTextContent("stored-secret");
+    const replace = within(inspector).getByLabelText("API key");
+    expect(replace).toHaveValue("");
+    expect(
+      within(inspector).getByText("Current API key").compareDocumentPosition(replace) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await user.click(within(inspector).getByRole("button", { name: "Reveal API key" }));
+    expect(within(inspector).getByText("stored-secret")).toBeVisible();
+  });
+
+  it("shows Not configured when the upstream deployment has no API key", async () => {
+    const deployment = upstreamDeployment();
+    deployment.upstreamDesiredConfiguration!.apiKey = "";
+    render(
+      <MemoryRouter>
+        <UpstreamEditInspector
+          metadata={{ displayName: "Upstream model" }}
+          deployment={deployment}
+          onBack={vi.fn()}
+          onOpenChange={vi.fn()}
+          onSaveEndpoint={vi.fn()}
+          onSaveMetadata={() => Promise.resolve({ displayName: "Upstream model" })}
+          open
+          openerRef={createRef()}
+        />
+      </MemoryRouter>,
+    );
+    const inspector = screen.getByRole("complementary", { name: "Upstream model · Edit" });
+    await waitForInspectorFocus(inspector);
+    expect(within(inspector).getByText("Not configured")).toBeVisible();
+    expect(within(inspector).queryByText("••••••••")).not.toBeInTheDocument();
+    expect(within(inspector).queryByRole("button", { name: "Reveal API key" })).toBeNull();
+  });
+
   it("submits the endpoint form once on Enter without saving Name metadata", async () => {
     const user = setupUser();
     const onSaveEndpoint = vi.fn().mockResolvedValue(true);
