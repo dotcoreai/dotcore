@@ -1414,8 +1414,9 @@ describe("Application deployment dialog parameters", () => {
     const onSubmit = renderDialog();
 
     const parameters = screen.getByRole("region", { name: "Parameters" });
-    expect(within(parameters).getByRole("textbox", { name: "Workers" })).toHaveValue("2");
-    expect(within(parameters).getByText("1–8")).toBeVisible();
+    const workers = within(parameters).getByRole("textbox", { name: "Workers" });
+    expect(workers).toHaveValue("2");
+    expect(workers).toHaveAccessibleDescription("1–8");
     expect(within(parameters).queryByRole("combobox", { name: "VRAM mode" })).toBeNull();
 
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
