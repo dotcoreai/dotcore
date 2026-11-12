@@ -1550,4 +1550,84 @@ describe("Application deployment dialog parameters", () => {
     expect(workers).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("Step 1 of 2 — Settings")).toBeVisible();
   });
+
+  describe("text and secret parameters", () => {
+    const login = create(ApplicationSchema, {
+      applicationId: "hermes",
+      displayName: "Hermes",
+      version: "1.0.0",
+      graph: create(ApplicationGraphSchema, {
+        parameters: [
+          create(ParameterDefinitionSchema, {
+            parameterId: "dashboard-username",
+            displayName: "Username",
+            visibility: ParameterVisibility.BASIC,
+            parameterType: {
+              case: "text",
+              value: { minimumLength: 1, maximumLength: 8, defaultValue: "admin" },
+            },
+          }),
+          create(ParameterDefinitionSchema, {
+            parameterId: "dashboard-password",
+            displayName: "Password",
+            visibility: ParameterVisibility.BASIC,
+            parameterType: { case: "secret", value: { generatedLength: 32, minimumLength: 12 } },
+          }),
+        ],
+      }),
+    });
+
+    it("leaves an empty secret out of the request and sends a typed one", async () => {
+      const user = setupUser();
+      const onSubmit = renderDialog(vi.fn(), login);
+
+      expect(screen.getByRole("textbox", { name: "Username" })).toHaveValue("admin");
+      const password = screen.getByRole("textbox", { name: "Password" });
+      expect(password).toHaveValue("");
+      expect(password).toHaveAttribute("placeholder", "Generated at deploy");
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(screen.getByRole("button", { name: "Deploy" }));
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ parameterValues: [] }),
+      );
+    });
+
+    it("sends a typed secret as typed", async () => {
+      const user = setupUser();
+      const onSubmit = renderDialog(vi.fn(), login);
+
+      await user.type(screen.getByRole("textbox", { name: "Password" }), "typed-password-1");
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(screen.getByRole("button", { name: "Deploy" }));
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          parameterValues: [
+            create(ParameterValueSchema, {
+              parameterId: "dashboard-password",
+              value: { case: "string", value: "typed-password-1" },
+            }),
+          ],
+        }),
+      );
+    });
+
+    it("shows a length or character error per field", async () => {
+      const user = setupUser();
+      renderDialog(vi.fn(), login);
+
+      await user.type(screen.getByRole("textbox", { name: "Password" }), "short");
+      await user.type(screen.getByRole("textbox", { name: "Username" }), "-way-too-long");
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Username must be 1 to 8 characters.")).toBeVisible();
+      expect(screen.getByText("Password must be at least 12 characters.")).toBeVisible();
+
+      const password = screen.getByRole("textbox", { name: "Password" });
+      await user.clear(password);
+      await user.type(password, "has=equals-sign");
+      await user.tab();
+      expect(screen.getByText(`Password can't contain "=".`)).toBeVisible();
+    });
+  });
 });

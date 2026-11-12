@@ -65,7 +65,11 @@ import {
 } from "./application-accelerator-memory";
 import { formatGpuDevices } from "./application-gpu-devices";
 import { applicationInspectorPanelId } from "./application-inspector-panel";
-import { applicationParameterFields, retainedParameterValues } from "./application-parameters";
+import {
+  applicationParameterFields,
+  parameterDefaults,
+  retainedParameterValues,
+} from "./application-parameters";
 
 interface InspectorProps {
   onOpenChange: (open: boolean) => void;
@@ -176,9 +180,8 @@ export function DeploymentApplicationInspector({
   // The deployment's per-unit accelerator memory from its service observations; units the
   // projection does not cover render nothing.
   const acceleratorMemory = applicationAcceleratorMemory(deployment);
-  const retainedParameters = applicationParameterFields(deployment.snapshot?.graph?.parameters).map(
-    (field) => field.view,
-  );
+  const parameterFields = applicationParameterFields(deployment.snapshot?.graph?.parameters);
+  const retainedParameters = parameterFields.map((field) => field.view);
 
   useEffect(() => {
     if (!canRemove && confirmingRemoval) {
@@ -337,6 +340,8 @@ export function DeploymentApplicationInspector({
                 />
                 <DetailList>
                   <ParametersDetails
+                    defaults={parameterDefaults(parameterFields)}
+                    generatedIds={new Set(deployment.snapshot?.generatedParameterIds)}
                     parameters={retainedParameters}
                     values={retainedParameterValues(deployment.snapshot)}
                   />
