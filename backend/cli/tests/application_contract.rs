@@ -14,6 +14,11 @@ use dotcore_proto::{
     },
     google::protobuf::Timestamp,
 };
+use dotcore_proto::dotcore::catalog::v1::{
+    ApplicationGraph, BooleanParameterSchema, ParameterDefinition, ParameterValue,
+    SecretParameterSchema, StringEnumParameterSchema, TextParameterSchema,
+    UnsignedIntegerParameterSchema, parameter_definition::ParameterType, parameter_value::Value,
+};
 use tonic::Status;
 
 mod support;
@@ -729,6 +734,177 @@ fn a_terminal_teardown_cancels_by_default_with_exit_code_130() {
         Vec::new(),
         "a cancelled teardown must not reach the manager"
     );
+}
+
+#[test]
+fn show_prints_parameters_in_catalog_order_with_secrets_masked() {
+    let manager = FakeManager::start(FakeState::with_applications(vec![
+        deployment_with_parameters(),
+    ]));
+
+    let output = run(&manager, &["show", "Chat"]);
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = text(&output.stdout);
+    assert!(!stdout.contains("s3cretPassw0rd"), "{stdout}");
+    assert_eq!(parameter_lines(&stdout), PARAMETER_LINES_MASKED);
+}
+
+#[test]
+fn show_reveals_secret_parameters_with_the_flag() {
+    let manager = FakeManager::start(FakeState::with_applications(vec![
+        deployment_with_parameters(),
+    ]));
+
+    let output = run(&manager, &["show", "Chat", "--reveal-secrets"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let revealed = PARAMETER_LINES_MASKED.map(|line| line.replace("********", "s3cretPassw0rd"));
+    assert_eq!(parameter_lines(&text(&output.stdout)), revealed);
+}
+
+#[test]
+fn help_describes_the_reveal_flag() {
+    let manager = FakeManager::start(FakeState::with_applications(Vec::new()));
+
+    let output = run(&manager, &["show", "--help"]);
+
+    let help = text(&output.stdout);
+    let line = help
+        .lines()
+        .find(|line| line.contains("--reveal-secrets"))
+        .unwrap_or_else(|| panic!("no flag in help\n{help}"));
+    assert_eq!(
+        line.split_whitespace().collect::<Vec<_>>().join(" "),
+        "--reveal-secrets Print secret parameter values instead of masking them"
+    );
+}
+
+#[test]
+fn a_terminal_shows_parameters_under_their_own_heading() {
+    let manager = FakeManager::start(FakeState::with_applications(vec![
+        deployment_with_parameters(),
+    ]));
+
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["show", "Chat"]),
+        Session::new([]),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
+    let lines = run.screen().lines().map(str::trim).collect::<Vec<_>>();
+    let start = lines
+        .iter()
+        .position(|line| *line == "Parameters")
+        .unwrap_or_else(|| panic!("no Parameters heading\n{}", run.screen()));
+    let rows = lines[start + 1..]
+        .iter()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "Web search true (default)",
+            "Memory limit 2048 MB",
+            "Mode fast",
+            "Welcome note Empty",
+            "Admin password ******** (generated)",
+        ]
+    );
+}
+
+const PARAMETER_LINES_MASKED: [&str; 5] = [
+    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WEB_SEARCH=true (default)",
+    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_MEMORY_LIMIT=2048 MB",
+    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_MODE=fast",
+    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WELCOME_NOTE=Empty",
+    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_ADMIN_PASSWORD=******** (generated)",
+];
+
+/// The parameter lines of a record block.
+fn parameter_lines(stdout: &str) -> Vec<&str> {
+    stdout
+        .lines()
+        .filter(|line| line.starts_with("DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_"))
+        .collect()
+}
+
+/// A deployment with one parameter of each kind: a default boolean, a non-default integer with a
+/// unit, an enum, an empty text and a generated secret.
+fn deployment_with_parameters() -> ApplicationDeployment {
+    let definition = |id: &str, name: &str, parameter_type| ParameterDefinition {
+        parameter_id: id.to_owned(),
+        display_name: name.to_owned(),
+        parameter_type: Some(parameter_type),
+        ..Default::default()
+    };
+    let value = |id: &str, value| ParameterValue {
+        parameter_id: id.to_owned(),
+        value: Some(value),
+    };
+
+    let mut deployment = local_application_deployment("app-1", "Chat", Ready, Present);
+    let snapshot = deployment.snapshot.as_mut().expect("seeded snapshot");
+    snapshot.graph = Some(ApplicationGraph {
+        parameters: vec![
+            definition(
+                "web-search",
+                "Web search",
+                ParameterType::Boolean(BooleanParameterSchema {
+                    default_value: Some(true),
+                }),
+            ),
+            definition(
+                "memory-limit",
+                "Memory limit",
+                ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
+                    minimum: 512,
+                    maximum: 8192,
+                    unit: "MB".to_owned(),
+                    default_value: Some(1024),
+                }),
+            ),
+            definition(
+                "mode",
+                "Mode",
+                ParameterType::StringEnum(StringEnumParameterSchema {
+                    values: vec!["fast".to_owned(), "careful".to_owned()],
+                    default_value: Some("careful".to_owned()),
+                }),
+            ),
+            definition(
+                "welcome-note",
+                "Welcome note",
+                ParameterType::Text(TextParameterSchema {
+                    minimum_length: 0,
+                    maximum_length: 100,
+                    default_value: None,
+                }),
+            ),
+            definition(
+                "admin-password",
+                "Admin password",
+                ParameterType::Secret(SecretParameterSchema {
+                    generated_length: 32,
+                    minimum_length: 8,
+                }),
+            ),
+        ],
+        ..Default::default()
+    });
+    snapshot.parameter_values = vec![
+        value("web-search", Value::Boolean(true)),
+        value("memory-limit", Value::UnsignedInteger(2048)),
+        value("mode", Value::String("fast".to_owned())),
+        value("welcome-note", Value::String(String::new())),
+        value("admin-password", Value::String("s3cretPassw0rd".to_owned())),
+    ];
+    snapshot.generated_parameter_ids = vec!["admin-password".to_owned()];
+    deployment
 }
 
 /// Seeds one deployment in each state the commands present differently.
