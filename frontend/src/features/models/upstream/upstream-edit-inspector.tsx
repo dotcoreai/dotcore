@@ -254,6 +254,7 @@ export function UpstreamEditInspector({
             >
               <UpstreamEndpointFields
                 editing
+                storedApiKey={deployment.upstreamDesiredConfiguration?.apiKey ?? ""}
                 error={error ?? endpointError}
                 baseUrlRef={baseUrlRef}
                 fieldErrors={endpointFieldErrors}
