@@ -1,9 +1,11 @@
 //! The Strata engine: catalog declaration validation, launch-plan translation, OCI workload
 //! materialization, loopback readiness probing, and loopback inference binding.
 //!
-//! Strata serves one mixture-of-experts GGUF model on one NVIDIA GPU, keeping the experts that
-//! don't fit on the GPU in host memory, through an OpenAI-compatible HTTP server started by
-//! Dotcore's keyless start wrapper. Callers reach it only through its engine definition.
+//! Strata serves one mixture-of-experts model on one NVIDIA GPU, keeping the experts that don't fit
+//! on the GPU in host memory, through an OpenAI-compatible HTTP server started by Dotcore's keyless
+//! start wrapper. A model is a single GGUF read in place, split GGUF shards Strata packs on first
+//! start, or a ready-made pack, the last two with a separate draft layer. Callers reach it only
+//! through its engine definition.
 
 mod binding;
 mod declaration;
@@ -22,7 +24,10 @@ use dotcore_proto::dotcore::{
         HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding, ModelEngineConfiguration,
         ModelOptionValues,
     },
-    engine::v1::{EngineKind, ResolvedEngineModelState},
+    engine::{
+        strata::v1::{StrataFixedModelSettings, strata_fixed_model_settings::ModelFiles},
+        v1::{EngineKind, ResolvedEngineModelState},
+    },
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
 };
 use dotcore_runtime::{ExecutionTarget, LoopbackEndpoint, WorkloadSpec};
@@ -168,15 +173,49 @@ impl EngineDefinition for Strata {
     }
 }
 
-/// Whether fixed settings name an architecture the wrapper accepts and an MTP draft depth within
-/// its range.
-fn valid_fixed_settings(
-    fixed: &dotcore_proto::dotcore::engine::strata::v1::StrataFixedModelSettings,
-) -> bool {
-    !fixed.architecture.is_empty()
+/// Whether fixed settings name an architecture the wrapper accepts, an MTP draft depth within its
+/// range, and model files the wrapper can locate: a draft layer for the pack path, and plain
+/// relative paths for a ready-made pack.
+fn valid_fixed_settings(fixed: &StrataFixedModelSettings) -> bool {
+    let model_files = match fixed.model_files.as_ref() {
+        Some(ModelFiles::SingleGguf(_)) => true,
+        Some(ModelFiles::SplitGguf(split)) => !split.draft_layer_auxiliary_artifact_id.is_empty(),
+        Some(ModelFiles::ReadyPack(pack)) => {
+            !pack.draft_layer_auxiliary_artifact_id.is_empty()
+                && [
+                    &pack.pack_path,
+                    &pack.dense_gguf_path,
+                    &pack.lookup_table_gguf_path,
+                    &pack.token_embedding_gguf_path,
+                ]
+                .into_iter()
+                .all(|path| plain_relative_path(path))
+        }
+        None => false,
+    };
+    model_files
+        && !fixed.architecture.is_empty()
         && fixed
             .architecture
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
         && (1..=MAXIMUM_MTP_DRAFT_TOKENS).contains(&fixed.mtp_draft_tokens)
+}
+
+/// The model-local auxiliary artifact holding the draft layer, when the model files have one.
+fn draft_layer_artifact_id(fixed: &StrataFixedModelSettings) -> Option<&str> {
+    match fixed.model_files.as_ref()? {
+        ModelFiles::SingleGguf(_) => None,
+        ModelFiles::SplitGguf(split) => Some(&split.draft_layer_auxiliary_artifact_id),
+        ModelFiles::ReadyPack(pack) => Some(&pack.draft_layer_auxiliary_artifact_id),
+    }
+}
+
+/// Whether `path` names a file or folder below an artifact's root without leaving it. The wrapper
+/// parses its arguments with argparse, so a path starting with '-' would read as an option.
+fn plain_relative_path(path: &str) -> bool {
+    !path.starts_with('-')
+        && path
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..")
 }

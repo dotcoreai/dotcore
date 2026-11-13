@@ -4,7 +4,7 @@ import '../../nix/docker-images/dockerfile.just'
 help:
     @just --list
 
-# Load the image, check that the keyless start wrapper refuses bad inputs, then start Strata's server keyless and offline with its mock engine and wait for /health to report it loaded.
+# Load the image, check that the keyless start wrapper refuses bad inputs and writes each model file layout's run configuration, then start Strata's server keyless and offline with its mock engine and wait for /health to report it loaded.
 [group('image')]
 image-test:
     #!/usr/bin/env sh
@@ -34,6 +34,13 @@ image-test:
     refuses "--arch takes" --model /bin/sh --model-name m --arch 'Qwen 3' --mtp 2 --context 4096
     refuses "--mtp must be 1 to 8" --model /bin/sh --model-name m --arch qwen35moe --mtp 0 --context 4096
     refuses "--expert-vram-mib must be at least 1" --model /bin/sh $ok --expert-vram-mib 0
+    refuses "need --draft-layer" --model /bin/sh $ok --unified-memory
+    refuses "is not a folder" --model /bin/sh --draft-layer /tmp $ok
+    refuses "go together" --model /tmp --draft-layer /tmp --pack pack $ok
+    refuses "is not a path within --model" --model /tmp --draft-layer /tmp --pack ../pack \
+      --dense-gguf d.gguf --lookup-table-gguf l.gguf --token-embedding-gguf e.gguf $ok
+    docker run --rm --network none -v "$PWD/engines/strata/test_start.py:/test_start.py:ro" "$image" \
+      /opt/strata/terminal/python/bin/python3 -I /test_start.py
 
     docker run -d --name "$name" --network none "$image" \
       /opt/strata/terminal/python/bin/python3 /opt/strata/terminal/serve/server.py \

@@ -477,6 +477,7 @@ configurations:
           expertVramMibParameterId: "expert-vram-mib"
           architecture: "qwen35moe"
           mtpDraftTokens: 2
+          singleGguf: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -551,6 +552,7 @@ configurations:
           expertVramMibParameterId: "expert-vram-mib"
           architecture: "qwen35moe"
           mtpDraftTokens: 2
+          singleGguf: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]

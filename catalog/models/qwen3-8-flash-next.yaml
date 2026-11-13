@@ -1,0 +1,385 @@
+# Qwen3.8 Flash Next on Strata, in three quantizations. IQ3_S and IQ2_XS are ISTA-DASLab's GSQ-RCO
+# split GGUFs, which Strata packs on first start. NVFP4 is a ready-made Strata pack, re-quantized with
+# GPTQ by an individual uploader (Maximilian228), whose repository also holds the pre-built draft
+# layer (MTP) every quantization uses; its README says the draft layer is byte-identical to the one
+# Strata's setup builds from Qwen's checkpoint. Architecture qwen4exp, 48 layers of 512 experts,
+# read from the GGUF headers.
+modelId: "qwen3-8-flash-next"
+displayName: "Qwen3.8 Flash Next"
+version: "3.8-flash-next"
+# max_position_embeddings in the Qwen/Qwen3.8-Flash-Next config.json (revision 812d96e), and the
+# context length in every GGUF's header.
+maximumContextTokens: 262144
+artifacts:
+  - artifactId: "iq3-s"
+    weightQuantization: "IQ3_S"
+    source:
+      repository: "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+      revision: "ed59f92082b1e93c0e96d60a8b11aab089b52f09"
+      snapshot:
+        files:
+          - path: "IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00001-of-00002.gguf"
+            provenanceDigest: "4c1eb2ceb4915e1192f4f386021897bde56a97f40a0bb78bb86465e0f7d2aca3"
+          - path: "IQ3_S/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_S-00002-of-00002.gguf"
+            provenanceDigest: "316b46f3a2dbd68c900f43136ab9449f9dcc3725dfd8c794847c204bc161e113"
+  - artifactId: "iq2-xs"
+    weightQuantization: "IQ2_XS"
+    source:
+      repository: "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF"
+      revision: "ed59f92082b1e93c0e96d60a8b11aab089b52f09"
+      snapshot:
+        files:
+          - path: "IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00001-of-00002.gguf"
+            provenanceDigest: "92cee27ae5bbadcd732416a0f7a7f0acc092399dbbe8f5a5efa707c2ec0a49d7"
+          # The second shard holds the lookup table, the same file as IQ3_S's.
+          - path: "IQ2_XS/Qwen3.8-Flash-Next-GSQ-RCO-IQ2_XS-00002-of-00002.gguf"
+            provenanceDigest: "316b46f3a2dbd68c900f43136ab9449f9dcc3725dfd8c794847c204bc161e113"
+  - artifactId: "nvfp4"
+    weightQuantization: "NVFP4"
+    source:
+      repository: "Maximilian228/Qwen3.8-Flash-Next-NVFP4-GPTQ-Strata"
+      revision: "640a1db97446ddd5e89d2b70ecd0297987192c93"
+      snapshot:
+        files:
+          - path: "pack/dense.bin"
+            provenanceDigest: "974df6dcefcae85e3fd2c19fcc12eeaacaadde8261ab732d5af5af6ce2e25a7a"
+          - path: "pack/experts.bin"
+            provenanceDigest: "325e5e0d85c262a8d8278daf73b20696ec877d9a3ff584e57391fa69ad10bc64"
+          - path: "pack/index.txt"
+            provenanceDigest: "f62dc71e1c74a72794db54d3917bc71131cc6eae6f3dcdc3fdada48ff70f93ab"
+          - path: "pack/native_experts.txt"
+            provenanceDigest: "615f655fb28bf60b243664860b135710bf4177b111c6be89073e780a35de1018"
+          - path: "pack/tokenizer/chat_template.jinja"
+            provenanceDigest: "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+          - path: "pack/tokenizer/merges.txt"
+            provenanceDigest: "080cf95432173729d160346b7882bd2a644b07f7a3813a3eb73f4e66787bfde9"
+          - path: "pack/tokenizer/token_type.json"
+            provenanceDigest: "5088c8c298fc06af8382ddb3b76c888703ac2634e82263b97eedcc2ad202738b"
+          - path: "pack/tokenizer/tokenizer.json"
+            provenanceDigest: "87be2ac47d8bc7393b7435df6ccd276740019a393941a2585d5edce59f450c54"
+          - path: "pack/tokenizer/vocab.json"
+            provenanceDigest: "4ba64f0332abcfb0b600b7df1537d1e836e68009d5fb7cdb77339738dc6365c4"
+          - path: "ple-fp8.gguf"
+            provenanceDigest: "37f89b8ce5a3425932763257c40229ec02723ad2ab14b4bbfc26a486f4725c9c"
+          - path: "qwen-nvfp4-gptq-dense.gguf"
+            provenanceDigest: "abdf74336b53d8f7ca3d99947f1eac8f19b8a544966750127cb61e561b127e3b"
+          - path: "token-embd-bf16.gguf"
+            provenanceDigest: "386203af9070c7b43acb24ded8922876721d97bbad1a709b25cb49d694a7f51d"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "draft-layer"
+    source:
+      repository: "Maximilian228/Qwen3.8-Flash-Next-NVFP4-GPTQ-Strata"
+      revision: "640a1db97446ddd5e89d2b70ecd0297987192c93"
+      snapshot:
+        files:
+          - path: "mtp/dense.bin"
+            provenanceDigest: "c724dc0b0822ada5d2977bf5bde821605feabaa64ea2e0045b67ca656329070a"
+          - path: "mtp/dense.txt"
+            provenanceDigest: "8773c81ebb0986e37fe94a8a9933e87be48b1fabc6889a0106bcdab179d1c2ac"
+          - path: "mtp/experts.bin"
+            provenanceDigest: "09398406be61f1f54c93861f449e48b8df0bfccbc9ec9b2b7636775a6ea9244f"
+# IQ2_XS is measured on an RTX 5090 with one request at total contexts of 32K to 256K and caps of
+# 12 and 18 GiB; every other sizing is estimated from it:
+# - baseAccelBytes: the fit's base for IQ2_XS. IQ3_S adds 208,591,360 bytes of larger dense weights
+#   and NVFP4 a further 2,012,011,520, both read from the GGUF headers.
+# - kvBytesPerToken: 13 attention layers (12 and the draft layer) x 1056 bytes of int8 KV.
+#   workBytesPerToken: the measured slope above the KV cache.
+# - expertBytes: a full expert cache, 48 layers x 512 slots of the pack's largest per-layer expert
+#   block, from the GGUF headers; the cap's slots never exceed it. hostExpertBytes: the experts'
+#   own bytes, which the engine copies into pinned host memory when they don't all fit the cap.
+# - marginBytes covers 8 parallel requests' extra sessions, which measured 1.13 GB on IQ2_XS.
+configurations:
+  # Strata packs the split GGUF shards on first start and reads the experts from them. Each engine
+  # build carries kernels for its own GPUs, so each configuration pairs one build with one class.
+  - configurationId: "strata-nvidia-cuda"
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-13"
+        engineArtifactId: "linux-amd64-cuda"
+    artifactBindings:
+      - bindingId: "iq3-s"
+        modelArtifactId: "iq3-s"
+        auxiliaryArtifactIds: ["draft-layer"]
+      - bindingId: "iq2-xs"
+        modelArtifactId: "iq2-xs"
+        auxiliaryArtifactIds: ["draft-layer"]
+    sizing:
+      classParameters: ["workBytesPerToken"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "hostExpertBytes", "expertVramMib", "marginBytes"]
+      parameters:
+        kvBytesPerToken: 13728
+      derivedParameters:
+        # A fixed cap keeps accelerator memory independent of what is free at start.
+        expert-vram-mib: "${expertVramMib}"
+      estimates:
+        # Whole expert blocks fill the GPU's cache up to the cap.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${expert-vram-mib} * MiB < ${expertBytes}, ${expert-vram-mib} * MiB, ${expertBytes})
+            + ${kvBytesPerToken} * ${total-context}
+            + ${workBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+        # Every expert is copied into pinned host memory when they don't all fit the cap.
+        hostMemory:
+          unit: bytes
+          equation: >-
+            if(${expert-vram-mib} * MiB < ${expertBytes}, ${hostExpertBytes}, 0)
+    hardwareSupport:
+      - hardwareClassId: "nvidia-gb202"
+        # The device minimum fits the default cap and context. The system minimum holds IQ3_S's
+        # experts with upstream's 10 GB beside them.
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "32000000000"
+          minimumSystemMemoryBytes: "64000000000"
+        # Measured with IQ2_XS on an RTX 5090.
+        parameters:
+          workBytesPerToken: 1952
+        bindingSizing:
+          # Estimated from IQ2_XS. The cap leaves an RTX 5090 room for the maximum context.
+          - bindingId: "iq3-s"
+            parameters:
+              baseAccelBytes: 5917039104
+              expertBytes: 65431142400
+              hostExpertBytes: 50292326400
+              expertVramMib: 18432
+              marginBytes: 1207959552
+          # Measured on an RTX 5090.
+          - bindingId: "iq2-xs"
+            parameters:
+              baseAccelBytes: 5708447744
+              expertBytes: 37119590400
+              hostExpertBytes: 35454976000
+              expertVramMib: 18432
+              marginBytes: 1207959552
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen4exp"
+          mtpDraftTokens: 4
+          splitGguf:
+            draftLayerAuxiliaryArtifactId: "draft-layer"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+  # The split GGUFs on the GB10, with the arm64 build. Upstream runs only IQ3_S and NVFP4 there.
+  - configurationId: "strata-nvidia-gb10"
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-13"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "iq3-s"
+        modelArtifactId: "iq3-s"
+        auxiliaryArtifactIds: ["draft-layer"]
+    sizing:
+      classParameters: ["workBytesPerToken"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "expertVramMib", "marginBytes"]
+      parameters:
+        kvBytesPerToken: 13728
+      derivedParameters:
+        expert-vram-mib: "${expertVramMib}"
+      # The experts are mapped from their files rather than copied, so nothing is pinned in host
+      # memory beside the GPU's cache.
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${expert-vram-mib} * MiB < ${expertBytes}, ${expert-vram-mib} * MiB, ${expertBytes})
+            + ${kvBytesPerToken} * ${total-context}
+            + ${workBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+    hardwareSupport:
+      # The GPU shares the host memory, so the cap holds every expert.
+      - hardwareClassId: "nvidia-gb10"
+        # Estimated: copies the RTX 5090's measured value.
+        parameters:
+          workBytesPerToken: 1952
+        bindingSizing:
+          # Estimated: the CUDA base, with a larger margin for the larger prompt chunk on the GB10.
+          - bindingId: "iq3-s"
+            parameters:
+              baseAccelBytes: 5917039104
+              expertBytes: 65431142400
+              expertVramMib: 62400
+              marginBytes: 4294967296
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen4exp"
+          mtpDraftTokens: 4
+          splitGguf:
+            draftLayerAuxiliaryArtifactId: "draft-layer"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+  # The ready-made NVFP4 pack, used as shipped. It has its own configurations so its hardware
+  # minimums keep it off the RTX 5090, which shares the RTX PRO 6000's class.
+  - configurationId: "strata-nvfp4-nvidia-cuda"
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-13"
+        engineArtifactId: "linux-amd64-cuda"
+    artifactBindings:
+      - bindingId: "nvfp4"
+        modelArtifactId: "nvfp4"
+        auxiliaryArtifactIds: ["draft-layer"]
+    sizing:
+      classParameters: ["workBytesPerToken"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "hostExpertBytes", "expertVramMib", "marginBytes"]
+      parameters:
+        kvBytesPerToken: 13728
+      derivedParameters:
+        expert-vram-mib: "${expertVramMib}"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${expert-vram-mib} * MiB < ${expertBytes}, ${expert-vram-mib} * MiB, ${expertBytes})
+            + ${kvBytesPerToken} * ${total-context}
+            + ${workBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+        hostMemory:
+          unit: bytes
+          equation: >-
+            if(${expert-vram-mib} * MiB < ${expertBytes}, ${hostExpertBytes}, 0)
+    hardwareSupport:
+      - hardwareClassId: "nvidia-gb202"
+        # The device minimum takes the RTX PRO 6000 and leaves out the RTX 5090. The system
+        # minimum is the split GGUFs'.
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "90000000000"
+          minimumSystemMemoryBytes: "64000000000"
+        # Estimated: copies the value measured with IQ2_XS on an RTX 5090.
+        parameters:
+          workBytesPerToken: 1952
+        bindingSizing:
+          # Estimated: the IQ3_S base plus the 2.01 GB more of dense weights in the NVFP4 GGUF.
+          # The cap holds every expert, so nothing is pinned in host memory.
+          - bindingId: "nvfp4"
+            parameters:
+              baseAccelBytes: 7929050624
+              expertBytes: 67948118016
+              hostExpertBytes: 67948118016
+              expertVramMib: 64801
+              marginBytes: 1207959552
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen4exp"
+          mtpDraftTokens: 4
+          readyPack:
+            draftLayerAuxiliaryArtifactId: "draft-layer"
+            packPath: "pack"
+            denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
+            lookupTableGgufPath: "ple-fp8.gguf"
+            tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+  # The NVFP4 pack on the GB10, with the arm64 build.
+  - configurationId: "strata-nvfp4-nvidia-gb10"
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-13"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "nvfp4"
+        modelArtifactId: "nvfp4"
+        auxiliaryArtifactIds: ["draft-layer"]
+    sizing:
+      classParameters: ["workBytesPerToken"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "expertVramMib", "marginBytes"]
+      parameters:
+        kvBytesPerToken: 13728
+      derivedParameters:
+        expert-vram-mib: "${expertVramMib}"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + if(${expert-vram-mib} * MiB < ${expertBytes}, ${expert-vram-mib} * MiB, ${expertBytes})
+            + ${kvBytesPerToken} * ${total-context}
+            + ${workBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+    hardwareSupport:
+      - hardwareClassId: "nvidia-gb10"
+        # Estimated: copies the RTX 5090's measured value.
+        parameters:
+          workBytesPerToken: 1952
+        bindingSizing:
+          # Estimated: the NVFP4 base on the RTX PRO 6000, with the GB10's larger margin.
+          - bindingId: "nvfp4"
+            parameters:
+              baseAccelBytes: 7929050624
+              expertBytes: 67948118016
+              expertVramMib: 64801
+              marginBytes: 4294967296
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen4exp"
+          mtpDraftTokens: 4
+          readyPack:
+            draftLayerAuxiliaryArtifactId: "draft-layer"
+            packPath: "pack"
+            denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
+            lookupTableGgufPath: "ple-fp8.gguf"
+            tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+profiles:
+  - profileId: "iq3-s"
+    displayName: "ISTA-DASLab IQ3_S"
+    description: "Runs upstream's recommended mixed 3-bit weights on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "iq3-s"
+    engineParameterDefaults: {}
+  - profileId: "iq2-xs"
+    displayName: "ISTA-DASLab IQ2_XS"
+    description: "Runs the smaller mixed 2-bit weights on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "iq2-xs"
+    engineParameterDefaults: {}
+  - profileId: "nvfp4"
+    displayName: "GPTQ NVFP4"
+    description: "Runs the 4-bit weights, the closest to the full model, on an RTX PRO 6000 with every expert on the GPU."
+    configurationId: "strata-nvfp4-nvidia-cuda"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults: {}
+  - profileId: "gb10-iq3-s"
+    displayName: "ISTA-DASLab IQ3_S for GB10"
+    description: "Runs upstream's recommended mixed 3-bit weights on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "iq3-s"
+    engineParameterDefaults: {}
+  - profileId: "gb10-nvfp4"
+    displayName: "GPTQ NVFP4 for GB10"
+    description: "Runs the 4-bit weights, the closest to the full model, on a GB10, keeping every expert in the memory its GPU shares with the host."
+    configurationId: "strata-nvfp4-nvidia-gb10"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults: {}
+license:
+  id: LicenseRef-Qwen-Community-1.0
+  termsUrl: https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/812d96e10a0dd82b69d749e68693698cf6c36daa/LICENSE

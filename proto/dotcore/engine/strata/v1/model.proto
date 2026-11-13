@@ -24,6 +24,45 @@ message StrataFixedModelSettings {
   // Model architecture Strata's engine runs, as the model's GGUF names it.
   string architecture = 2;
 
-  // Tokens Strata drafts per step with the model's own MTP head.
+  // Tokens Strata drafts per step with the model's MTP layer.
   uint32 mtp_draft_tokens = 3;
+
+  // How the model's files reach Strata's engine, which selects its engine path.
+  oneof model_files {
+    // One GGUF file read in place, drafting with the MTP head inside it.
+    StrataSingleGguf single_gguf = 4;
+
+    // Split GGUF shards Strata packs on first start, drafting with a separate draft layer.
+    StrataSplitGguf split_gguf = 5;
+
+    // A ready-made Strata pack with its GGUF side files, drafting with a separate draft layer.
+    StrataReadyPack ready_pack = 6;
+  }
+}
+
+// A model artifact that is one GGUF file holding the whole model and its MTP head.
+message StrataSingleGguf {}
+
+// A model artifact that is one complete set of split GGUF shards in one folder.
+message StrataSplitGguf {
+  // Model-local auxiliary artifact holding the draft layer's files in one folder.
+  string draft_layer_auxiliary_artifact_id = 1;
+}
+
+// A model artifact holding a ready-made Strata pack and the GGUF files it reads beside it.
+message StrataReadyPack {
+  // Model-local auxiliary artifact holding the draft layer's files in one folder.
+  string draft_layer_auxiliary_artifact_id = 1;
+
+  // Folder of the pack within the model artifact.
+  string pack_path = 2;
+
+  // GGUF file within the model artifact holding the dense weights.
+  string dense_gguf_path = 3;
+
+  // GGUF file within the model artifact holding the per-layer embedding lookup table.
+  string lookup_table_gguf_path = 4;
+
+  // GGUF file within the model artifact holding the token embedding.
+  string token_embedding_gguf_path = 5;
 }

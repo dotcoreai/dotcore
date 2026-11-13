@@ -167,6 +167,27 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
             ("expert_vram_mib_parameter_id", 1, "TYPE_STRING"),
             ("architecture", 2, "TYPE_STRING"),
             ("mtp_draft_tokens", 3, "TYPE_UINT32"),
+            (
+                "single_gguf",
+                4,
+                ".dotcore.engine.strata.v1.StrataSingleGguf",
+            ),
+            ("split_gguf", 5, ".dotcore.engine.strata.v1.StrataSplitGguf"),
+            ("ready_pack", 6, ".dotcore.engine.strata.v1.StrataReadyPack"),
+        ]
+    );
+    assert_eq!(
+        field_numbers(strata, "StrataSplitGguf"),
+        [("draft_layer_auxiliary_artifact_id", 1)]
+    );
+    assert_eq!(
+        field_numbers(strata, "StrataReadyPack"),
+        [
+            ("draft_layer_auxiliary_artifact_id", 1),
+            ("pack_path", 2),
+            ("dense_gguf_path", 3),
+            ("lookup_table_gguf_path", 4),
+            ("token_embedding_gguf_path", 5),
         ]
     );
 
