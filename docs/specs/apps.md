@@ -113,10 +113,12 @@ What an application deployment keeps from creation:
   its configured GPU set.
 - The exact, immutable launch identity of each service.
 - The resolved typed parameters: catalog defaults, then operator overrides at creation, projected
-  into service configuration.
+  into service configuration. A binding enabled by a boolean parameter is left out when that
+  parameter is off ([catalog](catalog.md#app-graph)).
 - Its secret parameters: generated at creation unless you supply them, and fixed from then on.
   Redeploy to change one. A secret binding hands a service the value in plain form, or in a bcrypt
-  form computed once at creation. Access rules: [access](access.md).
+  form computed once at creation. A secret is still generated and kept when its binding is left
+  out. Access rules: [access](access.md).
 - The inference base URL at which the hosting node reaches the site manager, composed at creation.
 - Its own published URL and a site-unique published host port, allocated at creation. The port
   belongs to the deployment, not to its snapshot or launch plan.

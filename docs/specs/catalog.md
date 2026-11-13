@@ -175,6 +175,10 @@ minimums.
 - Carries the app's portable artifact, configuration, storage, secret, dependency, readiness and
   endpoint requirements, and its typed deployment parameters, shown as basic or advanced, never
   hidden.
+- A configuration or secret binding may be enabled by a boolean parameter of the same graph. When
+  that parameter is off, the binding never reaches the service, not even as an empty value.
+- Each parameter restriction (length bounds, ranges, accepted values) comes from what the app,
+  engine or model requires, and the catalog names its source.
 - Engine releases and apps declare the storage they need. Each storage binding lists its allowed
   placements in order, the first being the default. An app binding may allow this deployment or
   shared by the app ([apps](apps.md)); an engine binding allows exactly one. Deployments keep that
