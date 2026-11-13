@@ -1,7 +1,7 @@
 # Apps
 
-An app deployment is one deployed catalog app, such as Open WebUI or n8n, running next to the
-models. The apps controller owns app deployments. The app proxy lets users reach them.
+An application deployment is one deployed catalog app, such as Open WebUI or n8n, running next to
+the models. The apps controller owns application deployments. The app proxy lets users reach them.
 
 Code: `backend/core/src/application/` (apps controller).
 
@@ -14,11 +14,10 @@ Code: `backend/core/src/application/` (apps controller).
 - Set the app's typed parameters, basic or advanced, when you create a deployment.
 - Link the app to an inference route when it declares that dependency, so it uses the site's models.
 - Inspect its lifecycle, readiness, access information, resource use and workload diagnostics.
-- Run GPU apps, such as ComfyUI, on Linux with NVIDIA GPUs: the app gets its target's GPUs, and you
-  see which GPUs it has and its measured GPU memory. The app downloads its own checkpoints into app
-  storage, which later deployments of the app on that machine reuse.
-- Keep app data that its deployments on one machine share, until disk cleanup finds it unused for a
-  configurable number of days, or the site is reset.
+- Run GPU apps, such as ComfyUI, on Linux with NVIDIA GPUs, and see their GPUs and measured GPU
+  memory.
+- Keep app data that its deployments on one machine share, until machine cleanup removes it
+  ([storage](storage.md#machine-cleanup)).
 
 ## Architecture
 
@@ -29,7 +28,7 @@ flowchart TB
   AC["Apps controller"] -.->|"ready workloads"| PX
   PX -->|"allowed traffic"| W["App workload"]
   CAT["Catalog"] -->|"app graph, defaults"| AC
-  AC -->|"owner section in node view"| NODE["Hosting node: reconciliation"]
+  AC -->|"owner section in node view"| NODE["Hosting node: node-local reconciliation"]
   NODE -->|"status, attributed GPU memory"| AC
   NODE -->|"workload intent"| RB["Runtime backend"]
   RB -->|"starts, stops"| W
@@ -37,7 +36,7 @@ flowchart TB
   W -->|"inference base URL"| R["Linked inference route"]
 ```
 
-- The apps controller owns app deployments: intent, placement, lifecycle, readiness and exposure
+- The apps controller owns application deployments: intent, placement, lifecycle, readiness and exposure
   policy.
 - The app proxy enforces access policy and forwards allowed traffic to ready workloads.
 - The identity and access manager decides who may reach an app ([access](access.md)).
@@ -105,9 +104,9 @@ flowchart LR
 
 ## Resources
 
-### App deployment
+### Application deployment
 
-What an app deployment keeps from creation:
+What an application deployment keeps from creation:
 
 - A stable node placement, one site-owned execution target identity, and its concrete platform with
   its configured GPU set.
@@ -123,6 +122,8 @@ What an app deployment keeps from creation:
 
 - Storage attachments are scoped to one deployment or to every deployment of the app on a node. The
   apps controller owns the attachments and their scope, never their content.
+- Storage shared across the app's deployments on a node outlives teardown. Machine cleanup removes it
+  once unused, and site reset removes it too ([storage](storage.md#machine-cleanup)).
 - App content belongs to you and the app.
 
 ## Components
@@ -131,7 +132,7 @@ What an app deployment keeps from creation:
 
 #### Responsibilities
 
-- Own app deployment intent, placement, lifecycle, reconciliation, readiness, exposure policy and
+- Own application deployment intent, placement, lifecycle, reconciliation, readiness, exposure policy and
   status.
 - Own app configuration resolution and endpoint projection, including the site inference base URL
   and optional route links.
@@ -140,14 +141,19 @@ What an app deployment keeps from creation:
   each launch.
 - Before compiling any launch, recheck the kept GPU set against the target's current configured
   devices, and fail the deployment as incompatible when they differ.
-- Prepare service images only for targets whose runtime backend needs them physically present.
+- Ask the artifact manager to prepare service images only for targets whose runtime needs them
+  physically present.
 - Project each unit's GPU memory, as attributed by the hosting node, from that node's current status
-  at read time, never from retained state.
+  at read time, never from retained state. A unit without current status or attribution reads as
+  unavailable ([machines](machines.md#attributing-memory-to-deployments)).
+- On a virtualized runtime, treat the deployment as ready once its group runs with an assigned
+  endpoint, with no probe, since nothing it runs serves.
 
 #### Boundaries
 
-- On a virtualized runtime, readiness needs no probe. The deployment is ready once its group runs
-  with an assigned endpoint, since nothing it runs serves.
+- Never owns app content, only the attachments and their scope.
+- Never waits on route availability or substitutes another route.
+- Doesn't enforce access. The app proxy forwards traffic and the identity and access manager decides.
 
 ### App proxy
 
@@ -162,10 +168,6 @@ What an app deployment keeps from creation:
 
 ## Invariants
 
-- A unit without current status or attribution reads its memory as unavailable with its reason, never
-  a false zero.
-- Storage shared across the app's deployments on a node outlives teardown, and is removed by machine
-  cleanup once unused for its retention period, or by site reset.
 - Administrator-supplied images stay distinct from verified catalog apps.
 
 ## Future direction

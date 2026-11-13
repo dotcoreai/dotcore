@@ -1,7 +1,7 @@
 # Machines
 
 A machine's hardware facts, the execution targets it offers, and whether a workload fits in its
-memory. The site manager owns the reconciled hardware inventory. The capacity component turns it
+memory. The site manager owns the reconciled inventory of that hardware. The capacity component turns it
 into memory pools, occupancy and fit.
 
 Code: `backend/node_hardware/` (hardware facts, signal sampling, declared machines),
@@ -78,8 +78,8 @@ flowchart TB
 flowchart TB
   HC["Node hardware collection"] -->|"per-process observations"| SCOPE["Owner-neutral attribution scope"]
   RB["Runtime backend"] -->|"process identity, memory report"| SCOPE
-  SCOPE --> MREC["Inference controller reconciliation"]
-  SCOPE --> AREC["Apps controller reconciliation"]
+  SCOPE --> MREC["Inference controller: node-local reconciliation"]
+  SCOPE --> AREC["Apps controller: node-local reconciliation"]
   MREC -->|"memory or unavailable, with reason"| ST["Node status"]
   AREC -->|"memory or unavailable, with reason"| ST
 ```
@@ -90,7 +90,7 @@ flowchart TB
   workload's first running observation.
 - Every section of one node status attributes from the same hardware collection, runtime reports
   included.
-- Both controllers apply one owner-neutral attribution scope that owns no product state, so the two
+- Both workload controllers apply one owner-neutral attribution scope that owns no product state, so the two
   never attribute the same hardware differently.
 - Memory that can't be attributed reads as unavailable with its reason, never as a device-wide value
   or a false zero.
@@ -151,10 +151,10 @@ Memory a target draws from.
 
 What is in use in a pool.
 
-- Measured use, attributed per deployment where controllers attribute it, other use, and claims.
+- Measured use, attributed per deployment where workload controllers attribute it, other use, and claims.
 - A starting local model deployment claims its resolved estimate until it's ready and measured, less
   the use already measured for it.
-- App deployments occupy pools by the GPU memory attributed to them, in the host pool on unified
+- Application deployments occupy pools by the GPU memory attributed to them, in the host pool on unified
   GPUs. They carry no estimate and claim nothing.
 
 ### Demand
@@ -180,10 +180,9 @@ The description a node reports instead of its real hardware.
 
 - Evaluate memory pools, occupancy, demands, fit, the largest fitting total context, the starting
   total context, target ranking and placement previews.
-- Judge fit per pool against free memory (total less occupancy) less a headroom, or against the
-  total on request. A GPU pool's headroom is a small share of its total. A host pool keeps a fixed
-  reserve, capped on small hosts, for the operating system and the host processes a starting
-  workload adds, because unified GPU memory competes with them and can't be paged out.
+- Judge fit per pool against free memory (total less occupancy) less a headroom per pool, or against
+  the total on request. The host pool's headroom is larger, because unified GPU memory competes with
+  the operating system and can't be paged out.
 - Produce the placement preview a view draws for a target: each pool's occupancy with the new
   demand, the fit line and the starting total context.
 - Produce the node memory projection that site memory views draw for each node: every pool with its
@@ -210,12 +209,12 @@ The description a node reports instead of its real hardware.
 - Vendor-wide observations are distinct from configured-device attribution, execution readiness,
   allocatable capacity and scheduling eligibility.
 - Fleet summaries never infer per-GPU fit from total capacity.
-- A future scheduler is the capacity component's named consumer. It uses the same inputs and rules:
-  the reconciled inventory, with attributable identity and freshness.
-  Runtime stays the final boundary for realizing a workload.
+- Runtime stays the final boundary for realizing a workload.
 
 ## Future direction
 
+- A scheduler as the capacity component's named consumer, using the same inputs and rules: the
+  reconciled inventory, with attributable identity and freshness.
 - Compatibility checks, placement controls, compatible placement and moves, scheduling constraints
   and automated placement.
 - Models coordinated across several machines.
