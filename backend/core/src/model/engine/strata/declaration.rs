@@ -21,7 +21,8 @@ use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineParameterSchema, EngineRelease, HardwareClass, HuggingFaceArtifactSource, Model,
         ModelEngineConfiguration, ModelInputModality, ModelParallelShape, ParameterValue,
-        ParameterValues, StorageScope, hugging_face_artifact_source::Content as HuggingFaceContent,
+        ParameterValues, StoragePlacement,
+        hugging_face_artifact_source::Content as HuggingFaceContent,
         parameter_definition::ParameterType, parameter_value::Value as EngineParameterValueKind,
     },
     engine::{
@@ -161,11 +162,12 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
         ));
     }
     let data_folder = engine.storage_bindings.iter().any(|binding| {
-        binding.mount_path == DATA_MOUNT_PATH && binding.scope == StorageScope::Deployment as i32
+        binding.mount_path == DATA_MOUNT_PATH
+            && binding.placements == [StoragePlacement::Deployment as i32]
     });
     if !data_folder {
         errors.push(anyhow::anyhow!(
-            "Strata engine release must declare deployment-scoped storage at {DATA_MOUNT_PATH}"
+            "Strata engine release must declare deployment-placed storage at {DATA_MOUNT_PATH}"
         ));
     }
     errors
@@ -579,14 +581,14 @@ mod tests {
         let mut elsewhere = release();
         elsewhere.storage_bindings[0].mount_path = "/cache".to_owned();
         let mut shared = release();
-        shared.storage_bindings[0].scope = StorageScope::EngineArtifact as i32;
+        shared.storage_bindings[0].placements = vec![StoragePlacement::EngineArtifact as i32];
         let mut none = release();
         none.storage_bindings.clear();
 
         for release in [elsewhere, shared, none] {
             assert_eq!(
                 messages(validate_engine_release(&release)),
-                ["Strata engine release must declare deployment-scoped storage at /data"]
+                ["Strata engine release must declare deployment-placed storage at /data"]
             );
         }
     }

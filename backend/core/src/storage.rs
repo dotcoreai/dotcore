@@ -1,19 +1,20 @@
 //! Turns catalog storage bindings into the storage attachments and environment of one workload.
 //!
-//! Engines and applications declare writable storage the same way, and each owner only says which
-//! scopes it can resolve and to which key. This module picks the namespace of each scope, so keys
-//! of different scopes never share a folder, and fails instead of overriding an environment
-//! variable the workload already sets.
+//! Engines and applications declare writable storage the same way. An application deployment
+//! chooses each binding's placement at creation; an engine binding has one fixed placement. Each
+//! owner only says which placements it can resolve and to which key. This module picks the
+//! namespace of each placement, so keys of different placements never share a folder, and fails
+//! instead of overriding an environment variable the workload already sets.
 
-use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
 use dotcore_runtime::{WorkloadStorageAttachment, WorkloadStorageKey, WorkloadStorageKind};
 
-/// The runtime namespace of storage scoped to one deployment.
+/// The runtime namespace of storage placed with one deployment.
 pub(crate) const DEPLOYMENT_NAMESPACE: &str = "deployment";
 
-/// Returns the storage one deployment-scoped binding of the given kind attaches for one owner key.
+/// Returns the storage one deployment-placed binding of the given kind attaches for one owner key.
 ///
-/// Launch attaches deployment-scoped bindings under this key and teardown removes it, so both
+/// Launch attaches deployment-placed bindings under this key and teardown removes it, so both
 /// name the same folder.
 pub(crate) fn deployment_storage(kind: WorkloadStorageKind, key: &str) -> WorkloadStorageKey {
     WorkloadStorageKey {
@@ -23,17 +24,19 @@ pub(crate) fn deployment_storage(kind: WorkloadStorageKind, key: &str) -> Worklo
     }
 }
 
-/// Returns the storage keys launch attaches for the deployment-scoped bindings among `bindings`
-/// under one owner key, one per storage kind, so teardown removes exactly those folders.
+/// Returns the storage keys launch attaches for the deployment-placed engine bindings among
+/// `bindings` under one owner key, one per storage kind, so teardown removes exactly those folders.
 pub(crate) fn deployment_storage_keys<'a>(
     bindings: impl IntoIterator<Item = &'a StorageBinding>,
     key: &str,
 ) -> Result<Vec<WorkloadStorageKey>, StorageBindingError> {
-    Ok(bindings
-        .into_iter()
-        .filter(|binding| binding.scope == StorageScope::Deployment as i32)
-        .map(storage_kind)
-        .collect::<Result<std::collections::BTreeSet<_>, _>>()?
+    let mut kinds = std::collections::BTreeSet::new();
+    for binding in bindings {
+        if engine_placement(binding)? == StoragePlacement::Deployment {
+            kinds.insert(storage_kind(binding)?);
+        }
+    }
+    Ok(kinds
         .into_iter()
         .map(|kind| deployment_storage(kind, key))
         .collect())
@@ -52,8 +55,11 @@ pub(crate) enum StorageBindingError {
     #[error("storage binding {binding:?} has no usable kind")]
     InvalidKind { binding: String },
 
-    #[error("storage binding {binding:?} uses a scope its owner cannot resolve")]
-    UnsupportedScope { binding: String },
+    #[error("storage binding {binding:?} uses a placement its owner cannot resolve")]
+    UnsupportedPlacement { binding: String },
+
+    #[error("engine storage binding {binding:?} does not declare exactly one placement")]
+    EnginePlacement { binding: String },
 
     #[error(
         "storage binding {binding:?} sets environment variable {variable:?}, which the workload already sets"
@@ -61,24 +67,24 @@ pub(crate) enum StorageBindingError {
     EnvironmentAlreadySet { binding: String, variable: String },
 }
 
-/// Maps each `(attachment name, binding)` pair to a storage attachment and its environment.
+/// Maps each `(attachment name, binding, placement)` triple to a storage attachment and its
+/// environment.
 ///
-/// `scope_key` returns the owner's key for a scope, or `None` for a scope it cannot resolve;
-/// `is_set` tells whether the workload already sets an environment variable.
+/// `placement_key` returns the owner's key for a placement, or `None` for a placement it cannot
+/// resolve; `is_set` tells whether the workload already sets an environment variable.
 pub(crate) fn workload_storage<'a>(
-    bindings: impl IntoIterator<Item = (String, &'a StorageBinding)>,
-    scope_key: impl Fn(StorageScope) -> Option<String>,
+    bindings: impl IntoIterator<Item = (String, &'a StorageBinding, StoragePlacement)>,
+    placement_key: impl Fn(StoragePlacement) -> Option<String>,
     is_set: impl Fn(&str) -> bool,
 ) -> Result<WorkloadStorage, StorageBindingError> {
     let mut storage = WorkloadStorage::default();
-    for (name, binding) in bindings {
+    for (name, binding, placement) in bindings {
         let kind = storage_kind(binding)?;
-        let unsupported = || StorageBindingError::UnsupportedScope {
+        let unsupported = || StorageBindingError::UnsupportedPlacement {
             binding: binding.binding_name.clone(),
         };
-        let scope = StorageScope::try_from(binding.scope).map_err(|_| unsupported())?;
-        let namespace = scope_namespace(scope).ok_or_else(unsupported)?;
-        let key = scope_key(scope).ok_or_else(unsupported)?;
+        let namespace = placement_namespace(placement).ok_or_else(unsupported)?;
+        let key = placement_key(placement).ok_or_else(unsupported)?;
 
         for variable in &binding.environment {
             if is_set(&variable.name) {
@@ -102,10 +108,27 @@ pub(crate) fn workload_storage<'a>(
             namespace: namespace.to_owned(),
             key,
             read_only: false,
-            expires_when_unused: scope != StorageScope::Deployment,
+            expires_when_unused: placement != StoragePlacement::Deployment,
         });
     }
     Ok(storage)
+}
+
+/// Returns the one placement an engine storage binding declares, which every deployment of the
+/// engine uses.
+pub(crate) fn engine_placement(
+    binding: &StorageBinding,
+) -> Result<StoragePlacement, StorageBindingError> {
+    match binding.placements.as_slice() {
+        [placement] => StoragePlacement::try_from(*placement).map_err(|_| {
+            StorageBindingError::UnsupportedPlacement {
+                binding: binding.binding_name.clone(),
+            }
+        }),
+        _ => Err(StorageBindingError::EnginePlacement {
+            binding: binding.binding_name.clone(),
+        }),
+    }
 }
 
 /// Returns the runtime storage kind one binding attaches.
@@ -119,13 +142,14 @@ fn storage_kind(binding: &StorageBinding) -> Result<WorkloadStorageKind, Storage
     }
 }
 
-/// Returns the runtime namespace that keeps one scope's keys apart from every other scope's.
-fn scope_namespace(scope: StorageScope) -> Option<&'static str> {
-    match scope {
-        StorageScope::Deployment => Some(DEPLOYMENT_NAMESPACE),
-        StorageScope::Application => Some("application"),
-        StorageScope::EngineArtifact => Some("engine-artifact"),
-        StorageScope::Unspecified => None,
+/// Returns the runtime namespace that keeps one placement's keys apart from every other
+/// placement's.
+fn placement_namespace(placement: StoragePlacement) -> Option<&'static str> {
+    match placement {
+        StoragePlacement::Deployment => Some(DEPLOYMENT_NAMESPACE),
+        StoragePlacement::Application => Some("application"),
+        StoragePlacement::EngineArtifact => Some("engine-artifact"),
+        StoragePlacement::Unspecified => None,
     }
 }
 
@@ -137,11 +161,17 @@ mod tests {
 
     #[test]
     fn maps_a_binding_to_its_attachment_and_environment() {
-        let binding = binding(StorageScope::Deployment);
+        let binding = binding(StoragePlacement::Deployment);
 
         let storage = workload_storage(
-            [("engine-cache".to_owned(), &binding)],
-            |scope| (scope == StorageScope::Deployment).then(|| "deployment-one".to_owned()),
+            [(
+                "engine-cache".to_owned(),
+                &binding,
+                StoragePlacement::Deployment,
+            )],
+            |placement| {
+                (placement == StoragePlacement::Deployment).then(|| "deployment-one".to_owned())
+            },
             |_| false,
         )
         .expect("storage");
@@ -171,10 +201,14 @@ mod tests {
 
     #[test]
     fn rejects_an_environment_variable_the_workload_already_sets() {
-        let binding = binding(StorageScope::Deployment);
+        let binding = binding(StoragePlacement::Deployment);
 
         let error = workload_storage(
-            [("engine-cache".to_owned(), &binding)],
+            [(
+                "engine-cache".to_owned(),
+                &binding,
+                StoragePlacement::Deployment,
+            )],
             |_| Some("deployment-one".to_owned()),
             |name| name == "TRITON_CACHE",
         )
@@ -187,30 +221,94 @@ mod tests {
     }
 
     #[test]
-    fn rejects_a_scope_the_owner_cannot_resolve() {
-        for scope in [StorageScope::Application, StorageScope::Unspecified] {
-            let binding = binding(scope);
-
-            let error = workload_storage(
-                [("engine-cache".to_owned(), &binding)],
-                |scope| (scope == StorageScope::Deployment).then(|| "deployment-one".to_owned()),
+    fn maps_each_application_placement_to_its_namespace_key_and_lifetime() {
+        let binding = binding(StoragePlacement::Application);
+        let attach = |placement| {
+            workload_storage(
+                [("web-models".to_owned(), &binding, placement)],
+                |placement| match placement {
+                    StoragePlacement::Deployment => Some("deployment-one".to_owned()),
+                    StoragePlacement::Application => Some("comfyui".to_owned()),
+                    _ => None,
+                },
                 |_| false,
             )
-            .expect_err("unsupported scope");
+            .expect("storage")
+            .attachments
+            .into_iter()
+            .map(|attachment| {
+                (
+                    attachment.namespace,
+                    attachment.key,
+                    attachment.expires_when_unused,
+                )
+            })
+            .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            attach(StoragePlacement::Deployment),
+            [("deployment".to_owned(), "deployment-one".to_owned(), false)]
+        );
+        assert_eq!(
+            attach(StoragePlacement::Application),
+            [("application".to_owned(), "comfyui".to_owned(), true)]
+        );
+    }
+
+    #[test]
+    fn rejects_a_placement_the_owner_cannot_resolve() {
+        let binding = binding(StoragePlacement::Deployment);
+        for placement in [StoragePlacement::Application, StoragePlacement::Unspecified] {
+            let error = workload_storage(
+                [("engine-cache".to_owned(), &binding, placement)],
+                |placement| {
+                    (placement == StoragePlacement::Deployment).then(|| "deployment-one".to_owned())
+                },
+                |_| false,
+            )
+            .expect_err("unsupported placement");
 
             assert!(
-                matches!(error, StorageBindingError::UnsupportedScope { ref binding } if binding == "engine-cache"),
+                matches!(error, StorageBindingError::UnsupportedPlacement { ref binding } if binding == "engine-cache"),
                 "{error:?}"
             );
         }
     }
 
-    fn binding(scope: StorageScope) -> StorageBinding {
+    #[test]
+    fn deployment_storage_keys_follow_the_single_engine_placement() {
+        let deployment = binding(StoragePlacement::Deployment);
+        let shared = binding(StoragePlacement::EngineArtifact);
+
+        assert_eq!(
+            deployment_storage_keys([&deployment, &shared], "deployment-one").expect("keys"),
+            [deployment_storage(
+                WorkloadStorageKind::Cache,
+                "deployment-one"
+            )]
+        );
+
+        let several = StorageBinding {
+            placements: vec![
+                StoragePlacement::Deployment as i32,
+                StoragePlacement::EngineArtifact as i32,
+            ],
+            ..binding(StoragePlacement::Deployment)
+        };
+        let error = deployment_storage_keys([&several], "deployment-one").expect_err("several");
+        assert!(
+            matches!(error, StorageBindingError::EnginePlacement { ref binding } if binding == "engine-cache"),
+            "{error:?}"
+        );
+    }
+
+    fn binding(placement: StoragePlacement) -> StorageBinding {
         StorageBinding {
             binding_name: "engine-cache".to_owned(),
             mount_path: "/var/cache/engine".to_owned(),
             kind: StorageKind::Cache as i32,
-            scope: scope as i32,
+            placements: vec![placement as i32],
             environment: vec![
                 StorageEnvironmentVariable {
                     name: "CACHE_HOME".to_owned(),

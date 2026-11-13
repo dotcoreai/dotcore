@@ -63,7 +63,7 @@ graph:
       arguments:
         - "trap 'exit 0' TERM; mkdir -p /www; printf 'rejoin-ready' > /www/index.html; httpd -f -p 8080 -h /www & wait $!"
       ports: [{ portName: "http", portNumber: 8080 }]
-      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", scope: "STORAGE_SCOPE_DEPLOYMENT" }]
+      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
       readiness: { httpGet: { portName: "http", path: "/" } }
   primaryEndpoint:
     serviceName: "web"
@@ -139,6 +139,7 @@ async fn hw_docker_worker_application_is_relaunched_at_the_new_address_with_its_
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("manager accepts the Docker application")

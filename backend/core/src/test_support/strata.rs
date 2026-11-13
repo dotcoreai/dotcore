@@ -17,7 +17,7 @@ use dotcore_proto::dotcore::{
         ModelAuxiliaryArtifact, ModelEngineConfiguration, ModelExecutionCapabilities,
         ModelInputCapabilities, ModelInputModality, ModelParallelShape, ParameterDefinition,
         ParameterValue, ParameterValues, ParameterVisibility, SecretParameterSchema,
-        StorageBinding, StorageKind, StorageScope, UnsignedIntegerParameterSchema,
+        StorageBinding, StorageKind, StoragePlacement, UnsignedIntegerParameterSchema,
         hugging_face_artifact_source, parameter_definition, parameter_value,
     },
     engine::{
@@ -221,7 +221,7 @@ pub(crate) fn release() -> EngineRelease {
             binding_name: "data".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Cache as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         }],
         artifacts: vec![dotcore_domain::test_support::oci::engine_artifact(
@@ -469,7 +469,7 @@ parameterSchema:
     - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
     - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "MiB" } }
 storageBindings:
-  - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", scope: "STORAGE_SCOPE_DEPLOYMENT" }
+  - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }
 artifacts:
   - artifactId: "linux-amd64-cuda"
     oci:

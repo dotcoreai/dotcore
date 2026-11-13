@@ -21,14 +21,15 @@ use bollard::{Docker, errors::Error as BollardError, query_parameters::CreateIma
 use dotcore_domain::SitePaths;
 use dotcore_proto::dotcore::application::v1::{
     ApplicationDeployment, ApplicationDeploymentDesiredState, ApplicationLifecycleState,
-    ApplicationReadinessState, CreateApplicationDeploymentRequest, FollowDeploymentLogsRequest,
-    GetApplicationDeploymentRequest, PauseDeploymentRequest, ReadDeploymentLogsRequest,
-    ReadDeploymentLogsResponse, RemoveApplicationDeploymentRequest, ResumeDeploymentRequest,
+    ApplicationReadinessState, ApplicationStorageChoice, CreateApplicationDeploymentRequest,
+    FollowDeploymentLogsRequest, GetApplicationDeploymentRequest, PauseDeploymentRequest,
+    ReadDeploymentLogsRequest, ReadDeploymentLogsResponse, RemoveApplicationDeploymentRequest,
+    ResumeDeploymentRequest,
     application_deployment_service_client::ApplicationDeploymentServiceClient,
     application_deployment_service_server::ApplicationDeploymentService as ApplicationServiceContract,
 };
 use dotcore_proto::dotcore::catalog::v1::{
-    ListApplicationsRequest, OciPlatform,
+    ListApplicationsRequest, OciPlatform, StoragePlacement,
     catalog_service_server::CatalogService as CatalogServiceContract,
 };
 use dotcore_proto::dotcore::deployment::v1::ArtifactPreparationPolicy;
@@ -82,7 +83,7 @@ const PYTHON_IMAGE: &str =
 const PYTHON_DIGEST: &str = "b3575dcf816cdacc5292df77a6e3e59b8941631078373a045efa2ac1e9c5c3b2";
 const ARM64_DEFAULT_VARIANT: &str = "v8";
 const LIFECYCLE_APPLICATION_ID: &str = "synthetic-lifecycle";
-const STORAGE_SCOPES_APPLICATION_ID: &str = "synthetic-storage-scopes";
+const STORAGE_PLACEMENTS_APPLICATION_ID: &str = "synthetic-storage-placements";
 const SECRET_APPLICATION_ID: &str = "secret-fixture";
 /// A typed secret value no other site content contains.
 const SECRET_SENTINEL: &str = "SentinelQv8Rk2Ld7Wn4";
@@ -766,13 +767,13 @@ async fn hw_docker_two_deployments_of_one_application_isolate_data_and_networks(
 
 #[tokio::test]
 #[ignore = "hardware: just backend::test-docker"]
-async fn hw_docker_application_scoped_storage_outlives_the_deployment_that_wrote_it() {
+async fn hw_docker_shared_app_storage_outlives_its_writer_and_deployment_storage_does_not() {
     let resources = TestResources::new()
         .await
         .expect("Docker preflight and temporary site");
     resources
-        .write_storage_scopes_application(&remote_image_artifact())
-        .expect("storage scopes application catalog declaration");
+        .write_storage_placements_application(&remote_image_artifact())
+        .expect("storage placements application catalog declaration");
     let backend = support::RunningBackend::start_at_with_simulated_runtime_test_support(
         resources.configuration.clone(),
         resources.publication_host.into(),
@@ -783,14 +784,14 @@ async fn hw_docker_application_scoped_storage_outlives_the_deployment_that_wrote
         let mut applications = backend.application_client();
         let request = || {
             let mut request = lifecycle_deployment_request(None);
-            request.application_id = STORAGE_SCOPES_APPLICATION_ID.to_owned();
+            request.application_id = STORAGE_PLACEMENTS_APPLICATION_ID.to_owned();
             request
         };
         let application_root = resources
             .root
             .join("applications-data")
             .join("application")
-            .join(STORAGE_SCOPES_APPLICATION_ID);
+            .join(STORAGE_PLACEMENTS_APPLICATION_ID);
 
         // The first deployment writes one model file and one output file.
         let first = create_when_target_observed(&mut applications, request()).await?;
@@ -855,7 +856,48 @@ async fn hw_docker_application_scoped_storage_outlives_the_deployment_that_wrote
         wait_for_no_docker_resources_client(&resources, &mut applications, &second_id).await?;
         resources
             .wait_for_application_data_removed(&second_data)
+            .await?;
+
+        // A deployment that keeps its models to itself gets an empty models folder inside its own
+        // storage, and its teardown deletes it while the shared folder stays.
+        let own = create_when_target_observed(
+            &mut applications,
+            CreateApplicationDeploymentRequest {
+                storage_choices: vec![ApplicationStorageChoice {
+                    service_name: "web".to_owned(),
+                    binding_name: "models".to_owned(),
+                    placement: StoragePlacement::Deployment as i32,
+                }],
+                ..request()
+            },
+        )
+        .await?;
+        let own_id = own.application_deployment_id.clone();
+        let own_data = resources.application_data_path(&own_id, &attached_storage(&own, "data")?);
+        let own_models =
+            resources.application_data_path(&own_id, &attached_storage(&own, "models")?);
+        let container =
+            wait_for_container_exec(&resources, &own_id, "mkdir -p /data/output").await?;
+        assert_nested_models_mount(&container, &own_data, &own_models)?;
+        if container_file(&container, "/data/models/model.bin").is_ok() {
+            return Err("deployment-placed models see the shared model file".to_owned());
+        }
+        applications
+            .remove_application_deployment(RemoveApplicationDeploymentRequest {
+                application_deployment_id: own_id.clone(),
+            })
             .await
+            .map_err(|error| format!("remove own-models application {own_id}: {error}"))?;
+        wait_for_no_docker_resources_client(&resources, &mut applications, &own_id).await?;
+        resources
+            .wait_for_application_data_removed(&own_models)
+            .await?;
+        if !first_models.join("model.bin").exists() {
+            return Err(
+                "removing a deployment-placed models folder touched the shared one".to_owned(),
+            );
+        }
+        Ok(())
     }
     .await;
     backend.stop().await;
@@ -1104,6 +1146,7 @@ async fn hw_docker_synthetic_two_service_group_recovers_with_private_dns_and_one
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             }),
         )
         .await
@@ -1193,6 +1236,7 @@ async fn hw_docker_nvidia_group_units_receive_the_target_device_request() {
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             }),
         )
         .await
@@ -1266,6 +1310,7 @@ async fn hw_docker_nvidia_group_units_report_attributed_accelerator_memory() {
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             }),
         )
         .await
@@ -1447,6 +1492,7 @@ async fn hw_docker_lightweight_application_logs_are_owned_filtered_and_cancellab
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             }),
         )
         .await
@@ -1949,6 +1995,7 @@ fn lifecycle_deployment_request(
         expected_inference_route_generation: route.map_or(0, |route| route.generation),
         application_deployment_name: None,
         parameter_values: Vec::new(),
+        storage_choices: Vec::new(),
     }
 }
 
@@ -2011,6 +2058,7 @@ fn secret_deployment_request(outcome: &str) -> CreateApplicationDeploymentReques
         expected_inference_route_generation: 0,
         application_deployment_name: None,
         parameter_values: vec![text("password", SECRET_SENTINEL), text("outcome", outcome)],
+        storage_choices: Vec::new(),
     }
 }
 
@@ -3397,7 +3445,7 @@ graph:
         - bindingName: "data"
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_DEPLOYMENT"
+          placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
       readiness:
         httpGet:
           portName: "http"
@@ -3411,12 +3459,12 @@ graph:
         )
     }
 
-    fn write_storage_scopes_application(&self, artifact: &str) -> Result<(), String> {
+    fn write_storage_placements_application(&self, artifact: &str) -> Result<(), String> {
         self.write_site_catalog_application(
-            "synthetic-storage-scopes.yaml",
+            "synthetic-storage-placements.yaml",
             &format!(
-                r#"applicationId: "{STORAGE_SCOPES_APPLICATION_ID}"
-displayName: "Synthetic storage scopes proof"
+                r#"applicationId: "{STORAGE_PLACEMENTS_APPLICATION_ID}"
+displayName: "Synthetic storage placements proof"
 version: "1.0.0"
 graph:
   services:
@@ -3432,11 +3480,11 @@ graph:
         - bindingName: "data"
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_DEPLOYMENT"
+          placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
         - bindingName: "models"
           mountPath: "/data/models"
           kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_APPLICATION"
+          placements: ["STORAGE_PLACEMENT_APPLICATION", "STORAGE_PLACEMENT_DEPLOYMENT"]
       readiness:
         httpGet:
           portName: "http"

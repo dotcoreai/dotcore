@@ -115,6 +115,7 @@ impl SimulatedManager {
                     expected_inference_route_generation: 0,
                     application_deployment_name: Some(name.to_owned()),
                     parameter_values: Vec::new(),
+                    storage_choices: Vec::new(),
                 })
                 .await
                 .unwrap_or_else(|status| {
@@ -325,7 +326,7 @@ graph:
           - { operatingSystem: "linux", architecture: "amd64" }
           - { operatingSystem: "linux", architecture: "arm64" }
       ports: [{ portName: "http", portNumber: 8080 }]
-      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", scope: "STORAGE_SCOPE_DEPLOYMENT" }]
+      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
       readiness: { httpGet: { portName: "http", path: "/health" } }
   primaryEndpoint:
     serviceName: "web"

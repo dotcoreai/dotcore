@@ -24,13 +24,13 @@ storageBindings:
   - bindingName: "compile-cache"
     mountPath: "/var/cache/compile"
     kind: "STORAGE_KIND_CACHE"
-    scope: "STORAGE_SCOPE_DEPLOYMENT"
+    placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
     environment:
       - { name: "COMPILE_CACHE" }
   - bindingName: "kernel-cache"
     mountPath: "/var/cache/kernels"
     kind: "STORAGE_KIND_CACHE"
-    scope: "STORAGE_SCOPE_ENGINE_ARTIFACT"
+    placements: ["STORAGE_PLACEMENT_ENGINE_ARTIFACT"]
     environment:
       - { name: "KERNEL_CACHE" }
 artifacts:

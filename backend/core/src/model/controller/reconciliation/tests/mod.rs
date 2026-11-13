@@ -3458,7 +3458,7 @@ async fn simulated_start_without_a_download_passes_the_download_and_engine_steps
 
 #[tokio::test]
 async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_shared_storage() {
-    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
     use dotcore_runtime::{WorkloadStorageKey, WorkloadStorageKind};
 
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -3479,14 +3479,14 @@ async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_sha
         .as_mut()
         .expect("engine artifact")
         .storage_bindings = [
-        ("data", "/data", StorageScope::Deployment),
-        ("compile-cache", "/cache", StorageScope::EngineArtifact),
+        ("data", "/data", StoragePlacement::Deployment),
+        ("compile-cache", "/cache", StoragePlacement::EngineArtifact),
     ]
-    .map(|(binding_name, mount_path, scope)| StorageBinding {
+    .map(|(binding_name, mount_path, placement)| StorageBinding {
         binding_name: binding_name.to_owned(),
         mount_path: mount_path.to_owned(),
         kind: StorageKind::Cache as i32,
-        scope: scope as i32,
+        placements: vec![placement as i32],
         environment: Vec::new(),
     })
     .to_vec();
@@ -3574,7 +3574,7 @@ async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_sha
 
 #[tokio::test]
 async fn teardown_after_a_relaunch_that_failed_before_its_workload_deletes_only_its_own_storage() {
-    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
     use dotcore_runtime::{WorkloadStorageKey, WorkloadStorageKind};
 
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -3598,7 +3598,7 @@ async fn teardown_after_a_relaunch_that_failed_before_its_workload_deletes_only_
         binding_name: "data".to_owned(),
         mount_path: "/data".to_owned(),
         kind: StorageKind::Cache as i32,
-        scope: StorageScope::Deployment as i32,
+        placements: vec![StoragePlacement::Deployment as i32],
         environment: Vec::new(),
     }];
     desired.persist(deployment);

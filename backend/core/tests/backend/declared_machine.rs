@@ -597,6 +597,7 @@ async fn a_simulated_app_records_its_services_cpu_and_memory_as_metric_history()
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create the application")

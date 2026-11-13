@@ -29,7 +29,7 @@ use dotcore_proto::dotcore::{
         ApplicationDeploymentState, ApplicationEndpoint, ApplicationLifecycleState,
         ApplicationReadinessState, ApplicationSelectedInferenceRoute,
         ApplicationServiceAcceleratorMemory, ApplicationServiceLifecycleState,
-        ApplicationServiceObservation, ApplicationStorageAttachment,
+        ApplicationServiceObservation, ApplicationStorageAttachment, ApplicationStorageChoice,
         CreateApplicationDeploymentRequest, CurrentApplicationDeployment,
         UpdateApplicationDeploymentMetadataRequest,
         application_deployment_service_server::ApplicationDeploymentService as ApplicationServiceContract,
@@ -39,7 +39,7 @@ use dotcore_proto::dotcore::{
         ApplicationInferenceRouteProjection, ApplicationSecretBinding, ApplicationSecretForm,
         ApplicationService, ApplicationServiceDependency, ApplicationServicePort,
         ApplicationServiceReadiness, ParameterValue, StorageBinding, StorageEnvironmentVariable,
-        StorageKind, StorageScope, application_configuration_binding,
+        StorageKind, StoragePlacement, application_configuration_binding,
         application_service_readiness, parameter_value,
     },
     deployment::v1::{
@@ -1465,7 +1465,7 @@ async fn present_recovery_replaces_stale_groups_only_after_resume_changes_desire
 }
 
 #[test]
-fn launch_keys_each_storage_binding_by_its_scope() {
+fn launch_keys_each_storage_attachment_by_its_retained_placement() {
     let mut deployment = deployment(ApplicationDeploymentDesiredState::Present);
     let web = &mut deployment
         .snapshot
@@ -1480,27 +1480,34 @@ fn launch_keys_each_storage_binding_by_its_scope() {
             binding_name: "data".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         },
         StorageBinding {
             binding_name: "models".to_owned(),
             mount_path: "/data/models".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Application as i32,
+            placements: vec![
+                StoragePlacement::Application as i32,
+                StoragePlacement::Deployment as i32,
+            ],
             environment: vec![StorageEnvironmentVariable {
                 name: "MODELS_DIR".to_owned(),
                 relative_path: "checkpoints".to_owned(),
             }],
         },
     ];
-    deployment.storage_attachments = ["data", "models"]
-        .map(|binding| ApplicationStorageAttachment {
-            service_name: "web".to_owned(),
-            binding_name: binding.to_owned(),
-            storage_name: format!("web-{binding}"),
-        })
-        .to_vec();
+    deployment.storage_attachments = [
+        ("data", StoragePlacement::Deployment),
+        ("models", StoragePlacement::Application),
+    ]
+    .map(|(binding, placement)| ApplicationStorageAttachment {
+        service_name: "web".to_owned(),
+        binding_name: binding.to_owned(),
+        storage_name: format!("web-{binding}"),
+        placement: placement as i32,
+    })
+    .to_vec();
 
     let launch = workload_group_launch(
         &deployment,
@@ -1537,8 +1544,27 @@ fn launch_keys_each_storage_binding_by_its_scope() {
         web.environment.get("MODELS_DIR").map(String::as_str),
         Some("/data/models/checkpoints")
     );
-    // Teardown removes exactly the deployment-scoped storage the launch attached.
+    // Teardown removes exactly the deployment-placed storage the launch attached.
     assert_eq!(web.storage[0].storage_key(), deployment_data(&deployment));
+
+    // The same binding placed with the deployment lands in the deployment's own folder.
+    deployment.storage_attachments[1].placement = StoragePlacement::Deployment as i32;
+    let launch = workload_group_launch(
+        &deployment,
+        Ipv4Addr::LOCALHOST,
+        test_inference_route_resolver().as_ref(),
+    )
+    .expect("launch");
+    let models = &launch.units[&WorkloadUnitName("web".to_owned())].storage[1];
+    assert_eq!(
+        (
+            models.namespace.as_str(),
+            models.key.as_str(),
+            models.expires_when_unused
+        ),
+        ("deployment", "open-webui-1", false)
+    );
+    assert_eq!(models.storage_key(), deployment_data(&deployment));
 }
 
 #[test]
@@ -1556,7 +1582,7 @@ fn master_catalog_comfyui_launch_attaches_deployment_data_and_shared_models() {
         .expect("comfyui application");
     let mut deployment = deployment(ApplicationDeploymentDesiredState::Present);
     deployment.application_deployment_id = "comfyui-1".to_owned();
-    deployment.snapshot = Some(resolved_snapshot(comfyui));
+    deployment.snapshot = Some(resolved_snapshot(comfyui.clone()));
     // The launch needs an image it can pin; the storage bindings under test stay the catalog's.
     deployment
         .snapshot
@@ -1576,13 +1602,8 @@ fn master_catalog_comfyui_launch_attaches_deployment_data_and_shared_models() {
         environment_variable: "COMFYUI_VRAM_MODE".to_owned(),
         value: "auto".to_owned(),
     }];
-    deployment.storage_attachments = ["data", "models"]
-        .map(|binding| ApplicationStorageAttachment {
-            service_name: "comfyui".to_owned(),
-            binding_name: binding.to_owned(),
-            storage_name: format!("comfyui-{binding}"),
-        })
-        .to_vec();
+    deployment.storage_attachments =
+        super::launch::storage_attachments(&comfyui, &[]).expect("attachments");
 
     let launch = workload_group_launch(
         &deployment,
@@ -2734,6 +2755,7 @@ async fn unknown_group_after_restart_is_rehydrated_before_present_or_absent_reco
             service_name: "web".to_owned(),
             binding_name: "data".to_owned(),
             storage_name: "web-data".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         }];
         desired
             .upsert(deployment.clone(), 0)
@@ -3483,6 +3505,7 @@ async fn teardown_deletes_application_data_and_retries_a_failed_removal_while_pa
             service_name: "web".to_owned(),
             binding_name: "data".to_owned(),
             storage_name: "web-data".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         }];
         desired
             .upsert(deployment.clone(), 0)
@@ -3856,6 +3879,7 @@ async fn created_deployment_retains_the_base_url_of_its_hosting_node() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node-hosted deployment");
@@ -3925,6 +3949,7 @@ async fn created_deployments_hold_distinct_published_ports_through_teardown_and_
         expected_inference_route_generation: 0,
         application_deployment_name: None,
         parameter_values: Vec::new(),
+        storage_choices: Vec::new(),
     };
     let declared = |desired: &SiteRepository, deployment_id: &str| {
         desired
@@ -4028,6 +4053,7 @@ async fn created_deployment_snapshot_retains_the_application_notes() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("deployment");
@@ -4402,6 +4428,7 @@ async fn deployment_creation_persists_the_route_link_without_a_route_name_attach
             expected_inference_route_generation: 7,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("deployment creation");
@@ -4479,6 +4506,7 @@ async fn route_input_uses_its_literal_without_a_route_link() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("optional route default");
@@ -4552,6 +4580,7 @@ async fn invalid_route_binding_identity_or_generation_rejects_without_mutation()
                 expected_inference_route_generation,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             })
             .await;
         assert!(matches!(
@@ -4624,6 +4653,7 @@ async fn route_binding_without_projection_rejects_before_resolution_or_mutation(
             expected_inference_route_generation: 7,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await;
 
@@ -4694,6 +4724,7 @@ async fn route_binding_failures_reject_before_site_store_or_runtime_mutation() {
                 expected_inference_route_generation: 7,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             })
             .await;
 
@@ -5001,11 +5032,13 @@ async fn malformed_persisted_launch_declarations_fail_before_resolution_or_runti
                     service_name: "web".to_owned(),
                     binding_name: "data".to_owned(),
                     storage_name: "data".to_owned(),
+                    placement: StoragePlacement::Deployment as i32,
                 },
                 ApplicationStorageAttachment {
                     service_name: "web".to_owned(),
                     binding_name: "data".to_owned(),
                     storage_name: "data-two".to_owned(),
+                    placement: StoragePlacement::Deployment as i32,
                 },
             ];
         }),
@@ -5039,7 +5072,7 @@ async fn malformed_persisted_launch_declarations_fail_before_resolution_or_runti
                     binding_name: "missing".to_owned(),
                     mount_path: "/missing".to_owned(),
                     kind: StorageKind::Data as i32,
-                    scope: StorageScope::Deployment as i32,
+                    placements: vec![StoragePlacement::Deployment as i32],
                     environment: Vec::new(),
                 });
         }),
@@ -5465,14 +5498,14 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
             binding_name: "data".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         },
         StorageBinding {
             binding_name: "cache".to_owned(),
             mount_path: "/cache".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         },
     ];
@@ -5504,11 +5537,13 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
             service_name: "web".to_owned(),
             binding_name: "data".to_owned(),
             storage_name: "data".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         },
         ApplicationStorageAttachment {
             service_name: "web".to_owned(),
             binding_name: "cache".to_owned(),
             storage_name: "cache".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         },
     ];
     baseline.configuration_attachments = vec![
@@ -6075,6 +6110,7 @@ async fn unavailable_configuration_source_rejects_before_desired_or_runtime_muta
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         },
     )
     .await;
@@ -6207,6 +6243,7 @@ async fn create_rejects_site_node_identity_outside_the_identifier_rule() {
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             })
             .await;
         assert!(
@@ -6232,6 +6269,7 @@ async fn create_rejects_site_node_identity_outside_the_identifier_rule() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("deployment creation");
@@ -6586,6 +6624,7 @@ async fn creation_failure_is_local_redacted_logged_retried_and_does_not_block_la
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("unrelated deployment failure does not block create");
@@ -6775,6 +6814,7 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
     };
 
@@ -6867,6 +6907,7 @@ async fn node_deployments_follow_node_status_and_stay_pending_while_disconnected
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node deployment");
@@ -7016,6 +7057,7 @@ async fn node_deployments_stay_stale_until_the_current_node_process_lists_them()
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node deployment")
@@ -7083,6 +7125,7 @@ async fn unit_memory_is_read_from_current_node_status_and_unavailable_otherwise(
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node deployment")
@@ -7996,6 +8039,119 @@ async fn invalid_parameter_values_reject_creation_without_mutation() {
 }
 
 #[tokio::test]
+async fn deployment_creation_retains_each_chosen_or_default_storage_placement() {
+    let directory = test_directory();
+    let (controller, desired) = test_controller_for(
+        &directory,
+        application_with_storage_choices(),
+        test_secret_generator(),
+    );
+    let placements = |deployment: &ApplicationDeploymentDeclaration| {
+        deployment
+            .storage_attachments
+            .iter()
+            .map(|attachment| {
+                (
+                    attachment.binding_name.clone(),
+                    StoragePlacement::try_from(attachment.placement).expect("placement"),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    controller
+        .create_deployment(parameter_request(Vec::new()))
+        .await
+        .expect("deployment with default placements");
+    controller
+        .create_deployment(CreateApplicationDeploymentRequest {
+            storage_choices: vec![storage_choice("models", StoragePlacement::Deployment)],
+            ..parameter_request(Vec::new())
+        })
+        .await
+        .expect("deployment with a chosen placement");
+
+    let deployments = desired.snapshot().expect("declarations").deployments;
+    assert_eq!(
+        deployments.iter().map(placements).collect::<Vec<_>>(),
+        [
+            vec![
+                ("data".to_owned(), StoragePlacement::Deployment),
+                ("models".to_owned(), StoragePlacement::Application),
+            ],
+            vec![
+                ("data".to_owned(), StoragePlacement::Deployment),
+                ("models".to_owned(), StoragePlacement::Deployment),
+            ],
+        ]
+    );
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn invalid_storage_choices_reject_creation_without_mutation() {
+    let directory = test_directory();
+    let (controller, desired) = test_controller_for(
+        &directory,
+        application_with_storage_choices(),
+        test_secret_generator(),
+    );
+    let cases = [
+        (
+            vec![storage_choice("data", StoragePlacement::Application)],
+            "Application storage binding \"data\" of service \"web\" does not allow placement STORAGE_PLACEMENT_APPLICATION",
+        ),
+        (
+            vec![storage_choice("models", StoragePlacement::Unspecified)],
+            "Application storage binding \"models\" of service \"web\" does not allow placement STORAGE_PLACEMENT_UNSPECIFIED",
+        ),
+        (
+            vec![storage_choice("cache", StoragePlacement::Deployment)],
+            "Application storage binding \"cache\" of service \"web\" is not declared by the application",
+        ),
+        (
+            vec![ApplicationStorageChoice {
+                service_name: "worker".to_owned(),
+                ..storage_choice("models", StoragePlacement::Deployment)
+            }],
+            "Application storage binding \"models\" of service \"worker\" is not declared by the application",
+        ),
+        (
+            vec![
+                storage_choice("models", StoragePlacement::Deployment),
+                storage_choice("models", StoragePlacement::Application),
+            ],
+            "Application storage binding \"models\" of service \"web\" is chosen more than once",
+        ),
+    ];
+
+    for (choices, expected) in cases {
+        let error = controller
+            .create_deployment(CreateApplicationDeploymentRequest {
+                storage_choices: choices,
+                ..parameter_request(Vec::new())
+            })
+            .await
+            .expect_err("invalid storage choice");
+        assert!(matches!(
+            error,
+            ApplicationLifecycleError::InvalidStorageChoice { .. }
+        ));
+        assert_eq!(error.to_string(), expected);
+    }
+    assert!(
+        desired
+            .snapshot()
+            .expect("declaration snapshot")
+            .deployments
+            .is_empty()
+    );
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
 async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones() {
     let directory = test_directory();
     let (controller, desired) =
@@ -8269,6 +8425,15 @@ fn parameter_request(parameter_values: Vec<ParameterValue>) -> CreateApplication
         expected_inference_route_generation: 0,
         application_deployment_name: None,
         parameter_values,
+        storage_choices: Vec::new(),
+    }
+}
+
+fn storage_choice(binding_name: &str, placement: StoragePlacement) -> ApplicationStorageChoice {
+    ApplicationStorageChoice {
+        service_name: "web".to_owned(),
+        binding_name: binding_name.to_owned(),
+        placement: placement as i32,
     }
 }
 
