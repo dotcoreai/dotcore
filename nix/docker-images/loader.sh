@@ -37,10 +37,10 @@ trap 'rm -rf "$work"' EXIT
 
 main() {
   case "${1:-load}" in
-    load) load ;;
-    store-build) store_build ;;
-    info) cat "$IMAGE_JSON" ;;
-    *) fail "unknown command '$1' (expected load, store-build, or info)" ;;
+  load) load ;;
+  store-build) store_build ;;
+  info) cat "$IMAGE_JSON" ;;
+  *) fail "unknown command '$1' (expected load, store-build, or info)" ;;
   esac
 }
 
@@ -68,8 +68,8 @@ load() {
     from_source
     verify recipe
     case "$kind" in
-      registry) path=pull ;;
-      dockerfile) path=build ;;
+    registry) path=pull ;;
+    dockerfile) path=build ;;
     esac
   fi
 
@@ -96,10 +96,13 @@ store_build() {
   local hash path
   hash=$(nix hash path --algo sha256 "$work/image")
   path=$(nix store add --name "$(meta .dockerfile.storeName)" --mode nar --hash-algo sha256 "$work/image")
-  # Rooted so garbage collection keeps it until it is pushed to a binary cache.
-  local roots="${XDG_STATE_HOME:-$HOME/.local/state}/dotcore/docker-images"
+
+  # Rooted so garbage collection keeps it for as long as the roots folder keeps the link. Recipes in
+  # a checkout pass DOTCORE_DOCKER_IMAGE_ROOTS_DIR so the root goes with the checkout; one link per
+  # image and platform means a rebuild replaces the previous build's root instead of adding one.
+  local roots="${DOTCORE_DOCKER_IMAGE_ROOTS_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dotcore/docker-images}"
   mkdir -p "$roots"
-  nix build --out-link "$roots/$(basename "$path")" "$path"
+  nix build --out-link "$roots/docker-image-$name-${platform//\//-}" "$path"
   log "stored: $path (GC root in $roots)"
 
   inspect | jq --arg platform "$platform" --arg recipeHash "$(meta .dockerfile.recipeHash)" --arg hash "$hash" \
@@ -216,17 +219,17 @@ assemble() {
 
 from_source() {
   case "$kind" in
-    registry)
-      local source
-      source="$(meta .registry.repository)@$(meta .registry.digest)"
-      log "pulling $source"
-      docker pull --platform "$platform" "$source" >&2
-      docker tag "$source" "$reference"
-      # The image keeps its source tag; dropping the pull's digest reference leaves only
-      # dotcore-nix names on it, so cleanup can free it once no loader uses it.
-      docker image rm "$source" >/dev/null || log "could not remove the pull reference $source"
-      ;;
-    dockerfile) build_local ;;
+  registry)
+    local source
+    source="$(meta .registry.repository)@$(meta .registry.digest)"
+    log "pulling $source"
+    docker pull --platform "$platform" "$source" >&2
+    docker tag "$source" "$reference"
+    # The image keeps its source tag; dropping the pull's digest reference leaves only
+    # dotcore-nix names on it, so cleanup can free it once no loader uses it.
+    docker image rm "$source" >/dev/null || log "could not remove the pull reference $source"
+    ;;
+  dockerfile) build_local ;;
   esac
 }
 

@@ -265,7 +265,21 @@ expect_calls "${connect_calls[@]}" "$inspect_dockerfile" "docker context show @$
   "nix store add --name $(jq -r .dockerfile.storeName "$dockerfile_json") --mode nar --hash-algo sha256 WORKDIR/image" \
   "nix build --out-link WORK $FAKE_STATE/fake-stored" \
   "$inspect_dockerfile"
-[ -L "$FAKE_STATE/state/dotcore/docker-images/fake-stored" ] || fail "stored path has no GC root"
+root_link="docker-image-fixture-build-${platform//\//-}"
+[ "$(readlink "$FAKE_STATE/state/dotcore/docker-images/$root_link")" = "$FAKE_STATE/fake-stored" ] ||
+  fail "stored path has no GC root in the state folder"
+
+scenario "dockerfile: store build roots in the given folder, one link per image and platform"
+roots="$FAKE_STATE/checkout/.dotcore/docker-images"
+run env XDG_STATE_HOME="$FAKE_STATE/state" DOTCORE_DOCKER_IMAGE_ROOTS_DIR="$roots" "$DOCKERFILE/bin/docker-image-fixture-build" store-build
+expect_status 0
+[ "$(ls "$roots")" = "$root_link" ] || fail "roots $(ls "$roots"), expected $root_link"
+[ "$(readlink "$roots/$root_link")" = "$FAKE_STATE/fake-stored" ] || fail "first build is not rooted"
+[ ! -e "$FAKE_STATE/state" ] || fail "store build wrote to the state folder"
+run env XDG_STATE_HOME="$FAKE_STATE/state" DOTCORE_DOCKER_IMAGE_ROOTS_DIR="$roots" "$DOCKERFILE/bin/docker-image-fixture-build" store-build
+expect_status 0
+[ "$(ls "$roots")" = "$root_link" ] || fail "rebuild left roots $(ls "$roots"), expected only $root_link"
+[ "$(readlink "$roots/$root_link")" = "$FAKE_STATE/fake-stored-2" ] || fail "rebuild did not replace the root"
 
 scenario "registry: store build is rejected"
 run "$REGISTRY/bin/docker-image-fixture-busybox" store-build

@@ -48,9 +48,9 @@ workload-inspect *args:
 workload-teardown *args:
   dotc dev workload teardown {{args}}
 
-# Smoke-test the Docker image loaders against this host's Docker daemon with tiny fixture images; removes only the fixture tags it creates.
+# Smoke-test the Docker image loaders against this host's Docker daemon with tiny fixture images; removes only the fixture tags it creates, and its stored fixture image stays rooted until `just dev::clean`.
 docker-images-smoke:
-  cd .. && nix run .#tools.docker-images-smoke
+  cd .. && DOTCORE_DOCKER_IMAGE_ROOTS_DIR="$PWD/.dotcore/docker-images" nix run .#tools.docker-images-smoke
 
 # Scan this checkout's tracked files and git history for committed secrets, offline; prints each finding's file and kind, never the secret, and fails on any finding.
 secret-scan:
@@ -269,6 +269,15 @@ clean:
   rm -f -- "$DOTCORE_SITE_DIR.lock" "$DOTCORE_WORKER_DIR.lock" "$DOTCORE_WORKER_DIR.join-token" "$DOTCORE_WORKER_DIR.leave-pending"
   rm -rf -- "$workspace_root/.scratch" "$workspace_root/.vite" "$workspace_root/chrome-profile"
 
+  # Stored Docker images that this checkout's store builds rooted become collectible; a later load of one
+  # rebuilds it locally, so the operator sees which ones.
+  image_roots="$workspace_root/.dotcore/docker-images"
+  released="$(ls -A "$image_roots" 2>/dev/null || true)"
+  if test -n "$released"; then
+    echo "released the stored Docker images of this workspace; a later load rebuilds them unless they are still in Docker or the Nix store: $(echo $released)" >&2
+  fi
+  rm -rf -- "$image_roots"
+
   # The cluster record outlives the site so remote workers stay reachable; only the local worker went here.
   source dev/cluster/targets.sh
   forget_target local
@@ -276,8 +285,8 @@ clean:
     echo "remote cluster workers remain: $(recorded_targets | tr '\n' ' '); remove them with just dev::cluster::clean" >&2
   fi
 
-  # Nothing sweeps .dotcore: the shared slot-allocation locks live there in the main root, and so
-  # does any other workspace-root state this recipe does not own.
+  # Nothing else under .dotcore is swept: the shared slot-allocation locks live there in the main root,
+  # and so does any other workspace-root state this recipe does not own.
 
 # Validate the normal development site without starting services.
 site-validate:
