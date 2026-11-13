@@ -8,24 +8,20 @@ recommendations), `backend/core/src/telemetry/` (workload resource records).
 
 ## Capabilities
 
+- Deploy, pause, resume and tear down each deployment.
 - Create independently managed deployments of the same model, each with its own configuration and
   execution target.
-- Use profiles as presets, and override typed options and engine parameters when you create a
-  deployment. Existing deployments keep their resolved configuration when catalog defaults change.
-- Use expert launch arguments. Derived launch values still apply, and their fit is your risk.
-- See derived values before deploying and while inspecting a deployment, apart from the values you
-  supplied.
-- See advisory memory estimates for a configuration when measured evidence exists, and its fit on
-  each target.
-- See which configured targets can run each profile, and narrow the catalog to profiles whose fit
-  allows them there.
+- Use profiles as presets, and override typed options, engine parameters and expert launch arguments
+  when you create a deployment.
 - Get model recommendations for your use cases across the site's targets, through a guided quick
   start.
+- See which configured targets can run each profile, and narrow the catalog to profiles whose fit
+  allows them there.
+- See advisory memory estimates for a configuration when measured evidence exists, and its fit on
+  each target.
 - Inspect a deployment's identity, configuration, lifecycle, readiness, progress, failures and
-  diagnostics.
-- Deploy, pause, resume and tear down each deployment.
-- Add upstream models through one generic OpenAI-compatible template, beside local deployments. There's
-  no provider-specific directory or automatic discovery of provider models.
+  diagnostics. See its derived values apart from the values you supplied, before deploying too.
+- Add upstream models through one generic OpenAI-compatible template, beside local deployments.
 
 ## Architecture
 
@@ -34,16 +30,24 @@ flowchart TB
   API["Management API"] -->|"lifecycle requests"| IC["Inference controller"]
   CAT["Catalog"] -->|"declarations"| IC
   INV["Reconciled inventory"] -->|"observed facts"| IC
-  EIR["Engine integration registry"] -->|"typed engine adapters"| IC
+  EIR["Engine integration registry"] -->|"engine adapters"| IC
   IC -->|"sizing estimates"| CAP["Capacity component"]
   CAP -->|"verdicts, previews"| IC
   IC -->|"records"| SS["Site store"]
-  IC -->|"snapshot in node view"| NODE["Hosting node: reconciliation"]
+  IC -->|"snapshot in node view"| NODE["Hosting node: node-local reconciliation"]
   NODE -->|"status, readiness, attributed memory"| IC
-  NODE -->|"resource telemetry"| OBS["Observability"]
+  NODE -->|"resource telemetry from the hosting node"| OBS["Observability"]
   IC -->|"eligible targets"| RTR["Route manager and inference router"]
   IC -->|"upstream verification"| UP["Upstream endpoint"]
 ```
+
+- The inference controller owns model deployments, from intent to serving eligibility.
+- The capacity component judges whether a configuration fits and previews its memory use
+  ([machines](machines.md)).
+- The hosting node runs a deployment and reports its status, readiness and attributed memory
+  ([sites](sites.md), [runtime](runtime.md)).
+- The controller publishes serving eligibility to the route manager and eligible targets to the
+  inference router ([inference](inference.md)).
 
 ### Resolving a deployment
 
@@ -75,6 +79,7 @@ keeps the result as the deployment's snapshot.
   binding, deriving the values the caller omitted and advisory estimates. Supplied values win.
 - Engines that need sizing deploy only when the catalog declares it. Derived values aren't verified
   hardware fit.
+- Expert launch arguments don't stop derived launch values from applying. Their fit is your risk.
 
 ### Admitting a deployment
 
@@ -92,7 +97,7 @@ flowchart LR
   realization.
 - Admission rechecks the retained memory architecture and hardware class match against current
   observations.
-- Admission never blocks on fit.
+- Admission never blocks on fit ([machines](machines.md#invariants)).
 
 ### Running a local deployment
 
@@ -108,32 +113,31 @@ sequenceDiagram
   N->>N: Pin launch identity once
   N->>RT: Realize the launch plan
   N->>IC: Status, pinned identity
-  N->>OBS: Resource telemetry
+  IC->>OBS: Resource telemetry
 ```
 
 - The hosting node realizes the deployment through node-local reconciliation on its runtime
   ([runtime](runtime.md)).
 - The controller validates the retained snapshot through the selected engine adapter and reconciles
   the retained launch plan, with no catalog lookup or product-configuration translation.
-- The hosting node pins the deployment's launch identity once ([storage](storage.md)). The controller
-  keeps it and never resolves it again.
-- The hosting node emits workload resource telemetry for its ready local deployments, at readiness
-  and whenever attributed GPU memory grows, and keeps none ([storage](storage.md)).
+- The hosting node pins the deployment's launch identity ([storage](storage.md#launch-identity)).
+- The inference controller records workload resource telemetry on the hosting node for its ready
+  local deployments ([storage](storage.md#workload-resource-records)).
 
 ### Running an upstream deployment
 
 ```mermaid
 flowchart LR
-  subgraph SM["Site manager"]
+  subgraph SM["Site manager process"]
     UD["Upstream deployment reconciliation"] --> VB["Private verification boundary"]
   end
   VB -->|"verification"| UP["Upstream endpoint"]
 ```
 
-- Upstream deployments reconcile on the site manager through a separate private verification
-  boundary, outside runtime and any node's realization.
-- Being on the site manager never turns an upstream endpoint into a local workload. Endpoint failure
-  affects that deployment only, never healthy local targets.
+- Upstream deployments reconcile in the site manager process through a separate private
+  verification boundary, outside runtime and any node's realization.
+- Running in the site manager process never turns an upstream endpoint into a local workload.
+  Endpoint failure affects that deployment only, never healthy local targets.
 
 ### Advisory reads
 
@@ -143,7 +147,7 @@ flowchart LR
   CAT["Catalog profiles"] --> RES
   SCN["Sizing scenario"] --> RES
   RES -->|"estimates per hardware class"| COMP["Compatibility read"]
-  CAP["Capacity component"] -->|"fits on free and total memory, largest fit, starting context"| COMP
+  CAP["Capacity component"] -->|"fits on free and total memory, largest fit, starting total context"| COMP
   CAP -->|"placement preview"| EST["Resource estimates"]
   CAP -->|"verdicts"| RECS["Recommendations: one ranking per use case"]
   LISTS["Hardware class lists per use case"] --> RECS
@@ -172,8 +176,8 @@ flowchart LR
 ### Model deployment
 
 - Every local deployment keeps an exact placement naming one node and one execution target owned by
-  that node. Controllers reject mismatched pairs instead of choosing or correcting placement on the
-  hosting node.
+  that node. Workload controllers reject mismatched pairs instead of choosing or correcting
+  placement on the hosting node.
 
 ### Deployment snapshot
 
@@ -189,9 +193,9 @@ never redefine it.
   derived rather than supplied.
 - The selected target's memory architecture. Engine adapters derive launch settings and non-blocking
   advisories from it.
-- The selected target's device memory total: the smallest of its GPUs when it has several, or its
-  host memory total on unified targets. Engine adapters use it as the denominator of a memory
-  fraction, never as reserved capacity, and engines that need it reject targets without one.
+- The selected target's device memory total, or its host memory total on unified targets. Engine
+  adapters derive launch settings from it, never treat it as reserved capacity, and engines that
+  need it reject targets without one.
 
 ### Portable launch plan
 
@@ -203,6 +207,7 @@ never redefine it.
 - Keeps a template snapshot and a private endpoint configuration.
 - Has no local model artifact, engine, runtime workload or exact placement. Dotcore never invents
   local hardware, engine or placement data for it.
+- Local and upstream are the only kinds of serving source.
 
 ## Components
 
@@ -222,14 +227,15 @@ never redefine it.
 
 #### Boundaries
 
-- Uses typed engine adapters from the engine integration registry for engine-specific validation,
-  realization and local engine transport ([runtime](runtime.md)).
 - Stays off the live request path.
-- Never reserves capacity. The capacity component evaluates, and nothing reserves.
+- Never keeps a provider-specific directory or discovers provider models automatically. Upstream
+  models come only from the generic OpenAI-compatible template.
 
 #### Interfaces
 
 - Receive: create, pause, resume and teardown requests through the management API.
+- Receive: engine adapters from the engine integration registry, for engine-specific validation,
+  realization and local engine transport ([runtime](runtime.md#engine-integration-registry)).
 - Receive: typed status, readiness and attributed memory from hosting nodes.
 - Provide: eligible targets with deployment identity and capabilities to the route manager and the
   router ([inference](inference.md)).
@@ -242,10 +248,10 @@ never redefine it.
 ## Invariants
 
 - A deployment's memory reads from its hosting node's current status, never from retained state.
-  Without current status or attribution, it reads as unavailable with its reason, never a false zero.
+  Without current status or attribution, it reads as unavailable
+  ([machines](machines.md#attributing-memory-to-deployments)).
 - The retained memory total is fixed at creation. Deployments pick up changed hardware only when
   recreated.
-- Estimates and fits never admit, reserve or place workloads.
 
 ## Future direction
 

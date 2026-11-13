@@ -21,8 +21,7 @@ git clone https://github.com/dotcoreai/dotcore.git
 ```
 
 - Run it by its path from outside the clone, such as from your home folder. Inside the clone, the development environment is loaded, and the installer stops.
-- It installs from the clone's last commit. Commit your changes first: an install from uncommitted changes can't deploy models or apps.
-- The first install builds Dotcore from source, which can take a while.
+- The first install takes longer, since Dotcore is built on your machine. Binary caching is planned.
 - `install.sh --help` lists its options.
 
 This installs two commands:
@@ -37,12 +36,6 @@ nix profile add github:dotcoreai/dotcore
 dotcore
 ```
 
-## Update
-
-Pull the clone, then run the installer again and choose to update. Your site is kept. A running `dotcore` keeps its old version until you restart it.
-
-To start over instead, choose to reinstall: the installer removes Dotcore as the uninstaller does, then installs it again.
-
 ## First run
 
 Run `dotcore` to start. The first run asks a few questions to set up your site, the group of machines Dotcore manages. One of them is what this machine runs. It can offer several:
@@ -53,7 +46,20 @@ Run `dotcore` to start. The first run asks a few questions to set up your site, 
 
 Another asks for the address other machines reach this one at, usually its address on your local network. Dotcore listens only on that address. Then it prints the console's address: port 8080 on that address.
 
-## Where files go
+## Security
+
+Dotcore has no login yet. Anyone who can reach the address you chose during setup can use your models and change your site, so choose one on a network you trust, such as your home or office network. See [SECURITY.md](../SECURITY.md).
+
+## Update
+
+> [!WARNING]
+> Dotcore is in alpha. Expect breaking changes in updates, including to saved sites, until the first stable release.
+
+Pull the clone, then run the installer again and choose to update. Your site's files are kept. A running `dotcore` keeps its old version until you restart it.
+
+To start over instead, choose to reinstall: the installer removes Dotcore as the uninstaller does, then installs it again.
+
+## Data folders
 
 - Your site lives in `~/.local/state/dotcore/site`. It holds the site's settings, keys and app data.
 - Downloads, such as model weights, go to `~/.cache/dotcore`. They can be downloaded again.
@@ -69,8 +75,6 @@ Stop `dotcore`, then run:
 
 It asks before deleting your site or your downloads, and prints how to remove what it leaves, such as Nix and Docker images.
 
-## Security
-
-Dotcore has no login yet. Anyone who can reach the address you chose during setup can use your models and change your site, so choose one on a network you trust, such as your home or office network. See [SECURITY.md](../SECURITY.md).
+---
 
 Next: [Using Dotcore](usage.md).

@@ -27,6 +27,14 @@ flowchart LR
   CC["Cloud connector"] <-->|"remote management"| DS["Dotcore services"]
 ```
 
+- The identity and access manager owns identities, roles, sessions and access policy. It gives the
+  entry points and the app proxy their authentication and authorization decisions.
+- The metering and entitlement manager owns local entitlement policy and usage and request
+  accounting. Serving and enforcement consume its decisions.
+- The cloud connector provides controlled remote-management connectivity to Dotcore's services. It
+  owns no product state and never overrides local owners.
+- The site manager issues a joining node's identity ([sites](sites.md)).
+
 ### Joining a node
 
 ```mermaid
@@ -44,10 +52,10 @@ sequenceDiagram
 
 - Site machine trust is established before a worker enrolls. Each provisioned node, the site manager
   included, holds its own site-issued node identity. The site signing key is separate and held only
-  by site authority.
+  by the site manager.
 - A node joins through a handshake hosted by the site manager. It generates its own key and
-  authenticates the site and its manager with a short-lived, enrollment-only join token.
-- Site authority issues the node's identity, then records its membership and pin only after you
+  authenticates the site and its site manager with a short-lived, enrollment-only join token.
+- The site manager issues the node's identity, then records its membership and pin only after you
   approve.
 - Join tokens never authorize runtime traffic.
 - Removing a node withdraws its membership and pin together. A removed node's identity no longer
@@ -75,20 +83,20 @@ flowchart TB
 ```
 
 - Private node connections need a valid site-local node identity, exact peer pins, and directional
-  authorization derived from site authority and trusted bootstrap policy, not a manager-specific
-  certificate type. This holds even when the site has no workers.
+  authorization derived from the site's authority and trusted bootstrap policy, not a
+  site-manager-specific certificate type. This holds even when the site has no workers.
 - The node control stream, peer inference dispatch, and deployment and backend diagnostic reads are
   authenticated private interfaces, not public node entry points. No remote caller may present the
   receiving node's identity.
-- Site authority records, per node, the host (IP address or DNS name) the manager reaches it at, and
-  the host it reaches the manager at. The node using a host resolves it, including on behalf of its
-  workloads. Peer authentication depends on neither the dialed address nor addresses in
-  certificates.
+- The site manager records, per node, the host (IP address or DNS name) the site manager reaches it
+  at, and the host it reaches the site manager at. The node using a host resolves it, including on
+  behalf of its workloads. Peer authentication depends on neither the dialed address nor addresses
+  in certificates.
 - The site manager's network entry points (console and inference) listen by default only on its
   recorded node host, never on every interface. Listening elsewhere takes an address the operator
   names.
 - Site reset rotates trust, so previously issued worker credentials can't authenticate with the new
-  manager.
+  site manager.
 
 ## Resources
 
@@ -147,25 +155,22 @@ flowchart TB
 
 - The site's owners keep authority over configuration, workload intent, access policy, readiness and
   locally retained state.
-- Healthy local serving and deployed apps continue without Dotcore's services, cloud management or the public
-  internet. Acquiring an artifact may need its registry, establishing an external identity may need
-  its identity provider, and upstream inference needs its endpoint.
+- Healthy local serving and deployed apps continue without Dotcore's services, cloud management or
+  the public internet. Acquiring an artifact may need its registry, establishing an external
+  identity may need its identity provider, and upstream inference needs its endpoint.
 - Upstream locality, trust domain and data egress are explicit.
 - Authorization stays local, even when an external identity provider establishes identity.
-- Hosted workloads get no platform credentials, site store access, control-plane interfaces or host
-  runtime privileges. Purpose-scoped workload credentials and permitted workload communication grant
-  no platform authority.
+- Purpose-scoped workload credentials and permitted workload communication grant no platform
+  authority. What hosted workloads never get is in [runtime](runtime.md#workloads).
 - Holding secrets never transfers product authority or adds a cloud dependency for local serving.
-- Local entitlement decisions and durable usage accounting continue during cloud outages.
-  Synchronization and settlement are separate concerns.
+- Local entitlement decisions, durable usage accounting, reconciliation and telemetry continue
+  during cloud outages. Synchronization and settlement are separate concerns.
 
 ## Future direction
 
-- API keys enforced for inference and management access.
-- Local administrator bootstrap, single sign-on, role-based access, sessions, scoped keys,
-  machine-local secrets and audit identity.
+- Local administrator bootstrap, single sign-on, scoped keys, machine-local secrets and audit
+  identity.
 - Team and identity operations, with visibility into team capacity and consumption.
-- Local entitlement state and minimum durable usage and request accounting.
 - Customer-approved remote-access boundaries.
 
 ## Open decisions

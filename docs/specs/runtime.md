@@ -19,7 +19,6 @@ Code: `backend/runtime/` (owner-neutral contracts), `backend/runtime_backends/`,
 
 ```mermaid
 flowchart TB
-  SRV["Server"] -->|"completed backend set"| CTRL
   subgraph Node["Hosting node"]
     CTRL["Controllers' node-local reconciliation"]
     EIR["Engine integration registry"]
@@ -79,9 +78,8 @@ flowchart TB
   EIR -->|"readiness probes, invocations"| W["Workload"]
 ```
 
-The controller asks the registry whether a workload is ready. The router asks it to invoke the
-workload's binding: in process when the node shares the router's process, or through the node's
-authenticated peer endpoint otherwise ([inference](inference.md)).
+The controller asks the registry whether a workload is ready, and the router asks it to invoke the
+workload's binding ([inference](inference.md#serving-a-request)).
 
 - Inference requests and readiness probes never go through the runtime backend.
 
@@ -110,13 +108,13 @@ Recreatable workload scratch, kept per site on each machine and keyed by its own
 or one engine artifact.
 
 - It isn't a product artifact, inventory or desired state.
-- Site reset and deletion remove the site's caches on the machine they run on. Machine cleanup
-  removes shared caches unused for a retention period.
+- Site reset and deletion remove the site's caches on the machine they run on. Shared workload storage
+  falls under [machine cleanup](storage.md#machine-cleanup).
 
 ### Native workload state
 
-The state and logs of native workloads, in the site folder's native runtime area, apart from the
-node store. Not product state.
+The state and logs of native workloads, kept in the site's folder, apart from the node store. Not
+product state.
 
 - Ownership evidence names the site, the node and the canonical state location, so removing native
   workloads never needs the site's identifier.
@@ -127,9 +125,8 @@ node store. Not product state.
 
 Each backend realizes workloads for one kind of target:
 
-- Docker runs workloads as containers on Linux targets. On a Mac, Dotcore reaches Docker Desktop
-  through its default socket. Its linux/arm64 target reports no GPU, so GPU apps run on the CPU
-  there.
+- Docker runs workloads as containers on Linux targets. On a Mac, Dotcore reaches Docker Desktop.
+  Its linux/arm64 target reports no GPU, so GPU apps run on the CPU there.
 - Native runs each workload as a host process on the host platform, darwin/arm64 included, held by a
   launcher process per workload.
 - Simulated runs workloads on the node's declared machine. Each model workload uses its resolved
@@ -142,8 +139,7 @@ Each backend realizes workloads for one kind of target:
 
 - Realize workload intent on infrastructure local to their hosting process.
 - Publish each workload's primary endpoint on the host port its owner asks for.
-- Resolve site host names for their workloads and pin them as host entries. Workloads never rely on
-  their container's DNS for site host names.
+- Resolve site host names for their workloads and pin them as host entries.
 - Provision the storage attachments the intent asks for, by kind, namespace and key.
 - Advertise which optional, isolation-affecting realization features they support.
 - Rediscover their workloads after a restart from ownership evidence.
@@ -158,12 +154,10 @@ Each backend realizes workloads for one kind of target:
   neither artifact transfer nor the artifact cache.
 - Never hand host paths to owners. Owners name storage, and the backend maps it.
 - May expose infrastructure diagnostics, but never collect or retain telemetry.
-- Controllers never select or list backends. The server registers backend factories for model and app
-  workloads separately at startup and gives each controller its completed set.
-- A runtime that launches from artifact references alone, like the simulated one, pins synthetic
-  launch identities and never resolves, builds, loads or roots artifacts.
-- Simulation isn't a catalog engine kind, a routing authority or a product-state owner. Local and
-  upstream stay the only kinds of serving source.
+- Controllers never select or list backends.
+- A runtime that launches from artifact references alone, like the simulated one, follows the
+  synthetic launch identity rules in [storage](storage.md#launch-identity).
+- Simulation isn't a catalog engine kind, a routing authority or a product-state owner.
 
 #### Interfaces
 
@@ -188,7 +182,7 @@ Typed engine adapters, one per engine kind.
 
 - Translate launches per engine kind, materialize them as runtime workloads, run readiness probes,
   and create inference bindings.
-- Give inference-owned engine integrations a way to turn a backend's opaque service bindings into
+- Give engine adapters a way to turn a backend's opaque service bindings into
   readiness and invocation capabilities.
 
 #### Boundaries
@@ -202,8 +196,7 @@ Typed engine adapters, one per engine kind.
 
 #### State
 
-- Keeps each exact binding, keyed by deployment, realization, service and reconciliation revision,
-  only in the process that hosts the realization.
+- Keeps each exact binding only in the process that hosts the realization.
 
 ### Workloads
 
@@ -213,13 +206,33 @@ Typed engine adapters, one per engine kind.
 - Development tooling may run its own transient workload through the runtime. It creates no product
   state or serving eligibility, and roots no artifacts.
 
+#### Responsibilities
+
+- Inference engines serve requests for one model deployment through the bindings the engine
+  integration registry creates.
+- App workloads run hosted app services. They reach models at the inference base URL, through their
+  linked inference route ([apps](apps.md)).
+- GPU apps download their own checkpoints into app storage, which later deployments of the app on
+  that machine reuse.
+- Use only the devices, storage attachments and host port their workload intent names.
+
+#### Boundaries
+
+- Own no product state and don't judge their own readiness. The workload controllers do.
+- Get no platform credentials, site store access, control-plane interfaces or host runtime
+  privileges.
+- Keep IPC isolated by default. Shared host IPC is a narrow, explicit workload requirement. It grants
+  no extra devices, credentials, mounts, network exposure, privileged execution or product
+  authority.
+- Never rely on their container's DNS for site host names. The runtime backend pins them.
+- Users never reach an app through private workload ports. They use app access ([apps](apps.md)).
+- A workload's failure changes observations, never desired intent
+  ([realizing a workload](#realizing-a-workload)).
+
 ## Invariants
 
-- Workloads keep IPC isolated by default. Shared host IPC is a narrow, explicit workload requirement.
-  It grants no extra devices, credentials, mounts, network exposure, privileged execution or product
-  authority.
 - Any change to a workload fails closed when ownership evidence is missing, foreign, malformed or
-  ambiguous. Dotcore never adopts workloads it doesn't own.
+  ambiguous. Dotcore never adopts workloads or execution targets it doesn't own.
 - A reset, delete or node leave touches only workloads recorded under its own state location, and
   never another site's state. A copied site folder never adopts or changes the original's workloads.
 

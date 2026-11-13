@@ -7,7 +7,19 @@ Every Docker image the catalog uses is built by Nix. Each one has a folder under
 - `just image-load` loads the image into Docker.
 - `just image-info` shows what it is pinned to.
 - `just image-lock <repository>:<tag>` moves an upstream image to a new tag.
-- `just image-store` builds a Dockerfile image with Docker on this machine, saves it into the Nix store (kept from garbage collection), and records its hash for this platform in `docker-image.stored.json`. Other machines then get that copy from a binary cache instead of building it.
+- `just image-store` stores a Dockerfile image for other machines to copy. See [Dockerfile images](#dockerfile-images).
+
+## Upstream images
+
+An upstream image is pinned in `docker-image.lock.json`, per platform. Change it only with `just image-lock`, never by hand.
+
+## Dockerfile images
+
+A Dockerfile image is built from a pinned source. `just image-store` builds it with Docker on this machine, saves it into the Nix store, and records its hash for this platform in `docker-image.stored.json`. Other machines then get that copy from a binary cache instead of building it.
+
+- After changing a Dockerfile image's inputs, run `just image-store` on an x86_64 Linux machine and on an arm64 one (a Mac works), and commit both records. A [remote host](remote-hosts.md) can run it for you.
+- Until then, `just check` fails and loads fall back to a local build.
+- Local builds can take long, such as ninfer's CUDA build, and give each machine different bytes.
 
 ## How a load works
 
@@ -18,18 +30,6 @@ A node loads an image when it prepares a deployment. It uses the first of these 
 3. The upstream image, pulled by digest, or a local build of the Dockerfile.
 
 Images load as `linux/amd64` on x86_64 Linux and `linux/arm64` on arm64 Linux and macOS.
-
-## Upstream images
-
-An upstream image is pinned in `docker-image.lock.json`, per platform. Change it only with `just image-lock`, never by hand.
-
-## Dockerfile images
-
-A Dockerfile image is built from a pinned source. `docker-image.stored.json` records the build of each platform, so other machines can copy it instead of building it again.
-
-- After changing a Dockerfile image's inputs, run `just image-store` on an x86_64 Linux machine and on an arm64 one (a Mac works), and commit both records. A [remote host](remote-hosts.md) can run it for you.
-- Until then, `just check` fails and loads fall back to a local build.
-- Local builds can take long, such as ninfer's CUDA build, and give each machine different bytes.
 
 ## Nix artifacts from your checkout
 
@@ -42,9 +42,14 @@ A site or development catalog may point a Nix artifact at a locked revision of a
 ## Disk use
 
 - A stored image takes space twice, in the Nix store and in Docker. CUDA images take 10 to 20 GB each.
-- `dotc gc` removes image names nothing uses anymore. An image you loaded by hand with `just image-load` counts as unused.
-- `just image-store` keeps its image under `~/.local/state/dotcore/docker-images` until you remove it.
-- `docker buildx prune` clears Docker's build cache.
+- `just image-store` keeps its stored image from garbage collection until `just dev::clean` runs in that checkout or the checkout is removed, a remote host's workspace included. A new `image-store` of the same image in the same checkout replaces the previous one.
+- Once a stored image is gone, a load builds it again locally, which can take an hour for CUDA images. Run `image-store` from a checkout you keep to keep it longer.
+
+To reclaim disk:
+
+1. `dotc gc` removes Docker image names nothing uses anymore. An image you loaded by hand with `just image-load` counts as unused.
+2. `docker buildx prune` clears Docker's build cache.
+3. Nix garbage collection (`nix-collect-garbage`) frees the stored images nothing keeps anymore.
 
 ## Troubleshooting
 

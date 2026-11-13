@@ -13,15 +13,13 @@ Code: `backend/core/src/route_manager/`, `backend/core/src/router/`,
   client-defined function tools and supported image inputs. Supported models keep their reasoning
   output separate.
 - Ask decision requests: typed questions answered with per-option probabilities from one model pass,
-  through the System One and OpenAI Decisions formats. Decisions are non-streaming and text-only,
-  and upstream models serve chat only.
+  through the System One and OpenAI Decisions formats.
 - Expose a deployment directly under its own route, or keep it hidden in other routes. Route
   membership doesn't care whether a deployment is local or upstream.
-- Create, inspect, rename, enable, disable and delete routes, with visible membership and
-  availability.
+- Create, inspect, rename, enable, disable and delete routes. See their membership and
+  availability, and why a route or member is unavailable, without exposing private provider
+  configuration.
 - Use ordered fallback groups and selection among eligible deployments, within bounded retry safety.
-- See request, latency and token metrics over time, per route and deployment and across the site.
-- See why a route or member is unavailable, without exposing private provider configuration.
 - Get connection information and integration examples for a route.
 
 ## Architecture
@@ -32,12 +30,18 @@ flowchart TB
   IC["Inference controller"] -->|"identity, eligibility, capabilities"| RM["Route manager"]
   RM -.->|"route policy"| R
   IC -.->|"eligible targets"| R
-  APP["App deployment"] -.->|"links by route identity"| RM
+  APP["Application deployment"] -.->|"links by route identity"| RM
   R -->|"in process or peer endpoint"| EIR["Hosting node: engine integration registry"]
   EIR -->|"local binding"| W["Engine workload"]
   R -->|"upstream transport"| UP["Upstream endpoint"]
   R -->|"request metrics"| OBS["Observability"]
 ```
+
+- The route manager owns routes: identity, callable names, membership, routing policy and
+  availability.
+- The inference router carries live requests from the inference API. It applies the route policy to
+  the eligible targets, dispatches to a node-hosted or upstream target, and records request metrics.
+- The inference controller publishes the deployments a route can use ([models](models.md)).
 
 ### Serving a request
 
@@ -70,6 +74,7 @@ The router resolves the route, admits the request to an eligible member, and inv
   admission, peer calls and engine invocation unchanged by wire shape.
 - A request is admitted only to route members whose engine configuration declares its kind. A kind no
   member declares is an invalid request. A declared kind with no ready member is unavailable.
+- Decision requests are non-streaming and text-only. Upstream models serve chat only.
 - The router joins the route's selected deployment identity to the controller's eligible target.
   Source-private dispatch data is exposed only after selection.
 - Platform-owned request semantics are validated at every entry point. Bounded engine-specific
@@ -80,8 +85,8 @@ The router resolves the route, admits the request to an eligible member, and inv
   inference through the runtime.
 - Bindings never cross process boundaries, and the runtime backend's identity never selects router
   behavior.
-- The manager's router selects among route-eligible deployments before dispatching an exact
-  deployment to its hosting node. The hosting node applies its local binding and owns no route lookup
+- The site manager's router selects among eligible targets before dispatching an exact deployment to
+  its hosting node. The hosting node applies its local binding and owns no route lookup
   or fallback policy.
 
 ### Retry and fallback
@@ -104,7 +109,7 @@ flowchart TB
 - One provider request per upstream attempt.
 - An invalid request is never eligible for fallback, wherever it's detected. Only an availability or
   identity refusal before dispatch may move to another target.
-- An engine transport may classify an engine rejection it recognizes as a platform invalid request,
+- An engine adapter may classify an engine rejection it recognizes as a platform invalid request,
   answered with a platform message. Other rejections keep their status, with their message passed
   through the platform's safe error envelope.
 - An engine that doesn't serve the request kind refuses before doing any work, which is safe to fall
@@ -114,7 +119,7 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  EV["Fresh readiness evidence: hosting node, declared generation, this deployment"] -->|"publishes"| T["Serving target"]
+  EV["Fresh readiness evidence: hosting node, declared generation, this deployment"] -->|"publishes"| T["Eligible target"]
   T -->|"evidence expires"| EXP["Target expired"]
   T -->|"node incarnation ends"| EXP
   T -->|"contact lapses past the silence bound"| EXP
@@ -122,7 +127,7 @@ flowchart LR
   CS["Stream closed, or unrelated view change"] -.->|"no effect"| T
 ```
 
-- A node-hosted deployment becomes a serving target only from fresh readiness evidence from its
+- A node-hosted deployment becomes an eligible target only from fresh readiness evidence from its
   hosting node, for the declared deployment generation, scoped to that deployment.
 - The target expires with that evidence, with the node's incarnation, or when contact lapses past the
   node's silence bound.
@@ -166,12 +171,12 @@ flowchart LR
   node-hosted targets in process or through an authenticated peer endpoint, and upstream targets
   through upstream transport.
 - Measure request and per-attempt latency, outcome and token metrics for every public request, and
-  record them through observability without delaying serving.
+  record them through observability ([storage](storage.md#recording-metrics),
+  [invariants](storage.md#invariants)).
 
 #### Boundaries
 
 - Owns neither desired state nor readiness.
-- Its metrics are operational telemetry, never usage accounting.
 
 ## Invariants
 

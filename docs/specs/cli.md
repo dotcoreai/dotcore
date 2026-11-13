@@ -9,7 +9,7 @@ Code: `backend/cli/`.
 
 - Initialize and validate a site locally before it starts, then run the server process.
 - Add machines to a site, join a machine from that machine, and remove one.
-- Manage model and app deployments through the management API, from scripts.
+- Manage model and application deployments through the management API, from scripts.
 - Start coding agents that use the site's routes, and run one-off development workloads.
 - Run exclusive administration on a stopped site: node removal, site reset and destructive
   recovery.
