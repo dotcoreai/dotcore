@@ -121,8 +121,8 @@ sequenceDiagram
 - The controller validates the retained snapshot through the selected engine adapter and reconciles
   the retained launch plan, with no catalog lookup or product-configuration translation.
 - The hosting node pins the deployment's launch identity ([storage](storage.md#launch-identity)).
-- The hosting node emits workload resource telemetry for its ready local deployments, and keeps none
-  ([storage](storage.md#workload-resource-records)).
+- The inference controller sends workload resource telemetry from the hosting node for its ready
+  local deployments ([storage](storage.md#workload-resource-records)).
 
 ### Running an upstream deployment
 

@@ -1,8 +1,8 @@
 # Machines
 
 A machine's hardware facts, the execution targets it offers, and whether a workload fits in its
-memory. The site manager owns the reconciled inventory of that hardware. The capacity component turns it
-into memory pools, occupancy and fit.
+memory. The site manager owns the reconciled inventory of that hardware. The capacity component
+turns it into memory pools, occupancy and fit.
 
 Code: `backend/node_hardware/` (hardware facts, signal sampling, declared machines),
 `backend/core/src/hardware/` (attribution, capacity), `backend/nvml/`, `backend/host_process/`.
@@ -90,8 +90,8 @@ flowchart TB
   workload's first running observation.
 - Every section of one node status attributes from the same hardware collection, runtime reports
   included.
-- Both workload controllers apply one owner-neutral attribution scope that owns no product state, so the two
-  never attribute the same hardware differently.
+- Both workload controllers apply one owner-neutral attribution scope that owns no product state, so
+  the two never attribute the same hardware differently.
 - Memory that can't be attributed reads as unavailable with its reason, never as a device-wide value
   or a false zero.
 
@@ -151,11 +151,12 @@ Memory a target draws from.
 
 What is in use in a pool.
 
-- Measured use, attributed per deployment where workload controllers attribute it, other use, and claims.
+- Measured use, attributed per deployment where workload controllers attribute it, other use, and
+  claims.
 - A starting local model deployment claims its resolved estimate until it's ready and measured, less
   the use already measured for it.
-- Application deployments occupy pools by the GPU memory attributed to them, in the host pool on unified
-  GPUs. They carry no estimate and claim nothing.
+- Application deployments occupy pools by the GPU memory attributed to them, in the host pool on
+  unified GPUs. They carry no estimate and claim nothing.
 
 ### Demand
 

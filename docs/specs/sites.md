@@ -246,9 +246,9 @@ The node that hosts the site manager process.
 - It uses the same node-local reconciliation, status and cleanup evidence, action fencing,
   diagnostic reads, serving admission and observations as any node. Only its transport differs: it
   uses in-process adapters, so it needs no private listener.
-- Sharing the manager's process grants it no extra authority. It reads owner intent only through its
-  node view, and owners accept its status, cleanup evidence and readiness through the same boundary
-  as any node.
+- Sharing the site manager's process grants it no extra authority. It reads owner intent only
+  through its node view, and owners accept its status, cleanup evidence and readiness through the
+  same boundary as any node.
 
 ## Invariants
 

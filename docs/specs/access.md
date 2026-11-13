@@ -83,20 +83,20 @@ flowchart TB
 ```
 
 - Private node connections need a valid site-local node identity, exact peer pins, and directional
-  authorization derived from the site's authority and trusted bootstrap policy, not a manager-specific
-  certificate type. This holds even when the site has no workers.
+  authorization derived from the site's authority and trusted bootstrap policy, not a
+  site-manager-specific certificate type. This holds even when the site has no workers.
 - The node control stream, peer inference dispatch, and deployment and backend diagnostic reads are
   authenticated private interfaces, not public node entry points. No remote caller may present the
   receiving node's identity.
-- The site manager records, per node, the host (IP address or DNS name) the manager reaches it at, and
-  the host it reaches the manager at. The node using a host resolves it, including on behalf of its
-  workloads. Peer authentication depends on neither the dialed address nor addresses in
-  certificates.
+- The site manager records, per node, the host (IP address or DNS name) the site manager reaches it
+  at, and the host it reaches the site manager at. The node using a host resolves it, including on
+  behalf of its workloads. Peer authentication depends on neither the dialed address nor addresses
+  in certificates.
 - The site manager's network entry points (console and inference) listen by default only on its
   recorded node host, never on every interface. Listening elsewhere takes an address the operator
   names.
 - Site reset rotates trust, so previously issued worker credentials can't authenticate with the new
-  manager.
+  site manager.
 
 ## Resources
 
@@ -156,8 +156,8 @@ flowchart TB
 - The site's owners keep authority over configuration, workload intent, access policy, readiness and
   locally retained state.
 - Healthy local serving and deployed apps continue without Dotcore's services, cloud management or
-  the public internet. Acquiring an artifact may need its registry, establishing an external identity may need
-  its identity provider, and upstream inference needs its endpoint.
+  the public internet. Acquiring an artifact may need its registry, establishing an external
+  identity may need its identity provider, and upstream inference needs its endpoint.
 - Upstream locality, trust domain and data egress are explicit.
 - Authorization stays local, even when an external identity provider establishes identity.
 - Purpose-scoped workload credentials and permitted workload communication grant no platform

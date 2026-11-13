@@ -17,7 +17,7 @@ Read this page first, then the page for the subject you work on. Terms from the
 | [Apps](apps.md) | Application deployments and how users reach them | Apps controller, app proxy |
 | [Runtime](runtime.md) | Starting and stopping workloads on one machine | Runtime backends, engine integration registry |
 | [Inference](inference.md) | Routes and serving requests | Route manager, inference router |
-| [Storage](storage.md) | Artifacts, records, caches, metrics, logs, backups | Artifact manager, site store, observability, backups manager |
+| [Storage](storage.md) | Artifacts, records, node state, caches, metrics, logs, backups | Artifact manager, site store, node store, observability, backups manager |
 | [Access](access.md) | Identity, machine trust, secrets, entitlement, cloud link | Identity and access manager, cloud connector, metering and entitlement manager |
 | [CLI](cli.md) | `dotc`, the command-line client | (client) |
 | [Console](console.md) | The web client | (client) |

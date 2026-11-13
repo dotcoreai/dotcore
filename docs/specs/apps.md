@@ -36,8 +36,8 @@ flowchart TB
   W -->|"inference base URL"| R["Linked inference route"]
 ```
 
-- The apps controller owns application deployments: intent, placement, lifecycle, readiness and exposure
-  policy.
+- The apps controller owns application deployments: intent, placement, lifecycle, readiness and
+  exposure policy.
 - The app proxy enforces access policy and forwards allowed traffic to ready workloads.
 - The identity and access manager decides who may reach an app ([access](access.md)).
 - The hosting node runs the app's workload through its runtime backend and reports its status
@@ -113,7 +113,7 @@ What an application deployment keeps from creation:
 - The exact, immutable launch identity of each service.
 - The resolved typed parameters: catalog defaults, then operator overrides at creation, projected
   into service configuration.
-- The inference base URL at which the hosting node reaches the manager, composed at creation.
+- The inference base URL at which the hosting node reaches the site manager, composed at creation.
 - Its own published URL and a site-unique published host port, allocated at creation. The port
   belongs to the deployment, not to its snapshot or launch plan.
 - Any optional route link.
@@ -132,8 +132,8 @@ What an application deployment keeps from creation:
 
 #### Responsibilities
 
-- Own application deployment intent, placement, lifecycle, reconciliation, readiness, exposure policy and
-  status.
+- Own application deployment intent, placement, lifecycle, reconciliation, readiness, exposure
+  policy and status.
 - Own app configuration resolution and endpoint projection, including the site inference base URL
   and optional route links.
 - Own typed app parameter resolution.

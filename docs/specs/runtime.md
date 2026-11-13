@@ -125,9 +125,8 @@ product state.
 
 Each backend realizes workloads for one kind of target:
 
-- Docker runs workloads as containers on Linux targets. On a Mac, Dotcore reaches Docker Desktop
-  through its default socket. Its linux/arm64 target reports no GPU, so GPU apps run on the CPU
-  there.
+- Docker runs workloads as containers on Linux targets. On a Mac, Dotcore reaches Docker Desktop.
+  Its linux/arm64 target reports no GPU, so GPU apps run on the CPU there.
 - Native runs each workload as a host process on the host platform, darwin/arm64 included, held by a
   launcher process per workload.
 - Simulated runs workloads on the node's declared machine. Each model workload uses its resolved
