@@ -1159,19 +1159,16 @@ async fn abandoned_snapshot_writer_lock_allows_repair() {
         panic!("simulate writer termination");
     });
     received.await.expect("writer acquired lock");
-    assert!(
-        !independent
-            .try_lock_exclusive()
-            .expect("probe retained writer lock")
-    );
+    assert!(matches!(
+        independent.try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
 
     release.send(()).expect("release retained writer");
     assert!(holder.await.expect_err("writer terminated").is_panic());
-    assert!(
-        independent
-            .try_lock_exclusive()
-            .expect("probe abandoned writer lock release")
-    );
+    independent
+        .try_lock()
+        .expect("probe abandoned writer lock release");
     drop(independent);
 
     let repaired = tokio::time::timeout(
@@ -2183,9 +2180,7 @@ async fn coordinate_lock_contention_is_cancelled_while_external_lock_remains_hel
         .truncate(false)
         .open(lock_path)
         .expect("external lock file");
-    external_lock
-        .lock_exclusive()
-        .expect("external coordinate lock");
+    external_lock.lock().expect("external coordinate lock");
     let attempted = Arc::new(tokio::sync::Notify::new());
     let cache = cache.with_lock_attempted(attempted.clone());
     let cancellation = CancellationToken::new();

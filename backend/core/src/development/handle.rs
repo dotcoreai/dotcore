@@ -9,7 +9,7 @@
 //! exact workload it created and never to another one.
 
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io::{self, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Component, Path, PathBuf},
@@ -18,7 +18,6 @@ use std::{
 };
 
 use dotcore_proto::dotcore::telemetry::v1::WorkloadResourceInputs;
-use fs4::fs_std::FileExt;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
@@ -191,7 +190,7 @@ impl ScopeLock {
 
 impl Drop for ScopeLock {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.file);
+        let _ = self.file.unlock();
     }
 }
 
@@ -252,7 +251,7 @@ impl OwnershipHandleFile {
 
 impl Drop for OwnershipHandleFile {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.lock);
+        let _ = self.lock.unlock();
     }
 }
 
@@ -310,7 +309,7 @@ fn scope_lock_path(runtime_scope: &str) -> PathBuf {
 
 fn acquire_scope_lock(path: &Path) -> Result<ScopeLock, OwnershipHandleError> {
     let file = open_scope_lock(path)?;
-    file.lock_exclusive()
+    file.lock()
         .map_err(|source| scope_lock_error(path, source))?;
     Ok(ScopeLock { file })
 }
@@ -324,10 +323,10 @@ fn acquire_scope_lock_cancellable(
         if cancellation.is_cancelled() {
             return Err(OwnershipHandleError::Cancelled);
         }
-        match file.try_lock_exclusive() {
-            Ok(true) => return Ok(ScopeLock { file }),
-            Ok(false) => std::thread::sleep(LOCK_RETRY_INTERVAL),
-            Err(error) => return Err(scope_lock_error(path, error)),
+        match file.try_lock() {
+            Ok(()) => return Ok(ScopeLock { file }),
+            Err(TryLockError::WouldBlock) => std::thread::sleep(LOCK_RETRY_INTERVAL),
+            Err(TryLockError::Error(error)) => return Err(scope_lock_error(path, error)),
         }
     }
 }
@@ -395,7 +394,7 @@ fn lock_path(path: &Path) -> Result<(PathBuf, File), OwnershipHandleError> {
                 source,
             })?,
     )?;
-    lock.lock_exclusive()
+    lock.lock()
         .map_err(|source| OwnershipHandleError::Storage {
             operation: "acquire lock",
             path: lock_path,

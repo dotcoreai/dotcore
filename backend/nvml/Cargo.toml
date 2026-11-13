@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-rust-version = "1.88"
+rust-version = "1.99"
 
 [dependencies]
 nvml-wrapper = "0.13.0"

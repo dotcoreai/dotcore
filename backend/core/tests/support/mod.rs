@@ -273,12 +273,14 @@ pub async fn wait_for_site_store_release(site_paths: &dotcore_domain::SitePaths)
 /// Whether no open store holds the exclusive lock at `lock_path`; a missing lock file means no
 /// store was ever opened there. A probe that acquires the lock releases it when its file closes.
 fn lock_file_released(lock_path: &Path) -> bool {
-    use fs4::fs_std::FileExt as _;
-
     let Ok(file) = fs::File::open(lock_path) else {
         return true;
     };
-    file.try_lock_exclusive().expect("probe node store lock")
+    match file.try_lock() {
+        Ok(()) => true,
+        Err(fs::TryLockError::WouldBlock) => false,
+        Err(fs::TryLockError::Error(error)) => panic!("probe node store lock: {error}"),
+    }
 }
 
 pub async fn prepare_backend<F>(

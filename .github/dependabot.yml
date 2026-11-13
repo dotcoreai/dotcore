@@ -13,6 +13,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Crates released and required at matching versions update in one pull request.
+    groups:
+      grpc:
+        patterns: ["tonic*", "prost*", "pbjson*"]
 
   - package-ecosystem: npm
     directory: /frontend
@@ -20,6 +24,18 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Packages released and required at matching versions update in one pull request.
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      vitest:
+        patterns: ["vitest", "@vitest/*"]
+      tailwind:
+        patterns: ["tailwindcss", "@tailwindcss/*"]
+      eslint:
+        patterns: ["eslint", "@eslint/js"]
+      connectrpc:
+        patterns: ["@connectrpc/*"]
 
   - package-ecosystem: nix
     directory: /

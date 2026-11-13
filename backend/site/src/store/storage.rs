@@ -5,13 +5,11 @@
 //! outcome is unknown poisons the store so no later read can expose state that may not be durable.
 
 use std::{
-    fs::{File, OpenOptions},
+    fs::{File, OpenOptions, TryLockError},
     io::{self, Read},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
-
-use fs4::fs_std::FileExt;
 
 use crate::{
     atomic::{AtomicError, FileSystem, persist},
@@ -125,7 +123,7 @@ pub(super) struct CurrentStateFileLock {
 impl Drop for CurrentStateFileLock {
     fn drop(&mut self) {
         // Explicit unlock prevents a pre-exec child descriptor from extending parent custody.
-        if let Err(source) = FileExt::unlock(&self.file) {
+        if let Err(source) = self.file.unlock() {
             tracing::error!(
                 lock_path = %self.path.display(),
                 error = %source,
@@ -145,16 +143,23 @@ pub(super) fn acquire_lock(path: &Path) -> Result<CurrentStateFileLock, StoreErr
         .truncate(false)
         .open(&lock_path)
         .map_err(|source| StoreError::storage("lock file open", lock_path.display(), source))?;
-    if !file
-        .try_lock_exclusive()
-        .map_err(|source| StoreError::storage("exclusive lock", lock_path.display(), source))?
-    {
-        let source = anyhow::Error::new(io::Error::new(
-            io::ErrorKind::WouldBlock,
-            "current state is already locked",
-        ))
-        .context("current state is already locked");
-        return Err(StoreError::Storage(source));
+    match file.try_lock() {
+        Ok(()) => {}
+        Err(TryLockError::Error(source)) => {
+            return Err(StoreError::storage(
+                "exclusive lock",
+                lock_path.display(),
+                source,
+            ));
+        }
+        Err(TryLockError::WouldBlock) => {
+            let source = anyhow::Error::new(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "current state is already locked",
+            ))
+            .context("current state is already locked");
+            return Err(StoreError::Storage(source));
+        }
     }
     Ok(CurrentStateFileLock {
         file,

@@ -28,7 +28,6 @@ use dotcore_site::initial::{
     },
     validation::SiteInputBundleValidator,
 };
-use fs4::fs_std::FileExt;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixListener,
@@ -120,9 +119,7 @@ async fn joined_node_folders_are_accepted_by_backend_preparation_for_all_combina
             .open(lock_path)
             .expect("backend site input lock");
         assert!(
-            !contender
-                .try_lock_exclusive()
-                .expect("exclusive replacement lock probe"),
+            matches!(contender.try_lock(), Err(fs::TryLockError::WouldBlock)),
             "backend preparation must retain the shared site input lock"
         );
         drop(contender);

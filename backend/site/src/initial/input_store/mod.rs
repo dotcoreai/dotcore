@@ -2,7 +2,7 @@
 
 use std::{
     collections::BTreeSet,
-    fs::{self, File, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io::{self, Write},
     os::unix::fs::{MetadataExt, OpenOptionsExt},
     path::{Path, PathBuf},
@@ -14,7 +14,6 @@ use std::{
 
 use anyhow::anyhow;
 use dotcore_proto::dotcore::site::v1::{Site, SiteNode};
-use fs4::fs_std::FileExt;
 
 use crate::{
     NODE_FILE, SITE_FILE,
@@ -45,7 +44,7 @@ pub struct SiteInputLock {
 
 impl Drop for SiteInputLock {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.file);
+        let _ = self.file.unlock();
     }
 }
 
@@ -75,7 +74,7 @@ pub fn acquire_shared_site_lock(
     let (file, lock_path) = open_site_lock(site_root, false)?;
     let deadline = Instant::now() + wait;
     loop {
-        let acquired = FileExt::try_lock_shared(&file)
+        let acquired = try_lock(file.try_lock_shared())
             .map_err(|error| lock_error(&lock_path, "acquire", error))?;
         if acquired {
             return Ok(SiteInputLock { file });
@@ -96,9 +95,8 @@ pub fn try_acquire_exclusive_site_lock(
     site_root: &Path,
 ) -> Result<Option<SiteInputLock>, SiteInputLockError> {
     let (file, lock_path) = open_site_lock(site_root, true)?;
-    let acquired = file
-        .try_lock_exclusive()
-        .map_err(|error| lock_error(&lock_path, "acquire", error))?;
+    let acquired =
+        try_lock(file.try_lock()).map_err(|error| lock_error(&lock_path, "acquire", error))?;
     Ok(acquired.then_some(SiteInputLock { file }))
 }
 
@@ -109,19 +107,19 @@ fn acquire_exclusive_site_lock(site_root: &Path) -> Result<SiteInputLock, Initia
     let (file, lock_path) = open_site_lock(site_root, true)?;
     let deadline = Instant::now() + SITE_LOCK_WRITER_WAIT;
     loop {
-        let acquired = file
-            .try_lock_exclusive()
-            .map_err(|error| lock_error(&lock_path, "acquire", error))?;
+        let acquired =
+            try_lock(file.try_lock()).map_err(|error| lock_error(&lock_path, "acquire", error))?;
         if acquired {
             return Ok(SiteInputLock { file });
         }
 
         // Only a running backend holds the lock shared, so a successful shared probe means the
         // holder is not another writer.
-        let shared = FileExt::try_lock_shared(&file)
+        let shared = try_lock(file.try_lock_shared())
             .map_err(|error| lock_error(&lock_path, "probe", error))?;
         if shared {
-            FileExt::unlock(&file).map_err(|error| lock_error(&lock_path, "release", error))?;
+            file.unlock()
+                .map_err(|error| lock_error(&lock_path, "release", error))?;
             return Err(InitialSiteWriteError::SiteRunning);
         }
 
@@ -145,13 +143,12 @@ fn ensure_existing_site_lock_available(site_root: &Path) -> Result<(), InitialSi
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(storage_error("open site input lock", &lock_path, error)),
     };
-    let acquired = file
-        .try_lock_exclusive()
+    let acquired = try_lock(file.try_lock())
         .map_err(|error| InitialSiteWriteError::Lock(lock_error(&lock_path, "acquire", error)))?;
     if !acquired {
         return Err(InitialSiteWriteError::SiteRunning);
     }
-    FileExt::unlock(&file)
+    file.unlock()
         .map_err(|error| InitialSiteWriteError::Lock(lock_error(&lock_path, "release", error)))
 }
 
@@ -1000,6 +997,15 @@ fn parent_directory(path: &Path) -> Result<&Path, InitialSiteWriteError> {
     path.parent().ok_or_else(|| {
         InitialSiteWriteError::Storage(anyhow!("initial site target has no parent directory"))
     })
+}
+
+/// Reads a non-blocking lock attempt as whether the lock was acquired; contention is not an error.
+fn try_lock(attempt: Result<(), TryLockError>) -> io::Result<bool> {
+    match attempt {
+        Ok(()) => Ok(true),
+        Err(TryLockError::WouldBlock) => Ok(false),
+        Err(TryLockError::Error(error)) => Err(error),
+    }
 }
 
 fn lock_error(path: &Path, operation: &str, error: std::io::Error) -> SiteInputLockError {
