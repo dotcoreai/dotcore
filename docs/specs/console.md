@@ -63,8 +63,8 @@ flowchart LR
 - Draw what the server answers: owner reads, capacity verdicts, previews, recommendations and
   metrics.
 - Hide Get started for the whole site once a ready step shows or the operator dismisses it. The
-  profile menu reopens it. The choice is a site-wide console setting, read from and updated through
-  the site manager ([sites](sites.md#site-manager)).
+  profile menu still opens the page without changing the choice. The choice is a site-wide console
+  setting, read from and updated through the site manager ([sites](sites.md#site-manager)).
 - Explain the impact of actions, confirm destructive ones, and show actionable failures
   ([README](README.md#principles)).
 
