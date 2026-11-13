@@ -10,5 +10,5 @@ readme.workspace = true
 rust-version = "1.88"
 
 [dependencies]
-nvml-wrapper = "0.12.1"
+nvml-wrapper = "0.13.0"
 thiserror.workspace = true
