@@ -5,8 +5,8 @@ applicationId: "comfyui"
 displayName: "ComfyUI"
 description: "Node-based image and video generation served through an HTTP prompt API."
 notes: |-
-  Downloaded models live in storage shared by every ComfyUI deployment on the node, so they survive removing a deployment. Custom nodes, inputs, generated images, and user state stay with the deployment. The editor's missing-models dialog downloads public models from Hugging Face and Civitai on the server; models that need a login are placed by hand.
-  Deployments on one node share their models, so one deployment can place a model file, including formats that run code when loaded, that another deployment loads. Each deployment already runs as root without a login, so this grants no new authority.
+  By default, downloaded models are shared by every ComfyUI deployment on the node and survive removing a deployment; choose "This deployment" in Advanced to delete them at teardown. Custom nodes, inputs, generated images, and user state stay with the deployment. The editor's missing-models dialog downloads public models from Hugging Face and Civitai on the server; models that need a login are placed by hand.
+  With shared models, one deployment can place a model file, including formats that run code when loaded, that another deployment loads. Each already runs as root without a login, so this grants no new authority.
   The app has no login. Anyone who can reach its published port can run workflows that load any custom node of the deployment, which run as root with the container's network and GPU access.
   The only access control is the address the node publishes applications on, plus the network in front of it, so publish ComfyUI on a trusted network only.
 version: "0.42.5"
@@ -47,13 +47,14 @@ graph:
         - bindingName: "data"
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_DEPLOYMENT"
-        # Downloaded models, nested over the base directory's models folder. Every ComfyUI
-        # deployment on the node shares this storage, and it outlives each deployment.
+          placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
+        # Downloaded models, nested over the base directory's models folder. By default every
+        # ComfyUI deployment on the node shares this storage and it outlives each deployment; the
+        # operator may keep it with the deployment instead.
         - bindingName: "models"
           mountPath: "/data/models"
           kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_APPLICATION"
+          placements: ["STORAGE_PLACEMENT_APPLICATION", "STORAGE_PLACEMENT_DEPLOYMENT"]
       readiness:
         httpGet:
           portName: "http"

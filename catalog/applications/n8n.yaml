@@ -112,7 +112,7 @@ graph:
         - bindingName: "data"
           mountPath: "/home/node/.n8n"
           kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_DEPLOYMENT"
+          placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
       readiness:
         httpGet:
           portName: "http"
