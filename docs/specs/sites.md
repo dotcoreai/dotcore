@@ -1,6 +1,6 @@
 # Sites
 
-A site is one Dotcore installation: one or more machines, each a `SiteNode`, managed together. The
+A site is one Dotcore installation: one or more machines, each a node, managed together. The
 site manager holds the site's authority, and a node agent on each machine reports its hardware.
 
 Code: `backend/site/` (site authority, stores, desired views and fencing, membership), the node
@@ -11,7 +11,8 @@ connection in `backend/core/src/server/`.
 - Create a site on one machine, then add and remove machines.
 - See each node's membership, health, connection and maintenance state, and which node runs the site
   manager.
-- Keep serving on every node while the site has no connection to Dotcore's cloud.
+- Keep serving on every node while the site has no connection to Dotcore's cloud
+  ([access](access.md#invariants)).
 - Reset a stopped site, then provision its workers again ([access](access.md#connecting-nodes)).
 
 ## Architecture
@@ -26,7 +27,7 @@ flowchart TB
     INV["Reconciled inventory"]
     ING["Observability ingest"]
   end
-  subgraph Node["Each SiteNode"]
+  subgraph Node["Each node"]
     REC["Node-local reconciliation"]
     NA["Node agent"]
     FW["Metric forwarder"]
@@ -43,9 +44,9 @@ flowchart TB
   INV -->|"reads"| CAP
 ```
 
-- The site manager owns site identity, membership, topology and the site-wide inventory.
-- Each node runs node-local reconciliation for the deployments placed on it, on behalf of their
-  owning controllers.
+- The site manager owns site identity, membership, topology and the reconciled inventory.
+- Each node runs node-local reconciliation for the deployments placed on it, on behalf of the
+  workload controllers.
 - The node agent reports the node's hardware and runs node administration. It never touches
   workloads.
 
@@ -56,7 +57,7 @@ flowchart TB
   IC["Inference controller"] -->|"owner section"| SNAP
   AC["Apps controller"] -->|"owner section"| SNAP
   subgraph SM["Site manager"]
-    SNAP["Authoritative site snapshot"]
+    SNAP["Desired site state"]
   end
   SNAP -->|"derive"| VA["Node view for node A"]
   SNAP -->|"derive"| VB["Node view for node B"]
@@ -66,8 +67,8 @@ flowchart TB
   RB -->|"typed status per owner"| SM
 ```
 
-The site manager derives one complete, revisioned node view per node from a single authoritative
-site snapshot. Each node installs its view and reconciles toward it.
+The site manager derives one complete, revisioned node view per node from the desired site state.
+Each node installs its view and reconciles toward it.
 
 - Distribution, acknowledgement and fencing are generic control-plane capabilities. Typed owner
   sections inside a view keep each controller's authority.
@@ -83,7 +84,7 @@ site snapshot. Each node installs its view and reconciles toward it.
 - An invalid owner assignment fails only that deployment. It doesn't reject the node view or freeze
   other owners.
 - Owners never resolve development artifacts or probe app data. The hosting node does both.
-- The node view is disposable and read-only. Every node, the `site_manager` node included, realizes
+- The node view is disposable and read-only. Every node, the site manager node included, realizes
   workloads only from it.
 
 ### The node control stream
@@ -111,14 +112,15 @@ and typed controller status flow up. View publications and acknowledgements flow
 - On every stream open, the node sends its current observations and status again. Neither end
   buffers node state across a reconnect.
 - Any message counts as contact. An idle node sends a heartbeat, and contact lapses after a silence
-  bound. Metric bucket streams never count as contact.
+  bound. Metrics, which travel over the [authenticated node channel](storage.md#recording-metrics),
+  never count as contact.
 - When a stream closes, its node is disconnected at once, unless a newer stream of the same
   incarnation replaced it.
 - A new incarnation is admitted only after the previous incarnation's stream has closed or fallen
   silent.
 - The site manager republishes each node's current view periodically. That keeps the node's action
-  fencing current and serves as the manager's heartbeat. A node reopens its stream when the manager
-  stays silent.
+  fencing current and serves as the site manager's heartbeat. A node reopens its stream when the
+  site manager stays silent.
 - Nodes take readings on epoch-aligned slots, so readings from every node in one slot describe the
   same moment.
 
@@ -138,15 +140,15 @@ sequenceDiagram
 ```
 
 - A withdrawal reaches the hosting node as teardown intent in its node view, never as absence. The
-  node tears the workload down, keeps cleanup evidence for that teardown generation and reports it in
-  its status until the manager acknowledges it.
+  node tears the workload down, keeps cleanup evidence for that teardown generation and reports it
+  in its status until the site manager acknowledges it.
 - The deployment leaves the view only once it's removed, and the node drops acknowledged evidence
   whose teardown the view no longer carries.
-- The manager accepts cleanup evidence only from the node named by the deployment's exact placement,
-  and acknowledges it only after the teardown's removal is durable.
+- The site manager accepts cleanup evidence only from the node named by the deployment's exact
+  placement, and acknowledges it only after the teardown's removal is durable.
 - A deployment withdrawn by removing its node finalizes without cleanup evidence. Only the removed
   node can clean up what remains, using exact site and execution-target ownership evidence. The
-  manager never does.
+  site manager never does.
 
 ## Resources
 
@@ -154,9 +156,7 @@ sequenceDiagram
 
 A node's stable membership in the site, not its health or workloads.
 
-- The public node projection marks the `site_manager` node without giving it a separate connection
-  state.
-- Removing a node withdraws its membership and its identity pin together ([access](access.md)).
+- Removing a node also withdraws its identity ([access](access.md#joining-a-node)).
 
 ### Site configuration
 
@@ -178,23 +178,23 @@ What tells one server process which declared node it is.
 
 #### Responsibilities
 
-- Own site identity, membership, topology and runtime configuration, and the site-wide inventory,
+- Own site identity, membership, topology and runtime configuration, and the reconciled inventory,
   health and maintenance view.
 - Hold authoritative site intent and owner-controlled management in the process bound to the
-  `site_manager` node.
+  site manager node.
 - Request node facts and supported administrative actions from node agents.
 - Own the reconciled, node-scoped view of current hardware observations ([machines](machines.md)).
 - Receive each node's hardware observations and typed controller status over its node control
   stream.
-- Derive each node's liveness from its current incarnation's stream, the `site_manager` node's own
+- Derive each node's liveness from its current incarnation's stream, the site manager node's own
   included.
 - Judge observation freshness and status freshness separately, each by its own age.
 - Host observability's ingest of node metric buckets ([storage](storage.md)).
 
 #### Boundaries
 
-- Doesn't place or operate workloads. Controllers and their node-local reconciliation do.
-- Controllers and the route manager keep authority over their own configuration records.
+- Doesn't place or operate workloads. Workload controllers and their node-local reconciliation do.
+- Workload controllers and the route manager keep authority over their own configuration records.
 - Node observations feed only the current-observation view, admission, liveness and freshness.
   Metric timestamps never set freshness.
 
@@ -226,12 +226,23 @@ What tells one server process which declared node it is.
 - Per-process resource observations stay on the reporting node and carry no product workload
   identity.
 
-### The `site_manager` node
+### Site manager node
 
-The node that hosts the manager process runs workloads like every other node.
+The node that hosts the site manager process.
+
+#### Responsibilities
+
+- Run the model and application deployments placed on it, like every other node, realized only
+  from its node view ([distributing node views](#distributing-node-views)).
+- Report typed controller status and cleanup evidence, and keep its liveness through its current
+  incarnation's node control stream, like any node.
+- Hold its own site-issued node identity ([access](access.md#joining-a-node)).
 
 #### Boundaries
 
+- Has no separate head or master role, and no high availability.
+- Has no separate connection state. Clients see it as a node like any other, marked as the one that
+  runs the site manager.
 - It uses the same node-local reconciliation, status and cleanup evidence, action fencing,
   diagnostic reads, serving admission and observations as any node. Only its transport differs: it
   uses in-process adapters, so it needs no private listener.
@@ -255,12 +266,16 @@ The node that hosts the manager process runs workloads like every other node.
 - The accepting owner keeps the audit of accepted changes and the status of operations.
 - Removing a node is an exclusive administrative action on a stopped site. In one revision, it
   withdraws the deployments placed on that node and the routes they alone serve, using the owners'
-  teardown rules. Owners treat those deployments as finalized without cleanup evidence.
+  teardown rules.
+- Resetting a site is an exclusive administrative action on a stopped site, not reconciliation or a
+  console capability. It rotates the site's trust, so its workers are provisioned again
+  ([access](access.md#connecting-nodes)), and it removes the site's caches on the machine it runs on
+  ([runtime](runtime.md#workload-cache)).
 - Destructive recovery of a stopped site is an exclusive administrative boundary, not reconciliation
   or a console capability. It needs exact ownership evidence before it cleans up infrastructure.
-- Freshness is an age on the clock of the process that holds the observation: the manager ages a
-  node's observation from when it received it, and a node ages its own collection from when it read
-  it. No node clock sets the manager's freshness.
+- Freshness is an age on the clock of the process that holds the observation: the site manager ages
+  a node's observation from when it received it, and a node ages its own collection from when it
+  read it. No node clock sets the site manager's freshness.
 
 ## Future direction
 
@@ -268,8 +283,7 @@ The node that hosts the manager process runs workloads like every other node.
   over-capacity actions.
 - Multi-machine fleet operations: cross-node inventory and workload attribution.
 - Signed updates, rollback, backup and restore, and recovery.
-- During a cloud outage, keep local serving, reconciliation, telemetry and durable accounting, and
-  mark remote views as stale and remote controls as unavailable.
+- During a cloud outage, mark remote views as stale and remote controls as unavailable.
 
 ## Open decisions
 

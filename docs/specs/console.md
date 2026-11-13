@@ -38,7 +38,8 @@ sequenceDiagram
   end
 ```
 
-- The console subscribes to the management API's live watches ([README](README.md#managing-the-site)).
+- The console subscribes to the management API's live watches
+  ([README](README.md#managing-the-site)).
 
 ### Trying a route
 
