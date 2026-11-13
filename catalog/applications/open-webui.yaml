@@ -4,7 +4,25 @@ applicationId: "open-webui"
 displayName: "Open WebUI"
 description: "Self-hosted chat interface for the models on this site."
 version: "0.11.4"
+notes: |-
+  Sign in with the email and password in this deployment's sidebar.
 graph:
+  parameters:
+    - parameterId: "admin-email"
+      displayName: "Admin email"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The email address for logging in to Open WebUI as its admin."
+      text:
+        minimumLength: 3
+        maximumLength: 254
+        defaultValue: "admin@dotcore.local"
+    - parameterId: "admin-password"
+      displayName: "Admin password"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The initial password for logging in to Open WebUI as its admin. Leave it empty to generate a random one, which you can read in the deployment's sidebar. If you change the password inside Open WebUI, the one shown here is no longer valid."
+      secret:
+        generatedLength: 32
+        minimumLength: 12
   services:
     - serviceName: "web"
       # The image and its digests are pinned by `apps/open-webui/docker-image.nix`.
@@ -24,7 +42,13 @@ graph:
       configurationBindings:
         - bindingName: "webui-auth"
           environmentVariable: "WEBUI_AUTH"
+          literalValue: "true"
+        - bindingName: "signup"
+          environmentVariable: "ENABLE_SIGNUP"
           literalValue: "false"
+        - bindingName: "admin-email"
+          environmentVariable: "WEBUI_ADMIN_EMAIL"
+          parameterId: "admin-email"
         - bindingName: "persistent-config"
           environmentVariable: "ENABLE_PERSISTENT_CONFIG"
           literalValue: "false"
@@ -40,6 +64,11 @@ graph:
         - bindingName: "openai-api-base-url"
           environmentVariable: "OPENAI_API_BASE_URL"
           resolvedValueName: "configured-inference-openai-base-url"
+      secretBindings:
+        - bindingName: "admin-password"
+          environmentVariable: "WEBUI_ADMIN_PASSWORD"
+          parameterId: "admin-password"
+          form: "APPLICATION_SECRET_FORM_PLAIN"
       storageBindings:
         - bindingName: "data"
           mountPath: "/app/backend/data"

@@ -2076,8 +2076,8 @@ fn configure_route_name_application(root: &Path) {
         .replace("applicationId: \"open-webui\"", "applicationId: \"route-test\"")
         .replace("displayName: \"Open WebUI\"", "displayName: \"Route Test\"")
         .replace(
-            "      storageBindings:",
-            "        - bindingName: \"route-name\"\n          environmentVariable: \"ROUTE_NAME\"\n          literalValue: \"\"\n          input:\n            inferenceRoute:\n              projection: \"APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME\"\n      storageBindings:",
+            "      secretBindings:",
+            "        - bindingName: \"route-name\"\n          environmentVariable: \"ROUTE_NAME\"\n          literalValue: \"\"\n          input:\n            inferenceRoute:\n              projection: \"APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME\"\n      secretBindings:",
         );
     fs::create_dir_all(root.join("catalog/applications"))
         .expect("route-name application directory");
