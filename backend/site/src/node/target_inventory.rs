@@ -250,6 +250,17 @@ impl NodeAcceleratorFacts {
         self
     }
 
+    /// Names the product model the vendor reports for the device added last.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_device_model(mut self, model: impl Into<String>) -> Self {
+        self.memory
+            .devices
+            .last_mut()
+            .expect("a device to name")
+            .model = model.into();
+        self
+    }
+
     /// Replaces the host memory facts.
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_host_memory(mut self, total_bytes: u64, available_bytes: u64) -> Self {
