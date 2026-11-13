@@ -248,7 +248,7 @@ fn modalities(supports_text: bool, supports_image: bool) -> Vec<i32> {
 #[cfg(test)]
 mod tests {
     use dotcore_proto::dotcore::{
-        catalog::v1::engine_parameter_value,
+        catalog::v1::parameter_value,
         inference::v1::{FallbackGroup, FallbackGroupSelection, InferenceRoute},
         model::v1::ModelDeploymentSnapshot,
     };
@@ -394,7 +394,7 @@ mod tests {
             .expect("fixture parameter values");
         for value in &mut values.values {
             if value.parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID {
-                value.value = Some(engine_parameter_value::Value::UnsignedInteger(context));
+                value.value = Some(parameter_value::Value::UnsignedInteger(context));
             }
         }
         ModelDeploymentDeclaration {

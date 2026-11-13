@@ -5,7 +5,7 @@ use dotcore_catalog::test_support::{
 use dotcore_proto::{
     dotcore::{
         catalog::v1::{
-            EngineParameterValue, ModelOptionParameterValue, ModelOptionValues,
+            ModelOptionParameterValue, ModelOptionValues, ParameterValue,
             model_option_parameter_value,
         },
         telemetry::v1::{
@@ -1466,10 +1466,10 @@ fn record(
             model_artifact_id: "sized-weights".to_owned(),
             engine_release_id: "fixture-engine".to_owned(),
             engine_artifact_id: "linux-amd64".to_owned(),
-            engine_parameter_values: Some(EngineParameterValues {
-                values: vec![EngineParameterValue {
+            engine_parameter_values: Some(ParameterValues {
+                values: vec![ParameterValue {
                     parameter_id: "total-context".to_owned(),
-                    value: Some(engine_parameter_value::Value::UnsignedInteger(context_size)),
+                    value: Some(parameter_value::Value::UnsignedInteger(context_size)),
                 }],
             }),
             ..WorkloadResourceInputs::default()

@@ -51,8 +51,10 @@ import {
   CONTEXT_PARAMETER_IDS,
   CONTEXT_PER_REQUEST_PARAMETER_ID,
   effectiveEngineParameters,
+  effectiveVisibility,
   engineParameterError,
   engineParameterValues,
+  PARALLEL_REQUESTS_PARAMETER_ID,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import {
@@ -62,7 +64,8 @@ import {
   kvCachePrecisionOverrides,
 } from "@/features/models/runtime/kv-cache-precision";
 import {
-  parallelRequestsCustomization,
+  artifactCustomization,
+  changedEngineParameters,
   profileEngineRelease,
   runtimeCustomizations,
 } from "@/features/models/runtime/local-deployment-configuration";
@@ -74,13 +77,14 @@ import {
   speculativeOptionOverrides,
 } from "@/features/models/runtime/speculative-choice";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
-import {
-  type EngineParameterDefinition,
-  type EngineParameterValues,
-  type EngineRelease,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
 import type { Model } from "@/gen/dotcore/catalog/v1/model_pb";
+import {
+  type ParameterDefinition,
+  type ParameterValues,
+  ParameterVisibility,
+} from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import {
   type ModelDeployment,
@@ -122,7 +126,7 @@ import type { ResourceEstimateLoader } from "./use-resource-estimate";
 /**
  * The deploy dialog's form: the launch the operator builds across the steps, its validation, the
  * command preview and the submit. Profile, target and memory facts come from their own hooks; the
- * launch's context is shared by the Context step and the profile table's "Sized for".
+ * launch's context is shared by the Settings step and the profile table's "Sized for".
  */
 export function useModelDeployForm({
   applications,
@@ -237,7 +241,7 @@ export function useModelDeployForm({
   const [name, setName] = useState(model.displayName);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
-  // The errors of the latest blocked step change or Deploy, which open collapsed Runtime sections.
+  // The errors of the latest blocked step change or Deploy, which open collapsed Advanced sections.
   const [revealedErrors, setRevealedErrors] = useState<FieldErrors>(new Map());
   const artifactRef = useRef<HTMLInputElement>(null);
   const engineParameterRefs = useRef<Map<string, HTMLElement | null>>(new Map());
@@ -287,9 +291,7 @@ export function useModelDeployForm({
     : withoutUnsetContextPerRequest(defaultReadValues, undefined);
   // The values of a profile's first read under each scenario stay for the dialog's life, so later
   // reads never swap them under the operator; a new "Sized for" starts from its own read.
-  const [frozenValues, setFrozenValues] = useState<ReadonlyMap<string, EngineParameterValues>>(
-    new Map(),
-  );
+  const [frozenValues, setFrozenValues] = useState<ReadonlyMap<string, ParameterValues>>(new Map());
   const frozenKey = profile ? `${profile.profileId}\0${sizingScenarioKey(scenario)}` : undefined;
   if (frozenKey && readValues && !frozenValues.has(frozenKey))
     setFrozenValues(new Map(frozenValues).set(frozenKey, readValues));
@@ -378,7 +380,7 @@ export function useModelDeployForm({
     sizingRead: profileCompatibility.sizing,
   });
 
-  // The selected profile's row shows the value the Context step starts from, frozen with it; the
+  // The selected profile's row shows the value the Settings step starts from, frozen with it; the
   // other rows stay live, so their changes still show.
   const shownProfileRows =
     scenario || fitStart === undefined
@@ -534,15 +536,22 @@ export function useModelDeployForm({
   const contextParameters = exposedParameters.filter((parameter) =>
     CONTEXT_PARAMETER_IDS.has(parameter.parameterId),
   );
+  // The other parameters split by the profile's visibility: basic ones follow the context on the
+  // Settings step, advanced ones sit on the Advanced step.
+  const settingsParameters = exposedParameters.filter(
+    (parameter) =>
+      !CONTEXT_PARAMETER_IDS.has(parameter.parameterId) &&
+      effectiveVisibility(parameter, profile) === ParameterVisibility.BASIC,
+  );
+  const advancedParameters = exposedParameters.filter(
+    (parameter) =>
+      !CONTEXT_PARAMETER_IDS.has(parameter.parameterId) && !settingsParameters.includes(parameter),
+  );
   // A context change edits the shared context: total context and context per request become the
   // chosen ones, starting from what the step shows. A settled change, from a slider or preset, also
   // moves the other of the two to keep the edited one, and sizes "Sized for" when valid; typing
   // waits until the input is left.
-  const changeContext = (
-    parameter: EngineParameterDefinition,
-    nextInput: string,
-    settled?: boolean,
-  ) => {
+  const changeContext = (parameter: ParameterDefinition, nextInput: string, settled?: boolean) => {
     const edited = scenarioInput(parameter.parameterId);
     if (!edited) return;
 
@@ -579,7 +588,7 @@ export function useModelDeployForm({
     invalidatePreview();
   };
   // A typed context settles once left, as a settled change does.
-  const blurContext = (parameter: EngineParameterDefinition) => {
+  const blurContext = (parameter: ParameterDefinition) => {
     if (!dirtyFields.isDirty(parameter.parameterId)) return;
     const edited = scenarioInput(parameter.parameterId);
     if (edited) setContext((previous) => settledContext(previous, edited));
@@ -602,10 +611,37 @@ export function useModelDeployForm({
       }),
     );
   };
+  // A change to a parameter outside the context, on the Settings or the Advanced step.
+  const changeParameter = (parameter: ParameterDefinition, nextInput: string) => {
+    dirtyFields.markDirty(parameter.parameterId);
+    const nextInputs = new Map(engineParameterInputs).set(parameter.parameterId, nextInput);
+    // Parallel requests belong to the shared context, which "Sized for" also edits and a profile
+    // change keeps.
+    if (parameter.parameterId === PARALLEL_REQUESTS_PARAMETER_ID)
+      setContext((previous) => ({ ...previous, parallelRequests: nextInput }));
+    else setEditedInputs((inputs) => new Map(inputs).set(parameter.parameterId, nextInput));
+    if (fieldErrors.has(parameter.parameterId))
+      setFieldError(
+        parameter.parameterId,
+        engineParameterError(parameter, nextInputs, derivedParameterIds),
+      );
+    invalidatePreview();
+  };
+  const blurParameter = (parameter: ParameterDefinition) => {
+    if (!dirtyFields.isDirty(parameter.parameterId)) return;
+    setTimeout(
+      () =>
+        setFieldError(
+          parameter.parameterId,
+          engineParameterError(parameter, engineParameterInputsRef.current, derivedParameterIds),
+        ),
+      0,
+    );
+  };
   const validateRoute = (values = exposureValues, deploymentName = name): string | undefined =>
     validateDeploymentExposure(values, deploymentName, existingRouteNames);
   const parameterErrors = (
-    parameters: readonly EngineParameterDefinition[],
+    parameters: readonly ParameterDefinition[],
   ): [string, string | undefined][] =>
     parameters.map((parameter) => [
       parameter.parameterId,
@@ -627,20 +663,17 @@ export function useModelDeployForm({
         ]);
       case "Profile":
         return toFieldErrors([["profileId", profileError]]);
-      case "Context":
+      case "Settings":
         return toFieldErrors([
           ...parameterErrors(contextParameters),
+          ...parameterErrors(settingsParameters),
           // Held while the next estimate loads: leaving a field restarts it, so Next would pass.
           [launchRejectionField, launchRejectionMessage],
         ]);
-      case "Runtime":
+      case "Advanced":
         return toFieldErrors([
           ["artifact", binding ? undefined : "Select a model artifact."],
-          ...parameterErrors(
-            exposedParameters.filter(
-              (parameter) => !CONTEXT_PARAMETER_IDS.has(parameter.parameterId),
-            ),
-          ),
+          ...parameterErrors(advancedParameters),
           ["speculativeCount", speculativeChoiceError(speculativeOptions, speculativeChoice)],
         ]);
       case "Deploy": {
@@ -673,7 +706,7 @@ export function useModelDeployForm({
       ["name", nameRef.current],
       ["routeName", routeNameRef.current],
     ]);
-  // Focus waits for the render that shows the errors, which also opens a collapsed Runtime section
+  // Focus waits for the render that shows the errors, which also opens a collapsed Advanced section
   // holding an invalid field.
   const exposeErrors = (errors: FieldErrors): boolean => {
     setFieldErrors(errors);
@@ -752,31 +785,30 @@ export function useModelDeployForm({
     existingRouteNames,
     values: exposureValues,
   });
-  const customizations = [
-    ...runtimeCustomizations(model, profile, engineRelease, {
-      bindingId,
-      declaredValues,
-      inputs: engineParameterInputs,
-    }),
+  const launchEdits = { bindingId, declaredValues, inputs: engineParameterInputs };
+  const optionCustomizations = [
     ...speculativeCustomizations(speculativeOptions, speculativeChoice),
     ...kvCachePrecisionCustomizations(kvCachePrecisionOption, kvCachePrecision),
   ];
-  // Runtime settings that differ from the defaults, as the Deploy summary lists them, including
-  // the launch's own parallel requests and custom arguments that a profile change keeps.
+  // The settings a profile change resets.
+  const customizations = [
+    ...runtimeCustomizations(model, profile, engineRelease, launchEdits),
+    ...optionCustomizations,
+  ];
+  // What the Deploy summary lists apart from the context: each changed engine parameter, then the
+  // other advanced settings that differ from the defaults, including the custom arguments that a
+  // profile change keeps.
+  const changedParameters = changedEngineParameters(profile, engineRelease, launchEdits);
   const deployCustomizations = [
-    ...customizations,
-    ...parallelRequestsCustomization(profile, engineRelease, {
-      bindingId,
-      declaredValues,
-      inputs: engineParameterInputs,
-    }),
+    ...artifactCustomization(model, profile, bindingId),
+    ...optionCustomizations,
     ...(customArgumentTokens.length
       ? [formatCount(customArgumentTokens.length, "custom argument")]
       : []),
   ];
 
   const runPreview = async () => {
-    for (const owner of ["Profile", "Context", "Runtime"] as const) {
+    for (const owner of ["Profile", "Settings", "Advanced"] as const) {
       const errors = stepErrors(owner);
       if (errors.size) {
         revealErrors(owner, errors);
@@ -877,12 +909,16 @@ export function useModelDeployForm({
 
   return {
     advanced,
+    advancedParameters,
     announcement,
     artifactRef,
     binding,
     bindingId,
     blurContext,
+    blurParameter,
+    changedParameters,
     changeContext,
+    changeParameter,
     chooseProfile,
     commandPreview,
     compatibility,
@@ -900,8 +936,6 @@ export function useModelDeployForm({
     dirtyFields,
     effectiveTargetsError,
     engineParameterInputs,
-    derivedParameterIds,
-    engineParameterInputsRef,
     engineParameterRefs,
     executionTargetRef,
     executionTargets,
@@ -936,8 +970,6 @@ export function useModelDeployForm({
     selectedExecutionTarget,
     selectedProfileRow,
     setBindingId,
-    setContext,
-    setEditedInputs,
     setExposureValues,
     setFieldError,
     setIneligibleTarget,
@@ -945,6 +977,7 @@ export function useModelDeployForm({
     setPickedKvCachePrecision,
     setPickedPlacement,
     setSpeculativeChoice,
+    settingsParameters,
     shownProfileRows,
     sizing,
     speculativeChoice,

@@ -3,9 +3,9 @@ syntax = "proto3";
 package dotcore.model.v1;
 
 import "dotcore/capacity/v1/placement_preview.proto";
-import "dotcore/catalog/v1/engine_release.proto";
 import "dotcore/catalog/v1/model.proto";
 import "dotcore/catalog/v1/oci.proto";
+import "dotcore/catalog/v1/parameter.proto";
 import "dotcore/catalog/v1/recommendation.proto";
 import "dotcore/catalog/v1/selector.proto";
 import "dotcore/deployment/v1/memory_fit.proto";
@@ -91,7 +91,7 @@ message LocalModelDeploymentConfiguration {
   string model_artifact_binding_id = 1;
 
   // Exact typed engine parameter values when supplied, an empty set deriving from sizing; the profile's defaults when absent, even with a supplied binding.
-  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 2;
+  dotcore.catalog.v1.ParameterValues engine_parameter_values = 2;
 
   // Exact ordered custom engine argv tokens appended without interpretation.
   repeated string custom_argument_tokens = 3;
@@ -200,7 +200,7 @@ message HardwareClassResourceEstimate {
   repeated ScalarResourceEstimate estimates = 2;
 
   // Engine parameter values derived from catalog sizing because the configuration omitted them.
-  dotcore.catalog.v1.EngineParameterValues derived_engine_parameter_values = 3;
+  dotcore.catalog.v1.ParameterValues derived_engine_parameter_values = 3;
 
   // Operator-readable reason a launch would reject these values; absent when it wouldn't.
   optional string launch_rejection = 4;
@@ -387,7 +387,7 @@ message ModelProfileSizing {
   string profile_id = 2;
 
   // Profile and engine parameter defaults with the scenario's values and the filled context per request, without sizing-derived values; absent when unsupported.
-  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 3;
+  dotcore.catalog.v1.ParameterValues engine_parameter_values = 3;
 
   // Estimates per supported hardware class in declaration order, omitting unsupported classes and classes whose sizing fails.
   repeated HardwareClassResourceEstimate hardware_class_estimates = 4;

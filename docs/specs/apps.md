@@ -11,7 +11,8 @@ Code: `backend/core/src/application/` (apps controller).
 - Deploy a configured catalog app on a target you choose, on a managed machine, and inspect its
   retained configuration.
 - Pause, resume and tear it down. Teardown stays available while paused.
-- Set the app's typed parameters, basic or advanced, when you create a deployment.
+- Set the app's typed parameters, basic or advanced, when you create a deployment. Secret
+  parameters, such as an app login, are generated unless you supply them.
 - Link the app to an inference route when it declares that dependency, so it uses the site's models.
 - Inspect its lifecycle, readiness, access information, resource use and workload diagnostics.
 - Run GPU apps, such as ComfyUI, on Linux with NVIDIA GPUs, and see their GPUs and measured GPU
@@ -112,7 +113,12 @@ What an application deployment keeps from creation:
   its configured GPU set.
 - The exact, immutable launch identity of each service.
 - The resolved typed parameters: catalog defaults, then operator overrides at creation, projected
-  into service configuration.
+  into service configuration. A binding enabled by a boolean parameter is left out when that
+  parameter is off ([catalog](catalog.md#app-graph)).
+- Its secret parameters: generated at creation unless you supply them, and fixed from then on.
+  Redeploy to change one. A secret binding hands a service the value in plain form, or in a bcrypt
+  form computed once at creation. A secret is still generated and kept when its binding is left
+  out. Access rules: [access](access.md).
 - The inference base URL at which the hosting node reaches the site manager, composed at creation.
 - Its own published URL and a site-unique published host port, allocated at creation. The port
   belongs to the deployment, not to its snapshot or launch plan.
@@ -120,10 +126,13 @@ What an application deployment keeps from creation:
 
 ### App storage
 
-- Storage attachments are scoped to one deployment or to every deployment of the app on a node. The
-  apps controller owns the attachments and their scope, never their content.
-- Storage shared across the app's deployments on a node outlives teardown. Machine cleanup removes it
-  once unused ([storage](storage.md#machine-cleanup)), and site reset removes it too.
+- A storage binding declares its allowed placements in order, and the first is the default. An app
+  binding may allow this deployment, shared by the app (every deployment of the app on a node), or
+  both. You pick one placement per binding at creation. It is fixed: redeploy to change it.
+- The apps controller owns the attachments and their placement, never their content.
+- Teardown deletes the deployment's own data. Storage shared across the app's deployments on a node
+  outlives teardown. Machine cleanup removes it once unused
+  ([storage](storage.md#machine-cleanup)), and site reset removes it too.
 - App content belongs to you and the app.
 
 ## Components
@@ -136,7 +145,7 @@ What an application deployment keeps from creation:
   policy and status.
 - Own app configuration resolution and endpoint projection, including the site inference base URL
   and optional route links.
-- Own typed app parameter resolution.
+- Own typed app parameter resolution, including generating secret parameters at creation.
 - Keep the target's GPU set in the snapshot at creation and pass that whole set to every unit at
   each launch.
 - Before compiling any launch, recheck the kept GPU set against the target's current configured
@@ -173,6 +182,7 @@ What an application deployment keeps from creation:
 ## Future direction
 
 - Protected app access and explicit administrator custom images.
+- Named storage locations declared per machine, which add choices to a binding's placements.
 - Multiple approved apps with versions, configuration, updates, rollback, removal and app data
   policy.
 - Staged updates and rollback under a mature version policy.

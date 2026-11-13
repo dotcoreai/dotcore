@@ -19,14 +19,15 @@ use dotcore_proto::{
             ApplicationEndpointProtocol, ApplicationGraph, ApplicationHttpReadiness,
             ApplicationPrimaryEndpoint, ApplicationService, ApplicationServiceArtifact,
             ApplicationServiceDependency, ApplicationServicePort, ApplicationServiceReadiness,
-            EngineArtifact, EngineParameterDefinition, EngineParameterSchema, EngineParameterValue,
-            EngineParameterValues, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
-            ModelArtifact, ModelExecutionCapabilities, ModelInputCapabilities, ModelInputModality,
-            ModelParallelShape, OciDigest, OciImageReference, OciPlatform, OciRegistryLocation,
-            OciRepository, Selector, StorageBinding, StorageEnvironmentVariable, StorageKind,
-            StorageScope, UnsignedIntegerEngineParameterSchema, application_configuration_binding,
+            EngineArtifact, EngineParameterSchema, HuggingFaceArtifactSource,
+            HuggingFaceFileArtifact, ModelArtifact, ModelExecutionCapabilities,
+            ModelInputCapabilities, ModelInputModality, ModelParallelShape, OciDigest,
+            OciImageReference, OciPlatform, OciRegistryLocation, OciRepository,
+            ParameterDefinition, ParameterValue, ParameterValues, ParameterVisibility, Selector,
+            StorageBinding, StorageEnvironmentVariable, StorageKind, StoragePlacement,
+            UnsignedIntegerParameterSchema, application_configuration_binding,
             application_service_artifact, application_service_readiness, engine_artifact,
-            engine_parameter_definition, engine_parameter_value, hugging_face_artifact_source,
+            hugging_face_artifact_source, parameter_definition, parameter_value,
         },
         deployment::v1::{ArtifactPreparationPolicy, NodeResolvedLaunchIdentity},
         engine::{
@@ -285,6 +286,7 @@ fn complete_site_contract_round_trips_restricted_yaml_and_rejects_unknown_fields
                 service_name: "web".to_owned(),
                 binding_name: "data".to_owned(),
                 storage_name: "web-data".to_owned(),
+                placement: StoragePlacement::Deployment as i32,
             }],
             configuration_attachments: vec![ApplicationConfigurationAttachment {
                 service_name: "web".to_owned(),
@@ -292,6 +294,7 @@ fn complete_site_contract_round_trips_restricted_yaml_and_rejects_unknown_fields
                 environment_variable: "ENDPOINT".to_owned(),
                 value: "http://192.0.2.1/v1".to_owned(),
             }],
+            secret_attachments: Vec::new(),
             inference_route_id: None,
             lifecycle_generation: 4,
             node_resolved_launch_identities: vec![NodeResolvedLaunchIdentity {
@@ -400,7 +403,7 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                         binding_name: "compile-cache".to_owned(),
                         mount_path: "/cache".to_owned(),
                         kind: StorageKind::Cache as i32,
-                        scope: StorageScope::EngineArtifact as i32,
+                        placements: vec![StoragePlacement::EngineArtifact as i32],
                         environment: vec![StorageEnvironmentVariable {
                             name: "CACHE_HOME".to_owned(),
                             relative_path: "home".to_owned(),
@@ -450,21 +453,21 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                     supported_modalities: vec![ModelInputModality::Text as i32],
                     image_input_capacity: None,
                 }),
-                engine_parameter_values: Some(EngineParameterValues {
-                    values: vec![EngineParameterValue {
+                engine_parameter_values: Some(ParameterValues {
+                    values: vec![ParameterValue {
                         parameter_id: "total-context".to_owned(),
-                        value: Some(engine_parameter_value::Value::UnsignedInteger(8_192)),
+                        value: Some(parameter_value::Value::UnsignedInteger(8_192)),
                     }],
                 }),
                 engine_parameter_schema_id: "schema-one".to_owned(),
                 engine_parameter_schema: Some(EngineParameterSchema {
                     schema_id: "schema-one".to_owned(),
-                    parameters: vec![EngineParameterDefinition {
+                    parameters: vec![ParameterDefinition {
                         parameter_id: "total-context".to_owned(),
                         display_name: "Total context".to_owned(),
                         parameter_type: Some(
-                            engine_parameter_definition::ParameterType::UnsignedInteger(
-                                UnsignedIntegerEngineParameterSchema {
+                            parameter_definition::ParameterType::UnsignedInteger(
+                                UnsignedIntegerParameterSchema {
                                     minimum: 1,
                                     maximum: 131_072,
                                     unit: "tokens".to_owned(),
@@ -472,10 +475,12 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                                 },
                             ),
                         ),
-                        exposed: true,
+                        visibility: ParameterVisibility::Basic as i32,
                         description: "Maximum prompt and generation context.".to_owned(),
                     }],
                 }),
+                profile_engine_parameter_defaults: None,
+                profile_engine_parameter_visibility_overrides: Vec::new(),
                 custom_argument_tokens: Vec::new(),
                 resolved_options: Vec::new(),
                 selected_target: Some(dotcore_proto::dotcore::model::v1::ResolvedSelectedTarget {
@@ -598,7 +603,7 @@ fn complete_application() -> Application {
                         binding_name: "database-data".to_owned(),
                         mount_path: "/var/lib/database".to_owned(),
                         kind: StorageKind::Data as i32,
-                        scope: StorageScope::Deployment as i32,
+                        placements: vec![StoragePlacement::Deployment as i32],
                         environment: Vec::new(),
                     }],
                     secret_bindings: Vec::new(),
@@ -642,12 +647,13 @@ fn complete_application() -> Application {
                             "inference-openai-url".to_owned(),
                         )),
                         input: None,
+                        enabled_by_parameter_id: None,
                     }],
                     storage_bindings: vec![StorageBinding {
                         binding_name: "data".to_owned(),
                         mount_path: "/app/data".to_owned(),
                         kind: StorageKind::Data as i32,
-                        scope: StorageScope::Deployment as i32,
+                        placements: vec![StoragePlacement::Deployment as i32],
                         environment: Vec::new(),
                     }],
                     secret_bindings: Vec::new(),

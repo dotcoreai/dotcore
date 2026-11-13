@@ -13,8 +13,8 @@ import {
 } from "@/features/models/model-test-support";
 import { projectModelRows } from "@/features/models/profiles/model-row";
 import { modelWithKvCachePrecision } from "@/features/models/runtime/runtime-schema-test-support";
-import { EngineParameterValuesSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelSchema, SpeculativeDecodingMethod } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterValuesSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   type ModelDeployment,
   ModelDeploymentDesiredState,
@@ -186,7 +186,7 @@ describe("model inspectors", () => {
     const withOffload = create(ResolvedLocalModelDeploymentSnapshotSchema, {
       ...snapshot,
       engineParameterSchema: kvOffloadReleases[0].parameterSchema,
-      engineParameterValues: create(EngineParameterValuesSchema, {
+      engineParameterValues: create(ParameterValuesSchema, {
         values: [
           { parameterId: "total-context", value: { case: "unsignedInteger", value: 8192n } },
           { parameterId: "kv-offloading-size-gib", value: { case: "unsignedInteger", value: 16n } },
@@ -235,7 +235,7 @@ describe("model inspectors", () => {
     const withBoolean = create(ResolvedLocalModelDeploymentSnapshotSchema, {
       ...snapshot,
       engineParameterSchema: multiParameterReleases[0].parameterSchema,
-      engineParameterValues: create(EngineParameterValuesSchema, {
+      engineParameterValues: create(ParameterValuesSchema, {
         values: [
           { parameterId: "total-context", value: { case: "unsignedInteger", value: 8192n } },
           {
@@ -508,7 +508,7 @@ describe("model inspectors", () => {
     const sections = within(panel).getAllByRole("region");
     expect(
       sections.map((section) => within(section).getByRole("heading", { level: 2 }).textContent),
-    ).toEqual(["Status", "Configuration", "Deployment", "Requests"]);
+    ).toEqual(["Status", "Configuration", "Parameters", "Deployment", "Requests"]);
     expect(within(panel).getByRole("region", { name: "Deployment" })).toHaveTextContent(
       "Memory rows",
     );
@@ -519,7 +519,11 @@ describe("model inspectors", () => {
       "SECTION",
       "SECTION",
       "SECTION",
+      "SECTION",
     ]);
+    expect(
+      detailRows(within(panel).getByRole("region", { name: "Parameters" }).querySelector("dl")!),
+    ).toEqual([["Total context", "8k"]]);
 
     expect(within(panel).getByRole("link", { name: "Test Model" })).toHaveAttribute(
       "href",
@@ -563,14 +567,14 @@ describe("model inspectors", () => {
   });
 
   it.each([
-    { derived: ["context-per-request"], perRequest: 131072n, shown: "128k derived" },
+    { derived: ["context-per-request"], perRequest: 131072n, shown: "128k sized" },
     { derived: [], perRequest: 32768n, shown: "32k" },
   ])(
     "shows the total context and the context per request as $shown",
     ({ derived, perRequest, shown }) => {
       const resolved = create(ResolvedLocalModelDeploymentSnapshotSchema, {
         ...snapshot,
-        engineParameterValues: create(EngineParameterValuesSchema, {
+        engineParameterValues: create(ParameterValuesSchema, {
           values: [
             { parameterId: "total-context", value: { case: "unsignedInteger", value: 131072n } },
             {

@@ -10,8 +10,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_proto::dotcore::catalog::v1::{
-    Application, EngineParameterDefinition, EngineParameterValues, EngineRelease, HardwareClass,
-    HardwareClassRecommendations, Model, ModelEngineConfiguration, UpstreamModelTemplate,
+    Application, EngineRelease, HardwareClass, HardwareClassRecommendations, Model,
+    ModelEngineConfiguration, ParameterDefinition, ParameterValues, ParameterVisibility,
+    UpstreamModelTemplate,
 };
 
 use super::{
@@ -23,9 +24,11 @@ pub use application::{
     valid_configuration_value, valid_environment_variable, validate_application_with_policy,
 };
 pub use model::{
-    overlay_parameter_defaults, valid_pinned_hugging_face_artifact, validate_parameter_values,
+    is_secret_parameter, overlay_parameter_defaults, valid_pinned_hugging_face_artifact,
+    validate_parameter_values, validate_parameter_values_before_secrets,
     validate_supplied_parameter_values,
 };
+pub(super) use sensitive_literal::validate_sensitive_literals;
 pub use upstream_model_template::validate_upstream_model_template;
 
 mod application;
@@ -36,6 +39,7 @@ mod hardware_class;
 mod model;
 mod nix;
 mod recommendation;
+mod sensitive_literal;
 mod service;
 mod storage;
 mod upstream_model_template;
@@ -72,8 +76,8 @@ pub trait EngineDeclarationValidator: Send + Sync {
         _model: &Model,
         _configuration: &ModelEngineConfiguration,
         _engine: &EngineRelease,
-    ) -> EngineParameterValues {
-        EngineParameterValues::default()
+    ) -> ParameterValues {
+        ParameterValues::default()
     }
 }
 
@@ -218,7 +222,7 @@ pub(super) fn validate_catalog(
 }
 
 /// Engine parameter defaults of each configuration, keyed by model and configuration id.
-pub(super) type ConfigurationEngineDefaults = BTreeMap<(String, String), EngineParameterValues>;
+pub(super) type ConfigurationEngineDefaults = BTreeMap<(String, String), ParameterValues>;
 
 pub(super) struct ValidatedCatalog {
     pub(super) models: BTreeMap<String, Model>,
@@ -453,11 +457,38 @@ fn validate_sizing_coverage(
                     continue;
                 };
                 let defaulted = model::overlay_parameter_defaults(values, &engine_defaults);
-                // Resolution fills the context per request, so no sizing needs to derive it.
+                // Resolution fills the context per request and deployment creation generates
+                // secrets, so no sizing needs to derive either.
                 for parameter_id in model::missing_parameter_ids(&defaulted, engine)
                     .into_iter()
-                    .filter(|parameter_id| parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID)
+                    .filter(|parameter_id| {
+                        parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID
+                            && !model::is_secret_parameter(engine, parameter_id)
+                    })
                 {
+                    let hidden = profile.engine_parameter_visibility_overrides.iter().any(
+                        |visibility_override| {
+                            visibility_override.parameter_id == parameter_id
+                                && visibility_override.visibility() == ParameterVisibility::Hidden
+                        },
+                    );
+                    // A hidden parameter is one the operator can never set, so it needs a value
+                    // on every binding and class.
+                    if hidden
+                        && class_bindings().any(|(hardware_class_id, binding)| {
+                            !binding_sizing(hardware_class_id, &binding.binding_id)
+                                .is_some_and(|sizing| sizing.derives(&parameter_id))
+                        })
+                    {
+                        diagnostics.push(CatalogDiagnostic::new(
+                            &location,
+                            anyhow::anyhow!(
+                                "profile {:?} hides engine parameter {parameter_id:?}, which has no default and which sizing does not derive on every binding and hardware class",
+                                profile.profile_id
+                            ),
+                        ));
+                        continue;
+                    }
                     for (hardware_class_id, binding) in class_bindings() {
                         if !binding_sizing(hardware_class_id, &binding.binding_id)
                             .is_some_and(|sizing| sizing.derives(&parameter_id))
@@ -479,9 +510,9 @@ fn validate_sizing_coverage(
 }
 
 fn parameter_definition<'a>(
-    parameters: &'a [EngineParameterDefinition],
+    parameters: &'a [ParameterDefinition],
     parameter_id: &str,
-) -> Option<&'a EngineParameterDefinition> {
+) -> Option<&'a ParameterDefinition> {
     parameters
         .iter()
         .find(|parameter| parameter.parameter_id == parameter_id)

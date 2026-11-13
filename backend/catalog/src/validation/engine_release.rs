@@ -9,14 +9,17 @@ use std::collections::BTreeSet;
 
 use dotcore_domain::{Accelerator, valid_id};
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineArtifact, EngineParameterDefinition, EngineParameterSchema, EngineRelease, Selector,
-    engine_artifact::Kind as EngineArtifactKind, engine_parameter_definition::ParameterType,
+    EngineArtifact, EngineParameterSchema, EngineRelease, ParameterDefinition, Selector,
+    engine_artifact::Kind as EngineArtifactKind, parameter_definition::ParameterType,
 };
 
 use super::common::{valid_selector_memory_architecture, validate_oci_reference};
 use super::nix::{AcceptedProvides, nix_systems, validate_nix_artifact};
 use super::storage::{StorageOwner, validate_storage_bindings};
-use crate::{OciArtifactPolicy, shared_parameters::validate_shared_parameters};
+use crate::{
+    OciArtifactPolicy, shared_parameters::validate_shared_parameters,
+    typed_parameters::validate_parameter_definition as validate_shared_definition,
+};
 
 pub fn validate_engine_release_with_policy(
     engine: &EngineRelease,
@@ -229,37 +232,33 @@ fn validate_parameter_schema(
     errors.extend(validate_shared_parameters(schema));
 }
 
+/// Validates one engine parameter definition: the shared definition rules, a unique id, and the
+/// engine owner rule that parameters are booleans, unsigned integers with a unit, or secrets.
 fn validate_parameter_definition(
-    definition: &EngineParameterDefinition,
+    definition: &ParameterDefinition,
     ids: &mut BTreeSet<String>,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    if !ids.insert(definition.parameter_id.clone())
-        || !valid_id(&definition.parameter_id)
-        || definition.display_name.trim().is_empty()
-    {
-        errors.push(anyhow::anyhow!(
-            "engine parameter requires a unique valid ID and display name"
-        ));
+    let id = &definition.parameter_id;
+    if !ids.insert(id.clone()) {
+        errors.push(anyhow::anyhow!("duplicate engine parameter {id:?}"));
     }
-    if definition
-        .parameter_type
-        .as_ref()
-        .is_none_or(|kind| match kind {
-            ParameterType::UnsignedInteger(schema) => {
-                schema.minimum > schema.maximum
-                    || schema.unit.trim().is_empty()
-                    || schema.default_value.is_some_and(|default| {
-                        !(schema.minimum..=schema.maximum).contains(&default)
-                    })
-            }
-            ParameterType::Boolean(_) => false,
-        })
-    {
-        errors.push(anyhow::anyhow!(
-            "engine parameter {:?} requires a valid typed range holding its default",
-            definition.parameter_id
-        ));
+    errors.extend(validate_shared_definition(definition));
+    match definition.parameter_type.as_ref() {
+        Some(ParameterType::UnsignedInteger(schema)) if schema.unit.trim().is_empty() => {
+            errors.push(anyhow::anyhow!("engine parameter {id:?} requires a unit"));
+        }
+        Some(ParameterType::StringEnum(_) | ParameterType::Text(_)) => {
+            errors.push(anyhow::anyhow!(
+                "engine parameter {id:?} must be a boolean, an unsigned integer or a secret"
+            ))
+        }
+        Some(
+            ParameterType::Boolean(_)
+            | ParameterType::UnsignedInteger(_)
+            | ParameterType::Secret(_),
+        )
+        | None => {}
     }
 }
 
@@ -267,8 +266,8 @@ fn validate_parameter_definition(
 mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            NixArtifact, NixDockerImage, StorageBinding, StorageKind, StorageScope,
-            nix_artifact::Provides,
+            NixArtifact, NixDockerImage, ParameterVisibility, StorageBinding, StorageKind,
+            StoragePlacement, nix_artifact::Provides,
         },
         observation::v1::AcceleratorMemoryArchitecture,
     };
@@ -403,18 +402,18 @@ mod tests {
     #[test]
     fn parameter_schemas_reject_an_out_of_range_default_and_a_missing_shared_parameter() {
         let unsigned = |parameter_id: &str, display_name: &str, unit: &str, default_value| {
-            EngineParameterDefinition {
+            ParameterDefinition {
                 parameter_id: parameter_id.to_owned(),
                 display_name: display_name.to_owned(),
                 parameter_type: Some(ParameterType::UnsignedInteger(
-                    dotcore_proto::dotcore::catalog::v1::UnsignedIntegerEngineParameterSchema {
+                    dotcore_proto::dotcore::catalog::v1::UnsignedIntegerParameterSchema {
                         minimum: 1024,
                         maximum: 65_536,
                         unit: unit.to_owned(),
                         default_value,
                     },
                 )),
-                exposed: true,
+                visibility: ParameterVisibility::Basic as i32,
                 description: String::new(),
             }
         };
@@ -432,14 +431,89 @@ mod tests {
         assert_eq!(
             errors.iter().map(ToString::to_string).collect::<Vec<_>>(),
             [
-                "engine parameter \"total-context\" requires a valid typed range holding its default",
+                "parameter \"total-context\" default is invalid: 131072 is outside 1024..=65536",
                 "engine parameter schema \"fixture-shared\" must declare the shared parameter \"parallel-requests\"",
             ]
         );
     }
 
     #[test]
-    fn engine_storage_requires_engine_scopes_cache_kind_and_container_artifacts() {
+    fn engine_parameters_are_booleans_unsigned_integers_with_a_unit_or_secrets() {
+        let definition = |parameter_type| ParameterDefinition {
+            parameter_id: "feature".to_owned(),
+            display_name: "Feature".to_owned(),
+            description: String::new(),
+            visibility: ParameterVisibility::Advanced as i32,
+            parameter_type: Some(parameter_type),
+        };
+        let errors = |definition: &ParameterDefinition| {
+            let mut errors = Vec::new();
+            validate_parameter_definition(definition, &mut BTreeSet::new(), &mut errors);
+            errors.iter().map(ToString::to_string).collect::<Vec<_>>()
+        };
+        let unsigned = |unit: &str| {
+            ParameterType::UnsignedInteger(
+                dotcore_proto::dotcore::catalog::v1::UnsignedIntegerParameterSchema {
+                    minimum: 0,
+                    maximum: 8,
+                    unit: unit.to_owned(),
+                    default_value: Some(4),
+                },
+            )
+        };
+        let boolean = ParameterType::Boolean(
+            dotcore_proto::dotcore::catalog::v1::BooleanParameterSchema {
+                default_value: Some(true),
+            },
+        );
+
+        assert_eq!(errors(&definition(boolean.clone())), Vec::<String>::new());
+        assert_eq!(errors(&definition(unsigned("MiB"))), Vec::<String>::new());
+        assert_eq!(
+            errors(&definition(unsigned(" "))),
+            ["engine parameter \"feature\" requires a unit"]
+        );
+        assert_eq!(
+            errors(&definition(ParameterType::StringEnum(
+                dotcore_proto::dotcore::catalog::v1::StringEnumParameterSchema {
+                    values: vec!["on".to_owned()],
+                    default_value: Some("on".to_owned()),
+                },
+            ))),
+            ["engine parameter \"feature\" must be a boolean, an unsigned integer or a secret"]
+        );
+        assert_eq!(
+            errors(&definition(ParameterType::Text(
+                dotcore_proto::dotcore::catalog::v1::TextParameterSchema {
+                    minimum_length: 0,
+                    maximum_length: 8,
+                    default_value: Some("on".to_owned()),
+                },
+            ))),
+            ["engine parameter \"feature\" must be a boolean, an unsigned integer or a secret"]
+        );
+        assert_eq!(
+            errors(&definition(ParameterType::Secret(
+                dotcore_proto::dotcore::catalog::v1::SecretParameterSchema {
+                    generated_length: 32,
+                    minimum_length: 12,
+                },
+            ))),
+            Vec::<String>::new()
+        );
+        let mut basic = definition(boolean.clone());
+        basic.visibility = ParameterVisibility::Basic as i32;
+        assert_eq!(errors(&basic), Vec::<String>::new());
+        let mut unplaced = definition(boolean);
+        unplaced.visibility = ParameterVisibility::Unspecified as i32;
+        assert_eq!(
+            errors(&unplaced),
+            ["parameter \"feature\" requires a basic, advanced or hidden visibility"]
+        );
+    }
+
+    #[test]
+    fn engine_storage_requires_engine_placements_cache_kind_and_container_artifacts() {
         let mut image = nix("self");
         image.provides = Some(Provides::DockerImage(NixDockerImage {}));
         let artifact = |artifact_id: &str, kind| EngineArtifact {
@@ -447,13 +521,14 @@ mod tests {
             kind: Some(kind),
             ..Default::default()
         };
-        let binding = |binding_name: &str, kind: StorageKind, scope: StorageScope| StorageBinding {
-            binding_name: binding_name.to_owned(),
-            mount_path: format!("/cache/{binding_name}"),
-            kind: kind as i32,
-            scope: scope as i32,
-            environment: Vec::new(),
-        };
+        let binding =
+            |binding_name: &str, kind: StorageKind, placement: StoragePlacement| StorageBinding {
+                binding_name: binding_name.to_owned(),
+                mount_path: format!("/cache/{binding_name}"),
+                kind: kind as i32,
+                placements: vec![placement as i32],
+                environment: Vec::new(),
+            };
         let mut engine = EngineRelease {
             engine_release_id: "fixture".to_owned(),
             artifacts: vec![
@@ -461,8 +536,12 @@ mod tests {
                 artifact("image", EngineArtifactKind::Nix(image)),
             ],
             storage_bindings: vec![
-                binding("compile", StorageKind::Cache, StorageScope::EngineArtifact),
-                binding("scratch", StorageKind::Cache, StorageScope::Deployment),
+                binding(
+                    "compile",
+                    StorageKind::Cache,
+                    StoragePlacement::EngineArtifact,
+                ),
+                binding("scratch", StorageKind::Cache, StoragePlacement::Deployment),
             ],
             ..Default::default()
         };
@@ -478,15 +557,15 @@ mod tests {
             .artifacts
             .push(artifact("native", EngineArtifactKind::Nix(nix("self"))));
         engine.storage_bindings.extend([
-            binding("data", StorageKind::Data, StorageScope::Deployment),
-            binding("shared", StorageKind::Cache, StorageScope::Application),
+            binding("data", StorageKind::Data, StoragePlacement::Deployment),
+            binding("shared", StorageKind::Cache, StoragePlacement::Application),
         ]);
 
         assert_eq!(
             errors(&engine),
             [
                 "engine release \"fixture\" storage binding \"data\" cannot use kind STORAGE_KIND_DATA",
-                "engine release \"fixture\" storage binding \"shared\" cannot use scope STORAGE_SCOPE_APPLICATION",
+                "engine release \"fixture\" storage binding \"shared\" cannot use placement STORAGE_PLACEMENT_APPLICATION",
                 "engine release \"fixture\" declares storage bindings, so engine artifact \"native\" must be a container image",
             ]
         );

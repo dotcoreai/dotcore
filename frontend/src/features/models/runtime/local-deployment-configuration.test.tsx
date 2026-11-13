@@ -9,10 +9,10 @@ import { syntheticCatalog } from "@/features/models/catalog/catalog-table-test-s
 import { ModelDeployDialog } from "@/features/models/deploy/model-deploy-dialog";
 
 import {
+  changedEngineParameters,
   defaultLocalDeploymentConfiguration,
   localDeploymentConfiguration,
   type LocalDeploymentConfigurationEdits,
-  parallelRequestsCustomization,
   runtimeCustomizations,
 } from "./local-deployment-configuration";
 import {
@@ -187,20 +187,29 @@ describe("local deployment configuration", () => {
     ).toEqual([]);
   });
 
-  it("names parallel requests apart from the runtime settings when they differ from the profile default", () => {
+  it("lists the changed engine parameters with parallel requests, leaving out context sizes", () => {
     const profile = runtimeSchemaModel.profiles.find(({ profileId }) => profileId === "q4-xl")!;
-    const customization = (parallel: string) =>
-      parallelRequestsCustomization(profile, llamaCppRelease, {
+    const changed = (inputs: [string, string][]) =>
+      changedEngineParameters(profile, llamaCppRelease, {
         bindingId: "q4-xl",
         inputs: new Map([
-          ["prompt-cache-memory-mib", "4096"],
+          ["prompt-cache-memory-mib", "8192"],
           ["total-context", "32768"],
-          ["parallel-requests", parallel],
+          ["parallel-requests", "4"],
+          ...inputs,
         ]),
-      });
+      }).map(({ parameter, value }) => [parameter.parameterId, value]);
 
-    expect(customization("4")).toEqual([]);
-    expect(customization("2")).toEqual(["Parallel requests 2 requests"]);
+    expect(changed([["total-context", "16384"]])).toEqual([]);
+    expect(
+      changed([
+        ["parallel-requests", "2"],
+        ["prompt-cache-memory-mib", "4096"],
+      ]),
+    ).toEqual([
+      ["parallel-requests", "2 requests"],
+      ["prompt-cache-memory-mib", "4 GiB"],
+    ]);
   });
 });
 

@@ -1,9 +1,10 @@
-/* eslint-disable jsx-a11y/label-has-associated-control */
 import type { RefObject } from "react";
 
-import { FieldError } from "@/components/ui/field-error";
+import { Detail, DetailList } from "@/components/ui/detail-list";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
+import { SecretValue } from "@/components/ui/secret-value";
 import type { FieldErrors } from "@/lib/form-validation";
 
 import type { UpstreamFormValues } from "./upstream-form";
@@ -14,6 +15,7 @@ export function UpstreamEndpointFields({
   onChange,
   error,
   editing = false,
+  storedApiKey,
   fieldErrors = new Map(),
   onFieldBlur,
   baseUrlRef,
@@ -23,6 +25,8 @@ export function UpstreamEndpointFields({
   onChange: (values: UpstreamFormValues) => void;
   error?: string;
   editing?: boolean;
+  /** The stored API key shown masked above the replace field; blank when none is configured. */
+  storedApiKey?: string;
   fieldErrors?: FieldErrors;
   onFieldBlur?: (field: "baseUrl" | "upstreamModelId") => void;
   baseUrlRef?: RefObject<HTMLInputElement | null>;
@@ -37,50 +41,67 @@ export function UpstreamEndpointFields({
           {error}
         </Notice>
       ) : null}
-      <label className="grid gap-1">
-        Base URL
-        <Input
-          ref={baseUrlRef}
-          required
-          aria-describedby={fieldErrors.get("baseUrl") ? "upstream-base-url-error" : undefined}
-          aria-invalid={fieldErrors.get("baseUrl") ? "true" : undefined}
-          type="url"
-          value={values.baseUrl}
-          onBlur={() => onFieldBlur?.("baseUrl")}
-          onChange={(e) => set("baseUrl", e.target.value)}
-        />
-        {fieldErrors.get("baseUrl") ? (
-          <FieldError id="upstream-base-url-error">{fieldErrors.get("baseUrl")}</FieldError>
-        ) : null}
-      </label>
-      <label className="grid gap-1">
-        Upstream model ID
-        <Input
-          ref={upstreamModelIdRef}
-          required
-          aria-label="Upstream model ID"
-          value={values.upstreamModelId}
-          aria-describedby={
-            fieldErrors.get("upstreamModelId") ? "upstream-model-id-error" : undefined
-          }
-          aria-invalid={fieldErrors.get("upstreamModelId") ? "true" : undefined}
-          onBlur={() => onFieldBlur?.("upstreamModelId")}
-          onChange={(e) => set("upstreamModelId", e.target.value)}
-        />
-        {fieldErrors.get("upstreamModelId") ? (
-          <FieldError id="upstream-model-id-error">{fieldErrors.get("upstreamModelId")}</FieldError>
-        ) : null}
-      </label>
-      <label className="grid gap-1">
-        API key
-        <Input
-          type="password"
-          autoComplete="new-password"
-          value={values.apiKey}
-          onChange={(e) => set("apiKey", e.target.value)}
-          placeholder={editing ? "Optional; blank retains stored key" : "Optional"}
-        />
-      </label>
+      <Field
+        controlId="upstream-base-url"
+        error={fieldErrors.get("baseUrl")}
+        help="Address of the OpenAI-compatible server that runs the model."
+        label="Base URL"
+      >
+        {(control) => (
+          <Input
+            {...control}
+            ref={baseUrlRef}
+            required
+            type="url"
+            value={values.baseUrl}
+            onBlur={() => onFieldBlur?.("baseUrl")}
+            onChange={(e) => set("baseUrl", e.target.value)}
+          />
+        )}
+      </Field>
+      <Field
+        controlId="upstream-model-id"
+        error={fieldErrors.get("upstreamModelId")}
+        help="The model name that server expects in requests."
+        label="Upstream model ID"
+      >
+        {(control) => (
+          <Input
+            {...control}
+            ref={upstreamModelIdRef}
+            required
+            value={values.upstreamModelId}
+            onBlur={() => onFieldBlur?.("upstreamModelId")}
+            onChange={(e) => set("upstreamModelId", e.target.value)}
+          />
+        )}
+      </Field>
+      {editing && storedApiKey !== undefined ? (
+        <DetailList>
+          <Detail
+            label="Current API key"
+            value={
+              storedApiKey ? (
+                <SecretValue label="API key" value={storedApiKey} />
+              ) : (
+                <span className="text-muted-foreground">Not configured</span>
+              )
+            }
+          />
+        </DetailList>
+      ) : null}
+      <Field controlId="upstream-api-key" label="API key">
+        {(control) => (
+          <Input
+            {...control}
+            type="password"
+            autoComplete="new-password"
+            value={values.apiKey}
+            onChange={(e) => set("apiKey", e.target.value)}
+            placeholder={editing ? "Optional; blank retains stored key" : "Optional"}
+          />
+        )}
+      </Field>
     </div>
   );
 }

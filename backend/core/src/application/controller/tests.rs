@@ -19,7 +19,9 @@ use dotcore_domain::{
     },
     timing::{ReconcileCadence, ReconcileOutcome, Timing},
 };
-use dotcore_proto::dotcore::application::v1::ApplicationConfigurationAttachment;
+use dotcore_proto::dotcore::application::v1::{
+    ApplicationConfigurationAttachment, ApplicationSecretAttachment,
+};
 use dotcore_proto::dotcore::{
     application::private::v1::{ApplicationLifecycleObservation, ApplicationStatusStage},
     application::v1::{
@@ -27,17 +29,18 @@ use dotcore_proto::dotcore::{
         ApplicationDeploymentState, ApplicationEndpoint, ApplicationLifecycleState,
         ApplicationReadinessState, ApplicationSelectedInferenceRoute,
         ApplicationServiceAcceleratorMemory, ApplicationServiceLifecycleState,
-        ApplicationServiceObservation, ApplicationStorageAttachment,
+        ApplicationServiceObservation, ApplicationStorageAttachment, ApplicationStorageChoice,
         CreateApplicationDeploymentRequest, CurrentApplicationDeployment,
         UpdateApplicationDeploymentMetadataRequest,
         application_deployment_service_server::ApplicationDeploymentService as ApplicationServiceContract,
     },
     catalog::v1::{
         ApplicationConfigurationBinding, ApplicationDependencyCondition, ApplicationHttpReadiness,
-        ApplicationInferenceRouteProjection, ApplicationSecretBinding, ApplicationService,
-        ApplicationServiceDependency, ApplicationServicePort, ApplicationServiceReadiness,
-        ParameterValue, StorageBinding, StorageEnvironmentVariable, StorageKind, StorageScope,
-        application_configuration_binding, application_service_readiness, parameter_value,
+        ApplicationInferenceRouteProjection, ApplicationSecretBinding, ApplicationSecretForm,
+        ApplicationService, ApplicationServiceDependency, ApplicationServicePort,
+        ApplicationServiceReadiness, ParameterValue, StorageBinding, StorageEnvironmentVariable,
+        StorageKind, StoragePlacement, application_configuration_binding,
+        application_service_readiness, parameter_value,
     },
     deployment::v1::{
         AcceleratorMemoryDeviceUsage, AcceleratorMemoryObservation, AcceleratorMemoryUnavailable,
@@ -66,7 +69,7 @@ use tokio::{io::AsyncWriteExt, sync::Notify};
 use tonic::Request;
 
 use super::identity::allocate_deployment_id;
-use super::launch::configuration_attachments;
+use super::launch::{configuration_attachments, secret_attachments};
 use super::launch::{deployment_data, workload_group_launch};
 use super::observation::{exact_owned_observation, stale_owned_group};
 use super::readiness::{
@@ -115,6 +118,7 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
         artifacts,
     )
@@ -1461,7 +1465,7 @@ async fn present_recovery_replaces_stale_groups_only_after_resume_changes_desire
 }
 
 #[test]
-fn launch_keys_each_storage_binding_by_its_scope() {
+fn launch_keys_each_storage_attachment_by_its_retained_placement() {
     let mut deployment = deployment(ApplicationDeploymentDesiredState::Present);
     let web = &mut deployment
         .snapshot
@@ -1476,27 +1480,34 @@ fn launch_keys_each_storage_binding_by_its_scope() {
             binding_name: "data".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         },
         StorageBinding {
             binding_name: "models".to_owned(),
             mount_path: "/data/models".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Application as i32,
+            placements: vec![
+                StoragePlacement::Application as i32,
+                StoragePlacement::Deployment as i32,
+            ],
             environment: vec![StorageEnvironmentVariable {
                 name: "MODELS_DIR".to_owned(),
                 relative_path: "checkpoints".to_owned(),
             }],
         },
     ];
-    deployment.storage_attachments = ["data", "models"]
-        .map(|binding| ApplicationStorageAttachment {
-            service_name: "web".to_owned(),
-            binding_name: binding.to_owned(),
-            storage_name: format!("web-{binding}"),
-        })
-        .to_vec();
+    deployment.storage_attachments = [
+        ("data", StoragePlacement::Deployment),
+        ("models", StoragePlacement::Application),
+    ]
+    .map(|(binding, placement)| ApplicationStorageAttachment {
+        service_name: "web".to_owned(),
+        binding_name: binding.to_owned(),
+        storage_name: format!("web-{binding}"),
+        placement: placement as i32,
+    })
+    .to_vec();
 
     let launch = workload_group_launch(
         &deployment,
@@ -1533,8 +1544,27 @@ fn launch_keys_each_storage_binding_by_its_scope() {
         web.environment.get("MODELS_DIR").map(String::as_str),
         Some("/data/models/checkpoints")
     );
-    // Teardown removes exactly the deployment-scoped storage the launch attached.
+    // Teardown removes exactly the deployment-placed storage the launch attached.
     assert_eq!(web.storage[0].storage_key(), deployment_data(&deployment));
+
+    // The same binding placed with the deployment lands in the deployment's own folder.
+    deployment.storage_attachments[1].placement = StoragePlacement::Deployment as i32;
+    let launch = workload_group_launch(
+        &deployment,
+        Ipv4Addr::LOCALHOST,
+        test_inference_route_resolver().as_ref(),
+    )
+    .expect("launch");
+    let models = &launch.units[&WorkloadUnitName("web".to_owned())].storage[1];
+    assert_eq!(
+        (
+            models.namespace.as_str(),
+            models.key.as_str(),
+            models.expires_when_unused
+        ),
+        ("deployment", "open-webui-1", false)
+    );
+    assert_eq!(models.storage_key(), deployment_data(&deployment));
 }
 
 #[test]
@@ -1552,7 +1582,7 @@ fn master_catalog_comfyui_launch_attaches_deployment_data_and_shared_models() {
         .expect("comfyui application");
     let mut deployment = deployment(ApplicationDeploymentDesiredState::Present);
     deployment.application_deployment_id = "comfyui-1".to_owned();
-    deployment.snapshot = Some(resolved_snapshot(comfyui));
+    deployment.snapshot = Some(resolved_snapshot(comfyui.clone()));
     // The launch needs an image it can pin; the storage bindings under test stay the catalog's.
     deployment
         .snapshot
@@ -1572,13 +1602,8 @@ fn master_catalog_comfyui_launch_attaches_deployment_data_and_shared_models() {
         environment_variable: "COMFYUI_VRAM_MODE".to_owned(),
         value: "auto".to_owned(),
     }];
-    deployment.storage_attachments = ["data", "models"]
-        .map(|binding| ApplicationStorageAttachment {
-            service_name: "comfyui".to_owned(),
-            binding_name: binding.to_owned(),
-            storage_name: format!("comfyui-{binding}"),
-        })
-        .to_vec();
+    deployment.storage_attachments =
+        super::launch::storage_attachments(&comfyui, &[]).expect("attachments");
 
     let launch = workload_group_launch(
         &deployment,
@@ -2730,6 +2755,7 @@ async fn unknown_group_after_restart_is_rehydrated_before_present_or_absent_reco
             service_name: "web".to_owned(),
             binding_name: "data".to_owned(),
             storage_name: "web-data".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         }];
         desired
             .upsert(deployment.clone(), 0)
@@ -2764,6 +2790,7 @@ async fn unknown_group_after_restart_is_rehydrated_before_present_or_absent_reco
                 target_capabilities: test_target_capability_source(),
                 configuration_sources: ApplicationConfigurationSources::default(),
                 inference_route_resolver: test_inference_route_resolver(),
+                secret_generator: test_secret_generator(),
             },
         )
         .expect("Apps controller");
@@ -2813,6 +2840,7 @@ async fn cold_absent_reconciliation_passes_stable_identity_to_runtime_cleanup() 
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -3007,6 +3035,7 @@ async fn teardown_startup_allows_target_drift_and_retains_missing_runtime_for_re
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("teardown controller without configured runtime");
@@ -3088,6 +3117,7 @@ async fn teardown_retries_exact_network_only_residue_and_finalizes_records() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -3475,6 +3505,7 @@ async fn teardown_deletes_application_data_and_retries_a_failed_removal_while_pa
             service_name: "web".to_owned(),
             binding_name: "data".to_owned(),
             storage_name: "web-data".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         }];
         desired
             .upsert(deployment.clone(), 0)
@@ -3620,6 +3651,7 @@ async fn present_completes_in_process_network_only_residue_after_failed_removal(
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -3716,6 +3748,7 @@ fn configuration_attachments_preserve_empty_literals_and_resolve_named_values() 
                 String::new(),
             )),
             input: None,
+            enabled_by_parameter_id: None,
         },
         ApplicationConfigurationBinding {
             binding_name: "inference".to_owned(),
@@ -3726,6 +3759,7 @@ fn configuration_attachments_preserve_empty_literals_and_resolve_named_values() 
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         },
     ];
     let sources = |name: &str| {
@@ -3834,6 +3868,7 @@ async fn created_deployment_retains_the_base_url_of_its_hosting_node() {
                 6421,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller");
@@ -3846,6 +3881,7 @@ async fn created_deployment_retains_the_base_url_of_its_hosting_node() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node-hosted deployment");
@@ -3885,6 +3921,7 @@ async fn created_deployments_hold_distinct_published_ports_through_teardown_and_
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         });
     let controller = ApplicationController::new(
         Arc::new(
@@ -3904,6 +3941,7 @@ async fn created_deployments_hold_distinct_published_ports_through_teardown_and_
                 6421,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller");
@@ -3914,6 +3952,7 @@ async fn created_deployments_hold_distinct_published_ports_through_teardown_and_
         expected_inference_route_generation: 0,
         application_deployment_name: None,
         parameter_values: Vec::new(),
+        storage_choices: Vec::new(),
     };
     let declared = |desired: &SiteRepository, deployment_id: &str| {
         desired
@@ -4004,6 +4043,7 @@ async fn created_deployment_snapshot_retains_the_application_notes() {
                 6421,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller");
@@ -4016,6 +4056,7 @@ async fn created_deployment_snapshot_retains_the_application_notes() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("deployment");
@@ -4071,6 +4112,7 @@ fn launch_pins_only_site_host_names_from_site_host_sources() {
                     environment_variable: environment_variable.to_owned(),
                     source: Some(source),
                     input: None,
+                    enabled_by_parameter_id: None,
                 });
         }
         deployment.configuration_attachments = vec![
@@ -4108,19 +4150,34 @@ fn launch_pins_only_site_host_names_from_site_host_sources() {
 }
 
 #[test]
-fn configuration_attachments_reject_secret_bindings() {
+fn secret_bindings_attach_apart_from_configuration() {
     let mut application = application();
-    application.graph.as_mut().expect("graph").services[0]
+    let graph = application.graph.as_mut().expect("graph");
+    graph.parameters.push(secret_parameter("password"));
+    graph.services[0]
         .secret_bindings
         .push(ApplicationSecretBinding {
-            binding_name: "secret".to_owned(),
+            binding_name: "password".to_owned(),
             environment_variable: "SECRET_VALUE".to_owned(),
+            parameter_id: "password".to_owned(),
+            form: ApplicationSecretForm::Plain as i32,
+            enabled_by_parameter_id: None,
         });
+    let values = [string_parameter("password", "typed-password")];
 
-    assert!(matches!(
-        configuration_attachments(&application, |_| None, &[], false),
-        Err(ApplicationLifecycleError::FailedPrecondition)
-    ));
+    assert_eq!(
+        configuration_attachments(&application, |_| None, &values, false).expect("configuration"),
+        []
+    );
+    assert_eq!(
+        secret_attachments(application.graph.as_ref().expect("graph"), &values).expect("secrets"),
+        [ApplicationSecretAttachment {
+            service_name: "web".to_owned(),
+            binding_name: "password".to_owned(),
+            environment_variable: "SECRET_VALUE".to_owned(),
+            value: "typed-password".to_owned(),
+        }]
+    );
 }
 
 #[test]
@@ -4137,6 +4194,7 @@ fn route_name_binding_retains_its_literal_only_without_a_route_link() {
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         });
     let sources = |name: &str| {
         (name == "configured-inference").then(|| "http://192.0.2.10:6470/v1".to_owned())
@@ -4186,6 +4244,7 @@ fn workload_launch_uses_persisted_configuration_attachments() {
             ),
         ),
         input: None,
+        enabled_by_parameter_id: None,
     }];
     deployment.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -4227,6 +4286,7 @@ fn changed_configuration_attachments_reject_stale_workload_observations() {
             ),
         ),
         input: None,
+        enabled_by_parameter_id: None,
     }];
     persisted.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -4363,6 +4423,7 @@ async fn deployment_creation_persists_the_route_link_without_a_route_name_attach
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4375,6 +4436,7 @@ async fn deployment_creation_persists_the_route_link_without_a_route_name_attach
             expected_inference_route_generation: 7,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("deployment creation");
@@ -4439,6 +4501,7 @@ async fn route_input_uses_its_literal_without_a_route_link() {
             inference_route_resolver: test_inference_route_resolver_with(Err(
                 InferenceRouteResolutionError::Stale,
             )),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4451,6 +4514,7 @@ async fn route_input_uses_its_literal_without_a_route_link() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("optional route default");
@@ -4506,6 +4570,7 @@ async fn invalid_route_binding_identity_or_generation_rejects_without_mutation()
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4523,6 +4588,7 @@ async fn invalid_route_binding_identity_or_generation_rejects_without_mutation()
                 expected_inference_route_generation,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             })
             .await;
         assert!(matches!(
@@ -4582,6 +4648,7 @@ async fn route_binding_without_projection_rejects_before_resolution_or_mutation(
             inference_route_resolver: Arc::new(CountingCreateInferenceRouteResolver {
                 calls: route_resolution_calls.clone(),
             }),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -4594,6 +4661,7 @@ async fn route_binding_without_projection_rejects_before_resolution_or_mutation(
             expected_inference_route_generation: 7,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await;
 
@@ -4651,6 +4719,7 @@ async fn route_binding_failures_reject_before_site_store_or_runtime_mutation() {
                 target_capabilities: test_target_capability_source(),
                 configuration_sources: ApplicationConfigurationSources::default(),
                 inference_route_resolver: test_inference_route_resolver_with(Err(resolution)),
+                secret_generator: test_secret_generator(),
             },
         )
         .expect("Apps controller");
@@ -4663,6 +4732,7 @@ async fn route_binding_failures_reject_before_site_store_or_runtime_mutation() {
                 expected_inference_route_generation: 7,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             })
             .await;
 
@@ -4869,6 +4939,7 @@ fn route_link_launches_with_current_name_and_retained_base_url() {
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         },
     ];
     selected.configuration_attachments = vec![ApplicationConfigurationAttachment {
@@ -4970,11 +5041,13 @@ async fn malformed_persisted_launch_declarations_fail_before_resolution_or_runti
                     service_name: "web".to_owned(),
                     binding_name: "data".to_owned(),
                     storage_name: "data".to_owned(),
+                    placement: StoragePlacement::Deployment as i32,
                 },
                 ApplicationStorageAttachment {
                     service_name: "web".to_owned(),
                     binding_name: "data".to_owned(),
                     storage_name: "data-two".to_owned(),
+                    placement: StoragePlacement::Deployment as i32,
                 },
             ];
         }),
@@ -5008,7 +5081,7 @@ async fn malformed_persisted_launch_declarations_fail_before_resolution_or_runti
                     binding_name: "missing".to_owned(),
                     mount_path: "/missing".to_owned(),
                     kind: StorageKind::Data as i32,
-                    scope: StorageScope::Deployment as i32,
+                    placements: vec![StoragePlacement::Deployment as i32],
                     environment: Vec::new(),
                 });
         }),
@@ -5266,6 +5339,7 @@ async fn reconciliation_replaces_changed_completed_non_route_projection() {
             ),
         ),
         input: None,
+        enabled_by_parameter_id: None,
     }];
     original_declaration.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -5434,14 +5508,14 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
             binding_name: "data".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         },
         StorageBinding {
             binding_name: "cache".to_owned(),
             mount_path: "/cache".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         },
     ];
@@ -5473,11 +5547,13 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
             service_name: "web".to_owned(),
             binding_name: "data".to_owned(),
             storage_name: "data".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         },
         ApplicationStorageAttachment {
             service_name: "web".to_owned(),
             binding_name: "cache".to_owned(),
             storage_name: "cache".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         },
     ];
     baseline.configuration_attachments = vec![
@@ -5980,6 +6056,7 @@ async fn invalid_persisted_oci_artifact_never_mutates_the_runtime() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -6029,6 +6106,7 @@ async fn unavailable_configuration_source_rejects_before_desired_or_runtime_muta
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -6042,6 +6120,7 @@ async fn unavailable_configuration_source_rejects_before_desired_or_runtime_muta
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         },
     )
     .await;
@@ -6109,6 +6188,7 @@ async fn controller_rejects_retained_declarations_without_an_eligible_target() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     ) {
         Ok(_) => panic!("declarations for an undeclared target must be rejected"),
@@ -6156,6 +6236,7 @@ async fn create_rejects_site_node_identity_outside_the_identifier_rule() {
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -6172,6 +6253,7 @@ async fn create_rejects_site_node_identity_outside_the_identifier_rule() {
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             })
             .await;
         assert!(
@@ -6197,6 +6279,7 @@ async fn create_rejects_site_node_identity_outside_the_identifier_rule() {
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("deployment creation");
@@ -6479,6 +6562,7 @@ async fn creation_failure_is_local_redacted_logged_retried_and_does_not_block_la
                 6470,
             ),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -6550,6 +6634,7 @@ async fn creation_failure_is_local_redacted_logged_retried_and_does_not_block_la
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("unrelated deployment failure does not block create");
@@ -6739,6 +6824,7 @@ async fn create_accepts_a_fresh_node_target_and_rejects_ineligible_pairs_with_th
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
     };
 
@@ -6831,6 +6917,7 @@ async fn node_deployments_follow_node_status_and_stay_pending_while_disconnected
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node deployment");
@@ -6980,6 +7067,7 @@ async fn node_deployments_stay_stale_until_the_current_node_process_lists_them()
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node deployment")
@@ -7047,6 +7135,7 @@ async fn unit_memory_is_read_from_current_node_status_and_unavailable_otherwise(
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("node deployment")
@@ -7297,6 +7386,7 @@ fn controller_restart_rejects_a_retained_deployment_whose_target_is_undeclared()
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     );
 
@@ -7699,6 +7789,7 @@ async fn reconcile_after_target_change(
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller");
@@ -7957,8 +8048,434 @@ async fn invalid_parameter_values_reject_creation_without_mutation() {
     std::fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 
+#[tokio::test]
+async fn deployment_creation_retains_each_chosen_or_default_storage_placement() {
+    let directory = test_directory();
+    let (controller, desired) = test_controller_for(
+        &directory,
+        application_with_storage_choices(),
+        test_secret_generator(),
+    );
+    let placements = |deployment: &ApplicationDeploymentDeclaration| {
+        deployment
+            .storage_attachments
+            .iter()
+            .map(|attachment| {
+                (
+                    attachment.binding_name.clone(),
+                    StoragePlacement::try_from(attachment.placement).expect("placement"),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    controller
+        .create_deployment(parameter_request(Vec::new()))
+        .await
+        .expect("deployment with default placements");
+    controller
+        .create_deployment(CreateApplicationDeploymentRequest {
+            storage_choices: vec![storage_choice("models", StoragePlacement::Deployment)],
+            ..parameter_request(Vec::new())
+        })
+        .await
+        .expect("deployment with a chosen placement");
+
+    let deployments = desired.snapshot().expect("declarations").deployments;
+    assert_eq!(
+        deployments.iter().map(placements).collect::<Vec<_>>(),
+        [
+            vec![
+                ("data".to_owned(), StoragePlacement::Deployment),
+                ("models".to_owned(), StoragePlacement::Application),
+            ],
+            vec![
+                ("data".to_owned(), StoragePlacement::Deployment),
+                ("models".to_owned(), StoragePlacement::Deployment),
+            ],
+        ]
+    );
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn invalid_storage_choices_reject_creation_without_mutation() {
+    let directory = test_directory();
+    let (controller, desired) = test_controller_for(
+        &directory,
+        application_with_storage_choices(),
+        test_secret_generator(),
+    );
+    let cases = [
+        (
+            vec![storage_choice("data", StoragePlacement::Application)],
+            "Application storage binding \"data\" of service \"web\" does not allow placement STORAGE_PLACEMENT_APPLICATION",
+        ),
+        (
+            vec![storage_choice("models", StoragePlacement::Unspecified)],
+            "Application storage binding \"models\" of service \"web\" does not allow placement STORAGE_PLACEMENT_UNSPECIFIED",
+        ),
+        (
+            vec![storage_choice("cache", StoragePlacement::Deployment)],
+            "Application storage binding \"cache\" of service \"web\" is not declared by the application",
+        ),
+        (
+            vec![ApplicationStorageChoice {
+                service_name: "worker".to_owned(),
+                ..storage_choice("models", StoragePlacement::Deployment)
+            }],
+            "Application storage binding \"models\" of service \"worker\" is not declared by the application",
+        ),
+        (
+            vec![
+                storage_choice("models", StoragePlacement::Deployment),
+                storage_choice("models", StoragePlacement::Application),
+            ],
+            "Application storage binding \"models\" of service \"web\" is chosen more than once",
+        ),
+    ];
+
+    for (choices, expected) in cases {
+        let error = controller
+            .create_deployment(CreateApplicationDeploymentRequest {
+                storage_choices: choices,
+                ..parameter_request(Vec::new())
+            })
+            .await
+            .expect_err("invalid storage choice");
+        assert!(matches!(
+            error,
+            ApplicationLifecycleError::InvalidStorageChoice { .. }
+        ));
+        assert_eq!(error.to_string(), expected);
+    }
+    assert!(
+        desired
+            .snapshot()
+            .expect("declaration snapshot")
+            .deployments
+            .is_empty()
+    );
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones() {
+    let directory = test_directory();
+    let (controller, desired) =
+        secret_parameter_test_controller(&directory, test_secret_generator());
+
+    let generated = controller
+        .create_deployment(parameter_request(Vec::new()))
+        .await
+        .expect("deployment with a generated secret");
+    let typed = controller
+        .create_deployment(parameter_request(vec![
+            string_parameter("username", "operator"),
+            string_parameter("password", "typed-password-1"),
+        ]))
+        .await
+        .expect("deployment with a typed secret");
+
+    let generated_password = sequential_secret(1, 32);
+    assert_eq!(generated_password, "secret1xxxxxxxxxxxxxxxxxxxxxxxxx");
+    let snapshot = generated.snapshot.as_ref().expect("snapshot");
+    assert_eq!(
+        snapshot.parameter_values,
+        [
+            string_parameter("username", "admin"),
+            string_parameter("password", &generated_password),
+        ]
+    );
+    let typed_snapshot = typed.snapshot.as_ref().expect("snapshot");
+    assert_eq!(
+        typed_snapshot.parameter_values,
+        [
+            string_parameter("username", "operator"),
+            string_parameter("password", "typed-password-1"),
+        ]
+    );
+
+    let declarations = desired
+        .snapshot()
+        .expect("persisted declarations")
+        .deployments;
+    let declaration = declarations
+        .iter()
+        .find(|declaration| {
+            declaration.application_deployment_id == generated.application_deployment_id
+        })
+        .expect("generated declaration")
+        .clone();
+    // The bcrypt form is a hash computed at create that verifies against the generated value.
+    let password_hash = declaration.secret_attachments[1].value.clone();
+    assert!(password_hash.starts_with("$2b$10$"));
+    assert!(bcrypt::verify(&generated_password, &password_hash).expect("verifiable hash"));
+    assert_eq!(
+        declaration.secret_attachments,
+        [
+            ApplicationSecretAttachment {
+                service_name: "web".to_owned(),
+                binding_name: "password".to_owned(),
+                environment_variable: "PASSWORD".to_owned(),
+                value: generated_password.clone(),
+            },
+            ApplicationSecretAttachment {
+                service_name: "web".to_owned(),
+                binding_name: "password-hash".to_owned(),
+                environment_variable: "PASSWORD_HASH".to_owned(),
+                value: password_hash.clone(),
+            },
+        ]
+    );
+    assert_eq!(
+        declaration
+            .configuration_attachments
+            .iter()
+            .map(|attachment| (
+                attachment.environment_variable.as_str(),
+                attachment.value.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("USERNAME", "admin")]
+    );
+    let launch = |declaration: &ApplicationDeploymentDeclaration| {
+        workload_group_launch(
+            declaration,
+            Ipv4Addr::LOCALHOST,
+            test_inference_route_resolver().as_ref(),
+        )
+        .expect("workload launch")
+    };
+    let first_launch = launch(&declaration);
+    assert_eq!(
+        first_launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        BTreeMap::from([
+            ("PASSWORD".to_owned(), generated_password.clone()),
+            ("PASSWORD_HASH".to_owned(), password_hash.clone()),
+            ("USERNAME".to_owned(), "admin".to_owned()),
+        ])
+    );
+    assert_eq!(launch(&declaration), first_launch);
+    // Launch types never show a secret in their `Debug` form.
+    let launch_debug = format!("{first_launch:?}");
+    assert!(!launch_debug.contains(&generated_password));
+    assert!(!launch_debug.contains(&password_hash));
+    drop(controller);
+
+    // A restarted control plane reads the retained value and hash back, and never generates or
+    // hashes again.
+    let path = directory.join("site.yaml");
+    let mut persisted_site = site();
+    persisted_site.application_deployments = declarations.clone();
+    fs::write(
+        &path,
+        dotcore_proto::yaml::to_string(&persisted_site).expect("site YAML"),
+    )
+    .expect("write site YAML");
+    let reloaded = ApplicationDeclarationRepository::snapshot(
+        &SiteRepository::load(&path, crate::test_support::site_declaration_rules())
+            .expect("reloaded site repository"),
+    )
+    .expect("validated declarations after reload");
+    assert_eq!(reloaded.deployments, declarations);
+    let reloaded_declaration = reloaded
+        .deployments
+        .iter()
+        .find(|declaration| {
+            declaration.application_deployment_id == generated.application_deployment_id
+        })
+        .expect("reloaded declaration");
+    let reloaded_launch = launch(reloaded_declaration);
+    assert_eq!(reloaded_launch, first_launch);
+    assert_eq!(
+        reloaded_launch.correlation.reconcile_generation,
+        first_launch.correlation.reconcile_generation
+    );
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn bindings_enabled_by_a_switch_reach_the_service_only_when_it_is_on() {
+    let directory = test_directory();
+    let (controller, desired) = test_controller_for(
+        &directory,
+        application_with_login_switch(),
+        test_secret_generator(),
+    );
+    let environment = |declaration: &ApplicationDeploymentDeclaration| {
+        workload_group_launch(
+            declaration,
+            Ipv4Addr::LOCALHOST,
+            test_inference_route_resolver().as_ref(),
+        )
+        .expect("workload launch")
+        .units[&WorkloadUnitName("web".to_owned())]
+            .environment
+            .clone()
+    };
+    let declaration = |deployment_id: &str| {
+        desired
+            .snapshot()
+            .expect("persisted declarations")
+            .deployments
+            .into_iter()
+            .find(|declaration| declaration.application_deployment_id == deployment_id)
+            .expect("persisted declaration")
+    };
+
+    // Off: the switch's own binding is unchanged, the switched bindings get no attachment and no
+    // hash, and the generated secret is still kept.
+    let off = controller
+        .create_deployment(parameter_request(Vec::new()))
+        .await
+        .expect("deployment with login off");
+    let off = declaration(&off.application_deployment_id);
+    let off_password = sequential_secret(1, 32);
+    assert_eq!(
+        off.snapshot.as_ref().expect("snapshot").parameter_values,
+        [
+            string_parameter("username", "admin"),
+            string_parameter("password", &off_password),
+            boolean_parameter("login", false),
+        ]
+    );
+    assert_eq!(
+        off.configuration_attachments
+            .iter()
+            .map(|attachment| (
+                attachment.environment_variable.as_str(),
+                attachment.value.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("LOGIN", "false")]
+    );
+    assert_eq!(off.secret_attachments, []);
+    assert_eq!(
+        environment(&off),
+        BTreeMap::from([("LOGIN".to_owned(), "false".to_owned())])
+    );
+
+    // On: every binding reaches the service, the secret in each of its forms.
+    let on = controller
+        .create_deployment(parameter_request(vec![boolean_parameter("login", true)]))
+        .await
+        .expect("deployment with login on");
+    let on = declaration(&on.application_deployment_id);
+    let on_password = sequential_secret(2, 32);
+    let password_hash = on
+        .secret_attachments
+        .iter()
+        .find(|attachment| attachment.binding_name == "password-hash")
+        .expect("bcrypt attachment")
+        .value
+        .clone();
+    assert!(bcrypt::verify(&on_password, &password_hash).expect("verifiable hash"));
+    assert_eq!(
+        environment(&on),
+        BTreeMap::from([
+            ("LOGIN".to_owned(), "true".to_owned()),
+            ("PASSWORD".to_owned(), on_password.clone()),
+            ("PASSWORD_HASH".to_owned(), password_hash),
+            ("USERNAME".to_owned(), "admin".to_owned()),
+        ])
+    );
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn invalid_secret_and_text_values_reject_creation_without_quoting_them() {
+    let directory = test_directory();
+    let (controller, desired) =
+        secret_parameter_test_controller(&directory, test_secret_generator());
+    let cases = [
+        (
+            string_parameter("password", ""),
+            "Application parameter \"password\" has an invalid value: it is shorter than the minimum length of 12",
+        ),
+        (
+            string_parameter("password", "short-pass"),
+            "Application parameter \"password\" has an invalid value: it is shorter than the minimum length of 12",
+        ),
+        (
+            string_parameter("password", "typed=password-1"),
+            "Application parameter \"password\" has an invalid value: it contains `=` or a control character",
+        ),
+        (
+            string_parameter("password", "typed-password\n1"),
+            "Application parameter \"password\" has an invalid value: it contains `=` or a control character",
+        ),
+        (
+            string_parameter("username", ""),
+            "Application parameter \"username\" has an invalid value: it is shorter than the minimum length of 1",
+        ),
+        (
+            string_parameter("username", &"u".repeat(65)),
+            "Application parameter \"username\" has an invalid value: it is longer than the maximum length of 64",
+        ),
+    ];
+
+    for (value, expected) in cases {
+        let error = controller
+            .create_deployment(parameter_request(vec![value.clone()]))
+            .await
+            .expect_err("invalid parameter value");
+        assert!(matches!(
+            error,
+            ApplicationLifecycleError::InvalidParameter { .. }
+        ));
+        assert_eq!(error.to_string(), expected);
+        if let Some(parameter_value::Value::String(value)) = &value.value
+            && !value.is_empty()
+        {
+            assert!(!format!("{error:?}").contains(value.as_str()));
+        }
+    }
+    assert!(
+        desired
+            .snapshot()
+            .expect("declaration snapshot")
+            .deployments
+            .is_empty()
+    );
+    drop(controller);
+    std::fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+fn secret_parameter_test_controller(
+    directory: &Path,
+    secret_generator: Arc<dyn crate::SecretGenerator>,
+) -> (
+    TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
+    TestApplicationDeclarationRepository,
+) {
+    test_controller_for(
+        directory,
+        application_with_secret_parameters(),
+        secret_generator,
+    )
+}
+
 fn parameter_test_controller(
     directory: &Path,
+) -> (
+    TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
+    TestApplicationDeclarationRepository,
+) {
+    test_controller_for(
+        directory,
+        application_with_parameters(),
+        test_secret_generator(),
+    )
+}
+
+fn test_controller_for(
+    directory: &Path,
+    application: dotcore_proto::dotcore::catalog::v1::Application,
+    secret_generator: Arc<dyn crate::SecretGenerator>,
 ) -> (
     TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
     TestApplicationDeclarationRepository,
@@ -7979,7 +8496,7 @@ fn parameter_test_controller(
     let controller = TestController::new(
         Arc::new(
             CatalogBuilder::new()
-                .application("test", application_with_parameters())
+                .application("test", application)
                 .build()
                 .expect("Catalog"),
         ),
@@ -7990,6 +8507,7 @@ fn parameter_test_controller(
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator,
         },
     )
     .expect("Apps controller");
@@ -8004,6 +8522,22 @@ fn parameter_request(parameter_values: Vec<ParameterValue>) -> CreateApplication
         expected_inference_route_generation: 0,
         application_deployment_name: None,
         parameter_values,
+        storage_choices: Vec::new(),
+    }
+}
+
+fn storage_choice(binding_name: &str, placement: StoragePlacement) -> ApplicationStorageChoice {
+    ApplicationStorageChoice {
+        service_name: "web".to_owned(),
+        binding_name: binding_name.to_owned(),
+        placement: placement as i32,
+    }
+}
+
+fn boolean_parameter(id: &str, value: bool) -> ParameterValue {
+    ParameterValue {
+        parameter_id: id.to_owned(),
+        value: Some(parameter_value::Value::Boolean(value)),
     }
 }
 

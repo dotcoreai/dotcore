@@ -4,7 +4,33 @@ applicationId: "open-webui"
 displayName: "Open WebUI"
 description: "Self-hosted chat interface for the models on this site."
 version: "0.11.4"
+notes: |-
+  Login is off by default: opening the app lands in the chat. When "Require login" is on, sign in
+  with the admin email and password in this deployment's sidebar.
 graph:
+  parameters:
+    - parameterId: "require-login"
+      displayName: "Require login"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Ask for an email and password to use Open WebUI. The admin email and password below apply only when it is on."
+      boolean:
+        defaultValue: false
+    - parameterId: "admin-email"
+      displayName: "Admin email"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The email address for logging in to Open WebUI as its admin. Applies only when login is required."
+      # Email addresses run from `a@b` (3 characters) to 254 characters (RFC 5321 path limit).
+      text:
+        minimumLength: 3
+        maximumLength: 254
+        defaultValue: "admin@dotcore.local"
+    - parameterId: "admin-password"
+      displayName: "Admin password"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The initial password for logging in to Open WebUI as its admin. Leave it empty to generate a random one, which you can read in the deployment's sidebar. Applies only when login is required. If you change the password inside Open WebUI, the one shown here is no longer valid."
+      secret:
+        generatedLength: 32
+        minimumLength: 1
   services:
     - serviceName: "web"
       # The image and its digests are pinned by `apps/open-webui/docker-image.nix`.
@@ -24,7 +50,14 @@ graph:
       configurationBindings:
         - bindingName: "webui-auth"
           environmentVariable: "WEBUI_AUTH"
+          parameterId: "require-login"
+        - bindingName: "signup"
+          environmentVariable: "ENABLE_SIGNUP"
           literalValue: "false"
+        - bindingName: "admin-email"
+          environmentVariable: "WEBUI_ADMIN_EMAIL"
+          parameterId: "admin-email"
+          enabledByParameterId: "require-login"
         - bindingName: "persistent-config"
           environmentVariable: "ENABLE_PERSISTENT_CONFIG"
           literalValue: "false"
@@ -40,11 +73,17 @@ graph:
         - bindingName: "openai-api-base-url"
           environmentVariable: "OPENAI_API_BASE_URL"
           resolvedValueName: "configured-inference-openai-base-url"
+      secretBindings:
+        - bindingName: "admin-password"
+          environmentVariable: "WEBUI_ADMIN_PASSWORD"
+          parameterId: "admin-password"
+          enabledByParameterId: "require-login"
+          form: "APPLICATION_SECRET_FORM_PLAIN"
       storageBindings:
         - bindingName: "data"
           mountPath: "/app/backend/data"
           kind: "STORAGE_KIND_DATA"
-          scope: "STORAGE_SCOPE_DEPLOYMENT"
+          placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
       readiness:
         httpGet:
           portName: "http"

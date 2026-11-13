@@ -1,15 +1,15 @@
 //! The engine parameters every engine release shares: total context, context per request and
 //! parallel requests.
 //!
-//! The catalog owns their ids and their fixed shape, so controllers, adapters and the console
-//! name them the same way on every engine, while each release sets its own maxima, default values
+//! The catalog owns their ids and their fixed shape and visibility, so controllers, adapters and
+//! the console name and place them the same way on every engine, while each release sets its own maxima, default values
 //! and descriptions. It also fills the context per request a deployment leaves out, from the
 //! maximum context and the total context.
 
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineParameterDefinition, EngineParameterSchema, EngineParameterValue, EngineParameterValues,
-    Model, ModelEngineConfiguration, engine_parameter_definition::ParameterType,
-    engine_parameter_value::Value,
+    EngineParameterSchema, Model, ModelEngineConfiguration, ParameterDefinition, ParameterValue,
+    ParameterValues, ParameterVisibility, parameter_definition::ParameterType,
+    parameter_value::Value,
 };
 
 /// Id of the total context: the KV pool an engine holds at start, shared by active requests.
@@ -49,9 +49,9 @@ pub fn maximum_context_tokens(model: &Model, configuration: &ModelEngineConfigur
 /// values already supply one, or they hold no total context to bound it.
 pub fn filled_context_per_request(
     schema: &EngineParameterSchema,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     maximum_context_tokens: u32,
-) -> Option<EngineParameterValue> {
+) -> Option<ParameterValue> {
     let declared = schema
         .parameters
         .iter()
@@ -73,7 +73,7 @@ pub fn filled_context_per_request(
             _ => None,
         }
     })?;
-    Some(EngineParameterValue {
+    Some(ParameterValue {
         parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
         value: Some(Value::UnsignedInteger(
             total_context.min(u64::from(maximum_context_tokens)),
@@ -88,6 +88,31 @@ pub(crate) fn profile_may_default(parameter_id: &str) -> bool {
         .iter()
         .find(|shared| shared.parameter_id == parameter_id)
         .is_none_or(|shared| shared.profile_default)
+}
+
+/// Whether the parameter is fixed in the main view: the context parameters are, and may only be
+/// hidden there; an engine or a profile may show any other parameter there too.
+pub(crate) fn in_main_view(parameter_id: &str) -> bool {
+    SHARED_PARAMETERS.iter().any(|shared| {
+        shared.parameter_id == parameter_id && shared.visibility == ParameterVisibility::Basic
+    })
+}
+
+/// Returns why a profile may not give the parameter this visibility, or none when it may. The
+/// context parameters belong to the main view: a profile may hide them but not move them to the
+/// advanced view. A profile may give any other parameter any visibility.
+pub(crate) fn profile_visibility_problem(
+    parameter_id: &str,
+    visibility: ParameterVisibility,
+) -> Option<&'static str> {
+    let main_view = in_main_view(parameter_id);
+    match visibility {
+        ParameterVisibility::Unspecified => Some("requires a basic, advanced or hidden visibility"),
+        ParameterVisibility::Advanced if main_view => Some("may be hidden but not advanced"),
+        ParameterVisibility::Basic
+        | ParameterVisibility::Advanced
+        | ParameterVisibility::Hidden => None,
+    }
 }
 
 /// Checks that an engine parameter schema declares every shared parameter with its fixed shape,
@@ -125,6 +150,7 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         display_name: "Total context",
         unit: "tokens",
         minimum: MINIMUM_CONTEXT_TOKENS,
+        visibility: ParameterVisibility::Basic,
         engine_default: true,
         profile_default: false,
     },
@@ -133,6 +159,7 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         display_name: "Context per request",
         unit: "tokens",
         minimum: MINIMUM_CONTEXT_TOKENS,
+        visibility: ParameterVisibility::Basic,
         engine_default: false,
         profile_default: false,
     },
@@ -141,17 +168,20 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         display_name: "Parallel requests",
         unit: "requests",
         minimum: 1,
+        visibility: ParameterVisibility::Advanced,
         engine_default: true,
         profile_default: true,
     },
 ];
 
-/// One shared parameter's fixed shape. Every shared parameter is an exposed unsigned integer.
+/// One shared parameter's fixed shape. Every shared parameter is an unsigned integer the console
+/// shows: the contexts in its main view, the parallel requests in its advanced view.
 struct SharedParameter {
     parameter_id: &'static str,
     display_name: &'static str,
     unit: &'static str,
     minimum: u64,
+    visibility: ParameterVisibility,
 
     /// Whether every release must declare an engine default; otherwise none may.
     engine_default: bool,
@@ -162,15 +192,15 @@ struct SharedParameter {
 
 impl SharedParameter {
     /// Returns how a declared definition departs from the fixed shape, or none when it matches.
-    fn shape_problem(&self, definition: &EngineParameterDefinition) -> Option<String> {
+    fn shape_problem(&self, definition: &ParameterDefinition) -> Option<String> {
         let Some(ParameterType::UnsignedInteger(range)) = definition.parameter_type.as_ref() else {
             return Some("must be an unsigned integer".to_owned());
         };
         if definition.display_name != self.display_name {
             return Some(format!("must be named {:?}", self.display_name));
         }
-        if !definition.exposed {
-            return Some("must be exposed".to_owned());
+        if definition.visibility() != self.visibility {
+            return Some(format!("must be {}", visibility_name(self.visibility)));
         }
         if range.unit != self.unit {
             return Some(format!("must be in {:?}", self.unit));
@@ -186,9 +216,19 @@ impl SharedParameter {
     }
 }
 
+/// Returns the visibility's lowercase name, for messages.
+fn visibility_name(visibility: ParameterVisibility) -> &'static str {
+    match visibility {
+        ParameterVisibility::Unspecified => "unspecified",
+        ParameterVisibility::Basic => "basic",
+        ParameterVisibility::Advanced => "advanced",
+        ParameterVisibility::Hidden => "hidden",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use dotcore_proto::dotcore::catalog::v1::UnsignedIntegerEngineParameterSchema;
+    use dotcore_proto::dotcore::catalog::v1::UnsignedIntegerParameterSchema;
 
     use super::*;
 
@@ -214,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_shared_parameter_in_the_wrong_shape_is_rejected() {
-        let cases: [(&str, ShapeChange, &str); 7] = [
+        let cases: [(&str, ShapeChange, &str); 9] = [
             (
                 TOTAL_CONTEXT_PARAMETER_ID,
                 |definition| {
@@ -229,8 +269,18 @@ mod tests {
             ),
             (
                 PARALLEL_REQUESTS_PARAMETER_ID,
-                |definition| definition.exposed = false,
-                "must be exposed",
+                |definition| definition.set_visibility(ParameterVisibility::Hidden),
+                "must be advanced",
+            ),
+            (
+                TOTAL_CONTEXT_PARAMETER_ID,
+                |definition| definition.set_visibility(ParameterVisibility::Advanced),
+                "must be basic",
+            ),
+            (
+                CONTEXT_PER_REQUEST_PARAMETER_ID,
+                |definition| definition.set_visibility(ParameterVisibility::Hidden),
+                "must be basic",
             ),
             (
                 PARALLEL_REQUESTS_PARAMETER_ID,
@@ -307,6 +357,29 @@ mod tests {
     }
 
     #[test]
+    fn profiles_may_hide_any_parameter_and_keep_the_contexts_basic() {
+        use ParameterVisibility::{Advanced, Basic, Hidden, Unspecified};
+
+        for parameter_id in [TOTAL_CONTEXT_PARAMETER_ID, CONTEXT_PER_REQUEST_PARAMETER_ID] {
+            assert_eq!(profile_visibility_problem(parameter_id, Basic), None);
+            assert_eq!(profile_visibility_problem(parameter_id, Hidden), None);
+            assert_eq!(
+                profile_visibility_problem(parameter_id, Advanced),
+                Some("may be hidden but not advanced")
+            );
+        }
+        for parameter_id in [PARALLEL_REQUESTS_PARAMETER_ID, "prompt-cache-memory-mib"] {
+            assert_eq!(profile_visibility_problem(parameter_id, Basic), None);
+            assert_eq!(profile_visibility_problem(parameter_id, Advanced), None);
+            assert_eq!(profile_visibility_problem(parameter_id, Hidden), None);
+        }
+        assert_eq!(
+            profile_visibility_problem(TOTAL_CONTEXT_PARAMETER_ID, Unspecified),
+            Some("requires a basic, advanced or hidden visibility")
+        );
+    }
+
+    #[test]
     fn the_omitted_context_per_request_is_the_smaller_of_the_maximum_and_the_total_context() {
         let schema = shared_schema();
         let filled = |total_context: u64, maximum: u32| {
@@ -340,7 +413,7 @@ mod tests {
             None
         );
         assert_eq!(
-            filled_context_per_request(&schema, &EngineParameterValues::default(), 262_144),
+            filled_context_per_request(&schema, &ParameterValues::default(), 262_144),
             None
         );
     }
@@ -371,7 +444,7 @@ mod tests {
     }
 
     /// Edits one shared parameter definition away from its fixed shape.
-    type ShapeChange = fn(&mut EngineParameterDefinition);
+    type ShapeChange = fn(&mut ParameterDefinition);
 
     fn messages(schema: &EngineParameterSchema) -> Vec<String> {
         validate_shared_parameters(schema)
@@ -415,43 +488,45 @@ mod tests {
         unit: &str,
         minimum: u64,
         default_value: Option<u64>,
-    ) -> EngineParameterDefinition {
-        EngineParameterDefinition {
+    ) -> ParameterDefinition {
+        ParameterDefinition {
             parameter_id: parameter_id.to_owned(),
             display_name: display_name.to_owned(),
             parameter_type: Some(ParameterType::UnsignedInteger(
-                UnsignedIntegerEngineParameterSchema {
+                UnsignedIntegerParameterSchema {
                     minimum,
                     maximum: 16_777_216,
                     unit: unit.to_owned(),
                     default_value,
                 },
             )),
-            exposed: true,
+            visibility: SHARED_PARAMETERS
+                .iter()
+                .find(|shared| shared.parameter_id == parameter_id)
+                .map_or(ParameterVisibility::Advanced, |shared| shared.visibility)
+                as i32,
             description: String::new(),
         }
     }
 
-    fn range(
-        definition: &mut EngineParameterDefinition,
-    ) -> &mut UnsignedIntegerEngineParameterSchema {
+    fn range(definition: &mut ParameterDefinition) -> &mut UnsignedIntegerParameterSchema {
         match definition.parameter_type.as_mut() {
             Some(ParameterType::UnsignedInteger(range)) => range,
             _ => panic!("unsigned shared parameter"),
         }
     }
 
-    fn total(value: u64) -> EngineParameterValues {
-        EngineParameterValues {
-            values: vec![EngineParameterValue {
+    fn total(value: u64) -> ParameterValues {
+        ParameterValues {
+            values: vec![ParameterValue {
                 parameter_id: TOTAL_CONTEXT_PARAMETER_ID.to_owned(),
                 value: Some(Value::UnsignedInteger(value)),
             }],
         }
     }
 
-    fn context_per_request(value: u64) -> EngineParameterValue {
-        EngineParameterValue {
+    fn context_per_request(value: u64) -> ParameterValue {
+        ParameterValue {
             parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
             value: Some(Value::UnsignedInteger(value)),
         }

@@ -11,15 +11,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineArtifact, EngineParameterValue, EngineParameterValues, EngineRelease, HardwareClass,
-    HuggingFaceArtifactSource, InferenceRequestKind, IntelligenceScore, License, Model,
-    ModelArtifact, ModelConfigurationOption, ModelEngineConfiguration, ModelInputCapabilities,
-    ModelInputModality, ModelOptionParameterDefinition, SpeculativeDecodingMethod,
-    engine_parameter_definition::ParameterType as EngineParameterType,
-    engine_parameter_value::Value as EngineParameterValueKind,
-    hugging_face_artifact_source::Content as HuggingFaceContent,
+    EngineArtifact, EngineRelease, HardwareClass, HuggingFaceArtifactSource, InferenceRequestKind,
+    IntelligenceScore, License, Model, ModelArtifact, ModelConfigurationOption,
+    ModelEngineConfiguration, ModelInputCapabilities, ModelInputModality,
+    ModelOptionParameterDefinition, ModelProfile, ParameterValue, ParameterValues,
+    SpeculativeDecodingMethod, hugging_face_artifact_source::Content as HuggingFaceContent,
     model_option::Kind as ModelOptionKind,
     model_option_parameter_definition::ParameterType as ModelOptionParameterType,
+    parameter_definition::ParameterType as EngineParameterType,
+    parameter_value::Value as EngineParameterValueKind,
 };
 
 use super::common::lower_hex;
@@ -30,7 +30,8 @@ use crate::{
         valid_option_values,
     },
     selector::{SelectorRelation, selector_relation},
-    shared_parameters::profile_may_default,
+    shared_parameters::{profile_may_default, profile_visibility_problem},
+    typed_parameters::{check_value, default_value, is_secret},
     validation::{EngineDeclarationValidator, configuration_engine_release},
 };
 
@@ -818,24 +819,7 @@ fn validate_profiles(
         let Some(engine) = configuration_engine_release(configuration, engines) else {
             continue;
         };
-        if !profile.exposed_parameter_ids.is_empty() {
-            let mut exposed_ids = BTreeSet::new();
-            let schema = engine.parameter_schema.as_ref();
-            if profile.exposed_parameter_ids.iter().any(|parameter_id| {
-                !exposed_ids.insert(parameter_id)
-                    || schema.is_none_or(|schema| {
-                        !schema
-                            .parameters
-                            .iter()
-                            .any(|definition| definition.parameter_id == *parameter_id)
-                    })
-            }) {
-                errors.push(anyhow::anyhow!(
-                    "profile {:?} has invalid exposed engine parameters",
-                    profile.profile_id
-                ));
-            }
-        }
+        validate_visibility_overrides(profile, engine, errors);
         match profile.engine_parameter_defaults.as_ref() {
             Some(values) => {
                 validate_supplied_parameter_values(values, engine, &profile.profile_id, errors);
@@ -846,6 +830,18 @@ fn validate_profiles(
                 {
                     errors.push(anyhow::anyhow!(
                         "profile {:?} sets engine parameter {:?}, which profiles leave to the engine default and the deployment",
+                        profile.profile_id,
+                        value.parameter_id
+                    ));
+                }
+                // A secret default would be a literal every deployment shares.
+                for value in values
+                    .values
+                    .iter()
+                    .filter(|value| is_secret_parameter(engine, &value.parameter_id))
+                {
+                    errors.push(anyhow::anyhow!(
+                        "profile {:?} sets secret engine parameter {:?}, which each deployment generates or receives",
                         profile.profile_id,
                         value.parameter_id
                     ));
@@ -862,6 +858,44 @@ fn validate_profiles(
             errors.push(anyhow::anyhow!(
                 "profile {:?} has invalid resolved model options: {error}",
                 profile.profile_id
+            ));
+        }
+    }
+}
+
+/// Validates a profile's engine parameter visibility overrides: each names a parameter of the
+/// engine release once, with a visibility the shared parameter rules allow for profiles.
+fn validate_visibility_overrides(
+    profile: &ModelProfile,
+    engine: &EngineRelease,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    let profile_id = &profile.profile_id;
+    let mut ids = BTreeSet::new();
+    for visibility_override in &profile.engine_parameter_visibility_overrides {
+        let parameter_id = &visibility_override.parameter_id;
+        if !engine
+            .parameter_schema
+            .iter()
+            .flat_map(|schema| &schema.parameters)
+            .any(|definition| &definition.parameter_id == parameter_id)
+        {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} overrides the visibility of engine parameter {parameter_id:?}, which is not a parameter of the engine release"
+            ));
+            continue;
+        }
+        if !ids.insert(parameter_id) {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} overrides the visibility of engine parameter {parameter_id:?} more than once"
+            ));
+            continue;
+        }
+        if let Some(problem) =
+            profile_visibility_problem(parameter_id, visibility_override.visibility())
+        {
+            errors.push(anyhow::anyhow!(
+                "profile {profile_id:?} engine parameter {parameter_id:?} {problem}"
             ));
         }
     }
@@ -891,26 +925,50 @@ fn validate_profile_option_defaults(
 
 /// Validates a complete set of engine parameter values against the engine schema.
 pub fn validate_parameter_values(
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     engine: &EngineRelease,
     profile_id: &str,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    let missing = missing_parameter_ids(values, engine);
-    if !missing.is_empty() {
-        errors.push(anyhow::anyhow!(
-            "profile {profile_id:?} engine parameter values are incomplete; missing {}",
-            missing.join(", ")
-        ));
-        return;
-    }
-    validate_supplied_parameter_values(values, engine, profile_id, errors);
+    validate_values(
+        values,
+        engine,
+        profile_id,
+        SecretCompleteness::Required,
+        errors,
+    );
+}
+
+/// Validates engine parameter values that are complete except, possibly, for secrets, whose
+/// values exist only once a deployment is created.
+pub fn validate_parameter_values_before_secrets(
+    values: &ParameterValues,
+    engine: &EngineRelease,
+    profile_id: &str,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    validate_values(
+        values,
+        engine,
+        profile_id,
+        SecretCompleteness::Optional,
+        errors,
+    );
+}
+
+/// Whether the engine release declares `parameter_id` as a secret.
+pub fn is_secret_parameter(engine: &EngineRelease, parameter_id: &str) -> bool {
+    engine
+        .parameter_schema
+        .iter()
+        .flat_map(|schema| &schema.parameters)
+        .any(|definition| definition.parameter_id == parameter_id && is_secret(definition))
 }
 
 /// Validates supplied engine parameter values, which may omit parameters that sizing derives.
 /// Completeness is checked once derivations are known.
 pub fn validate_supplied_parameter_values(
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     engine: &EngineRelease,
     profile_id: &str,
     errors: &mut Vec<anyhow::Error>,
@@ -952,6 +1010,13 @@ pub fn validate_supplied_parameter_values(
             }
             (Some(EngineParameterType::Boolean(_)), Some(EngineParameterValueKind::Boolean(_))) => {
             }
+            (Some(EngineParameterType::Secret(_)), Some(value @ EngineParameterValueKind::String(_))) => {
+                if let Err(error) = check_value(definition, value) {
+                    errors.push(anyhow::anyhow!(
+                        "profile {profile_id:?} engine parameter {parameter_id:?} value is invalid: {error}"
+                    ));
+                }
+            }
             _ => errors.push(anyhow::anyhow!(
                 "profile {profile_id:?} engine parameter {parameter_id:?} has a value of the wrong type"
             )),
@@ -962,9 +1027,9 @@ pub fn validate_supplied_parameter_values(
 /// Overlays defaults on supplied engine parameter values, per parameter: the supplied values
 /// keep their order, followed by each default whose parameter they leave out.
 pub fn overlay_parameter_defaults(
-    values: &EngineParameterValues,
-    defaults: &EngineParameterValues,
-) -> EngineParameterValues {
+    values: &ParameterValues,
+    defaults: &ParameterValues,
+) -> ParameterValues {
     let mut overlaid = values.clone();
     overlaid.values.extend(
         defaults
@@ -982,30 +1047,24 @@ pub fn overlay_parameter_defaults(
 }
 
 /// Engine defaults the release declares for its parameters, in schema order.
-pub(super) fn engine_default_values(engine: &EngineRelease) -> EngineParameterValues {
-    EngineParameterValues {
+pub(super) fn engine_default_values(engine: &EngineRelease) -> ParameterValues {
+    ParameterValues {
         values: engine
             .parameter_schema
             .iter()
             .flat_map(|schema| &schema.parameters)
-            .filter_map(|definition| match definition.parameter_type.as_ref() {
-                Some(EngineParameterType::UnsignedInteger(range)) => {
-                    range.default_value.map(|default| EngineParameterValue {
-                        parameter_id: definition.parameter_id.clone(),
-                        value: Some(EngineParameterValueKind::UnsignedInteger(default)),
-                    })
-                }
-                _ => None,
+            .filter_map(|definition| {
+                default_value(definition).map(|default| ParameterValue {
+                    parameter_id: definition.parameter_id.clone(),
+                    value: Some(default),
+                })
             })
             .collect(),
     }
 }
 
 /// Engine schema parameter ids without a supplied value, in schema order.
-pub fn missing_parameter_ids(
-    values: &EngineParameterValues,
-    engine: &EngineRelease,
-) -> Vec<String> {
+pub fn missing_parameter_ids(values: &ParameterValues, engine: &EngineRelease) -> Vec<String> {
     engine
         .parameter_schema
         .as_ref()
@@ -1023,6 +1082,36 @@ pub fn missing_parameter_ids(
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Whether value completeness covers secret parameters.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SecretCompleteness {
+    Required,
+    Optional,
+}
+
+fn validate_values(
+    values: &ParameterValues,
+    engine: &EngineRelease,
+    profile_id: &str,
+    secrets: SecretCompleteness,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    let missing = missing_parameter_ids(values, engine)
+        .into_iter()
+        .filter(|parameter_id| {
+            secrets == SecretCompleteness::Required || !is_secret_parameter(engine, parameter_id)
+        })
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        errors.push(anyhow::anyhow!(
+            "profile {profile_id:?} engine parameter values are incomplete; missing {}",
+            missing.join(", ")
+        ));
+        return;
+    }
+    validate_supplied_parameter_values(values, engine, profile_id, errors);
 }
 
 fn valid_weight_quantization(value: &str) -> bool {
@@ -1133,22 +1222,72 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use dotcore_proto::dotcore::catalog::v1::{
-        BooleanModelOptionParameterSchema, EngineArtifact, EngineArtifactReference,
-        EngineParameterValues, EngineRelease, HardwareClass, InferenceRequestKind,
-        KvCachePrecisionModelOption, Model, ModelArtifactBinding, ModelConfigurationOption,
-        ModelEngineConfiguration, ModelOption, ModelOptionParameterDefinition,
-        ModelOptionParameterValue, ModelOptionValues, ModelProfile, OciPlatform, Selector,
-        SpeculativeDecodingMethod, SpeculativeDecodingModelOption,
-        StringEnumModelOptionParameterSchema, UnsignedIntegerModelOptionParameterSchema,
-        model_option, model_option_parameter_definition::ParameterType,
-        model_option_parameter_value::Value,
+        BooleanModelOptionParameterSchema, EngineArtifact, EngineArtifactReference, EngineRelease,
+        HardwareClass, InferenceRequestKind, KvCachePrecisionModelOption, Model,
+        ModelArtifactBinding, ModelConfigurationOption, ModelEngineConfiguration, ModelOption,
+        ModelOptionParameterDefinition, ModelOptionParameterValue, ModelOptionValues, ModelProfile,
+        OciPlatform, ParameterValues, Selector, SpeculativeDecodingMethod,
+        SpeculativeDecodingModelOption, StringEnumModelOptionParameterSchema,
+        UnsignedIntegerModelOptionParameterSchema, model_option,
+        model_option_parameter_definition::ParameterType, model_option_parameter_value::Value,
     };
 
     use super::{
-        overlapping_artifacts, valid_request_kinds, validate_class_artifact_coverage,
-        validate_configuration_options, validate_model_options, validate_profiles,
+        engine_default_values, overlapping_artifacts, valid_request_kinds,
+        validate_class_artifact_coverage, validate_configuration_options, validate_model_options,
+        validate_profiles,
     };
     use crate::test_support::vendor_hardware_class;
+
+    #[test]
+    fn engine_defaults_cover_every_parameter_declaring_one_booleans_included() {
+        use dotcore_proto::dotcore::catalog::v1::{
+            BooleanParameterSchema, EngineParameterSchema, ParameterDefinition, ParameterValue,
+            UnsignedIntegerParameterSchema, parameter_definition::ParameterType as Type,
+            parameter_value::Value as ParameterValueKind,
+        };
+
+        let definition = |parameter_id: &str, parameter_type| ParameterDefinition {
+            parameter_id: parameter_id.to_owned(),
+            parameter_type: Some(parameter_type),
+            ..Default::default()
+        };
+        let unsigned = |default_value| {
+            Type::UnsignedInteger(UnsignedIntegerParameterSchema {
+                minimum: 0,
+                maximum: 64,
+                unit: "requests".to_owned(),
+                default_value,
+            })
+        };
+        let boolean = |default_value| Type::Boolean(BooleanParameterSchema { default_value });
+        let engine = EngineRelease {
+            parameter_schema: Some(EngineParameterSchema {
+                schema_id: "fixture".to_owned(),
+                parameters: vec![
+                    definition("parallel-requests", unsigned(Some(4))),
+                    definition("flash-attention", boolean(Some(false))),
+                    definition("cache-mib", unsigned(None)),
+                    definition("mlock", boolean(None)),
+                ],
+            }),
+            ..Default::default()
+        };
+        let value = |parameter_id: &str, value| ParameterValue {
+            parameter_id: parameter_id.to_owned(),
+            value: Some(value),
+        };
+
+        assert_eq!(
+            engine_default_values(&engine),
+            ParameterValues {
+                values: vec![
+                    value("parallel-requests", ParameterValueKind::UnsignedInteger(4)),
+                    value("flash-attention", ParameterValueKind::Boolean(false)),
+                ],
+            }
+        );
+    }
 
     #[test]
     fn request_kinds_must_be_non_empty_known_and_unique() {
@@ -1601,7 +1740,7 @@ mod tests {
                 profile_id: "balanced".to_owned(),
                 configuration_id: "local".to_owned(),
                 default_model_artifact_binding_id: "weights".to_owned(),
-                engine_parameter_defaults: Some(EngineParameterValues::default()),
+                engine_parameter_defaults: Some(ParameterValues::default()),
                 ..Default::default()
             }],
             ..Default::default()

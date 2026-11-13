@@ -8,7 +8,7 @@ use clap::Args;
 use dotcore_proto::dotcore::model::v1::{ModelDeployment, model_deployment_snapshot};
 
 use super::{
-    node_of, placement,
+    node_of, parameters, placement,
     projection::{
         desired_state_label, model_display_name, presentation_name, state_label, state_overridden,
     },
@@ -16,6 +16,7 @@ use super::{
 use crate::{
     management::{ManagerArgs, NodeNames, find_deployment, single_line},
     node::write_records,
+    parameters::{ParameterRow, record_lines},
     terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
 };
 
@@ -26,6 +27,10 @@ pub struct ModelShowArgs {
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
 
+    /// Print secret parameter values instead of masking them.
+    #[arg(long)]
+    reveal_secrets: bool,
+
     #[command(flatten)]
     manager: ManagerArgs,
 }
@@ -35,7 +40,7 @@ pub(crate) async fn model_show(arguments: ModelShowArgs) -> anyhow::Result<()> {
     let manager = arguments.manager.connect().await?;
     let deployment = find_deployment::<ModelDeployment>(&manager, &arguments.reference).await?;
     let nodes = manager.node_names().await;
-    let details = Details::of(&deployment, &nodes);
+    let details = Details::of(&deployment, &nodes, arguments.reveal_secrets);
 
     if controlling_terminal_condition() == TerminalCondition::Interactive {
         let mut terminal = open_terminal();
@@ -44,6 +49,16 @@ pub(crate) async fn model_show(arguments: ModelShowArgs) -> anyhow::Result<()> {
             details.name
         )))?;
         terminal.message(&Message::KeyValues(details.pairs()))?;
+        if !details.parameters.is_empty() {
+            terminal.message(&Message::Heading("Parameters".to_owned()))?;
+            terminal.message(&Message::KeyValues(
+                details
+                    .parameters
+                    .iter()
+                    .map(|row| (row.name.clone(), row.value.clone()))
+                    .collect(),
+            ))?;
+        }
         return Ok(());
     }
 
@@ -65,10 +80,11 @@ struct Details {
     progress: String,
     failure: String,
     message: String,
+    parameters: Vec<ParameterRow>,
 }
 
 impl Details {
-    fn of(deployment: &ModelDeployment, nodes: &NodeNames) -> Self {
+    fn of(deployment: &ModelDeployment, nodes: &NodeNames, reveal_secrets: bool) -> Self {
         let state = state_label(deployment);
         let observed = deployment.state.as_ref();
         let (profile, engine) = match deployment
@@ -125,6 +141,7 @@ impl Details {
             progress,
             failure,
             message,
+            parameters: parameters::rows(deployment, reveal_secrets),
         }
     }
 
@@ -152,7 +169,7 @@ impl Details {
     }
 
     fn record_block(&self) -> String {
-        format!(
+        let mut block = format!(
             "Model deployment\nDOTCORE_MODEL_DEPLOYMENT_ID={}\nDOTCORE_MODEL_DEPLOYMENT_NAME={}\nDOTCORE_MODEL_DEPLOYMENT_STATE={}\nDOTCORE_MODEL_DEPLOYMENT_DESIRED_STATE={}\nDOTCORE_MODEL_DEPLOYMENT_NODE={}\nDOTCORE_MODEL_DEPLOYMENT_EXECUTION_TARGET={}\nDOTCORE_MODEL_DEPLOYMENT_MODEL={}\nDOTCORE_MODEL_DEPLOYMENT_PROFILE={}\nDOTCORE_MODEL_DEPLOYMENT_ENGINE={}\nDOTCORE_MODEL_DEPLOYMENT_PROGRESS={}\nDOTCORE_MODEL_DEPLOYMENT_FAILURE={}\nDOTCORE_MODEL_DEPLOYMENT_MESSAGE={}\n",
             self.id,
             self.name,
@@ -166,6 +183,11 @@ impl Details {
             self.progress,
             self.failure,
             self.message,
-        )
+        );
+        block.push_str(&record_lines(
+            "DOTCORE_MODEL_DEPLOYMENT_PARAMETER",
+            &self.parameters,
+        ));
+        block
     }
 }

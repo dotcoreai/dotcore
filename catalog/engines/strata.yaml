@@ -10,8 +10,8 @@ parameterSchema:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
-      description: "Context memory the server holds from the start. Each parallel request keeps its own part of it, as large as the context per request, so it is always the parallel requests times the context per request."
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Memory the model holds for all requests at once. Each parallel request gets its own share as large as the context per request, so it is always the parallel requests times the context per request; change those two instead."
       unsignedInteger:
         minimum: "1024"
         maximum: "2097152"
@@ -19,16 +19,17 @@ parameterSchema:
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
-      description: "Largest context one request may use. The server holds this much context for each parallel request from the start, whether a request uses it or not."
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Largest context one request may use. The server sets this much aside for every parallel request from the start, used or not, so keep it as small as your longest request needs."
       unsignedInteger:
         minimum: "1024"
         maximum: "262144"
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
-      description: "Requests the server generates at the same time; further requests wait for a free one. Each one holds its own context per request."
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
+      # Strata's wrapper accepts 1 to 8 parallel requests (`MAX_PARALLEL` in `engines/strata/start.py`).
       unsignedInteger:
         minimum: "1"
         maximum: "8"
@@ -36,8 +37,8 @@ parameterSchema:
         defaultValue: "1"
     - parameterId: "expert-vram-mib"
       displayName: "Expert accelerator memory"
-      exposed: true
-      description: "Accelerator memory the model's experts may use; the experts that don't fit stay in host memory. The model's sizing sets it unless you do."
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      description: "Accelerator memory the model's experts may use; experts that don't fit stay in host memory and run slower. The model's sizing sets it; raise it to speed up generation if memory allows, or lower it to free accelerator memory."
       unsignedInteger:
         minimum: "1"
         maximum: "1048576"
@@ -48,7 +49,7 @@ storageBindings:
   - bindingName: "data"
     mountPath: "/data"
     kind: "STORAGE_KIND_CACHE"
-    scope: "STORAGE_SCOPE_DEPLOYMENT"
+    placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
 artifacts:
   - artifactId: "linux-amd64-cuda"
     nix:

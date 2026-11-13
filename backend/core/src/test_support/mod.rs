@@ -37,15 +37,15 @@ pub(crate) fn host_process_load_guard() -> std::sync::MutexGuard<'static, ()> {
 /// Unsigned engine parameter values for the given parameter and value pairs, in order.
 pub(crate) fn unsigned_parameter_values<'a>(
     values: impl IntoIterator<Item = (&'a str, u64)>,
-) -> dotcore_proto::dotcore::catalog::v1::EngineParameterValues {
+) -> dotcore_proto::dotcore::catalog::v1::ParameterValues {
     use dotcore_proto::dotcore::catalog::v1::{
-        EngineParameterValue, EngineParameterValues, engine_parameter_value::Value,
+        ParameterValue, ParameterValues, parameter_value::Value,
     };
 
-    EngineParameterValues {
+    ParameterValues {
         values: values
             .into_iter()
-            .map(|(parameter_id, value)| EngineParameterValue {
+            .map(|(parameter_id, value)| ParameterValue {
                 parameter_id: parameter_id.to_owned(),
                 value: Some(Value::UnsignedInteger(value)),
             })
@@ -275,4 +275,30 @@ pub(crate) fn routed_site(deployment_ids: &[&str]) -> dotcore_proto::dotcore::si
 /// The owners' site declaration rules, for unit tests that load or validate a site.
 pub(crate) fn site_declaration_rules() -> SiteDeclarationRules {
     crate::model::site_declaration_rules()
+}
+
+/// A secret generator whose values tests can predict: the `n`th call returns `secret<n>` padded
+/// with `x` to the requested length.
+pub(crate) fn test_secret_generator() -> std::sync::Arc<dyn crate::SecretGenerator> {
+    std::sync::Arc::new(SequentialSecretGenerator::default())
+}
+
+/// The `n`th value [`test_secret_generator`] returns at `length`, counting from 1.
+pub(crate) fn sequential_secret(n: usize, length: usize) -> String {
+    let mut value = format!("secret{n}");
+    value.extend(std::iter::repeat_n('x', length.saturating_sub(value.len())));
+    value.truncate(length);
+    value
+}
+
+#[derive(Default)]
+struct SequentialSecretGenerator {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl crate::SecretGenerator for SequentialSecretGenerator {
+    fn generate(&self, length: usize) -> anyhow::Result<String> {
+        let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        Ok(sequential_secret(n, length))
+    }
 }

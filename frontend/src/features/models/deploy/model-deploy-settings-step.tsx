@@ -11,21 +11,21 @@ import type {
   ContextSizeRange,
 } from "@/features/models/runtime/context-size-input";
 import {
-  engineParameterHelp,
   maximumContext,
   runtimeParameterGroups,
 } from "@/features/models/runtime/engine-parameter-values";
-import type { EngineParameterDefinition } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { EngineParametersForm } from "@/features/models/runtime/engine-parameters";
 import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
-interface ModelDeployContextStepProps {
-  /** The largest total context that fits the selected target, shown beside the total context. */
+interface ModelDeploySettingsStepProps {
+  /** The largest total context that fits the selected target, shown in the total context's help. */
   contextHint?: string;
   disabled: boolean;
   engineParameterRefs: RefObject<Map<string, HTMLElement | null>>;
-  exposedParameters: readonly EngineParameterDefinition[];
+  exposedParameters: readonly ParameterDefinition[];
   fieldErrors: FieldErrors;
   /** The context per request the backend fills while the input is empty, from the latest estimate. */
   filledContextPerRequest?: number;
@@ -33,22 +33,24 @@ interface ModelDeployContextStepProps {
   /** The largest total context that fits the selected target, offered as the total's last chip. */
   largestFit?: ContextSizeLargestFit;
   model: Model;
-  onParameterBlur: (parameter: EngineParameterDefinition) => void;
+  onParameterBlur: (parameter: ParameterDefinition) => void;
   /** Receives each change, and whether it is settled, as a slider or preset is, or typed. */
-  onParameterChange: (
-    parameter: EngineParameterDefinition,
-    input: string,
-    settled?: boolean,
-  ) => void;
+  onParameterChange: (parameter: ParameterDefinition, input: string, settled?: boolean) => void;
+  /** The basic engine parameters outside the context, which follow the context fields. */
+  parameters: {
+    onBlur: (parameter: ParameterDefinition) => void;
+    onChange: (parameter: ParameterDefinition, input: string) => void;
+    shown: readonly ParameterDefinition[];
+  };
   profile?: ModelProfile;
 }
 
 /**
- * The Context step of the model deploy dialog: the total context the deployment holds and the
- * context one request may use, which follows the total until set. Each field shows only when the
- * selected profile exposes its engine parameter.
+ * The Settings step of the model deploy dialog: the total context the deployment holds and the
+ * context one request may use, which follows the total until set, then the profile's other basic
+ * engine parameters. Each field shows only when the selected profile exposes its engine parameter.
  */
-export function ModelDeployContextStep({
+export function ModelDeploySettingsStep({
   contextHint,
   disabled,
   engineParameterRefs,
@@ -60,8 +62,9 @@ export function ModelDeployContextStep({
   model,
   onParameterBlur,
   onParameterChange,
+  parameters,
   profile,
-}: ModelDeployContextStepProps) {
+}: ModelDeploySettingsStepProps) {
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
@@ -73,11 +76,12 @@ export function ModelDeployContextStep({
   // Total context and context per request follow each other, so their sliders share one scale.
   const sliderRange = contextSliderRange([totalContext, contextPerRequest]);
   const contextField = (
-    parameter: EngineParameterDefinition,
+    parameter: ParameterDefinition,
     field: {
+      actions?: ReactNode;
       emptyValue?: number;
-      help?: ReactNode;
-      hint?: string;
+      facts?: readonly string[];
+      help?: string;
       largestFit?: ContextSizeLargestFit;
     } = {},
   ) => (
@@ -96,7 +100,7 @@ export function ModelDeployContextStep({
 
   return (
     <DeploymentForm className="gap-5">
-      <DeploymentStepHeading>Context</DeploymentStepHeading>
+      <DeploymentStepHeading>Settings</DeploymentStepHeading>
       {totalContext || contextPerRequest ? null : (
         <p className="text-xs text-muted-foreground" role="status">
           This profile sets its context itself.
@@ -104,15 +108,14 @@ export function ModelDeployContextStep({
       )}
       {totalContext
         ? contextField(totalContext, {
-            help: engineParameterHelp(totalContext),
-            hint: contextHint,
+            facts: contextHint ? [contextHint] : undefined,
+            help: totalContext.description,
             largestFit,
           })
         : null}
       {contextPerRequest
         ? contextField(contextPerRequest, {
-            emptyValue: filledContextPerRequest,
-            help: inputs.get(contextPerRequest.parameterId) ? (
+            actions: inputs.get(contextPerRequest.parameterId) ? (
               <Button
                 className="h-auto p-0 text-xs"
                 disabled={disabled}
@@ -122,22 +125,36 @@ export function ModelDeployContextStep({
               >
                 Follow the total
               </Button>
-            ) : (
-              "Filled from the total context, up to the model maximum."
-            ),
-            hint:
-              maximum === undefined
-                ? undefined
-                : `Up to ${formatCompactCount(maximum)} (model maximum)`,
+            ) : undefined,
+            emptyValue: filledContextPerRequest,
+            facts: [
+              ...(maximum === undefined
+                ? []
+                : [`Up to ${formatCompactCount(maximum)} (model maximum)`]),
+              ...(inputs.get(contextPerRequest.parameterId)
+                ? []
+                : ["Left empty, it follows the total context."]),
+            ],
+            help: contextPerRequest.description,
           })
         : null}
+      {parameters.shown.length ? (
+        <EngineParametersForm
+          errors={fieldErrors}
+          inputRefs={engineParameterRefs}
+          inputs={inputs}
+          onBlur={parameters.onBlur}
+          onChange={parameters.onChange}
+          parameters={parameters.shown}
+        />
+      ) : null}
     </DeploymentForm>
   );
 }
 
 /** The range spanning every given context size parameter's schema range, if any is present. */
 function contextSliderRange(
-  parameters: readonly (EngineParameterDefinition | undefined)[],
+  parameters: readonly (ParameterDefinition | undefined)[],
 ): ContextSizeRange | undefined {
   const ranges = parameters.flatMap((parameter) =>
     parameter?.parameterType.case === "unsignedInteger"

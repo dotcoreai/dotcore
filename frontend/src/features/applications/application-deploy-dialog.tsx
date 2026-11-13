@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { parameterDisplayValue } from "@/components/parameters/parameter-view";
 import { ParametersForm } from "@/components/parameters/parameters";
-import { Detail, DetailList } from "@/components/ui/detail-list";
+import { Detail } from "@/components/ui/detail-list";
+import { Field } from "@/components/ui/field";
 import { FieldError } from "@/components/ui/field-error";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
@@ -21,7 +22,6 @@ import { projectRouteHealth } from "@/domain/route-projection";
 import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
 import {
   DeploymentForm,
-  DeploymentFormSection,
   DeploymentStepHeading,
 } from "@/features/deployments/deployment-form-layout";
 import { DeploymentSummaryStep } from "@/features/deployments/deployment-summary-step";
@@ -33,8 +33,10 @@ import {
   useConfiguredExecutionTargets,
 } from "@/features/deployments/use-configured-execution-targets";
 import { useWizardSteps } from "@/features/deployments/use-wizard-steps";
+import type { ApplicationStorageChoice } from "@/gen/dotcore/application/v1/service_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import type { StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import {
   type ConfiguredExecutionTarget,
@@ -45,12 +47,24 @@ import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/f
 
 import { formatGpuDevices } from "./application-gpu-devices";
 import {
+  type ApplicationParameterField,
   applicationParameterFields,
   changedParameterValues,
   defaultParameterInputs,
   parameterInputError,
   parameterOverrides,
 } from "./application-parameters";
+import {
+  changedStorageChoices,
+  defaultStorageInputs,
+  storageBindingLabel,
+  type StorageChoiceField,
+  storageChoiceFields,
+  storageChoiceKey,
+  storageChoiceOverrides,
+  storagePlacementLabel,
+  storagePlacementLifetime,
+} from "./application-storage";
 
 export interface DeploymentCreationOptions {
   applicationDeploymentName?: string;
@@ -58,6 +72,8 @@ export interface DeploymentCreationOptions {
   expectedInferenceRouteGeneration: bigint;
   /** Parameter values the operator changed from their catalog defaults. */
   parameterValues?: readonly ParameterValue[];
+  /** Storage placements the operator moved off their catalog default. */
+  storageChoices?: readonly ApplicationStorageChoice[];
 }
 
 export interface ApplicationDeployDialogProps {
@@ -82,10 +98,11 @@ export interface ApplicationDeployDialogProps {
 }
 
 /**
- * Deploys a catalog application. Basic mode asks for the inference route link, when the application
- * takes one, and the deployment name, adding the Target step only when several execution targets
- * can take the deployment; otherwise it deploys on the default target. The Advanced checkbox always
- * adds the Target step without discarding entered values.
+ * Deploys a catalog application through the shared step shape: Inference route when the application
+ * takes one, Target, Settings with the basic parameters, Advanced with the advanced parameters, and
+ * Deploy, each shown only when it has fields. Basic mode adds the Target step only when several
+ * execution targets can take the deployment, otherwise it deploys on the default target; the
+ * Advanced checkbox always adds Target and Advanced without discarding entered values.
  */
 export function ApplicationDeployDialog({
   application,
@@ -132,7 +149,6 @@ export function ApplicationDeployDialog({
       orderedExecutionTargets.filter((target) => executionTargetPresentation(target).deployable),
     [orderedExecutionTargets],
   );
-  const firstStep = routeBindings.length ? "Inference route" : "Quick deploy";
   const advancedMode = useAdvancedMode(open);
   const { advanced } = advancedMode;
   const dirtyFields = useDirtyFields<DeployField>(open);
@@ -140,10 +156,13 @@ export function ApplicationDeployDialog({
     () => applicationParameterFields(application.graph?.parameters),
     [application],
   );
-  const visibleParameterFields = parameterFields.filter((field) => advanced || !field.advanced);
+  const basicParameterFields = parameterFields.filter((field) => !field.advanced);
+  const advancedParameterFields = parameterFields.filter((field) => field.advanced);
   const [parameterInputs, setParameterInputs] = useState(() =>
     defaultParameterInputs(parameterFields),
   );
+  const storageFields = useMemo(() => storageChoiceFields(application), [application]);
+  const [storageInputs, setStorageInputs] = useState(() => defaultStorageInputs(storageFields));
   const parameterRefs = useRef(new Map<string, HTMLElement | null>());
   const parameterView = (parameterId: string) =>
     parameterFields.find((field) => field.view.id === parameterId)?.view;
@@ -151,15 +170,30 @@ export function ApplicationDeployDialog({
   const [lockedTargetStep, setLockedTargetStep] = useState<boolean>();
   // Basic mode asks for the target only when several can take the deployment.
   const liveTargetStep = deployableExecutionTargets.length > 1;
-  const stepsFor = (advancedSteps: boolean) =>
-    advancedSteps || (lockedTargetStep ?? liveTargetStep)
-      ? [firstStep, "Target", "Deploy"]
-      : [firstStep, "Deploy"];
+  const stepsFor = (advancedSteps: boolean): ApplicationDeployStep[] =>
+    APPLICATION_DEPLOY_STEPS.filter(
+      (candidate) =>
+        (candidate === "Inference route" && routeBindings.length > 0) ||
+        (candidate === "Target" && (advancedSteps || (lockedTargetStep ?? liveTargetStep))) ||
+        (candidate === "Settings" && basicParameterFields.length > 0) ||
+        (candidate === "Advanced" &&
+          advancedSteps &&
+          (advancedParameterFields.length > 0 || storageFields.length > 0)) ||
+        candidate === "Deploy",
+    );
   const steps = stepsFor(advanced);
-  const wizard = useWizardSteps(steps, fallbackStep);
-  const step = wizard.current;
+  const firstStep = steps[0];
+  // A vanished step falls forward to the next step that still shows.
+  const wizard = useWizardSteps(
+    steps,
+    (missingStep) =>
+      APPLICATION_DEPLOY_STEPS.slice(
+        APPLICATION_DEPLOY_STEPS.indexOf(missingStep as ApplicationDeployStep) + 1,
+      ).find((candidate) => steps.includes(candidate)) ?? "Deploy",
+  );
+  const step = wizard.current as ApplicationDeployStep;
   const targetStepShown = steps.includes("Target");
-  const goToStep = (nextStep: string) => {
+  const goToStep = (nextStep: ApplicationDeployStep) => {
     const leavingFirstStep = step === firstStep && nextStep !== firstStep;
     setLockedTargetStep(
       nextStep === firstStep ? undefined : leavingFirstStep ? liveTargetStep : lockedTargetStep,
@@ -223,20 +257,28 @@ export function ApplicationDeployDialog({
     )
       ? undefined
       : "Select an eligible execution target.";
-  const stepErrors = (activeStep: string): FieldErrors => {
-    if (activeStep === firstStep)
-      return toFieldErrors([
-        ["inferenceRoute", routeBindings.length ? routeSelectionError : undefined],
-        ...parameterFields.map((field): [string, string | undefined] => [
-          parameterErrorKey(field.view.id),
-          parameterInputError(field.view, parameterInputs.get(field.view.id) ?? ""),
-        ]),
-      ]);
-    if (activeStep === "Target")
-      return toFieldErrors([
-        ["placement", targetIsEligible ? undefined : "Select an eligible execution target."],
-      ]);
-    return toFieldErrors([["name", validateDeploymentName(deploymentName)]]);
+  const parameterErrors = (
+    fields: readonly ApplicationParameterField[],
+  ): [string, string | undefined][] =>
+    fields.map((field) => [
+      parameterErrorKey(field.view.id),
+      parameterInputError(field.view, parameterInputs.get(field.view.id) ?? ""),
+    ]);
+  const stepErrors = (activeStep: ApplicationDeployStep): FieldErrors => {
+    switch (activeStep) {
+      case "Inference route":
+        return toFieldErrors([["inferenceRoute", routeSelectionError]]);
+      case "Target":
+        return toFieldErrors([
+          ["placement", targetIsEligible ? undefined : "Select an eligible execution target."],
+        ]);
+      case "Settings":
+        return toFieldErrors(parameterErrors(basicParameterFields));
+      case "Advanced":
+        return toFieldErrors(parameterErrors(advancedParameterFields));
+      case "Deploy":
+        return toFieldErrors([["name", validateDeploymentName(deploymentName)]]);
+    }
   };
   const fieldControls = () =>
     new Map<string, HTMLElement | null>([
@@ -248,31 +290,16 @@ export function ApplicationDeployDialog({
       ["name", deploymentNameRef.current],
       ["placement", executionTargetRef.current],
     ]);
-  // Turns Advanced on when an error belongs to a hidden advanced parameter, deferring the focus
-  // until the field renders.
-  const revealHiddenParameters = (errors: FieldErrors): boolean => {
-    const hidden =
-      !advanced &&
-      parameterFields.some(
-        (field) => field.advanced && errors.has(parameterErrorKey(field.view.id)),
-      );
-    if (hidden) {
-      advancedMode.enable("Advanced on to fix parameters");
-      pendingFocusRef.current = errors;
-    }
-    return hidden;
-  };
   const exposeErrors = (errors: FieldErrors): boolean => {
     setFieldErrors(errors);
     if (!errors.size) return true;
-    if (!revealHiddenParameters(errors)) focusFirstInvalidField(errors, fieldControls());
+    focusFirstInvalidField(errors, fieldControls());
     return false;
   };
   // Opens the step that owns the errors, turning Advanced on when that step is hidden, and focuses
   // the first invalid field once the step renders.
-  const revealErrors = (owner: string, errors: FieldErrors) => {
+  const revealErrors = (owner: ApplicationDeployStep, errors: FieldErrors) => {
     setFieldErrors(errors);
-    revealHiddenParameters(errors);
     if (!steps.includes(owner))
       advancedMode.enable(`Advanced on to fix ${owner.toLocaleLowerCase()} settings`);
     pendingFocusRef.current = errors;
@@ -321,13 +348,15 @@ export function ApplicationDeployDialog({
       ...creationOptions,
       applicationDeploymentName: deploymentName.trim(),
       parameterValues: parameterOverrides(parameterFields, parameterInputs),
+      storageChoices: storageChoiceOverrides(storageFields, storageInputs),
     });
   };
   const toggleAdvanced = (nextAdvanced: boolean) =>
     advancedMode.toggle(nextAdvanced, stepsFor(nextAdvanced).length);
   const handleStepChange = (nextStep: string) => {
-    if (steps.indexOf(nextStep) > steps.indexOf(step) && !exposeErrors(stepErrors(step))) return;
-    goToStep(nextStep);
+    const target = nextStep as ApplicationDeployStep;
+    if (steps.indexOf(target) > steps.indexOf(step) && !exposeErrors(stepErrors(step))) return;
+    goToStep(target);
   };
   const handlePrimary = () => {
     if (step === "Deploy") {
@@ -344,44 +373,42 @@ export function ApplicationDeployDialog({
   // ineligible target leaves Deploy enabled, so Deploy opens the Target step to choose another.
   const primaryDisabled =
     pending ||
-    (step === firstStep
+    (step === "Inference route"
       ? routeUnavailable
       : step === "Target"
         ? targetsUnavailable
-        : targetValidationPending || targetsUnavailable || routeUnavailable);
-  const parametersSection = visibleParameterFields.length ? (
-    <DeploymentFormSection title="Parameters">
-      <ParametersForm
-        errors={
-          new Map(
-            parameterFields.flatMap((field) => {
-              const fieldError = fieldErrors.get(parameterErrorKey(field.view.id));
-              return fieldError ? [[field.view.id, fieldError]] : [];
-            }),
-          )
-        }
-        idPrefix="application-parameter"
-        inputRefs={parameterRefs}
-        inputs={parameterInputs}
-        onBlur={(parameterId) => {
-          const view = parameterView(parameterId);
-          const key = parameterErrorKey(parameterId);
-          if (view && dirtyFields.isDirty(key))
-            setTimeout(() =>
-              setFieldError(key, parameterInputError(view, parameterInputs.get(parameterId) ?? "")),
-            );
-        }}
-        onChange={(parameterId, input) => {
-          const key = parameterErrorKey(parameterId);
-          dirtyFields.markDirty(key);
-          setParameterInputs((current) => new Map(current).set(parameterId, input));
-          const view = parameterView(parameterId);
-          if (view && fieldErrors.has(key)) setFieldError(key, parameterInputError(view, input));
-        }}
-        parameters={visibleParameterFields.map((field) => field.view)}
-      />
-    </DeploymentFormSection>
-  ) : null;
+        : step === "Deploy" && (targetValidationPending || targetsUnavailable || routeUnavailable));
+  const parametersForm = (fields: readonly ApplicationParameterField[]) => (
+    <ParametersForm
+      errors={
+        new Map(
+          parameterFields.flatMap((field) => {
+            const fieldError = fieldErrors.get(parameterErrorKey(field.view.id));
+            return fieldError ? [[field.view.id, fieldError]] : [];
+          }),
+        )
+      }
+      idPrefix="application-parameter"
+      inputRefs={parameterRefs}
+      inputs={parameterInputs}
+      onBlur={(parameterId) => {
+        const view = parameterView(parameterId);
+        const key = parameterErrorKey(parameterId);
+        if (view && dirtyFields.isDirty(key))
+          setTimeout(() =>
+            setFieldError(key, parameterInputError(view, parameterInputs.get(parameterId) ?? "")),
+          );
+      }}
+      onChange={(parameterId, input) => {
+        const key = parameterErrorKey(parameterId);
+        dirtyFields.markDirty(key);
+        setParameterInputs((current) => new Map(current).set(parameterId, input));
+        const view = parameterView(parameterId);
+        if (view && fieldErrors.has(key)) setFieldError(key, parameterInputError(view, input));
+      }}
+      parameters={fields.map((field) => field.view)}
+    />
+  );
   const targetNotice = !effectiveExecutionTargetsCurrent
     ? undefined
     : !orderedExecutionTargets.length
@@ -424,68 +451,48 @@ export function ApplicationDeployDialog({
           {routeError}
         </Notice>
       ) : null}
-      {step === firstStep && !routeBindings.length ? (
+      {step === "Inference route" ? (
         <DeploymentForm>
-          <DeploymentFormSection focusTarget title="Quick deploy">
-            <DetailList>
-              <Detail label="Execution target" value={selectedExecutionTargetLabel} />
-            </DetailList>
-          </DeploymentFormSection>
-          {parametersSection}
-        </DeploymentForm>
-      ) : null}
-      {step === firstStep && routeBindings.length ? (
-        <DeploymentForm>
-          <DeploymentFormSection focusTarget title="Inference route">
-            <div>
-              <label className="block text-xs font-medium" htmlFor="application-inference-route">
-                Inference route
-              </label>
-              <NativeSelect
-                ref={routeRef}
-                aria-describedby={[
-                  "application-inference-route-help",
-                  routeSelectionError ? "application-inference-route-error" : undefined,
-                  selectedRouteServingNotice ? "application-inference-route-serving" : undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                aria-invalid={routeSelectionError ? "true" : undefined}
-                className="mt-1 w-full"
-                disabled={!routesCurrent || pending}
-                id="application-inference-route"
-                onChange={(event) => setSelectedRouteId(event.target.value)}
-                value={selectedRouteId}
-              >
-                <NativeSelectOption value="">No inference route</NativeSelectOption>
-                {chatRoutes.map((view) =>
-                  view.route ? (
-                    <NativeSelectOption
-                      key={view.route.inferenceRouteId}
-                      value={view.route.inferenceRouteId}
-                    >
-                      {routeOptionLabel(view)}
+          <DeploymentStepHeading>Inference route</DeploymentStepHeading>
+          <div className="grid gap-3">
+            <Field
+              controlId="application-inference-route"
+              describedBy={
+                selectedRouteServingNotice ? "application-inference-route-serving" : undefined
+              }
+              error={routeSelectionError}
+              help="Optional. A linked route passes its current name to the application. Without one, the application still reaches the inference API."
+              label="Inference route"
+            >
+              {(control) => (
+                <NativeSelect
+                  {...control}
+                  ref={routeRef}
+                  className="w-full"
+                  disabled={!routesCurrent || pending}
+                  onChange={(event) => setSelectedRouteId(event.target.value)}
+                  value={selectedRouteId}
+                >
+                  <NativeSelectOption value="">No inference route</NativeSelectOption>
+                  {chatRoutes.map((view) =>
+                    view.route ? (
+                      <NativeSelectOption
+                        key={view.route.inferenceRouteId}
+                        value={view.route.inferenceRouteId}
+                      >
+                        {routeOptionLabel(view)}
+                      </NativeSelectOption>
+                    ) : null,
+                  )}
+                  {selectedRouteId && !selectedRoute ? (
+                    <NativeSelectOption disabled value={selectedRouteId}>
+                      Removed route
                     </NativeSelectOption>
-                  ) : null,
-                )}
-                {selectedRouteId && !selectedRoute ? (
-                  <NativeSelectOption disabled value={selectedRouteId}>
-                    Removed route
-                  </NativeSelectOption>
-                ) : null}
-              </NativeSelect>
-              <p
-                className="mt-2 text-xs text-muted-foreground"
-                id="application-inference-route-help"
-              >
-                Optional. A linked route passes its current name to the application. Without one,
-                the application still reaches the inference API.
-              </p>
-              {routeSelectionError ? (
-                <FieldError className="mt-2" id="application-inference-route-error">
-                  {routeSelectionError}
-                </FieldError>
-              ) : null}
+                  ) : null}
+                </NativeSelect>
+              )}
+            </Field>
+            <div>
               {selectedRouteServingNotice ? (
                 <Notice className="mt-3" id="application-inference-route-serving" tone="warning">
                   {selectedRouteServingNotice}
@@ -497,8 +504,7 @@ export function ApplicationDeployDialog({
                 </p>
               ) : null}
             </div>
-          </DeploymentFormSection>
-          {parametersSection}
+          </div>
         </DeploymentForm>
       ) : null}
       {step === "Target" ? (
@@ -569,6 +575,34 @@ export function ApplicationDeployDialog({
           ) : null}
         </div>
       ) : null}
+      {step === "Settings" ? (
+        <DeploymentForm>
+          <DeploymentStepHeading>Settings</DeploymentStepHeading>
+          {parametersForm(basicParameterFields)}
+        </DeploymentForm>
+      ) : null}
+      {step === "Advanced" ? (
+        <DeploymentForm>
+          <DeploymentStepHeading>Advanced</DeploymentStepHeading>
+          {parametersForm(advancedParameterFields)}
+          {storageFields.length ? (
+            <div className="grid gap-3">
+              {storageFields.map((field) => (
+                <StorageChoiceSelect
+                  field={field}
+                  key={storageChoiceKey(field)}
+                  onChange={(placement) =>
+                    setStorageInputs((current) =>
+                      new Map(current).set(storageChoiceKey(field), placement),
+                    )
+                  }
+                  value={storageInputs.get(storageChoiceKey(field)) ?? field.placements[0]}
+                />
+              ))}
+            </div>
+          ) : null}
+        </DeploymentForm>
+      ) : null}
       {step === "Deploy" ? (
         <DeploymentSummaryStep
           disabled={pending}
@@ -617,7 +651,7 @@ export function ApplicationDeployDialog({
               }
             />
           ) : null}
-          <Detail label="Execution target" value={selectedExecutionTargetLabel} />
+          <Detail label="Target" value={selectedExecutionTargetLabel} />
           {selectedExecutionTarget ? (
             <Detail
               label="GPU devices"
@@ -631,15 +665,60 @@ export function ApplicationDeployDialog({
               value={parameterDisplayValue(field.view, value)}
             />
           ))}
+          {changedStorageChoices(storageFields, storageInputs).map(({ field, placement }) => (
+            <Detail
+              key={storageChoiceKey(field)}
+              label={storageBindingLabel(field.bindingName)}
+              value={storagePlacementLabel(placement)}
+            />
+          ))}
         </DeploymentSummaryStep>
       ) : null}
     </DeploymentWizardShell>
   );
 }
 
-// A vanished step falls forward: Target precedes Deploy.
-function fallbackStep(): string {
-  return "Deploy";
+/** Picks where one storage binding lives; the help popover says how long each choice keeps data. */
+function StorageChoiceSelect({
+  field,
+  onChange,
+  value,
+}: {
+  field: StorageChoiceField;
+  onChange: (placement: StoragePlacement) => void;
+  value: StoragePlacement;
+}) {
+  return (
+    <Field
+      controlId={`application-storage-${storageChoiceKey(field).replace("/", "-")}`}
+      help={
+        <ul className="grid gap-1">
+          {field.placements.map((placement) => (
+            <li key={placement}>
+              <strong>{`${storagePlacementLabel(placement)}.`}</strong>{" "}
+              {storagePlacementLifetime(placement)}
+            </li>
+          ))}
+        </ul>
+      }
+      label={storageBindingLabel(field.bindingName)}
+    >
+      {(control) => (
+        <NativeSelect
+          {...control}
+          className="w-full"
+          onChange={(event) => onChange(Number(event.target.value))}
+          value={value}
+        >
+          {field.placements.map((placement) => (
+            <NativeSelectOption key={placement} value={placement}>
+              {storagePlacementLabel(placement)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      )}
+    </Field>
+  );
 }
 
 /**
@@ -688,6 +767,17 @@ function validateApplicationRouteSelection(
   if (!routeId || route) return undefined;
   return "The selected inference route no longer exists. Select another route or no route.";
 }
+
+/** Every step in flow order; the dialog shows those with fields, and Target and Advanced per mode. */
+const APPLICATION_DEPLOY_STEPS = [
+  "Inference route",
+  "Target",
+  "Settings",
+  "Advanced",
+  "Deploy",
+] as const;
+
+type ApplicationDeployStep = (typeof APPLICATION_DEPLOY_STEPS)[number];
 
 // Fields whose dirty state gates validation: the fixed fields and one key per parameter.
 type DeployField = "name" | "placement" | `parameter:${string}`;

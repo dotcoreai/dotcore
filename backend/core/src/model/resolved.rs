@@ -5,7 +5,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use dotcore_artifact::{
     EngineArtifactPreparation, EngineArtifactSource, ModelArtifactSource, OciPlatform,
 };
-use dotcore_catalog::{CatalogError, CatalogModelId, validate_parameter_values};
+use dotcore_catalog::{
+    CatalogError, CatalogModelId, typed_parameters::is_secret, validate_parameter_values,
+    validate_parameter_values_before_secrets,
+};
 use dotcore_domain::{
     MemoryArchitecture,
     deployment::artifact::{
@@ -16,10 +19,11 @@ use dotcore_domain::{
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineArtifact, EngineParameterValues, EngineRelease, HardwareRequirements,
-        HuggingFaceArtifactSource, ModelInputCapabilities, StorageBinding,
+        EngineArtifact, EngineRelease, HardwareRequirements, HuggingFaceArtifactSource,
+        ModelInputCapabilities, ParameterValues, StorageBinding,
         engine_artifact::Kind as EngineArtifactKind,
         hugging_face_artifact_source::Content as HuggingFaceContent, nix_artifact::Provides,
+        parameter_value::Value as EngineParameterValueKind,
     },
     deployment::v1::ArtifactPreparationPolicy,
     model::v1::{
@@ -197,7 +201,17 @@ impl ResolvedModelLaunch {
                     self.engine.launch_identity.clone()
                 }
             },
-            engine_parameter_values: snapshot.engine_parameter_values.clone(),
+            // Sizing reads integers only, so records leave secret values out.
+            engine_parameter_values: snapshot.engine_parameter_values.as_ref().map(|values| {
+                ParameterValues {
+                    values: values
+                        .values
+                        .iter()
+                        .filter(|value| !is_secret_value(snapshot, &value.parameter_id))
+                        .cloned()
+                        .collect(),
+                }
+            }),
             option_values: snapshot
                 .resolved_options
                 .iter()
@@ -459,6 +473,54 @@ pub(crate) fn validate_local_snapshot_with(
     local: &ResolvedLocalModelDeploymentSnapshot,
     resolution: LaunchIdentityResolution,
 ) -> Result<(), CatalogError> {
+    validate_local_snapshot_values(local, resolution, SecretValues::Retained)
+}
+
+/// Validates an advisory local snapshot like [`validate_local_snapshot_with`], but one that
+/// withholds every secret engine parameter value, since it never launches.
+pub(crate) fn validate_advisory_local_snapshot(
+    local: &ResolvedLocalModelDeploymentSnapshot,
+    resolution: LaunchIdentityResolution,
+) -> Result<(), CatalogError> {
+    validate_local_snapshot_values(local, resolution, SecretValues::Withheld)
+}
+
+/// The secret engine parameter values a local deployment retains, which logs, failure text and
+/// telemetry never show; none for an upstream deployment.
+pub(crate) fn secret_engine_parameter_values(
+    declaration: &ModelDeploymentDeclaration,
+) -> Vec<String> {
+    let Some(Source::Local(local)) = declaration
+        .snapshot
+        .as_ref()
+        .and_then(|snapshot| snapshot.source.as_ref())
+    else {
+        return Vec::new();
+    };
+    local
+        .engine_parameter_values
+        .iter()
+        .flat_map(|values| &values.values)
+        .filter(|value| is_secret_value(local, &value.parameter_id))
+        .filter_map(|value| match value.value.as_ref() {
+            Some(EngineParameterValueKind::String(secret)) => Some(secret.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether a snapshot's secret engine parameter values are retained or withheld.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SecretValues {
+    Retained,
+    Withheld,
+}
+
+fn validate_local_snapshot_values(
+    local: &ResolvedLocalModelDeploymentSnapshot,
+    resolution: LaunchIdentityResolution,
+    secrets: SecretValues,
+) -> Result<(), CatalogError> {
     if local.model_id.is_empty()
         || local.configuration_id.is_empty()
         || local.profile_id.is_empty()
@@ -489,16 +551,30 @@ pub(crate) fn validate_local_snapshot_with(
         .as_ref()
         .ok_or_else(|| invalid("local deployment snapshot has no engine parameter values"))?;
     let mut parameter_errors = Vec::new();
-    validate_parameter_values(
-        values,
-        &EngineRelease {
-            parameter_schema: Some(schema.clone()),
-            ..Default::default()
-        },
-        &local.profile_id,
-        &mut parameter_errors,
-    );
-    if parameter_errors.into_iter().next().is_some() {
+    let engine_release = EngineRelease {
+        parameter_schema: Some(schema.clone()),
+        ..Default::default()
+    };
+    match secrets {
+        SecretValues::Retained => validate_parameter_values(
+            values,
+            &engine_release,
+            &local.profile_id,
+            &mut parameter_errors,
+        ),
+        SecretValues::Withheld => validate_parameter_values_before_secrets(
+            values,
+            &engine_release,
+            &local.profile_id,
+            &mut parameter_errors,
+        ),
+    }
+    let withheld_secret = secrets == SecretValues::Withheld
+        && values
+            .values
+            .iter()
+            .any(|value| is_secret_value(local, &value.parameter_id));
+    if parameter_errors.into_iter().next().is_some() || withheld_secret {
         return Err(invalid(
             "local deployment snapshot has invalid engine parameter values",
         ));
@@ -621,10 +697,20 @@ pub(crate) fn selected_target_memory_architecture(
     )
 }
 
+/// Whether the snapshot's retained engine parameter schema declares `parameter_id` as a secret
+/// parameter, whose value logs, failure text and telemetry never show.
+fn is_secret_value(local: &ResolvedLocalModelDeploymentSnapshot, parameter_id: &str) -> bool {
+    local
+        .engine_parameter_schema
+        .iter()
+        .flat_map(|schema| &schema.parameters)
+        .any(|definition| definition.parameter_id == parameter_id && is_secret(definition))
+}
+
 /// Requires every derived parameter id to name one retained engine parameter value.
 fn validate_sizing(
     sizing: Option<&ResolvedSizing>,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> Result<(), CatalogError> {
     let Some(sizing) = sizing else {
         return Ok(());

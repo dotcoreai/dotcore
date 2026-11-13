@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use dotcore_artifact::PreparedModelArtifacts;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
-    catalog::v1::StorageScope,
+    catalog::v1::StoragePlacement,
     engine::v1::EngineKind,
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
 };
@@ -31,7 +31,7 @@ use crate::{
         NativeInferenceProvider,
     },
     model::resolved::ResolvedModelLaunch,
-    storage::{StorageBindingError, workload_storage},
+    storage::{StorageBindingError, engine_placement, workload_storage},
 };
 
 /// Engine-specific transport factories keyed without cross-engine fallback.
@@ -179,7 +179,7 @@ impl EngineIntegrationRegistry {
     }
 
     /// Builds the workload of one model launch: the engine's own spec plus the storage its
-    /// engine release declares, keyed by `deployment_key` for deployment-scoped storage.
+    /// engine release declares, keyed by `deployment_key` for deployment-placed storage.
     pub(crate) fn materialize_workload(
         &self,
         model: &ResolvedModelLaunch,
@@ -200,17 +200,22 @@ impl EngineIntegrationRegistry {
             ));
         }
 
+        let bindings = model
+            .engine_storage_bindings()
+            .iter()
+            .map(|binding| {
+                engine_placement(binding)
+                    .map(|placement| (binding.binding_name.clone(), binding, placement))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let storage = workload_storage(
-            model
-                .engine_storage_bindings()
-                .iter()
-                .map(|binding| (binding.binding_name.clone(), binding)),
-            |scope| match scope {
-                StorageScope::Deployment => Some(deployment_key.to_owned()),
-                StorageScope::EngineArtifact => {
+            bindings,
+            |placement| match placement {
+                StoragePlacement::Deployment => Some(deployment_key.to_owned()),
+                StoragePlacement::EngineArtifact => {
                     Some(engine_artifact_storage_key(&model.engine.launch_identity))
                 }
-                StorageScope::Application | StorageScope::Unspecified => None,
+                StoragePlacement::Application | StoragePlacement::Unspecified => None,
             },
             |name| spec.environment.contains_key(name),
         )?;
@@ -496,18 +501,18 @@ mod tests {
     }
 
     #[test]
-    fn workload_attaches_the_engine_release_storage_keyed_by_scope() {
+    fn workload_attaches_the_engine_release_storage_keyed_by_placement() {
         let resolved = resolved_launch(vec![
             cache_binding(
                 "compile-cache",
                 "/var/cache/compile",
-                StorageScope::Deployment,
+                StoragePlacement::Deployment,
                 "COMPILE_CACHE",
             ),
             cache_binding(
                 "kernel-cache",
                 "/var/cache/kernels",
-                StorageScope::EngineArtifact,
+                StoragePlacement::EngineArtifact,
                 "KERNEL_CACHE",
             ),
         ]);
@@ -582,14 +587,14 @@ mod tests {
     fn cache_binding(
         name: &str,
         mount_path: &str,
-        scope: StorageScope,
+        placement: StoragePlacement,
         variable: &str,
     ) -> StorageBinding {
         StorageBinding {
             binding_name: name.to_owned(),
             mount_path: mount_path.to_owned(),
             kind: dotcore_proto::dotcore::catalog::v1::StorageKind::Cache as i32,
-            scope: scope as i32,
+            placements: vec![placement as i32],
             environment: vec![
                 dotcore_proto::dotcore::catalog::v1::StorageEnvironmentVariable {
                     name: variable.to_owned(),

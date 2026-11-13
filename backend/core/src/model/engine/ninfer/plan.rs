@@ -16,7 +16,7 @@ use dotcore_catalog::{
     },
 };
 use dotcore_proto::dotcore::{
-    catalog::v1::{ModelOptionValues, engine_parameter_value::Value as EngineParameterValue},
+    catalog::v1::{ModelOptionValues, parameter_value::Value as EngineParameterValueKind},
     engine::{
         ninfer::v1::{
             NinferFixedModelSettings, NinferKvCacheDataType, NinferResolvedModelState,
@@ -367,7 +367,7 @@ fn parameter(
                 .find(|value| value.parameter_id == parameter_id)
         })
         .and_then(|value| match value.value.as_ref() {
-            Some(EngineParameterValue::UnsignedInteger(value)) => Some(*value),
+            Some(EngineParameterValueKind::UnsignedInteger(value)) => Some(*value),
             _ => None,
         })
         .ok_or_else(|| NinferPlanError::ParameterNotConfigured(parameter_id.to_owned()))
@@ -711,7 +711,7 @@ mod tests {
                 .iter_mut()
                 .find(|value| value.parameter_id == parameter_id)
                 .expect("parameter")
-                .value = Some(EngineParameterValue::UnsignedInteger(0));
+                .value = Some(EngineParameterValueKind::UnsignedInteger(0));
 
             assert_eq!(
                 translate(&local).expect_err("zero parameter").to_string(),

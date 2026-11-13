@@ -5,10 +5,25 @@ displayName: "Hermes"
 description: "Autonomous AI agent with tools, memory, and a web dashboard that has a chat page."
 version: "0.2.1"
 notes: |-
-  Dashboard login: username admin, password dotcore. Every deployment uses the same login, so it
-  doesn't protect the dashboard from anyone who can reach it. Chat with the agent on the dashboard's
-  Chat page.
+  Log in to the dashboard with the username and password in this deployment's sidebar. Chat with
+  the agent on the dashboard's Chat page.
 graph:
+  parameters:
+    - parameterId: "dashboard-username"
+      displayName: "Dashboard username"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The username for logging in to the Hermes dashboard."
+      text:
+        minimumLength: 1
+        maximumLength: 1024
+        defaultValue: "admin"
+    - parameterId: "dashboard-password"
+      displayName: "Dashboard password"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "The password for logging in to the Hermes dashboard. Leave it empty to generate a random one, which you can read in the deployment's sidebar."
+      secret:
+        generatedLength: 32
+        minimumLength: 1
   services:
     - serviceName: "gateway"
       artifact:
@@ -38,10 +53,7 @@ graph:
           literalValue: "0.0.0.0"
         - bindingName: "dashboard-login-username"
           environmentVariable: "HERMES_DASHBOARD_BASIC_AUTH_USERNAME"
-          literalValue: "admin"
-        - bindingName: "dashboard-login-password"
-          environmentVariable: "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"
-          literalValue: "dotcore"
+          parameterId: "dashboard-username"
         - bindingName: "agent-api-enabled"
           environmentVariable: "API_SERVER_ENABLED"
           literalValue: "false"
@@ -54,6 +66,11 @@ graph:
           input:
             inferenceRoute:
               projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
+      secretBindings:
+        - bindingName: "dashboard-login-password"
+          environmentVariable: "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD"
+          parameterId: "dashboard-password"
+          form: "APPLICATION_SECRET_FORM_PLAIN"
       readiness:
         httpGet:
           portName: "gateway"

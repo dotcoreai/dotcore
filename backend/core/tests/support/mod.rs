@@ -35,9 +35,7 @@ use dotcore_domain::{
 use dotcore_node_hardware::MachineDescription;
 use dotcore_proto::{
     dotcore::{
-        catalog::v1::{
-            EngineParameterValue, EngineParameterValues, OciImageReference, engine_parameter_value,
-        },
+        catalog::v1::{OciImageReference, ParameterValue, ParameterValues, parameter_value},
         inference::v1::{ListRoutesRequest, route_service_client::RouteServiceClient},
         model::v1::{
             CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest, DirectRouteExposure,
@@ -142,16 +140,16 @@ pub fn local_model_configuration(
 ) -> dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration {
     dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration {
         model_artifact_binding_id: binding_id.to_owned(),
-        engine_parameter_values: Some(EngineParameterValues {
+        engine_parameter_values: Some(ParameterValues {
             values: [
                 ("total-context", total_context),
                 ("prompt-cache-memory-mib", 0),
                 ("parallel-requests", 4),
             ]
             .into_iter()
-            .map(|(parameter_id, value)| EngineParameterValue {
+            .map(|(parameter_id, value)| ParameterValue {
                 parameter_id: parameter_id.to_owned(),
-                value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+                value: Some(parameter_value::Value::UnsignedInteger(value)),
             })
             .collect(),
         }),
@@ -2918,18 +2916,19 @@ parameterSchema:
   parameters:
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" }
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens" }
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" }
 artifacts:
   - artifactId: "fixture-metal"

@@ -4,7 +4,7 @@
 
 * [`docker-image.lock.json`](docker-image.lock.json) pins the upstream image; nothing is built here.
 * The catalog declaration owns the start command, which imports the `Dotcore Inference` credential,
-  the fixed owner login and n8n's settings. Read it before changing them. The command stays on one
+  n8n's settings and the owner login (email and password parameters; the password is bound in bcrypt form because n8n accepts only a hash). Read it before changing them. The command stays on one
   line because the Docker runtime rejects control characters.
 * Webhook and editor URLs are fixed from the node's host and port when the deployment is created.
 * A deployment keeps the declaration `notes` it was created with.
@@ -17,7 +17,7 @@
 
 ## Validate
 
-1. On a Docker apps site, deploy a model and n8n, open the endpoint the console shows, and sign in.
+1. On a Docker apps site, deploy a model and n8n, open the endpoint the console shows, and sign in with the sidebar login; a second deployment gets a different generated password and `admin` is refused.
 2. Credentials lists one `Dotcore Inference`; an OpenAI Chat Model node using it lists the site's
    routes, and one execution reaches a route (backend log `POST /v1/chat/completions` with that
    route as `model_id`).

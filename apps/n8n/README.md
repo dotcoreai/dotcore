@@ -4,7 +4,8 @@
 
 ## Using it
 
-* Open it from the console and sign in with the login it shows (`admin@dotcore.local` / `admin`).
+* Open it from the console and sign in with the email and password in the deployment's sidebar. Set them when you deploy, or
+  leave the password empty to get a generated one.
 * A ready-made `Dotcore Inference` credential connects n8n's OpenAI nodes to your models.
 * In the OpenAI node's "Message a model", turn off the "Store" option. Dotcore doesn't store
   responses, so the request fails with it on.
@@ -17,7 +18,6 @@
 
 ## Good to know
 
-* The login is fixed and public, so keep the app on a trusted network.
 * Workflows, credentials and settings live in the deployment's data. Losing it loses them.
 * Telemetry, version notifications and the AI Assistant are off.
 

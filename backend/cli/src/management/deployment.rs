@@ -46,6 +46,10 @@ pub(crate) trait ManagedDeployment: Addressable + Clone {
 
     /// The word for the desired state the manager drives the deployment toward.
     fn desired_state_label(&self) -> &'static str;
+
+    /// What tearing the deployment down removes and keeps, asked after its name in the
+    /// confirmation.
+    fn teardown_consequence(&self) -> String;
 }
 
 /// The lifecycle change an operator asks for.
@@ -123,7 +127,7 @@ pub(crate) async fn teardown<T: ManagedDeployment>(
         confirm_teardown(format!(
             "Tear down {}? {}",
             single_line(deployment.name()),
-            T::GROUP.teardown_consequence()
+            deployment.teardown_consequence()
         ))?;
     }
 

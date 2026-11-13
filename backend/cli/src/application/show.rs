@@ -8,7 +8,7 @@ use clap::Args;
 use dotcore_proto::dotcore::application::v1::ApplicationDeployment;
 
 use super::{
-    node_of, placement,
+    node_of, parameters, placement,
     projection::{
         application_display_name, desired_state_label, endpoint, observation_stale,
         presentation_name, readiness, readiness_label, service_label, state_label,
@@ -18,6 +18,7 @@ use super::{
 use crate::{
     management::{ManagerArgs, NodeNames, find_deployment, single_line},
     node::write_records,
+    parameters::{ParameterRow, record_lines},
     terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
 };
 
@@ -27,6 +28,10 @@ pub struct ApplicationShowArgs {
     /// Name or id of the application deployment.
     #[arg(value_name = "DEPLOYMENT")]
     reference: String,
+
+    /// Print secret parameter values instead of masking them.
+    #[arg(long)]
+    reveal_secrets: bool,
 
     #[command(flatten)]
     manager: ManagerArgs,
@@ -38,7 +43,7 @@ pub(crate) async fn application_show(arguments: ApplicationShowArgs) -> anyhow::
     let deployment =
         find_deployment::<ApplicationDeployment>(&manager, &arguments.reference).await?;
     let nodes = manager.node_names().await;
-    let details = Details::of(&deployment, &nodes);
+    let details = Details::of(&deployment, &nodes, arguments.reveal_secrets);
 
     if controlling_terminal_condition() == TerminalCondition::Interactive {
         let mut terminal = open_terminal();
@@ -47,6 +52,16 @@ pub(crate) async fn application_show(arguments: ApplicationShowArgs) -> anyhow::
             details.name
         )))?;
         terminal.message(&Message::KeyValues(details.pairs()))?;
+        if !details.parameters.is_empty() {
+            terminal.message(&Message::Heading("Parameters".to_owned()))?;
+            terminal.message(&Message::KeyValues(
+                details
+                    .parameters
+                    .iter()
+                    .map(|row| (row.name.clone(), row.value.clone()))
+                    .collect(),
+            ))?;
+        }
         return Ok(());
     }
 
@@ -70,10 +85,11 @@ struct Details {
     route: String,
     failure: String,
     message: String,
+    parameters: Vec<ParameterRow>,
 }
 
 impl Details {
-    fn of(deployment: &ApplicationDeployment, nodes: &NodeNames) -> Self {
+    fn of(deployment: &ApplicationDeployment, nodes: &NodeNames, reveal_secrets: bool) -> Self {
         let state = state_label(deployment);
         let observed = deployment.state.as_ref();
         let failure = observed
@@ -140,6 +156,7 @@ impl Details {
             route: single_line(route),
             failure,
             message,
+            parameters: parameters::rows(deployment, reveal_secrets),
         }
     }
 
@@ -183,7 +200,7 @@ impl Details {
             .map(|(name, state)| format!("{name}: {state}"))
             .collect::<Vec<_>>()
             .join(", ");
-        format!(
+        let mut block = format!(
             "Application deployment\nDOTCORE_APPLICATION_DEPLOYMENT_ID={}\nDOTCORE_APPLICATION_DEPLOYMENT_NAME={}\nDOTCORE_APPLICATION_DEPLOYMENT_STATE={}\nDOTCORE_APPLICATION_DEPLOYMENT_DESIRED_STATE={}\nDOTCORE_APPLICATION_DEPLOYMENT_READINESS={}\nDOTCORE_APPLICATION_DEPLOYMENT_STALE={}\nDOTCORE_APPLICATION_DEPLOYMENT_NODE={}\nDOTCORE_APPLICATION_DEPLOYMENT_EXECUTION_TARGET={}\nDOTCORE_APPLICATION_DEPLOYMENT_APPLICATION={}\nDOTCORE_APPLICATION_DEPLOYMENT_SERVICES={services}\nDOTCORE_APPLICATION_DEPLOYMENT_ENDPOINT={}\nDOTCORE_APPLICATION_DEPLOYMENT_ROUTE={}\nDOTCORE_APPLICATION_DEPLOYMENT_FAILURE={}\nDOTCORE_APPLICATION_DEPLOYMENT_MESSAGE={}\n",
             self.id,
             self.name,
@@ -198,6 +215,11 @@ impl Details {
             self.route,
             self.failure,
             self.message,
-        )
+        );
+        block.push_str(&record_lines(
+            "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER",
+            &self.parameters,
+        ));
+        block
     }
 }

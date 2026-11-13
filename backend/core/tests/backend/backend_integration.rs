@@ -30,9 +30,9 @@ use dotcore_proto::dotcore::{
         application_deployment_service_server::ApplicationDeploymentService as ApplicationServiceContract,
     },
     catalog::v1::{
-        EngineParameterValue, EngineParameterValues, ListApplicationsRequest,
-        ListEngineReleasesRequest, ListModelsRequest, UseCase,
-        catalog_service_server::CatalogService as CatalogServiceContract, engine_parameter_value,
+        ListApplicationsRequest, ListEngineReleasesRequest, ListModelsRequest, ParameterValue,
+        ParameterValues, UseCase, catalog_service_server::CatalogService as CatalogServiceContract,
+        parameter_value,
     },
     deployment::v1::MemoryFit,
     inference::v1::{DeleteRouteRequest, InferenceRoute, ListRoutesRequest, ReplaceRouteRequest},
@@ -1952,6 +1952,7 @@ async fn route_input_application_without_a_link_reaches_ready_with_its_literal_f
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create application without a route link")
@@ -2008,6 +2009,7 @@ async fn referenced_application_route_cannot_be_deleted_until_application_remove
             expected_inference_route_generation: route.generation,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create route-bound application")
@@ -2076,8 +2078,8 @@ fn configure_route_name_application(root: &Path) {
         .replace("applicationId: \"open-webui\"", "applicationId: \"route-test\"")
         .replace("displayName: \"Open WebUI\"", "displayName: \"Route Test\"")
         .replace(
-            "      storageBindings:",
-            "        - bindingName: \"route-name\"\n          environmentVariable: \"ROUTE_NAME\"\n          literalValue: \"\"\n          input:\n            inferenceRoute:\n              projection: \"APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME\"\n      storageBindings:",
+            "      secretBindings:",
+            "        - bindingName: \"route-name\"\n          environmentVariable: \"ROUTE_NAME\"\n          literalValue: \"\"\n          input:\n            inferenceRoute:\n              projection: \"APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME\"\n      secretBindings:",
         );
     fs::create_dir_all(root.join("catalog/applications"))
         .expect("route-name application directory");
@@ -2174,6 +2176,7 @@ async fn create_route_test_application(
             expected_inference_route_generation: route.generation,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create route-linked application")
@@ -2248,6 +2251,7 @@ async fn create_application(client: &mut ApplicationClient) -> ApplicationDeploy
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create application")
@@ -2913,6 +2917,7 @@ async fn application_restart_uses_site_and_state_ignores_obsolete_files_and_embe
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3019,6 +3024,7 @@ async fn application_service_persists_its_snapshot_name_and_logical_storage_unti
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3104,6 +3110,7 @@ async fn application_service_assigns_timestamped_ids_while_permitting_duplicate_
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3123,6 +3130,7 @@ async fn application_service_assigns_timestamped_ids_while_permitting_duplicate_
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3263,6 +3271,7 @@ async fn application_metadata_update_persists_and_projects_through_service_reope
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3342,6 +3351,7 @@ async fn application_metadata_update_persists_same_name_and_uncertain_acceptance
             expected_inference_route_generation: 0,
             application_deployment_name: Some("Stable Application".to_owned()),
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create application")
@@ -3433,6 +3443,7 @@ async fn application_metadata_update_acceptance_order_is_deterministic_against_t
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3515,6 +3526,7 @@ async fn application_metadata_update_acceptance_order_is_deterministic_against_t
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3820,6 +3832,7 @@ async fn interleaved_model_and_application_mutations_survive_canonical_site_rewr
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("Application mutation")
@@ -4897,7 +4910,7 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                 .collect::<Vec<_>>(),
             [(
                 "fixture-profile",
-                Some(EngineParameterValues {
+                Some(ParameterValues {
                     values: [
                         ("prompt-cache-memory-mib", 0),
                         ("total-context", total_context),
@@ -4905,9 +4918,9 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                         ("context-per-request", context_per_request),
                     ]
                     .into_iter()
-                    .map(|(parameter_id, value)| EngineParameterValue {
+                    .map(|(parameter_id, value)| ParameterValue {
                         parameter_id: parameter_id.to_owned(),
-                        value: Some(engine_parameter_value::Value::UnsignedInteger(value)),
+                        value: Some(parameter_value::Value::UnsignedInteger(value)),
                     })
                     .collect(),
                 }),
@@ -5198,9 +5211,9 @@ async fn rejected_local_configurations_return_their_reason_through_the_model_ser
             .values;
         for (parameter_id, value) in values {
             parameters.retain(|parameter| parameter.parameter_id != *parameter_id);
-            parameters.push(EngineParameterValue {
+            parameters.push(ParameterValue {
                 parameter_id: (*parameter_id).to_owned(),
-                value: Some(engine_parameter_value::Value::UnsignedInteger(*value)),
+                value: Some(parameter_value::Value::UnsignedInteger(*value)),
             });
         }
         CreateLocalModelDeploymentRequest {

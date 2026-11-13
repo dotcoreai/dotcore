@@ -19,11 +19,9 @@ import {
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import { defaultSpeculativeChoice } from "@/features/models/runtime/speculative-choice";
-import {
-  type EngineParameterValues,
-  type EngineRelease,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type Model, type ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   type ExactPlacement,
   ExactPlacementSchema,
@@ -41,7 +39,7 @@ export interface LocalDeploymentValues extends LocalResourceEstimateValues {
 }
 
 /**
- * The context a launch carries, which the Context step and the Runs on chip's "Sized for" both
+ * The context a launch carries, which the Settings step and the Runs on chip's "Sized for" both
  * edit. Until the operator, the chip, or the opener's scenario chooses the total context and
  * context per request, the total context follows the default for the profile and target.
  */
@@ -60,20 +58,20 @@ export type ModelDeployStep = (typeof MODEL_DEPLOY_STEPS)[number];
 export type ModelDeployField = string;
 
 /** Every step in flow order; the dialog shows a subset depending on Advanced and the targets. */
-export const MODEL_DEPLOY_STEPS = ["Profile", "Target", "Context", "Runtime", "Deploy"] as const;
+export const MODEL_DEPLOY_STEPS = ["Profile", "Target", "Settings", "Advanced", "Deploy"] as const;
 
-/** Keys a launch rejection among the Context step's errors. */
+/** Keys a launch rejection among the Settings step's errors. */
 export const launchRejectionField = "launchRejection";
 
 /**
  * The engine parameter inputs a launch shows and the declared values it submits beneath them. The
  * declared values are the starting values: the backend's read for the dialog's scenario, else its
  * read without a scenario, else the profile's defaults with the release defaults they leave out.
- * The inputs overlay them with the operator's runtime edits, then the launch's context, whose total
+ * The inputs overlay them with the operator's parameter edits, then the launch's context, whose total
  * context follows the starting value of the target's largest fit until chosen.
  */
 export function useLaunchEngineValues(
-  scenarioValues: EngineParameterValues | undefined,
+  scenarioValues: ParameterValues | undefined,
   engineRelease: EngineRelease | undefined,
   profile: ModelProfile | undefined,
   edits: ReadonlyMap<string, string>,
@@ -133,9 +131,9 @@ export function scenarioInput(parameterId: string): ScenarioInput | undefined {
 }
 
 export function withoutUnsetContextPerRequest(
-  values: EngineParameterValues | undefined,
+  values: ParameterValues | undefined,
   scenario: SizingScenario | undefined,
-): EngineParameterValues | undefined {
+): ParameterValues | undefined {
   if (!values || scenario?.contextTokensPerRequest !== undefined) return values;
 
   return {
@@ -162,16 +160,16 @@ export function modelDeploySteps(target: boolean, advanced: boolean): ModelDeplo
   return MODEL_DEPLOY_STEPS.filter(
     (step) =>
       (step === "Target" && target) ||
-      (step === "Runtime" && advanced) ||
+      (step === "Advanced" && advanced) ||
       step === "Profile" ||
-      step === "Context" ||
+      step === "Settings" ||
       step === "Deploy",
   );
 }
 
-// A vanished step falls forward: Target to Context, which always shows, and Runtime to Deploy.
+// A vanished step falls forward: Target to Settings, which always shows, and Advanced to Deploy.
 export function fallbackStep(missingStep: string): string {
-  return missingStep === "Target" ? "Context" : "Deploy";
+  return missingStep === "Target" ? "Settings" : "Deploy";
 }
 
 export function exactPlacement(target: ConfiguredExecutionTarget): ExactPlacement {

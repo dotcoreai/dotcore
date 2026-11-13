@@ -4,8 +4,8 @@
 
 * [`Dockerfile`](Dockerfile) builds the upstream source at `COMFYUI_REV` in
   [`docker-image.nix`](docker-image.nix). [`entrypoint.sh`](entrypoint.sh) prepares the deployment's
-  storage, which mounts on ComfyUI's base directory. The shared models storage mounts on the base
-  directory's models folder.
+  storage, which mounts on ComfyUI's base directory. The models storage, shared by the app or per
+  deployment, mounts on the base directory's models folder.
 * The download node in [`custom_nodes/dotcore_model_downloads`](custom_nodes/dotcore_model_downloads)
   decides which missing-model downloads are allowed. Read it before changing download behavior. It
   ships in the image, outside the storage, so each image version brings its own copy.
@@ -36,7 +36,7 @@
    frontend still handing the dialog's downloads to it.
 2. Gated, on an NVIDIA host: give the Docker application execution target the accelerator device,
    deploy ComfyUI, and open the endpoint the console reports.
-3. Place a small checkpoint in the shared models storage, then queue one workflow from the editor.
+3. Place a small checkpoint in the models storage, then queue one workflow from the editor.
 4. The queue completes the workflow, `/system_stats` reports the accelerator, and the deployment's
    inspection attributes accelerator memory to its service. The placed checkpoint and the
    generated image are still on storage after a restart, and the placed checkpoint is still there

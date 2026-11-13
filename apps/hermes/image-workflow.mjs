@@ -1,3 +1,4 @@
+import { randomInt } from "node:crypto";
 import { readFileSync } from "node:fs";
 import {
   chmod,
@@ -40,10 +41,10 @@ const INVALID_STARTUPS = [
   ['http://127.0.0.1:50052/"/v1', ROUTE],
   [INFERENCE_URL, "Fixture route"],
 ];
-// The login the catalog sets for the dashboard: deliberate public placeholders, the same for every
-// deployment.
+// The login the catalog binds for the dashboard: the username's default and a generated-style
+// password (32 alphanumeric characters) that differs on every run.
 const LOGIN_USERNAME = "admin";
-const LOGIN_PASSWORD = "dotcore";
+const LOGIN_PASSWORD = randomAlphanumeric(32);
 const BASE_IMAGE = dockerfileBaseImage(
   readFileSync(new URL("./Dockerfile", import.meta.url), "utf8"),
   /^nousresearch\/hermes-agent@sha256:[a-f0-9]{64}$/,
@@ -394,3 +395,13 @@ print(f"gateway running, pid {state['pid']}, dashboard 200")
 `;
 
 console.log(JSON.stringify(await verifyHermesImage(), null, 2));
+
+/** Returns a random string of letters and digits, like a generated secret parameter. */
+function randomAlphanumeric(length) {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  return Array.from(
+    { length },
+    () => alphabet[randomInt(alphabet.length)],
+  ).join("");
+}

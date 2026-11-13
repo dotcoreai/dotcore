@@ -10,8 +10,8 @@ parameterSchema:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
-      description: "Context memory the server holds from the start and shares among the requests it generates at once. Requests that start with the same prompt share its memory instead of holding their own copy. When it fills, the server pauses the newest requests and processes them again once memory frees up."
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. Raise it to serve longer or more simultaneous conversations; when it fills, the newest requests pause and are processed again once memory frees up."
       unsignedInteger:
         minimum: "1024"
         maximum: "16777216"
@@ -19,16 +19,16 @@ parameterSchema:
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
-      description: "Largest context one request may use from the total context. It reserves nothing: requests take memory from the total context as they grow. A new request reuses the memory of a matching prompt start, from a running request, a finished one still held in the total context, or the KV offloading memory."
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
       unsignedInteger:
         minimum: "1024"
         maximum: "1048576"
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
-      description: "Requests the server generates at the same time; further requests wait in a queue. They share the total context, and each one also holds model state of its own, so every added request adds memory."
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      description: "Requests generated at once; more wait in a queue. Each one also holds model state of its own, so every added request uses more memory; raise it when several callers use the model together."
       unsignedInteger:
         minimum: "1"
         maximum: "1024"
@@ -36,32 +36,32 @@ parameterSchema:
         defaultValue: "4"
     - parameterId: "maximum-batched-tokens"
       displayName: "Maximum batched tokens"
-      exposed: false
-      description: "Maximum tokens processed across one scheduled batch."
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
+      description: "Most tokens processed in one step across all requests. Higher values read long prompts faster but use more memory; lower them if the model runs out of memory while reading prompts."
       unsignedInteger:
         minimum: "1"
         maximum: "1048576"
         unit: "tokens"
     - parameterId: "maximum-cudagraph-capture-size"
       displayName: "Maximum CUDA graph capture size"
-      exposed: false
-      description: "Largest sequence batch captured in a CUDA graph."
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
+      description: "Largest group of requests whose GPU work is recorded ahead of time for faster generation. Lower it to save a little memory and start-up time if you never run that many requests at once."
       unsignedInteger:
         minimum: "1"
         maximum: "1024"
         unit: "sequences"
     - parameterId: "kv-cache-memory-bytes"
       displayName: "KV cache memory"
-      exposed: false
-      description: "Accelerator memory reserved for the total context, in bytes."
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
+      description: "Accelerator memory set aside for the total context. The model's sizing sets it from the total context, so change it only to override that estimate."
       unsignedInteger:
         minimum: "1"
         maximum: "1099511627776"
         unit: "bytes"
     - parameterId: "kv-offloading-size-gib"
       displayName: "KV offloading size"
-      exposed: true
-      description: "Host memory where context evicted from the total context is kept, so a later request with the same prompt start reuses it instead of processing it again, in GiB. 0 turns it off."
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      description: "Host memory that keeps context evicted from the total context, so a later request with the same prompt start reuses it instead of processing it again. Raise it for long prompts that repeat; 0 turns it off."
       unsignedInteger:
         minimum: "0"
         maximum: "1024"
@@ -75,7 +75,7 @@ storageBindings:
   - bindingName: "engine-cache"
     mountPath: "/var/cache/dotcore-engine"
     kind: "STORAGE_KIND_CACHE"
-    scope: "STORAGE_SCOPE_ENGINE_ARTIFACT"
+    placements: ["STORAGE_PLACEMENT_ENGINE_ARTIFACT"]
     environment:
       - { name: "VLLM_CACHE_ROOT", relativePath: "vllm" }
       - { name: "TRITON_CACHE_DIR", relativePath: "triton" }

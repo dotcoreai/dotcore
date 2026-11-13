@@ -2,8 +2,9 @@ syntax = "proto3";
 
 package dotcore.catalog.v1;
 
-// Defines one owner-neutral typed parameter: its identity, label, guidance, and value constraints.
-// Owners decide whether a default is required and how the parameter is shown.
+// Defines one owner-neutral typed parameter: its identity, label, guidance, visibility and value
+// constraints. Owners decide which types and visibilities they accept and whether a default is
+// required.
 message ParameterDefinition {
   // Stable parameter identity, unique within its declaring owner.
   string parameter_id = 1;
@@ -14,6 +15,9 @@ message ParameterDefinition {
   // Optional practical guidance shown with this parameter.
   string description = 3;
 
+  // Where the console shows this parameter.
+  ParameterVisibility visibility = 7;
+
   oneof parameter_type {
     // Boolean type for this parameter.
     BooleanParameterSchema boolean = 4;
@@ -23,6 +27,12 @@ message ParameterDefinition {
 
     // Closed string choices for this parameter.
     StringEnumParameterSchema string_enum = 6;
+
+    // Free text constraints for this parameter.
+    TextParameterSchema text = 8;
+
+    // Secret constraints for this parameter; its value is generated when none is supplied.
+    SecretParameterSchema secret = 9;
   }
 }
 
@@ -56,6 +66,35 @@ message StringEnumParameterSchema {
   optional string default_value = 2;
 }
 
+// Defines a free text parameter: any text within its length bounds, without `=` or control
+// characters.
+message TextParameterSchema {
+  // Inclusive minimum length in characters.
+  uint32 minimum_length = 1;
+
+  // Inclusive maximum length in characters, at least 1.
+  uint32 maximum_length = 2;
+
+  // Value used when the caller supplies none, within the length bounds.
+  optional string default_value = 3;
+}
+
+// Defines a secret parameter: never defaulted, generated at random from letters and digits when the
+// caller supplies none, and masked by clients until asked.
+message SecretParameterSchema {
+  // Length in characters of a generated value, at least the minimum length.
+  uint32 generated_length = 1;
+
+  // Inclusive minimum length in characters of a supplied value, at least 1.
+  uint32 minimum_length = 2;
+}
+
+// Supplies a set of exact typed parameter values.
+message ParameterValues {
+  // Exact values keyed by stable parameter identity.
+  repeated ParameterValue values = 1;
+}
+
 // Supplies one exact typed parameter value.
 message ParameterValue {
   // Stable parameter identity.
@@ -68,7 +107,22 @@ message ParameterValue {
     // Exact unsigned-integer value.
     uint64 unsigned_integer = 3;
 
-    // Exact string-enum value.
+    // Exact string-enum, text or secret value.
     string string = 4;
   }
+}
+
+// Where the console shows a parameter.
+enum ParameterVisibility {
+  // Invalid; every parameter declares its visibility.
+  PARAMETER_VISIBILITY_UNSPECIFIED = 0;
+
+  // Shown in the main view.
+  PARAMETER_VISIBILITY_BASIC = 1;
+
+  // Shown only in the advanced view.
+  PARAMETER_VISIBILITY_ADVANCED = 2;
+
+  // Never shown; the value comes from its default, a profile or sizing.
+  PARAMETER_VISIBILITY_HIDDEN = 3;
 }

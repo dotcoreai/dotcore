@@ -58,7 +58,7 @@ flowchart TB
   FACTS["Target platform, runtime binding, observed facts"] --> SEL
   SEL --> MERGE
   subgraph MERGE["Each engine parameter: first value that applies"]
-    S1["Supplied value"] --> S2["Profile default"] --> S3["Engine release default"] --> S4["Sizing derivation"]
+    S1["Supplied value"] --> S2["Profile default"] --> S3["Engine release default"] --> S4["Sizing derivation"] --> S5["Generated secret"]
   end
   MERGE --> SNAP["Deployment snapshot: values, derived values, estimates"]
 ```
@@ -72,7 +72,11 @@ keeps the result as the deployment's snapshot.
   hardware classes the configuration supports.
 - A local request that omits its engine configuration takes the selected profile's default binding.
 - Engine parameter values merge per parameter: the supplied value, then the profile default, then
-  the engine release default, then the sizing derivation, for every supplied set.
+  the engine release default, then the sizing derivation, then, for a secret, a generated value,
+  for every supplied set.
+- A secret engine parameter has no catalog default and sizing never reads it. Only creation
+  generates a missing one, after sizing; previews, estimates and placement need no secret value,
+  and a preview carries none.
 - An omitted context per request becomes the smaller of the maximum context and the total context,
   kept as a derived value.
 - It evaluates the declared sizing for the configuration, the selected hardware class and the
@@ -191,6 +195,9 @@ never redefine it.
 - The portable launch plan.
 - The engine-neutral sizing result when sizing is declared, and which engine parameter values were
   derived rather than supplied.
+- The engine parameter values, with which secrets were generated, and the selected profile's engine
+  parameter defaults and visibility overrides, so clients read every value and its origin from the
+  deployment alone.
 - The selected target's memory architecture. Engine adapters derive launch settings and non-blocking
   advisories from it.
 - The selected target's device memory total, or its host memory total on unified targets. Engine

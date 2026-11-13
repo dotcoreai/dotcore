@@ -1,8 +1,10 @@
 //! Apps-controller deployment lifecycle, persistence, and management API boundaries.
 
+mod binding;
 mod controller;
 mod published_port;
 pub mod repository;
+mod secret_form;
 pub mod service;
 pub(crate) mod workloads;
 
@@ -15,5 +17,5 @@ pub use controller::{
     ApplicationConfigurationSources, ApplicationController, ApplicationControllerConfiguration,
     ApplicationDeploymentLogController, ApplicationLifecycleController, ApplicationLifecycleError,
     InferenceRouteResolutionError, InferenceRouteResolver, ParameterRejection,
-    ResolvedInferenceRoute, RetainedTargetMismatch, TargetIneligibility,
+    ResolvedInferenceRoute, RetainedTargetMismatch, StorageChoiceRejection, TargetIneligibility,
 };

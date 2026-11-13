@@ -69,6 +69,7 @@ use dotcore_site::{
 use tokio::sync::Notify;
 
 use super::*;
+pub(super) use crate::test_support::{sequential_secret, test_secret_generator};
 
 #[derive(Default)]
 pub(super) struct FailingApplicationPreparer {
@@ -861,6 +862,7 @@ pub(super) fn manager_controller(
             target_capabilities,
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("manager apps controller")
@@ -1149,6 +1151,7 @@ where
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
         artifacts,
     )
@@ -1174,6 +1177,7 @@ where
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver,
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller")
@@ -1193,6 +1197,7 @@ where
             target_capabilities: test_target_capability_source(),
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller")
@@ -2799,6 +2804,7 @@ pub(super) fn route_configuration_binding(
                 ),
             ),
         }),
+        enabled_by_parameter_id: None,
     }
 }
 
@@ -2813,6 +2819,7 @@ pub(super) fn deployment(
         desired_state: desired_state as i32,
         storage_attachments: Vec::new(),
         configuration_attachments: Vec::new(),
+        secret_attachments: Vec::new(),
         inference_route_id: None,
         lifecycle_generation: 1,
         node_resolved_launch_identities: Vec::new(),
@@ -2865,6 +2872,7 @@ pub(super) fn controller_for_application_and_target_source(
             target_capabilities,
             configuration_sources: ApplicationConfigurationSources::default(),
             inference_route_resolver: test_inference_route_resolver(),
+            secret_generator: test_secret_generator(),
         },
     )
     .expect("Apps controller")
@@ -2948,40 +2956,36 @@ pub(super) fn application_with_route_input() -> Application {
 /// an environment variable of its web service.
 pub(super) fn application_with_parameters() -> Application {
     use dotcore_proto::dotcore::catalog::v1::{
-        ApplicationParameter, ParameterDefinition, StringEnumParameterSchema,
+        ParameterDefinition, ParameterVisibility, StringEnumParameterSchema,
         UnsignedIntegerParameterSchema, parameter_definition::ParameterType,
     };
 
     let mut application = application();
     let graph = application.graph.as_mut().expect("graph");
     graph.parameters = vec![
-        ApplicationParameter {
-            definition: Some(ParameterDefinition {
-                parameter_id: "mode".to_owned(),
-                display_name: "Mode".to_owned(),
-                description: String::new(),
-                parameter_type: Some(ParameterType::StringEnum(StringEnumParameterSchema {
-                    values: vec!["auto".to_owned(), "highvram".to_owned()],
-                    default_value: Some("auto".to_owned()),
-                })),
-            }),
-            advanced: true,
+        ParameterDefinition {
+            parameter_id: "mode".to_owned(),
+            display_name: "Mode".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::StringEnum(StringEnumParameterSchema {
+                values: vec!["auto".to_owned(), "highvram".to_owned()],
+                default_value: Some("auto".to_owned()),
+            })),
+            visibility: ParameterVisibility::Advanced as i32,
         },
-        ApplicationParameter {
-            definition: Some(ParameterDefinition {
-                parameter_id: "workers".to_owned(),
-                display_name: "Workers".to_owned(),
-                description: String::new(),
-                parameter_type: Some(ParameterType::UnsignedInteger(
-                    UnsignedIntegerParameterSchema {
-                        minimum: 1,
-                        maximum: 8,
-                        unit: String::new(),
-                        default_value: Some(2),
-                    },
-                )),
-            }),
-            advanced: false,
+        ParameterDefinition {
+            parameter_id: "workers".to_owned(),
+            display_name: "Workers".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::UnsignedInteger(
+                UnsignedIntegerParameterSchema {
+                    minimum: 1,
+                    maximum: 8,
+                    unit: String::new(),
+                    default_value: Some(2),
+                },
+            )),
+            visibility: ParameterVisibility::Basic as i32,
         },
     ];
     graph.services[0].configuration_bindings = ["mode", "workers"]
@@ -2993,9 +2997,150 @@ pub(super) fn application_with_parameters() -> Application {
                 id.to_owned(),
             )),
             input: None,
+            enabled_by_parameter_id: None,
         })
         .collect();
     application
+}
+
+/// The test application whose web service keeps `data` with the deployment only and lets the
+/// operator place `models` with the application (the default) or with the deployment.
+pub(super) fn application_with_storage_choices() -> Application {
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
+
+    let mut application = application();
+    let binding = |name: &str, placements: &[StoragePlacement]| StorageBinding {
+        binding_name: name.to_owned(),
+        mount_path: format!("/{name}"),
+        kind: StorageKind::Data as i32,
+        placements: placements
+            .iter()
+            .map(|&placement| placement as i32)
+            .collect(),
+        environment: Vec::new(),
+    };
+    application.graph.as_mut().expect("graph").services[0].storage_bindings = vec![
+        binding("data", &[StoragePlacement::Deployment]),
+        binding(
+            "models",
+            &[StoragePlacement::Application, StoragePlacement::Deployment],
+        ),
+    ];
+    application
+}
+
+/// The test application with a text `username` parameter bound to `USERNAME` and a secret
+/// `password` parameter bound in plain form to `PASSWORD` and in bcrypt form to `PASSWORD_HASH`.
+pub(super) fn application_with_secret_parameters() -> Application {
+    use dotcore_proto::dotcore::catalog::v1::{
+        ApplicationSecretBinding, ApplicationSecretForm, ParameterDefinition, ParameterVisibility,
+        TextParameterSchema, parameter_definition::ParameterType,
+    };
+
+    let mut application = application();
+    let graph = application.graph.as_mut().expect("graph");
+    graph.parameters = vec![
+        ParameterDefinition {
+            parameter_id: "username".to_owned(),
+            display_name: "Username".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::Text(TextParameterSchema {
+                minimum_length: 1,
+                maximum_length: 64,
+                default_value: Some("admin".to_owned()),
+            })),
+            visibility: ParameterVisibility::Basic as i32,
+        },
+        secret_parameter("password"),
+    ];
+    let web = &mut graph.services[0];
+    web.configuration_bindings = vec![ApplicationConfigurationBinding {
+        binding_name: "username".to_owned(),
+        environment_variable: "USERNAME".to_owned(),
+        source: Some(application_configuration_binding::Source::ParameterId(
+            "username".to_owned(),
+        )),
+        input: None,
+        enabled_by_parameter_id: None,
+    }];
+    web.secret_bindings = vec![
+        ApplicationSecretBinding {
+            binding_name: "password".to_owned(),
+            environment_variable: "PASSWORD".to_owned(),
+            parameter_id: "password".to_owned(),
+            form: ApplicationSecretForm::Plain as i32,
+            enabled_by_parameter_id: None,
+        },
+        ApplicationSecretBinding {
+            binding_name: "password-hash".to_owned(),
+            environment_variable: "PASSWORD_HASH".to_owned(),
+            parameter_id: "password".to_owned(),
+            form: ApplicationSecretForm::Bcrypt as i32,
+            enabled_by_parameter_id: None,
+        },
+    ];
+    application
+}
+
+/// The secret-parameter test application with a boolean `login` parameter, off by default, bound
+/// to `LOGIN` and enabling the `username` and both `password` bindings.
+pub(super) fn application_with_login_switch() -> Application {
+    use dotcore_proto::dotcore::catalog::v1::{
+        BooleanParameterSchema, ParameterDefinition, ParameterVisibility,
+        parameter_definition::ParameterType,
+    };
+
+    let mut application = application_with_secret_parameters();
+    let graph = application.graph.as_mut().expect("graph");
+    graph.parameters.push(ParameterDefinition {
+        parameter_id: "login".to_owned(),
+        display_name: "Login".to_owned(),
+        description: String::new(),
+        parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema {
+            default_value: Some(false),
+        })),
+        visibility: ParameterVisibility::Basic as i32,
+    });
+    let web = &mut graph.services[0];
+    let switch = Some("login".to_owned());
+    for binding in &mut web.configuration_bindings {
+        binding.enabled_by_parameter_id = switch.clone();
+    }
+    for binding in &mut web.secret_bindings {
+        binding.enabled_by_parameter_id = switch.clone();
+    }
+    web.configuration_bindings
+        .push(ApplicationConfigurationBinding {
+            binding_name: "login".to_owned(),
+            environment_variable: "LOGIN".to_owned(),
+            source: Some(application_configuration_binding::Source::ParameterId(
+                "login".to_owned(),
+            )),
+            input: None,
+            enabled_by_parameter_id: None,
+        });
+    application
+}
+
+/// A basic secret parameter generated at 32 characters and accepted from 12.
+pub(super) fn secret_parameter(
+    id: &str,
+) -> dotcore_proto::dotcore::catalog::v1::ParameterDefinition {
+    use dotcore_proto::dotcore::catalog::v1::{
+        ParameterDefinition, ParameterVisibility, SecretParameterSchema,
+        parameter_definition::ParameterType,
+    };
+
+    ParameterDefinition {
+        parameter_id: id.to_owned(),
+        display_name: id.to_owned(),
+        description: String::new(),
+        parameter_type: Some(ParameterType::Secret(SecretParameterSchema {
+            generated_length: 32,
+            minimum_length: 12,
+        })),
+        visibility: ParameterVisibility::Basic as i32,
+    }
 }
 
 /// The test application with its web service bound to the hosting node's inference base URL.
@@ -3012,6 +3157,7 @@ pub(super) fn base_url_application() -> Application {
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         });
     application
 }

@@ -26,6 +26,8 @@ import {
   ApplicationSchema,
   ApplicationServiceSchema,
 } from "@/gen/dotcore/catalog/v1/application_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
 import {
   type AcceleratorMemoryObservation,
   AcceleratorMemoryObservationSchema,
@@ -516,22 +518,19 @@ describe("Application deployment dialog", () => {
       graph: create(ApplicationGraphSchema, {
         parameters: [
           {
-            advanced: true,
-            definition: {
-              parameterId: "vram-mode",
-              displayName: "VRAM mode",
-              parameterType: {
-                case: "stringEnum",
-                value: { values: ["auto", "highvram"], defaultValue: "auto" },
-              },
+            parameterId: "vram-mode",
+            displayName: "VRAM mode",
+            visibility: ParameterVisibility.ADVANCED,
+            parameterType: {
+              case: "stringEnum",
+              value: { values: ["auto", "highvram"], defaultValue: "auto" },
             },
           },
           {
-            definition: {
-              parameterId: "preview",
-              displayName: "Previews",
-              parameterType: { case: "boolean", value: { defaultValue: false } },
-            },
+            parameterId: "preview",
+            displayName: "Previews",
+            visibility: ParameterVisibility.BASIC,
+            parameterType: { case: "boolean", value: { defaultValue: false } },
           },
         ],
       }),
@@ -567,6 +566,72 @@ describe("Application deployment dialog", () => {
       ["VRAM mode", "highvram"],
       ["Previews", "Disabled"],
     ]);
+  });
+
+  it("lists each storage binding's retained placement in Parameters", () => {
+    render(
+      <DeploymentApplicationInspector
+        deployment={create(ApplicationDeploymentSchema, {
+          applicationDeploymentId: "deployment-1",
+          applicationDeploymentName: "Images",
+          placement: { siteNodeId: "local", executionTargetId: "local" },
+          snapshot: resolvedSnapshot(application),
+          storageAttachments: [
+            { serviceName: "web", bindingName: "data", placement: StoragePlacement.DEPLOYMENT },
+            { serviceName: "web", bindingName: "models", placement: StoragePlacement.APPLICATION },
+          ],
+          state: create(ApplicationDeploymentStateSchema, {
+            lifecycleState: ApplicationLifecycleState.READY,
+            readinessState: ApplicationReadinessState.READY,
+          }),
+        })}
+        onOpenChange={vi.fn()}
+        onRemove={vi.fn()}
+        open
+        openerRef={createRef<HTMLElement>()}
+        pending={false}
+      />,
+    );
+
+    expect(detailTexts(screen.getByRole("region", { name: "Parameters" }))).toEqual([
+      ["Data storage", "This deployment"],
+      ["Models storage", "Shared by the app"],
+    ]);
+  });
+
+  it("names the deleted and the kept data in the teardown confirmation", async () => {
+    const user = setupUser();
+    render(
+      <DeploymentApplicationInspector
+        deployment={create(ApplicationDeploymentSchema, {
+          applicationDeploymentId: "deployment-1",
+          applicationDeploymentName: "comfy",
+          desiredState: ApplicationDeploymentDesiredState.PRESENT,
+          snapshot: resolvedSnapshot(application),
+          storageAttachments: [
+            { serviceName: "web", bindingName: "data", placement: StoragePlacement.DEPLOYMENT },
+            { serviceName: "web", bindingName: "models", placement: StoragePlacement.APPLICATION },
+          ],
+          state: create(ApplicationDeploymentStateSchema, {
+            lifecycleState: ApplicationLifecycleState.READY,
+            readinessState: ApplicationReadinessState.READY,
+          }),
+        })}
+        onOpenChange={vi.fn()}
+        onRemove={vi.fn()}
+        open
+        openerRef={createRef<HTMLElement>()}
+        pending={false}
+      />,
+    );
+
+    await chooseMoreAction(user, "Teardown…");
+    expect(
+      within(screen.getByRole("dialog")).getByText(
+        "Teardown deployment comfy? This stops and removes its workloads and deletes this deployment's data (data). It keeps the data shared by the app (models) and the catalog application. The deployment remains visible as Tearing down until cleanup completes.",
+        { exact: true },
+      ),
+    ).toBeVisible();
   });
 
   it("presents a remote deployment, its pinned image, and its direct endpoint", () => {
@@ -960,7 +1025,7 @@ describe("Application deployment dialog", () => {
     expect(within(dialog).getByRole("heading", { name: "Teardown deployment?" })).toBeVisible();
     expect(
       within(dialog).getByText(
-        "Teardown deployment open-webui-1? The apps controller will stop and remove its recognized workload group. The deployment remains visible as Tearing down until cleanup completes. Its application data is deleted; the catalog application is kept.",
+        "Teardown deployment open-webui-1? This stops and removes its workloads. The catalog application is kept. The deployment remains visible as Tearing down until cleanup completes.",
         { exact: true },
       ),
     ).toBeVisible();

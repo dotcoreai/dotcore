@@ -36,7 +36,7 @@ use dotcore_domain::{
 };
 use dotcore_node_hardware::hardware::SystemHardwareSnapshotCollector;
 use dotcore_proto::dotcore::{
-    catalog::v1::{EngineParameterValues, engine_artifact::Kind as EngineArtifactKind},
+    catalog::v1::{ParameterValues, engine_artifact::Kind as EngineArtifactKind},
     engine::v1::EngineKind,
     model::v1::{
         LocalModelDeploymentConfiguration, PortableModelLaunchPlan,
@@ -66,8 +66,8 @@ use tokio_util::sync::CancellationToken;
 use crate::model::{
     engine::{self, EngineIntegrationRegistry},
     resolution::{
-        apply_profile_defaults, resolve_local_launch, resolve_local_values_on_target,
-        select_engine_artifact,
+        EngineSecrets, apply_profile_defaults, resolve_local_launch,
+        resolve_local_values_on_target, select_engine_artifact,
     },
     resolved::ResolvedModelLaunch,
 };
@@ -373,6 +373,7 @@ impl DirectWorkloadFacade {
             &configured_target,
             &target_inventory,
             engine_identity.as_ref(),
+            EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
         .map_err(DirectWorkloadLaunchError::resolution)?;
         self.pin_nix_engine(&mut snapshot, &cancellation).await?;
@@ -1386,7 +1387,7 @@ pub struct DevelopmentLaunchFacts {
     pub model_artifact_id: String,
     pub auxiliary_artifact_ids: Vec<String>,
     pub resolved_options: Vec<ResolvedModelOption>,
-    pub engine_parameter_values: EngineParameterValues,
+    pub engine_parameter_values: ParameterValues,
     pub engine_release_id: String,
     pub engine_artifact_id: String,
     pub engine_version: String,

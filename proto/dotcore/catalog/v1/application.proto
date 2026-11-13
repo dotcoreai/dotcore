@@ -36,17 +36,9 @@ message ApplicationGraph {
   // The one service port that can be projected as the primary endpoint.
   ApplicationPrimaryEndpoint primary_endpoint = 2;
 
-  // Typed parameters operators may set at deployment creation, in display order.
-  repeated ApplicationParameter parameters = 3;
-}
-
-// One typed application parameter and how the console shows it.
-message ApplicationParameter {
-  // Typed definition; application parameters always declare a default.
-  ParameterDefinition definition = 1;
-
-  // Whether the console shows this parameter only in its advanced view.
-  bool advanced = 2;
+  // Typed parameters operators may set at deployment creation, in display order; each is basic or
+  // advanced and, except a secret, declares a default.
+  repeated ParameterDefinition parameters = 3;
 }
 
 // One named service in an immutable application graph.
@@ -73,7 +65,7 @@ message ApplicationService {
   // Writable storage the apps controller attaches to this service.
   repeated StorageBinding storage_bindings = 7;
 
-  // Named secret references that require site-specific resolution.
+  // Secret parameters this service receives, each in the form it needs.
   repeated ApplicationSecretBinding secret_bindings = 8;
 
   // Conditions on named services that must hold before this service starts.
@@ -154,6 +146,9 @@ message ApplicationConfigurationBinding {
 
   // Optional deployment input that can project a linked inference route into this binding.
   ApplicationDeploymentInput input = 5;
+
+  // Boolean graph parameter whose value enables this binding; when false the service never receives it.
+  optional string enabled_by_parameter_id = 7;
 }
 
 // Describes one deployment input projected into a configuration binding.
@@ -179,13 +174,22 @@ enum ApplicationInferenceRouteProjection {
   APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME = 1;
 }
 
-// Declares a named unresolved secret reference and its environment destination.
+// Declares one secret parameter's environment destination and the form the service receives.
 message ApplicationSecretBinding {
-  // Stable name used by an application deployment to supply the secret.
+  // Stable binding name, unique within the service.
   string binding_name = 1;
 
-  // Environment variable that receives the resolved secret value.
+  // Environment variable that receives the secret in its form.
   string environment_variable = 2;
+
+  // Graph secret parameter whose value supplies this binding.
+  string parameter_id = 3;
+
+  // Form of the value the service receives.
+  ApplicationSecretForm form = 4;
+
+  // Boolean graph parameter whose value enables this binding; when false the service never receives it.
+  optional string enabled_by_parameter_id = 5;
 }
 
 // Selects the one declared service port that can become the primary endpoint.
@@ -198,6 +202,18 @@ message ApplicationPrimaryEndpoint {
 
   // Protocol projected for the selected service port.
   ApplicationEndpointProtocol protocol = 3;
+}
+
+// The form in which a service receives a secret parameter's value.
+enum ApplicationSecretForm {
+  // Invalid; every secret binding declares its form.
+  APPLICATION_SECRET_FORM_UNSPECIFIED = 0;
+
+  // The value exactly as retained.
+  APPLICATION_SECRET_FORM_PLAIN = 1;
+
+  // A bcrypt hash of the value, computed once with a random salt when the deployment is created.
+  APPLICATION_SECRET_FORM_BCRYPT = 2;
 }
 
 // The condition that a dependency service must meet before a dependent service starts.

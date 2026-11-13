@@ -16,8 +16,8 @@ use dotcore_artifact::PreparedModelArtifacts;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterValues, EngineRelease, HardwareClass, InferenceRequestKind, Model,
-        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues,
+        EngineRelease, HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding,
+        ModelEngineConfiguration, ModelOptionValues, ParameterValues,
     },
     engine::v1::{EngineKind, ResolvedEngineModelState},
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
@@ -78,7 +78,7 @@ impl EngineDefinition for Ninfer {
         &self,
         _model: &Model,
         _configuration: &ModelEngineConfiguration,
-        values: &EngineParameterValues,
+        values: &ParameterValues,
     ) -> anyhow::Result<()> {
         declaration::validate_parameter_values(values)
     }

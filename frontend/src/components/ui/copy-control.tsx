@@ -71,6 +71,28 @@ function CodeCopyControl({ label, value }: CopyControlProps) {
   );
 }
 
+/** An icon-only copy button for a value that must not be rendered, such as a secret. */
+function IconCopyControl({ label, value }: CopyControlProps) {
+  const { copy, feedback } = useCopyFeedback(value);
+
+  return (
+    <span className="relative inline-flex">
+      <Feedback feedback={feedback} />
+      <Button
+        aria-label={`Copy ${label}`}
+        className="cursor-pointer"
+        onClick={() => void copy()}
+        size="icon-xs"
+        title={`Copy ${label}`}
+        type="button"
+        variant="ghost"
+      >
+        <CopyIcon aria-hidden="true" />
+      </Button>
+    </span>
+  );
+}
+
 function Feedback({ feedback }: { feedback: CopyFeedback }) {
   if (!feedback) return null;
 
@@ -107,5 +129,5 @@ function useCopyFeedback(value: string) {
   return { copy, feedback };
 }
 
-export { CodeCopyControl, InlineCopyControl };
+export { CodeCopyControl, IconCopyControl, InlineCopyControl };
 export type { CopyControlProps, InlineCopyControlProps };

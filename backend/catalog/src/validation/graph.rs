@@ -5,13 +5,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
     ApplicationDependencyCondition, ApplicationEndpointProtocol, ApplicationGraph,
-    ApplicationService, application_configuration_binding, parameter_definition::ParameterType,
+    ApplicationService, ParameterVisibility, application_configuration_binding,
+    parameter_definition::ParameterType,
 };
 
 use super::application::valid_configuration_value;
 use super::service::validate_application_service;
 use crate::OciArtifactPolicy;
-use crate::typed_parameters::{default_value, validate_parameter_definition};
+use crate::typed_parameters::{default_value, is_secret, validate_parameter_definition};
 
 pub(super) fn validate_application_graph(
     graph: &ApplicationGraph,
@@ -179,17 +180,14 @@ fn validate_primary_endpoint(
     }
 }
 
-/// Checks parameter definitions and that bindings and parameters reference each other exactly:
-/// every binding names a declared parameter and every parameter supplies at least one binding.
+/// Checks parameter definitions, each shown as basic or advanced and, except a secret, with a
+/// default, and that bindings and parameters reference each other exactly: every binding names a
+/// declared parameter, secrets only through secret bindings and other parameters only through
+/// configuration bindings, a binding is enabled only by a boolean parameter, and every parameter
+/// supplies or enables at least one binding.
 fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>) {
     let mut parameter_ids = BTreeSet::new();
-    for parameter in &graph.parameters {
-        let Some(definition) = parameter.definition.as_ref() else {
-            errors.push(anyhow::anyhow!(
-                "application parameter requires a definition"
-            ));
-            continue;
-        };
+    for definition in &graph.parameters {
         let id = &definition.parameter_id;
         if !parameter_ids.insert(id.as_str()) {
             errors.push(anyhow::anyhow!("duplicate application parameter {id:?}"));
@@ -197,9 +195,15 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
         let definition_errors = validate_parameter_definition(definition);
         let valid_definition = definition_errors.is_empty();
         errors.extend(definition_errors);
-        if valid_definition && default_value(definition).is_none() {
+        if valid_definition && !is_secret(definition) && default_value(definition).is_none() {
             errors.push(anyhow::anyhow!(
                 "application parameter {id:?} requires a default"
+            ));
+        }
+        // A value the operator never sees belongs in the graph as a literal.
+        if definition.visibility() == ParameterVisibility::Hidden {
+            errors.push(anyhow::anyhow!(
+                "application parameter {id:?} must be basic or advanced, not hidden"
             ));
         }
         // Enum values are projected verbatim into environment variables.
@@ -215,28 +219,115 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
         }
     }
 
+    let parameter_kinds = graph
+        .parameters
+        .iter()
+        .map(|definition| {
+            let kind = match definition.parameter_type {
+                Some(ParameterType::Secret(_)) => ParameterKind::Secret,
+                Some(ParameterType::Boolean(_)) => ParameterKind::Boolean,
+                _ => ParameterKind::Other,
+            };
+            (definition.parameter_id.as_str(), kind)
+        })
+        .collect::<BTreeMap<_, _>>();
     let mut referenced_ids = BTreeSet::new();
     for service in &graph.services {
+        let service_name = &service.service_name;
         for binding in &service.configuration_bindings {
+            let binding_name = &binding.binding_name;
+            if let Some(id) = &binding.enabled_by_parameter_id {
+                referenced_ids.insert(id.as_str());
+                check_enabler(
+                    &parameter_kinds,
+                    "configuration",
+                    binding_name,
+                    service_name,
+                    id,
+                    errors,
+                );
+                // Launch projects the route name in place of a route-input binding's attachment,
+                // so nothing would observe its switch.
+                if binding.input.is_some() {
+                    errors.push(anyhow::anyhow!(
+                        "application configuration binding {binding_name:?} on service {service_name:?} takes a route input, so it cannot be enabled by a parameter"
+                    ));
+                }
+            }
             let Some(application_configuration_binding::Source::ParameterId(id)) =
                 binding.source.as_ref()
             else {
                 continue;
             };
             referenced_ids.insert(id.as_str());
-            if !parameter_ids.contains(id.as_str()) {
-                errors.push(anyhow::anyhow!(
-                    "application configuration binding {:?} on service {:?} references missing parameter {id:?}",
-                    binding.binding_name,
-                    service.service_name
-                ));
+            match parameter_kinds.get(id.as_str()) {
+                None => errors.push(anyhow::anyhow!(
+                    "application configuration binding {binding_name:?} on service {service_name:?} references missing parameter {id:?}"
+                )),
+                Some(ParameterKind::Secret) => errors.push(anyhow::anyhow!(
+                    "application configuration binding {binding_name:?} on service {service_name:?} references secret parameter {id:?}; secrets use secret bindings"
+                )),
+                Some(_) => {}
+            }
+        }
+        for binding in &service.secret_bindings {
+            let binding_name = &binding.binding_name;
+            if let Some(id) = &binding.enabled_by_parameter_id {
+                referenced_ids.insert(id.as_str());
+                check_enabler(
+                    &parameter_kinds,
+                    "secret",
+                    binding_name,
+                    service_name,
+                    id,
+                    errors,
+                );
+            }
+            let id = binding.parameter_id.as_str();
+            referenced_ids.insert(id);
+            match parameter_kinds.get(id) {
+                None => errors.push(anyhow::anyhow!(
+                    "application secret binding {binding_name:?} on service {service_name:?} references missing parameter {id:?}"
+                )),
+                Some(ParameterKind::Secret) => {}
+                Some(_) => errors.push(anyhow::anyhow!(
+                    "application secret binding {binding_name:?} on service {service_name:?} references parameter {id:?}, which is not a secret"
+                )),
             }
         }
     }
     for id in parameter_ids.difference(&referenced_ids) {
         errors.push(anyhow::anyhow!(
-            "application parameter {id:?} is not used by any configuration binding"
+            "application parameter {id:?} is not used by any binding"
         ));
+    }
+}
+
+/// The kind of a graph parameter that decides which bindings may reference it.
+#[derive(Clone, Copy)]
+enum ParameterKind {
+    Secret,
+    Boolean,
+    Other,
+}
+
+/// Checks that the parameter enabling one binding is a declared boolean.
+fn check_enabler(
+    parameter_kinds: &BTreeMap<&str, ParameterKind>,
+    kind: &str,
+    binding_name: &str,
+    service_name: &str,
+    id: &str,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    match parameter_kinds.get(id) {
+        None => errors.push(anyhow::anyhow!(
+            "application {kind} binding {binding_name:?} on service {service_name:?} is enabled by missing parameter {id:?}"
+        )),
+        Some(ParameterKind::Boolean) => {}
+        Some(_) => errors.push(anyhow::anyhow!(
+            "application {kind} binding {binding_name:?} on service {service_name:?} is enabled by parameter {id:?}, which is not a boolean"
+        )),
     }
 }
 

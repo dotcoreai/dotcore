@@ -44,10 +44,10 @@ import {
 } from "@/features/models/runtime/runtime-schema-test-support";
 import {
   EngineArtifactReferenceSchema,
-  EngineParameterValueSchema,
   EngineReleaseSchema,
 } from "@/gen/dotcore/catalog/v1/engine_release_pb";
-import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ModelSchema, type ParameterVisibilityOverride } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterValueSchema, ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
 import {
@@ -69,6 +69,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { productionTiming, setTiming } from "@/lib/timing";
 import type { FakeResourceWatch } from "@/test/fake-resource-watch";
+import { readFieldHelpFacts } from "@/test/field-help";
 import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
 
@@ -91,7 +92,7 @@ describe("ModelDeployDialog", () => {
       renderDialog();
 
       await screen.findByText("Step 1 of 3 — Profile");
-      expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Settings", "3. Deploy"]);
       expect(screen.getByRole("checkbox", { name: "Advanced" })).not.toBeChecked();
       expect(
         within(screen.getByTestId("deployment-dialog-footer-start")).getByRole("checkbox", {
@@ -110,7 +111,7 @@ describe("ModelDeployDialog", () => {
       renderDialog({ listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()) });
 
       await waitFor(() =>
-        expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Context", "4. Deploy"]),
+        expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Settings", "4. Deploy"]),
       );
       expect(screen.getByText("Step 1 of 4 — Profile")).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -131,7 +132,7 @@ describe("ModelDeployDialog", () => {
       });
 
       await screen.findByText("Step 1 of 3 — Profile");
-      expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Settings", "3. Deploy"]);
     });
 
     it("shows every advanced step and never a review step", async () => {
@@ -144,8 +145,8 @@ describe("ModelDeployDialog", () => {
       expect(stepLabels()).toEqual([
         "1. Profile",
         "2. Target",
-        "3. Context",
-        "4. Runtime",
+        "3. Settings",
+        "4. Advanced",
         "5. Deploy",
       ]);
       expect(screen.getByText("Step 1 of 5 — Profile")).toBeVisible();
@@ -169,7 +170,7 @@ describe("ModelDeployDialog", () => {
       rerender(dialog({ open: true }));
 
       expect(screen.getByRole("checkbox", { name: "Advanced" })).not.toBeChecked();
-      expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Settings", "3. Deploy"]);
     });
   });
 
@@ -178,7 +179,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog();
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await user.click(screen.getByRole("button", { name: "Back" }));
       const context = screen.getByRole("textbox", { name: /Total context/ });
       await user.clear(context);
@@ -204,8 +205,8 @@ describe("ModelDeployDialog", () => {
       await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
       expect(screen.getByText("Step 5 of 5 — Deploy")).toBeVisible();
       expect(stepButton("Target")).toBeEnabled();
-      expect(stepButton("Context")).toBeEnabled();
-      expect(stepButton("Runtime")).toBeEnabled();
+      expect(stepButton("Settings")).toBeEnabled();
+      expect(stepButton("Advanced")).toBeEnabled();
       expect(stepButton("Profile")).toBeEnabled();
 
       expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("custom-route");
@@ -214,7 +215,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16384");
     });
 
-    it("falls forward to Context when the target step vanishes", async () => {
+    it("falls forward to Settings when the target step vanishes", async () => {
       const user = setupUser();
       renderDialog();
 
@@ -224,19 +225,111 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
 
       await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-      expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+      expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
     });
 
-    it("falls back to Deploy when the runtime step vanishes", async () => {
+    it("falls back to Deploy when the Advanced step vanishes", async () => {
       const user = setupUser();
       renderDialog();
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
 
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
       await waitFor(() =>
         expect(screen.getByRole("heading", { level: 2, name: "Deploy" })).toHaveFocus(),
+      );
+    });
+
+    it("follows the profile's visibility overrides on the Settings and Advanced steps", async () => {
+      const user = setupUser();
+      const overridden = clone(ModelSchema, multiParameterModel);
+      overridden.profiles[0].engineParameterVisibilityOverrides = [
+        { parameterId: "total-context", visibility: ParameterVisibility.HIDDEN },
+        { parameterId: "parallel-requests", visibility: ParameterVisibility.ADVANCED },
+        { parameterId: "enable-prefix-caching", visibility: ParameterVisibility.HIDDEN },
+      ] as ParameterVisibilityOverride[];
+      renderDialog({ engineReleases: multiParameterReleases, model: overridden });
+
+      await screen.findByText("Step 1 of 3 — Profile");
+      await enableAdvanced(user);
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
+      expect(screen.getByText("This profile sets its context itself.")).toBeVisible();
+      expect(screen.queryByText("Total context")).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+      expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("4");
+      expect(screen.queryByText(/Other parameters/)).not.toBeInTheDocument();
+    });
+
+    it("shows parameters a profile makes basic on the Settings step after the context", async () => {
+      const user = setupUser();
+      const onSubmit = vi.fn();
+      const promoted = clone(ModelSchema, multiParameterModel);
+      promoted.profiles[0].engineParameterVisibilityOverrides = [
+        { parameterId: "parallel-requests", visibility: ParameterVisibility.BASIC },
+        { parameterId: "enable-prefix-caching", visibility: ParameterVisibility.BASIC },
+      ] as ParameterVisibilityOverride[];
+      renderDialog({ engineReleases: multiParameterReleases, model: promoted, onSubmit });
+
+      await openSettings(user);
+      const total = screen.getByRole("textbox", { name: /Total context/ });
+      const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
+      const prefixCaching = screen.getByRole("switch", { name: "Prefix caching" });
+      expect(total.compareDocumentPosition(parallel)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(parallel.compareDocumentPosition(prefixCaching)).toBe(
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      );
+      expect(prefixCaching).toHaveAccessibleDescription("Caches reusable prompt prefixes.");
+      await user.clear(parallel);
+      await user.type(parallel, "2");
+      await user.click(prefixCaching);
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
+      expect(summaryRows()).toEqual([
+        ["Target", "node / NVIDIA GeForce RTX 5090"],
+        ["Profile", "NVFP4 text"],
+        ["Context", "32k total · 32k per request"],
+        ["Parallel requests", "2 requests"],
+        ["Prefix caching", "Enabled"],
+      ]);
+
+      // The Advanced step keeps only the advanced parameters, so none of these show there.
+      await enableAdvanced(user);
+      await user.click(stepButton("Advanced"));
+      expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+      expect(screen.queryByRole("textbox", { name: "Parallel requests" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Other parameters/)).not.toBeInTheDocument();
+
+      await goToDeploy(user);
+      await user.click(screen.getByRole("button", { name: "Deploy" }));
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith({
+          configuration: {
+            customArgumentTokens: [],
+            engineParameterValues: {
+              values: [
+                { parameterId: "total-context", value: { case: "unsignedInteger", value: 32768n } },
+                { parameterId: "parallel-requests", value: { case: "unsignedInteger", value: 2n } },
+                create(ParameterValueSchema, {
+                  parameterId: "kv-cache-memory-bytes",
+                  value: { case: "unsignedInteger", value: 7400000000n },
+                }),
+                { parameterId: "enable-prefix-caching", value: { case: "boolean", value: true } },
+              ],
+            },
+            modelArtifactBindingId: "nvfp4-binding",
+            optionOverrides: [],
+          },
+          exposure: { kind: { case: "direct", value: { routeName: "wide-model" } } },
+          name: "Wide Model",
+          profileId: "text",
+          placement: create(ExactPlacementSchema, poolPlacement),
+        }),
       );
     });
 
@@ -250,7 +343,7 @@ describe("ModelDeployDialog", () => {
         onSubmit,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
       await user.clear(parallel);
       await user.type(parallel, "0");
@@ -262,7 +355,7 @@ describe("ModelDeployDialog", () => {
       );
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
-      expect(await screen.findByText("Step 4 of 5 — Runtime")).toBeVisible();
+      expect(await screen.findByText("Step 4 of 5 — Advanced")).toBeVisible();
       expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
       const revealed = screen.getByRole("textbox", { name: "Parallel requests" });
       await waitFor(() => expect(revealed).toHaveFocus());
@@ -279,7 +372,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog();
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
 
       expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Test Model");
@@ -294,7 +387,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog();
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const name = screen.getByRole("textbox", { name: "Deployment name" });
       await user.click(name);
@@ -316,7 +409,7 @@ describe("ModelDeployDialog", () => {
       const onSubmit = vi.fn();
       renderDialog({ onSubmit });
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const name = screen.getByRole("textbox", { name: "Deployment name" });
       await user.clear(name);
@@ -327,11 +420,11 @@ describe("ModelDeployDialog", () => {
       expect(onSubmit).not.toHaveBeenCalled();
     });
 
-    it("lists only customized runtime values", async () => {
+    it("lists each changed parameter and the other customized advanced settings", async () => {
       const user = setupUser();
       renderDialog({ engineReleases: multiParameterReleases, model: multiParameterModel });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await expandSection(user, "Other parameters (1)");
       await user.click(screen.getByRole("switch", { name: "Prefix caching" }));
       await expandSection(user, "Custom arguments and command");
@@ -343,7 +436,8 @@ describe("ModelDeployDialog", () => {
         ["Target", "node / NVIDIA GeForce RTX 5090"],
         ["Profile", "NVFP4 text"],
         ["Context", "32k total · 32k per request"],
-        ["Runtime", "Customized: Prefix caching enabled · 1 custom argument"],
+        ["Prefix caching", "Enabled"],
+        ["Advanced", "Customized: 1 custom argument"],
       ]);
     });
 
@@ -355,7 +449,7 @@ describe("ModelDeployDialog", () => {
         model: runtimeSchemaModel,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
       await user.clear(parallel);
       await user.type(parallel, "2");
@@ -371,9 +465,9 @@ describe("ModelDeployDialog", () => {
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(summaryRows().find(([label]) => label === "Runtime")).toEqual([
-        "Runtime",
-        "Customized: Parallel requests 2 requests",
+      expect(summaryRows().find(([label]) => label === "Parallel requests")).toEqual([
+        "Parallel requests",
+        "2 requests",
       ]);
     });
 
@@ -383,7 +477,7 @@ describe("ModelDeployDialog", () => {
 
       await screen.findByText("Step 1 of 3 — Profile");
       expect(screen.queryByText(profileResetHint)).not.toBeInTheDocument();
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await expandSection(user, "Engine and artifact");
       await user.click(screen.getByRole("combobox", { name: "Model artifact" }));
       await user.click((await screen.findAllByText("Large context"))[0]);
@@ -629,7 +723,7 @@ describe("ModelDeployDialog", () => {
 
       await screen.findByRole("button", { name: "Runs on filter: this site" });
       expect(screen.getByRole("radio", { name: "Large context" })).toBeChecked();
-      expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Settings", "3. Deploy"]);
 
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -720,7 +814,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("button", { name: "Runs on filter: Worker" })).toBeVisible();
       expect(profileRows()).toEqual(["Fast start"]);
       expect(screen.getByRole("radio", { name: "Fast start" })).toBeChecked();
-      expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Settings", "3. Deploy"]);
 
       await user.click(screen.getByRole("button", { name: "Next" }));
       await user.click(screen.getByRole("button", { name: "Next" }));
@@ -768,7 +862,7 @@ describe("ModelDeployDialog", () => {
         ),
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await user.click(screen.getByRole("button", { name: "Back" }));
       await user.click(screen.getByRole("button", { name: "Back" }));
       await user.click(screen.getByRole("combobox", { name: "Execution target" }));
@@ -807,7 +901,7 @@ describe("ModelDeployDialog", () => {
         listProfileCompatibility: loader,
       });
       await settle();
-      expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Settings", "3. Deploy"]);
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
@@ -816,12 +910,12 @@ describe("ModelDeployDialog", () => {
         await vi.advanceTimersByTimeAsync(productionTiming.profileCompatibilityRefreshMs);
       });
       expect(loader).toHaveBeenCalledTimes(2);
-      expect(stepLabels()).toEqual(["1. Profile", "2. Context", "3. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Settings", "3. Deploy"]);
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
 
       fireEvent.click(screen.getByRole("button", { name: "Back" }));
       fireEvent.click(screen.getByRole("button", { name: "Back" }));
-      expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Context", "4. Deploy"]);
+      expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Settings", "4. Deploy"]);
     });
 
     it("blocks a profile that runs only on machines that can't deploy right now", async () => {
@@ -1138,7 +1232,7 @@ describe("ModelDeployDialog", () => {
       });
 
       await waitFor(() =>
-        expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Context", "4. Deploy"]),
+        expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Settings", "4. Deploy"]),
       );
       await user.click(screen.getByRole("button", { name: "Next" }));
       const picker = screen.getByRole("combobox", { name: "Execution target" });
@@ -1258,11 +1352,17 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
       expect(screen.getByRole("combobox", { name: "Execution target" })).toBeDisabled();
       expect(screen.queryByText("Loading configured execution targets…")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).not.toHaveAccessibleDescription();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(productionTiming.loadingRevealMs);
       });
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).toHaveAccessibleDescription("Loading configured execution targets…");
 
       await act(async () => {
         resolvePools({ executionTargets: [poolTarget(), workerTarget()] });
@@ -1270,6 +1370,9 @@ describe("ModelDeployDialog", () => {
       });
       expect(screen.getByRole("combobox", { name: "Execution target" })).toBeEnabled();
       expect(screen.getByText("Loading configured execution targets…")).toBeVisible();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).toHaveAccessibleDescription("Loading configured execution targets…");
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(productionTiming.loadingMinimumVisibleMs);
@@ -1314,6 +1417,9 @@ describe("ModelDeployDialog", () => {
       expect(
         screen.getByText("Configured targets are visible, but none are deployable."),
       ).toBeVisible();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).toHaveAccessibleDescription("Configured targets are visible, but none are deployable.");
 
       await act(async () => {
         await watch.tick();
@@ -1321,6 +1427,9 @@ describe("ModelDeployDialog", () => {
       expect(
         screen.queryByText("Configured targets are visible, but none are deployable."),
       ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("combobox", { name: "Execution target" }),
+      ).not.toHaveAccessibleDescription();
       // The operator never chose, so the default target comes back with its availability.
       expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
         "node / NVIDIA GeForce RTX 5090",
@@ -1483,13 +1592,13 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog({ existingRouteNames: ["test-model"] });
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const route = screen.getByRole("textbox", { name: "Route name" });
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
       expect(route).toHaveAttribute("aria-invalid", "true");
       expect(route).toHaveAccessibleDescription(
-        'An inference route named "test-model" already exists. Change the route or the deployment name.',
+        'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "test-model" already exists. Change the route or the deployment name.',
       );
 
       await user.type(screen.getByRole("textbox", { name: "Deployment name" }), " 2");
@@ -1501,7 +1610,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog({ existingRouteNames: ["test-model"] });
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const route = screen.getByRole("textbox", { name: "Route name" });
       await user.clear(route);
@@ -1515,25 +1624,27 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog({ existingRouteNames: ["taken"] });
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const route = screen.getByRole("textbox", { name: "Route name" });
       await user.clear(route);
       await user.type(route, "taken");
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
-      expect(route).toHaveAccessibleDescription('An inference route named "taken" already exists.');
+      expect(route).toHaveAccessibleDescription(
+        'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "taken" already exists.',
+      );
     });
 
     it("shows a backend route conflict on the route field until the route changes", async () => {
       const user = setupUser();
       renderDialog({ routeConflict: { routeName: "test-model" } });
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const route = screen.getByRole("textbox", { name: "Route name" });
       expect(screen.getByRole("button", { name: "Deploy" })).toBeDisabled();
       expect(route).toHaveAccessibleDescription(
-        'An inference route named "test-model" already exists. Change the route or the deployment name.',
+        'The model name callers send in requests. It follows the deployment name until you change it. An inference route named "test-model" already exists. Change the route or the deployment name.',
       );
 
       await user.clear(route);
@@ -1580,7 +1691,7 @@ describe("ModelDeployDialog", () => {
     async function openDeploy(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {
       const user = setupUser();
       renderDialog(props);
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
       return user;
@@ -1608,16 +1719,18 @@ describe("ModelDeployDialog", () => {
       expect(route).toBeDisabled();
       expect(screen.queryByRole("button", { name: "Follow the deployment name" })).toBeNull();
       expect(route).toHaveAccessibleDescription(
-        "Hidden: no route of its own. Reachable only through other routes.",
+        "The model name callers send in requests. It follows the deployment name until you change it. Hidden: no route of its own. Reachable only through other routes.",
       );
 
       await user.click(screen.getByRole("radio", { name: "Direct" }));
       expect(screen.queryByRole("radio", { name: "Hidden" })).not.toBeInTheDocument();
-      expect(route).not.toHaveAccessibleDescription();
       expect(route).toBeEnabled();
       expect(screen.getByRole("button", { name: "Follow the deployment name" })).toHaveAttribute(
         "aria-pressed",
         "true",
+      );
+      expect(route).toHaveAccessibleDescription(
+        "The model name callers send in requests. It follows the deployment name until you change it.",
       );
     });
 
@@ -1697,7 +1810,7 @@ describe("ModelDeployDialog", () => {
       await user.tab();
       expect(route).toHaveAttribute("aria-invalid", "true");
       expect(route).toHaveAccessibleDescription(
-        "Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods.",
+        "The model name callers send in requests. It follows the deployment name until you change it. Route name must start with a letter and contain only lowercase letters, numbers, hyphens, and periods.",
       );
     });
 
@@ -1768,7 +1881,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog({ onSubmit });
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const name = screen.getByRole("textbox", { name: "Deployment name" });
       await user.clear(name);
@@ -1786,7 +1899,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog();
 
-      await openContext(user);
+      await openSettings(user);
       await user.click(screen.getByRole("button", { name: "Next" }));
       const name = screen.getByRole("textbox", { name: "Deployment name" });
       await user.clear(name);
@@ -1863,9 +1976,9 @@ describe("ModelDeployDialog", () => {
       });
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await user.click(screen.getByRole("button", { name: "Back" }));
-      // The hidden parallel requests stay off the Context step.
+      // The hidden parallel requests stay off the Settings step.
       expect(screen.queryByRole("textbox", { name: /Parallel requests/ })).not.toBeInTheDocument();
       const context = screen.getByRole("textbox", { name: /Total context/ });
       await user.clear(context);
@@ -1875,8 +1988,7 @@ describe("ModelDeployDialog", () => {
       await expandSection(user, "Other parameters (1)");
       const prefixCaching = screen.getByRole("switch", { name: "Prefix caching" });
       expect(prefixCaching).not.toBeChecked();
-      // The schema description documents the engine and stays out of the field.
-      expect(prefixCaching).not.toHaveAccessibleDescription();
+      expect(prefixCaching).toHaveAccessibleDescription("Caches reusable prompt prefixes.");
       await user.click(prefixCaching);
 
       const expectedConfiguration = {
@@ -1884,11 +1996,11 @@ describe("ModelDeployDialog", () => {
         engineParameterValues: {
           values: [
             { parameterId: "total-context", value: { case: "unsignedInteger", value: 65536n } },
-            create(EngineParameterValueSchema, {
+            create(ParameterValueSchema, {
               parameterId: "parallel-requests",
               value: { case: "unsignedInteger", value: 4n },
             }),
-            create(EngineParameterValueSchema, {
+            create(ParameterValueSchema, {
               parameterId: "kv-cache-memory-bytes",
               value: { case: "unsignedInteger", value: 7400000000n },
             }),
@@ -1943,7 +2055,7 @@ describe("ModelDeployDialog", () => {
       });
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
 
       // The KV offload field surfaces the schema label and the profile default (16 GiB).
       const kvOffload = within(screen.getByRole("region", { name: "Host memory" })).getByRole(
@@ -1985,7 +2097,7 @@ describe("ModelDeployDialog", () => {
       await waitFor(() => expect(onPreview).toHaveBeenCalledOnce());
       await user.click(screen.getByRole("button", { name: "Close command preview" }));
       await goToDeploy(user);
-      expect(summaryRows()[3]).toEqual(["Runtime", "Customized: KV offloading size 32 GiB"]);
+      expect(summaryRows()[3]).toEqual(["KV offloading size", "32 GiB"]);
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
       const expectedRequest = {
@@ -2018,7 +2130,7 @@ describe("ModelDeployDialog", () => {
       const onSubmit = vi.fn();
       renderDialog({ onPreview, onSubmit });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(screen.queryByText(/Expert use/)).not.toBeInTheDocument();
       await expandSection(user, "Custom arguments and command");
       await user.click(screen.getByRole("button", { name: "Add token" }));
@@ -2078,7 +2190,7 @@ describe("ModelDeployDialog", () => {
       expect(onPreview).toHaveBeenCalledWith(customValues);
       await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(customValues));
 
-      await user.click(stepButton("Runtime"));
+      await user.click(stepButton("Advanced"));
       await expandSection(user, "Custom arguments and command");
       await user.click(screen.getByRole("button", { name: "Remove custom token 1" }));
       expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("  spaced  ");
@@ -2089,7 +2201,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog();
 
-      await openContext(user);
+      await openSettings(user);
       const context = screen.getByRole("textbox", { name: /Total context/ });
       await user.click(context);
       await user.tab();
@@ -2106,11 +2218,11 @@ describe("ModelDeployDialog", () => {
       ).toBeVisible();
     });
 
-    it("holds an invalid context on the Context step with its exact range", async () => {
+    it("holds an invalid context on the Settings step with its exact range", async () => {
       const user = setupUser();
       renderDialog();
 
-      await openContext(user);
+      await openSettings(user);
       const context = screen.getByRole("textbox", { name: /Total context/ });
       await user.clear(context);
       await user.type(context, "12");
@@ -2121,11 +2233,11 @@ describe("ModelDeployDialog", () => {
       ).toBeVisible();
       expect(context).toHaveAttribute("aria-invalid", "true");
       expect(context).toHaveAccessibleDescription(
-        "Memory the model holds for all requests at once. Total context must be an integer from 1024 to 32768 tokens.",
+        "Total context must be an integer from 1024 to 32768 tokens.",
       );
 
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+      expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
       expect(context).toHaveFocus();
     });
   });
@@ -2143,7 +2255,7 @@ describe("ModelDeployDialog", () => {
       renderDialog({ onEstimate, deployments: [] });
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openContext(user);
+      await openSettings(user);
       expect(onEstimate).toHaveBeenLastCalledWith(estimateRequest("default", "q4-binding", 8192n));
 
       await user.clear(screen.getByRole("textbox", { name: /Total context/ }));
@@ -2180,7 +2292,7 @@ describe("ModelDeployDialog", () => {
       renderDialog({ onEstimate, deployments: [] });
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await expandSection(user, "Engine and artifact");
       await user.click(screen.getByRole("combobox", { name: "Model artifact" }));
       await user.click((await screen.findAllByText("Large context"))[0]);
@@ -2227,7 +2339,7 @@ describe("ModelDeployDialog", () => {
       render(<StrictMode>{dialog({ onEstimate, deployments: [] })}</StrictMode>);
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(
         await within(screen.getByRole("region", { name: "Predicted memory" })).findByRole(
           "button",
@@ -2247,7 +2359,7 @@ describe("ModelDeployDialog", () => {
       renderDialog({ onEstimate, deployments: [] });
 
       await waitFor(() => expect(onEstimate).toHaveBeenCalledOnce());
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(
         await within(screen.getByRole("region", { name: "Predicted memory" })).findByRole(
           "button",
@@ -2283,7 +2395,7 @@ describe("ModelDeployDialog", () => {
         deployments: [],
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(
         await within(screen.getByRole("region", { name: "Predicted memory" })).findByText(
           "Estimate unavailable.",
@@ -2307,7 +2419,7 @@ describe("ModelDeployDialog", () => {
         onPreviewMemory,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(await screen.findByText(unifiedKvOffloadWarning)).toBeVisible();
       expect(onPreviewMemory).toHaveBeenLastCalledWith({
         ...estimateRequest("default", "q4-binding", 8192n),
@@ -2332,7 +2444,7 @@ describe("ModelDeployDialog", () => {
         onPreviewMemory,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await goToDeploy(user);
       expect(
         await screen.findByText(
@@ -2357,7 +2469,7 @@ describe("ModelDeployDialog", () => {
         onPreviewMemory,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await waitFor(() => expect(onPreviewMemory).toHaveBeenCalled());
       expect(screen.queryByText(unifiedKvOffloadWarning)).not.toBeInTheDocument();
     });
@@ -2376,7 +2488,7 @@ describe("ModelDeployDialog", () => {
         });
       renderDialog({ onPreviewMemory });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       expect(await screen.findByText(unifiedKvOffloadWarning)).toBeVisible();
 
       await user.click(screen.getByRole("button", { name: "Back" }));
@@ -2404,7 +2516,7 @@ describe("ModelDeployDialog", () => {
         onPreviewMemory,
       });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await waitFor(() => expect(onPreviewMemory).toHaveBeenCalled());
       expect(screen.queryByText(unifiedKvOffloadWarning)).not.toBeInTheDocument();
       // Background failures stay quiet; the explicit command preview reports them.
@@ -2425,7 +2537,7 @@ describe("ModelDeployDialog", () => {
           }),
       );
       renderDialog({ onPreview });
-      await openAdvancedRuntimeWithFakeTimers();
+      await openAdvancedStepWithFakeTimers();
       fireEvent.click(screen.getByRole("button", { name: "Custom arguments and command" }));
 
       fireEvent.click(screen.getByRole("button", { name: "Preview resolved command" }));
@@ -2466,7 +2578,7 @@ describe("ModelDeployDialog", () => {
         .mockResolvedValueOnce(snapshot);
       renderDialog({ onPreview });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await expandSection(user, "Custom arguments and command");
       await user.click(screen.getByRole("button", { name: "Preview resolved command" }));
       const previewDialog = screen.getByRole("dialog", { name: "Command preview" });
@@ -2494,7 +2606,7 @@ describe("ModelDeployDialog", () => {
       );
       renderDialog({ onPreview });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await expandSection(user, "Custom arguments and command");
       await user.click(screen.getByRole("button", { name: "Preview resolved command" }));
       expect(onPreview).toHaveBeenCalledOnce();
@@ -2517,7 +2629,7 @@ describe("ModelDeployDialog", () => {
       const user = setupUser();
       renderDialog({ onPreview: vi.fn().mockResolvedValue(snapshot) });
 
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await expandSection(user, "Custom arguments and command");
       const previewButton = screen.getByRole("button", { name: "Preview resolved command" });
       await user.click(previewButton);
@@ -2733,7 +2845,9 @@ describe("ModelDeployDialog", () => {
       ).toEqual(["fit"]);
 
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Up to 16k on node / NVIDIA GeForce RTX 5090")).toBeVisible();
+      expect(await readFieldHelpFacts("Total context")).toContain(
+        "Up to 16k on node / NVIDIA GeForce RTX 5090",
+      );
       expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16384");
       expect(screen.queryByRole("note")).not.toBeInTheDocument();
 
@@ -2879,7 +2993,7 @@ describe("ModelDeployDialog", () => {
       const body = within(modal).getByTestId("deployment-dialog-body");
       await screen.findByText("Step 1 of 3 — Profile");
       expect(within(body).getByRole("table", { name: "Model profiles" })).toBeVisible();
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       const form = within(body).getByTestId("deployment-form");
       const footer = within(modal).getByTestId("deployment-dialog-footer");
 
@@ -2928,7 +3042,7 @@ describe("ModelDeployDialog", () => {
             }),
         ),
       });
-      await openAdvancedRuntime(user);
+      await openAdvancedStep(user);
       await expandSection(user, "Engine and artifact");
       const engine = () =>
         detailRows(screen.getByText("Configuration").closest("dl")!).find(
@@ -3099,30 +3213,30 @@ async function enableAdvanced(user: UserEvent) {
   await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
 }
 
-/** Expands one collapsed Runtime section, such as "Custom arguments and command". */
+/** Expands one collapsed Advanced section, such as "Custom arguments and command". */
 async function expandSection(user: UserEvent, name: string) {
   await user.click(screen.getByRole("button", { name, expanded: false }));
 }
 
-/** Moves from the Profile step to the basic Context step. */
-async function openContext(user: UserEvent) {
+/** Moves from the Profile step to the basic Settings step. */
+async function openSettings(user: UserEvent) {
   await screen.findByText("Step 1 of 3 — Profile");
   await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 2 of 3 — Context")).toBeVisible();
+  expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
 }
 
-async function openAdvancedRuntime(user: UserEvent) {
+async function openAdvancedStep(user: UserEvent) {
   await screen.findByText("Step 1 of 3 — Profile");
   await enableAdvanced(user);
   await user.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+  expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+  expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
 }
 
-async function openAdvancedRuntimeWithFakeTimers() {
+async function openAdvancedStepWithFakeTimers() {
   await act(async () => {
     await Promise.resolve();
   });
@@ -3131,9 +3245,9 @@ async function openAdvancedRuntimeWithFakeTimers() {
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
   expect(screen.getByText("Step 2 of 5 — Target")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 3 of 5 — Context")).toBeVisible();
+  expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "Next" }));
-  expect(screen.getByText("Step 4 of 5 — Runtime")).toBeVisible();
+  expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
 }
 
 async function goToDeploy(user: UserEvent) {

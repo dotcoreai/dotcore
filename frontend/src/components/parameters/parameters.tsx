@@ -1,9 +1,10 @@
 import type { RefObject } from "react";
 
 import { Detail } from "@/components/ui/detail-list";
-import { FieldError } from "@/components/ui/field-error";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { SecretValue } from "@/components/ui/secret-value";
 import { Switch } from "@/components/ui/switch";
 
 import {
@@ -37,105 +38,127 @@ export function ParametersForm({
   parameters,
 }: ParametersFormProps) {
   return parameters.map((parameter) => {
-    const error = errors.get(parameter.id);
     const controlId = `${idPrefix}-${parameter.id}`;
-    const hintId = `${controlId}-description`;
-    const errorId = `${controlId}-error`;
-    const unitId = `${controlId}-unit`;
     const unit = parameter.type.kind === "unsignedInteger" ? parameter.type.unit : "";
-    const describedBy =
-      [parameter.hint ? hintId : "", unit ? unitId : "", error ? errorId : ""]
-        .filter(Boolean)
-        .join(" ") || undefined;
+    const field = {
+      controlId,
+      error: errors.get(parameter.id),
+      help: parameter.description || undefined,
+      label: parameter.label,
+    };
     const register = (control: HTMLElement | null) => {
       inputRefs.current.set(parameter.id, control);
     };
-    const hint = parameter.hint ? (
-      <span className="text-xs text-muted-foreground" id={hintId}>
-        {parameter.hint}
-      </span>
-    ) : null;
-    const fieldError = error ? <FieldError id={errorId}>{error}</FieldError> : null;
 
     if (parameter.type.kind === "boolean") {
       return (
-        <div className="grid gap-1" key={parameter.id}>
-          <div className="flex items-center justify-between gap-3">
-            <label htmlFor={controlId}>{parameter.label}</label>
+        <Field {...field} key={parameter.id} layout="inline">
+          {(control) => (
             <Switch
-              aria-describedby={describedBy}
-              aria-invalid={error ? "true" : undefined}
+              {...control}
               checked={inputs.get(parameter.id) === "true"}
-              id={controlId}
               onBlur={() => onBlur(parameter.id)}
               onCheckedChange={(checked) => onChange(parameter.id, String(checked))}
               ref={register}
             />
-          </div>
-          {hint}
-          {fieldError}
-        </div>
+          )}
+        </Field>
       );
     }
 
     if (parameter.type.kind === "stringEnum") {
+      const { values } = parameter.type;
       return (
-        <div className="grid gap-1" key={parameter.id}>
-          <label htmlFor={controlId}>{parameter.label}</label>
-          <NativeSelect
-            aria-describedby={describedBy}
-            aria-invalid={error ? "true" : undefined}
-            id={controlId}
-            onBlur={() => onBlur(parameter.id)}
-            onChange={(event) => onChange(parameter.id, event.target.value)}
-            ref={register}
-            value={inputs.get(parameter.id) ?? ""}
-          >
-            {parameter.type.values.map((value) => (
-              <NativeSelectOption key={value} value={value}>
-                {value}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          {hint}
-          {fieldError}
-        </div>
+        <Field {...field} key={parameter.id}>
+          {(control) => (
+            <NativeSelect
+              {...control}
+              onBlur={() => onBlur(parameter.id)}
+              onChange={(event) => onChange(parameter.id, event.target.value)}
+              ref={register}
+              value={inputs.get(parameter.id) ?? ""}
+            >
+              {values.map((value) => (
+                <NativeSelectOption key={value} value={value}>
+                  {value}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          )}
+        </Field>
       );
     }
 
-    const input = (
-      <Input
-        aria-describedby={describedBy}
-        aria-invalid={error ? "true" : undefined}
-        id={controlId}
-        inputMode="numeric"
-        onBlur={() => onBlur(parameter.id)}
-        onChange={(event) => onChange(parameter.id, event.target.value)}
-        ref={register}
-        value={inputs.get(parameter.id) ?? ""}
-      />
-    );
     return (
-      <div className="grid gap-1" key={parameter.id}>
-        <label htmlFor={controlId}>{parameter.label}</label>
-        {unit ? (
-          <div className="flex items-center gap-2">
-            {input}
-            <span className="shrink-0 text-sm text-muted-foreground" id={unitId}>
-              {unit}
-            </span>
-          </div>
-        ) : (
-          input
-        )}
-        {hint}
-        {fieldError}
-      </div>
+      <Field
+        {...field}
+        facts={
+          parameter.type.kind === "unsignedInteger" ? (
+            <RangeFact type={parameter.type} />
+          ) : parameter.type.kind === "text" || parameter.type.kind === "secret" ? (
+            <LengthFact type={parameter.type} />
+          ) : null
+        }
+        key={parameter.id}
+      >
+        {(control) => {
+          const input = (
+            <Input
+              {...control}
+              autoComplete="off"
+              inputMode={parameter.type.kind === "unsignedInteger" ? "numeric" : undefined}
+              className={
+                parameter.type.kind === "secret"
+                  ? "placeholder:text-muted-foreground placeholder:italic"
+                  : undefined
+              }
+              placeholder={parameter.type.kind === "secret" ? "Generated at deploy" : undefined}
+              spellCheck={false}
+              onBlur={() => onBlur(parameter.id)}
+              onChange={(event) => onChange(parameter.id, event.target.value)}
+              ref={register}
+              value={inputs.get(parameter.id) ?? ""}
+            />
+          );
+          return unit ? (
+            <div className="flex items-center gap-2">
+              {input}
+              <span className="shrink-0 text-sm text-muted-foreground">{unit}</span>
+            </div>
+          ) : (
+            input
+          );
+        }}
+      </Field>
     );
   });
 }
 
-/** Detail rows for retained parameter values, in view order; a missing or mistyped value is skipped. */
+/** The accepted length of a text or secret parameter. */
+function LengthFact({ type }: { type: { maximumLength?: number; minimumLength: number } }) {
+  return (
+    <p>
+      {type.maximumLength === undefined
+        ? `At least ${type.minimumLength} characters`
+        : `${type.minimumLength}–${type.maximumLength} characters`}
+    </p>
+  );
+}
+
+/** The accepted range of a number parameter, with its unit when it has one. */
+function RangeFact({ type }: { type: { maximum: bigint; minimum: bigint; unit: string } }) {
+  return (
+    <p>
+      Range {`${type.minimum}–${type.maximum}`}
+      {type.unit ? ` ${type.unit}` : ""}
+    </p>
+  );
+}
+
+/**
+ * Detail rows for retained parameter values, in view order; a missing or mistyped value is skipped.
+ * A secret is masked until revealed and empty text reads as Empty.
+ */
 export function ParametersDetails({
   parameters,
   values,
@@ -144,9 +167,31 @@ export function ParametersDetails({
   values: ReadonlyMap<string, ParameterViewValue>;
 }) {
   return parameters.map((parameter) => {
-    const displayValue = parameterDisplayValue(parameter, values.get(parameter.id));
-    return displayValue === undefined ? null : (
-      <Detail key={parameter.id} label={parameter.label} value={displayValue} />
+    const value = values.get(parameter.id);
+    const displayValue = parameterDisplayValue(parameter, value);
+    if (displayValue === undefined) return null;
+
+    if (parameter.type.kind === "secret") {
+      return (
+        <Detail
+          key={parameter.id}
+          label={parameter.label}
+          value={<SecretValue label={parameter.label} value={displayValue} />}
+        />
+      );
+    }
+    return (
+      <Detail
+        key={parameter.id}
+        label={parameter.label}
+        value={
+          parameter.type.kind === "text" && displayValue === "" ? (
+            <span className="text-muted-foreground">Empty</span>
+          ) : (
+            displayValue
+          )
+        }
+      />
     );
   });
 }

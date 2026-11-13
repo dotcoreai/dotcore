@@ -16,15 +16,16 @@ compile_error!("Dotcore supports only Linux and macOS targets");
 use std::{collections::BTreeMap, error::Error as StdError, fmt, path::Path};
 
 use dotcore_proto::dotcore::catalog::v1::{
-    Application, EngineArtifact, EngineParameterValues, EngineRelease, HardwareClass,
-    HardwareClassRecommendations, HardwareRequirements, Model, ModelArtifact, ModelArtifactBinding,
-    ModelEngineConfiguration, ModelOptionValues, ModelProfile, UpstreamModelTemplate,
+    Application, EngineArtifact, EngineRelease, HardwareClass, HardwareClassRecommendations,
+    HardwareRequirements, Model, ModelArtifact, ModelArtifactBinding, ModelEngineConfiguration,
+    ModelOptionValues, ModelProfile, ParameterValues, UpstreamModelTemplate,
 };
 #[cfg(test)]
 use dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot;
 
 pub mod options;
 mod selector;
+mod sensitive_names;
 pub mod service;
 pub mod shared_parameters;
 mod sizing;
@@ -35,6 +36,7 @@ pub mod typed_parameters;
 mod validation;
 
 pub use selector::{SelectorRelation, selector_relation};
+pub use sensitive_names::is_sensitive_name;
 pub use sizing::{
     ACCELERATOR_MEMORY_RESOURCE, HOST_MEMORY_RESOURCE, ScalarResourceEstimate, SizingError,
     SizingFitModel,
@@ -44,9 +46,10 @@ use source::{CatalogSourceRecords, CatalogSourceRole, load_catalog_source};
 pub use validation::CatalogDiagnostic;
 pub use validation::EngineDeclarationValidator;
 pub use validation::{
-    overlay_parameter_defaults, valid_configuration_value, valid_environment_variable,
-    valid_pinned_hugging_face_artifact, validate_application_with_policy,
-    validate_parameter_values, validate_supplied_parameter_values,
+    is_secret_parameter, overlay_parameter_defaults, valid_configuration_value,
+    valid_environment_variable, valid_pinned_hugging_face_artifact,
+    validate_application_with_policy, validate_parameter_values,
+    validate_parameter_values_before_secrets, validate_supplied_parameter_values,
     validate_upstream_model_template,
 };
 
@@ -219,7 +222,7 @@ impl Catalog {
         &self,
         model_id: &CatalogModelId,
         profile_id: &str,
-    ) -> Option<(String, EngineParameterValues)> {
+    ) -> Option<(String, ParameterValues)> {
         let (model, profile) = self.selected_model_profile(model_id, profile_id)?;
         let engine_defaults = self
             .engine_defaults
@@ -357,7 +360,7 @@ impl Catalog {
         configuration_id: &str,
         hardware_class_id: &str,
         binding_id: &str,
-        engine_parameter_values: &EngineParameterValues,
+        engine_parameter_values: &ParameterValues,
         option_values: &[ModelOptionValues],
     ) -> Result<Vec<(String, u64)>, SizingError> {
         let key = SizingKey {
@@ -383,7 +386,7 @@ impl Catalog {
         binding_id: &str,
         resolved_model_artifact_id: Option<&str>,
         resolved_auxiliary_artifact_ids: &[String],
-        engine_parameter_values: &EngineParameterValues,
+        engine_parameter_values: &ParameterValues,
         option_values: &[ModelOptionValues],
     ) -> Result<Vec<ScalarResourceEstimate>, SizingError> {
         let key = SizingKey {
@@ -960,9 +963,8 @@ mod tests {
     use dotcore_domain::test_support::oci::ServiceArtifactOci as _;
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            ApplicationDependencyCondition, ApplicationServiceDependency, EngineParameterValue,
-            EngineParameterValues, EngineRelease, UpstreamWireProtocol, UseCase,
-            engine_parameter_value::Value as ParameterValue,
+            ApplicationDependencyCondition, ApplicationServiceDependency, EngineRelease,
+            ParameterValue, ParameterValues, UpstreamWireProtocol, UseCase, parameter_value::Value,
         },
         engine::v1::EngineKind,
         model::v1::ResolvedLocalModelDeploymentSnapshot,
@@ -1089,18 +1091,19 @@ parameterSchema:
   parameters:
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
     - parameterId: "cache-mib"
       displayName: "Cache"
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: {{ minimum: "0", maximum: "{cache_maximum}", unit: "MiB" }}
 artifacts:
   - artifactId: "linux-amd64"
@@ -1375,10 +1378,10 @@ artifacts:
             "Catalog sizing evaluation: resolved local selection does not match sizing binding"
         );
 
-        let expanded = EngineParameterValues {
-            values: vec![EngineParameterValue {
+        let expanded = ParameterValues {
+            values: vec![ParameterValue {
                 parameter_id: "total-context".to_owned(),
-                value: Some(ParameterValue::UnsignedInteger(50_177)),
+                value: Some(Value::UnsignedInteger(50_177)),
             }],
         };
         let expanded_local = resolved_fixture_snapshot("sized-weights", "nvidia", expanded);
@@ -1786,12 +1789,63 @@ artifacts:
                     "local",
                     "nvidia",
                     "second",
-                    &EngineParameterValues::default(),
+                    &ParameterValues::default(),
                     &[],
                 )
                 .expect("derivation evaluates"),
             vec![("prompt-cache-memory-mib".to_owned(), 4096)]
         );
+    }
+
+    #[test]
+    fn a_profile_hides_only_parameters_with_a_default_or_a_derivation_on_every_binding() {
+        let hidden = r#"    engineParameterVisibilityOverrides:
+      - { parameterId: "prompt-cache-memory-mib", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
+"#;
+        let load = |case: &str, sizing: &str, binding_sizing: &str, values: &str| {
+            let root = temporary_catalog_root().join(case);
+            create_empty_catalog_source(&root);
+            write_sizing_engine(&root);
+            write_sizing_model_with(&root, sizing, binding_sizing, &format!("{values}{hidden}"));
+            Catalog::load_with_policy(
+                &root,
+                OciArtifactPolicy::Development,
+                &ACCEPT_ENGINE_DECLARATIONS,
+            )
+        };
+
+        let error = load("unset", "", "", "      values: []\n")
+            .expect_err("a hidden parameter without a value must reject")
+            .to_string();
+        assert!(
+            error.contains(
+                "profile \"balanced\" hides engine parameter \"prompt-cache-memory-mib\", which has no default and which sizing does not derive on every binding and hardware class"
+            ),
+            "{error}"
+        );
+        assert!(!error.contains("omits engine parameter"), "{error}");
+
+        load(
+            "defaulted",
+            "",
+            "",
+            &format!("      values:\n{}", SIZING_ENGINE_CACHE_DEFAULT),
+        )
+        .expect("a profile default gives the hidden parameter its value");
+        load(
+            "derived",
+            r#"    sizing:
+      derivedParameters:
+        prompt-cache-memory-mib: "4096"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: "${prompt-cache-memory-mib}"
+"#,
+            UNPARAMETERIZED_BINDING_SIZING,
+            "      values: []\n",
+        )
+        .expect("sizing gives the hidden parameter its value on every binding");
     }
 
     #[test]
@@ -1879,6 +1933,90 @@ artifacts:
             error.contains(
                 "configuration \"local\" sizing derives engine parameter \"parallel-requests\", which its engine release also defaults; drop one of them"
             ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_secret_engine_parameter_needs_no_default_and_takes_no_profile_default_or_sizing() {
+        let load = |sizing: &str, profile_defaults: &str| {
+            let root = temporary_catalog_root();
+            create_empty_catalog_source(&root);
+            write_sizing_engine(&root);
+            let engine_path = root.join("engines/fixture.yaml");
+            let engine = std::fs::read_to_string(&engine_path).expect("sizing engine");
+            std::fs::write(
+                &engine_path,
+                engine.replace(
+                    "artifacts:\n",
+                    "    - parameterId: \"api-key\"\n      displayName: \"API key\"\n      visibility: \"PARAMETER_VISIBILITY_ADVANCED\"\n      secret: { generatedLength: 32, minimumLength: 16 }\nartifacts:\n",
+                ),
+            )
+            .expect("sizing engine with a secret");
+            write_sizing_model_with(
+                &root,
+                sizing,
+                UNPARAMETERIZED_BINDING_SIZING,
+                profile_defaults,
+            );
+            Catalog::load_with_policy(
+                &root,
+                OciArtifactPolicy::Development,
+                &ACCEPT_ENGINE_DECLARATIONS,
+            )
+        };
+        let sizing = |estimate: &str, derived: &str| {
+            format!(
+                "    sizing:\n{derived}      estimates:\n        acceleratorMemory:\n          unit: bytes\n          equation: \"{estimate}\"\n"
+            )
+        };
+        let defaults = format!("      values:\n{SIZING_ENGINE_CACHE_DEFAULT}");
+
+        let catalog = load(&sizing("${total-context}", ""), &defaults).expect("secret engine");
+        assert_eq!(
+            catalog
+                .local_defaults_for(&CatalogModelId("fixture-model".to_owned()), "balanced")
+                .expect("profile defaults")
+                .1,
+            unsigned_values(&[
+                ("prompt-cache-memory-mib", 0),
+                ("total-context", 32_768),
+                ("parallel-requests", 4),
+            ])
+        );
+
+        let error = load(
+            &sizing("${total-context}", ""),
+            &format!(
+                "{defaults}        - parameterId: \"api-key\"\n          string: \"catalog-literal-key\"\n"
+            ),
+        )
+        .expect_err("a profile default on a secret")
+        .to_string();
+        assert!(
+            error.contains(
+                "profile \"balanced\" sets secret engine parameter \"api-key\", which each deployment generates or receives"
+            ),
+            "{error}"
+        );
+        assert!(!error.contains("catalog-literal-key"), "{error}");
+
+        let error = load(&sizing("${total-context} + ${api-key}", ""), &defaults)
+            .expect_err("an estimate reading a secret")
+            .to_string();
+        assert!(error.contains("api-key"), "{error}");
+
+        let error = load(
+            &sizing(
+                "${total-context}",
+                "      derivedParameters:\n        api-key: \"1\"\n",
+            ),
+            &defaults,
+        )
+        .expect_err("a derivation of a secret")
+        .to_string();
+        assert!(
+            error.contains("derived parameter \"api-key\" is not an unsigned engine parameter"),
             "{error}"
         );
     }
@@ -2511,6 +2649,53 @@ useCases:
     }
 
     #[test]
+    fn only_the_master_catalog_rejects_literals_on_sensitive_variables() {
+        let root = temporary_catalog_root();
+        let master = root.join("master");
+        let layer = root.join("layer");
+        create_empty_catalog_source(&master);
+        create_empty_catalog_source(&layer);
+        let mut application = super::test_support::application();
+        let binding =
+            &mut application.graph.as_mut().expect("graph").services[0].configuration_bindings[0];
+        binding.environment_variable = "FIXTURE_TOKEN".to_owned();
+        binding.source = Some(
+            dotcore_proto::dotcore::catalog::v1::application_configuration_binding::Source::LiteralValue(
+                "fixture-literal".to_owned(),
+            ),
+        );
+        write_application(&layer, "layer.yaml", &application);
+
+        let development =
+            Catalog::load_development_sources(&master, &layer, &ACCEPT_ENGINE_DECLARATIONS)
+                .expect("a development catalog may bind a literal to a sensitive variable");
+        let site = Catalog::load_sources_with_policy(
+            &master,
+            &layer,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("a site catalog may bind a literal to a sensitive variable");
+        write_application(&master, "master.yaml", &application);
+        let error = Catalog::load_with_policy(
+            &master,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("the master catalog must not bind a literal to a sensitive variable")
+        .to_string();
+
+        assert_eq!(development.list_application_releases().len(), 1);
+        assert_eq!(site.list_application_releases().len(), 1);
+        assert_eq!(
+            error,
+            "Catalog diagnostics: applications/master.yaml: application \"fixture-application\" service \"web\" configuration binding \"fixture-flag\" sets a catalog value on sensitive variable \"FIXTURE_TOKEN\"; bind a secret parameter instead"
+        );
+        assert!(!error.contains("fixture-literal"));
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
     fn complete_validation_prevents_partial_catalog_publication() {
         let valid = super::test_support::application();
         let mut invalid = valid.clone();
@@ -2575,9 +2760,7 @@ useCases:
             .expect("parameter defaults")
             .values[0]
             .value = Some(
-            dotcore_proto::dotcore::catalog::v1::engine_parameter_value::Value::UnsignedInteger(
-                1_000_000,
-            ),
+            dotcore_proto::dotcore::catalog::v1::parameter_value::Value::UnsignedInteger(1_000_000),
         );
         model.profiles.push(duplicate);
 
@@ -2910,18 +3093,19 @@ parameterSchema:
   parameters:
     - parameterId: "total-context"
       displayName: "Total context"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      exposed: true
+      visibility: "PARAMETER_VISIBILITY_ADVANCED"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
     - parameterId: "cache-mib"
       displayName: "Cache"
+      visibility: "PARAMETER_VISIBILITY_HIDDEN"
       unsignedInteger: {{ minimum: "0", maximum: "{cache_maximum}", unit: "MiB" }}
 artifacts:
   - artifactId: "{id}-artifact"
@@ -3011,13 +3195,13 @@ profiles:
         )
     }
 
-    fn unsigned_values(values: &[(&str, u64)]) -> EngineParameterValues {
-        EngineParameterValues {
+    fn unsigned_values(values: &[(&str, u64)]) -> ParameterValues {
+        ParameterValues {
             values: values
                 .iter()
-                .map(|(parameter_id, value)| EngineParameterValue {
+                .map(|(parameter_id, value)| ParameterValue {
                     parameter_id: (*parameter_id).to_owned(),
-                    value: Some(ParameterValue::UnsignedInteger(*value)),
+                    value: Some(Value::UnsignedInteger(*value)),
                 })
                 .collect(),
         }
@@ -3035,7 +3219,7 @@ profiles:
     fn resolved_fixture_snapshot(
         model_artifact_id: &str,
         hardware_class_id: &str,
-        engine_parameter_values: EngineParameterValues,
+        engine_parameter_values: ParameterValues,
     ) -> ResolvedLocalModelDeploymentSnapshot {
         ResolvedLocalModelDeploymentSnapshot {
             model_id: "fixture-model".to_owned(),

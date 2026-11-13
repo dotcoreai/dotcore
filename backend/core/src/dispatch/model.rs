@@ -21,6 +21,7 @@ use super::{
     Admission, dispatch_admitted,
     registry::{KeyedRegistry, KeyedRegistryError},
 };
+use crate::management_logs::ProtectedLogValues;
 
 /// One observation plus the execution target whose adapter returned it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -205,7 +206,12 @@ impl RuntimeTargetMap {
             });
         if let Err(error) = capability {
             let result = Err(error);
-            record_runtime_result(&span, &result, "create_workload");
+            record_runtime_result(
+                &span,
+                &result,
+                "create_workload",
+                &ProtectedLogValues::default(),
+            );
             return result;
         }
         let _permit = self
@@ -221,11 +227,14 @@ impl RuntimeTargetMap {
         .await
     }
 
+    /// Creates a workload under an admitted lifecycle operation; a failure's log event never
+    /// shows the `protected` values its runtime error may quote.
     pub(crate) async fn create_workload_admitted(
         &self,
         token: &LifecycleOperationToken,
         execution_target_id: &str,
         workload: &WorkloadLaunch,
+        protected: &ProtectedLogValues,
     ) -> Result<WorkloadObservation, RuntimeTargetError> {
         let adapter = self.adapter(execution_target_id)?;
         workload
@@ -239,7 +248,7 @@ impl RuntimeTargetMap {
             Admission::Operation(token),
             commit_fencing_error,
             || {
-                dispatch_adapter_action(
+                dispatch_protected_action(
                     execution_target_id,
                     info_span!(
                         "runtime_create_workload",
@@ -251,17 +260,21 @@ impl RuntimeTargetMap {
                     ),
                     "create_workload",
                     adapter.create_workload(workload),
+                    protected,
                 )
             },
         )
         .await
     }
 
+    /// Starts a workload under an admitted lifecycle operation; a failure's log event never
+    /// shows the `protected` values its runtime error may quote.
     pub(crate) async fn start_workload_admitted(
         &self,
         token: &LifecycleOperationToken,
         execution_target_id: &str,
         workload_id: &WorkloadId,
+        protected: &ProtectedLogValues,
     ) -> Result<WorkloadObservation, RuntimeTargetError> {
         let adapter = self.adapter(execution_target_id)?;
         dispatch_admitted(
@@ -269,7 +282,7 @@ impl RuntimeTargetMap {
             Admission::Operation(token),
             commit_fencing_error,
             || {
-                dispatch_adapter_action(
+                dispatch_protected_action(
                     execution_target_id,
                     info_span!(
                         "runtime_start_workload",
@@ -280,6 +293,7 @@ impl RuntimeTargetMap {
                     ),
                     "start_workload",
                     adapter.start_workload(workload_id),
+                    protected,
                 )
             },
         )
@@ -722,6 +736,25 @@ async fn dispatch_adapter_action<T>(
     operation: &'static str,
     action: RuntimeFuture<'_, T>,
 ) -> Result<T, RuntimeTargetError> {
+    dispatch_protected_action(
+        execution_target_id,
+        span,
+        operation,
+        action,
+        &ProtectedLogValues::default(),
+    )
+    .await
+}
+
+/// Runs an adapter action like [`dispatch_adapter_action`], redacting `protected` from the
+/// logged failure.
+async fn dispatch_protected_action<T>(
+    execution_target_id: &str,
+    span: Span,
+    operation: &'static str,
+    action: RuntimeFuture<'_, T>,
+    protected: &ProtectedLogValues,
+) -> Result<T, RuntimeTargetError> {
     let result =
         action
             .instrument(span.clone())
@@ -730,7 +763,7 @@ async fn dispatch_adapter_action<T>(
                 execution_target_id: execution_target_id.into(),
                 source,
             });
-    record_runtime_result(&span, &result, operation);
+    record_runtime_result(&span, &result, operation, protected);
     result
 }
 
@@ -752,6 +785,7 @@ fn record_runtime_result<T>(
     span: &Span,
     result: &Result<T, RuntimeTargetError>,
     operation: &'static str,
+    protected: &ProtectedLogValues,
 ) {
     match result {
         Ok(_) => {
@@ -768,7 +802,7 @@ fn record_runtime_result<T>(
         Err(error) => {
             span.record("outcome", "failed");
             span.record("error_kind", "adapter");
-            error!(parent: span, event_kind = "model_runtime_failure", operation, error_kind = "adapter", error = ?error, "Runtime operation failed");
+            error!(parent: span, event_kind = "model_runtime_failure", operation, error_kind = "adapter", error = %protected.redact(&format!("{error:?}")), "Runtime operation failed");
         }
     }
 }

@@ -19,12 +19,12 @@ use dotcore_catalog::{
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterValues, EngineRelease, HardwareClass, Model, ModelConfigurationOption,
-        ModelEngineConfiguration, ModelInputModality, ModelParallelShape,
-        SpeculativeDecodingMethod, engine_parameter_definition::ParameterType,
+        EngineRelease, HardwareClass, Model, ModelConfigurationOption, ModelEngineConfiguration,
+        ModelInputModality, ModelParallelShape, ParameterValues, SpeculativeDecodingMethod,
         hugging_face_artifact_source::Content as HuggingFaceContent,
         model_option::Kind as ModelOptionKind,
         model_option_parameter_definition::ParameterType as ModelOptionParameterType,
+        parameter_definition::ParameterType,
     },
     engine::{
         ninfer::v1::{
@@ -52,7 +52,7 @@ const MODEL_FILE_EXTENSION: &str = ".ninfer";
 
 /// Rejects a total context ninfer refuses at startup: above what the parallel requests use at
 /// their full context per request, so part of it could never hold a request.
-pub(crate) fn validate_parameter_values(values: &EngineParameterValues) -> anyhow::Result<()> {
+pub(crate) fn validate_parameter_values(values: &ParameterValues) -> anyhow::Result<()> {
     let (Some(total_context), Some(context_per_request), Some(parallel_requests)) = (
         unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID),
         unsigned_parameter_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID),
@@ -460,9 +460,9 @@ mod tests {
     use dotcore_domain::ExecutionPlatform;
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            BooleanEngineParameterSchema, EngineParameterDefinition, HuggingFaceArtifactSource,
-            HuggingFaceFileArtifact, HuggingFaceSnapshotArtifact, SpeculativeDecodingModelOption,
-            UnsignedIntegerEngineParameterSchema,
+            BooleanParameterSchema, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
+            HuggingFaceSnapshotArtifact, ParameterDefinition, SpeculativeDecodingModelOption,
+            UnsignedIntegerParameterSchema,
         },
         model::v1::{
             LocalModelDeploymentConfiguration, ResolvedLocalModelDeploymentSnapshot,
@@ -506,7 +506,7 @@ mod tests {
             .as_mut()
             .expect("schema")
             .parameters[3]
-            .parameter_type = Some(ParameterType::Boolean(BooleanEngineParameterSchema {}));
+            .parameter_type = Some(ParameterType::Boolean(BooleanParameterSchema::default()));
         assert_eq!(
             messages(validate_engine_release(&boolean)),
             ["ninfer engine release requires non-empty unsigned-integer parameter definitions"]
@@ -578,7 +578,7 @@ mod tests {
             .as_mut()
             .expect("schema")
             .parameters
-            .push(EngineParameterDefinition {
+            .push(ParameterDefinition {
                 parameter_id: "prefill-chunk".to_owned(),
                 parameter_type: Some(unsigned(128, 8192, "tokens")),
                 ..Default::default()
@@ -996,10 +996,10 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-ninfer-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", exposed: true, description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "host-context-mib", displayName: "Host context memory", exposed: true, description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "host-context-mib", displayName: "Host context memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
 artifacts:
   - artifactId: "linux-amd64-cuda"
     oci:
@@ -1153,6 +1153,7 @@ profiles:
             &target,
             &inventory,
             None,
+            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
     }
 
@@ -1192,7 +1193,7 @@ profiles:
     }
 
     fn unsigned(minimum: u64, maximum: u64, unit: &str) -> ParameterType {
-        ParameterType::UnsignedInteger(UnsignedIntegerEngineParameterSchema {
+        ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
             minimum,
             maximum,
             unit: unit.to_owned(),

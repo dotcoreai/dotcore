@@ -7,12 +7,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineParameterSchema, EngineParameterValues, ModelEngineConfiguration,
-    ModelOptionParameterValue, ModelOptionValues,
-    engine_parameter_definition::ParameterType as EngineParameterType,
-    engine_parameter_value::Value as EngineParameterValue,
-    model_option_parameter_definition::ParameterType as OptionParameterType,
+    EngineParameterSchema, ModelEngineConfiguration, ModelOptionParameterValue, ModelOptionValues,
+    ParameterValues, model_option_parameter_definition::ParameterType as OptionParameterType,
     model_option_parameter_value::Value as OptionParameterValue,
+    parameter_definition::ParameterType as EngineParameterType,
+    parameter_value::Value as EngineParameterValueKind,
 };
 use serde::Deserialize;
 
@@ -79,7 +78,7 @@ impl CompiledSizing {
     /// parameter id order. Supplied values always take precedence over a derivation.
     pub(super) fn derive(
         &self,
-        engine_values: &EngineParameterValues,
+        engine_values: &ParameterValues,
         option_values: &[ModelOptionValues],
     ) -> Result<Vec<(String, u64)>, SizingError> {
         let values = self.symbol_values(engine_values, option_values)?;
@@ -114,7 +113,7 @@ impl CompiledSizing {
     /// Evaluates available results in deterministic resource-name order.
     pub(super) fn evaluate(
         &self,
-        engine_values: &EngineParameterValues,
+        engine_values: &ParameterValues,
         option_values: &[ModelOptionValues],
     ) -> Result<Vec<ScalarResourceEstimate>, SizingError> {
         let values = self.symbol_values(engine_values, option_values)?;
@@ -230,7 +229,7 @@ impl CompiledSizing {
 
     fn symbol_values(
         &self,
-        engine_values: &EngineParameterValues,
+        engine_values: &ParameterValues,
         option_values: &[ModelOptionValues],
     ) -> Result<BTreeMap<String, expression::Value>, SizingError> {
         let mut values = self
@@ -534,7 +533,7 @@ impl SizingFitModel {
     /// Evaluates one point's constant and coefficients, or none when the estimate is unavailable.
     pub fn point(
         &self,
-        engine_values: &EngineParameterValues,
+        engine_values: &ParameterValues,
         option_values: &[ModelOptionValues],
         extra_values: &BTreeMap<String, u64>,
     ) -> Result<Option<SizingFitPoint>, SizingError> {
@@ -574,7 +573,7 @@ impl SizingFitModel {
     pub fn predict(
         &self,
         parameters: &BTreeMap<String, u64>,
-        engine_values: &EngineParameterValues,
+        engine_values: &ParameterValues,
         option_values: &[ModelOptionValues],
         extra_values: &BTreeMap<String, u64>,
     ) -> Result<u64, SizingError> {
@@ -588,7 +587,7 @@ impl SizingFitModel {
     /// appear in an allowance, so it needs only the point's values.
     pub fn allowance(
         &self,
-        engine_values: &EngineParameterValues,
+        engine_values: &ParameterValues,
         option_values: &[ModelOptionValues],
         extra_values: &BTreeMap<String, u64>,
     ) -> Result<u64, SizingError> {
@@ -603,7 +602,7 @@ impl SizingFitModel {
 
     fn values(
         &self,
-        engine_values: &EngineParameterValues,
+        engine_values: &ParameterValues,
         option_values: &[ModelOptionValues],
         extra_values: &BTreeMap<String, u64>,
         parameters: Option<&BTreeMap<String, u64>>,
@@ -842,16 +841,17 @@ fn option_symbols(
 
 fn insert_engine_values(
     symbols: &mut BTreeMap<String, expression::Value>,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> Result<(), SizingError> {
     for parameter in &values.values {
         match parameter.value.as_ref() {
-            Some(EngineParameterValue::UnsignedInteger(value)) => insert_value(
+            Some(EngineParameterValueKind::UnsignedInteger(value)) => insert_value(
                 symbols,
                 parameter.parameter_id.clone(),
                 expression::Value::Unsigned(*value),
             )?,
-            Some(EngineParameterValue::Boolean(_)) => {}
+            // Sizing references integers only.
+            Some(EngineParameterValueKind::Boolean(_) | EngineParameterValueKind::String(_)) => {}
             None => {
                 return Err(SizingError::evaluation(format!(
                     "Engine parameter {:?} has no value",
@@ -918,15 +918,15 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use dotcore_proto::dotcore::catalog::v1::{
-        BooleanEngineParameterSchema, BooleanModelOptionParameterSchema, EngineParameterDefinition,
-        EngineParameterSchema, EngineParameterValue, EngineParameterValues,
+        BooleanModelOptionParameterSchema, BooleanParameterSchema, EngineParameterSchema,
         ModelConfigurationOption, ModelEngineConfiguration, ModelOptionParameterDefinition,
-        ModelOptionParameterValue, ModelOptionValues, StringEnumModelOptionParameterSchema,
-        UnsignedIntegerEngineParameterSchema, UnsignedIntegerModelOptionParameterSchema,
-        engine_parameter_definition::ParameterType as EngineParameterType,
-        engine_parameter_value::Value as EngineParameterValueKind,
+        ModelOptionParameterValue, ModelOptionValues, ParameterDefinition, ParameterValue,
+        ParameterValues, ParameterVisibility, StringEnumModelOptionParameterSchema,
+        UnsignedIntegerModelOptionParameterSchema, UnsignedIntegerParameterSchema,
         model_option_parameter_definition::ParameterType as OptionParameterType,
         model_option_parameter_value::Value as OptionParameterValueKind,
+        parameter_definition::ParameterType as EngineParameterType,
+        parameter_value::Value as EngineParameterValueKind,
     };
 
     use super::{EstimateSource, ScalarResourceEstimate, SizingSource, compile};
@@ -934,18 +934,18 @@ mod tests {
     fn schema() -> EngineParameterSchema {
         EngineParameterSchema {
             schema_id: "test-schema".to_owned(),
-            parameters: vec![EngineParameterDefinition {
+            parameters: vec![ParameterDefinition {
                 parameter_id: "total-context".to_owned(),
                 display_name: "Total context".to_owned(),
                 parameter_type: Some(EngineParameterType::UnsignedInteger(
-                    UnsignedIntegerEngineParameterSchema {
+                    UnsignedIntegerParameterSchema {
                         minimum: 1,
                         maximum: 131_072,
                         unit: "tokens".to_owned(),
                         default_value: None,
                     },
                 )),
-                exposed: true,
+                visibility: ParameterVisibility::Basic as i32,
                 description: "Maximum context.".to_owned(),
             }],
         }
@@ -1014,18 +1014,18 @@ mod tests {
         }
     }
 
-    fn engine_values(total_context: u64) -> EngineParameterValues {
-        EngineParameterValues {
-            values: vec![EngineParameterValue {
+    fn engine_values(total_context: u64) -> ParameterValues {
+        ParameterValues {
+            values: vec![ParameterValue {
                 parameter_id: "total-context".to_owned(),
                 value: Some(EngineParameterValueKind::UnsignedInteger(total_context)),
             }],
         }
     }
 
-    fn engine_values_with_boolean(total_context: u64, enabled: bool) -> EngineParameterValues {
+    fn engine_values_with_boolean(total_context: u64, enabled: bool) -> ParameterValues {
         let mut values = engine_values(total_context);
-        values.values.push(EngineParameterValue {
+        values.values.push(ParameterValue {
             parameter_id: "feature-enabled".to_owned(),
             value: Some(EngineParameterValueKind::Boolean(enabled)),
         });
@@ -1574,27 +1574,27 @@ mod tests {
 
     fn derived_schema() -> EngineParameterSchema {
         let mut schema = schema();
-        schema.parameters.push(EngineParameterDefinition {
+        schema.parameters.push(ParameterDefinition {
             parameter_id: "cache-bytes".to_owned(),
             display_name: "Cache bytes".to_owned(),
             parameter_type: Some(EngineParameterType::UnsignedInteger(
-                UnsignedIntegerEngineParameterSchema {
+                UnsignedIntegerParameterSchema {
                     minimum: 1,
                     maximum: u64::MAX,
                     unit: "bytes".to_owned(),
                     default_value: None,
                 },
             )),
-            exposed: false,
+            visibility: ParameterVisibility::Hidden as i32,
             description: "Cache size.".to_owned(),
         });
-        schema.parameters.push(EngineParameterDefinition {
+        schema.parameters.push(ParameterDefinition {
             parameter_id: "feature-enabled".to_owned(),
             display_name: "Feature".to_owned(),
             parameter_type: Some(EngineParameterType::Boolean(
-                BooleanEngineParameterSchema {},
+                BooleanParameterSchema::default(),
             )),
-            exposed: false,
+            visibility: ParameterVisibility::Hidden as i32,
             description: "Feature toggle.".to_owned(),
         });
         schema
@@ -1609,8 +1609,8 @@ mod tests {
         declaration
     }
 
-    fn cache_bytes_value(value: u64) -> EngineParameterValue {
-        EngineParameterValue {
+    fn cache_bytes_value(value: u64) -> ParameterValue {
+        ParameterValue {
             parameter_id: "cache-bytes".to_owned(),
             value: Some(EngineParameterValueKind::UnsignedInteger(value)),
         }

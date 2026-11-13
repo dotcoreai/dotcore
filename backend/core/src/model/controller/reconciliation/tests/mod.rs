@@ -32,8 +32,8 @@ use dotcore_proto::dotcore::{
     site::v1::{ModelRuntimeBinding, execution_target, model_runtime_binding},
 };
 use dotcore_runtime::{
-    LoopbackEndpoint, ObservedWorkload, RuntimeBackend, RuntimeBackendId, RuntimeFuture,
-    WorkloadCorrelation, WorkloadId, WorkloadLaunch, WorkloadObservation,
+    LoopbackEndpoint, ObservedWorkload, RuntimeBackend, RuntimeBackendError, RuntimeBackendId,
+    RuntimeFuture, WorkloadCorrelation, WorkloadId, WorkloadLaunch, WorkloadObservation,
 };
 use dotcore_runtime_backends::simulated::{
     InMemoryRuntimeBackend, SimulatedRuntimeConfig, SimulatedRuntimeTestSupport,
@@ -103,7 +103,11 @@ fn startup_log_protection_selects_sensitive_environment_values() {
         ),
     ]);
     assert_eq!(
-        super::protected_startup_values(&environment).values(),
+        super::protected_startup_values(
+            &test_desired_deployment("fixture-model", ModelDeploymentDesiredState::Present),
+            &environment
+        )
+        .values(),
         &[b"sk-test-private".to_vec()]
     );
 }
@@ -122,7 +126,11 @@ fn startup_log_protection_selects_literal_parts_of_symbolic_sensitive_values() {
         ),
     ]);
     assert_eq!(
-        super::protected_startup_values(&environment).values(),
+        super::protected_startup_values(
+            &test_desired_deployment("fixture-model", ModelDeploymentDesiredState::Present),
+            &environment
+        )
+        .values(),
         &[b"sk-secret@".to_vec()]
     );
 }
@@ -559,7 +567,7 @@ async fn protected_launch_values_never_leave_the_node_in_a_realization_failure()
             WorkloadValue::literal("fixture-model".to_owned()),
         ),
     ]);
-    let protected: ProtectedLogValues = super::protected_startup_values(&environment);
+    let protected: ProtectedLogValues = super::protected_startup_values(&deployment, &environment);
     let error = ModelLifecycleError::configuration(format!(
         "engine rejected HF_TOKEN={SECRET} for fixture-model"
     ));
@@ -2976,6 +2984,320 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
     assert!(resumed_state.failure.is_none());
 }
 
+#[tokio::test]
+async fn a_secret_engine_value_reaches_no_log_failure_text_telemetry_or_command() {
+    use prost::Message as _;
+
+    const SENTINEL: &str = "sentinel-api-key-6f1c2b9d";
+    let contains_sentinel = |bytes: &[u8]| {
+        bytes
+            .windows(SENTINEL.len())
+            .any(|window| window == SENTINEL.as_bytes())
+    };
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let desired = TestDesired::new(calls.clone());
+    let deployment =
+        crate::model::controller::test_support::test_strata_desired_deployment_with_api_key(
+            "model", SENTINEL,
+        );
+    let identity = crate::model::controller::test_support::expected_identity(
+        &test_site(),
+        &deployment,
+        dotcore_runtime_backends::simulated::BACKEND_ID,
+    );
+    desired
+        .state
+        .lock()
+        .expect("desired state")
+        .model_deployments
+        .push(deployment.clone());
+    let current = TestCurrent::new(calls.clone());
+    let mut starting = current_deployment("deployment");
+    starting.state = Some(crate::model::controller::state::realization_prepared_state(
+        None,
+    ));
+    current.upsert(starting, None).expect("current state");
+    // The engine echoes its key on its way out, as a misbehaving engine could.
+    let startup_logs = Arc::new(Mutex::new(StartupLogBehavior::History {
+        expected_workload_id: identity.workload_id.clone(),
+        history: dotcore_runtime::RuntimeLogHistory {
+            entries: vec![dotcore_runtime::RuntimeLogEntry {
+                source: dotcore_runtime::RuntimeLogSource {
+                    name: "model".to_owned(),
+                    label: "Model".to_owned(),
+                },
+                timestamp: std::time::SystemTime::UNIX_EPOCH,
+                stream: dotcore_runtime::RuntimeLogStreamKind::Stderr,
+                content: format!("refusing api key {SENTINEL}").into_bytes(),
+                truncated: false,
+            }],
+            has_older_output: false,
+            candidate_budget_truncated: false,
+        },
+    }));
+    let mut builder = RuntimeTargetMapBuilder::new();
+    builder
+        .insert(
+            "target-one",
+            PausedRuntime {
+                calls: calls.clone(),
+                observations: Arc::new(Mutex::new(vec![vec![WorkloadObservation::Stopped {
+                    workload: identity.clone(),
+                    exit_status: Some(17),
+                }]])),
+                start_observation: Some(WorkloadObservation::Running(identity.clone())),
+                startup_logs,
+                backend_id: RuntimeBackendId(
+                    dotcore_runtime_backends::simulated::BACKEND_ID.to_owned(),
+                ),
+            },
+        )
+        .expect("Runtime adapter");
+    let artifacts = ArtifactManager::from_parts(
+        dotcore_artifact::ModelArtifactCache::new("/test-cache".into()).expect("test cache"),
+        Some(crate::model::controller::test_support::ready_oci_preparer()),
+    );
+    let controller = sweep_controller(
+        &desired,
+        &current,
+        builder.build().expect("Runtime map"),
+        artifacts.clone(),
+    );
+
+    let (reconciliation, records, output) =
+        capture_records_async(|| controller.inner.reconcile()).await;
+    reconciliation.expect("startup reconciliation");
+
+    // Failure text: the recorded failure shows the output with the key redacted.
+    let state = current.snapshot().expect("current state").model_deployments[0]
+        .state
+        .clone()
+        .expect("deployment state");
+    assert_eq!(state.status, ModelDeploymentStatus::Failed as i32);
+    assert_eq!(
+        state.failure.as_ref().expect("startup failure").diagnostics,
+        [
+            "Stage: engine startup",
+            "Exit status: 17",
+            "Output tail: refusing api key [REDACTED]",
+        ]
+    );
+    assert!(
+        !format!("{:?}", current.snapshot().expect("current state")).contains(SENTINEL),
+        "current state"
+    );
+    // Log lines: every event and span of the reconciliation, at every level.
+    assert!(!records.is_empty());
+    assert!(!output.contains(SENTINEL), "{output}");
+    assert!(!format!("{records:?}").contains(SENTINEL), "{records:#?}");
+    // Telemetry record inputs and the launch command, plan and materialized workload alike.
+    let resolved = resolved_launch(&deployment).expect("resolved launch");
+    assert!(!contains_sentinel(
+        &resolved.telemetry_inputs().encode_to_vec()
+    ));
+    assert!(!contains_sentinel(&resolved.plan.encode_to_vec()));
+    let launch = workload_launch(
+        &deployment,
+        selected_target(&test_site(), &deployment).expect("execution target"),
+        &artifacts
+            .expected_model_paths(&resolved.artifacts)
+            .expect("artifact paths"),
+    )
+    .expect("workload launch");
+    for value in launch
+        .spec
+        .arguments
+        .iter()
+        .chain(launch.spec.environment.values())
+    {
+        assert!(!format!("{value:?}").contains(SENTINEL));
+    }
+
+    // Runtime errors quoting the key, transient then definitive, are logged and recorded
+    // redacted.
+    let quoting_errors = Arc::new(Mutex::new(vec![
+        RuntimeBackendError::ImagePlatformMismatch {
+            image: format!("strata --api-key {SENTINEL}"),
+            required: dotcore_domain::ExecutionPlatform::linux_amd64(),
+            observed: dotcore_domain::ExecutionPlatform::linux_arm64(),
+        },
+        RuntimeBackendError::InvalidLaunch(anyhow!("engine refused api key {SENTINEL}")),
+    ]));
+    let current = TestCurrent::new(calls.clone());
+    let mut prepared = current_deployment("deployment");
+    prepared.state = Some(crate::model::controller::state::realization_prepared_state(
+        None,
+    ));
+    current.upsert(prepared, None).expect("current state");
+    let mut builder = RuntimeTargetMapBuilder::new();
+    builder
+        .insert(
+            "target-one",
+            QuotingFailureRuntime {
+                errors: quoting_errors.clone(),
+            },
+        )
+        .expect("Runtime adapter");
+    let controller = sweep_controller(
+        &desired,
+        &current,
+        builder.build().expect("Runtime map"),
+        artifacts,
+    );
+
+    let (transient, transient_records, transient_output) =
+        capture_records_async(|| controller.inner.reconcile()).await;
+    transient.expect("transient failure reconciliation");
+    let (definitive, definitive_records, definitive_output) =
+        capture_records_async(|| controller.inner.reconcile()).await;
+    definitive.expect("definitive failure reconciliation");
+
+    assert!(quoting_errors.lock().expect("errors").is_empty());
+    for (event_kind, records, output) in [
+        (
+            "\"model_realization_retry\"",
+            &transient_records,
+            &transient_output,
+        ),
+        (
+            "\"model_realization_failed\"",
+            &definitive_records,
+            &definitive_output,
+        ),
+    ] {
+        let reason = records
+            .iter()
+            .find_map(|record| match record {
+                Record::Event { fields, .. }
+                    if fields.get("event_kind").map(String::as_str) == Some(event_kind) =>
+                {
+                    fields.get("reason").cloned()
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{event_kind} event: {records:#?}"));
+        assert!(reason.contains("[REDACTED]"), "{reason}");
+        assert!(!output.contains(SENTINEL), "{output}");
+        assert!(!format!("{records:?}").contains(SENTINEL), "{records:#?}");
+    }
+    let failure = current.snapshot().expect("current state").model_deployments[0]
+        .state
+        .clone()
+        .expect("deployment state")
+        .failure
+        .expect("definitive failure");
+    assert!(
+        failure.message.contains("[REDACTED]"),
+        "{}",
+        failure.message
+    );
+    assert!(!format!("{failure:?}").contains(SENTINEL), "{failure:?}");
+}
+
+/// The node realizer of the sentinel sweep over `desired` and `current`, on `runtimes`.
+fn sweep_controller(
+    desired: &TestDesired,
+    current: &TestCurrent,
+    runtimes: crate::dispatch::model::RuntimeTargetMap,
+    artifacts: ArtifactManager,
+) -> super::super::test_support::TestRealizer {
+    let (serving_targets_publisher, serving_targets_source) =
+        crate::model::controller::serving_targets::ServingTargetsPublisher::new();
+    let inner = InferenceControllerInner {
+        workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
+        preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
+            std::path::Path::new("/test-preparation-logs"),
+        ),
+        results: desired.clone(),
+        target_capabilities: crate::model::controller::test_support::test_target_capability_source(
+        ),
+        desired: desired.clone(),
+        state: current.clone(),
+        runtimes,
+        engine_integrations: crate::model::controller::test_support::test_engine_integrations(),
+        operation: Arc::new(AsyncMutex::new(())),
+        reconciliation: AsyncMutex::new(()),
+        preparations: PreparationCoordinator::from_deployments(&[])
+            .expect("preparation coordinator"),
+        observer_started: Mutex::new(false),
+        wakeup: Arc::new(Notify::new()),
+        artifacts,
+        serving_targets_publisher,
+        serving_targets_source,
+        accelerator_attribution: None,
+        shutdown: tokio_util::sync::CancellationToken::new(),
+        timing: Timing::test().model,
+        clock: Arc::new(SystemClock),
+    };
+    manager_test_controller(
+        desired.clone(),
+        super::super::ModelRealizer {
+            inner: Arc::new(inner),
+        },
+    )
+}
+
+/// A runtime with no workloads whose creations fail with the queued errors, last first.
+struct QuotingFailureRuntime {
+    errors: Arc<Mutex<Vec<RuntimeBackendError>>>,
+}
+
+impl RuntimeBackend for QuotingFailureRuntime {
+    fn backend_id(&self) -> RuntimeBackendId {
+        RuntimeBackendId(dotcore_runtime_backends::simulated::BACKEND_ID.to_owned())
+    }
+
+    fn materialization_requirements(&self) -> dotcore_runtime::WorkloadMaterializationRequirements {
+        dotcore_runtime::WorkloadMaterializationRequirements::virtualized()
+    }
+
+    fn discover_workloads<'a>(&'a self) -> RuntimeFuture<'a, Vec<WorkloadObservation>> {
+        Box::pin(ready(Ok(Vec::new())))
+    }
+
+    fn create_workload<'a>(
+        &'a self,
+        _workload: &'a WorkloadLaunch,
+    ) -> RuntimeFuture<'a, WorkloadObservation> {
+        let error = self
+            .errors
+            .lock()
+            .expect("errors")
+            .pop()
+            .unwrap_or_else(test_runtime_error);
+        Box::pin(ready(Err(error)))
+    }
+
+    fn start_workload<'a>(
+        &'a self,
+        _workload_id: &'a WorkloadId,
+    ) -> RuntimeFuture<'a, WorkloadObservation> {
+        Box::pin(ready(Err(test_runtime_error())))
+    }
+
+    fn inspect_workload<'a>(
+        &'a self,
+        _workload_id: &'a WorkloadId,
+    ) -> RuntimeFuture<'a, WorkloadObservation> {
+        Box::pin(ready(Err(test_runtime_error())))
+    }
+
+    fn stop_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
+        Box::pin(ready(Ok(())))
+    }
+
+    fn remove_workload<'a>(&'a self, _workload_id: &'a WorkloadId) -> RuntimeFuture<'a, ()> {
+        Box::pin(ready(Ok(())))
+    }
+
+    fn remove_storage<'a>(
+        &'a self,
+        _: &'a dotcore_runtime::WorkloadStorageKey,
+    ) -> RuntimeFuture<'a, ()> {
+        Box::pin(ready(Ok(())))
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn simulated_download_precedes_runtime_creation_clears_progress_and_skips_oci() {
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -3136,7 +3458,7 @@ async fn simulated_start_without_a_download_passes_the_download_and_engine_steps
 
 #[tokio::test]
 async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_shared_storage() {
-    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
     use dotcore_runtime::{WorkloadStorageKey, WorkloadStorageKind};
 
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -3157,14 +3479,14 @@ async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_sha
         .as_mut()
         .expect("engine artifact")
         .storage_bindings = [
-        ("data", "/data", StorageScope::Deployment),
-        ("compile-cache", "/cache", StorageScope::EngineArtifact),
+        ("data", "/data", StoragePlacement::Deployment),
+        ("compile-cache", "/cache", StoragePlacement::EngineArtifact),
     ]
-    .map(|(binding_name, mount_path, scope)| StorageBinding {
+    .map(|(binding_name, mount_path, placement)| StorageBinding {
         binding_name: binding_name.to_owned(),
         mount_path: mount_path.to_owned(),
         kind: StorageKind::Cache as i32,
-        scope: scope as i32,
+        placements: vec![placement as i32],
         environment: Vec::new(),
     })
     .to_vec();
@@ -3252,7 +3574,7 @@ async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_sha
 
 #[tokio::test]
 async fn teardown_after_a_relaunch_that_failed_before_its_workload_deletes_only_its_own_storage() {
-    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
     use dotcore_runtime::{WorkloadStorageKey, WorkloadStorageKind};
 
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -3276,7 +3598,7 @@ async fn teardown_after_a_relaunch_that_failed_before_its_workload_deletes_only_
         binding_name: "data".to_owned(),
         mount_path: "/data".to_owned(),
         kind: StorageKind::Cache as i32,
-        scope: StorageScope::Deployment as i32,
+        placements: vec![StoragePlacement::Deployment as i32],
         environment: Vec::new(),
     }];
     desired.persist(deployment);

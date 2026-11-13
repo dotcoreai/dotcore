@@ -210,6 +210,7 @@ fn generated_bindings_preserve_application_graph_and_deployment_state() {
                     ),
                 ),
             }),
+            enabled_by_parameter_id: None,
         }
         .source,
         Some(application_configuration_binding::Source::LiteralValue(
@@ -445,6 +446,17 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "resolved_value_name",
             "parameter_id",
             "input",
+            "enabled_by_parameter_id",
+        ]
+    );
+    assert_eq!(
+        field_names(catalog, "ApplicationSecretBinding"),
+        [
+            "binding_name",
+            "environment_variable",
+            "parameter_id",
+            "form",
+            "enabled_by_parameter_id",
         ]
     );
     assert_eq!(
@@ -471,7 +483,20 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "expected_inference_route_generation",
             "application_deployment_name",
             "parameter_values",
+            "storage_choices",
         ]
+    );
+    assert_eq!(
+        field_names(service, "ApplicationStorageChoice"),
+        ["service_name", "binding_name", "placement"]
+    );
+    assert_eq!(
+        field_type_name(service, "ApplicationStorageChoice", "placement"),
+        ".dotcore.catalog.v1.StoragePlacement"
+    );
+    assert_eq!(
+        field_names(deployment, "ApplicationStorageAttachment"),
+        ["service_name", "binding_name", "storage_name", "placement"]
     );
     assert_eq!(
         field_names(deployment, "ApplicationDeploymentDeclaration"),
@@ -483,6 +508,7 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "desired_state",
             "storage_attachments",
             "configuration_attachments",
+            "secret_attachments",
             "inference_route_id",
             "lifecycle_generation",
             "node_resolved_launch_identities",
@@ -579,6 +605,10 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
     assert!(
         !field_names(deployment, "ApplicationDeployment").contains(&"configuration_attachments"),
         "resolved configuration must remain private desired state"
+    );
+    assert!(
+        !field_names(deployment, "ApplicationDeployment").contains(&"secret_attachments"),
+        "secret attachments must remain private desired state"
     );
     assert_eq!(
         field_names(current, "SiteCurrentState"),
