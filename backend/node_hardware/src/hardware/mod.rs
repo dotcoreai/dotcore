@@ -590,11 +590,12 @@ impl HostFactsAdapter for SystemHostFactsAdapter {
             RefreshKind::nothing()
                 .with_cpu(CpuRefreshKind::nothing())
                 .with_memory(MemoryRefreshKind::everything()),
-        );
-        let host_name = System::host_name().ok_or(UnavailableReason::Unsupported)?;
+        )
+        .map_err(|_| UnavailableReason::CollectionFailed)?;
+        let host_name = System::host_name().map_err(|_| UnavailableReason::Unsupported)?;
         let operating_system_or_kernel = System::long_os_version()
-            .or_else(System::kernel_version)
-            .ok_or(UnavailableReason::Unsupported)?;
+            .or_else(|_| System::kernel_version())
+            .map_err(|_| UnavailableReason::Unsupported)?;
         let cpu_count = u32::try_from(system.cpus().len())
             .ok()
             .filter(|count| *count > 0)

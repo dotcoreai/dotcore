@@ -13,7 +13,7 @@ const LOCAL_SUFFIX: &str = ".local";
 
 /// Returns the default SiteNode display name for this machine, when it has a usable hostname.
 pub fn local_node_name() -> Option<String> {
-    node_name_from_hostname(&System::host_name()?)
+    node_name_from_hostname(&System::host_name().ok()?)
 }
 
 /// Normalizes a raw hostname into a SiteNode display name.
