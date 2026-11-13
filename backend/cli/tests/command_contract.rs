@@ -4268,9 +4268,11 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
     );
     assert_eq!(add.finish().status.code(), Some(0));
 
-    // The retired DOTCORE_DEV_HOST name is not read: without a host the manager records the
-    // observed address, the source address the host picks toward the 127.0.0.2 listener:
-    // 127.0.0.1 on Linux, 127.0.0.2 on macOS.
+    // The retired DOTCORE_DEV_HOST name is not read: without a host the manager falls back to the
+    // observed address, the source address the host picks toward the 127.0.0.2 listener. On Linux
+    // that is 127.0.0.1, which the manager records. On macOS it is 127.0.0.2, the manager node's
+    // own host, which the manager refuses as a duplicate.
+    let observed_host = loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2));
     let token_file = nodes.root.join("retired.token");
     let add = NodeAdd::start(fixture.site_path(), &token_file);
     let observed = dotc()
@@ -4291,17 +4293,34 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
         .env("DOTCORE_DEV_HOST", "retired.example")
         .output()
         .expect("join with the retired host variable");
-    assert_eq!(
-        observed.status.code(),
-        Some(0),
-        "{}",
+    assert!(
+        !text(&observed.stdout).contains("retired.example")
+            && !text(&observed.stderr).contains("retired.example"),
+        "{}{}",
+        text(&observed.stdout),
         text(&observed.stderr)
     );
-    assert_eq!(
-        record(&text(&observed.stdout), "DOTCORE_NODE_HOST="),
-        loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2)).to_string()
-    );
-    assert_eq!(add.finish().status.code(), Some(0));
+    if observed_host.to_string() == "127.0.0.2" {
+        drop(add);
+        assert_eq!(observed.status.code(), Some(1));
+        assert_eq!(
+            text(&observed.stderr),
+            "node join failed; set this machine's address with --host: host 127.0.0.2 is already \
+             used by node \"CLI test node\"; provide the address the manager reaches this node at\n"
+        );
+    } else {
+        assert_eq!(
+            observed.status.code(),
+            Some(0),
+            "{}",
+            text(&observed.stderr)
+        );
+        assert_eq!(
+            record(&text(&observed.stdout), "DOTCORE_NODE_HOST="),
+            observed_host.to_string()
+        );
+        assert_eq!(add.finish().status.code(), Some(0));
+    }
 
     let site = std::fs::read_to_string(fixture.site_path().join("site.yaml")).expect("Site");
     assert!(site.contains("host: localhost"), "{site}");
