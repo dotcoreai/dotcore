@@ -12,19 +12,15 @@ transport).
 
 - See operational health, metrics, logs, traces and freshness, never implying observations that
   don't exist.
-- Get a site-wide overview of inference and machine metrics over a chosen time range, leading to
-  each deployment, route and machine.
-- See metric history on one time axis across machines, devices, deployments and routes, with live
-  updates, gaps where nothing was observed, and where retained history begins.
-- See hardware metrics (memory, CPU, GPU use, power, temperature, storage), per-deployment resource
-  use, and request metrics, per site, machine, device, deployment and route.
-- Read workload and backend diagnostics, apart from platform telemetry. Access to logs doesn't imply
-  durable retention or complete history.
+- See request, hardware (memory, CPU, GPU use, power, temperature, storage) and per-deployment
+  resource metrics per site, machine, device, deployment and route, over a chosen time range,
+  starting from a site-wide overview. They share one time axis, with live updates, gaps where
+  nothing was observed, and where retained history begins.
+- Read workload and backend diagnostics, apart from platform telemetry.
 - See artifact provenance, verification and cache use, and keep artifacts available while
   deployments use them.
 - Reclaim image disk no deployment uses, and shared workload storage unused for a configurable time.
-- See configured and observed protection honestly. Nothing implies a backup or recovery guarantee
-  without support and configuration.
+- See configured and observed protection honestly.
 
 ## Architecture
 
@@ -49,13 +45,15 @@ flowchart TB
   AM -->|"verified artifacts"| W
   FW -->|"authenticated node channel"| MS
   MS -->|"queries, live streams"| API
-  IC["Inference controller, development tooling"] -->|"telemetry sink"| TS
+  IC["Inference controller on the hosting node, development tooling"] -->|"telemetry sink"| TS
 ```
 
 - The artifact manager verifies, stores and transfers artifacts, and keeps their caches and Nix
   roots on each node.
 - The site store keeps the owners' records, each owner in its own repository.
 - The node store keeps each node's realization state ([runtime](runtime.md)).
+- The authenticated node channel is a node's private connection to the site manager, authenticated
+  with its site-local node identity ([access](access.md)). It carries the node's metrics.
 - Observability collects and retains metrics, logs, traces and diagnostics. The site-wide metric
   store lives with the site manager.
 - The backups manager owns backup sets. The components it protects stay authoritative.
@@ -71,7 +69,7 @@ flowchart TB
   AM --> DEVI["Node-local development image: inspect"]
   AM --> DEVN["Development-source Nix: evaluate"]
   SRC["Local Dotcore source, or fetch"] -->|"locked revision"| NIX
-  OCI -->|"pull"| DOCK["Docker runtime's Docker endpoint"]
+  OCI -->|"pull"| DOCK["Docker backend's Docker endpoint"]
   DN -->|"load"| DOCK
   OCI & NIX & DN & DEVI & DEVN --> VER["Verify and publish for workloads"]
   AM -->|"preparation output"| NS["Node store, until cleanup"]
@@ -86,11 +84,10 @@ workloads.
 - Nix artifacts: it prepares the store path for the node's own Nix system and verifies the built path
   matches. The flake reference is kept as provenance, not identity. A Nix artifact's package
   provides a native executable or a Docker image.
-- A locked revision builds from a local Dotcore source when one holds it (the source the packaged
-  runtime was built from, or the development checkout), and is fetched otherwise. The store path
-  match verifies it either way. `self` resolves only through the hosting node's development source.
+- A locked revision builds from a local source when one holds it, and is fetched otherwise. The
+  store path match verifies it either way.
 - Docker-delivered Nix artifacts: it builds the node's loader, runs it against the Docker endpoint
-  the Docker runtime uses, and verifies the realized image against the identity its image derivation
+  the Docker backend uses, and verifies the realized image against the identity its image derivation
   records.
 - Node-local development images: it resolves an immutable image identity in the node's image store
   and prepares it by inspecting that identity, never pulling.
@@ -112,7 +109,7 @@ flowchart TB
   MS -->|"queries, live streams"| API["Management API"]
 ```
 
-- Writers own measurement and observability owns retention. Recording never blocks the measured work.
+- Writers own measurement and observability owns retention.
 - Every node sends its metrics through a node-local forwarder to the site manager over the
   authenticated node channel. A node writes only metrics it measured about itself.
 - Metrics are typed, with stable identity labels, and aggregated into time buckets aligned to the
@@ -120,9 +117,7 @@ flowchart TB
   management API.
 - A metric sample carries its observation time. Alignment across nodes assumes synchronized node
   wall clocks.
-- A gauge reading stays valid for its sample interval plus its reporting delay. Metrics a node can
-  only measure from its full hardware collection use the site's hardware refresh interval as their
-  sample interval and are recorded once per collection.
+- A gauge reading stays valid only for a bounded time.
 
 ### Reading diagnostics
 
@@ -167,22 +162,23 @@ flowchart LR
   system, evaluated from its development source or chosen from a locked artifact's catalog store
   paths.
 - A target whose runtime launches from artifact references alone, such as a simulated one, pins
-  without Nix or Docker: a synthetic identity of the same shape, or any of a locked artifact's catalog
-  store paths.
+  without Nix or Docker, and never resolves, builds, loads or roots artifacts. It pins a synthetic
+  identity of the same shape, or any of a locked artifact's catalog store paths.
 - The owning controller keeps the pinned identity and never resolves it again for the same
   deployment. Development workload tooling pins its transient workload the same way on the node that
   runs it.
 
 ### Site store
 
-- Site-local durability through owner-specific repositories. Each component keeps authority over its
-  own records.
-- Records are independent of the storage implementation.
+- The owners' records, kept durable on the site. Each component keeps authority over its own
+  records.
+- Each deployment's lifecycle generation mark: the highest generation handed out, so a lifecycle
+  generation is never reused.
 
 ### Node store
 
 - The hosting node's disposable realization state, cleanup evidence, resolved launch identities and
-  bounded preparation logs, apart from site store records.
+  bounded preparation output, apart from site store records.
 - Owners learn of it only through accepted status and on-demand diagnostic reads.
 
 ### Nix roots
@@ -190,30 +186,36 @@ flowchart LR
 - Every Nix artifact a node pins keeps a garbage-collector root while the node pins it. The root is
   released once the deployment's cleanup is confirmed. Transient development workloads and synthetic
   launch identities root nothing.
-- Roots sit beside the node store in the site or node folder. They're derived from the node's pins,
-  can be recreated, aren't records, and need no backup.
+- Roots are derived from the node's pins, can be recreated, aren't records, and need no backup.
 
 ### Docker image cache
 
-- Docker images realized from Nix artifacts are a machine-wide cache. They're released only when no
-  Nix root on the host keeps their loader, through operator-triggered cleanup that never removes an
-  image a container uses.
-- The same machine cleanup removes shared workload storage, from any site on the machine, that no
-  container mounts and no workload has used for a retention period.
+- Docker images realized from Nix artifacts are a machine-wide cache. Only
+  [machine cleanup](#machine-cleanup) releases them.
+
+### Machine cleanup
+
+Operator-triggered cleanup of one machine's disk.
+
+- It releases a Docker image realized from a Nix artifact only when no Nix root on the host keeps its
+  loader, and never removes an image a container uses.
+- It removes shared workload storage, from any site on the machine, that no container mounts and no
+  workload has used for a retention period.
 
 ### Workload resource records
 
-- A node-local dataset of the records the inference controller and development tooling send through
-  observability's telemetry sink: resolved launch inputs, the hardware class and observed GPU memory,
-  never protected values.
-- They have no query, export or console surface. Development tooling reads them directly to fit
-  catalog sizing constants per hardware class.
+- A node-local dataset of the records sent through observability's telemetry sink: resolved launch
+  inputs, the hardware class and observed GPU memory, never protected values. The inference
+  controller sends them from the hosting node for its ready local deployments, and development
+  tooling for its own workload measurements.
+- They have no query, export or console surface. They're read only to fit catalog sizing constants
+  per hardware class.
 
 ### Backups
 
 - A backup is custody of copies, never a transfer of the source's authority.
 - Nothing is protected until coverage is supported and configured. Native workload logs, preparation
-  logs and live process records sit inside the site folder and fall under the open backup coverage
+  output and live process records sit inside the site folder and fall under the open backup coverage
   decision.
 
 ## Components
@@ -234,11 +236,33 @@ The artifact manager also owns catalog declarations ([catalog](catalog.md)).
 
 ### Site store
 
+#### Responsibilities
+
+- Give each owner its own repository for its records.
+- Keep records independent of the storage implementation.
+- Report a write failure without undoing the accepted in-memory change
+  ([sites](sites.md#invariants)).
+- Refuse later reads after a write whose outcome is unknown, so it never shows state that may not be
+  durable.
+
 #### Boundaries
 
 - Owns no product state, app data, artifact bytes, telemetry or secrets.
+- Never becomes an authority that competes with the running site's in-memory desired state
+  ([sites](sites.md#invariants)).
+- Never holds node realization state. The node store keeps it.
 - Site-local durability doesn't allow several backend controllers for one site at once. Shared
   controller authority needs separate state coordination.
+
+### Node store
+
+#### Responsibilities
+
+- Keep each node's realization state on that node ([node store](#node-store)).
+
+#### Boundaries
+
+- Is neither product state nor an authority over the deployments it realizes.
 
 ### Observability
 
@@ -252,6 +276,7 @@ The artifact manager also owns catalog declarations ([catalog](catalog.md)).
 
 - Doesn't own node health, deployment status, operation status or routing readiness.
 - Direct diagnostic access doesn't transfer ownership of retained logs.
+- Access to logs doesn't imply durable retention or complete history.
 
 ### Backups manager
 
@@ -262,6 +287,7 @@ The artifact manager also owns catalog declarations ([catalog](catalog.md)).
 #### Boundaries
 
 - Source components stay authoritative for the records it protects.
+- Never implies a backup or recovery guarantee without supported, configured coverage.
 
 ## Invariants
 
