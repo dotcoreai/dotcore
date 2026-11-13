@@ -20,6 +20,7 @@ use dotcore_proto::dotcore::{
         RemoveApplicationDeploymentRequest, ResumeDeploymentRequest,
         follow_deployment_logs_response,
     },
+    catalog::v1::StoragePlacement,
     deployment::v1::ExactPlacement,
 };
 use futures_util::StreamExt;
@@ -28,7 +29,7 @@ use tonic::Status;
 use crate::management::{
     DeploymentGroup, Lifecycle, LogEntry, LogEvent, LogEvents, LogPage, LogPosition, LogSource,
     LogSourceState, LoggedDeployment, LogsArgs, ManagedDeployment, Manager, ManagerArgs, NodeNames,
-    change_lifecycle, deployment_logs, teardown,
+    change_lifecycle, deployment_logs, single_line, teardown,
 };
 use list::{ApplicationListArgs, application_list};
 use projection::{desired_state_label, state_label};
@@ -59,7 +60,8 @@ enum ApplicationSubcommand {
     /// Ask the manager to resume a paused application deployment; returns without waiting.
     Resume(LifecycleArgs),
 
-    /// Remove an application deployment, its workloads and its data after confirmation.
+    /// Remove an application deployment, its workloads and the data placed with it after
+    /// confirmation; data shared by the app is kept.
     Teardown(ApplicationTeardownArgs),
 
     /// Print the most recent log lines of an application deployment, on any node, and follow
@@ -191,6 +193,39 @@ impl ManagedDeployment for ApplicationDeployment {
     fn desired_state_label(&self) -> &'static str {
         desired_state_label(self.desired_state())
     }
+
+    fn teardown_consequence(&self) -> String {
+        teardown_consequence(self)
+    }
+}
+
+/// What tearing a deployment down does to its data: storage placed with the deployment is
+/// deleted, storage shared by the app is kept, each listed by binding name.
+fn teardown_consequence(deployment: &ApplicationDeployment) -> String {
+    let bindings = |placement: StoragePlacement| {
+        deployment
+            .storage_attachments
+            .iter()
+            .filter(|attachment| attachment.placement == placement as i32)
+            .map(|attachment| single_line(&attachment.binding_name))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let deleted = bindings(StoragePlacement::Deployment);
+    let kept = bindings(StoragePlacement::Application);
+
+    let mut text = "This stops and removes its workloads".to_owned();
+    if !deleted.is_empty() {
+        text.push_str(&format!(" and deletes this deployment's data ({deleted})"));
+    }
+    if kept.is_empty() {
+        text.push_str(". The catalog application is kept.");
+    } else {
+        text.push_str(&format!(
+            ". It keeps the data shared by the app ({kept}) and the catalog application."
+        ));
+    }
+    text
 }
 
 impl LoggedDeployment for ApplicationDeployment {
@@ -307,4 +342,43 @@ fn node_of<'a>(deployment: &'a ApplicationDeployment, nodes: &'a NodeNames) -> &
 /// The exact placement of a deployment.
 fn placement(deployment: &ApplicationDeployment) -> Option<&ExactPlacement> {
     deployment.placement.as_ref()
+}
+
+#[cfg(test)]
+mod tests {
+    use dotcore_proto::dotcore::application::v1::ApplicationStorageAttachment;
+
+    use super::*;
+
+    #[test]
+    fn teardown_consequence_names_the_deleted_and_the_kept_data() {
+        let with_storage = |attachments: &[(&str, StoragePlacement)]| ApplicationDeployment {
+            storage_attachments: attachments
+                .iter()
+                .map(|(binding, placement)| ApplicationStorageAttachment {
+                    service_name: "web".to_owned(),
+                    binding_name: (*binding).to_owned(),
+                    storage_name: format!("web-{binding}"),
+                    placement: *placement as i32,
+                })
+                .collect(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            teardown_consequence(&with_storage(&[])),
+            "This stops and removes its workloads. The catalog application is kept."
+        );
+        assert_eq!(
+            teardown_consequence(&with_storage(&[
+                ("data", StoragePlacement::Deployment),
+                ("models", StoragePlacement::Deployment),
+            ])),
+            "This stops and removes its workloads and deletes this deployment's data (data, models). The catalog application is kept."
+        );
+        assert_eq!(
+            teardown_consequence(&with_storage(&[("models", StoragePlacement::Application)])),
+            "This stops and removes its workloads. It keeps the data shared by the app (models) and the catalog application."
+        );
+    }
 }

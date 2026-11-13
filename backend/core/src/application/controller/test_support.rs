@@ -3001,6 +3001,32 @@ pub(super) fn application_with_parameters() -> Application {
     application
 }
 
+/// The test application whose web service keeps `data` with the deployment only and lets the
+/// operator place `models` with the application (the default) or with the deployment.
+pub(super) fn application_with_storage_choices() -> Application {
+    use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
+
+    let mut application = application();
+    let binding = |name: &str, placements: &[StoragePlacement]| StorageBinding {
+        binding_name: name.to_owned(),
+        mount_path: format!("/{name}"),
+        kind: StorageKind::Data as i32,
+        placements: placements
+            .iter()
+            .map(|&placement| placement as i32)
+            .collect(),
+        environment: Vec::new(),
+    };
+    application.graph.as_mut().expect("graph").services[0].storage_bindings = vec![
+        binding("data", &[StoragePlacement::Deployment]),
+        binding(
+            "models",
+            &[StoragePlacement::Application, StoragePlacement::Deployment],
+        ),
+    ];
+    application
+}
+
 /// The test application with a text `username` parameter bound to `USERNAME` and a secret
 /// `password` parameter bound in plain form to `PASSWORD` and in bcrypt form to `PASSWORD_HASH`.
 pub(super) fn application_with_secret_parameters() -> Application {

@@ -16,12 +16,12 @@ use dotcore_domain::{SiteNodeHost, SiteNodeId};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
-        ApplicationSecretAttachment, ApplicationStorageAttachment,
+        ApplicationSecretAttachment, ApplicationStorageAttachment, ApplicationStorageChoice,
     },
     catalog::v1::{
         Application, ApplicationDependencyCondition, ApplicationGraph,
-        ApplicationInferenceRouteProjection, ApplicationSecretForm, ParameterValue, StorageScope,
-        application_configuration_binding, application_deployment_input,
+        ApplicationInferenceRouteProjection, ApplicationSecretForm, ParameterValue,
+        StoragePlacement, application_configuration_binding, application_deployment_input,
         application_service_readiness,
     },
 };
@@ -34,7 +34,7 @@ use tracing::debug;
 
 use super::{
     ApplicationConfigurationSources, ApplicationLifecycleError, InferenceRouteResolver,
-    ResolvedInferenceRoute, configuration, configuration_with_source,
+    ResolvedInferenceRoute, StorageChoiceRejection, configuration, configuration_with_source,
 };
 use crate::application::secret_form::bcrypt_hash;
 use crate::storage::{deployment_storage, workload_storage};
@@ -73,8 +73,8 @@ pub(super) fn deployment_site_node_id(
     })
 }
 
-/// Returns the data storage scoped to one application deployment alone: its launch attaches
-/// deployment-scoped bindings under this key and its teardown removes it.
+/// Returns the data storage placed with one application deployment alone: its launch attaches
+/// deployment-placed bindings under this key and its teardown removes it.
 pub(super) fn deployment_data(desired: &ApplicationDeploymentDeclaration) -> WorkloadStorageKey {
     deployment_storage(WorkloadStorageKind::Data, &deployment_storage_key(desired))
 }
@@ -89,7 +89,7 @@ fn published_port(
         .ok_or_else(|| configuration("Application deployment published host port is invalid"))
 }
 
-/// Returns the key of storage scoped to one application deployment.
+/// Returns the key of storage placed with one application deployment.
 fn deployment_storage_key(desired: &ApplicationDeploymentDeclaration) -> String {
     desired.application_deployment_id.clone()
 }
@@ -114,10 +114,10 @@ impl LaunchPlan {
     ) -> Result<Self, ApplicationLifecycleError> {
         let declaration = ValidatedLaunchDeclaration::extract(desired)?;
         let attachments = AttachmentIndexes::build(desired)?;
-        let storage_key = |scope| match scope {
-            StorageScope::Deployment => Some(deployment_storage_key(desired)),
-            StorageScope::Application => Some(declaration.application_id.to_owned()),
-            StorageScope::EngineArtifact | StorageScope::Unspecified => None,
+        let storage_key = |placement| match placement {
+            StoragePlacement::Deployment => Some(deployment_storage_key(desired)),
+            StoragePlacement::Application => Some(declaration.application_id.to_owned()),
+            StoragePlacement::EngineArtifact | StoragePlacement::Unspecified => None,
         };
         let ready_dependency_names = declaration
             .services
@@ -329,7 +329,7 @@ struct LaunchPrimaryEndpoint {
 /// Retained attachment values keyed by service and binding name. It holds secret values, so it
 /// has no `Debug` form.
 struct AttachmentIndexes {
-    storage: BTreeMap<(String, String), String>,
+    storage: BTreeMap<(String, String), (String, StoragePlacement)>,
     configuration: BTreeMap<(String, String), String>,
     secret: BTreeMap<(String, String), String>,
 }
@@ -342,12 +342,14 @@ impl AttachmentIndexes {
             .storage_attachments
             .iter()
             .map(|attachment| {
+                let placement = StoragePlacement::try_from(attachment.placement)
+                    .map_err(|_| configuration("Application storage placement is invalid"))?;
                 Ok((
                     (
                         attachment.service_name.clone(),
                         attachment.binding_name.clone(),
                     ),
-                    attachment.storage_name.clone(),
+                    (attachment.storage_name.clone(), placement),
                 ))
             })
             .collect::<Result<BTreeMap<_, _>, ApplicationLifecycleError>>()?;
@@ -408,7 +410,7 @@ impl WorkloadUnitPlan {
         service: &dotcore_proto::dotcore::catalog::v1::ApplicationService,
         image: &str,
         attachments: &AttachmentIndexes,
-        storage_key: &dyn Fn(StorageScope) -> Option<String>,
+        storage_key: &dyn Fn(StoragePlacement) -> Option<String>,
         route_linked: bool,
         has_ready_dependents: bool,
     ) -> Result<Self, ApplicationLifecycleError> {
@@ -461,7 +463,7 @@ impl WorkloadUnitPlan {
                     .storage
                     .get(&(service.service_name.clone(), binding.binding_name.clone()))
                     .cloned()
-                    .map(|name| (name, binding))
+                    .map(|(name, placement)| (name, binding, placement))
                     .ok_or_else(|| configuration("Application storage attachment is missing"))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -765,30 +767,66 @@ pub(super) fn secret_attachments(
         .collect()
 }
 
+/// Resolves one storage attachment per storage binding of a new deployment, each placed where the
+/// operator's `choices` say or at the binding's first allowed placement.
 pub(super) fn storage_attachments(
     application: &Application,
+    choices: &[ApplicationStorageChoice],
 ) -> Result<Vec<ApplicationStorageAttachment>, ApplicationLifecycleError> {
     let graph = application
         .graph
         .as_ref()
         .ok_or_else(|| configuration("Application graph is missing"))?;
+    let mut chosen = BTreeMap::new();
+    for choice in choices {
+        let reject = |reason| ApplicationLifecycleError::InvalidStorageChoice {
+            service_name: choice.service_name.clone(),
+            binding_name: choice.binding_name.clone(),
+            reason,
+        };
+        let binding = graph
+            .services
+            .iter()
+            .filter(|service| service.service_name == choice.service_name)
+            .flat_map(|service| &service.storage_bindings)
+            .find(|binding| binding.binding_name == choice.binding_name)
+            .ok_or_else(|| reject(StorageChoiceRejection::Unknown))?;
+        if !binding.placements.contains(&choice.placement) {
+            let placement = StoragePlacement::try_from(choice.placement).map_or_else(
+                |_| choice.placement.to_string(),
+                |placement| placement.as_str_name().to_owned(),
+            );
+            return Err(reject(StorageChoiceRejection::NotAllowed(placement)));
+        }
+        let key = (choice.service_name.as_str(), choice.binding_name.as_str());
+        if chosen.insert(key, choice.placement).is_some() {
+            return Err(reject(StorageChoiceRejection::Duplicate));
+        }
+    }
+
     graph
         .services
         .iter()
         .flat_map(|service| {
+            let chosen = &chosen;
             service.storage_bindings.iter().map(move |binding| {
                 let storage_name = format!("{}-{}", service.service_name, binding.binding_name);
-                if valid_id(&storage_name) {
-                    Ok(ApplicationStorageAttachment {
-                        service_name: service.service_name.clone(),
-                        binding_name: binding.binding_name.clone(),
-                        storage_name,
-                    })
-                } else {
-                    Err(configuration(
+                if !valid_id(&storage_name) {
+                    return Err(configuration(
                         "Application storage attachment name cannot be represented safely",
-                    ))
+                    ));
                 }
+                let placement = chosen
+                    .get(&(service.service_name.as_str(), binding.binding_name.as_str()))
+                    .or(binding.placements.first())
+                    .copied()
+                    .ok_or_else(|| configuration("Application storage binding has no placement"))?;
+                Ok(ApplicationStorageAttachment {
+                    service_name: service.service_name.clone(),
+                    binding_name: binding.binding_name.clone(),
+                    storage_name,
+                    placement,
+                })
             })
         })
         .collect()

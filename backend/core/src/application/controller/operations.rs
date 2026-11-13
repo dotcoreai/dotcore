@@ -614,7 +614,8 @@ where
         &parameters.values,
         request.inference_route_id.is_some(),
     )?;
-    let storage_attachments = super::launch::storage_attachments(&application)?;
+    let storage_attachments =
+        super::launch::storage_attachments(&application, &request.storage_choices)?;
 
     Ok(ApplicationDeploymentDeclaration {
         application_deployment_id: deployment_id,

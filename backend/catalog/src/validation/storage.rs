@@ -1,18 +1,20 @@
 //! Storage binding validation shared by application services and engine releases.
 //!
 //! A storage binding names writable storage an owner attaches to its workloads: a unique name, a
-//! unique absolute mount path, a kind and a scope the owner supports, and environment variables
-//! that point at paths inside the mount. Mount paths may nest, so one binding can sit inside
+//! unique absolute mount path, a kind and the placements the owner supports, and environment
+//! variables that point at paths inside the mount. An application binding lists the placements a
+//! deployment may choose, the first being the default; an engine binding has exactly one. Mount paths may nest, so one binding can sit inside
 //! another; Docker binds the inner mount over the outer one's folder.
 
 use std::collections::BTreeSet;
 
 use dotcore_domain::valid_id;
-use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StorageScope};
+use dotcore_proto::dotcore::catalog::v1::{StorageBinding, StorageKind, StoragePlacement};
 
 use super::application::valid_environment_variable;
 
-/// The owner a set of storage bindings belongs to, which decides the kinds and scopes it may use.
+/// The owner a set of storage bindings belongs to, which decides the kinds and placements it may
+/// use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StorageOwner {
     ApplicationService,
@@ -27,17 +29,16 @@ impl StorageOwner {
         }
     }
 
-    fn allows_scope(self, scope: StorageScope) -> bool {
+    fn allows_placement(self, placement: StoragePlacement) -> bool {
         match self {
-            Self::ApplicationService => {
-                matches!(scope, StorageScope::Deployment | StorageScope::Application)
-            }
-            Self::EngineRelease => {
-                matches!(
-                    scope,
-                    StorageScope::Deployment | StorageScope::EngineArtifact
-                )
-            }
+            Self::ApplicationService => matches!(
+                placement,
+                StoragePlacement::Deployment | StoragePlacement::Application
+            ),
+            Self::EngineRelease => matches!(
+                placement,
+                StoragePlacement::Deployment | StoragePlacement::EngineArtifact
+            ),
         }
     }
 }
@@ -86,16 +87,7 @@ pub(super) fn validate_storage_bindings(
             )),
             Ok(_) => {}
         }
-        match StorageScope::try_from(binding.scope) {
-            Ok(StorageScope::Unspecified) | Err(_) => errors.push(anyhow::anyhow!(
-                "{subject} storage binding {name:?} requires a scope"
-            )),
-            Ok(scope) if !owner.allows_scope(scope) => errors.push(anyhow::anyhow!(
-                "{subject} storage binding {name:?} cannot use scope {}",
-                scope.as_str_name()
-            )),
-            Ok(_) => {}
-        }
+        validate_placements(binding, owner, subject, errors);
         for variable in &binding.environment {
             if !valid_environment_variable(&variable.name) {
                 errors.push(anyhow::anyhow!(
@@ -114,6 +106,44 @@ pub(super) fn validate_storage_bindings(
                     variable.name
                 ));
             }
+        }
+    }
+}
+
+/// Checks that a binding lists at least one placement, each specified, allowed by its owner and
+/// listed once, and that an engine binding lists exactly one.
+fn validate_placements(
+    binding: &StorageBinding,
+    owner: StorageOwner,
+    subject: &str,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    let name = &binding.binding_name;
+    if binding.placements.is_empty() {
+        errors.push(anyhow::anyhow!(
+            "{subject} storage binding {name:?} requires a placement"
+        ));
+    }
+    if owner == StorageOwner::EngineRelease && binding.placements.len() > 1 {
+        errors.push(anyhow::anyhow!(
+            "{subject} storage binding {name:?} must declare exactly one placement"
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for &placement in &binding.placements {
+        match StoragePlacement::try_from(placement) {
+            Ok(StoragePlacement::Unspecified) | Err(_) => errors.push(anyhow::anyhow!(
+                "{subject} storage binding {name:?} has an unspecified placement"
+            )),
+            Ok(placement) if !owner.allows_placement(placement) => errors.push(anyhow::anyhow!(
+                "{subject} storage binding {name:?} cannot use placement {}",
+                placement.as_str_name()
+            )),
+            Ok(placement) if !seen.insert(placement) => errors.push(anyhow::anyhow!(
+                "{subject} storage binding {name:?} lists placement {} twice",
+                placement.as_str_name()
+            )),
+            Ok(_) => {}
         }
     }
 }
@@ -147,10 +177,14 @@ mod tests {
     #[test]
     fn valid_bindings_may_nest_and_record_their_names() {
         let bindings = [
-            binding("data", "/data", StorageScope::Deployment),
+            binding("data", "/data", StoragePlacement::Deployment),
             StorageBinding {
                 environment: vec![variable("MODELS_DIR", ""), variable("CHECKPOINTS", "a/b")],
-                ..binding("models", "/data/models", StorageScope::Application)
+                placements: vec![
+                    StoragePlacement::Application as i32,
+                    StoragePlacement::Deployment as i32,
+                ],
+                ..binding("models", "/data/models", StoragePlacement::Application)
             },
         ];
         let mut names = BTreeSet::new();
@@ -175,14 +209,14 @@ mod tests {
     #[test]
     fn rejects_invalid_or_duplicate_names_and_mount_paths() {
         let bindings = [
-            binding("data", "/data", StorageScope::Deployment),
-            binding("data", "/other", StorageScope::Deployment),
-            binding("logs", "/data", StorageScope::Deployment),
-            binding("Bad_Name", "/bad", StorageScope::Deployment),
-            binding("relative", "data", StorageScope::Deployment),
-            binding("root", "/", StorageScope::Deployment),
-            binding("escape", "/data/../etc", StorageScope::Deployment),
-            binding("taken", "/taken", StorageScope::Deployment),
+            binding("data", "/data", StoragePlacement::Deployment),
+            binding("data", "/other", StoragePlacement::Deployment),
+            binding("logs", "/data", StoragePlacement::Deployment),
+            binding("Bad_Name", "/bad", StoragePlacement::Deployment),
+            binding("relative", "data", StoragePlacement::Deployment),
+            binding("root", "/", StoragePlacement::Deployment),
+            binding("escape", "/data/../etc", StoragePlacement::Deployment),
+            binding("taken", "/taken", StoragePlacement::Deployment),
         ];
         let mut names = BTreeSet::from(["taken".to_owned()]);
 
@@ -206,11 +240,11 @@ mod tests {
     }
 
     #[test]
-    fn rejects_missing_kinds_and_scopes() {
+    fn rejects_missing_kinds_and_placements() {
         let bindings = [StorageBinding {
             kind: 0,
-            scope: 0,
-            ..binding("data", "/data", StorageScope::Deployment)
+            placements: Vec::new(),
+            ..binding("data", "/data", StoragePlacement::Deployment)
         }];
 
         assert_eq!(
@@ -222,29 +256,29 @@ mod tests {
             ),
             [
                 "service storage binding \"data\" requires a kind",
-                "service storage binding \"data\" requires a scope",
+                "service storage binding \"data\" requires a placement",
             ]
         );
     }
 
     #[test]
-    fn rejects_kinds_and_scopes_the_owner_cannot_use() {
+    fn rejects_kinds_and_placements_the_owner_cannot_use() {
         let application = [
-            binding("cache", "/cache", StorageScope::EngineArtifact),
+            binding("cache", "/cache", StoragePlacement::EngineArtifact),
             StorageBinding {
                 kind: StorageKind::Cache as i32,
-                ..binding("scratch", "/scratch", StorageScope::Deployment)
+                ..binding("scratch", "/scratch", StoragePlacement::Deployment)
             },
         ];
         let engine = [
-            binding("data", "/data", StorageScope::Deployment),
+            binding("data", "/data", StoragePlacement::Deployment),
             StorageBinding {
                 kind: StorageKind::Cache as i32,
-                ..binding("shared", "/shared", StorageScope::Application)
+                ..binding("shared", "/shared", StoragePlacement::Application)
             },
             StorageBinding {
                 kind: StorageKind::Cache as i32,
-                ..binding("compile", "/compile", StorageScope::EngineArtifact)
+                ..binding("compile", "/compile", StoragePlacement::EngineArtifact)
             },
         ];
 
@@ -256,7 +290,7 @@ mod tests {
                 &mut BTreeSet::new()
             ),
             [
-                "service storage binding \"cache\" cannot use scope STORAGE_SCOPE_ENGINE_ARTIFACT",
+                "service storage binding \"cache\" cannot use placement STORAGE_PLACEMENT_ENGINE_ARTIFACT",
                 "service storage binding \"scratch\" cannot use kind STORAGE_KIND_CACHE",
             ]
         );
@@ -269,8 +303,65 @@ mod tests {
             ),
             [
                 "service storage binding \"data\" cannot use kind STORAGE_KIND_DATA",
-                "service storage binding \"shared\" cannot use scope STORAGE_SCOPE_APPLICATION",
+                "service storage binding \"shared\" cannot use placement STORAGE_PLACEMENT_APPLICATION",
             ]
+        );
+    }
+
+    #[test]
+    fn rejects_unspecified_or_repeated_placements_and_several_engine_placements() {
+        let placements = |placements: &[StoragePlacement]| {
+            placements
+                .iter()
+                .map(|&placement| placement as i32)
+                .collect()
+        };
+        let application = [
+            StorageBinding {
+                placements: placements(&[
+                    StoragePlacement::Deployment,
+                    StoragePlacement::Unspecified,
+                ]),
+                ..binding("unspecified", "/unspecified", StoragePlacement::Deployment)
+            },
+            StorageBinding {
+                placements: placements(&[
+                    StoragePlacement::Application,
+                    StoragePlacement::Deployment,
+                    StoragePlacement::Application,
+                ]),
+                ..binding("repeated", "/repeated", StoragePlacement::Deployment)
+            },
+        ];
+        let engine = [StorageBinding {
+            kind: StorageKind::Cache as i32,
+            placements: placements(&[
+                StoragePlacement::Deployment,
+                StoragePlacement::EngineArtifact,
+            ]),
+            ..binding("cache", "/cache", StoragePlacement::Deployment)
+        }];
+
+        assert_eq!(
+            validate(
+                &application,
+                StorageOwner::ApplicationService,
+                &mut BTreeSet::new(),
+                &mut BTreeSet::new()
+            ),
+            [
+                "service storage binding \"unspecified\" has an unspecified placement",
+                "service storage binding \"repeated\" lists placement STORAGE_PLACEMENT_APPLICATION twice",
+            ]
+        );
+        assert_eq!(
+            validate(
+                &engine,
+                StorageOwner::EngineRelease,
+                &mut BTreeSet::new(),
+                &mut BTreeSet::new()
+            ),
+            ["service storage binding \"cache\" must declare exactly one placement"]
         );
     }
 
@@ -287,11 +378,11 @@ mod tests {
                     variable("PARENT", "a/../b"),
                     variable("TRAILING", "a/"),
                 ],
-                ..binding("data", "/data", StorageScope::Deployment)
+                ..binding("data", "/data", StoragePlacement::Deployment)
             },
             StorageBinding {
                 environment: vec![variable("CACHE_HOME", "other")],
-                ..binding("other", "/other", StorageScope::Deployment)
+                ..binding("other", "/other", StoragePlacement::Deployment)
             },
         ];
         let mut variables = BTreeSet::from(["TAKEN".to_owned()]);
@@ -326,12 +417,12 @@ mod tests {
         errors.iter().map(ToString::to_string).collect()
     }
 
-    fn binding(name: &str, mount_path: &str, scope: StorageScope) -> StorageBinding {
+    fn binding(name: &str, mount_path: &str, placement: StoragePlacement) -> StorageBinding {
         StorageBinding {
             binding_name: name.to_owned(),
             mount_path: mount_path.to_owned(),
             kind: StorageKind::Data as i32,
-            scope: scope as i32,
+            placements: vec![placement as i32],
             environment: Vec::new(),
         }
     }

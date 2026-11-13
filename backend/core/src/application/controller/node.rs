@@ -930,7 +930,7 @@ mod tests {
         },
         catalog::v1::{
             ApplicationHttpReadiness, ApplicationServiceReadiness, ParameterValue, StorageBinding,
-            StorageKind, StorageScope, application_service_readiness, parameter_value,
+            StorageKind, StoragePlacement, application_service_readiness, parameter_value,
         },
         deployment::private::v1::{
             DeploymentLogSourceOpening, DeploymentLogTarget, DeploymentLogUnavailableReason,
@@ -3079,13 +3079,14 @@ mod tests {
             binding_name: "data".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
-            scope: StorageScope::Deployment as i32,
+            placements: vec![StoragePlacement::Deployment as i32],
             environment: Vec::new(),
         }];
         declaration.storage_attachments = vec![ApplicationStorageAttachment {
             service_name: service.service_name.clone(),
             binding_name: "data".to_owned(),
             storage_name: "web-data".to_owned(),
+            placement: StoragePlacement::Deployment as i32,
         }];
         declaration
     }
@@ -3185,7 +3186,7 @@ mod tests {
             .expect("application status")
     }
 
-    /// Returns the data the launch of one deployment attaches under its deployment scope.
+    /// Returns the data the launch of one deployment attaches under its deployment placement.
     fn deployment_data(deployment_id: &str) -> WorkloadStorageKey {
         WorkloadStorageKey {
             kind: WorkloadStorageKind::Data,

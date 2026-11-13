@@ -267,7 +267,7 @@ mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
             NixArtifact, NixDockerImage, ParameterVisibility, StorageBinding, StorageKind,
-            StorageScope, nix_artifact::Provides,
+            StoragePlacement, nix_artifact::Provides,
         },
         observation::v1::AcceleratorMemoryArchitecture,
     };
@@ -513,7 +513,7 @@ mod tests {
     }
 
     #[test]
-    fn engine_storage_requires_engine_scopes_cache_kind_and_container_artifacts() {
+    fn engine_storage_requires_engine_placements_cache_kind_and_container_artifacts() {
         let mut image = nix("self");
         image.provides = Some(Provides::DockerImage(NixDockerImage {}));
         let artifact = |artifact_id: &str, kind| EngineArtifact {
@@ -521,13 +521,14 @@ mod tests {
             kind: Some(kind),
             ..Default::default()
         };
-        let binding = |binding_name: &str, kind: StorageKind, scope: StorageScope| StorageBinding {
-            binding_name: binding_name.to_owned(),
-            mount_path: format!("/cache/{binding_name}"),
-            kind: kind as i32,
-            scope: scope as i32,
-            environment: Vec::new(),
-        };
+        let binding =
+            |binding_name: &str, kind: StorageKind, placement: StoragePlacement| StorageBinding {
+                binding_name: binding_name.to_owned(),
+                mount_path: format!("/cache/{binding_name}"),
+                kind: kind as i32,
+                placements: vec![placement as i32],
+                environment: Vec::new(),
+            };
         let mut engine = EngineRelease {
             engine_release_id: "fixture".to_owned(),
             artifacts: vec![
@@ -535,8 +536,12 @@ mod tests {
                 artifact("image", EngineArtifactKind::Nix(image)),
             ],
             storage_bindings: vec![
-                binding("compile", StorageKind::Cache, StorageScope::EngineArtifact),
-                binding("scratch", StorageKind::Cache, StorageScope::Deployment),
+                binding(
+                    "compile",
+                    StorageKind::Cache,
+                    StoragePlacement::EngineArtifact,
+                ),
+                binding("scratch", StorageKind::Cache, StoragePlacement::Deployment),
             ],
             ..Default::default()
         };
@@ -552,15 +557,15 @@ mod tests {
             .artifacts
             .push(artifact("native", EngineArtifactKind::Nix(nix("self"))));
         engine.storage_bindings.extend([
-            binding("data", StorageKind::Data, StorageScope::Deployment),
-            binding("shared", StorageKind::Cache, StorageScope::Application),
+            binding("data", StorageKind::Data, StoragePlacement::Deployment),
+            binding("shared", StorageKind::Cache, StoragePlacement::Application),
         ]);
 
         assert_eq!(
             errors(&engine),
             [
                 "engine release \"fixture\" storage binding \"data\" cannot use kind STORAGE_KIND_DATA",
-                "engine release \"fixture\" storage binding \"shared\" cannot use scope STORAGE_SCOPE_APPLICATION",
+                "engine release \"fixture\" storage binding \"shared\" cannot use placement STORAGE_PLACEMENT_APPLICATION",
                 "engine release \"fixture\" declares storage bindings, so engine artifact \"native\" must be a container image",
             ]
         );

@@ -23,6 +23,13 @@ pub enum ApplicationLifecycleError {
         reason: ParameterRejection,
     },
 
+    #[error("Application storage binding {binding_name:?} of service {service_name:?} {reason}")]
+    InvalidStorageChoice {
+        service_name: String,
+        binding_name: String,
+        reason: StorageChoiceRejection,
+    },
+
     #[error("Application deployment was not found")]
     NotFound,
 
@@ -90,6 +97,19 @@ pub enum ParameterRejection {
     // carries it and full error chains do not repeat it.
     #[error("has an invalid value: {0}")]
     InvalidValue(anyhow::Error),
+}
+
+/// Why a deployment creation request's storage choice was rejected.
+#[derive(Debug, thiserror::Error)]
+pub enum StorageChoiceRejection {
+    #[error("is not declared by the application")]
+    Unknown,
+
+    #[error("is chosen more than once")]
+    Duplicate,
+
+    #[error("does not allow placement {0}")]
+    NotAllowed(String),
 }
 
 /// What differs between a deployment's retained target facts and the current site configuration.

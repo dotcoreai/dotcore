@@ -1952,6 +1952,7 @@ async fn route_input_application_without_a_link_reaches_ready_with_its_literal_f
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create application without a route link")
@@ -2008,6 +2009,7 @@ async fn referenced_application_route_cannot_be_deleted_until_application_remove
             expected_inference_route_generation: route.generation,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create route-bound application")
@@ -2174,6 +2176,7 @@ async fn create_route_test_application(
             expected_inference_route_generation: route.generation,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create route-linked application")
@@ -2248,6 +2251,7 @@ async fn create_application(client: &mut ApplicationClient) -> ApplicationDeploy
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create application")
@@ -2913,6 +2917,7 @@ async fn application_restart_uses_site_and_state_ignores_obsolete_files_and_embe
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3019,6 +3024,7 @@ async fn application_service_persists_its_snapshot_name_and_logical_storage_unti
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3104,6 +3110,7 @@ async fn application_service_assigns_timestamped_ids_while_permitting_duplicate_
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3123,6 +3130,7 @@ async fn application_service_assigns_timestamped_ids_while_permitting_duplicate_
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3263,6 +3271,7 @@ async fn application_metadata_update_persists_and_projects_through_service_reope
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3342,6 +3351,7 @@ async fn application_metadata_update_persists_same_name_and_uncertain_acceptance
             expected_inference_route_generation: 0,
             application_deployment_name: Some("Stable Application".to_owned()),
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("create application")
@@ -3433,6 +3443,7 @@ async fn application_metadata_update_acceptance_order_is_deterministic_against_t
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3515,6 +3526,7 @@ async fn application_metadata_update_acceptance_order_is_deterministic_against_t
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         }),
     )
     .await
@@ -3820,6 +3832,7 @@ async fn interleaved_model_and_application_mutations_survive_canonical_site_rewr
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("Application mutation")

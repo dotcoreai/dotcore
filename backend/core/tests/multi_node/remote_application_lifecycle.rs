@@ -97,6 +97,7 @@ async fn manager_controls_a_worker_hosted_application_across_restarts_and_discon
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("manager accepts a worker application target")
@@ -425,6 +426,7 @@ async fn a_worker_hosted_application_relaunches_when_its_linked_route_is_renamed
             expected_inference_route_generation: route.generation,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("manager accepts a route-linked worker application")
@@ -540,6 +542,7 @@ async fn a_split_network_worker_application_is_reached_at_the_declared_worker_ad
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("manager accepts a worker application target")
@@ -671,6 +674,7 @@ async fn a_worker_follows_pushed_views_and_its_closed_stream_disconnects_it_at_o
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("manager accepts a worker application target")
@@ -828,6 +832,7 @@ async fn the_resource_watch_shows_a_worker_deployment_status_and_its_closed_stre
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("manager accepts a worker application target")
@@ -919,6 +924,7 @@ async fn a_worker_pins_a_nix_application_on_its_simulated_target_and_reports_the
             expected_inference_route_generation: 0,
             application_deployment_name: None,
             parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
         })
         .await
         .expect("manager accepts a Nix application on the worker")
@@ -1021,7 +1027,7 @@ graph:
           input:
             inferenceRoute:
               projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
-      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", scope: "STORAGE_SCOPE_DEPLOYMENT" }]
+      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
       readiness: { httpGet: { portName: "http", path: "/health" } }
   primaryEndpoint:
     serviceName: "web"

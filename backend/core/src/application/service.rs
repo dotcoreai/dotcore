@@ -504,9 +504,10 @@ impl TonicStatusExt for ApplicationLifecycleError {
             | Self::TargetPlatformMismatch { .. }
             | Self::UnsupportedServicePlatform { .. }
             | Self::RetainedTargetIncompatible(_) => Status::failed_precondition(self.to_string()),
-            Self::InvalidArgument | Self::InvalidName | Self::InvalidParameter { .. } => {
-                Status::invalid_argument(self.to_string())
-            }
+            Self::InvalidArgument
+            | Self::InvalidName
+            | Self::InvalidParameter { .. }
+            | Self::InvalidStorageChoice { .. } => Status::invalid_argument(self.to_string()),
             Self::NotFound => Status::not_found(self.to_string()),
             Self::PublishedPortsExhausted => Status::resource_exhausted(self.to_string()),
             Self::InferenceRoute(error) => error.to_tonic_status(),

@@ -472,7 +472,20 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "expected_inference_route_generation",
             "application_deployment_name",
             "parameter_values",
+            "storage_choices",
         ]
+    );
+    assert_eq!(
+        field_names(service, "ApplicationStorageChoice"),
+        ["service_name", "binding_name", "placement"]
+    );
+    assert_eq!(
+        field_type_name(service, "ApplicationStorageChoice", "placement"),
+        ".dotcore.catalog.v1.StoragePlacement"
+    );
+    assert_eq!(
+        field_names(deployment, "ApplicationStorageAttachment"),
+        ["service_name", "binding_name", "storage_name", "placement"]
     );
     assert_eq!(
         field_names(deployment, "ApplicationDeploymentDeclaration"),

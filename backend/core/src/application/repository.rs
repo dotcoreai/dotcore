@@ -22,7 +22,7 @@ use dotcore_proto::dotcore::{
         ApplicationStorageAttachment, CurrentApplicationDeployment,
         ResolvedApplicationDeploymentSnapshot, ResolvedApplicationServiceSelection,
     },
-    catalog::v1::{ApplicationSecretForm, application_configuration_binding},
+    catalog::v1::{ApplicationSecretForm, StoragePlacement, application_configuration_binding},
     site::store::v1::SiteCurrentState,
 };
 use dotcore_site::{
@@ -721,34 +721,44 @@ fn validate_storage_attachments(
         .graph
         .as_ref()
         .expect("Application snapshot was validated");
-    let expected = graph
+    let allowed = graph
         .services
         .iter()
         .flat_map(|service| {
-            service
-                .storage_bindings
-                .iter()
-                .map(move |binding| (service.service_name.as_str(), binding.binding_name.as_str()))
+            service.storage_bindings.iter().map(move |binding| {
+                (
+                    (service.service_name.as_str(), binding.binding_name.as_str()),
+                    binding.placements.as_slice(),
+                )
+            })
         })
-        .collect::<BTreeSet<_>>();
+        .collect::<BTreeMap<_, _>>();
     let mut actual = BTreeSet::new();
     let mut storage_names = BTreeSet::new();
     for ApplicationStorageAttachment {
         service_name,
         binding_name,
         storage_name,
+        placement,
     } in &deployment.storage_attachments
     {
+        let key = (service_name.as_str(), binding_name.as_str());
+        // Every retained attachment names a known binding, so equal counts mean every binding has one.
+        let allowed_placement = *placement != StoragePlacement::Unspecified as i32
+            && allowed
+                .get(&key)
+                .is_some_and(|placements| placements.contains(placement));
         if !valid_id(service_name)
             || !valid_id(binding_name)
             || !valid_id(storage_name)
-            || !actual.insert((service_name.as_str(), binding_name.as_str()))
+            || !allowed_placement
+            || !actual.insert(key)
             || !storage_names.insert(storage_name.as_str())
         {
             return Err(ApplicationRepositoryError::InvalidState);
         }
     }
-    if actual != expected {
+    if actual.len() != allowed.len() {
         return Err(ApplicationRepositoryError::InvalidState);
     }
     Ok(())
@@ -1121,15 +1131,17 @@ mod tests {
         application::v1::{
             ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
             ApplicationDeploymentDesiredState, ApplicationSecretAttachment,
-            ResolvedApplicationDeploymentSnapshot, ResolvedApplicationServiceSelection,
+            ApplicationStorageAttachment, ResolvedApplicationDeploymentSnapshot,
+            ResolvedApplicationServiceSelection,
         },
         catalog::v1::{
             Application, ApplicationConfigurationBinding, ApplicationEndpointProtocol,
             ApplicationGraph, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
             ApplicationSecretForm, ApplicationService, ApplicationServicePort, ParameterDefinition,
-            ParameterValue, ParameterVisibility, SecretParameterSchema, StringEnumParameterSchema,
-            TextParameterSchema, application_configuration_binding,
-            parameter_definition::ParameterType, parameter_value,
+            ParameterValue, ParameterVisibility, SecretParameterSchema, StorageBinding,
+            StorageKind, StoragePlacement, StringEnumParameterSchema, TextParameterSchema,
+            application_configuration_binding, parameter_definition::ParameterType,
+            parameter_value,
         },
         deployment::v1::{ArtifactPreparationPolicy, NodeResolvedLaunchIdentity},
     };
@@ -1344,6 +1356,81 @@ mod tests {
             validate_declarations(&[with_attachment("auto")]),
             Err(ApplicationRepositoryError::InvalidState)
         ));
+    }
+
+    #[test]
+    fn storage_attachment_retains_one_placement_its_binding_allows() {
+        let with_attachments = |attachments: &[(&str, StoragePlacement)]| {
+            let mut deployment = valid_deployment();
+            let graph = deployment
+                .snapshot
+                .as_mut()
+                .and_then(|snapshot| snapshot.graph.as_mut())
+                .expect("graph");
+            graph.services[0].storage_bindings = ["data", "models"]
+                .map(|name| StorageBinding {
+                    binding_name: name.to_owned(),
+                    mount_path: format!("/{name}"),
+                    kind: StorageKind::Data as i32,
+                    placements: vec![
+                        StoragePlacement::Application as i32,
+                        StoragePlacement::Deployment as i32,
+                    ],
+                    environment: Vec::new(),
+                })
+                .to_vec();
+            graph.services[0].storage_bindings[0].placements =
+                vec![StoragePlacement::Deployment as i32];
+            deployment.storage_attachments = attachments
+                .iter()
+                .map(|(name, placement)| ApplicationStorageAttachment {
+                    service_name: "service".to_owned(),
+                    binding_name: (*name).to_owned(),
+                    storage_name: format!("service-{name}"),
+                    placement: *placement as i32,
+                })
+                .collect();
+            deployment
+        };
+
+        for valid in [
+            with_attachments(&[
+                ("data", StoragePlacement::Deployment),
+                ("models", StoragePlacement::Application),
+            ]),
+            with_attachments(&[
+                ("data", StoragePlacement::Deployment),
+                ("models", StoragePlacement::Deployment),
+            ]),
+        ] {
+            assert!(validate_declarations(&[valid]).is_ok());
+        }
+        for invalid in [
+            with_attachments(&[
+                ("data", StoragePlacement::Application),
+                ("models", StoragePlacement::Application),
+            ]),
+            with_attachments(&[
+                ("data", StoragePlacement::Deployment),
+                ("models", StoragePlacement::Unspecified),
+            ]),
+            with_attachments(&[("data", StoragePlacement::Deployment)]),
+            with_attachments(&[
+                ("data", StoragePlacement::Deployment),
+                ("models", StoragePlacement::Application),
+                ("models", StoragePlacement::Deployment),
+            ]),
+            with_attachments(&[
+                ("data", StoragePlacement::Deployment),
+                ("models", StoragePlacement::Application),
+                ("other", StoragePlacement::Deployment),
+            ]),
+        ] {
+            assert!(matches!(
+                validate_declarations(&[invalid]),
+                Err(ApplicationRepositoryError::InvalidState)
+            ));
+        }
     }
 
     #[test]

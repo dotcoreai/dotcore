@@ -1269,7 +1269,7 @@ mod tests {
         catalog::v1::{
             HardwareRequirements, ModelOptionParameterValue, ModelOptionValues, NixSystemStorePath,
             ParameterValue, ParameterValues, Selector, StorageBinding, StorageEnvironmentVariable,
-            StorageKind, StorageScope, model_option_parameter_value, parameter_value,
+            StorageKind, StoragePlacement, model_option_parameter_value, parameter_value,
         },
         engine::{
             llama_cpp::v1::LlamaCppResolvedModelState, v1::resolved_engine_model_state::State,
@@ -2371,7 +2371,7 @@ mod tests {
                     binding_name: "compile-cache".to_owned(),
                     mount_path: "/cache".to_owned(),
                     kind: StorageKind::Cache as i32,
-                    scope: StorageScope::EngineArtifact as i32,
+                    placements: vec![StoragePlacement::EngineArtifact as i32],
                     environment: vec![
                         StorageEnvironmentVariable {
                             name: "CACHE_HOME".to_owned(),
@@ -2387,7 +2387,7 @@ mod tests {
                     binding_name: "scratch".to_owned(),
                     mount_path: "/scratch".to_owned(),
                     kind: StorageKind::Cache as i32,
-                    scope: StorageScope::Deployment as i32,
+                    placements: vec![StoragePlacement::Deployment as i32],
                     environment: Vec::new(),
                 },
             ]
@@ -3177,7 +3177,7 @@ mod tests {
         fs::write(
             &engine_path,
             format!(
-                "{engine}storageBindings:\n  - bindingName: \"compile-cache\"\n    mountPath: \"/cache\"\n    kind: \"STORAGE_KIND_CACHE\"\n    scope: \"STORAGE_SCOPE_ENGINE_ARTIFACT\"\n    environment:\n      - name: \"CACHE_HOME\"\n        relativePath: \"home\"\n      - name: \"CACHE_ROOT\"\n  - bindingName: \"scratch\"\n    mountPath: \"/scratch\"\n    kind: \"STORAGE_KIND_CACHE\"\n    scope: \"STORAGE_SCOPE_DEPLOYMENT\"\n"
+                "{engine}storageBindings:\n  - bindingName: \"compile-cache\"\n    mountPath: \"/cache\"\n    kind: \"STORAGE_KIND_CACHE\"\n    placements: [\"STORAGE_PLACEMENT_ENGINE_ARTIFACT\"]\n    environment:\n      - name: \"CACHE_HOME\"\n        relativePath: \"home\"\n      - name: \"CACHE_ROOT\"\n  - bindingName: \"scratch\"\n    mountPath: \"/scratch\"\n    kind: \"STORAGE_KIND_CACHE\"\n    placements: [\"STORAGE_PLACEMENT_DEPLOYMENT\"]\n"
             ),
         )
         .expect("engine storage fixture");

@@ -67,7 +67,8 @@ use crate::application::repository::{
     CurrentApplicationRepository,
 };
 pub use errors::{
-    ApplicationLifecycleError, ParameterRejection, RetainedTargetMismatch, TargetIneligibility,
+    ApplicationLifecycleError, ParameterRejection, RetainedTargetMismatch, StorageChoiceRejection,
+    TargetIneligibility,
 };
 use errors::{configuration, configuration_with_source, outcome_uncertain_with_source};
 pub use logs::ApplicationDeploymentLogController;

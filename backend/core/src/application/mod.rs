@@ -16,5 +16,5 @@ pub use controller::{
     ApplicationConfigurationSources, ApplicationController, ApplicationControllerConfiguration,
     ApplicationDeploymentLogController, ApplicationLifecycleController, ApplicationLifecycleError,
     InferenceRouteResolutionError, InferenceRouteResolver, ParameterRejection,
-    ResolvedInferenceRoute, RetainedTargetMismatch, TargetIneligibility,
+    ResolvedInferenceRoute, RetainedTargetMismatch, StorageChoiceRejection, TargetIneligibility,
 };

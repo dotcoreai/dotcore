@@ -662,6 +662,7 @@ impl LocalNodeHarness {
                 expected_inference_route_generation: route.map_or(0, |route| route.generation),
                 application_deployment_name: None,
                 parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
             }),
         )
         .await
@@ -1164,7 +1165,7 @@ graph:
           input:
             inferenceRoute:
               projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
-      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", scope: "STORAGE_SCOPE_DEPLOYMENT" }]
+      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
       readiness: { httpGet: { portName: "http", path: "/health" } }
   primaryEndpoint:
     serviceName: "web"

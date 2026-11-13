@@ -63,7 +63,7 @@ mod tests {
         ApplicationSecretForm, ApplicationService, ApplicationServiceDependency,
         ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact,
         NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition, ParameterVisibility,
-        SecretParameterSchema, StorageBinding, StorageKind, StorageScope,
+        SecretParameterSchema, StorageBinding, StorageKind, StoragePlacement,
         StringEnumParameterSchema, TextParameterSchema, UnsignedIntegerParameterSchema,
         application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
@@ -125,7 +125,7 @@ mod tests {
                             binding_name: "data".to_owned(),
                             mount_path: "/app/data".to_owned(),
                             kind: StorageKind::Data as i32,
-                            scope: StorageScope::Deployment as i32,
+                            placements: vec![StoragePlacement::Deployment as i32],
                             environment: Vec::new(),
                         }],
                         dependencies: vec![ApplicationServiceDependency {

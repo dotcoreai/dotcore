@@ -2,22 +2,22 @@
 
 use std::process::{Command, Output, Stdio};
 
+use dotcore_proto::dotcore::catalog::v1::{
+    ApplicationGraph, BooleanParameterSchema, ParameterDefinition, ParameterValue,
+    SecretParameterSchema, StoragePlacement, StringEnumParameterSchema, TextParameterSchema,
+    UnsignedIntegerParameterSchema, parameter_definition::ParameterType, parameter_value::Value,
+};
 use dotcore_proto::{
     dotcore::application::v1::{
         ApplicationDeployment, ApplicationDeploymentDesiredState, ApplicationDeploymentFailure,
         ApplicationEndpoint, ApplicationLifecycleState, ApplicationReadinessState,
         ApplicationSelectedInferenceRoute, ApplicationServiceLifecycleState,
-        ApplicationServiceObservation, DeploymentLogEntry, DeploymentLogResumePosition,
-        DeploymentLogSource, DeploymentLogSourceEvent, DeploymentLogSourceState,
-        FollowDeploymentLogsResponse, ReadDeploymentLogsResponse,
+        ApplicationServiceObservation, ApplicationStorageAttachment, DeploymentLogEntry,
+        DeploymentLogResumePosition, DeploymentLogSource, DeploymentLogSourceEvent,
+        DeploymentLogSourceState, FollowDeploymentLogsResponse, ReadDeploymentLogsResponse,
         follow_deployment_logs_response::Event,
     },
     google::protobuf::Timestamp,
-};
-use dotcore_proto::dotcore::catalog::v1::{
-    ApplicationGraph, BooleanParameterSchema, ParameterDefinition, ParameterValue,
-    SecretParameterSchema, StringEnumParameterSchema, TextParameterSchema,
-    UnsignedIntegerParameterSchema, parameter_definition::ParameterType, parameter_value::Value,
 };
 use tonic::Status;
 
@@ -701,7 +701,7 @@ fn a_terminal_teardown_warns_about_data_and_removes_when_accepted() {
         .join(" ");
     assert!(
         screen.contains(
-            "Tear down Chat? This stops and removes its workloads and deletes its application data. The catalog application is kept."
+            "Tear down Chat? This stops and removes its workloads and deletes this deployment's data (data). It keeps the data shared by the app (models) and the catalog application."
         ),
         "{}",
         run.screen()
@@ -923,6 +923,17 @@ fn mixed_deployments() -> Vec<ApplicationDeployment> {
         inference_route_id: "route-1".to_owned(),
         route_name: "gemma".to_owned(),
     });
+    ready.storage_attachments = [
+        ("data", StoragePlacement::Deployment),
+        ("models", StoragePlacement::Application),
+    ]
+    .map(|(binding, placement)| ApplicationStorageAttachment {
+        service_name: "web".to_owned(),
+        binding_name: binding.to_owned(),
+        storage_name: format!("web-{binding}"),
+        placement: placement as i32,
+    })
+    .to_vec();
 
     let mut starting = local_application_deployment("app-2", "Notes", Starting, Present);
     let state = starting.state.as_mut().expect("seeded state");

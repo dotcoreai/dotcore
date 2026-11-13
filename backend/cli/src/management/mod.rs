@@ -266,17 +266,6 @@ impl DeploymentGroup {
             Self::Application => "DOTCORE_APPLICATION_DEPLOYMENT",
         }
     }
-
-    /// What a teardown removes, asked after the deployment name in the confirmation.
-    pub(crate) fn teardown_consequence(self) -> &'static str {
-        match self {
-            Self::Model => "This removes the deployment and its running workload resources.",
-            Self::Application => {
-                "This stops and removes its workloads and deletes its application data. The \
-                 catalog application is kept."
-            }
-        }
-    }
 }
 
 /// A deployment the operator can name by its id or its name.
