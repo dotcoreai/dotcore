@@ -2,8 +2,15 @@ import type { RefObject } from "react";
 
 import type { ParameterView, ParameterViewValue } from "@/components/parameters/parameter-view";
 import { ParametersDetails, ParametersForm } from "@/components/parameters/parameters";
+import { DetailList } from "@/components/ui/detail-list";
+import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
 import type { EngineParameterSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
-import type { ParameterDefinition, ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import {
+  type ParameterDefinition,
+  type ParameterValues,
+  ParameterVisibility,
+} from "@/gen/dotcore/catalog/v1/parameter_pb";
+import type { ResolvedLocalModelDeploymentSnapshot } from "@/gen/dotcore/model/v1/deployment_pb";
 
 interface EngineParametersFormProps {
   errors: ReadonlyMap<string, string>;
@@ -52,13 +59,61 @@ export function EngineParametersDetails({
 }) {
   if (!schema || !values) return null;
 
-  const retained = new Map<string, ParameterViewValue>();
-  for (const value of values.values) {
-    if (value.value.case !== undefined) retained.set(value.parameterId, value.value.value);
-  }
   return (
-    <ParametersDetails parameters={engineParameterViews(schema.parameters)} values={retained} />
+    <ParametersDetails
+      parameters={engineParameterViews(schema.parameters)}
+      values={parameterValueMap(values)}
+    />
   );
+}
+
+/**
+ * A model deployment's Parameters section: every engine parameter it uses that is basic or advanced
+ * for its profile, in schema order, read from the snapshot alone. Values equal to the profile's
+ * default are tagged `default`, sizing's `sized` and a generated secret `generated`.
+ */
+export function DeploymentParametersSection({
+  snapshot,
+}: {
+  snapshot: ResolvedLocalModelDeploymentSnapshot;
+}) {
+  const { engineParameterSchema: schema, engineParameterValues: values } = snapshot;
+  if (!schema || !values) return null;
+
+  const shown = schema.parameters.filter((parameter) => {
+    const visibility =
+      snapshot.profileEngineParameterVisibilityOverrides.find(
+        (override) => override.parameterId === parameter.parameterId,
+      )?.visibility ?? parameter.visibility;
+    return visibility !== ParameterVisibility.HIDDEN;
+  });
+  const retained = parameterValueMap(values);
+  const defaults = parameterValueMap(snapshot.profileEngineParameterDefaults);
+  const views = engineParameterViews(shown).filter((view) => retained.has(view.id));
+  if (!views.length) return null;
+
+  return (
+    <section aria-labelledby="deployment-parameters-heading">
+      <InspectorSectionHeader headingId="deployment-parameters-heading" title="Parameters" />
+      <DetailList>
+        <ParametersDetails
+          defaults={defaults}
+          generatedIds={new Set(snapshot.generatedEngineParameterIds)}
+          parameters={views}
+          sizedIds={new Set(snapshot.sizing?.derivedEngineParameterIds)}
+          values={retained}
+        />
+      </DetailList>
+    </section>
+  );
+}
+
+function parameterValueMap(values: ParameterValues | undefined): Map<string, ParameterViewValue> {
+  const map = new Map<string, ParameterViewValue>();
+  for (const value of values?.values ?? []) {
+    if (value.value.case !== undefined) map.set(value.parameterId, value.value.value);
+  }
+  return map;
 }
 
 function engineParameterViews(parameters: readonly ParameterDefinition[]): ParameterView[] {
@@ -75,6 +130,21 @@ function engineParameterViews(parameters: readonly ParameterDefinition[]): Param
         const { maximum, minimum, unit } = parameter.parameterType.value;
         return [{ ...base, type: { kind: "unsignedInteger", maximum, minimum, unit } }];
       }
+      case "stringEnum":
+        return [
+          { ...base, type: { kind: "stringEnum", values: parameter.parameterType.value.values } },
+        ];
+      case "text": {
+        const { maximumLength, minimumLength } = parameter.parameterType.value;
+        return [{ ...base, type: { kind: "text", maximumLength, minimumLength } }];
+      }
+      case "secret":
+        return [
+          {
+            ...base,
+            type: { kind: "secret", minimumLength: parameter.parameterType.value.minimumLength },
+          },
+        ];
       default:
         return [];
     }

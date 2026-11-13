@@ -152,18 +152,21 @@ function RangeFact({ type }: { type: { maximum: bigint; minimum: bigint; unit: s
 
 /**
  * Detail rows for retained parameter values, in view order; a missing or mistyped value is skipped.
- * A value equal to its default is tagged `default`, a secret is masked until revealed, and the IDs
- * in `generatedIds` are tagged `generated`.
+ * A value equal to its default is tagged `default`, a secret is masked until revealed, the IDs in
+ * `generatedIds` are tagged `generated`, and the IDs in `sizedIds` are tagged `sized` instead of
+ * `default`.
  */
 export function ParametersDetails({
   defaults,
   generatedIds,
   parameters,
+  sizedIds,
   values,
 }: {
   defaults?: ReadonlyMap<string, ParameterViewValue | undefined>;
   generatedIds?: ReadonlySet<string>;
   parameters: readonly ParameterView[];
+  sizedIds?: ReadonlySet<string>;
   values: ReadonlyMap<string, ParameterViewValue>;
 }) {
   return parameters.map((parameter) => {
@@ -172,7 +175,11 @@ export function ParametersDetails({
     if (displayValue === undefined) return null;
 
     const isDefault = value !== undefined && defaults?.get(parameter.id) === value;
-    const tag = isDefault ? <ValueTag>default</ValueTag> : null;
+    const tag = sizedIds?.has(parameter.id) ? (
+      <ValueTag>sized</ValueTag>
+    ) : isDefault ? (
+      <ValueTag>default</ValueTag>
+    ) : null;
     if (parameter.type.kind === "secret") {
       return (
         <Detail
