@@ -16,7 +16,6 @@ Code: `backend/catalog/` (declarations, validation, sizing), `catalog/` (the mas
 - Set the same context parameters on every engine: total context, context per request and parallel
   requests, with engine defaults.
 - See catalog estimates per hardware class for a scenario you choose.
-- Get model recommendations for your use cases, from lists the catalog curates per hardware class.
 - Compare models by the Dotcore Bench Intelligence Score, and see each model's upstream licence with
   a link to its terms.
 - Add your own entries through a site or development catalog.
@@ -32,7 +31,7 @@ flowchart TB
   AM["Artifact manager: declarations"]
   EA["Engine adapters"]
   RES["Model deployment resolution"]
-  APPS["App deployments"]
+  APPS["Application deployments"]
   CAP["Capacity component"]
   SC -->|"adds unique identities"| MC
   Layers -->|"declarations"| AM
@@ -97,7 +96,7 @@ option effects itself.
   estimate for a supported hardware class, or a derivation for an engine parameter that a profile
   omits and the engine release doesn't default.
 - Sizing equations must be linear in the total context, so the largest fitting total context follows
-  from the estimates. Repository catalog checks enforce it.
+  from the estimates.
 - Repository checks keep the master catalog pointing only at Dotcore's own repository. The backend
   accepts any locked source in site and development catalogs.
 
@@ -114,8 +113,8 @@ option effects itself.
   declare a lower one when its engine can't serve the model's. Resolution enforces the lower of the
   two at deploy time. Engine limits stay separate, as engine parameter bounds.
 - May carry an intelligence score and the upstream licence with a link to its terms. Both are display
-  metadata, outside the model's release identity and deployment snapshots, with no admission,
-  placement or fit authority. The licence is not a compliance assessment.
+  metadata, outside the model's release identity and deployment snapshots. The licence is not a
+  compliance assessment.
 
 ### Model-local engine configuration
 
@@ -136,15 +135,15 @@ A preset of defaults for one engine configuration.
 ### Engine release
 
 - Declares the shared engine parameters (total context, context per request, parallel requests),
-  exposed and unsigned, with a default on total context and parallel requests and none on context per
-  request. Each release sets its own bounds, defaults and descriptions, and adapters map them to
-  engine flags.
-- May declare defaults on unsigned parameters, within their bounds. A default on a parameter that
-  sizing derives is rejected.
+  exposed, with a default on total context and parallel requests and none on context per request.
+  Each release sets its own bounds, defaults and descriptions.
+- May declare parameter defaults within their bounds. A default on a parameter that sizing derives
+  is rejected.
 
 ### Hardware class
 
-- Its selector matches a target's concrete platform and observed facts. The most specific match wins.
+- Its selector matches a target's concrete platform and observed facts. Resolution chooses among the
+  matches ([models](models.md#resolving-a-deployment)).
 - Its selector may name exact GPU models, matching a target only when every GPU the target uses
   reports one. Engine artifact selectors can't.
 
@@ -164,8 +163,8 @@ minimums.
   replace them.
 - Validation keeps each entry runnable on its class and serving its use case's request kind, and
   keeps the classes that declare lists disjoint or nested.
-- A site turns them into recommendations per use case ([models](models.md)). They're advisory and
-  never used for admission or placement.
+- A site turns them into advisory recommendations per use case
+  ([models](models.md#advisory-reads)).
 
 ### App graph
 
