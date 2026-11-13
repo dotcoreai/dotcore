@@ -33,6 +33,15 @@ message Site {
 
   // Inference-controller-owned allocation state for never-reused model deployment IDs.
   ModelDeploymentIdentityAllocator model_deployment_identity_allocator = 8;
+
+  // Site-wide console settings shared by every browser; never part of node desired views.
+  ConsoleSettings console_settings = 9;
+}
+
+// Operator choices about the console that apply to the whole site, not to one browser or user.
+message ConsoleSettings {
+  // Whether the Get started page is hidden from the console's navigation.
+  bool get_started_hidden = 1;
 }
 
 // Durable allocator for model deployment identities within this site.

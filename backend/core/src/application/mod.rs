@@ -2,6 +2,7 @@
 
 mod controller;
 mod published_port;
+mod recommendation;
 pub mod repository;
 pub mod service;
 pub(crate) mod workloads;
@@ -17,3 +18,4 @@ pub use controller::{
     InferenceRouteResolutionError, InferenceRouteResolver, ParameterRejection,
     ResolvedInferenceRoute, RetainedTargetMismatch, TargetIneligibility,
 };
+pub(crate) use recommendation::recommend_application_targets;

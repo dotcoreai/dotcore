@@ -433,7 +433,7 @@ fn repository_recommendation_entries_fit_idle_machines_of_their_class() {
     assert_eq!(failures, Vec::<String>::new());
 }
 
-/// ninfer leads coding and agents on each card of the GB202 chip it is built for, and is never
+/// ninfer leads coding on each card of the GB202 chip it is built for, and is never
 /// offered on another dedicated GPU, even one with more memory.
 #[test]
 fn repository_ninfer_leads_coding_on_gb202_cards_only() {
@@ -443,7 +443,7 @@ fn repository_ninfer_leads_coding_on_gb202_cards_only() {
     let coding = |machine: &dotcore_node_hardware::MachineDescription| {
         IdleMachine::new(machine, Timing::test().node_control)
             .expect("idle simulated machine")
-            .recommend(&catalog, &[UseCase::CodingAndAgents])
+            .recommend(&catalog, &[UseCase::Coding])
             .into_iter()
             .flat_map(|recommendations| recommendations.rows)
             .map(|row| (row.model_id, row.profile_id))
@@ -472,9 +472,9 @@ fn repository_ninfer_leads_coding_on_gb202_cards_only() {
     assert_eq!(
         coding(&large_4090),
         [
-            ("qwen3-8-27b".to_owned(), "q4-xl".to_owned()),
-            ("qwen3-5-9b".to_owned(), "q4-xl".to_owned()),
-            ("qwen3-5-4b".to_owned(), "q4-xl".to_owned()),
+            ("qwen3-8-27b".to_owned(), "q3-xl-q8-kv".to_owned()),
+            ("gemma-4-12b-it-qat".to_owned(), "gpu".to_owned()),
+            ("qwen3-5-4b".to_owned(), "q3-xl".to_owned()),
         ]
     );
 }
@@ -487,7 +487,7 @@ fn recommendation_entry_checks_fail_on_a_minimum_set_too_low() {
         format!(
             r#"hardwareClassId: "nvidia-dedicated"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - {{ modelId: "big", profileId: "q4", hardwareRequirements: {{ minimumMemoryBytesPerDevice: "{minimum}" }} }}
       - {{ modelId: "small", profileId: "q4" }}
@@ -520,7 +520,7 @@ useCases:
     assert_eq!(
         recommendation_entry_failures(&catalog_with("8000000000")),
         [
-            "recommendations/nvidia-dedicated.yaml, USE_CASE_CODING_AND_AGENTS, big/q4: \
+            "recommendations/nvidia-dedicated.yaml, USE_CASE_CODING, big/q4: \
              not recommended on idle simulated hardware rtx-4080, rtx-4090, rtx-5090, rtx-pro-6000 \
              resized to its minimum of 8000000000 bytes"
         ]

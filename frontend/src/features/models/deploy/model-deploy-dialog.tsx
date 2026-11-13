@@ -33,10 +33,11 @@ import { type ModelDeployFormOptions, useModelDeployForm } from "./use-model-dep
  * context, and the deployment name, plus the target when more than one can deploy the profile; the
  * Advanced checkbox adds every target, the context per request, runtime values, and routing without
  * discarding entered values. The Context step and the profile table's "Sized for" edit one shared
- * context.
+ * context. The opener receives the launch on submit and can name the last action after what it
+ * does with it, such as keeping the choices without deploying.
  */
 export function ModelDeployDialog(props: ModelDeployDialogProps) {
-  const { error, model, onOpenChange, open, openerRef, pending } = props;
+  const { error, labels = deployLabels, model, onOpenChange, open, openerRef, pending } = props;
   const form = useModelDeployForm(props);
   const {
     advanced,
@@ -101,12 +102,12 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
         ) : undefined
       }
       primaryDisabled={step === "Deploy" && form.deployDisabled}
-      primaryLabel={step === "Deploy" ? (pending ? "Deploying…" : "Deploy") : "Next"}
+      primaryLabel={step === "Deploy" ? (pending ? labels.pending : labels.submit) : "Next"}
       resourceColorKey={model.modelId}
       resourceName={model.displayName}
       steps={steps}
       submitError={step === "Deploy" ? error : undefined}
-      title="Deploy model"
+      title={labels.title}
       visitedSteps={form.visitedSteps}
     >
       {step === "Target" ? (
@@ -440,6 +441,21 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
 
 export interface ModelDeployDialogProps extends ModelDeployFormOptions {
   error?: string;
+  /** The dialog's title and its last step's action; deploying a model without them. */
+  labels?: ModelDeployLabels;
   openerRef?: RefObject<HTMLElement | null>;
   onOpenChange: (open: boolean) => void;
 }
+
+/** The dialog's title and the last step's action, idle and while the opener works on it. */
+export interface ModelDeployLabels {
+  pending: string;
+  submit: string;
+  title: string;
+}
+
+const deployLabels: ModelDeployLabels = {
+  pending: "Deploying…",
+  submit: "Deploy",
+  title: "Deploy model",
+};

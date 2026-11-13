@@ -20,8 +20,9 @@ use crate::{
     node_memory::NodeMemoryRead, route_manager::RouteManager,
 };
 
-/// The reads of every resource kind from their owners: the site inventory, the inference and
-/// apps controllers, the route manager, and the capacity component's node memory.
+/// The reads of every resource kind from their owners: the site inventory and console settings,
+/// the inference and apps controllers, the route manager, and the capacity component's node
+/// memory.
 pub(crate) fn owner_reads<M, A>(
     site: Arc<SiteService>,
     models: M,
@@ -42,15 +43,21 @@ where
             let site = Arc::clone(&site);
             move || site.hardware_snapshots().map(Payload::HardwareSnapshots)
         })),
-        execution_targets: Arc::new(BlockingRead::new(move || {
-            site.configured_execution_targets()
-                .map(Payload::ExecutionTargets)
+        execution_targets: Arc::new(BlockingRead::new({
+            let site = Arc::clone(&site);
+            move || {
+                site.configured_execution_targets()
+                    .map(Payload::ExecutionTargets)
+            }
         })),
         model_deployments: Arc::new(ModelDeploymentsRead(models)),
         application_deployments: Arc::new(ApplicationDeploymentsRead(applications)),
         routes: Arc::new(RoutesRead(routes)),
         node_memory: Arc::new(BlockingRead::new(move || {
             node_memory.list().map(Payload::NodeMemory)
+        })),
+        console_settings: Arc::new(BlockingRead::new(move || {
+            site.console_settings().map(Payload::ConsoleSettings)
         })),
     }
 }

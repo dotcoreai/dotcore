@@ -1,6 +1,9 @@
 hardwareClassId: "nvidia-dedicated"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - { modelId: "big", profileId: "q4", hardwareRequirements: { minimumMemoryBytesPerDevice: "24000000000" } }
+      - { modelId: "small", profileId: "q4" }
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
+    entries:
       - { modelId: "small", profileId: "q4" }

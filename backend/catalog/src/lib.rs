@@ -2129,7 +2129,7 @@ artifacts:
 
     const NVIDIA_RECOMMENDATIONS: &str = r#"hardwareClassId: "nvidia"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - modelId: "fixture-model"
         profileId: "balanced"
@@ -2137,7 +2137,7 @@ useCases:
           minimumMemoryBytesPerDevice: "32000000000"
       - modelId: "fixture-model"
         profileId: "fast"
-  - useCase: "USE_CASE_TRANSLATION"
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - modelId: "fixture-model"
         profileId: "fast"
@@ -2187,10 +2187,10 @@ useCases:
             [
                 (
                     "nvidia",
-                    UseCase::CodingAndAgents,
+                    UseCase::Coding,
                     vec![("balanced", Some(32_000_000_000)), ("fast", None)]
                 ),
-                ("nvidia", UseCase::Translation, vec![("fast", None)]),
+                ("nvidia", UseCase::ChatAssistant, vec![("fast", None)]),
             ]
         );
         fs::remove_dir_all(root).expect("Catalog fixture cleanup");
@@ -2248,6 +2248,108 @@ useCases:
     }
 
     #[test]
+    fn master_catalog_applications_serve_distinct_use_cases() {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        let mut chat = super::test_support::application();
+        chat.use_cases = vec![UseCase::ChatAssistant as i32];
+        let mut images = super::test_support::application();
+        images.application_id = "fixture-images".to_owned();
+        images.use_cases = vec![UseCase::ImageGeneration as i32];
+        images.preferred_accelerators = vec!["nvidia".to_owned()];
+        write_application(&root, "chat.yaml", &chat);
+        write_application(&root, "images.yaml", &images);
+
+        let catalog = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("applications serving distinct use cases load");
+        assert_eq!(
+            catalog
+                .list_application_releases()
+                .iter()
+                .map(|application| (
+                    application.application_id.as_str(),
+                    application.use_cases().collect::<Vec<_>>(),
+                    application.preferred_accelerators.clone(),
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    "fixture-application",
+                    vec![UseCase::ChatAssistant],
+                    Vec::new()
+                ),
+                (
+                    "fixture-images",
+                    vec![UseCase::ImageGeneration],
+                    vec!["nvidia".to_owned()]
+                ),
+            ]
+        );
+
+        let mut second_chat = images;
+        second_chat.use_cases = vec![
+            UseCase::ImageGeneration as i32,
+            UseCase::ChatAssistant as i32,
+        ];
+        write_application(&root, "images.yaml", &second_chat);
+        let error = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("a use case served by two applications is rejected");
+        assert_eq!(
+            error.to_string(),
+            "Catalog diagnostics: applications/images.yaml: application \"fixture-images\" serves use case USE_CASE_CHAT_ASSISTANT, already served by application \"fixture-application\" in applications/chat.yaml"
+        );
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
+    fn catalog_layers_cannot_declare_application_use_cases() {
+        let root = temporary_catalog_root();
+        let master = root.join("master");
+        let layer = root.join("layer");
+        create_empty_catalog_source(&master);
+        create_empty_catalog_source(&layer);
+        let mut application = super::test_support::application();
+        application.use_cases = vec![UseCase::Coding as i32];
+        write_application(&layer, "coding.yaml", &application);
+
+        let development =
+            Catalog::load_development_sources(&master, &layer, &ACCEPT_ENGINE_DECLARATIONS)
+                .expect_err("a development layer must not declare application use cases");
+        let site = Catalog::load_sources_with_policy(
+            &master,
+            &layer,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("a site layer must not declare application use cases");
+
+        assert_eq!(
+            development.to_string(),
+            "Catalog diagnostics: development catalog applications/coding.yaml: application use cases can only be declared by the master catalog"
+        );
+        assert_eq!(
+            site.to_string(),
+            "Catalog diagnostics: site catalog applications/coding.yaml: application use cases can only be declared by the master catalog"
+        );
+
+        // A layer application that serves no use case still loads.
+        application.use_cases.clear();
+        application.preferred_accelerators = vec!["nvidia".to_owned()];
+        write_application(&layer, "coding.yaml", &application);
+        Catalog::load_development_sources(&master, &layer, &ACCEPT_ENGINE_DECLARATIONS)
+            .expect("a layer application without use cases loads");
+        fs::remove_dir_all(root).expect("Catalog fixture cleanup");
+    }
+
+    #[test]
     fn recommendations_on_wider_and_narrower_classes_than_the_supported_one_are_valid() {
         let root = recommendation_fixture("      - hardwareClassId: \"nvidia\"\n");
         for (class, selector) in [
@@ -2265,7 +2367,7 @@ useCases:
                 &root,
                 class,
                 &format!(
-                    "hardwareClassId: \"{class}\"\nuseCases:\n  - useCase: \"USE_CASE_GENERAL_ASSISTANT\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n"
+                    "hardwareClassId: \"{class}\"\nuseCases:\n  - useCase: \"USE_CASE_CHAT_ASSISTANT\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n"
                 ),
             );
         }
@@ -2310,9 +2412,9 @@ useCases:
                 lists.concat()
             )
         };
-        let assistant = |entries: &[(&str, &str)]| list("USE_CASE_GENERAL_ASSISTANT", entries);
+        let assistant = |entries: &[(&str, &str)]| list("USE_CASE_CHAT_ASSISTANT", entries);
         let balanced = [("fixture-model", "balanced")];
-        let entry = "use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"fixture-model\" profile \"balanced\")";
+        let entry = "use case USE_CASE_CHAT_ASSISTANT entry 1 (model \"fixture-model\" profile \"balanced\")";
         let nvidia_support = "      - hardwareClassId: \"nvidia\"\n";
         let minimum_support = "      - hardwareClassId: \"nvidia\"\n        hardwareRequirements:\n          minimumMemoryBytesPerDevice: \"16000000000\"\n";
 
@@ -2333,31 +2435,25 @@ useCases:
                 "repeated use case",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&balanced), assistant(&[("fixture-model", "fast")])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" list use case USE_CASE_GENERAL_ASSISTANT more than once".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" list use case USE_CASE_CHAT_ASSISTANT more than once".to_owned(),
             ),
             (
                 "unknown model",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&[("missing", "balanced")])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"missing\" profile \"balanced\") references an unknown model".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CHAT_ASSISTANT entry 1 (model \"missing\" profile \"balanced\") references an unknown model".to_owned(),
             ),
             (
                 "unknown profile",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&[("fixture-model", "missing")])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 1 (model \"fixture-model\" profile \"missing\") references an unknown profile".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CHAT_ASSISTANT entry 1 (model \"fixture-model\" profile \"missing\") references an unknown profile".to_owned(),
             ),
             (
                 "unrelated class",
                 nvidia_support,
                 vec![("apple", file("apple", &[assistant(&balanced)]))],
                 format!("recommendations/apple.yaml: model recommendations for hardware class \"apple\" {entry} runs a configuration that supports neither this hardware class, a class containing it, nor a class nested in it"),
-            ),
-            (
-                "decision making without decision requests",
-                nvidia_support,
-                vec![("nvidia", file("nvidia", &[list("USE_CASE_DECISION_MAKING", &balanced)]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_DECISION_MAKING entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_DECISION requests".to_owned(),
             ),
             (
                 "entry minimum below the configuration's",
@@ -2372,10 +2468,34 @@ useCases:
                 format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets minimum memory per device 8000000000 bytes, below its configuration's 16000000000 bytes"),
             ),
             (
+                "context per request above the maximum context",
+                nvidia_support,
+                vec![(
+                    "nvidia",
+                    file("nvidia", &[assistant(&balanced)]).replace(
+                        "profileId: \"balanced\"\n",
+                        "profileId: \"balanced\"\n        contextTokensPerRequest: 262145\n",
+                    ),
+                )],
+                format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets context per request 262145 tokens, above its configuration's maximum context of 262144 tokens"),
+            ),
+            (
+                "context per request below the minimum context",
+                nvidia_support,
+                vec![(
+                    "nvidia",
+                    file("nvidia", &[assistant(&balanced)]).replace(
+                        "profileId: \"balanced\"\n",
+                        "profileId: \"balanced\"\n        contextTokensPerRequest: 1023\n",
+                    ),
+                )],
+                format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets context per request 1023 tokens, below the minimum context of 1024 tokens"),
+            ),
+            (
                 "repeated entry",
                 nvidia_support,
                 vec![("nvidia", file("nvidia", &[assistant(&[balanced[0], balanced[0]])]))],
-                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_GENERAL_ASSISTANT entry 2 (model \"fixture-model\" profile \"balanced\") repeats an earlier entry".to_owned(),
+                "recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CHAT_ASSISTANT entry 2 (model \"fixture-model\" profile \"balanced\") repeats an earlier entry".to_owned(),
             ),
             (
                 "class declared twice",
@@ -2420,7 +2540,7 @@ useCases:
     }
 
     #[test]
-    fn chat_use_cases_require_a_configuration_accepting_chat_requests() {
+    fn coding_entries_require_a_configuration_accepting_chat_requests() {
         let root = recommendation_fixture("      - hardwareClassId: \"nvidia\"\n");
         let path = root.join("models/fixture.yaml");
         let model = fs::read_to_string(&path).expect("fixture model");
@@ -2435,7 +2555,7 @@ useCases:
         super::test_support::write_recommendations(
             &root,
             "nvidia",
-            "hardwareClassId: \"nvidia\"\nuseCases:\n  - useCase: \"USE_CASE_DECISION_MAKING\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n  - useCase: \"USE_CASE_TRANSLATION\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n",
+            "hardwareClassId: \"nvidia\"\nuseCases:\n  - useCase: \"USE_CASE_CODING\"\n    entries:\n      - modelId: \"fixture-model\"\n        profileId: \"balanced\"\n",
         );
 
         let error = Catalog::load_with_policy(
@@ -2443,12 +2563,12 @@ useCases:
             OciArtifactPolicy::Development,
             &ACCEPT_ENGINE_DECLARATIONS,
         )
-        .expect_err("a chat use case on a decision-only configuration must reject")
+        .expect_err("a coding entry on a decision-only configuration must reject")
         .to_string();
 
         assert_eq!(
             error,
-            "Catalog diagnostics: recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_TRANSLATION entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_CHAT requests"
+            "Catalog diagnostics: recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" use case USE_CASE_CODING entry 1 (model \"fixture-model\" profile \"balanced\") runs a configuration that doesn't accept INFERENCE_REQUEST_KIND_CHAT requests"
         );
         fs::remove_dir_all(root).expect("Catalog fixture cleanup");
     }

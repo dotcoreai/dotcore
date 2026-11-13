@@ -13,6 +13,7 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { type ChatMode, ChatOpenerContext } from "@/features/chat/chat-opener";
 import { ChatPanel } from "@/features/chat/chat-panel";
 import { ChatSessionProvider } from "@/features/chat/chat-session-provider";
+import { GetStartedHiddenProvider } from "@/features/get-started/get-started-hidden";
 import { ModelsPollingProvider } from "@/features/models/polling/models-polling-provider";
 import { WatchPauseProvider } from "@/hooks/watch-pause-provider";
 import type { StorageLike } from "@/lib/browser-storage";
@@ -36,11 +37,13 @@ export function ConsoleLayout({ eventTarget, storage }: ConsoleLayoutProps) {
     <SidebarPreferenceProvider eventTarget={eventTarget} storage={storage}>
       <ResourceWatchProvider client={resourceWatchClient}>
         <ResourceColorProvider>
-          <ModelsPollingProvider client={modelClient}>
-            <WatchPauseProvider>
-              <ConsoleLayoutShell storage={storage} />
-            </WatchPauseProvider>
-          </ModelsPollingProvider>
+          <GetStartedHiddenProvider>
+            <ModelsPollingProvider client={modelClient}>
+              <WatchPauseProvider>
+                <ConsoleLayoutShell storage={storage} />
+              </WatchPauseProvider>
+            </ModelsPollingProvider>
+          </GetStartedHiddenProvider>
         </ResourceColorProvider>
       </ResourceWatchProvider>
     </SidebarPreferenceProvider>

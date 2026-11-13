@@ -13,8 +13,8 @@ recommendations), `backend/core/src/telemetry/` (workload resource records).
   execution target.
 - Use profiles as presets, and override typed options, engine parameters and expert launch arguments
   when you create a deployment.
-- Get model recommendations for your use cases across the site's targets, through a guided quick
-  start.
+- Get model recommendations for your use cases across the site's targets, through the Get started
+  page.
 - See which configured targets can run each profile, and narrow the catalog to profiles whose fit
   allows them there.
 - See advisory memory estimates for a configuration when measured evidence exists, and its fit on
@@ -167,6 +167,9 @@ flowchart LR
 - Recommendations: each target takes its most specific hardware class's list per use case. Entries
   are kept or dropped by the capacity component's verdicts, entry minimums included, and the result
   is one ranking per use case across the site.
+- A caller may ask for "can start now": rows keep only targets that already run the model or fit
+  free memory now, and rows with a running or starting deployment come first. Each row's target
+  names that deployment, and each row carries its context per request.
 - A target that stopped reporting is judged on its last observations for recommendations, marked
   unreachable with free memory unknown, until its node leaves the site. This is the only read that
   accepts stale observations.

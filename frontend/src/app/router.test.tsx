@@ -54,6 +54,7 @@ import {
 } from "@/gen/dotcore/observation/v1/observation_pb";
 import {
   CurrentHardwareSnapshotAvailabilitySchema,
+  GetConsoleSettingsResponseSchema,
   ListConfiguredExecutionTargetsResponseSchema,
   ListHardwareSnapshotsResponseSchema,
   ListMachinesResponseSchema,
@@ -66,6 +67,7 @@ import {
   hardwareSnapshotsPayload,
   type ResourceSources,
 } from "@/test/fake-resource-watch";
+import { rejectConsoleSettingsUpdate } from "@/test/fake-site-client";
 import { renderWithClients } from "@/test/render-with-clients";
 import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
@@ -80,6 +82,7 @@ const deterministicModelClient: ModelClient = {
   },
   model: {
     listModelDeployments: () => Promise.resolve(create(ListModelDeploymentsResponseSchema)),
+    listModelRecommendations: () => Promise.reject(new Error("not faked")),
     createModelDeployment: () => Promise.reject(new Error("load not configured")),
     removeModelDeployment: () => Promise.reject(new Error("unload not configured")),
     updateModelDeployment: () => Promise.reject(new Error("update not configured")),
@@ -100,6 +103,7 @@ const deterministicRouteClient: RouteClient = {
 };
 
 const deterministicSiteClient: SiteClient = {
+  updateConsoleSettings: rejectConsoleSettingsUpdate,
   listConfiguredExecutionTargets: () =>
     Promise.resolve(create(ListConfiguredExecutionTargetsResponseSchema)),
 };
@@ -128,6 +132,7 @@ const deterministicApplicationClient: ApplicationClient = {
     listApplications: () => Promise.resolve(create(ListApplicationsResponseSchema)),
   },
   application: {
+    listApplicationTargets: () => Promise.reject(new Error("not faked")),
     listApplicationDeployments: () =>
       Promise.resolve(create(ListApplicationDeploymentsResponseSchema)),
     getApplicationDeployment: () => Promise.resolve(create(GetApplicationDeploymentResponseSchema)),
@@ -163,6 +168,7 @@ function renderAt(
         watched.hardwareSnapshots ??
         (() => Promise.resolve(create(ListHardwareSnapshotsResponseSchema))),
       machines: watched.machines ?? (() => Promise.resolve(create(ListMachinesResponseSchema))),
+      consoleSettings: () => Promise.resolve(create(GetConsoleSettingsResponseSchema)),
       modelDeployments: () => modelClient.model.listModelDeployments({}),
       nodeMemory: () => Promise.resolve(nodeMemoryPayload([])),
       routes: () => routeClient.route.listRoutes({}),
@@ -545,6 +551,7 @@ describe("application router", () => {
       availableMachine("local", "Local machine"),
     ];
     const siteClient: SiteClient = {
+      updateConsoleSettings: rejectConsoleSettingsUpdate,
       listConfiguredExecutionTargets: vi.fn(() =>
         Promise.resolve(create(ListConfiguredExecutionTargetsResponseSchema)),
       ),
@@ -611,6 +618,7 @@ describe("application router", () => {
     });
     const siteClient: SiteClient = {
       ...deterministicSiteClient,
+      updateConsoleSettings: rejectConsoleSettingsUpdate,
       listConfiguredExecutionTargets: () =>
         Promise.resolve(
           create(ListConfiguredExecutionTargetsResponseSchema, {
@@ -660,6 +668,7 @@ describe("application router", () => {
     await waitFor(() =>
       expect(watch.watchedKinds().sort()).toEqual([
         "applicationDeployments",
+        "consoleSettings",
         "executionTargets",
         "hardwareSnapshots",
         "machines",

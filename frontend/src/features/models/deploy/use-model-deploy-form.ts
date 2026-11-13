@@ -15,6 +15,7 @@ import { useWizardSteps } from "@/features/deployments/use-wizard-steps";
 import {
   deploymentExposure,
   type DeploymentExposureValues,
+  deploymentExposureValues,
   routeBlockingMessage,
   type RouteNameConflict,
   validateDeploymentExposure,
@@ -62,6 +63,7 @@ import {
   kvCachePrecisionOverrides,
 } from "@/features/models/runtime/kv-cache-precision";
 import {
+  type LocalDeploymentConfigurationValues,
   parallelRequestsCustomization,
   profileEngineRelease,
   runtimeCustomizations,
@@ -86,6 +88,7 @@ import {
   type ModelDeployment,
   type ResolvedLocalModelDeploymentSnapshot,
 } from "@/gen/dotcore/model/v1/deployment_pb";
+import type { ModelDeploymentExposure } from "@/gen/dotcore/model/v1/service_pb";
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
@@ -93,6 +96,7 @@ import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/f
 import { formatCompactCount, formatCount } from "@/lib/format";
 
 import {
+  configurationStart,
   fallbackStep,
   launchRejectionField,
   type LocalDeploymentValues,
@@ -101,10 +105,10 @@ import {
   type ModelDeployStep,
   modelDeploySteps,
   operatorSentence,
-  profileDefaults,
   scenarioContext,
   scenarioInput,
   settledContext,
+  startContext,
   useLaunchEngineValues,
   withoutChosenContextErrors,
   withoutUnsetContextPerRequest,
@@ -131,6 +135,10 @@ export function useModelDeployForm({
   existingRouteNames = [],
   catalogChips = defaultCatalogChips,
   deployments,
+  initialConfiguration,
+  initialExposure,
+  initialName,
+  initialPlacement,
   initialProfileId,
   listConfiguredExecutionTargets,
   listProfileCompatibility,
@@ -149,11 +157,13 @@ export function useModelDeployForm({
   const advancedMode = useAdvancedMode(open);
   const { advanced, announcement } = advancedMode;
   const dirtyFields = useDirtyFields<ModelDeployField>(open);
-  const [exposureValues, setExposureValues] = useState<DeploymentExposureValues>({
-    exposure: "direct",
-  });
-  // The launch's context, starting from the opener's scenario; changing it leaves the opener alone.
-  const [context, setContext] = useState(() => scenarioContext(startScenario));
+  const [exposureValues, setExposureValues] = useState<DeploymentExposureValues>(() =>
+    initialExposure
+      ? deploymentExposureValues(initialExposure, initialName ?? model.displayName)
+      : { exposure: "direct" },
+  );
+  // The launch's context, starting from the opener's; changing it leaves the opener alone.
+  const [context, setContext] = useState(() => startContext(startScenario, initialConfiguration));
   // The chosen context's "Sized for", which the dialog's read sizes; absent at the default context.
   const scenario = context.scenario;
   // The memory basis profiles are judged on, starting from the opener's; changing it leaves the
@@ -198,21 +208,37 @@ export function useModelDeployForm({
       .find((row) => startShows(profileTableStart(catalogChips, undefined), row))?.profileId ??
     "";
   const [profileId, setProfileId] = useState(selectedInitialProfileId);
-  const [bindingId, setBindingId] = useState(
-    () => profileDefaults(model, selectedInitialProfileId).modelArtifactBindingId,
-  );
+  // The runtime fields start from the opener's configuration on the starting profile, else the
+  // profile's defaults.
+  const [start] = useState(() => ({
+    profileId: selectedInitialProfileId,
+    values: configurationStart(
+      model,
+      engineReleases,
+      selectedInitialProfileId,
+      initialConfiguration,
+    ),
+  }));
+  const [bindingId, setBindingId] = useState(start.values.bindingId);
   // The operator's engine parameter edits over the inputs the profile or scenario starts from.
-  const [editedInputs, setEditedInputs] = useState<Map<string, string>>(new Map());
+  const [editedInputs, setEditedInputs] = useState<Map<string, string>>(start.values.edits);
   const [storedSpeculativeChoice, setSpeculativeChoice] = useState<SpeculativeChoice>(
-    () => profileDefaults(model, selectedInitialProfileId).speculativeChoice,
+    start.values.speculativeChoice,
   );
   // The operator's KV cache precision pick; empty while the profile's default stands.
-  const [pickedKvCachePrecision, setPickedKvCachePrecision] = useState("");
-  const [customArgumentTokens, setCustomArgumentTokens] = useState<string[]>([]);
+  const [pickedKvCachePrecision, setPickedKvCachePrecision] = useState(
+    start.values.kvCachePrecision,
+  );
+  const [customArgumentTokens, setCustomArgumentTokens] = useState<string[]>(
+    start.values.customArgumentTokens,
+  );
   const commandPreview = useCommandPreview(onPreview);
   const { invalidatePreview } = commandPreview;
-  // The operator's target choice: undefined until they choose, null once they clear it.
-  const [pickedPlacement, setPickedPlacement] = useState<ExactPlacement | null>();
+  // The operator's target choice, starting from the opener's: undefined until they choose, null
+  // once they clear it.
+  const [pickedPlacement, setPickedPlacement] = useState<ExactPlacement | null | undefined>(
+    initialPlacement,
+  );
   const [targetValidationPending, setTargetValidationPending] = useState(false);
   const [ineligibleTarget, setIneligibleTarget] = useState<string>();
   // Whether the Target step shows, fixed when leaving the Profile step so the steps ahead stay put.
@@ -234,7 +260,7 @@ export function useModelDeployForm({
     refresh: refreshExecutionTargets,
     executionTargets: loadedExecutionTargets,
   } = useConfiguredExecutionTargets(listConfiguredExecutionTargets, open);
-  const [name, setName] = useState(model.displayName);
+  const [name, setName] = useState(initialName ?? model.displayName);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
   // The errors of the latest blocked step change or Deploy, which open collapsed Runtime sections.
@@ -453,16 +479,19 @@ export function useModelDeployForm({
     wizard.goTo(nextStep);
   };
 
-  const selectProfile = (nextProfileId: string) => {
-    const defaults = profileDefaults(model, nextProfileId);
+  // Selects a profile with its runtime values, the profile's defaults unless given.
+  const selectProfile = (
+    nextProfileId: string,
+    values = configurationStart(model, engineReleases, nextProfileId, undefined),
+  ) => {
     setProfileId(nextProfileId);
     setIneligibleTarget(undefined);
     // A chosen target that can't launch the new profile gives way to the profile's own targets.
     if (pickedTarget && !launchesOn(nextProfileId, pickedTarget)) setPickedPlacement(undefined);
-    setBindingId(defaults.modelArtifactBindingId);
-    setEditedInputs(new Map());
-    setSpeculativeChoice(defaults.speculativeChoice);
-    setPickedKvCachePrecision("");
+    setBindingId(values.bindingId);
+    setEditedInputs(values.edits);
+    setSpeculativeChoice(values.speculativeChoice);
+    setPickedKvCachePrecision(values.kvCachePrecision);
     setFieldErrors((errors) => {
       const nextErrors = new Map(errors);
       nextErrors.delete("profileId");
@@ -508,8 +537,11 @@ export function useModelDeployForm({
     if (selectable(profileId)) return;
     const next = [initialProfileId ?? "", ...shown].find(selectable) ?? "";
     preselectionEmptyRef.current = !next;
-    if (next !== profileId) queueMicrotask(() => selectProfileRef.current(next));
-  }, [chipKey, initialProfileId, profileAvailability, profileId, profileRows]);
+    // A read can briefly select nothing; returning to the starting profile restores its starting
+    // values rather than the profile's defaults.
+    const values = next === start.profileId ? start.values : undefined;
+    if (next !== profileId) queueMicrotask(() => selectProfileRef.current(next, values));
+  }, [chipKey, initialProfileId, profileAvailability, profileId, profileRows, start]);
 
   // The latest inputs, for a deferred blur check that runs after a change the blur preceded, such
   // as a total context preset clicked while the context per request had focus.
@@ -982,6 +1014,21 @@ export interface ModelDeployFormOptions {
    * memory strip. Without them, the strip doesn't show.
    */
   deployments?: readonly ModelDeployment[];
+  /**
+   * The runtime configuration the launch starts from, such as one the dialog submitted before: its
+   * artifact, engine parameters, options and custom arguments, until a profile change resets the
+   * profile's own. The context comes from `scenario`. The profile's defaults without it.
+   */
+  initialConfiguration?: LocalDeploymentConfigurationValues;
+  /** The exposure the launch starts with, such as one the dialog submitted before; direct without it. */
+  initialExposure?: ModelDeploymentExposure;
+  /** The deployment name the launch starts with, such as one the operator already chose. */
+  initialName?: string;
+  /**
+   * The target the launch starts on, such as a proposal's, kept while it can run the selected
+   * profile; the dialog picks one without it.
+   */
+  initialPlacement?: ExactPlacement;
   initialProfileId?: string;
   listConfiguredExecutionTargets?: ConfiguredExecutionTargetLoader;
   /**

@@ -49,6 +49,8 @@ pub(crate) enum ResourceKind {
     ExecutionTargets,
 
     NodeMemory,
+
+    ConsoleSettings,
 }
 
 impl ResourceKind {
@@ -62,6 +64,7 @@ impl ResourceKind {
             Self::Routes => "routes",
             Self::ExecutionTargets => "execution targets",
             Self::NodeMemory => "node memory",
+            Self::ConsoleSettings => "console settings",
         }
     }
 }
@@ -104,6 +107,8 @@ pub(crate) struct ResourceReads {
     pub(crate) execution_targets: Arc<dyn ResourceRead>,
 
     pub(crate) node_memory: Arc<dyn ResourceRead>,
+
+    pub(crate) console_settings: Arc<dyn ResourceRead>,
 }
 
 impl ResourceReads {
@@ -116,6 +121,7 @@ impl ResourceReads {
             ResourceKind::Routes => &self.routes,
             ResourceKind::ExecutionTargets => &self.execution_targets,
             ResourceKind::NodeMemory => &self.node_memory,
+            ResourceKind::ConsoleSettings => &self.console_settings,
         })
     }
 }
@@ -587,6 +593,7 @@ mod tests {
             ResourceKind::ApplicationDeployments,
             ResourceKind::ExecutionTargets,
             ResourceKind::NodeMemory,
+            ResourceKind::ConsoleSettings,
         ] {
             assert_eq!(harness.reads(kind), 0, "{} are not watched", kind.name());
         }
@@ -936,8 +943,8 @@ pub(super) mod test_support {
         inference::v1::ListRoutesResponse,
         model::v1::ListModelDeploymentsResponse,
         site::v1::{
-            ListConfiguredExecutionTargetsResponse, ListHardwareSnapshotsResponse,
-            ListMachinesResponse,
+            ConsoleSettings, GetConsoleSettingsResponse, ListConfiguredExecutionTargetsResponse,
+            ListHardwareSnapshotsResponse, ListMachinesResponse,
         },
         watch::v1::keyed_resource::Payload,
     };
@@ -955,7 +962,7 @@ pub(super) mod test_support {
     /// Real-time bound for progress the test waits on; never reached when the hub works.
     const PROGRESS_DEADLINE: Duration = Duration::from_secs(10);
 
-    pub(crate) const ALL_KINDS: [ResourceKind; 7] = [
+    pub(crate) const ALL_KINDS: [ResourceKind; 8] = [
         ResourceKind::Machines,
         ResourceKind::HardwareSnapshots,
         ResourceKind::ModelDeployments,
@@ -963,6 +970,7 @@ pub(super) mod test_support {
         ResourceKind::Routes,
         ResourceKind::ExecutionTargets,
         ResourceKind::NodeMemory,
+        ResourceKind::ConsoleSettings,
     ];
 
     /// A hub over fake owners and a virtual clock.
@@ -1016,6 +1024,7 @@ pub(super) mod test_support {
                 routes: read(ResourceKind::Routes),
                 execution_targets: read(ResourceKind::ExecutionTargets),
                 node_memory: read(ResourceKind::NodeMemory),
+                console_settings: read(ResourceKind::ConsoleSettings),
             };
             let hub = ResourceWatchHub::new("a".repeat(32), reads, Arc::new(clock.clone()), config);
             Self {
@@ -1146,6 +1155,12 @@ pub(super) mod test_support {
             ResourceKind::NodeMemory => Payload::NodeMemory(ListNodeMemoryResponse {
                 nodes: vec![Default::default(); version],
             }),
+            // Console settings hold one flag, so their only versions are 0 and 1.
+            ResourceKind::ConsoleSettings => Payload::ConsoleSettings(GetConsoleSettingsResponse {
+                settings: Some(ConsoleSettings {
+                    get_started_hidden: version == 1,
+                }),
+            }),
         }
     }
 
@@ -1158,6 +1173,12 @@ pub(super) mod test_support {
             Payload::Routes(response) => response.routes.len(),
             Payload::ExecutionTargets(response) => response.execution_targets.len(),
             Payload::NodeMemory(response) => response.nodes.len(),
+            Payload::ConsoleSettings(response) => usize::from(
+                response
+                    .settings
+                    .as_ref()
+                    .is_some_and(|settings| settings.get_started_hidden),
+            ),
         }
     }
 

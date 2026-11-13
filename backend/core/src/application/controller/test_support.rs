@@ -1371,6 +1371,14 @@ where
         self.owner.get_deployment(deployment_id)
     }
 
+    fn list_targets(
+        &self,
+        application_id: String,
+    ) -> impl Future<Output = Result<ListApplicationTargetsResponse, ApplicationLifecycleError>> + Send
+    {
+        self.owner.list_targets(application_id)
+    }
+
     fn create_deployment(
         &self,
         request: CreateApplicationDeploymentRequest,
@@ -3023,6 +3031,8 @@ pub(super) fn application() -> Application {
         description: String::new(),
         notes: String::new(),
         version: "1.0.0".to_owned(),
+        use_cases: Vec::new(),
+        preferred_accelerators: Vec::new(),
         graph: Some(ApplicationGraph {
             services: vec![ApplicationService {
                 service_name: "web".to_owned(),

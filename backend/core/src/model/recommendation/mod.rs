@@ -3,9 +3,14 @@
 //!
 //! Each target reads the list of the most specific hardware class that has one for the use case,
 //! and each entry is judged with the same profile resolution and memory fit as the compatibility
-//! read, the entry's own minimums added to its configuration's. Entries that can't run on a target
-//! or exceed its total memory are left out there, and the rest merge across targets by their best
-//! declared position. The answer is advisory: it never admits, reserves, or places a deployment.
+//! read, the entry's own minimums added to its configuration's. An entry is sized for one request
+//! using its whole total context, at the entry's context per request or else the profile's
+//! default. Entries that can't run on a target or exceed its total memory are left out there, and
+//! the rest merge across targets by their best declared position and context per request. Each
+//! target names the model's running or starting deployment of the same profile there, whatever its
+//! context. Asked for what can start now, it keeps only reachable targets that are deployed or fit
+//! free memory, deployed rows first. The answer is advisory: it never admits, reserves, or places a
+//! deployment.
 
 use std::{cmp::Ordering, collections::BTreeMap};
 
@@ -16,7 +21,10 @@ use dotcore_proto::dotcore::{
         UseCase,
     },
     deployment::v1::{ExactPlacement, MemoryFit},
-    model::v1::{ModelCompatibilityStatus, ModelDeployment, model_deployment_snapshot},
+    model::v1::{
+        ModelCompatibilityStatus, ModelDeployment, SizingScenarioUnsupportedReason,
+        model_deployment_snapshot,
+    },
     site::v1::ExecutionTarget,
 };
 use dotcore_site::node::target_inventory::TargetCapabilityInventory;
@@ -27,16 +35,21 @@ mod machine;
 pub use machine::{IdleMachine, IdleMachineError};
 
 use crate::{
-    hardware::selection::{
-        HardwareClassSelectionError, SelectedTargetCapabilities, select_hardware_class,
+    hardware::{
+        capacity::WorkloadPhase,
+        selection::{
+            HardwareClassSelectionError, SelectedTargetCapabilities, select_hardware_class,
+        },
     },
     model::{
         compatibility::{
             CheckedTarget, ProfileEvaluation, ProfileRequest, StaleTargets, check_targets,
-            evaluate_profile, node_workloads,
+            evaluate_profile, node_workloads, workload_phase,
         },
         engine::EngineIntegrationRegistry,
-        sizing_scenario::{ProfileSizing, size_profile},
+        sizing_scenario::{
+            ProfileSizing, SizingScenario, default_context_per_request, size_profile,
+        },
     },
 };
 
@@ -55,7 +68,12 @@ pub struct Recommendation {
 
     pub profile_id: String,
 
-    /// Targets whose list has the profile and that can run it, by node then target.
+    /// Context per request in tokens the profile is sized with: the entry's own, else the
+    /// profile's default.
+    pub context_tokens_per_request: u64,
+
+    /// Targets whose list has the profile and that can run it, by node then target; deployed
+    /// targets come first when only what can start now is asked for.
     pub targets: Vec<TargetRecommendation>,
 }
 
@@ -66,8 +84,9 @@ pub struct TargetRecommendation {
 
     pub fit: RecommendationFit,
 
-    /// Whether a model deployment of the same model and profile is placed on the target.
-    pub deployed: bool,
+    /// The running or starting model deployment of the same model and profile on the target,
+    /// whatever its context per request.
+    pub model_deployment_id: Option<String>,
 
     /// Total context in tokens a deployment of the profile starts from there; absent without a
     /// largest fit or a profile default.
@@ -95,14 +114,16 @@ pub enum RecommendationFit {
 /// `targets`, which must be configured model execution targets. `inventory` is the current target
 /// observation, or none when it couldn't be read, which leaves nothing to recommend; a target that
 /// stopped reporting is judged on its last observations, its rows marked unreachable, until it
-/// leaves the site. `deployments` are the site's model deployments, which hold memory and mark the
-/// profiles already deployed.
+/// leaves the site. `deployments` are the site's model deployments, which hold memory and name the
+/// profiles already deployed. With `can_start_now`, each list keeps only what can start now, as
+/// `startable` describes.
 pub(crate) fn recommend_models(
     catalog: &Catalog,
     targets: &[ExecutionTarget],
     inventory: Option<&TargetCapabilityInventory>,
     deployments: &[ModelDeployment],
     use_cases: &[UseCase],
+    can_start_now: bool,
 ) -> Vec<UseCaseRecommendations> {
     let workloads = node_workloads(deployments, inventory);
     let checked = check_targets(
@@ -120,20 +141,23 @@ pub(crate) fn recommend_models(
     };
     use_cases
         .iter()
-        .map(|&use_case| UseCaseRecommendations {
-            use_case,
-            rows: recommender.rank(use_case, &checked, deployments),
+        .map(|&use_case| {
+            let rows = recommender.rank(use_case, &checked, deployments);
+            UseCaseRecommendations {
+                use_case,
+                rows: if can_start_now { startable(rows) } else { rows },
+            }
         })
         .collect()
 }
 
 /// What one call reads for every use case: the catalog, its declarations indexed by id, and each
-/// profile's sizing once it has been needed.
+/// profile's sizing at each context per request once it has been needed.
 struct Recommender<'a> {
     catalog: &'a Catalog,
     declarations: &'a Declarations,
     registry: EngineIntegrationRegistry,
-    sizings: BTreeMap<(String, String), ProfileSizing>,
+    sizings: BTreeMap<RowKey, ProfileSizing>,
 }
 
 impl Recommender<'_> {
@@ -153,7 +177,7 @@ impl Recommender<'_> {
                 hardware_requirements: None,
             })
             .collect::<Vec<_>>();
-        let mut rows = BTreeMap::<(String, String), RankedRow>::new();
+        let mut rows = BTreeMap::<RowKey, RankedRow>::new();
         for checked in checked {
             let Ok(selected) = &checked.check else {
                 continue;
@@ -174,8 +198,11 @@ impl Recommender<'_> {
                 let Some((model, profile)) = declarations.profile(entry) else {
                     continue;
                 };
+                let Some(scenario) = entry_scenario(self.catalog, model, profile, entry) else {
+                    continue;
+                };
                 let Some((fit, starting_total_context_tokens)) =
-                    self.judge(model, profile, entry, checked.target, selected)
+                    self.judge(model, profile, entry, scenario, checked.target, selected)
                 else {
                     continue;
                 };
@@ -189,7 +216,7 @@ impl Recommender<'_> {
                     execution_target_id: checked.target.execution_target_id.clone(),
                 };
                 let row = rows
-                    .entry((entry.model_id.clone(), entry.profile_id.clone()))
+                    .entry(row_key(entry, scenario))
                     .or_insert_with(|| RankedRow {
                         position,
                         intelligence: model
@@ -200,7 +227,7 @@ impl Recommender<'_> {
                     });
                 row.position = row.position.min(position);
                 row.targets.push(TargetRecommendation {
-                    deployed: deployed(deployments, &placement, entry),
+                    model_deployment_id: deployment_id(deployments, &placement, entry),
                     placement,
                     fit,
                     starting_total_context_tokens,
@@ -210,21 +237,22 @@ impl Recommender<'_> {
         ranked(rows)
     }
 
-    /// Judges one entry on one target with the compatibility read's evaluation, its minimums
-    /// added to its configuration's: its fit and starting total context there, or none when it is
-    /// left out there.
+    /// Judges one entry sized for `scenario` on one target with the compatibility read's
+    /// evaluation, its minimums added to its configuration's: its fit and starting total context
+    /// there, or none when it is left out there.
     fn judge(
         &mut self,
         model: &Model,
         profile: &ModelProfile,
         entry: &ModelRecommendation,
+        scenario: SizingScenario,
         target: &ExecutionTarget,
         selected: &SelectedTargetCapabilities,
     ) -> Option<(RecommendationFit, Option<u64>)> {
         let sizing = self
             .sizings
-            .entry((entry.model_id.clone(), entry.profile_id.clone()))
-            .or_insert_with(|| size_profile(self.catalog, model, profile, None));
+            .entry(row_key(entry, scenario))
+            .or_insert_with(|| size_profile(self.catalog, model, profile, Some(&scenario)));
         let evaluation = evaluate_profile(
             self.catalog,
             &self.registry,
@@ -240,6 +268,9 @@ impl Recommender<'_> {
         target_fit(&evaluation)
     }
 }
+
+/// A row's model id, profile id and context per request in tokens; also keys each sizing.
+type RowKey = (String, String, u64);
 
 /// One row while targets are merged: its best declared position, its model's intelligence score,
 /// and the targets that can run it.
@@ -300,9 +331,35 @@ impl Declarations {
     }
 }
 
+/// The sizing scenario an entry is judged with: one request using the whole total context, both
+/// the entry's context per request or else the profile's default. Returns none when the profile's
+/// defaults don't resolve.
+fn entry_scenario(
+    catalog: &Catalog,
+    model: &Model,
+    profile: &ModelProfile,
+    entry: &ModelRecommendation,
+) -> Option<SizingScenario> {
+    let context_tokens = entry
+        .context_tokens_per_request
+        .or_else(|| default_context_per_request(catalog, model, profile))?;
+    // Catalog validation keeps an entry's context within the configuration's maximum context.
+    let context_tokens = u32::try_from(context_tokens).ok()?;
+    SizingScenario::new(context_tokens, Some(context_tokens)).ok()
+}
+
+/// The row an entry sized for `scenario` merges into.
+fn row_key(entry: &ModelRecommendation, scenario: SizingScenario) -> RowKey {
+    (
+        entry.model_id.clone(),
+        entry.profile_id.clone(),
+        scenario.total_context_tokens(),
+    )
+}
+
 /// The fit of an evaluated entry on a target and the total context a deployment starts from
-/// there, or none when the entry is left out there: its profile can't run there, or its memory
-/// fit, with the entry's minimums, exceeds the target's total.
+/// there, or none when the entry is left out there: its profile can't run there or serve its
+/// context there, or its memory fit, with the entry's minimums, exceeds the target's total.
 fn target_fit(evaluation: &ProfileEvaluation) -> Option<(RecommendationFit, Option<u64>)> {
     let running = match evaluation {
         ProfileEvaluation::Runs(running) => running,
@@ -312,6 +369,9 @@ fn target_fit(evaluation: &ProfileEvaluation) -> Option<(RecommendationFit, Opti
         }
         ProfileEvaluation::Fails(_) => return None,
     };
+    if running.fit.unsupported_reason != SizingScenarioUnsupportedReason::Unspecified {
+        return None;
+    }
     let fit = match (running.fit.memory_fit, running.fit.free_memory_fit) {
         (MemoryFit::Exceeds, _) => return None,
         (MemoryFit::Fits, MemoryFit::Fits) => RecommendationFit::FitsNow,
@@ -326,30 +386,39 @@ fn target_fit(evaluation: &ProfileEvaluation) -> Option<(RecommendationFit, Opti
     ))
 }
 
-/// Whether a model deployment of the entry's model and profile is placed at `placement`.
-fn deployed(
+/// The first running or starting model deployment of the entry's model and profile placed at
+/// `placement`, whatever its context per request. It shares the memory accounting's lifecycle
+/// phases, so failed, paused, unavailable and unloading deployments don't count.
+fn deployment_id(
     deployments: &[ModelDeployment],
     placement: &ExactPlacement,
     entry: &ModelRecommendation,
-) -> bool {
-    deployments.iter().any(|deployment| {
-        let placed = deployment
-            .intent
-            .as_ref()
-            .and_then(|intent| intent.placement.as_ref())
-            == Some(placement);
-        let same_profile = matches!(
-            deployment.snapshot.as_ref().and_then(|snapshot| snapshot.source.as_ref()),
-            Some(model_deployment_snapshot::Source::Local(local))
-                if local.model_id == entry.model_id && local.profile_id == entry.profile_id
-        );
-        placed && same_profile
-    })
+) -> Option<String> {
+    deployments
+        .iter()
+        .find(|deployment| {
+            let placed = deployment
+                .intent
+                .as_ref()
+                .and_then(|intent| intent.placement.as_ref())
+                == Some(placement);
+            let same_profile = matches!(
+                deployment.snapshot.as_ref().and_then(|snapshot| snapshot.source.as_ref()),
+                Some(model_deployment_snapshot::Source::Local(local))
+                    if local.model_id == entry.model_id && local.profile_id == entry.profile_id
+            );
+            let active = matches!(
+                workload_phase(deployment),
+                Some(WorkloadPhase::Starting | WorkloadPhase::Ready)
+            );
+            placed && same_profile && active
+        })
+        .map(|deployment| deployment.model_deployment_id.clone())
 }
 
-/// Orders merged rows by best declared position, then higher intelligence score, then model and
-/// profile id.
-fn ranked(rows: BTreeMap<(String, String), RankedRow>) -> Vec<Recommendation> {
+/// Orders merged rows by best declared position, then higher intelligence score, then model id,
+/// profile id and context per request.
+fn ranked(rows: BTreeMap<RowKey, RankedRow>) -> Vec<Recommendation> {
     let mut rows = rows.into_iter().collect::<Vec<_>>();
     rows.sort_by(|(left_id, left), (right_id, right)| {
         left.position
@@ -363,12 +432,48 @@ fn ranked(rows: BTreeMap<(String, String), RankedRow>) -> Vec<Recommendation> {
             .then_with(|| left_id.cmp(right_id))
     });
     rows.into_iter()
-        .map(|((model_id, profile_id), row)| Recommendation {
-            model_id,
-            profile_id,
-            targets: row.targets,
-        })
+        .map(
+            |((model_id, profile_id, context_tokens_per_request), row)| Recommendation {
+                model_id,
+                profile_id,
+                context_tokens_per_request,
+                targets: row.targets,
+            },
+        )
         .collect()
+}
+
+/// Keeps what can start now from ranked rows: unreachable targets go first, deployed or not; a row
+/// keeps its deployed targets and those that fit free memory now, and goes when none remain. Rows
+/// with a deployed target come first, each group in rank order; within a row deployed targets
+/// come first, then by node and target.
+fn startable(rows: Vec<Recommendation>) -> Vec<Recommendation> {
+    let mut rows = rows
+        .into_iter()
+        .filter_map(|mut row| {
+            row.targets.retain(|target| {
+                target.fit != RecommendationFit::Unreachable
+                    && (target.model_deployment_id.is_some()
+                        || target.fit == RecommendationFit::FitsNow)
+            });
+            row.targets.sort_by_key(|target| {
+                (
+                    target.model_deployment_id.is_none(),
+                    target.fit != RecommendationFit::FitsNow,
+                    target.placement.site_node_id.clone(),
+                    target.placement.execution_target_id.clone(),
+                )
+            });
+            (!row.targets.is_empty()).then_some(row)
+        })
+        .collect::<Vec<_>>();
+    // A stable sort keeps the rank order within each group.
+    rows.sort_by_key(|row| {
+        !row.targets
+            .iter()
+            .any(|target| target.model_deployment_id.is_some())
+    });
+    rows
 }
 
 /// Logs why a target has no list for a use case: no class with one matches it, or, against

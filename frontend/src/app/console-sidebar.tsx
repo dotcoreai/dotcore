@@ -9,6 +9,7 @@ import {
   AppsSectionIcon,
   CatalogSectionIcon,
   ChatSectionIcon,
+  GetStartedSectionIcon,
   MachinesSectionIcon,
   ModelsSectionIcon,
   OverviewSectionIcon,
@@ -30,6 +31,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useGetStartedHidden } from "@/features/get-started/use-get-started-hidden";
 import { timing } from "@/lib/timing";
 import { usePanelNavigationPending } from "@/panels/panel-navigation-pending";
 
@@ -49,7 +51,14 @@ interface NavItem {
   children?: NavChildItem[];
 }
 
+const getStartedNavItem: NavItem = {
+  icon: GetStartedSectionIcon,
+  label: "Get started",
+  path: "/get-started",
+};
+
 const primaryNavItems: NavItem[] = [
+  getStartedNavItem,
   { icon: OverviewSectionIcon, label: "Overview", path: "/overview" },
   { icon: MachinesSectionIcon, label: "Machines", path: "/machines" },
   {
@@ -76,12 +85,13 @@ const footerNavItem: NavItem = { icon: SettingsSectionIcon, label: "Settings" };
 /**
  * Icon-collapsible left navigation with direct destinations and optional disclosure groups.
  * Settings has no route yet and renders disabled. Primary items default to the console
- * destinations; supplied items use the same linked, disabled and collapsible row treatments.
+ * destinations, with Get started until dismissed; supplied items use the same linked, disabled and
+ * collapsible row treatments.
  */
 export function ConsoleSidebar({
   chatCurrent = false,
   chatOpen = false,
-  items = primaryNavItems,
+  items,
   onChatToggle,
 }: {
   /** Whether the Chat page is the current page, which marks the Chat item current. */
@@ -92,6 +102,11 @@ export function ConsoleSidebar({
   onChatToggle?: () => void;
 } = {}) {
   const { pathname } = useLocation();
+  const { hidden: getStartedHidden } = useGetStartedHidden();
+  // Until the site's settings load the item stays out: a site that hid it never sees it flash.
+  const navItems =
+    items ??
+    primaryNavItems.filter((item) => !(getStartedHidden !== false && item === getStartedNavItem));
   const { state } = useSidebar();
   const { hovering, onPointerEnter, onPointerLeave, suppressHover } = useHoverPeek();
   const { focusWithin, onBlur, onFocus, onKeyDown, onPointerDown, suppressFocus } =
@@ -126,7 +141,7 @@ export function ConsoleSidebar({
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
-            {items.map((item) => (
+            {navItems.map((item) => (
               <NavMenuItem item={item} key={item.label} pathname={pathname} />
             ))}
           </SidebarMenu>

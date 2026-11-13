@@ -602,6 +602,8 @@ fn validate_resolved_snapshot(
         notes: snapshot.notes.clone(),
         version: snapshot.version.clone(),
         graph: snapshot.graph.clone(),
+        use_cases: Vec::new(),
+        preferred_accelerators: Vec::new(),
     };
     if !validate_application_with_policy(&application, OciArtifactPolicy::Development).is_empty()
         || snapshot.placement.as_ref().is_none_or(|placement| {
@@ -1462,6 +1464,8 @@ mod tests {
                 description: String::new(),
                 notes: String::new(),
                 version: "1.0.0".to_owned(),
+                use_cases: Vec::new(),
+                preferred_accelerators: Vec::new(),
                 graph: Some(ApplicationGraph {
                     services: vec![ApplicationService {
                         service_name: "service".to_owned(),

@@ -262,6 +262,22 @@ pub(crate) fn size_profile(
     }
 }
 
+/// Context per request a profile's defaults resolve to: the engine's default total context, capped
+/// at the configuration's maximum context. Returns none when the defaults don't resolve or hold no
+/// total context.
+pub(crate) fn default_context_per_request(
+    catalog: &Catalog,
+    model: &Model,
+    profile: &ModelProfile,
+) -> Option<u64> {
+    let (defaults, declarations) = profile_defaults(catalog, model, profile)?;
+    let values = with_filled_context_per_request(
+        &declarations,
+        defaults.engine_parameter_values.unwrap_or_default(),
+    );
+    unsigned_parameter_value(&values, CONTEXT_PER_REQUEST_PARAMETER_ID)
+}
+
 /// Judges the memory fit of a profile that runs with its defaults, resolved as `snapshot`, on the
 /// target capabilities `selected_target` the compatibility read selected, and the largest total
 /// context that fits there. Both fits compare one estimate, of the profile's sizing scenario on the

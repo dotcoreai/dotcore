@@ -19,6 +19,32 @@ service ApplicationDeploymentService {
   rpc ReadDeploymentLogs(ReadDeploymentLogsRequest) returns (ReadDeploymentLogsResponse);
   rpc FollowDeploymentLogs(FollowDeploymentLogsRequest) returns (stream FollowDeploymentLogsResponse);
   rpc UpdateApplicationDeploymentMetadata(UpdateApplicationDeploymentMetadataRequest) returns (UpdateApplicationDeploymentMetadataResponse);
+  rpc ListApplicationTargets(ListApplicationTargetsRequest) returns (ListApplicationTargetsResponse);
+}
+
+// Asks where one catalog application can run now. A fast, advisory read of current target observations and
+// deployments; it never changes deployments, admission or placement.
+message ListApplicationTargetsRequest {
+  // Immutable catalog application release identifier.
+  string application_id = 1;
+}
+
+// The application targets that can take the application now, best first; empty when none can.
+message ListApplicationTargetsResponse {
+  // Targets ordered with deployed ones first, then those matching the application's preferred accelerators.
+  repeated ApplicationTargetOption targets = 1;
+}
+
+// One application target that can take the application.
+message ApplicationTargetOption {
+  // Exact placement of the application target.
+  dotcore.deployment.v1.ExactPlacement target = 1;
+
+  // Whether the target holds accelerators of a vendor the application prefers; true for an application with no preference.
+  bool matches_preference = 2;
+
+  // The application's running or starting deployment on the target; absent when there is none.
+  optional string application_deployment_id = 3;
 }
 
 // Requests the controller-owned application deployments.

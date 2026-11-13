@@ -34,6 +34,7 @@ export type ApplicationCatalogClient = Pick<Client<typeof CatalogService>, "list
 type GeneratedApplicationDeploymentServiceClient = Pick<
   Client<typeof ApplicationDeploymentService>,
   | "listApplicationDeployments"
+  | "listApplicationTargets"
   | "getApplicationDeployment"
   | "createApplicationDeployment"
   | "removeApplicationDeployment"
@@ -71,6 +72,7 @@ export function createApplicationClient(baseUrl = applicationServerUrl): Applica
     catalog: createClient(CatalogService, transport),
     application: {
       listApplicationDeployments: application.listApplicationDeployments,
+      listApplicationTargets: application.listApplicationTargets,
       getApplicationDeployment: application.getApplicationDeployment,
       createApplicationDeployment: async (request) =>
         validateCreateApplicationResponse(

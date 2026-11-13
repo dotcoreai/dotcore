@@ -9,6 +9,7 @@ import { CONSOLE_PREFERENCES_STORAGE_KEY, writeSidebarCollapsed } from "@/lib/co
 import { productionTiming, setTiming, timing } from "@/lib/timing";
 import { PanelLink } from "@/panels/panel-navigation";
 import { usePanelPendingNavigation } from "@/panels/panel-navigation-pending";
+import { FakeConsoleSettings } from "@/test/fake-console-settings";
 import { renderWithClients } from "@/test/render-with-clients";
 import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
@@ -124,6 +125,7 @@ function renderFeaturePanelLayout(initialEntries: string[]) {
     >
       <RouterProvider router={router} />
     </ThemeProvider>,
+    { resourceWatchClient: new FakeConsoleSettings().resourceWatchClient() },
   );
   return { router, ...view };
 }
@@ -157,6 +159,7 @@ function renderLayout(
     >
       <RouterProvider router={router} />
     </ThemeProvider>,
+    { resourceWatchClient: new FakeConsoleSettings().resourceWatchClient() },
   );
 
   return { router, storage, ...view };
@@ -268,7 +271,7 @@ describe("ConsoleLayout", () => {
       await user.tab();
       expect(document.activeElement).toHaveAccessibleName("Open profile menu");
 
-      for (const path of ["/overview", "/machines"]) {
+      for (const path of ["/get-started", "/overview", "/machines"]) {
         await user.tab();
         expect(document.activeElement).toHaveAttribute("href", path);
       }
@@ -317,6 +320,7 @@ describe("ConsoleLayout", () => {
       >
         <RouterProvider router={router} />
       </ThemeProvider>,
+      { resourceWatchClient: new FakeConsoleSettings().resourceWatchClient() },
     );
 
     const footerToggle = screen.getByRole("button", { name: "Collapse" });
@@ -353,6 +357,7 @@ describe("ConsoleLayout", () => {
       >
         <RouterProvider router={router} />
       </ThemeProvider>,
+      { resourceWatchClient: new FakeConsoleSettings().resourceWatchClient() },
     );
 
     // Nothing stored yet: open (expanded), the collapsed field's proto3 zero value.

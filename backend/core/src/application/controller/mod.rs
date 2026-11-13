@@ -50,6 +50,7 @@ use dotcore_proto::{
             ApplicationReadinessState, ApplicationServiceLifecycleState,
             ApplicationServiceObservation, CreateApplicationDeploymentRequest,
             CurrentApplicationDeployment, ListApplicationDeploymentsResponse,
+            ListApplicationTargetsResponse,
         },
         site::v1::{ExecutionTarget as SiteExecutionTarget, Site},
     },
@@ -80,7 +81,8 @@ pub(crate) use node::{
 };
 pub(crate) use node_view::ApplicationNodeViewSection;
 use operations::{
-    create_deployment, pause_deployment, remove_deployment, resume_deployment, update_metadata,
+    create_deployment, list_targets, pause_deployment, remove_deployment, resume_deployment,
+    update_metadata,
 };
 use owner::ApplicationOwner;
 use projection::project;
@@ -112,6 +114,13 @@ pub trait ApplicationLifecycleController: Send + Sync {
         &self,
         deployment_id: String,
     ) -> impl Future<Output = Result<ApplicationDeployment, ApplicationLifecycleError>> + Send;
+
+    /// Lists the application targets that can take a catalog application now, best first. The
+    /// read is advisory and never waits for a lifecycle operation in progress.
+    fn list_targets(
+        &self,
+        application_id: String,
+    ) -> impl Future<Output = Result<ListApplicationTargetsResponse, ApplicationLifecycleError>> + Send;
 
     fn create_deployment(
         &self,
@@ -335,6 +344,15 @@ where
                 .find(|deployment| deployment.application_deployment_id == deployment_id)
                 .ok_or(ApplicationLifecycleError::NotFound)
         }
+    }
+
+    fn list_targets(
+        &self,
+        application_id: String,
+    ) -> impl Future<Output = Result<ListApplicationTargetsResponse, ApplicationLifecycleError>> + Send
+    {
+        let owner = Arc::clone(&self.owner);
+        async move { list_targets(&owner, &application_id).await }
     }
 
     fn create_deployment(

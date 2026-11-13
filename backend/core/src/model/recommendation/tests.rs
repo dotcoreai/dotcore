@@ -24,7 +24,7 @@ use dotcore_site::node::target_inventory::{
 use super::{RecommendationFit, UseCaseRecommendations, recommend_models};
 
 use RecommendationFit::{FitsNow, NeedsMemoryFreed, Unknown, Unreachable};
-use UseCase::{CodingAndAgents, DecisionMaking, GeneralAssistant, Translation};
+use UseCase::{ChatAssistant, Coding, ImageGeneration};
 
 /// Expected recommendations for one site of declared machines under one occupancy and use case.
 struct Case {
@@ -43,6 +43,12 @@ enum Occupancy {
     /// estimate.
     Running(&'static str, &'static str),
 
+    /// One ready deployment of the model and profile on the site's first machine, using 30 GB.
+    Filling(&'static str, &'static str),
+
+    /// One failed deployment of the model and profile on the site's first machine, using nothing.
+    Failed(&'static str, &'static str),
+
     /// One deployment of unknown size still downloading on the site's first machine.
     StartingUnsized,
 
@@ -54,182 +60,180 @@ enum Occupancy {
     StaleRunning(&'static str, &'static str),
 }
 
-/// One expected row: `model/profile`, then each target with its fit, whether the profile is
-/// deployed there, and the total context a deployment starts from.
+/// One expected row: `model/profile`, its context per request, then each target with its fit,
+/// the model deployment of the profile running or starting there, and the total context a
+/// deployment starts from.
 type Row = (
     &'static str,
-    Vec<(&'static str, RecommendationFit, bool, u64)>,
+    u64,
+    Vec<(&'static str, RecommendationFit, Option<&'static str>, u64)>,
 );
 
 #[test]
 fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy() {
     let cases = [
         // 8 GiB GPU: the GPU-model entry is unsupported and the entries above its memory or their
-        // minimum are dropped; translation and decision making fall back to the vendor class.
+        // minimum are dropped; the chat assistant falls back to the vendor class.
         Case {
             machines: &["s8"],
             occupancy: Occupancy::Idle,
-            use_case: CodingAndAgents,
-            rows: vec![("small/q4", vec![("s8", FitsNow, false, 59_392)])],
+            use_case: Coding,
+            rows: vec![("small/q4", 32_768, vec![("s8", FitsNow, None, 59_392)])],
         },
         Case {
             machines: &["s8"],
             occupancy: Occupancy::Idle,
-            use_case: Translation,
-            rows: vec![("small/q4", vec![("s8", FitsNow, false, 59_392)])],
-        },
-        Case {
-            machines: &["s8"],
-            occupancy: Occupancy::Idle,
-            use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("s8", FitsNow, false, 69_632)])],
+            use_case: ChatAssistant,
+            rows: vec![("small/q4", 32_768, vec![("s8", FitsNow, None, 59_392)])],
         },
         // 32 GiB GPU of the model the GPU-model class names: its only configuration comes first.
         Case {
             machines: &["x32"],
             occupancy: Occupancy::Idle,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("x-only/x", vec![("x32", FitsNow, false, 293_888)]),
-                ("big/q4", vec![("x32", FitsNow, false, 174_080)]),
-                ("mid/q4", vec![("x32", FitsNow, false, 274_432)]),
-                ("small/q4", vec![("x32", FitsNow, false, 314_368)]),
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 293_888)]),
+                ("big/q4", 32_768, vec![("x32", FitsNow, None, 174_080)]),
+                ("mid/q4", 32_768, vec![("x32", FitsNow, None, 274_432)]),
+                ("small/q4", 32_768, vec![("x32", FitsNow, None, 314_368)]),
             ],
         },
         Case {
             machines: &["x32"],
             occupancy: Occupancy::Idle,
-            use_case: Translation,
+            use_case: ChatAssistant,
             rows: vec![
-                ("mid/q4", vec![("x32", FitsNow, false, 274_432)]),
-                ("small/q4", vec![("x32", FitsNow, false, 314_368)]),
+                ("mid/q4", 32_768, vec![("x32", FitsNow, None, 274_432)]),
+                ("small/q4", 32_768, vec![("x32", FitsNow, None, 314_368)]),
             ],
-        },
-        Case {
-            machines: &["x32"],
-            occupancy: Occupancy::Idle,
-            use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("x32", FitsNow, false, 324_608)])],
         },
         // The running model is deployed and a second one needs its memory freed; it starts from
         // the profile default without room for a largest fit.
         Case {
             machines: &["x32"],
             occupancy: Occupancy::Running("big", "q4"),
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("x-only/x", vec![("x32", FitsNow, false, 101_376)]),
-                ("big/q4", vec![("x32", NeedsMemoryFreed, true, 32_768)]),
-                ("mid/q4", vec![("x32", FitsNow, false, 81_920)]),
-                ("small/q4", vec![("x32", FitsNow, false, 121_856)]),
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 101_376)]),
+                (
+                    "big/q4",
+                    32_768,
+                    vec![("x32", NeedsMemoryFreed, Some("big-q4"), 32_768)],
+                ),
+                ("mid/q4", 32_768, vec![("x32", FitsNow, None, 81_920)]),
+                ("small/q4", 32_768, vec![("x32", FitsNow, None, 121_856)]),
             ],
         },
         Case {
             machines: &["x32"],
             occupancy: Occupancy::Running("big", "q4"),
-            use_case: Translation,
+            use_case: ChatAssistant,
             rows: vec![
-                ("mid/q4", vec![("x32", FitsNow, false, 81_920)]),
-                ("small/q4", vec![("x32", FitsNow, false, 121_856)]),
+                ("mid/q4", 32_768, vec![("x32", FitsNow, None, 81_920)]),
+                ("small/q4", 32_768, vec![("x32", FitsNow, None, 121_856)]),
             ],
         },
         // Macs: entry minimums on system memory separate 16, 32 and 64 GiB.
         Case {
             machines: &["mac16"],
             occupancy: Occupancy::Idle,
-            use_case: CodingAndAgents,
-            rows: vec![("small/q4", vec![("mac16", FitsNow, false, 87_040)])],
+            use_case: Coding,
+            rows: vec![("small/q4", 32_768, vec![("mac16", FitsNow, None, 87_040)])],
         },
         Case {
             machines: &["mac16"],
             occupancy: Occupancy::Idle,
-            use_case: Translation,
-            rows: vec![("small/q4", vec![("mac16", FitsNow, false, 87_040)])],
-        },
-        Case {
-            machines: &["mac16"],
-            occupancy: Occupancy::Idle,
-            use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("mac16", FitsNow, false, 97_280)])],
+            use_case: ChatAssistant,
+            rows: vec![("small/q4", 32_768, vec![("mac16", FitsNow, None, 87_040)])],
         },
         Case {
             machines: &["mac32"],
             occupancy: Occupancy::Idle,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("mid/q4", vec![("mac32", FitsNow, false, 176_128)]),
-                ("small/q4", vec![("mac32", FitsNow, false, 216_064)]),
+                ("mid/q4", 32_768, vec![("mac32", FitsNow, None, 176_128)]),
+                ("small/q4", 32_768, vec![("mac32", FitsNow, None, 216_064)]),
             ],
         },
         Case {
             machines: &["mac32"],
             occupancy: Occupancy::Idle,
-            use_case: Translation,
+            use_case: ChatAssistant,
             rows: vec![
-                ("mid/q4", vec![("mac32", FitsNow, false, 176_128)]),
-                ("small/q4", vec![("mac32", FitsNow, false, 216_064)]),
+                ("mid/q4", 32_768, vec![("mac32", FitsNow, None, 176_128)]),
+                ("small/q4", 32_768, vec![("mac32", FitsNow, None, 216_064)]),
             ],
         },
         Case {
             machines: &["mac64"],
             occupancy: Occupancy::Idle,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("big/q4", vec![("mac64", FitsNow, false, 355_328)]),
-                ("mid/q4", vec![("mac64", FitsNow, false, 454_656)]),
-                ("small/q4", vec![("mac64", FitsNow, false, 494_592)]),
+                ("big/q4", 32_768, vec![("mac64", FitsNow, None, 355_328)]),
+                ("mid/q4", 32_768, vec![("mac64", FitsNow, None, 454_656)]),
+                ("small/q4", 32_768, vec![("mac64", FitsNow, None, 494_592)]),
             ],
         },
         Case {
             machines: &["mac64"],
             occupancy: Occupancy::Running("mid", "q4"),
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("big/q4", vec![("mac64", FitsNow, false, 262_144)]),
-                ("mid/q4", vec![("mac64", FitsNow, true, 362_496)]),
-                ("small/q4", vec![("mac64", FitsNow, false, 402_432)]),
+                ("big/q4", 32_768, vec![("mac64", FitsNow, None, 262_144)]),
+                (
+                    "mid/q4",
+                    32_768,
+                    vec![("mac64", FitsNow, Some("mid-q4"), 362_496)],
+                ),
+                ("small/q4", 32_768, vec![("mac64", FitsNow, None, 402_432)]),
             ],
         },
-        Case {
-            machines: &["mac64"],
-            occupancy: Occupancy::Idle,
-            use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("mac64", FitsNow, false, 504_832)])],
-        },
-        // Unified 128 GiB: its own coding list, the vendor class's translation list.
+        // Unified 128 GiB: its own coding list, the vendor class's chat assistant list.
         Case {
             machines: &["uni128"],
             occupancy: Occupancy::Idle,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("big/q4", vec![("uni128", FitsNow, false, 1_020_928)]),
-                ("mid/q4", vec![("uni128", FitsNow, false, 1_120_256)]),
-            ],
-        },
-        Case {
-            machines: &["uni128"],
-            occupancy: Occupancy::Idle,
-            use_case: Translation,
-            rows: vec![
-                ("mid/q4", vec![("uni128", FitsNow, false, 1_120_256)]),
-                ("small/q4", vec![("uni128", FitsNow, false, 1_160_192)]),
+                ("big/q4", 32_768, vec![("uni128", FitsNow, None, 1_020_928)]),
+                ("mid/q4", 32_768, vec![("uni128", FitsNow, None, 1_120_256)]),
             ],
         },
         Case {
             machines: &["uni128"],
             occupancy: Occupancy::Idle,
-            use_case: DecisionMaking,
-            rows: vec![("decider/q8", vec![("uni128", FitsNow, false, 1_170_432)])],
+            use_case: ChatAssistant,
+            rows: vec![
+                ("mid/q4", 32_768, vec![("uni128", FitsNow, None, 1_120_256)]),
+                (
+                    "small/q4",
+                    32_768,
+                    vec![("uni128", FitsNow, None, 1_160_192)],
+                ),
+            ],
         },
         // A deployment of unknown size still starting leaves free memory unknown, while the
         // total memory still decides what is kept.
         Case {
             machines: &["uni128"],
             occupancy: Occupancy::StartingUnsized,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("big/q4", vec![("uni128", Unknown, false, 32_768)]),
-                ("mid/q4", vec![("uni128", Unknown, false, 32_768)]),
+                ("big/q4", 32_768, vec![("uni128", Unknown, None, 32_768)]),
+                ("mid/q4", 32_768, vec![("uni128", Unknown, None, 32_768)]),
+            ],
+        },
+        // A starting deployment names its profile's row.
+        Case {
+            machines: &["uni128"],
+            occupancy: Occupancy::StartingUnsized,
+            use_case: ChatAssistant,
+            rows: vec![
+                ("mid/q4", 32_768, vec![("uni128", Unknown, None, 32_768)]),
+                (
+                    "small/q4",
+                    32_768,
+                    vec![("uni128", Unknown, Some("small-q4"), 32_768)],
+                ),
             ],
         },
         // Two machines: rows merge by their best position in either list, then the higher
@@ -237,28 +241,31 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
         Case {
             machines: &["mac64", "x32"],
             occupancy: Occupancy::Idle,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("x-only/x", vec![("x32", FitsNow, false, 293_888)]),
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 293_888)]),
                 (
                     "big/q4",
+                    32_768,
                     vec![
-                        ("mac64", FitsNow, false, 355_328),
-                        ("x32", FitsNow, false, 174_080),
+                        ("mac64", FitsNow, None, 355_328),
+                        ("x32", FitsNow, None, 174_080),
                     ],
                 ),
                 (
                     "mid/q4",
+                    32_768,
                     vec![
-                        ("mac64", FitsNow, false, 454_656),
-                        ("x32", FitsNow, false, 274_432),
+                        ("mac64", FitsNow, None, 454_656),
+                        ("x32", FitsNow, None, 274_432),
                     ],
                 ),
                 (
                     "small/q4",
+                    32_768,
                     vec![
-                        ("mac64", FitsNow, false, 494_592),
-                        ("x32", FitsNow, false, 314_368),
+                        ("mac64", FitsNow, None, 494_592),
+                        ("x32", FitsNow, None, 314_368),
                     ],
                 ),
             ],
@@ -266,29 +273,31 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
         Case {
             machines: &["mac64", "x32"],
             occupancy: Occupancy::Idle,
-            use_case: Translation,
+            use_case: ChatAssistant,
             rows: vec![
                 (
                     "mid/q4",
+                    32_768,
                     vec![
-                        ("mac64", FitsNow, false, 454_656),
-                        ("x32", FitsNow, false, 274_432),
+                        ("mac64", FitsNow, None, 454_656),
+                        ("x32", FitsNow, None, 274_432),
                     ],
                 ),
                 (
                     "small/q4",
+                    32_768,
                     vec![
-                        ("mac64", FitsNow, false, 494_592),
-                        ("x32", FitsNow, false, 314_368),
+                        ("mac64", FitsNow, None, 494_592),
+                        ("x32", FitsNow, None, 314_368),
                     ],
                 ),
             ],
         },
-        // No class has a list for the general assistant.
+        // Image generation has no model lists.
         Case {
             machines: &["mac64", "x32"],
             occupancy: Occupancy::Idle,
-            use_case: GeneralAssistant,
+            use_case: ImageGeneration,
             rows: vec![],
         },
         // A machine that stopped reporting keeps the rows its last reported hardware holds, each
@@ -296,12 +305,12 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
         Case {
             machines: &["x32"],
             occupancy: Occupancy::Stale,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("x-only/x", vec![("x32", Unreachable, false, 32_768)]),
-                ("big/q4", vec![("x32", Unreachable, false, 32_768)]),
-                ("mid/q4", vec![("x32", Unreachable, false, 32_768)]),
-                ("small/q4", vec![("x32", Unreachable, false, 32_768)]),
+                ("x-only/x", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                ("big/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                ("mid/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                ("small/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
             ],
         },
         // What runs on an unreachable machine is deployed there, and never drops an entry its
@@ -309,40 +318,47 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
         Case {
             machines: &["x32"],
             occupancy: Occupancy::StaleRunning("big", "q4"),
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("x-only/x", vec![("x32", Unreachable, false, 32_768)]),
-                ("big/q4", vec![("x32", Unreachable, true, 32_768)]),
-                ("mid/q4", vec![("x32", Unreachable, false, 32_768)]),
-                ("small/q4", vec![("x32", Unreachable, false, 32_768)]),
+                ("x-only/x", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                (
+                    "big/q4",
+                    32_768,
+                    vec![("x32", Unreachable, Some("big-q4"), 32_768)],
+                ),
+                ("mid/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                ("small/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
             ],
         },
         // An unreachable machine beside a reachable one: each target keeps its own fit in a row.
         Case {
             machines: &["mac64", "x32"],
             occupancy: Occupancy::Stale,
-            use_case: CodingAndAgents,
+            use_case: Coding,
             rows: vec![
-                ("x-only/x", vec![("x32", FitsNow, false, 293_888)]),
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 293_888)]),
                 (
                     "big/q4",
+                    32_768,
                     vec![
-                        ("mac64", Unreachable, false, 32_768),
-                        ("x32", FitsNow, false, 174_080),
+                        ("mac64", Unreachable, None, 32_768),
+                        ("x32", FitsNow, None, 174_080),
                     ],
                 ),
                 (
                     "mid/q4",
+                    32_768,
                     vec![
-                        ("mac64", Unreachable, false, 32_768),
-                        ("x32", FitsNow, false, 274_432),
+                        ("mac64", Unreachable, None, 32_768),
+                        ("x32", FitsNow, None, 274_432),
                     ],
                 ),
                 (
                     "small/q4",
+                    32_768,
                     vec![
-                        ("mac64", Unreachable, false, 32_768),
-                        ("x32", FitsNow, false, 314_368),
+                        ("mac64", Unreachable, None, 32_768),
+                        ("x32", FitsNow, None, 314_368),
                     ],
                 ),
             ],
@@ -365,6 +381,7 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             Some(&inventory),
             &deployments,
             &[case.use_case],
+            false,
         );
 
         assert_eq!(
@@ -389,26 +406,315 @@ fn every_use_case_asked_gets_its_own_list_in_the_order_asked() {
         &targets,
         Some(&inventory),
         &deployments,
-        &[DecisionMaking, GeneralAssistant, CodingAndAgents],
+        &[ImageGeneration, ChatAssistant, Coding],
+        false,
     );
 
     assert_eq!(
         recommendations.iter().map(rows).collect::<Vec<_>>(),
         [
-            owned(vec![("decider/q8", vec![("s8", FitsNow, false, 69_632)])]),
             Vec::new(),
-            owned(vec![("small/q4", vec![("s8", FitsNow, false, 59_392)])]),
+            owned(vec![(
+                "small/q4",
+                32_768,
+                vec![("s8", FitsNow, None, 59_392)]
+            )]),
+            owned(vec![(
+                "small/q4",
+                32_768,
+                vec![("s8", FitsNow, None, 59_392)]
+            )]),
         ]
     );
 
     // Without an inventory every target is unknown and nothing is recommended.
     assert_eq!(
-        recommend_models(&catalog, &targets, None, &deployments, &[CodingAndAgents],)
+        recommend_models(&catalog, &targets, None, &deployments, &[Coding], false)
             .iter()
             .map(rows)
             .collect::<Vec<_>>(),
         [Vec::<OwnedRow>::new()]
     );
+}
+
+#[test]
+fn entries_are_sized_with_their_context_per_request() {
+    // The dedicated coding entry asks for 131072 tokens per request, the dedicated chat entry
+    // leaves it to the profile's default, and the unified coding entry asks for 32768.
+    let catalog = catalog_with_lists(&[
+        (
+            "nvidia-dedicated",
+            r#"
+hardwareClassId: "nvidia-dedicated"
+useCases:
+  - useCase: "USE_CASE_CODING"
+    entries:
+      - { modelId: "mid", profileId: "q4", contextTokensPerRequest: 131072 }
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
+    entries:
+      - { modelId: "mid", profileId: "q4" }
+"#,
+        ),
+        (
+            "nvidia-unified",
+            r#"
+hardwareClassId: "nvidia-unified"
+useCases:
+  - useCase: "USE_CASE_CODING"
+    entries:
+      - { modelId: "mid", profileId: "q4", contextTokensPerRequest: 32768 }
+"#,
+        ),
+    ]);
+    let read = |machines, occupancy| {
+        let (targets, inventory, deployments) = site(machines, occupancy);
+        recommend_models(
+            &catalog,
+            &targets,
+            Some(&inventory),
+            &deployments,
+            &[Coding, ChatAssistant],
+            false,
+        )
+        .iter()
+        .map(rows)
+        .collect::<Vec<_>>()
+    };
+
+    // Idle 32 GiB GPU: both contexts fit, and the starting total context, bounded by free memory
+    // alone, is the same.
+    assert_eq!(
+        read(&["x32"], Occupancy::Idle),
+        [
+            owned(vec![(
+                "mid/q4",
+                131_072,
+                vec![("x32", FitsNow, None, 274_432)]
+            )]),
+            owned(vec![(
+                "mid/q4",
+                32_768,
+                vec![("x32", FitsNow, None, 274_432)]
+            )]),
+        ]
+    );
+
+    // Beside a running model, 131072 tokens per request need memory freed where 32768 fit, and
+    // the two coding contexts stay separate rows.
+    assert_eq!(
+        read(&["x32", "uni128"], Occupancy::Running("big", "q4")),
+        [
+            owned(vec![
+                ("mid/q4", 32_768, vec![("uni128", FitsNow, None, 1_120_256)]),
+                (
+                    "mid/q4",
+                    131_072,
+                    vec![("x32", NeedsMemoryFreed, None, 32_768)]
+                ),
+            ]),
+            owned(vec![(
+                "mid/q4",
+                32_768,
+                vec![("x32", FitsNow, None, 81_920)]
+            )]),
+        ]
+    );
+}
+
+#[test]
+fn can_start_now_keeps_deployed_and_fitting_targets_with_deployed_rows_first() {
+    let cases = [
+        // Idle 32 GiB GPU: every row fits now.
+        Case {
+            machines: &["x32"],
+            occupancy: Occupancy::Idle,
+            use_case: Coding,
+            rows: vec![
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 293_888)]),
+                ("big/q4", 32_768, vec![("x32", FitsNow, None, 174_080)]),
+                ("mid/q4", 32_768, vec![("x32", FitsNow, None, 274_432)]),
+                ("small/q4", 32_768, vec![("x32", FitsNow, None, 314_368)]),
+            ],
+        },
+        // The running model's row comes first, its deployed target before the fitting one; other
+        // rows keep their rank and order their targets by machine.
+        Case {
+            machines: &["x32", "mac64"],
+            occupancy: Occupancy::Running("mid", "q4"),
+            use_case: Coding,
+            rows: vec![
+                (
+                    "mid/q4",
+                    32_768,
+                    vec![
+                        ("x32", FitsNow, Some("mid-q4"), 181_248),
+                        ("mac64", FitsNow, None, 454_656),
+                    ],
+                ),
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 201_728)]),
+                (
+                    "big/q4",
+                    32_768,
+                    vec![
+                        ("mac64", FitsNow, None, 355_328),
+                        ("x32", FitsNow, None, 81_920),
+                    ],
+                ),
+                (
+                    "small/q4",
+                    32_768,
+                    vec![
+                        ("mac64", FitsNow, None, 494_592),
+                        ("x32", FitsNow, None, 221_184),
+                    ],
+                ),
+            ],
+        },
+        // A machine filled by another model starts nothing new, but its own row stays.
+        Case {
+            machines: &["x32"],
+            occupancy: Occupancy::Filling("x-only", "x"),
+            use_case: ChatAssistant,
+            rows: vec![],
+        },
+        Case {
+            machines: &["x32"],
+            occupancy: Occupancy::Filling("x-only", "x"),
+            use_case: Coding,
+            rows: vec![(
+                "x-only/x",
+                32_768,
+                vec![("x32", NeedsMemoryFreed, Some("x-only-x"), 32_768)],
+            )],
+        },
+        // An unreachable machine's targets are dropped, even with a deployment there.
+        Case {
+            machines: &["mac64", "x32"],
+            occupancy: Occupancy::StaleRunning("big", "q4"),
+            use_case: Coding,
+            rows: vec![
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 293_888)]),
+                ("big/q4", 32_768, vec![("x32", FitsNow, None, 174_080)]),
+                ("mid/q4", 32_768, vec![("x32", FitsNow, None, 274_432)]),
+                ("small/q4", 32_768, vec![("x32", FitsNow, None, 314_368)]),
+            ],
+        },
+        // A failed deployment names no row and holds no memory.
+        Case {
+            machines: &["x32"],
+            occupancy: Occupancy::Failed("x-only", "x"),
+            use_case: Coding,
+            rows: vec![
+                ("x-only/x", 32_768, vec![("x32", FitsNow, None, 293_888)]),
+                ("big/q4", 32_768, vec![("x32", FitsNow, None, 174_080)]),
+                ("mid/q4", 32_768, vec![("x32", FitsNow, None, 274_432)]),
+                ("small/q4", 32_768, vec![("x32", FitsNow, None, 314_368)]),
+            ],
+        },
+        // Unknown free memory keeps only the starting deployment's row.
+        Case {
+            machines: &["uni128"],
+            occupancy: Occupancy::StartingUnsized,
+            use_case: ChatAssistant,
+            rows: vec![(
+                "small/q4",
+                32_768,
+                vec![("uni128", Unknown, Some("small-q4"), 32_768)],
+            )],
+        },
+    ];
+
+    let catalog = catalog();
+    for case in cases {
+        let label = format!(
+            "{} {:?} {}",
+            case.machines.join("+"),
+            case.occupancy,
+            case.use_case.as_str_name()
+        );
+        let (targets, inventory, deployments) = site(case.machines, case.occupancy);
+
+        let recommendations = recommend_models(
+            &catalog,
+            &targets,
+            Some(&inventory),
+            &deployments,
+            &[case.use_case],
+            true,
+        );
+
+        assert_eq!(
+            recommendations.iter().map(rows).collect::<Vec<_>>(),
+            [owned(case.rows)],
+            "{label}"
+        );
+    }
+}
+
+#[test]
+fn a_running_deployment_serves_every_context_per_request_of_its_profile() {
+    // Coding asks for 262144 tokens per request and the chat assistant for the default 32768.
+    let catalog = catalog_with_lists(&[(
+        "nvidia-dedicated",
+        r#"
+hardwareClassId: "nvidia-dedicated"
+useCases:
+  - useCase: "USE_CASE_CODING"
+    entries:
+      - { modelId: "mid", profileId: "q4", contextTokensPerRequest: 262144 }
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
+    entries:
+      - { modelId: "mid", profileId: "q4" }
+"#,
+    )]);
+    let read = |occupancy, can_start_now| {
+        let (targets, inventory, deployments) = site(&["x32"], occupancy);
+        recommend_models(
+            &catalog,
+            &targets,
+            Some(&inventory),
+            &deployments,
+            &[Coding, ChatAssistant],
+            can_start_now,
+        )
+        .iter()
+        .map(rows)
+        .collect::<Vec<_>>()
+    };
+
+    // Idle, 262144 tokens fit now.
+    assert_eq!(
+        read(Occupancy::Idle, true),
+        [
+            owned(vec![(
+                "mid/q4",
+                262_144,
+                vec![("x32", FitsNow, None, 274_432)]
+            )]),
+            owned(vec![(
+                "mid/q4",
+                32_768,
+                vec![("x32", FitsNow, None, 274_432)]
+            )]),
+        ]
+    );
+
+    // Beside the same profile running at 32768 tokens, 262144 more would need memory freed, but
+    // the running deployment is offered for coding too, with or without the option.
+    let running = [
+        owned(vec![(
+            "mid/q4",
+            262_144,
+            vec![("x32", NeedsMemoryFreed, Some("mid-q4"), 32_768)],
+        )]),
+        owned(vec![(
+            "mid/q4",
+            32_768,
+            vec![("x32", FitsNow, Some("mid-q4"), 181_248)],
+        )]),
+    ];
+    assert_eq!(read(Occupancy::Running("mid", "q4"), true), running);
+    assert_eq!(read(Occupancy::Running("mid", "q4"), false), running);
 }
 
 /// The rows of one use case's recommendations, in the form `Row` describes.
@@ -424,12 +730,16 @@ fn rows(recommendations: &UseCaseRecommendations) -> Vec<OwnedRow> {
                     (
                         target.placement.execution_target_id.clone(),
                         target.fit,
-                        target.deployed,
+                        target.model_deployment_id.clone(),
                         target.starting_total_context_tokens,
                     )
                 })
                 .collect();
-            (format!("{}/{}", row.model_id, row.profile_id), targets)
+            (
+                format!("{}/{}", row.model_id, row.profile_id),
+                row.context_tokens_per_request,
+                targets,
+            )
         })
         .collect()
 }
@@ -437,19 +747,28 @@ fn rows(recommendations: &UseCaseRecommendations) -> Vec<OwnedRow> {
 /// Expected rows in the form `rows` reads them.
 fn owned(rows: Vec<Row>) -> Vec<OwnedRow> {
     rows.into_iter()
-        .map(|(name, targets)| {
+        .map(|(name, context_tokens_per_request, targets)| {
             let targets = targets
                 .into_iter()
-                .map(|(target, fit, deployed, starting)| {
-                    (target.to_owned(), fit, deployed, Some(starting))
+                .map(|(target, fit, deployment, starting)| {
+                    (
+                        target.to_owned(),
+                        fit,
+                        deployment.map(str::to_owned),
+                        Some(starting),
+                    )
                 })
                 .collect();
-            (name.to_owned(), targets)
+            (name.to_owned(), context_tokens_per_request, targets)
         })
         .collect()
 }
 
-type OwnedRow = (String, Vec<(String, RecommendationFit, bool, Option<u64>)>);
+type OwnedRow = (
+    String,
+    u64,
+    Vec<(String, RecommendationFit, Option<String>, Option<u64>)>,
+);
 
 /// One target per machine, named after it, with the inventory the machines report under
 /// `occupancy` and the site's deployments.
@@ -477,8 +796,14 @@ fn site(
     let architecture = described[0].accelerator_facts()[0].memory_architecture();
     let (deployments, workloads) = match occupancy {
         Occupancy::Idle | Occupancy::Stale => (Vec::new(), Vec::new()),
-        Occupancy::Running(model, profile) | Occupancy::StaleRunning(model, profile) => {
-            let bytes = default_estimate(model);
+        Occupancy::Running(model, profile)
+        | Occupancy::Filling(model, profile)
+        | Occupancy::StaleRunning(model, profile) => {
+            let bytes = if matches!(occupancy, Occupancy::Filling(..)) {
+                30_000_000_000
+            } else {
+                default_estimate(model)
+            };
             (
                 vec![deployment(
                     first,
@@ -493,6 +818,16 @@ fn site(
                 }],
             )
         }
+        Occupancy::Failed(model, profile) => (
+            vec![deployment(
+                first,
+                architecture,
+                (model, profile),
+                ModelDeploymentStatus::Failed,
+                Some(default_estimate(model)),
+            )],
+            Vec::new(),
+        ),
         Occupancy::StartingUnsized => (
             vec![deployment(
                 first,
@@ -712,7 +1047,6 @@ struct FixtureModel {
     weight_bytes: u64,
     intelligence: u32,
     classes: &'static [&'static str],
-    request_kind: &'static str,
     profile: &'static str,
 }
 
@@ -722,7 +1056,6 @@ const MODELS: &[FixtureModel] = &[
         weight_bytes: 4_000_000_000,
         intelligence: 45,
         classes: &["nvidia-x"],
-        request_kind: "INFERENCE_REQUEST_KIND_CHAT",
         profile: "x",
     },
     FixtureModel {
@@ -730,7 +1063,6 @@ const MODELS: &[FixtureModel] = &[
         weight_bytes: 16_000_000_000,
         intelligence: 40,
         classes: CHAT_CLASSES,
-        request_kind: "INFERENCE_REQUEST_KIND_CHAT",
         profile: "q4",
     },
     FixtureModel {
@@ -738,7 +1070,6 @@ const MODELS: &[FixtureModel] = &[
         weight_bytes: 6_000_000_000,
         intelligence: 25,
         classes: CHAT_CLASSES,
-        request_kind: "INFERENCE_REQUEST_KIND_CHAT",
         profile: "q4",
     },
     FixtureModel {
@@ -746,16 +1077,7 @@ const MODELS: &[FixtureModel] = &[
         weight_bytes: 2_000_000_000,
         intelligence: 10,
         classes: CHAT_CLASSES,
-        request_kind: "INFERENCE_REQUEST_KIND_CHAT",
         profile: "q4",
-    },
-    FixtureModel {
-        id: "decider",
-        weight_bytes: 1_000_000_000,
-        intelligence: 5,
-        classes: CHAT_CLASSES,
-        request_kind: "INFERENCE_REQUEST_KIND_DECISION",
-        profile: "q8",
     },
 ];
 
@@ -765,6 +1087,17 @@ const CHAT_CLASSES: &[&str] = &["nvidia-dedicated", "nvidia-unified", "apple"];
 /// one llama.cpp engine for linux/amd64, linux/arm64 and darwin/arm64, the fixture models, and
 /// their recommendation lists.
 pub(super) fn catalog() -> Catalog {
+    catalog_with_lists(&[
+        ("nvidia", NVIDIA_LISTS),
+        ("nvidia-dedicated", DEDICATED_LISTS),
+        ("nvidia-unified", UNIFIED_LISTS),
+        ("apple", APPLE_LISTS),
+    ])
+}
+
+/// Writes and loads the made-up catalog with `lists`, each a hardware class id and its
+/// recommendation file.
+fn catalog_with_lists(lists: &[(&str, &str)]) -> Catalog {
     let root = tempfile::tempdir().expect("catalog root");
     let mut files = vec![
         ("hardware-classes/nvidia.yaml", class("nvidia", "")),
@@ -792,14 +1125,16 @@ pub(super) fn catalog() -> Catalog {
                 .to_owned(),
         ),
         ("engines/llama.yaml", ENGINE.to_owned()),
-        ("recommendations/nvidia.yaml", NVIDIA_LISTS.to_owned()),
-        (
-            "recommendations/nvidia-dedicated.yaml",
-            DEDICATED_LISTS.to_owned(),
-        ),
-        ("recommendations/nvidia-unified.yaml", UNIFIED_LISTS.to_owned()),
-        ("recommendations/apple.yaml", APPLE_LISTS.to_owned()),
     ];
+    let list_files = lists
+        .iter()
+        .map(|(class, body)| (format!("recommendations/{class}.yaml"), (*body).to_owned()))
+        .collect::<Vec<_>>();
+    files.extend(
+        list_files
+            .iter()
+            .map(|(path, body)| (path.as_str(), body.clone())),
+    );
     let models = MODELS
         .iter()
         .map(|model| (format!("models/{}.yaml", model.id), model_yaml(model)))
@@ -837,7 +1172,6 @@ fn model_yaml(model: &FixtureModel) -> String {
         weight_bytes: base,
         intelligence,
         classes,
-        request_kind,
         profile,
     } = model;
     let support = classes
@@ -890,7 +1224,7 @@ configurations:
       engineKind: "ENGINE_KIND_LLAMA_CPP"
       llamaCpp: {{ fixedSettings: {{ gpuLayers: 0 }} }}
     executionCapabilities: {{ supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }}
-    requestKinds: ["{request_kind}"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
     inputCapabilities: {{ supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"] }}
 profiles:
   - profileId: "{profile}"
@@ -942,20 +1276,17 @@ artifacts:
 const NVIDIA_LISTS: &str = r#"
 hardwareClassId: "nvidia"
 useCases:
-  - useCase: "USE_CASE_TRANSLATION"
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - { modelId: "mid", profileId: "q4" }
       - { modelId: "small", profileId: "q4" }
-  - useCase: "USE_CASE_DECISION_MAKING"
-    entries:
-      - { modelId: "decider", profileId: "q8" }
 "#;
 
 /// Dedicated GPUs' coding list: the GPU-model entry first, then minimums on the GPU's memory.
 const DEDICATED_LISTS: &str = r#"
 hardwareClassId: "nvidia-dedicated"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - { modelId: "x-only", profileId: "x" }
       - { modelId: "big", profileId: "q4", hardwareRequirements: { minimumMemoryBytesPerDevice: "24000000000" } }
@@ -966,7 +1297,7 @@ useCases:
 const UNIFIED_LISTS: &str = r#"
 hardwareClassId: "nvidia-unified"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - { modelId: "big", profileId: "q4" }
       - { modelId: "mid", profileId: "q4" }
@@ -976,16 +1307,13 @@ useCases:
 const APPLE_LISTS: &str = r#"
 hardwareClassId: "apple"
 useCases:
-  - useCase: "USE_CASE_CODING_AND_AGENTS"
+  - useCase: "USE_CASE_CODING"
     entries:
       - { modelId: "big", profileId: "q4", hardwareRequirements: { minimumSystemMemoryBytes: "48000000000" } }
       - { modelId: "mid", profileId: "q4", hardwareRequirements: { minimumSystemMemoryBytes: "24000000000" } }
       - { modelId: "small", profileId: "q4" }
-  - useCase: "USE_CASE_TRANSLATION"
+  - useCase: "USE_CASE_CHAT_ASSISTANT"
     entries:
       - { modelId: "mid", profileId: "q4", hardwareRequirements: { minimumSystemMemoryBytes: "24000000000" } }
       - { modelId: "small", profileId: "q4" }
-  - useCase: "USE_CASE_DECISION_MAKING"
-    entries:
-      - { modelId: "decider", profileId: "q8" }
 "#;

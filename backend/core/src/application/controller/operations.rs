@@ -2,20 +2,20 @@
 
 use std::sync::Arc;
 
-use dotcore_domain::{SiteNodeId, real_time};
+use dotcore_domain::{SiteNodeId, diagnostic::diagnostic_chain, real_time};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
         ApplicationLifecycleState, CreateApplicationDeploymentRequest,
-        CurrentApplicationDeployment, ResolvedApplicationDeploymentSnapshot,
-        ResolvedApplicationServiceSelection,
+        CurrentApplicationDeployment, ListApplicationTargetsResponse,
+        ResolvedApplicationDeploymentSnapshot, ResolvedApplicationServiceSelection,
     },
     catalog::v1::application_service_artifact::Kind as ServiceArtifactKind,
     deployment::v1::{ArtifactPreparationPolicy, ExactPlacement},
     site::v1::{ExecutionTarget, Site},
 };
 use dotcore_site::node::target_inventory::CapabilityObservation;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use super::{
     ApplicationLifecycleError, ApplicationOwner, configuration, configuration_with_source,
@@ -24,6 +24,7 @@ use super::{
 };
 use crate::application::{
     published_port::{PUBLISHED_PORT_RANGE, allocate_published_port, deployment_start_offset},
+    recommendation::recommend_application_targets,
     repository::{
         ApplicationDeclarationRepository, ApplicationLifecycleGenerations,
         CurrentApplicationRepository, has_inference_route_projection,
@@ -255,6 +256,51 @@ where
         );
     }
     result
+}
+
+/// Lists the application targets that can take a catalog application now, best first, from the
+/// current target observations and deployments. Unavailable observations leave nothing to list.
+pub(super) async fn list_targets<D, S>(
+    owner: &ApplicationOwner<D, S>,
+    application_id: &str,
+) -> Result<ListApplicationTargetsResponse, ApplicationLifecycleError>
+where
+    D: ApplicationDeclarationRepository,
+    S: CurrentApplicationRepository + ApplicationLifecycleGenerations,
+{
+    validate_id(application_id)?;
+    let application = resolve_application(owner, application_id)?;
+    let inventory = match owner.target_capabilities.observe().await {
+        Ok(inventory) => inventory,
+        Err(error) => {
+            warn!(
+                application_id,
+                error = %diagnostic_chain(&error),
+                "target observations are unavailable; application targets list nothing"
+            );
+            return Ok(ListApplicationTargetsResponse::default());
+        }
+    };
+    let site = owner.application_site()?;
+    let deployments = owner.projection()?.deployments;
+    let manager = site
+        .nodes
+        .iter()
+        .find(|node| node.site_manager.is_some())
+        .map(|node| node.node_id.as_str());
+    let targets = recommend_application_targets(
+        &application,
+        &site.execution_targets,
+        manager,
+        &inventory,
+        &deployments,
+    );
+    debug!(
+        application_id,
+        target_count = targets.len(),
+        "listed application targets"
+    );
+    Ok(ListApplicationTargetsResponse { targets })
 }
 
 fn find_desired<D, S>(

@@ -29,6 +29,7 @@ Each image has a folder under `apps/` (or `engines/` for an engine image) with a
 4. Write `catalog/applications/<name>.yaml` from the closest neighbour.
    * Reference the package `apps.<name>.docker` with `dockerImage: {}`, and list the platforms the image was pinned for.
    * Bind the inference endpoint and published URLs with resolved values rather than literals, and keep any fixed login visible in `notes`.
+   * Declare `useCases` when the app is the master catalog's app for a use case (one app per use case), and `preferredAccelerators` (vendor names) when it runs best on one vendor's GPUs. Both are advisory metadata.
    * Leave out optional fields you cannot support.
 
 5. Write the folder's `README.md` and `AGENTS.md` from the templates in `apps/AGENTS.md`.

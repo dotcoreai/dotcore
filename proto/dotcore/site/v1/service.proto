@@ -3,14 +3,25 @@ syntax = "proto3";
 package dotcore.site.v1;
 
 import "dotcore/observation/v1/observation.proto";
+import "dotcore/site/v1/site.proto";
 import "google/protobuf/empty.proto";
+import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
 
-// Management read API for configured machine inventory and current hardware snapshots.
+// Management API for configured machine inventory, current hardware snapshots and the site-wide
+// console settings.
 service SiteService {
   rpc ListMachines(ListMachinesRequest) returns (ListMachinesResponse);
   rpc ListConfiguredExecutionTargets(ListConfiguredExecutionTargetsRequest) returns (ListConfiguredExecutionTargetsResponse);
   rpc ListHardwareSnapshots(ListHardwareSnapshotsRequest) returns (ListHardwareSnapshotsResponse);
+
+  // Reads the site-wide console settings; a cheap read of the desired site.
+  rpc GetConsoleSettings(GetConsoleSettingsRequest) returns (GetConsoleSettingsResponse);
+
+  // Writes the masked console settings fields; the last writer wins. Errors: INVALID_ARGUMENT (a
+  // missing value or mask, or a mask path that is empty, repeated or not writable), UNAVAILABLE
+  // (the settings were accepted but their save is uncertain; retry or read them back).
+  rpc UpdateConsoleSettings(UpdateConsoleSettingsRequest) returns (UpdateConsoleSettingsResponse);
 }
 
 // Requests every configured machine in the site.
@@ -215,4 +226,28 @@ message CurrentHardwareSnapshotAvailability {
     // CURRENT_HARDWARE_SNAPSHOT_UNAVAILABLE: A current hardware snapshot is unavailable for this machine.
     dotcore.observation.v1.ObservationUnavailable unavailable = 2;
   }
+}
+
+// Requests the site-wide console settings.
+message GetConsoleSettingsRequest {}
+
+// Returns the site-wide console settings, with defaults for values never written.
+message GetConsoleSettingsResponse {
+  // The current console settings.
+  ConsoleSettings settings = 1;
+}
+
+// Requests a masked update of the site-wide console settings.
+message UpdateConsoleSettingsRequest {
+  // Values to write for the masked fields; other fields are ignored.
+  ConsoleSettings settings = 1;
+
+  // Console settings fields to write, by field name.
+  google.protobuf.FieldMask update_mask = 2;
+}
+
+// Returns the console settings after an accepted update.
+message UpdateConsoleSettingsResponse {
+  // The complete accepted console settings.
+  ConsoleSettings settings = 1;
 }

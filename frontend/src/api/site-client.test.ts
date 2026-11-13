@@ -5,23 +5,30 @@ import { ListConfiguredExecutionTargetsResponseSchema } from "@/gen/dotcore/site
 
 import type { SiteClient } from "./site-client";
 
-const { createClient, createGrpcWebTransport, generatedListConfiguredExecutionTargets } =
-  vi.hoisted(() => {
-    const generatedListConfiguredExecutionTargets = vi.fn();
-    const createGrpcWebTransport = vi.fn(() => ({}) as never);
-    const createClient = vi.fn((...args: unknown[]) => {
-      void args;
-      return {
-        listConfiguredExecutionTargets: generatedListConfiguredExecutionTargets,
-      } as never;
-    });
-
+const {
+  createClient,
+  createGrpcWebTransport,
+  generatedListConfiguredExecutionTargets,
+  generatedUpdateConsoleSettings,
+} = vi.hoisted(() => {
+  const generatedListConfiguredExecutionTargets = vi.fn();
+  const generatedUpdateConsoleSettings = vi.fn();
+  const createGrpcWebTransport = vi.fn(() => ({}) as never);
+  const createClient = vi.fn((...args: unknown[]) => {
+    void args;
     return {
-      createClient,
-      createGrpcWebTransport,
-      generatedListConfiguredExecutionTargets,
-    };
+      listConfiguredExecutionTargets: generatedListConfiguredExecutionTargets,
+      updateConsoleSettings: generatedUpdateConsoleSettings,
+    } as never;
   });
+
+  return {
+    createClient,
+    createGrpcWebTransport,
+    generatedListConfiguredExecutionTargets,
+    generatedUpdateConsoleSettings,
+  };
+});
 
 vi.mock("@connectrpc/connect-web", () => ({ createGrpcWebTransport }));
 vi.mock("@connectrpc/connect", async (importOriginal) => ({
@@ -68,7 +75,9 @@ describe("Site client endpoint resolution", () => {
   });
 
   it("exposes only public site management methods to browser callers", async () => {
-    expectTypeOf<keyof SiteClient>().toEqualTypeOf<"listConfiguredExecutionTargets">();
+    expectTypeOf<keyof SiteClient>().toEqualTypeOf<
+      "listConfiguredExecutionTargets" | "updateConsoleSettings"
+    >();
 
     const { createSiteClient } = await import("./site-client");
     const siteClient = createSiteClient();
@@ -81,5 +90,12 @@ describe("Site client endpoint resolution", () => {
     const siteClient = createSiteClient();
     await siteClient.listConfiguredExecutionTargets({});
     expect(generatedListConfiguredExecutionTargets).toHaveBeenCalledWith({}, undefined);
+  });
+
+  it("forwards console settings updates unchanged", async () => {
+    const { createSiteClient } = await import("./site-client");
+    const request = { settings: { getStartedHidden: true } };
+    await createSiteClient().updateConsoleSettings(request);
+    expect(generatedUpdateConsoleSettings).toHaveBeenCalledWith(request, undefined);
   });
 });

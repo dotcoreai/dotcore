@@ -7,6 +7,7 @@ export {
   LayoutGrid as AppsSectionIcon,
   Library as CatalogSectionIcon,
   MessageSquare as ChatSectionIcon,
+  Compass as GetStartedSectionIcon,
   Server as MachinesSectionIcon,
   Boxes as ModelsSectionIcon,
   LayoutDashboard as OverviewSectionIcon,

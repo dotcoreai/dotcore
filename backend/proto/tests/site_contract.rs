@@ -560,6 +560,8 @@ fn complete_application() -> Application {
         display_name: "Application One".to_owned(),
         description: String::new(),
         notes: "First line.\nSecond line.".to_owned(),
+        use_cases: Vec::new(),
+        preferred_accelerators: Vec::new(),
         version: "1.0.0".to_owned(),
         graph: Some(ApplicationGraph {
             services: vec![
@@ -1201,6 +1203,16 @@ fn generated_descriptors_preserve_site_inventory_contracts() {
                 "ListHardwareSnapshots",
                 ".dotcore.site.v1.ListHardwareSnapshotsRequest",
                 ".dotcore.site.v1.ListHardwareSnapshotsResponse",
+            ),
+            (
+                "GetConsoleSettings",
+                ".dotcore.site.v1.GetConsoleSettingsRequest",
+                ".dotcore.site.v1.GetConsoleSettingsResponse",
+            ),
+            (
+                "UpdateConsoleSettings",
+                ".dotcore.site.v1.UpdateConsoleSettingsRequest",
+                ".dotcore.site.v1.UpdateConsoleSettingsResponse",
             ),
         ]
     ));

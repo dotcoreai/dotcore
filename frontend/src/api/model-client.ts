@@ -40,6 +40,7 @@ export type CatalogClient = Pick<
 type GeneratedModelDeploymentServiceClient = Pick<
   Client<typeof ModelDeploymentService>,
   | "listModelDeployments"
+  | "listModelRecommendations"
   | "createModelDeployment"
   | "updateModelDeployment"
   | "removeModelDeployment"
@@ -92,6 +93,7 @@ export function createModelClient(baseUrl = modelServerUrl): ModelClient {
     catalog: createClient(CatalogService, transport),
     model: {
       listModelDeployments: model.listModelDeployments,
+      listModelRecommendations: model.listModelRecommendations,
       previewLocalModelDeployment: (local) =>
         model.previewLocalModelDeployment(
           create(PreviewLocalModelDeploymentRequestSchema, { local }),

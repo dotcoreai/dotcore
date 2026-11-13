@@ -322,6 +322,7 @@ function clientFor(listModels: ModelClient["catalog"]["listModels"]): ModelClien
     model: {
       createModelDeployment: vi.fn(),
       listModelDeployments: vi.fn(),
+      listModelRecommendations: vi.fn(),
       pauseModel: vi.fn(),
       removeModelDeployment: vi.fn(),
       resumeModel: vi.fn(),
