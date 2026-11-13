@@ -27,7 +27,7 @@ dotcore-runtime-backends = { path = "runtime_backends", version = "0.1.0" }
 dotcore-site = { path = "site", version = "0.1.0" }
 
 anyhow = "1.0.104"
-base64 = "0.22.1"
+base64 = "0.23.1"
 clap = { version = "4.5.53", features = ["derive", "env"] }
 futures-util = "0.3.31"
 getrandom = "0.4.3"

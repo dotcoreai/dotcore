@@ -1018,7 +1018,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-openai",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bollard",
  "bytes",
  "dotcore",
@@ -1074,7 +1074,7 @@ name = "dotcore-artifact"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bollard",
  "dotcore-domain",
  "dotcore-proto",
@@ -1257,7 +1257,7 @@ name = "dotcore-site"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dotcore-catalog",
  "dotcore-domain",
  "dotcore-host-process",
