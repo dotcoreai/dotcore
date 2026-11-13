@@ -1291,7 +1291,6 @@ mod tests {
             None,
             "a preview withholds even a typed secret"
         );
-        assert!(preview.generated_engine_parameter_ids.is_empty());
 
         let ((generated, kept), records, output) =
             dotcore_domain::test_support::tracing::capture_records(|| {
@@ -1321,10 +1320,6 @@ mod tests {
             ))
         );
         assert_eq!(
-            generated_local.generated_engine_parameter_ids,
-            [API_KEY_PARAMETER_ID]
-        );
-        assert_eq!(
             generated_local
                 .sizing
                 .as_ref()
@@ -1339,7 +1334,6 @@ mod tests {
             secret_of(&kept_local, API_KEY_PARAMETER_ID),
             Some(typed_key.to_owned())
         );
-        assert!(kept_local.generated_engine_parameter_ids.is_empty());
         assert_eq!(
             generated_local.desired_launch_plan, kept_local.desired_launch_plan,
             "the secret never reaches the launch plan"

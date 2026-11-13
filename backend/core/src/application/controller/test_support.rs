@@ -2804,6 +2804,7 @@ pub(super) fn route_configuration_binding(
                 ),
             ),
         }),
+        enabled_by_parameter_id: None,
     }
 }
 
@@ -2996,6 +2997,7 @@ pub(super) fn application_with_parameters() -> Application {
                 id.to_owned(),
             )),
             input: None,
+            enabled_by_parameter_id: None,
         })
         .collect();
     application
@@ -3059,6 +3061,7 @@ pub(super) fn application_with_secret_parameters() -> Application {
             "username".to_owned(),
         )),
         input: None,
+        enabled_by_parameter_id: None,
     }];
     web.secret_bindings = vec![
         ApplicationSecretBinding {
@@ -3066,14 +3069,56 @@ pub(super) fn application_with_secret_parameters() -> Application {
             environment_variable: "PASSWORD".to_owned(),
             parameter_id: "password".to_owned(),
             form: ApplicationSecretForm::Plain as i32,
+            enabled_by_parameter_id: None,
         },
         ApplicationSecretBinding {
             binding_name: "password-hash".to_owned(),
             environment_variable: "PASSWORD_HASH".to_owned(),
             parameter_id: "password".to_owned(),
             form: ApplicationSecretForm::Bcrypt as i32,
+            enabled_by_parameter_id: None,
         },
     ];
+    application
+}
+
+/// The secret-parameter test application with a boolean `login` parameter, off by default, bound
+/// to `LOGIN` and enabling the `username` and both `password` bindings.
+pub(super) fn application_with_login_switch() -> Application {
+    use dotcore_proto::dotcore::catalog::v1::{
+        BooleanParameterSchema, ParameterDefinition, ParameterVisibility,
+        parameter_definition::ParameterType,
+    };
+
+    let mut application = application_with_secret_parameters();
+    let graph = application.graph.as_mut().expect("graph");
+    graph.parameters.push(ParameterDefinition {
+        parameter_id: "login".to_owned(),
+        display_name: "Login".to_owned(),
+        description: String::new(),
+        parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema {
+            default_value: Some(false),
+        })),
+        visibility: ParameterVisibility::Basic as i32,
+    });
+    let web = &mut graph.services[0];
+    let switch = Some("login".to_owned());
+    for binding in &mut web.configuration_bindings {
+        binding.enabled_by_parameter_id = switch.clone();
+    }
+    for binding in &mut web.secret_bindings {
+        binding.enabled_by_parameter_id = switch.clone();
+    }
+    web.configuration_bindings
+        .push(ApplicationConfigurationBinding {
+            binding_name: "login".to_owned(),
+            environment_variable: "LOGIN".to_owned(),
+            source: Some(application_configuration_binding::Source::ParameterId(
+                "login".to_owned(),
+            )),
+            input: None,
+            enabled_by_parameter_id: None,
+        });
     application
 }
 
@@ -3112,6 +3157,7 @@ pub(super) fn base_url_application() -> Application {
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         });
     application
 }

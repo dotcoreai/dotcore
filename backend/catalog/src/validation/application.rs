@@ -120,6 +120,7 @@ mod tests {
                                 "postgres://database".to_owned(),
                             )),
                             input: None,
+                            enabled_by_parameter_id: None,
                         }],
                         storage_bindings: vec![StorageBinding {
                             binding_name: "data".to_owned(),
@@ -428,6 +429,7 @@ mod tests {
                     "not=safe".to_owned(),
                 )),
                 input: None,
+                enabled_by_parameter_id: None,
             });
         web.configuration_bindings
             .push(ApplicationConfigurationBinding {
@@ -439,12 +441,14 @@ mod tests {
                     ),
                 ),
                 input: None,
+                enabled_by_parameter_id: None,
             });
         web.secret_bindings.push(ApplicationSecretBinding {
             binding_name: "secret".to_owned(),
             environment_variable: "DATABASE_URL".to_owned(),
             parameter_id: "password".to_owned(),
             form: ApplicationSecretForm::Plain as i32,
+            enabled_by_parameter_id: None,
         });
 
         let errors = validate_application(&application)
@@ -850,6 +854,7 @@ services:
                 environment_variable: "PASSWORD".to_owned(),
                 parameter_id: "password".to_owned(),
                 form: ApplicationSecretForm::Plain as i32,
+                enabled_by_parameter_id: None,
             }]
         );
         dotcore_proto::yaml::from_str::<ApplicationGraph>(
@@ -894,6 +899,75 @@ services:
         assert_eq!(
             errors,
             ["application inference route input \"mode\" requires a literal fallback value"]
+        );
+    }
+
+    #[test]
+    fn application_validation_checks_the_parameter_enabling_a_binding() {
+        let enabled_by = |parameter_id: &str| {
+            let mut application = parameterized_application(
+                vec![
+                    parameter("login", boolean(Some(false))),
+                    parameter("mode", string_enum(&["auto"], Some("auto"))),
+                    parameter("password", secret(32, 1)),
+                ],
+                &["login", "mode"],
+            );
+            bind_secret(
+                &mut application,
+                "password",
+                "password",
+                ApplicationSecretForm::Plain,
+            );
+            let web = &mut application.graph.as_mut().expect("graph").services[1];
+            web.configuration_bindings
+                .last_mut()
+                .expect("mode binding")
+                .enabled_by_parameter_id = Some(parameter_id.to_owned());
+            web.secret_bindings[0].enabled_by_parameter_id = Some(parameter_id.to_owned());
+            application
+        };
+        let errors = |application: &Application| {
+            validate_application(application)
+                .into_iter()
+                .map(|error| error.to_string())
+                .collect::<Vec<_>>()
+        };
+
+        assert!(errors(&enabled_by("login")).is_empty());
+        assert_eq!(
+            errors(&enabled_by("missing")),
+            [
+                "application configuration binding \"mode\" on service \"web\" is enabled by missing parameter \"missing\"",
+                "application secret binding \"password\" on service \"web\" is enabled by missing parameter \"missing\"",
+            ]
+        );
+        assert_eq!(
+            errors(&enabled_by("mode")),
+            [
+                "application configuration binding \"mode\" on service \"web\" is enabled by parameter \"mode\", which is not a boolean",
+                "application secret binding \"password\" on service \"web\" is enabled by parameter \"mode\", which is not a boolean",
+            ]
+        );
+
+        let mut with_route_input = enabled_by("login");
+        let binding = &mut with_route_input.graph.as_mut().expect("graph").services[1]
+            .configuration_bindings[0];
+        binding.enabled_by_parameter_id = Some("login".to_owned());
+        binding.input = Some(ApplicationDeploymentInput {
+            kind: Some(
+                dotcore_proto::dotcore::catalog::v1::application_deployment_input::Kind::InferenceRoute(
+                    ApplicationInferenceRouteInput {
+                        projection: ApplicationInferenceRouteProjection::RouteName as i32,
+                    },
+                ),
+            ),
+        });
+        assert_eq!(
+            errors(&with_route_input),
+            [
+                "application configuration binding \"database-url\" on service \"web\" takes a route input, so it cannot be enabled by a parameter"
+            ]
         );
     }
 
@@ -981,6 +1055,7 @@ services:
                         (*id).to_owned(),
                     )),
                     input: None,
+                    enabled_by_parameter_id: None,
                 });
         }
         application
@@ -999,6 +1074,7 @@ services:
                 environment_variable: binding_name.to_uppercase().replace('-', "_"),
                 parameter_id: parameter_id.to_owned(),
                 form: form as i32,
+                enabled_by_parameter_id: None,
             });
     }
 

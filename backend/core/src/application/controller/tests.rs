@@ -3748,6 +3748,7 @@ fn configuration_attachments_preserve_empty_literals_and_resolve_named_values() 
                 String::new(),
             )),
             input: None,
+            enabled_by_parameter_id: None,
         },
         ApplicationConfigurationBinding {
             binding_name: "inference".to_owned(),
@@ -3758,6 +3759,7 @@ fn configuration_attachments_preserve_empty_literals_and_resolve_named_values() 
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         },
     ];
     let sources = |name: &str| {
@@ -3919,6 +3921,7 @@ async fn created_deployments_hold_distinct_published_ports_through_teardown_and_
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         });
     let controller = ApplicationController::new(
         Arc::new(
@@ -4109,6 +4112,7 @@ fn launch_pins_only_site_host_names_from_site_host_sources() {
                     environment_variable: environment_variable.to_owned(),
                     source: Some(source),
                     input: None,
+                    enabled_by_parameter_id: None,
                 });
         }
         deployment.configuration_attachments = vec![
@@ -4157,6 +4161,7 @@ fn secret_bindings_attach_apart_from_configuration() {
             environment_variable: "SECRET_VALUE".to_owned(),
             parameter_id: "password".to_owned(),
             form: ApplicationSecretForm::Plain as i32,
+            enabled_by_parameter_id: None,
         });
     let values = [string_parameter("password", "typed-password")];
 
@@ -4189,6 +4194,7 @@ fn route_name_binding_retains_its_literal_only_without_a_route_link() {
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         });
     let sources = |name: &str| {
         (name == "configured-inference").then(|| "http://192.0.2.10:6470/v1".to_owned())
@@ -4238,6 +4244,7 @@ fn workload_launch_uses_persisted_configuration_attachments() {
             ),
         ),
         input: None,
+        enabled_by_parameter_id: None,
     }];
     deployment.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -4279,6 +4286,7 @@ fn changed_configuration_attachments_reject_stale_workload_observations() {
             ),
         ),
         input: None,
+        enabled_by_parameter_id: None,
     }];
     persisted.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -4931,6 +4939,7 @@ fn route_link_launches_with_current_name_and_retained_base_url() {
                 ),
             ),
             input: None,
+            enabled_by_parameter_id: None,
         },
     ];
     selected.configuration_attachments = vec![ApplicationConfigurationAttachment {
@@ -5330,6 +5339,7 @@ async fn reconciliation_replaces_changed_completed_non_route_projection() {
             ),
         ),
         input: None,
+        enabled_by_parameter_id: None,
     }];
     original_declaration.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -8179,7 +8189,6 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
             string_parameter("password", &generated_password),
         ]
     );
-    assert_eq!(snapshot.generated_parameter_ids, ["password"]);
     let typed_snapshot = typed.snapshot.as_ref().expect("snapshot");
     assert_eq!(
         typed_snapshot.parameter_values,
@@ -8188,7 +8197,6 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
             string_parameter("password", "typed-password-1"),
         ]
     );
-    assert!(typed_snapshot.generated_parameter_ids.is_empty());
 
     let declarations = desired
         .snapshot()
@@ -8286,6 +8294,95 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
         reloaded_launch.correlation.reconcile_generation,
         first_launch.correlation.reconcile_generation
     );
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn bindings_enabled_by_a_switch_reach_the_service_only_when_it_is_on() {
+    let directory = test_directory();
+    let (controller, desired) = test_controller_for(
+        &directory,
+        application_with_login_switch(),
+        test_secret_generator(),
+    );
+    let environment = |declaration: &ApplicationDeploymentDeclaration| {
+        workload_group_launch(
+            declaration,
+            Ipv4Addr::LOCALHOST,
+            test_inference_route_resolver().as_ref(),
+        )
+        .expect("workload launch")
+        .units[&WorkloadUnitName("web".to_owned())]
+            .environment
+            .clone()
+    };
+    let declaration = |deployment_id: &str| {
+        desired
+            .snapshot()
+            .expect("persisted declarations")
+            .deployments
+            .into_iter()
+            .find(|declaration| declaration.application_deployment_id == deployment_id)
+            .expect("persisted declaration")
+    };
+
+    // Off: the switch's own binding is unchanged, the switched bindings get no attachment and no
+    // hash, and the generated secret is still kept.
+    let off = controller
+        .create_deployment(parameter_request(Vec::new()))
+        .await
+        .expect("deployment with login off");
+    let off = declaration(&off.application_deployment_id);
+    let off_password = sequential_secret(1, 32);
+    assert_eq!(
+        off.snapshot.as_ref().expect("snapshot").parameter_values,
+        [
+            string_parameter("username", "admin"),
+            string_parameter("password", &off_password),
+            boolean_parameter("login", false),
+        ]
+    );
+    assert_eq!(
+        off.configuration_attachments
+            .iter()
+            .map(|attachment| (
+                attachment.environment_variable.as_str(),
+                attachment.value.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        [("LOGIN", "false")]
+    );
+    assert_eq!(off.secret_attachments, []);
+    assert_eq!(
+        environment(&off),
+        BTreeMap::from([("LOGIN".to_owned(), "false".to_owned())])
+    );
+
+    // On: every binding reaches the service, the secret in each of its forms.
+    let on = controller
+        .create_deployment(parameter_request(vec![boolean_parameter("login", true)]))
+        .await
+        .expect("deployment with login on");
+    let on = declaration(&on.application_deployment_id);
+    let on_password = sequential_secret(2, 32);
+    let password_hash = on
+        .secret_attachments
+        .iter()
+        .find(|attachment| attachment.binding_name == "password-hash")
+        .expect("bcrypt attachment")
+        .value
+        .clone();
+    assert!(bcrypt::verify(&on_password, &password_hash).expect("verifiable hash"));
+    assert_eq!(
+        environment(&on),
+        BTreeMap::from([
+            ("LOGIN".to_owned(), "true".to_owned()),
+            ("PASSWORD".to_owned(), on_password.clone()),
+            ("PASSWORD_HASH".to_owned(), password_hash),
+            ("USERNAME".to_owned(), "admin".to_owned()),
+        ])
+    );
+    drop(controller);
     fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 
@@ -8434,6 +8531,13 @@ fn storage_choice(binding_name: &str, placement: StoragePlacement) -> Applicatio
         service_name: "web".to_owned(),
         binding_name: binding_name.to_owned(),
         placement: placement as i32,
+    }
+}
+
+fn boolean_parameter(id: &str, value: bool) -> ParameterValue {
+    ParameterValue {
+        parameter_id: id.to_owned(),
+        value: Some(parameter_value::Value::Boolean(value)),
     }
 }
 

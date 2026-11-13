@@ -32,10 +32,6 @@ pub(super) fn rows(deployment: &ModelDeployment, reveal_secrets: bool) -> Vec<Pa
                 .profile_engine_parameter_defaults
                 .as_ref()
                 .map_or(&[][..], |values| &values.values);
-            let sized = local
-                .sizing
-                .as_ref()
-                .map_or(&[][..], |sizing| &sizing.derived_engine_parameter_ids);
 
             schema
                 .parameters
@@ -55,10 +51,6 @@ pub(super) fn rows(deployment: &ModelDeployment, reveal_secrets: bool) -> Vec<Pa
                         default: retained(defaults, &definition.parameter_id)
                             .cloned()
                             .or_else(|| definition_default(definition)),
-                        sized: sized.contains(&definition.parameter_id),
-                        generated: local
-                            .generated_engine_parameter_ids
-                            .contains(&definition.parameter_id),
                     }
                     .row(reveal_secrets)
                 })

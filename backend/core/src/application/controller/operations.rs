@@ -567,7 +567,7 @@ where
     D: ApplicationDeclarationRepository,
     S: CurrentApplicationRepository + ApplicationLifecycleGenerations,
 {
-    let parameters = super::parameters::resolve_parameter_values(
+    let parameter_values = super::parameters::resolve_parameter_values(
         application
             .graph
             .as_ref()
@@ -611,7 +611,7 @@ where
                 .configuration_sources
                 .resolve(name, site, &placement.site_node_id, published_port)
         },
-        &parameters.values,
+        &parameter_values,
         request.inference_route_id.is_some(),
     )?;
     let storage_attachments =
@@ -626,8 +626,7 @@ where
         .map_err(|_| ApplicationLifecycleError::InvalidName)?,
         placement: Some(placement.clone()),
         snapshot: Some(ResolvedApplicationDeploymentSnapshot {
-            parameter_values: parameters.values,
-            generated_parameter_ids: parameters.generated_parameter_ids,
+            parameter_values,
             ..resolve_snapshot(&application, site, placement, platform)?
         }),
         desired_state: ApplicationDeploymentDesiredState::Present as i32,
@@ -769,7 +768,6 @@ pub(super) fn resolve_snapshot(
         platform: Some(platform.clone()),
         service_selections,
         parameter_values: Vec::new(),
-        generated_parameter_ids: Vec::new(),
     })
 }
 

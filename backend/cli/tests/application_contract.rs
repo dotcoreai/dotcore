@@ -808,21 +808,21 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
     assert_eq!(
         rows,
         [
-            "Web search true (default)",
+            "Web search true",
             "Memory limit 2048 MB",
             "Mode fast",
             "Welcome note Empty",
-            "Admin password ******** (generated)",
+            "Admin password ********",
         ]
     );
 }
 
 const PARAMETER_LINES_MASKED: [&str; 5] = [
-    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WEB_SEARCH=true (default)",
+    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WEB_SEARCH=true",
     "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_MEMORY_LIMIT=2048 MB",
     "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_MODE=fast",
     "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WELCOME_NOTE=Empty",
-    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_ADMIN_PASSWORD=******** (generated)",
+    "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_ADMIN_PASSWORD=********",
 ];
 
 /// The parameter lines of a record block.
@@ -834,7 +834,7 @@ fn parameter_lines(stdout: &str) -> Vec<&str> {
 }
 
 /// A deployment with one parameter of each kind: a default boolean, a non-default integer with a
-/// unit, an enum, an empty text and a generated secret.
+/// unit, an enum, an empty text and a secret.
 fn deployment_with_parameters() -> ApplicationDeployment {
     let definition = |id: &str, name: &str, parameter_type| ParameterDefinition {
         parameter_id: id.to_owned(),
@@ -903,7 +903,6 @@ fn deployment_with_parameters() -> ApplicationDeployment {
         value("welcome-note", Value::String(String::new())),
         value("admin-password", Value::String("s3cretPassw0rd".to_owned())),
     ];
-    snapshot.generated_parameter_ids = vec!["admin-password".to_owned()];
     deployment
 }
 

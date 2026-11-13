@@ -3,7 +3,7 @@
 //! Merges operator-supplied values over the defaults an application declares, rejecting values
 //! the application does not declare or does not accept, and generates a random value for each
 //! secret the operator leaves out. The result is the complete set a deployment retains for its
-//! whole life, in the application's declaration order, with the secrets that were generated.
+//! whole life, in the application's declaration order.
 
 use std::collections::BTreeSet;
 
@@ -15,20 +15,13 @@ use dotcore_proto::dotcore::catalog::v1::{
 use super::errors::{ApplicationLifecycleError, ParameterRejection, configuration};
 use crate::SecretGenerator;
 
-/// The parameter values a new deployment retains and the secrets among them that were generated.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct ResolvedParameters {
-    pub(super) values: Vec<ParameterValue>,
-    pub(super) generated_parameter_ids: Vec<String>,
-}
-
 /// Resolves the complete parameter values of a new deployment from the operator's `supplied`
 /// overrides, the graph's declared defaults, and a generated value for each secret left out.
 pub(super) fn resolve_parameter_values(
     graph: &ApplicationGraph,
     supplied: &[ParameterValue],
     secrets: &dyn SecretGenerator,
-) -> Result<ResolvedParameters, ApplicationLifecycleError> {
+) -> Result<Vec<ParameterValue>, ApplicationLifecycleError> {
     let mut supplied_ids = BTreeSet::new();
     for value in supplied {
         let reject = |reason| ApplicationLifecycleError::InvalidParameter {
@@ -51,10 +44,7 @@ pub(super) fn resolve_parameter_values(
             .map_err(|source| reject(ParameterRejection::InvalidValue(source)))?;
     }
 
-    let mut resolved = ResolvedParameters {
-        values: Vec::with_capacity(graph.parameters.len()),
-        generated_parameter_ids: Vec::new(),
-    };
+    let mut resolved = Vec::with_capacity(graph.parameters.len());
     for definition in &graph.parameters {
         let supplied = supplied
             .iter()
@@ -71,15 +61,12 @@ pub(super) fn resolve_parameter_values(
                                 source.context("Application secret parameter generation failed"),
                             )
                         })?;
-                resolved
-                    .generated_parameter_ids
-                    .push(definition.parameter_id.clone());
                 Value::String(value)
             }
             (None, _) => default_value(definition)
                 .ok_or_else(|| configuration("Application parameter default is missing"))?,
         };
-        resolved.values.push(ParameterValue {
+        resolved.push(ParameterValue {
             parameter_id: definition.parameter_id.clone(),
             value: Some(value),
         });

@@ -878,21 +878,21 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
     assert_eq!(
         rows,
         [
-            "Flash attention true (default)",
+            "Flash attention true",
             "Parallel requests 4",
-            "Expert cap 24576 MiB (sized)",
+            "Expert cap 24576 MiB",
             "Tuned flag false",
-            "API key ******** (generated)",
+            "API key ********",
         ]
     );
 }
 
 const PARAMETER_LINES_MASKED: [&str; 5] = [
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_FLASH_ATTENTION=true (default)",
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_FLASH_ATTENTION=true",
     "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_PARALLEL_REQUESTS=4",
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_EXPERT_CAP=24576 MiB (sized)",
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_EXPERT_CAP=24576 MiB",
     "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_TUNED_FLAG=false",
-    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=******** (generated)",
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=********",
 ];
 
 /// The parameter lines of a record block.
@@ -904,7 +904,7 @@ fn parameter_lines(stdout: &str) -> Vec<&str> {
 }
 
 /// A local deployment whose schema has a default flag, a plain integer, a sized integer, a flag
-/// the profile makes visible, a generated secret and two hidden parameters (one hidden by the
+/// the profile makes visible, a secret and two hidden parameters (one hidden by the
 /// engine, one by the profile).
 fn deployment_with_parameters() -> ModelDeployment {
     let definition = |id: &str, name: &str, visibility, parameter_type| ParameterDefinition {
@@ -1003,7 +1003,6 @@ fn deployment_with_parameters() -> ModelDeployment {
         derived_engine_parameter_ids: vec!["expert-cap".to_owned()],
         ..Default::default()
     });
-    local.generated_engine_parameter_ids = vec!["api-key".to_owned()];
     deployment
 }
 

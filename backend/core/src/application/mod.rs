@@ -1,5 +1,6 @@
 //! Apps-controller deployment lifecycle, persistence, and management API boundaries.
 
+mod binding;
 mod controller;
 mod published_port;
 pub mod repository;

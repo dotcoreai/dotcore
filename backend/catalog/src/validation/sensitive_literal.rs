@@ -168,6 +168,7 @@ mod tests {
                 environment_variable: environment_variable.to_owned(),
                 source: Some(source),
                 input: None,
+                enabled_by_parameter_id: None,
             });
     }
 
