@@ -201,6 +201,8 @@ Operator-triggered cleanup of one machine's disk.
   loader, and never removes an image a container uses.
 - It removes shared workload storage, from any site on the machine, that no container mounts and no
   workload has used for a retention period.
+- Storage shared by an app, which teardown keeps, is removed only by this cleanup
+  ([storage placements](apps.md#app-storage)).
 
 ### Workload resource records
 

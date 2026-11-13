@@ -124,10 +124,15 @@ What an application deployment keeps from creation:
 
 ### App storage
 
-- Storage attachments are scoped to one deployment or to every deployment of the app on a node. The
-  apps controller owns the attachments and their scope, never their content.
-- Storage shared across the app's deployments on a node outlives teardown. Machine cleanup removes it
-  once unused ([storage](storage.md#machine-cleanup)), and site reset removes it too.
+- A storage placement says whose data a storage binding holds: this deployment's own, or shared by
+  the app (every deployment of the app on a node). It is not where a deployment runs.
+- A storage binding declares its allowed storage placements in order, and the first is the default.
+  An app binding may allow this deployment, shared by the app, or both. You pick one storage
+  placement per binding at creation. It is fixed: redeploy to change it.
+- The apps controller owns the attachments and their storage placement, never their content.
+- Teardown deletes the deployment's own data. Storage shared across the app's deployments on a node
+  outlives teardown. Machine cleanup removes it once unused
+  ([storage](storage.md#machine-cleanup)), and site reset removes it too.
 - App content belongs to you and the app.
 
 ## Components
@@ -157,7 +162,7 @@ What an application deployment keeps from creation:
 
 #### Boundaries
 
-- Never owns app content, only the attachments and their scope.
+- Never owns app content, only the attachments and their storage placement.
 - Never waits on route availability or substitutes another route.
 - Doesn't enforce access. The app proxy forwards traffic and the identity and access manager decides.
 
@@ -179,6 +184,7 @@ What an application deployment keeps from creation:
 ## Future direction
 
 - Protected app access and explicit administrator custom images.
+- Named storage locations declared per machine, which add choices to a binding's placements.
 - Multiple approved apps with versions, configuration, updates, rollback, removal and app data
   policy.
 - Staged updates and rollback under a mature version policy.

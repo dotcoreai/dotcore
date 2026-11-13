@@ -170,8 +170,10 @@ are on the [recommendations](recommendations.md) page.
   hidden.
 - May name the use cases it serves and the accelerator vendors it prefers
   ([recommendations](recommendations.md#app-use-case)).
-- Engine releases and apps declare the storage they need. Deployments keep that declaration
-  ([runtime](runtime.md)).
+- Engine releases and apps declare the storage they need. Each storage binding lists its allowed
+  placements in order, the first being the default. An app binding may allow this deployment or
+  shared by the app ([apps](apps.md)); an engine binding allows exactly one. Deployments keep that
+  declaration and the chosen placement ([runtime](runtime.md)).
 
 ## Components
 
