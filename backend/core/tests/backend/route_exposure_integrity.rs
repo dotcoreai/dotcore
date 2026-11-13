@@ -2,7 +2,7 @@
 
 use std::fs;
 
-use dotcore::composition::{SelectedModelService, model_service_for};
+use dotcore::composition::SelectedModelService;
 use dotcore_proto::dotcore::{
     inference::v1::{
         CreateRouteRequest, FallbackGroup, FallbackGroupSelection, InferenceRoute,
@@ -25,7 +25,7 @@ use crate::support;
 #[tokio::test]
 async fn direct_load_persists_one_deployment_and_its_direct_route() {
     let root = support::temporary_fast_fixture();
-    let service = model_service_for(&support::configuration(&root))
+    let service = support::model_service_for(&support::configuration(&root))
         .await
         .expect("Direct model service");
     let deployment = ModelServiceContract::create_model_deployment(
@@ -119,7 +119,7 @@ async fn direct_load_and_unload_return_with_the_route_snapshot_already_current()
 #[tokio::test]
 async fn hidden_load_persists_one_deployment_without_a_route() {
     let root = support::temporary_fast_fixture();
-    let service = model_service_for(&support::configuration(&root))
+    let service = support::model_service_for(&support::configuration(&root))
         .await
         .expect("Hidden model service");
     let deployment = ModelServiceContract::create_model_deployment(
@@ -148,7 +148,7 @@ async fn hidden_load_persists_one_deployment_without_a_route() {
 #[tokio::test]
 async fn local_deployments_are_independent_and_a_conflicting_route_is_atomic() {
     let root = support::temporary_fast_fixture();
-    let service = model_service_for(&support::configuration(&root))
+    let service = support::model_service_for(&support::configuration(&root))
         .await
         .expect("Model service");
     let first = create_local_deployment(&service, "public-model")
@@ -225,7 +225,7 @@ async fn unload_deletes_sole_member_routes_and_keeps_unrelated_routes() {
         unrelated.clone(),
     ];
     write_site(&root, &site);
-    let service = model_service_for(&configuration)
+    let service = support::model_service_for(&configuration)
         .await
         .expect("Model service");
 
@@ -290,7 +290,7 @@ async fn shared_route_blocks_unload_by_name_without_mutation() {
         },
     ];
     write_site(&root, &site);
-    let service = model_service_for(&configuration)
+    let service = support::model_service_for(&configuration)
         .await
         .expect("Model service");
 
@@ -535,7 +535,7 @@ async fn only_route(
 }
 
 async fn load_hidden_then_drop(root: &std::path::Path) -> String {
-    let service = model_service_for(&support::configuration(root))
+    let service = support::model_service_for(&support::configuration(root))
         .await
         .expect("Model service");
     let deployment_id = ModelServiceContract::create_model_deployment(
