@@ -431,7 +431,7 @@ describe("GetStartedPage", () => {
       });
     });
 
-    it("keeps the deployment name the operator applied when Customize reopens", async () => {
+    it("keeps the values the operator applied when Customize reopens", async () => {
       const user = setupUser();
       const { createLocalModelDeployment } = await renderPage({
         machines: [{ id: "gpu1", vramGib: 32 }],
@@ -439,30 +439,69 @@ describe("GetStartedPage", () => {
         targets: { "open-webui": [["gpu1", true]] },
       });
 
-      const openName = async () => {
+      // Opens Customize in advanced mode on the Runtime step.
+      const openRuntime = async () => {
         await user.click(await screen.findByRole("button", { name: "Customize" }));
         const dialog = await screen.findByRole("dialog", { name: "Qwen3.8 27B — Customize model" });
-        await user.click(await within(dialog).findByRole("button", { name: "Next" }));
-        await user.click(within(dialog).getByRole("button", { name: "Next" }));
-        return { dialog, name: within(dialog).getByRole("textbox", { name: "Deployment name" }) };
+        await user.click(await within(dialog).findByRole("checkbox", { name: "Advanced" }));
+        for (let step = 0; step < 3; step += 1)
+          await user.click(within(dialog).getByRole("button", { name: "Next" }));
+        expect(within(dialog).getByText("Step 4 of 5 — Runtime")).toBeVisible();
+        return {
+          dialog,
+          hostContext: within(dialog).getByRole("textbox", { name: "Host context memory" }),
+          parallel: within(dialog).getByRole("textbox", { name: "Parallel requests" }),
+        };
       };
-      const first = await openName();
-      expect(first.name).toHaveValue("Qwen3.8 27B");
-      await user.clear(first.name);
-      await user.type(first.name, "Team model");
+      const first = await openRuntime();
+      expect(first.parallel).toHaveValue("4");
+      expect(first.hostContext).toHaveValue("20480");
+      await user.clear(first.parallel);
+      await user.type(first.parallel, "2");
+      await user.clear(first.hostContext);
+      await user.type(first.hostContext, "1024");
+      await user.click(within(first.dialog).getByRole("button", { name: "Next" }));
+      const firstName = within(first.dialog).getByRole("textbox", { name: "Deployment name" });
+      expect(firstName).toHaveValue("Qwen3.8 27B");
+      await user.clear(firstName);
+      await user.type(firstName, "Team model");
+      const firstRoute = within(first.dialog).getByRole("textbox", { name: "Route name" });
+      await user.clear(firstRoute);
+      await user.type(firstRoute, "team-route");
       await user.click(within(first.dialog).getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(first.dialog).not.toBeInTheDocument());
 
-      const second = await openName();
-      expect(second.name).toHaveValue("Team model");
+      const second = await openRuntime();
+      expect(second.parallel).toHaveValue("2");
+      expect(second.hostContext).toHaveValue("1024");
+      await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
+      expect(within(second.dialog).getByRole("textbox", { name: "Deployment name" })).toHaveValue(
+        "Team model",
+      );
+      expect(within(second.dialog).getByRole("textbox", { name: "Route name" })).toHaveValue(
+        "team-route",
+      );
       await user.click(within(second.dialog).getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(second.dialog).not.toBeInTheDocument());
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
       await waitFor(() => expect(createLocalModelDeployment).toHaveBeenCalledOnce());
-      expect(createLocalModelDeployment.mock.calls[0][0]).toMatchObject({
-        exposure: { kind: { case: "direct", value: { routeName: "team-model" } } },
+      const request = createLocalModelDeployment.mock.calls[0][0];
+      expect(request).toMatchObject({
+        exposure: { kind: { case: "direct", value: { routeName: "team-route" } } },
         modelDeploymentName: "Team model",
+      });
+      expect(
+        Object.fromEntries(
+          (request.configuration?.engineParameterValues?.values ?? []).map(
+            ({ parameterId, value }) => [parameterId, value.value],
+          ),
+        ),
+      ).toEqual({
+        "context-per-request": 32768n,
+        "host-context-mib": 1024n,
+        "parallel-requests": 2n,
+        "total-context": 32768n,
       });
     });
 

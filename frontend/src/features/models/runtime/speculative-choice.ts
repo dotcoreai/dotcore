@@ -28,6 +28,32 @@ export function defaultSpeculativeChoice(options: readonly SpeculativeOption[]):
 }
 
 /**
+ * The choice a launch's option overrides make, read back as the dialog sends it: the option with a
+ * count above 0, or off when every speculative option is at 0. Without speculative overrides, the
+ * profile's default.
+ */
+export function overriddenSpeculativeChoice(
+  options: readonly SpeculativeOption[],
+  overrides: readonly ModelOptionValues[],
+): SpeculativeChoice {
+  const counts = overrides.flatMap((override) => {
+    const count = override.values.find(
+      (value) => value.parameterId === speculativeTokenCountId,
+    )?.value;
+    return options.some((option) => option.optionId === override.optionId) &&
+      count?.case === "unsignedInteger"
+      ? [{ count: count.value, optionId: override.optionId }]
+      : [];
+  });
+  if (!counts.length) return defaultSpeculativeChoice(options);
+
+  const active = counts.find((candidate) => candidate.count > 0n);
+  return active
+    ? { count: String(active.count), optionId: active.optionId }
+    : { count: "", optionId: "" };
+}
+
+/**
  * The choice to edit: the stored one while its option is still declared, otherwise the profile's
  * default, as when a catalog refresh drops the chosen option.
  */
