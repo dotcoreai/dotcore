@@ -124,10 +124,13 @@ What an application deployment keeps from creation:
 
 ### App storage
 
-- Storage attachments are scoped to one deployment or to every deployment of the app on a node. The
-  apps controller owns the attachments and their scope, never their content.
-- Storage shared across the app's deployments on a node outlives teardown. Machine cleanup removes it
-  once unused ([storage](storage.md#machine-cleanup)), and site reset removes it too.
+- A storage binding declares its allowed placements in order, and the first is the default. An app
+  binding may allow this deployment, shared by the app (every deployment of the app on a node), or
+  both. You pick one placement per binding at creation. It is fixed: redeploy to change it.
+- The apps controller owns the attachments and their placement, never their content.
+- Teardown deletes the deployment's own data. Storage shared across the app's deployments on a node
+  outlives teardown. Machine cleanup removes it once unused
+  ([storage](storage.md#machine-cleanup)), and site reset removes it too.
 - App content belongs to you and the app.
 
 ## Components
@@ -177,6 +180,7 @@ What an application deployment keeps from creation:
 ## Future direction
 
 - Protected app access and explicit administrator custom images.
+- Named storage locations declared per machine, which add choices to a binding's placements.
 - Multiple approved apps with versions, configuration, updates, rollback, removal and app data
   policy.
 - Staged updates and rollback under a mature version policy.

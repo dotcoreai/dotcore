@@ -213,8 +213,8 @@ it, accepts it, and drives reality toward it. Observations flow back to the owne
 - Every deployment, model or app, has an immutable identity that's never reused. Its display name
   can change and isn't unique. Its lifecycle generations are never reused.
 - A paused deployment keeps its identity, configuration and storage, and releases its workload
-  resources and serving eligibility. Teardown removes the deployment and deletes the storage scoped
-  to it alone.
+  resources and serving eligibility. Teardown removes the deployment and deletes the storage placed
+  with it alone.
 
 ### Deploying a model
 
