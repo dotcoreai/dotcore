@@ -22,7 +22,7 @@ impl HostMemory {
     /// Samples the host memory with a freshly refreshed memory reading, or `None` when the host
     /// reports no total memory.
     pub(crate) fn read() -> Option<Self> {
-        let mut system = System::new();
+        let mut system = System::new().ok()?;
         system.refresh_memory();
 
         Self::from_system(&system)

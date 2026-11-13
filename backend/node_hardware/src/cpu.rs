@@ -61,11 +61,14 @@ struct SysinfoCpuReader(Option<System>);
 
 impl CpuUsageReader for SysinfoCpuReader {
     fn refresh(&mut self) -> Option<f32> {
-        let system = self.0.get_or_insert_with(|| {
-            System::new_with_specifics(
-                RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_cpu_usage()),
+        if self.0.is_none() {
+            self.0 = System::new_with_specifics(
+                RefreshKind::nothing().with_cpu(CpuRefreshKind::nothing().with_usage()),
             )
-        });
+            .ok();
+        }
+
+        let system = self.0.as_mut()?;
         system.refresh_cpu_usage();
         Some(system.global_cpu_usage())
     }
