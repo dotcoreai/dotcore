@@ -74,15 +74,15 @@ export function formatQuantity(value: bigint | number, unit: string): string {
 
 /**
  * Formats a count compactly, such as "250k" or "1.5M". A count that is a multiple of 1024 counts
- * binary thousands (131072 is "128k"); any other counts decimal ones (250000 is "250k"). Counts
- * under 1000 are shown as is.
+ * binary thousands and millions (131072 is "128k", 3486720 is "3.3M"); any other counts decimal
+ * ones (250000 is "250k"). Counts under 1000 are shown as is.
  */
 export function formatCompactCount(count: number): string {
   if (count < 1000) return String(count);
 
   if (count % 1024 === 0) {
     const thousands = count / 1024;
-    return thousands >= 1024 && thousands % 1024 === 0 ? `${thousands / 1024}M` : `${thousands}k`;
+    return thousands >= 1024 ? `${compactMillions.format(thousands / 1024)}M` : `${thousands}k`;
   }
 
   const thousands = Math.round(count / 1000);

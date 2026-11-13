@@ -19,6 +19,13 @@ interface ContextSizeInputProps {
   id: string;
   inputRef?: Ref<HTMLInputElement>;
   invalid?: boolean;
+  /**
+   * The largest size that fits where the model runs, offered as the last chip. The size chips
+   * stop below it, and a chip equal to it gives way. The chip is pressed while the value equals it,
+   * and then does nothing when clicked. Its click runs "onSelect" when given, such as to return
+   * the owner to following the fit, else sets the value like a size chip.
+   */
+  largestFit?: ContextSizeLargestFit;
   /** The accessible name of the slider and, with "presets", of the preset group. */
   label: string;
   maximum: number;
@@ -41,6 +48,12 @@ interface ContextSizeInputProps {
   value: string;
 }
 
+/** The largest size that fits, and what choosing it does beyond setting the value, if anything. */
+export interface ContextSizeLargestFit {
+  onSelect?: () => void;
+  value: number;
+}
+
 /** A range of context sizes, in tokens. */
 export interface ContextSizeRange {
   maximum: number;
@@ -48,9 +61,9 @@ export interface ContextSizeRange {
 }
 
 /**
- * A context size control: a log-scale slider, an exact number input, and preset chips, all bounded
- * by the given range. The number input takes any text, so its owner validates it; the slider and
- * presets only write values within the range.
+ * A context size control: a log-scale slider, an exact number input, and preset chips with an
+ * optional largest fit chip last, all bounded by the given range. The number input takes any text,
+ * so its owner validates it; the slider and size chips only write values within the range.
  */
 export function ContextSizeInput({
   describedBy,
@@ -59,6 +72,7 @@ export function ContextSizeInput({
   id,
   inputRef,
   invalid = false,
+  largestFit,
   label,
   maximum,
   minimum,
@@ -76,7 +90,12 @@ export function ContextSizeInput({
   const clamp = (size: number) => Math.min(Math.max(size, minimum), maximum);
   const value = /^\d+$/.test(input) ? Number(input) : undefined;
   const shownValue = value ?? (input === "" ? emptyValue : undefined);
-  const presets = contextSizePresets.filter((preset) => preset >= minimum && preset <= maximum);
+  const presets = contextSizePresets.filter(
+    (preset) =>
+      preset >= minimum &&
+      preset <= maximum &&
+      (largestFit === undefined || preset < largestFit.value),
+  );
   const reachableEnd = sliderPosition(scale, maximum) / SLIDER_STEPS;
   const reachableStart = sliderPosition(scale, minimum) / SLIDER_STEPS;
 
@@ -124,7 +143,7 @@ export function ContextSizeInput({
           <span className="text-xs text-muted-foreground">{unit}</span>
         </div>
       </div>
-      {presets.length ? (
+      {presets.length || largestFit ? (
         <div aria-label={`${label} presets`} className="flex flex-wrap gap-1.5" role="group">
           {presets.map((preset) => (
             <Button
@@ -140,6 +159,26 @@ export function ContextSizeInput({
               {formatQuantity(preset, unit)}
             </Button>
           ))}
+          {largestFit ? (
+            <Button
+              aria-label={`${formatQuantity(largestFit.value, unit)}, largest fit`}
+              aria-pressed={value === largestFit.value}
+              className="rounded-full data-[largest-fit]:aria-[pressed=false]:border-dashed aria-pressed:border-primary aria-pressed:text-primary"
+              data-largest-fit=""
+              disabled={disabled}
+              onClick={() => {
+                if (value === largestFit.value) return;
+
+                if (largestFit.onSelect) largestFit.onSelect();
+                else onChange(String(largestFit.value), true);
+              }}
+              size="xs"
+              type="button"
+              variant="outline"
+            >
+              {formatQuantity(largestFit.value, unit)}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </>
