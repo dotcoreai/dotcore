@@ -146,6 +146,9 @@ message ApplicationConfigurationBinding {
 
   // Optional deployment input that can project a linked inference route into this binding.
   ApplicationDeploymentInput input = 5;
+
+  // Boolean graph parameter whose value enables this binding; when false the service never receives it.
+  optional string enabled_by_parameter_id = 7;
 }
 
 // Describes one deployment input projected into a configuration binding.
@@ -184,6 +187,9 @@ message ApplicationSecretBinding {
 
   // Form of the value the service receives.
   ApplicationSecretForm form = 4;
+
+  // Boolean graph parameter whose value enables this binding; when false the service never receives it.
+  optional string enabled_by_parameter_id = 5;
 }
 
 // Selects the one declared service port that can become the primary endpoint.

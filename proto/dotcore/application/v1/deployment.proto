@@ -115,9 +115,6 @@ message ResolvedApplicationDeploymentSnapshot {
   // in graph declaration order.
   repeated dotcore.catalog.v1.ParameterValue parameter_values = 10;
 
-  // Secret parameters whose value was generated at creation rather than supplied.
-  repeated string generated_parameter_ids = 11;
-
   // The exact placement selected for this application deployment.
   dotcore.deployment.v1.ExactPlacement placement = 5;
 

@@ -354,7 +354,6 @@ fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_a
         }),
         profile_engine_parameter_defaults: None,
         profile_engine_parameter_visibility_overrides: Vec::new(),
-        generated_engine_parameter_ids: Vec::new(),
         custom_argument_tokens: vec![
             "--reasoning-format".to_owned(),
             "deepseek".to_owned(),
@@ -1561,7 +1560,6 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("engine_parameter_schema", 15),
             ("profile_engine_parameter_defaults", 23),
             ("profile_engine_parameter_visibility_overrides", 24),
-            ("generated_engine_parameter_ids", 25),
             ("desired_launch_plan", 16),
             ("custom_argument_tokens", 17),
             ("resolved_options", 18),

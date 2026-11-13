@@ -481,7 +481,6 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                 }),
                 profile_engine_parameter_defaults: None,
                 profile_engine_parameter_visibility_overrides: Vec::new(),
-                generated_engine_parameter_ids: Vec::new(),
                 custom_argument_tokens: Vec::new(),
                 resolved_options: Vec::new(),
                 selected_target: Some(dotcore_proto::dotcore::model::v1::ResolvedSelectedTarget {
@@ -557,7 +556,6 @@ fn complete_application_snapshot() -> ResolvedApplicationDeploymentSnapshot {
             })
             .collect(),
         parameter_values: Vec::new(),
-        generated_parameter_ids: Vec::new(),
     }
 }
 
@@ -649,6 +647,7 @@ fn complete_application() -> Application {
                             "inference-openai-url".to_owned(),
                         )),
                         input: None,
+                        enabled_by_parameter_id: None,
                     }],
                     storage_bindings: vec![StorageBinding {
                         binding_name: "data".to_owned(),

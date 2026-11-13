@@ -143,7 +143,6 @@ fn generated_bindings_preserve_application_graph_and_deployment_state() {
                     launch_identity: "example.test/web@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
                 }],
                 parameter_values: Vec::new(),
-                generated_parameter_ids: Vec::new(),
             }),
             desired_state: ApplicationDeploymentDesiredState::Present as i32,
             state: Some(ApplicationDeploymentState {
@@ -211,6 +210,7 @@ fn generated_bindings_preserve_application_graph_and_deployment_state() {
                     ),
                 ),
             }),
+            enabled_by_parameter_id: None,
         }
         .source,
         Some(application_configuration_binding::Source::LiteralValue(
@@ -446,6 +446,17 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "resolved_value_name",
             "parameter_id",
             "input",
+            "enabled_by_parameter_id",
+        ]
+    );
+    assert_eq!(
+        field_names(catalog, "ApplicationSecretBinding"),
+        [
+            "binding_name",
+            "environment_variable",
+            "parameter_id",
+            "form",
+            "enabled_by_parameter_id",
         ]
     );
     assert_eq!(
@@ -551,7 +562,6 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "notes",
             "graph",
             "parameter_values",
-            "generated_parameter_ids",
             "placement",
             "accelerator_device_ids",
             "platform",
