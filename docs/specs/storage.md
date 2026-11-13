@@ -205,9 +205,9 @@ Operator-triggered cleanup of one machine's disk.
 
 ### Workload resource records
 
-- A node-local dataset of the records sent through observability's telemetry sink: resolved launch
-  inputs, the hardware class and observed GPU memory, never protected values. The inference
-  controller sends them from the hosting node for its ready local deployments, and development
+- A node-local dataset of the records written through observability's telemetry sink: resolved
+  launch inputs, the hardware class and observed GPU memory, never protected values. The inference
+  controller records them on the hosting node for its ready local deployments, and development
   tooling for its own workload measurements.
 - They have no query, export or console surface. They're read only to fit catalog sizing constants
   per hardware class.
@@ -243,8 +243,8 @@ The artifact manager also owns catalog declarations ([catalog](catalog.md)).
 - Keep records independent of the storage implementation.
 - Report a write failure without undoing the accepted in-memory change
   ([sites](sites.md#invariants)).
-- Refuse later reads after a write whose outcome is unknown, so it never shows state that may not be
-  durable.
+- Refuse later reads and writes after a write whose outcome is unknown, so it never shows state that
+  may not be durable.
 
 #### Boundaries
 
@@ -260,6 +260,7 @@ The artifact manager also owns catalog declarations ([catalog](catalog.md)).
 #### Responsibilities
 
 - Keep each node's realization state on that node ([node store](#node-store)).
+- Refuse later reads and writes after a write whose outcome is unknown, like the site store.
 
 #### Boundaries
 

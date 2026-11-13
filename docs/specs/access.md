@@ -163,8 +163,8 @@ flowchart TB
 - Purpose-scoped workload credentials and permitted workload communication grant no platform
   authority. What hosted workloads never get is in [runtime](runtime.md#workloads).
 - Holding secrets never transfers product authority or adds a cloud dependency for local serving.
-- Local entitlement decisions and durable usage accounting continue during cloud outages.
-  Synchronization and settlement are separate concerns.
+- Local entitlement decisions, durable usage accounting, reconciliation and telemetry continue
+  during cloud outages. Synchronization and settlement are separate concerns.
 
 ## Future direction
 
