@@ -29,6 +29,7 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
+      # Strata's wrapper accepts 1 to 8 parallel requests (`MAX_PARALLEL` in `engines/strata/start.py`).
       unsignedInteger:
         minimum: "1"
         maximum: "8"

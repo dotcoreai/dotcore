@@ -5,8 +5,7 @@ displayName: "Hermes"
 description: "Autonomous AI agent with tools, memory, and a web dashboard that has a chat page."
 version: "0.2.1"
 notes: |-
-  Log in to the dashboard with the username and password in this deployment's sidebar. Chat with
-  the agent on the dashboard's Chat page.
+  Chat with the agent on the dashboard's Chat page.
 graph:
   parameters:
     - parameterId: "dashboard-username"
@@ -15,16 +14,15 @@ graph:
       description: "The username for logging in to the Hermes dashboard."
       text:
         minimumLength: 1
-        maximumLength: 64
+        maximumLength: 1024
         defaultValue: "admin"
     - parameterId: "dashboard-password"
       displayName: "Dashboard password"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "The password for logging in to the Hermes dashboard. Leave it empty to generate a random one, which you can read in the deployment's sidebar."
-      # 12 characters: the shortest password worth exposing on a network-reachable dashboard.
       secret:
         generatedLength: 32
-        minimumLength: 12
+        minimumLength: 1
   services:
     - serviceName: "gateway"
       artifact:

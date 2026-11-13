@@ -300,6 +300,7 @@ configurations:
         parameters:
           - parameterId: "token-count"
             displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing was measured over.
             unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
         defaultValues:
           optionId: "mtp"
@@ -310,6 +311,7 @@ configurations:
         parameters:
           - parameterId: "precision"
             displayName: "Precision"
+            # KV precisions the dotcore llama.cpp adapter launches (one type for both K and V caches).
             stringEnum: { values: ["f16", "q8_0"] }
         defaultValues:
           optionId: "kv-cache"
@@ -432,6 +434,7 @@ configurations:
         parameters:
           - parameterId: "token-count"
             displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing was measured over.
             unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
         defaultValues:
           optionId: "mtp"

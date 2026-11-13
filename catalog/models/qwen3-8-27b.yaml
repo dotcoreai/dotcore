@@ -262,6 +262,7 @@ configurations:
         parameters:
           - parameterId: "token-count"
             displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing was measured over.
             unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
         defaultValues:
           optionId: "mtp"
@@ -272,6 +273,7 @@ configurations:
         parameters:
           - parameterId: "precision"
             displayName: "Precision"
+            # KV precisions the dotcore llama.cpp adapter launches (one type for both K and V caches).
             stringEnum: { values: ["f16", "q8_0"] }
         defaultValues:
           optionId: "kv-cache"
@@ -402,6 +404,7 @@ configurations:
         parameters:
           - parameterId: "token-count"
             displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing was measured over.
             unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
         defaultValues:
           optionId: "mtp"
@@ -507,6 +510,7 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: true
+      # ninfer accepts 1 to 5 MTP draft tokens (docs/startup-configuration.md at 13ebb92); 0 turns it off.
       - optionId: "mtp"
         parameters:
           - parameterId: "token-count"

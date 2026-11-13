@@ -218,6 +218,7 @@ configurations:
         parameters:
           - parameterId: "precision"
             displayName: "Precision"
+            # KV precisions the dotcore llama.cpp adapter launches (one type for both K and V caches).
             stringEnum: { values: ["f16", "q8_0"] }
         defaultValues:
           optionId: "kv-cache"
