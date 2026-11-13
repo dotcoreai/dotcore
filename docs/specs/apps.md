@@ -123,7 +123,7 @@ What an application deployment keeps from creation:
 - Storage attachments are scoped to one deployment or to every deployment of the app on a node. The
   apps controller owns the attachments and their scope, never their content.
 - Storage shared across the app's deployments on a node outlives teardown. Machine cleanup removes it
-  once unused, and site reset removes it too ([storage](storage.md#machine-cleanup)).
+  once unused ([storage](storage.md#machine-cleanup)), and site reset removes it too.
 - App content belongs to you and the app.
 
 ## Components

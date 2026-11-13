@@ -92,7 +92,7 @@ and app access. Inference clients include SDKs, applications and evaluation harn
 - Treating private workload ports as a way for users to reach an app.
 - Defining a verification process for third-party apps in these pages.
 - Full administration workflows such as invitations, team membership and quota editing, and audit
-  investigations.
+  investigations are not designed yet.
 - Agentic workloads, scheduling across sites, federation and a memory service are outside the
   architecture's scope. A site works with its own machines.
 
@@ -208,8 +208,8 @@ it, accepts it, and drives reality toward it. Observations flow back to the owne
 - Workload controllers reconcile their deployments continuously through the runtime backends and
   judge protocol readiness themselves. The site manager applies node intent through node agents,
   which doesn't imply continuous reconciliation.
-- Dotcore never adopts execution targets it doesn't own. The [runtime](runtime.md) page covers
-  runtime failure and workloads Dotcore doesn't own.
+- Dotcore never adopts workloads or execution targets it doesn't own
+  ([runtime](runtime.md#invariants)).
 - Every deployment, model or app, has an immutable identity that's never reused. Its display name
   can change and isn't unique. Its lifecycle generations are never reused.
 - A paused deployment keeps its identity, configuration and storage, and releases its workload
@@ -239,7 +239,7 @@ it, accepts it, and drives reality toward it. Observations flow back to the owne
 Ideas that span several pages. Each page has its own.
 
 - Capacity and consumption analytics: attribution, headroom, and what adding hardware would change.
-  Enforcing allocations, procurement and automatic rebalancing are out of scope.
+  Enforcing allocations, procurement and automatic rebalancing are separate decisions.
 - Data visibility: what data exists, what space it uses, how it's protected and how it relates.
   It covers visibility, not data loss prevention or general data management.
 - Nix manages more of the host's software and dependencies.

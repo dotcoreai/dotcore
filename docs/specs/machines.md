@@ -204,7 +204,7 @@ The description a node reports instead of its real hardware.
 
 ## Invariants
 
-- Fit is advice. Admission never blocks a deployment on fit, and a claim is never a reservation.
+- Fit is advice. It never blocks admission and never places a workload, and a claim is never a reservation.
 - Unknown facts give an unknown verdict. Stale facts keep only their totals, so free-memory verdicts
   and largest fits on them are unknown, never false.
 - Vendor-wide observations are distinct from configured-device attribution, execution readiness,

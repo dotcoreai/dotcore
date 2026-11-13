@@ -54,7 +54,7 @@ sequenceDiagram
   included, holds its own site-issued node identity. The site signing key is separate and held only
   by the site manager.
 - A node joins through a handshake hosted by the site manager. It generates its own key and
-  authenticates the site and its manager with a short-lived, enrollment-only join token.
+  authenticates the site and its site manager with a short-lived, enrollment-only join token.
 - The site manager issues the node's identity, then records its membership and pin only after you
   approve.
 - Join tokens never authorize runtime traffic.

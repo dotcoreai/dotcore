@@ -112,7 +112,7 @@ and typed controller status flow up. View publications and acknowledgements flow
 - On every stream open, the node sends its current observations and status again. Neither end
   buffers node state across a reconnect.
 - Any message counts as contact. An idle node sends a heartbeat, and contact lapses after a silence
-  bound. Metrics, which travel over the [authenticated node channel](storage.md#recording-metrics),
+  bound. Metrics, which travel over the [authenticated node channel](storage.md#architecture),
   never count as contact.
 - When a stream closes, its node is disconnected at once, unless a newer stream of the same
   incarnation replaced it.
@@ -156,7 +156,7 @@ sequenceDiagram
 
 A node's stable membership in the site, not its health or workloads.
 
-- Removing a node also withdraws its identity ([access](access.md#joining-a-node)).
+- Removing a node also withdraws its identity pin ([access](access.md#joining-a-node)).
 
 ### Site configuration
 
@@ -240,7 +240,7 @@ The node that hosts the site manager process.
 
 #### Boundaries
 
-- Has no separate head or master role, and no high availability.
+- Has no separate head or master role.
 - Has no separate connection state. Clients see it as a node like any other, marked as the one that
   runs the site manager.
 - It uses the same node-local reconciliation, status and cleanup evidence, action fencing,

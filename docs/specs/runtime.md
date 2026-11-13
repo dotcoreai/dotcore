@@ -108,8 +108,8 @@ Recreatable workload scratch, kept per site on each machine and keyed by its own
 or one engine artifact.
 
 - It isn't a product artifact, inventory or desired state.
-- Site reset and deletion remove the site's caches on the machine they run on. Shared caches fall
-  under [machine cleanup](storage.md#machine-cleanup).
+- Site reset and deletion remove the site's caches on the machine they run on. Shared workload storage
+  falls under [machine cleanup](storage.md#machine-cleanup).
 
 ### Native workload state
 
@@ -232,7 +232,7 @@ Typed engine adapters, one per engine kind.
 ## Invariants
 
 - Any change to a workload fails closed when ownership evidence is missing, foreign, malformed or
-  ambiguous. Dotcore never adopts workloads it doesn't own.
+  ambiguous. Dotcore never adopts workloads or execution targets it doesn't own.
 - A reset, delete or node leave touches only workloads recorded under its own state location, and
   never another site's state. A copied site folder never adopts or changes the original's workloads.
 

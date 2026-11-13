@@ -53,7 +53,8 @@ flowchart TB
 - The site store keeps the owners' records, each owner in its own repository.
 - The node store keeps each node's realization state ([runtime](runtime.md)).
 - The authenticated node channel is a node's private connection to the site manager, authenticated
-  with its site-local node identity ([access](access.md)). It carries the node's metrics.
+  with its site-local node identity ([access](access.md)). It is separate from the node control
+  stream ([sites](sites.md#the-node-control-stream)). It carries the node's metrics.
 - Observability collects and retains metrics, logs, traces and diagnostics. The site-wide metric
   store lives with the site manager.
 - The backups manager owns backup sets. The components it protects stay authoritative.

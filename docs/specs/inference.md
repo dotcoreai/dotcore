@@ -171,7 +171,8 @@ flowchart LR
   node-hosted targets in process or through an authenticated peer endpoint, and upstream targets
   through upstream transport.
 - Measure request and per-attempt latency, outcome and token metrics for every public request, and
-  record them through observability ([storage](storage.md#recording-metrics)).
+  record them through observability ([storage](storage.md#recording-metrics),
+  [invariants](storage.md#invariants)).
 
 #### Boundaries
 

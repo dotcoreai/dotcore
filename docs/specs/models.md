@@ -36,7 +36,7 @@ flowchart TB
   IC -->|"records"| SS["Site store"]
   IC -->|"snapshot in node view"| NODE["Hosting node: node-local reconciliation"]
   NODE -->|"status, readiness, attributed memory"| IC
-  NODE -->|"resource telemetry"| OBS["Observability"]
+  NODE -->|"resource telemetry from the hosting node"| OBS["Observability"]
   IC -->|"eligible targets"| RTR["Route manager and inference router"]
   IC -->|"upstream verification"| UP["Upstream endpoint"]
 ```
@@ -113,7 +113,7 @@ sequenceDiagram
   N->>N: Pin launch identity once
   N->>RT: Realize the launch plan
   N->>IC: Status, pinned identity
-  N->>OBS: Resource telemetry
+  IC->>OBS: Resource telemetry
 ```
 
 - The hosting node realizes the deployment through node-local reconciliation on its runtime
