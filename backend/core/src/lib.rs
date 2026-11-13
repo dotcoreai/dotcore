@@ -36,7 +36,10 @@ pub(crate) mod node_memory;
 pub(crate) mod resource_watch;
 pub(crate) mod route_manager;
 pub(crate) mod router;
+mod secret_generator;
 pub(crate) mod storage;
+
+pub use secret_generator::{RandomSecretGenerator, SecretGenerator};
 
 pub(crate) mod inference;
 

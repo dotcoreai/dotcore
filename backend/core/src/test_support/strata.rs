@@ -16,9 +16,9 @@ use dotcore_proto::dotcore::{
         HuggingFaceSnapshotFile, InferenceRequestKind, Model, ModelArtifact, ModelArtifactBinding,
         ModelAuxiliaryArtifact, ModelEngineConfiguration, ModelExecutionCapabilities,
         ModelInputCapabilities, ModelInputModality, ModelParallelShape, ParameterDefinition,
-        ParameterValue, ParameterValues, ParameterVisibility, StorageBinding, StorageKind,
-        StorageScope, UnsignedIntegerParameterSchema, hugging_face_artifact_source,
-        parameter_definition, parameter_value,
+        ParameterValue, ParameterValues, ParameterVisibility, SecretParameterSchema,
+        StorageBinding, StorageKind, StorageScope, UnsignedIntegerParameterSchema,
+        hugging_face_artifact_source, parameter_definition, parameter_value,
     },
     engine::{
         strata::v1::{
@@ -37,6 +37,12 @@ pub(crate) const EXPERT_VRAM_MIB_PARAMETER_ID: &str = "expert-vram-mib";
 
 /// Auxiliary artifact holding the fixture model's separate draft layer.
 pub(crate) const DRAFT_LAYER_ARTIFACT_ID: &str = "fixture-draft-layer";
+
+/// Secret engine parameter some fixtures add: the deployment's API key.
+pub(crate) const API_KEY_PARAMETER_ID: &str = "api-key";
+
+/// Length of a generated [`API_KEY_PARAMETER_ID`] value.
+pub(crate) const API_KEY_GENERATED_LENGTH: u32 = 32;
 
 /// Resolved engine parameter values of the profile: the engine's default total context, the
 /// context per request filled from it, one parallel request and the expert cap from sizing.
@@ -98,6 +104,30 @@ pub(crate) fn local_model_snapshot_with(
     local.engine_parameter_values = Some(parameter_values(PROFILE_PARAMETERS));
     local.resolved_options = Vec::new();
     local.desired_launch_plan = None;
+    refresh_launch_plan(local);
+    snapshot
+}
+
+/// Returns [`local_model_snapshot`] from [`release_with_api_key`], with `api_key` as the value of
+/// its secret.
+pub(crate) fn local_model_snapshot_with_api_key(
+    model_id: &str,
+    api_key: &str,
+) -> ModelDeploymentSnapshot {
+    let mut snapshot = local_model_snapshot(model_id);
+    let Some(model_deployment_snapshot::Source::Local(local)) = snapshot.source.as_mut() else {
+        panic!("local fixture snapshot");
+    };
+    local.engine_parameter_schema = release_with_api_key().parameter_schema;
+    local
+        .engine_parameter_values
+        .as_mut()
+        .expect("engine parameter values")
+        .values
+        .push(ParameterValue {
+            parameter_id: API_KEY_PARAMETER_ID.to_owned(),
+            value: Some(parameter_value::Value::String(api_key.to_owned())),
+        });
     refresh_launch_plan(local);
     snapshot
 }
@@ -205,6 +235,59 @@ pub(crate) fn release() -> EngineRelease {
         )],
         ..Default::default()
     }
+}
+
+/// Returns [`release`] with the secret [`API_KEY_PARAMETER_ID`] added after its other parameters.
+pub(crate) fn release_with_api_key() -> EngineRelease {
+    let mut release = release();
+    release
+        .parameter_schema
+        .as_mut()
+        .expect("schema")
+        .parameters
+        .push(ParameterDefinition {
+            parameter_id: API_KEY_PARAMETER_ID.to_owned(),
+            display_name: "API key".to_owned(),
+            parameter_type: Some(parameter_definition::ParameterType::Secret(
+                SecretParameterSchema {
+                    generated_length: API_KEY_GENERATED_LENGTH,
+                    minimum_length: 16,
+                },
+            )),
+            visibility: ParameterVisibility::Advanced as i32,
+            description: API_KEY_PARAMETER_ID.to_owned(),
+        });
+    release
+}
+
+/// Returns [`CATALOG_ENGINE`] with the secret [`API_KEY_PARAMETER_ID`] of
+/// [`release_with_api_key`].
+pub(crate) fn catalog_engine_with_api_key() -> String {
+    CATALOG_ENGINE.replace(
+        "storageBindings:\n",
+        "    - { parameterId: \"api-key\", displayName: \"API key\", visibility: \"PARAMETER_VISIBILITY_ADVANCED\", description: \"api-key\", secret: { generatedLength: 32, minimumLength: 16 } }\nstorageBindings:\n",
+    )
+}
+
+/// Loads the given engine and model declarations with the shared hardware classes.
+pub(crate) fn load_catalog(engine: &str, model: &str) -> anyhow::Result<dotcore_catalog::Catalog> {
+    let root = tempfile::tempdir().expect("Catalog root");
+    for (path, content) in [
+        ("engines/strata.yaml", engine),
+        ("models/strata-model.yaml", model),
+    ] {
+        let path = root.path().join(path);
+        std::fs::create_dir_all(path.parent().expect("directory")).expect("directory");
+        std::fs::write(path, content).expect("declaration");
+    }
+    dotcore_catalog::test_support::write_hardware_classes(root.path());
+
+    dotcore_catalog::Catalog::load_with_policy(
+        root.path(),
+        dotcore_catalog::OciArtifactPolicy::Development,
+        crate::model::engine::declaration_validator(),
+    )
+    .map_err(anyhow::Error::new)
 }
 
 /// Returns a model with a single GGUF, a split GGUF set, a ready-made pack and a draft layer, and
@@ -372,3 +455,87 @@ fn snapshot_source<const N: usize>(paths: [&str; N]) -> HuggingFaceArtifactSourc
         )),
     }
 }
+
+/// The catalog declaration of [`release`], for tests that load a catalog.
+pub(crate) const CATALOG_ENGINE: &str = r#"
+engineReleaseId: "fixture-strata"
+engineKind: "ENGINE_KIND_STRATA"
+version: "1"
+parameterSchema:
+  schemaId: "fixture-strata-v1"
+  parameters:
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
+    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "MiB" } }
+storageBindings:
+  - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", scope: "STORAGE_SCOPE_DEPLOYMENT" }
+artifacts:
+  - artifactId: "linux-amd64-cuda"
+    oci:
+      repository: { registry: { host: "registry.dotcore.test" }, name: "strata" }
+      digest: { algorithm: "sha256", encoded: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
+    selectors:
+      - platform: { operatingSystem: "linux", architecture: "amd64" }
+        accelerators: ["nvidia"]
+        minimumNvidiaDriverMajorVersion: 580
+"#;
+
+/// The catalog declaration of a profile-shaped model for [`CATALOG_ENGINE`]: profile `strata-q4`,
+/// whose sizing derives the expert cap.
+pub(crate) const CATALOG_MODEL: &str = r#"
+modelId: "fixture-strata-model"
+displayName: "Fixture Strata model"
+version: "1"
+maximumContextTokens: 262144
+artifacts:
+  - artifactId: "fixture-strata-artifact"
+    weightQuantization: "Q4_K_XL"
+    source:
+      repository: "dotcore/fixture-strata"
+      revision: "0123456789abcdef0123456789abcdef01234567"
+      file:
+        path: "fixture-Q4_K_XL.gguf"
+        provenanceDigest: "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
+configurations:
+  - configurationId: "strata-nvidia"
+    engineArtifacts: [{ engineReleaseId: "fixture-strata", engineArtifactId: "linux-amd64-cuda" }]
+    artifactBindings: [{ bindingId: "fixture-strata-artifact", modelArtifactId: "fixture-strata-artifact" }]
+    sizing:
+      parameters: { baseBytes: 1000, bytesPerKvToken: 10, expertMib: 20000, expertVramMib: 8192 }
+      derivedParameters:
+        expert-vram-mib: "${expertVramMib}"
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: "${baseBytes} + ${bytesPerKvToken} * ${total-context} + ${expert-vram-mib} * MiB"
+        hostMemory:
+          unit: bytes
+          equation: "${expertMib} * MiB"
+    hardwareSupport:
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "32000000000"
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          - bindingId: "fixture-strata-artifact"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          expertVramMibParameterId: "expert-vram-mib"
+          architecture: "qwen35moe"
+          mtpDraftTokens: 2
+          singleGguf: {}
+    executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
+    requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+profiles:
+  - profileId: "strata-q4"
+    displayName: "Q4 Strata"
+    description: "Runs the fixture through Strata."
+    configurationId: "strata-nvidia"
+    defaultModelArtifactBindingId: "fixture-strata-artifact"
+    engineParameterDefaults: {}
+    "#;

@@ -1061,6 +1061,20 @@ pub(super) fn test_strata_desired_deployment(model_id: &str) -> ModelDeploymentD
     }
 }
 
+/// Returns a present deployment of the in-code Strata fixture whose engine declares a secret API
+/// key, retained as `api_key`.
+pub(super) fn test_strata_desired_deployment_with_api_key(
+    model_id: &str,
+    api_key: &str,
+) -> ModelDeploymentDeclaration {
+    ModelDeploymentDeclaration {
+        snapshot: Some(
+            crate::test_support::strata::local_model_snapshot_with_api_key(model_id, api_key),
+        ),
+        ..test_desired_deployment(model_id, ModelDeploymentDesiredState::Present)
+    }
+}
+
 pub(super) fn valid_upstream_desired_deployment() -> ModelDeploymentDeclaration {
     ModelDeploymentDeclaration {
         model_deployment_id: "upstream-deployment".to_owned(),

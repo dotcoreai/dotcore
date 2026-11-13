@@ -41,7 +41,11 @@ use super::{
     recommendation::{RecommendationFit, UseCaseRecommendations, recommend_models},
     sizing_scenario::SizingScenario,
 };
-use crate::route_manager::{RouteDeclarationRepository, RouteRepositoryError};
+use crate::{
+    RandomSecretGenerator, SecretGenerator,
+    model::resolution::EngineSecrets,
+    route_manager::{RouteDeclarationRepository, RouteRepositoryError},
+};
 
 #[derive(Clone)]
 pub struct ModelDeclarationRepository {
@@ -50,6 +54,7 @@ pub struct ModelDeclarationRepository {
     routes: RouteDeclarationRepository,
     target_capabilities: Arc<RwLock<TargetCapabilityInventory>>,
     lifecycle: Option<FileCurrentState>,
+    secret_generator: Arc<dyn SecretGenerator>,
 }
 
 impl ModelDeclarationRepository {
@@ -64,6 +69,7 @@ impl ModelDeclarationRepository {
             catalog,
             target_capabilities: Arc::new(RwLock::new(target_capabilities)),
             lifecycle: None,
+            secret_generator: Arc::new(RandomSecretGenerator),
         }
     }
 
@@ -192,6 +198,7 @@ impl ModelDeclarationRepository {
             profile_id,
             placement,
             configuration,
+            EngineSecrets::Generate(self.secret_generator.as_ref()),
         )?;
         deployment.model_deployment_id = deployment_id;
         deployment.lifecycle_generation =
@@ -223,8 +230,14 @@ impl ModelDeclarationRepository {
         ModelDeclarationRepositoryError,
     > {
         let site = self.site.model_snapshot()?;
-        let deployment =
-            self.resolve_model_deployment(&site, model_id, profile_id, placement, configuration)?;
+        let deployment = self.resolve_model_deployment(
+            &site,
+            model_id,
+            profile_id,
+            placement,
+            configuration,
+            EngineSecrets::Withhold,
+        )?;
         match deployment.snapshot.and_then(|snapshot| snapshot.source) {
             Some(ModelDeploymentSnapshotSource::Local(local)) => Ok(local),
             Some(ModelDeploymentSnapshotSource::Upstream(_)) | None => {
@@ -602,6 +615,7 @@ impl ModelDeclarationRepository {
         profile_id: &str,
         placement: &ExactPlacement,
         configuration: &LocalModelDeploymentConfiguration,
+        secrets: EngineSecrets<'_>,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
         let catalog_model_id = CatalogModelId(model_id.to_owned());
         validate_model_profile(
@@ -629,6 +643,7 @@ impl ModelDeclarationRepository {
                 .unwrap_or_else(|value| value.into_inner()),
             // The SiteNode named by the exact placement pins a local-development engine itself.
             None,
+            secrets,
         )
         .map_err(launch_resolution_error)?;
         if local.model_id != model_id || local.profile_id != profile_id {
@@ -652,6 +667,13 @@ impl ModelDeclarationRepository {
             lifecycle_recovery_required: false,
             node_resolved_launch_identities: Vec::new(),
         })
+    }
+
+    /// Replaces the generator of the secret values new deployments retain.
+    #[cfg(test)]
+    pub(crate) fn with_secret_generator(mut self, generator: Arc<dyn SecretGenerator>) -> Self {
+        self.secret_generator = generator;
+        self
     }
 }
 
@@ -813,6 +835,9 @@ pub(crate) fn launch_resolution_error(
         error @ crate::model::resolution::ModelLaunchResolutionError::SizingUnavailable {
             ..
         } => ModelDeclarationRepositoryError::Sizing(Box::new(error)),
+        error @ crate::model::resolution::ModelLaunchResolutionError::SecretGeneration {
+            ..
+        } => ModelDeclarationRepositoryError::SecretGeneration(Box::new(error)),
     }
 }
 
@@ -929,6 +954,9 @@ pub enum ModelDeclarationRepositoryError {
 
     #[error("could not pin the engine launch identity: {0}")]
     EngineLaunchIdentity(#[source] Box<crate::model::resolution::ModelLaunchResolutionError>),
+
+    #[error(transparent)]
+    SecretGeneration(Box<crate::model::resolution::ModelLaunchResolutionError>),
 
     #[error("Catalog model state is invalid: {0}")]
     InvalidState(&'static str),
@@ -1232,6 +1260,217 @@ mod tests {
     }
 
     #[test]
+    fn creation_generates_a_missing_engine_secret_once_after_sizing_and_keeps_a_typed_one() {
+        use crate::test_support::strata::{
+            API_KEY_GENERATED_LENGTH, API_KEY_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
+        };
+
+        let directory = test_directory();
+        let site_path = strata_site(directory.path());
+        let repository = strata_repository(&site_path, crate::test_support::strata::CATALOG_MODEL);
+        let placement = fixture_placement();
+        let configuration = LocalModelDeploymentConfiguration::default();
+        let typed_key = "typed-api-key-0123456789";
+        let typed = LocalModelDeploymentConfiguration {
+            engine_parameter_values: Some(ParameterValues {
+                values: vec![secret_value(API_KEY_PARAMETER_ID, typed_key)],
+            }),
+            ..Default::default()
+        };
+
+        // Advisory reads size and preview the launch without any secret value.
+        let estimate = repository
+            .estimate_local_model_resources("fixture-strata-model", "strata-q4", &typed, None)
+            .expect("estimate without a generated secret");
+        assert_eq!(estimate.hardware_class_estimates.len(), 1);
+        let preview = repository
+            .preview_local_model("fixture-strata-model", "strata-q4", &placement, &typed)
+            .expect("preview without a secret value");
+        assert_eq!(
+            secret_of(&preview, API_KEY_PARAMETER_ID),
+            None,
+            "a preview withholds even a typed secret"
+        );
+        assert!(preview.generated_engine_parameter_ids.is_empty());
+
+        let ((generated, kept), records, output) =
+            dotcore_domain::test_support::tracing::capture_records(|| {
+                let load = |configuration| {
+                    repository.load_model(
+                        "fixture-strata-model",
+                        "strata-q4",
+                        &placement,
+                        configuration,
+                        &ModelDeploymentExposureIntent::Hidden,
+                        None,
+                    )
+                };
+                (
+                    load(&configuration).expect("deployment with a generated secret"),
+                    load(&typed).expect("deployment with a typed secret"),
+                )
+            });
+
+        // The previews and estimate drew nothing: the first generated value is the first call.
+        let generated_local = local_snapshot(&generated);
+        assert_eq!(
+            secret_of(&generated_local, API_KEY_PARAMETER_ID),
+            Some(crate::test_support::sequential_secret(
+                1,
+                API_KEY_GENERATED_LENGTH as usize
+            ))
+        );
+        assert_eq!(
+            generated_local.generated_engine_parameter_ids,
+            [API_KEY_PARAMETER_ID]
+        );
+        assert_eq!(
+            generated_local
+                .sizing
+                .as_ref()
+                .map(|sizing| sizing.derived_engine_parameter_ids.clone()),
+            Some(vec![
+                "context-per-request".to_owned(),
+                EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+            ])
+        );
+        let kept_local = local_snapshot(&kept);
+        assert_eq!(
+            secret_of(&kept_local, API_KEY_PARAMETER_ID),
+            Some(typed_key.to_owned())
+        );
+        assert!(kept_local.generated_engine_parameter_ids.is_empty());
+        assert_eq!(
+            generated_local.desired_launch_plan, kept_local.desired_launch_plan,
+            "the secret never reaches the launch plan"
+        );
+        assert_eq!(
+            generated_local.desired_launch_plan,
+            preview.desired_launch_plan
+        );
+        for secret in [typed_key, &crate::test_support::sequential_secret(1, 32)] {
+            assert!(!output.contains(secret), "{output}");
+            assert!(!format!("{records:?}").contains(secret), "{records:#?}");
+        }
+
+        // A relaunch reads the retained snapshot, which a reloaded site keeps as created.
+        let reloaded =
+            SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
+                .expect("reloaded site");
+        let retained = reloaded
+            .model_snapshot()
+            .expect("reloaded deployments")
+            .deployments;
+        for created in [&generated, &kept] {
+            let retained = retained
+                .iter()
+                .find(|deployment| deployment.model_deployment_id == created.model_deployment_id)
+                .expect("retained deployment");
+            assert_eq!(retained.snapshot, created.snapshot);
+            crate::model::resolved::ResolvedModelLaunch::from_declaration(retained)
+                .expect("relaunch from the retained snapshot");
+        }
+    }
+
+    #[test]
+    fn a_typed_engine_secret_is_checked_without_being_quoted() {
+        use crate::test_support::strata::API_KEY_PARAMETER_ID;
+
+        let directory = test_directory();
+        let site_path = strata_site(directory.path());
+        let repository = strata_repository(&site_path, crate::test_support::strata::CATALOG_MODEL);
+
+        for (value, reason) in [
+            ("short-key", "it is shorter than the minimum length of 16"),
+            (
+                "unsafe=api-key-0123456789",
+                "it contains `=` or a control character",
+            ),
+        ] {
+            let error = repository
+                .load_model(
+                    "fixture-strata-model",
+                    "strata-q4",
+                    &fixture_placement(),
+                    &LocalModelDeploymentConfiguration {
+                        engine_parameter_values: Some(ParameterValues {
+                            values: vec![secret_value(API_KEY_PARAMETER_ID, value)],
+                        }),
+                        ..Default::default()
+                    },
+                    &ModelDeploymentExposureIntent::Hidden,
+                    None,
+                )
+                .expect_err("invalid typed secret")
+                .to_string();
+
+            assert_eq!(
+                error,
+                format!(
+                    "invalid engine parameter values: profile \"strata-q4\" engine parameter \"api-key\" value is invalid: {reason}"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn the_snapshot_retains_the_profile_engine_parameter_defaults_and_visibility_overrides() {
+        use dotcore_proto::dotcore::catalog::v1::{
+            ParameterVisibility, ParameterVisibilityOverride,
+        };
+
+        let directory = test_directory();
+        let site_path = strata_site(directory.path());
+        let model = crate::test_support::strata::CATALOG_MODEL.replace(
+            "    engineParameterDefaults: {}\n",
+            r#"    engineParameterDefaults:
+      values:
+        - { parameterId: "parallel-requests", unsignedInteger: "2" }
+    engineParameterVisibilityOverrides:
+      - { parameterId: "expert-vram-mib", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
+      - { parameterId: "api-key", visibility: "PARAMETER_VISIBILITY_BASIC" }
+"#,
+        );
+        assert_ne!(model, crate::test_support::strata::CATALOG_MODEL);
+        let repository = strata_repository(&site_path, &model);
+
+        let created = repository
+            .load_model(
+                "fixture-strata-model",
+                "strata-q4",
+                &fixture_placement(),
+                &LocalModelDeploymentConfiguration::default(),
+                &ModelDeploymentExposureIntent::Hidden,
+                None,
+            )
+            .expect("deployment");
+
+        let local = local_snapshot(&created);
+        assert_eq!(
+            local.profile_engine_parameter_defaults,
+            Some(ParameterValues {
+                values: vec![
+                    unsigned_value("parallel-requests", 2),
+                    unsigned_value("total-context", 32_768),
+                ],
+            })
+        );
+        assert_eq!(
+            local.profile_engine_parameter_visibility_overrides,
+            [
+                ParameterVisibilityOverride {
+                    parameter_id: "expert-vram-mib".to_owned(),
+                    visibility: ParameterVisibility::Hidden as i32,
+                },
+                ParameterVisibilityOverride {
+                    parameter_id: "api-key".to_owned(),
+                    visibility: ParameterVisibility::Basic as i32,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn tag_only_engine_is_created_unpinned_for_its_hosting_node_to_pin() {
         let directory = test_directory();
         let site_path = directory.path().join("site.yaml");
@@ -1422,6 +1661,7 @@ mod tests {
             &target,
             &inventory,
             None,
+            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
         .expect("direct launch resolution");
 
@@ -3210,6 +3450,84 @@ mod tests {
         assert!(source.contains("sizing:"), "fixture support replacement");
         fs::write(models.join("fixture-model.yaml"), source).expect("sizing model fixture");
         catalog_root
+    }
+
+    /// Copies the simulated-site fixture, whose NVIDIA target runs Strata, into `directory`.
+    fn strata_site(directory: &Path) -> std::path::PathBuf {
+        let site_path = directory.join("site.yaml");
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/simulated-site/site.yaml"),
+            &site_path,
+        )
+        .expect("simulated site fixture");
+        site_path
+    }
+
+    /// A repository over the site at `site_path` and the Strata engine with an API key secret
+    /// beside `model`, generating predictable secrets.
+    fn strata_repository(site_path: &Path, model: &str) -> ModelDeclarationRepository {
+        let catalog = crate::test_support::strata::load_catalog(
+            &crate::test_support::strata::catalog_engine_with_api_key(),
+            model,
+        )
+        .expect("Strata catalog with an API key");
+        ModelDeclarationRepository::new(
+            SiteRepository::load(site_path, crate::test_support::site_declaration_rules())
+                .expect("validated simulated site"),
+            Arc::new(catalog),
+            fixture_target_capabilities(),
+        )
+        .with_secret_generator(crate::test_support::test_secret_generator())
+    }
+
+    fn fixture_placement() -> ExactPlacement {
+        ExactPlacement {
+            site_node_id: "fixture-node".to_owned(),
+            execution_target_id: "fixture-target".to_owned(),
+        }
+    }
+
+    fn local_snapshot(
+        deployment: &ModelDeploymentDeclaration,
+    ) -> dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot {
+        match deployment
+            .snapshot
+            .as_ref()
+            .and_then(|snapshot| snapshot.source.as_ref())
+        {
+            Some(ModelDeploymentSnapshotSource::Local(local)) => local.clone(),
+            _ => panic!("local snapshot"),
+        }
+    }
+
+    /// The retained string value of `parameter_id`, if any.
+    fn secret_of(
+        local: &dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot,
+        parameter_id: &str,
+    ) -> Option<String> {
+        local
+            .engine_parameter_values
+            .iter()
+            .flat_map(|values| &values.values)
+            .find(|value| value.parameter_id == parameter_id)
+            .and_then(|value| match value.value.as_ref() {
+                Some(EngineParameterValueKind::String(secret)) => Some(secret.clone()),
+                _ => None,
+            })
+    }
+
+    fn secret_value(parameter_id: &str, value: &str) -> ParameterValue {
+        ParameterValue {
+            parameter_id: parameter_id.to_owned(),
+            value: Some(EngineParameterValueKind::String(value.to_owned())),
+        }
+    }
+
+    fn unsigned_value(parameter_id: &str, value: u64) -> ParameterValue {
+        ParameterValue {
+            parameter_id: parameter_id.to_owned(),
+            value: Some(EngineParameterValueKind::UnsignedInteger(value)),
+        }
     }
 
     fn fixture_target_capabilities() -> TargetCapabilityInventory {

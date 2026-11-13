@@ -69,6 +69,7 @@ use dotcore_site::{
 use tokio::sync::Notify;
 
 use super::*;
+pub(super) use crate::test_support::{sequential_secret, test_secret_generator};
 
 #[derive(Default)]
 pub(super) struct FailingApplicationPreparer {
@@ -2770,32 +2771,6 @@ pub(super) fn test_inference_route_resolver_with(
     result: Result<ResolvedInferenceRoute, InferenceRouteResolutionError>,
 ) -> Arc<dyn InferenceRouteResolver> {
     Arc::new(TestInferenceRouteResolver { result })
-}
-
-/// A secret generator whose values tests can predict: the `n`th call returns `secret<n>` padded
-/// with `x` to the requested length.
-pub(super) fn test_secret_generator() -> Arc<dyn super::SecretGenerator> {
-    Arc::new(SequentialSecretGenerator::default())
-}
-
-/// The `n`th value [`test_secret_generator`] returns at `length`, counting from 1.
-pub(super) fn sequential_secret(n: usize, length: usize) -> String {
-    let mut value = format!("secret{n}");
-    value.extend(std::iter::repeat_n('x', length.saturating_sub(value.len())));
-    value.truncate(length);
-    value
-}
-
-#[derive(Default)]
-struct SequentialSecretGenerator {
-    calls: AtomicUsize,
-}
-
-impl super::SecretGenerator for SequentialSecretGenerator {
-    fn generate(&self, length: usize) -> anyhow::Result<String> {
-        let n = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
-        Ok(sequential_secret(n, length))
-    }
 }
 
 pub(super) fn resolved_route(route_name: &str) -> ResolvedInferenceRoute {

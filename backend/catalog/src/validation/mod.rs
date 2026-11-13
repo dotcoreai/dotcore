@@ -24,7 +24,8 @@ pub use application::{
     valid_configuration_value, valid_environment_variable, validate_application_with_policy,
 };
 pub use model::{
-    overlay_parameter_defaults, valid_pinned_hugging_face_artifact, validate_parameter_values,
+    is_secret_parameter, overlay_parameter_defaults, valid_pinned_hugging_face_artifact,
+    validate_parameter_values, validate_parameter_values_before_secrets,
     validate_supplied_parameter_values,
 };
 pub(super) use sensitive_literal::validate_sensitive_literals;
@@ -456,10 +457,14 @@ fn validate_sizing_coverage(
                     continue;
                 };
                 let defaulted = model::overlay_parameter_defaults(values, &engine_defaults);
-                // Resolution fills the context per request, so no sizing needs to derive it.
+                // Resolution fills the context per request and deployment creation generates
+                // secrets, so no sizing needs to derive either.
                 for parameter_id in model::missing_parameter_ids(&defaulted, engine)
                     .into_iter()
-                    .filter(|parameter_id| parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID)
+                    .filter(|parameter_id| {
+                        parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID
+                            && !model::is_secret_parameter(engine, parameter_id)
+                    })
                 {
                     let hidden = profile.engine_parameter_visibility_overrides.iter().any(
                         |visibility_override| {

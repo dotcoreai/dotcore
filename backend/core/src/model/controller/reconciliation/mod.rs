@@ -1490,6 +1490,9 @@ where
                 artifacts_replaced,
                 "model reconciliation selected runtime workload action",
             );
+            // Runtime errors may quote the launch, so neither failure text nor logs show them
+            // unredacted.
+            let protected = protected_startup_values(desired, &launch.spec.environment);
             match self
                 .transition_workload(
                     desired,
@@ -1517,12 +1520,8 @@ where
                 }
                 Ok(None) => {}
                 Err(error) if is_definitive_realization_failure(&error) => {
-                    self.record_realization_failure(
-                        desired,
-                        &error,
-                        &protected_startup_values(&launch.spec.environment),
-                    )
-                    .await?;
+                    self.record_realization_failure(desired, &error, &protected)
+                        .await?;
                     self.serving_targets_publisher
                         .withdraw_deployment(&ModelDeploymentId(
                             desired.model_deployment_id.clone(),
@@ -1531,7 +1530,7 @@ where
                         event_kind = "model_realization_failed",
                         deployment_id = %desired.model_deployment_id,
                         error_kind = "definitive",
-                        reason = %diagnostic_chain(&error),
+                        reason = %protected.redact(&diagnostic_chain(&error)),
                         "model workload realization failed definitively; recorded Failed and stopped retrying",
                     );
                     continue;
@@ -1541,7 +1540,7 @@ where
                         event_kind = "model_realization_retry",
                         deployment_id = %desired.model_deployment_id,
                         error_kind = "transient",
-                        reason = %diagnostic_chain(&error),
+                        reason = %protected.redact(&diagnostic_chain(&error)),
                         "model workload realization failed transiently; keeping in-progress and retrying",
                     );
                     pending = true;
@@ -2203,6 +2202,7 @@ where
         activation_state: Option<&dotcore_proto::dotcore::model::v1::ModelDeploymentState>,
     ) -> Result<Option<WorkloadObservation>, ModelLifecycleError> {
         let generation = launch.correlation.reconcile_generation;
+        let protected = protected_startup_values(desired, &launch.spec.environment);
         let operation = self.capture_operation(
             desired,
             LifecycleOperationAttempt::Runtime {
@@ -2258,6 +2258,7 @@ where
                             })?
                             .execution_target_id,
                         launch,
+                        &protected,
                     )
                     .await?;
                 self.announce_started_workload(desired);
@@ -2303,6 +2304,7 @@ where
                             })?
                             .execution_target_id,
                         launch,
+                        &protected,
                     )
                     .await?;
                 self.announce_started_workload(desired);
@@ -2353,6 +2355,7 @@ where
                         &operation,
                         &execution_target_id,
                         &workload.workload_id,
+                        &protected,
                     )
                     .await?;
                 self.announce_started_workload(desired);
@@ -2388,6 +2391,7 @@ where
                         &operation,
                         &execution_target_id,
                         &workload.workload_id,
+                        &protected,
                     )
                     .await?;
                 self.announce_started_workload(desired);
@@ -2764,7 +2768,7 @@ where
         )
         .expect("startup log limit is within runtime bounds");
         let query = dotcore_runtime::RuntimeWorkloadLogQuery::new(source, history);
-        let protected = protected_startup_values(&launch.spec.environment);
+        let protected = protected_startup_values(desired, &launch.spec.environment);
         match real_time::bound(
             Duration::from_secs(2),
             self.runtimes.read_workload_logs(
@@ -3409,7 +3413,10 @@ fn startup_output(
     }
 }
 
+/// Values startup output and failure text never show: the deployment's secret engine parameter
+/// values and the literal values of sensitive environment variables.
 fn protected_startup_values(
+    desired: &dotcore_proto::dotcore::model::v1::ModelDeploymentDeclaration,
     environment: &BTreeMap<String, dotcore_runtime::WorkloadValue>,
 ) -> crate::management_logs::ProtectedLogValues {
     // Token values are runtime-resolved paths, hosts, and ports, never owner secrets, so each
@@ -3423,7 +3430,10 @@ fn protected_startup_values(
                 Some(literal.clone())
             }
             _ => None,
-        });
+        })
+        .chain(crate::model::resolved::secret_engine_parameter_values(
+            desired,
+        ));
     crate::management_logs::ProtectedLogValues::new(values)
 }
 

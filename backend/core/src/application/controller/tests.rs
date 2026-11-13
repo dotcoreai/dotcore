@@ -8194,7 +8194,7 @@ async fn invalid_secret_and_text_values_reject_creation_without_quoting_them() {
 
 fn secret_parameter_test_controller(
     directory: &Path,
-    secret_generator: Arc<dyn SecretGenerator>,
+    secret_generator: Arc<dyn crate::SecretGenerator>,
 ) -> (
     TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
     TestApplicationDeclarationRepository,
@@ -8222,7 +8222,7 @@ fn parameter_test_controller(
 fn test_controller_for(
     directory: &Path,
     application: dotcore_proto::dotcore::catalog::v1::Application,
-    secret_generator: Arc<dyn SecretGenerator>,
+    secret_generator: Arc<dyn crate::SecretGenerator>,
 ) -> (
     TestController<TestApplicationDeclarationRepository, InMemoryCurrentState>,
     TestApplicationDeclarationRepository,
