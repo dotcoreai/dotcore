@@ -3536,7 +3536,7 @@ async fn repeated_reconciliation_reuses_snapshot_identity_evidence_without_rehas
         .content = Some(HuggingFaceContent::Snapshot(HuggingFaceSnapshotArtifact {
         files: vec![HuggingFaceSnapshotFile {
             path: "model.safetensors".to_owned(),
-            provenance_digest: format!("{:x}", Sha256::digest(&body)),
+            provenance_digest: hex::encode(Sha256::digest(&body)),
         }],
     }));
     let mut site = test_site();
@@ -3741,7 +3741,7 @@ async fn download_progress_clears_restart_state_and_finishes_before_engine_acqui
             .as_mut()
             .expect("artifact"),
     )
-    .provenance_digest = format!("{:x}", Sha256::digest(&body));
+    .provenance_digest = hex::encode(Sha256::digest(&body));
     let mut site = test_site();
     site.execution_targets[0].runtime_binding = Some(
         execution_target::RuntimeBinding::ModelRuntime(ModelRuntimeBinding {
@@ -4058,7 +4058,7 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
             .as_mut()
             .expect("artifact"),
     )
-    .provenance_digest = format!("{:x}", Sha256::digest(b"model"));
+    .provenance_digest = hex::encode(Sha256::digest(b"model"));
     let mut site = test_site();
     site.execution_targets[0].runtime_binding = Some(
         execution_target::RuntimeBinding::ModelRuntime(ModelRuntimeBinding {
@@ -4224,7 +4224,7 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
             .as_mut()
             .expect("artifact"),
     )
-    .provenance_digest = format!("{:x}", Sha256::digest(b"model"));
+    .provenance_digest = hex::encode(Sha256::digest(b"model"));
     let mut site = test_site();
     site.execution_targets[0].runtime_binding = Some(
         execution_target::RuntimeBinding::ModelRuntime(ModelRuntimeBinding {
@@ -4391,7 +4391,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
             .as_mut()
             .expect("artifact"),
     )
-    .provenance_digest = format!("{:x}", Sha256::digest(b"model"));
+    .provenance_digest = hex::encode(Sha256::digest(b"model"));
     let mut site = test_site();
     site.execution_targets[0].runtime_binding = Some(
         execution_target::RuntimeBinding::ModelRuntime(ModelRuntimeBinding {
@@ -4817,7 +4817,7 @@ async fn repaired_docker_artifact_recreates_a_stopped_workload_before_ready() {
             .model_deployments
             .first_mut()
             .expect("desired deployment");
-        let digest = format!("{:x}", Sha256::digest(b"model"));
+        let digest = hex::encode(Sha256::digest(b"model"));
         let artifact = model_file_source_mut(
             local_model_mut(deployment.snapshot.as_mut().expect("snapshot"))
                 .model_artifact
@@ -5017,7 +5017,7 @@ async fn preparation_failure_cancels_and_drains_other_deployments_before_returni
                 .expect("artifact"),
         );
         artifact.path = file.to_owned();
-        artifact.provenance_digest = format!("{:x}", Sha256::digest(contents));
+        artifact.provenance_digest = hex::encode(Sha256::digest(contents));
     }
     let second_path = cache
         .expected_paths(
@@ -5147,7 +5147,7 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
         "model",
         dotcore_proto::dotcore::model::v1::ModelDeploymentDesiredState::Present,
     );
-    let digest = format!("{:x}", Sha256::digest(b"model"));
+    let digest = hex::encode(Sha256::digest(b"model"));
     model_file_source_mut(
         local_model_mut(deployment.snapshot.as_mut().expect("snapshot"))
             .model_artifact

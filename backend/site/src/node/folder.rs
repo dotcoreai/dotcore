@@ -233,12 +233,12 @@ impl CertificateFingerprint {
     /// Computes a full SHA-256 fingerprint over one DER certificate.
     pub fn for_certificate(certificate_der: &[u8]) -> Self {
         let digest = Sha256::digest(certificate_der);
-        Self(encode_hex(&digest))
+        Self(hex::encode(digest))
     }
 
     /// Constructs a fingerprint from all 32 digest bytes.
     pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(encode_hex(&bytes))
+        Self(hex::encode(bytes))
     }
 
     /// Parses one complete canonical lowercase SHA-256 fingerprint.
@@ -899,15 +899,6 @@ fn validate_identifier(identity: &'static str, value: &str) -> Result<(), NodeFo
         return Err(NodeFolderContractError::InvalidIdentifier { identity });
     }
     Ok(())
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    use fmt::Write as _;
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        write!(encoded, "{byte:02x}").expect("writing to a String cannot fail");
-    }
-    encoded
 }
 
 #[cfg(test)]

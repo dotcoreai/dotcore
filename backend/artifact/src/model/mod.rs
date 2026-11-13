@@ -1812,7 +1812,7 @@ fn snapshot_repair_signature(
         digest.update(name.as_bytes());
         include_path(&mut digest, path, Path::new("source"))?;
     }
-    Ok(format!("{:x}", digest.finalize()))
+    Ok(hex::encode(digest.finalize()))
 }
 
 fn verification_evidence_matches<T>(path: &Path, expected: &T) -> Result<bool, ArtifactCacheError>
@@ -2627,7 +2627,7 @@ fn digest_file(file: File, cancellation: &CancellationToken) -> Result<String, A
             .read(&mut buffer)
             .map_err(|error| ArtifactCacheError::context("artifact file read failed", error))?;
         if bytes == 0 {
-            return Ok(hex_digest(digest.finalize()));
+            return Ok(hex::encode(digest.finalize()));
         }
         digest.update(&buffer[..bytes]);
     }
@@ -2642,15 +2642,7 @@ fn check_cancellation(cancellation: &CancellationToken) -> Result<(), ArtifactCa
 }
 
 fn sha256_text(value: &str) -> String {
-    hex_digest(Sha256::digest(value.as_bytes()))
-}
-
-fn hex_digest(digest: impl AsRef<[u8]>) -> String {
-    digest
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    hex::encode(Sha256::digest(value.as_bytes()))
 }
 
 fn valid_repository(value: &str) -> bool {

@@ -26,6 +26,7 @@ rcgen = { workspace = true, features = ["x509-parser"] }
 rustls.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+hex.workspace = true
 sha2.workspace = true
 subtle.workspace = true
 sysinfo.workspace = true
