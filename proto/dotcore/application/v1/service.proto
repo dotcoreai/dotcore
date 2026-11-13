@@ -4,6 +4,7 @@ package dotcore.application.v1;
 
 import "dotcore/application/v1/deployment.proto";
 import "dotcore/catalog/v1/parameter.proto";
+import "dotcore/catalog/v1/storage.proto";
 import "dotcore/deployment/v1/placement.proto";
 import "google/protobuf/field_mask.proto";
 import "google/protobuf/timestamp.proto";
@@ -61,6 +62,21 @@ message CreateApplicationDeploymentRequest {
 
   // Operator values overriding the application's parameter defaults; omitted parameters take their default.
   repeated dotcore.catalog.v1.ParameterValue parameter_values = 5;
+
+  // Operator placements for storage bindings; omitted bindings take their first allowed placement.
+  repeated ApplicationStorageChoice storage_choices = 7;
+}
+
+// One operator choice of where a service's storage binding is placed.
+message ApplicationStorageChoice {
+  // Service name from the application graph.
+  string service_name = 1;
+
+  // Storage binding name within that service.
+  string binding_name = 2;
+
+  // Chosen placement, one the binding allows.
+  dotcore.catalog.v1.StoragePlacement placement = 3;
 }
 
 // Returns the accepted controller-owned application deployment.

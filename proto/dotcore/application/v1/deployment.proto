@@ -6,6 +6,7 @@ import "dotcore/application/v1/state.proto";
 import "dotcore/catalog/v1/application.proto";
 import "dotcore/catalog/v1/oci.proto";
 import "dotcore/catalog/v1/parameter.proto";
+import "dotcore/catalog/v1/storage.proto";
 import "dotcore/deployment/v1/accelerator_memory.proto";
 import "dotcore/deployment/v1/artifact.proto";
 import "dotcore/deployment/v1/placement.proto";
@@ -161,6 +162,9 @@ message ApplicationStorageAttachment {
 
   // Deployment-local logical storage name resolved by the runtime backend.
   string storage_name = 3;
+
+  // Placement resolved at creation, one the binding allows.
+  dotcore.catalog.v1.StoragePlacement placement = 4;
 }
 
 // One resolved non-secret configuration value in a deployment declaration.
