@@ -18,8 +18,9 @@ import { useSessionRead } from "@/resource-watch/use-session-read";
 import { launchScenario } from "./get-started-launch";
 
 /**
- * The deploy dialog opened on a proposal's launch: its profile, target and context. It ends on
- * Apply, which hands the edited launch back to Get started without deploying anything.
+ * The deploy dialog opened on a proposal's launch, or on the one last applied, with every value it
+ * carries. It ends on Apply, which hands the edited launch back to Get started without deploying
+ * anything.
  */
 export function CustomizeModelDialog({
   deployments,
@@ -88,6 +89,8 @@ export function CustomizeModelDialog({
       engineReleases={engineReleases.value}
       existingRouteNames={routes?.flatMap((view) => (view.route ? [view.route.name] : []))}
       hardwareClasses={hardwareClasses.value}
+      initialConfiguration={launch.configuration}
+      initialExposure={launch.exposure}
       initialName={launch.name}
       initialPlacement={launch.placement}
       initialProfileId={launch.profileId}
