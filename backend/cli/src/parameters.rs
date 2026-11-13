@@ -1,8 +1,7 @@
 //! Parameters of a deployment as rows an operator can read.
 //!
-//! Each row carries the parameter's display name and its value, tagged when the value is the
-//! default, was sized by the platform or was generated. Secret values are masked unless the caller
-//! asks to reveal them.
+//! Each row carries the parameter's display name and its value. Secret values are masked unless
+//! the caller asks to reveal them.
 
 use dotcore_proto::dotcore::catalog::v1::{
     ParameterDefinition, ParameterValue, parameter_definition, parameter_value,
@@ -19,7 +18,7 @@ pub(crate) struct ParameterRow {
     pub(crate) id: String,
     /// Human-readable parameter label.
     pub(crate) name: String,
-    /// The value with its tags.
+    /// The value as shown.
     pub(crate) value: String,
 }
 
@@ -28,12 +27,8 @@ pub(crate) struct ParameterInput<'a> {
     pub(crate) definition: &'a ParameterDefinition,
     /// The retained value, if any.
     pub(crate) value: Option<&'a parameter_value::Value>,
-    /// The value the deployment's owner defaults to, tagged when the shown value equals it.
+    /// The value the deployment's owner defaults to, shown when nothing is retained.
     pub(crate) default: Option<parameter_value::Value>,
-    /// Whether the platform sized the value rather than the operator choosing it.
-    pub(crate) sized: bool,
-    /// Whether the value was generated at creation.
-    pub(crate) generated: bool,
 }
 
 impl ParameterInput<'_> {
@@ -47,7 +42,7 @@ impl ParameterInput<'_> {
             Some(parameter_definition::ParameterType::Secret(_))
         );
 
-        let mut text = if is_secret && !reveal_secrets {
+        let text = if is_secret && !reveal_secrets {
             SECRET_MASK.to_owned()
         } else {
             match single_line(&display(value, definition)) {
@@ -55,16 +50,6 @@ impl ParameterInput<'_> {
                 text => text,
             }
         };
-        if self.default.as_ref() == Some(value) {
-            text.push_str(" (default)");
-        }
-        if self.sized {
-            text.push_str(" (sized)");
-        }
-        if self.generated {
-            text.push_str(" (generated)");
-        }
-
         Some(ParameterRow {
             id: definition.parameter_id.clone(),
             name: single_line(&definition.display_name),

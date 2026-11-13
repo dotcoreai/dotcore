@@ -196,13 +196,12 @@ pub enum EngineSecrets<'a> {
 }
 
 impl EngineSecrets<'_> {
-    /// Completes or strips the secret values among resolved `values` and returns the ids of the
-    /// generated ones, in schema order.
+    /// Completes or strips the secret values among resolved `values`.
     fn apply(
         self,
         values: &mut ParameterValues,
         schema: &EngineParameterSchema,
-    ) -> Result<Vec<String>, ModelLaunchResolutionError> {
+    ) -> Result<(), ModelLaunchResolutionError> {
         let secrets = schema.parameters.iter().filter_map(|definition| {
             match definition.parameter_type.as_ref() {
                 Some(EngineParameterType::Secret(secret)) => Some((definition, secret)),
@@ -218,10 +217,9 @@ impl EngineSecrets<'_> {
                 values
                     .values
                     .retain(|value| !secret_ids.contains(&value.parameter_id.as_str()));
-                return Ok(Vec::new());
+                return Ok(());
             }
         };
-        let mut generated = Vec::new();
         for (definition, secret) in secrets {
             let parameter_id = &definition.parameter_id;
             if values
@@ -241,9 +239,8 @@ impl EngineSecrets<'_> {
                 parameter_id: parameter_id.clone(),
                 value: Some(EngineParameterValueKind::String(secret_value)),
             });
-            generated.push(parameter_id.clone());
         }
-        Ok(generated)
+        Ok(())
     }
 }
 
@@ -277,8 +274,7 @@ pub(crate) fn resolve_local_launch_on_selected_target(
     let engine_parameter_schema_id = resolved.engine_parameter_schema_id;
     let engine_parameter_schema = resolved.engine_parameter_schema;
     let option_values = resolved.option_values;
-    let generated_engine_parameter_ids =
-        secrets.apply(&mut parameter_values, &engine_parameter_schema)?;
+    secrets.apply(&mut parameter_values, &engine_parameter_schema)?;
     let (_, profile_engine_parameter_defaults) =
         catalog
             .local_defaults_for(model_id, profile_id)
@@ -359,7 +355,6 @@ pub(crate) fn resolve_local_launch_on_selected_target(
         profile_engine_parameter_visibility_overrides: selection
             .profile
             .engine_parameter_visibility_overrides,
-        generated_engine_parameter_ids,
         desired_launch_plan: None,
         custom_argument_tokens: configuration.custom_argument_tokens.clone(),
         resolved_options: option_values

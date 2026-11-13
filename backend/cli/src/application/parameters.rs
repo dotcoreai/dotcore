@@ -22,10 +22,6 @@ pub(super) fn rows(deployment: &ApplicationDeployment, reveal_secrets: bool) -> 
                 definition,
                 value: retained(&snapshot.parameter_values, &definition.parameter_id),
                 default: definition_default(definition),
-                sized: false,
-                generated: snapshot
-                    .generated_parameter_ids
-                    .contains(&definition.parameter_id),
             }
             .row(reveal_secrets)
         })

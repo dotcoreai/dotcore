@@ -579,23 +579,6 @@ fn validate_local_snapshot_values(
             "local deployment snapshot has invalid engine parameter values",
         ));
     }
-    let generated_ids = local
-        .generated_engine_parameter_ids
-        .iter()
-        .collect::<BTreeSet<_>>();
-    if generated_ids.len() != local.generated_engine_parameter_ids.len()
-        || generated_ids.iter().any(|parameter_id| {
-            !is_secret_value(local, parameter_id)
-                || !values
-                    .values
-                    .iter()
-                    .any(|value| &value.parameter_id == *parameter_id)
-        })
-    {
-        return Err(invalid(
-            "local deployment snapshot names a generated engine parameter that is not a retained secret",
-        ));
-    }
     let engine = local
         .engine_artifact
         .as_ref()
