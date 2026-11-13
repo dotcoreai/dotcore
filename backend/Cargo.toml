@@ -29,7 +29,7 @@ dotcore-site = { path = "site", version = "0.1.0" }
 anyhow = "1.0.104"
 base64 = "0.22.1"
 clap = { version = "4.5.53", features = ["derive", "env"] }
-fs4 = "0.13.1"
+fs4 = "1.1.0"
 futures-util = "0.3.31"
 getrandom = "0.4.3"
 libc = "0.2.189"
