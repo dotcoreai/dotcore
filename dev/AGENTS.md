@@ -67,6 +67,10 @@ NVIDIA on Linux arm64 or a Mac. It runs your uncommitted workspace state.
 [remote-hosts.md](../docs/development/remote-hosts.md) owns setup and behavior, and
 `just --list dev::remote` lists the commands.
 
+- These tools exist for agents to run work on remote hosts by themselves. Run any `dev::remote` or
+  `dev::cluster` recipe, locally or on a remote host, without asking first: syncing, building,
+  running, and initializing, joining, starting, stopping or cleaning your workspace's sites,
+  clusters and workers.
 - Run `just dev::remote::list` first. If no host is usable, stop and report its output; don't retry
   or edit the host configuration.
 - `just dev::remote::run <group>[:<host>] <recipe...>` syncs your workspace and runs a recipe
