@@ -66,11 +66,7 @@ import {
 } from "./application-accelerator-memory";
 import { formatGpuDevices } from "./application-gpu-devices";
 import { applicationInspectorPanelId } from "./application-inspector-panel";
-import {
-  applicationParameterFields,
-  parameterDefaults,
-  retainedParameterValues,
-} from "./application-parameters";
+import { applicationParameterFields, retainedParameterValues } from "./application-parameters";
 import {
   storageBindingLabel,
   storagePlacementLabel,
@@ -340,8 +336,6 @@ export function DeploymentApplicationInspector({
                 />
                 <DetailList>
                   <ParametersDetails
-                    defaults={parameterDefaults(parameterFields)}
-                    generatedIds={new Set(deployment.snapshot?.generatedParameterIds)}
                     parameters={retainedParameters}
                     values={retainedParameterValues(deployment.snapshot)}
                   />

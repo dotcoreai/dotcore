@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ParameterView } from "./parameter-view";
@@ -43,6 +43,30 @@ describe("ParametersForm", () => {
     expect(slots.parentElement?.textContent).toBe("Slots");
     expect(slots).not.toHaveAccessibleDescription();
   });
+
+  it("shows a secret's generated-at-deploy notice as a muted italic placeholder, not a value", () => {
+    const parameters: ParameterView[] = [
+      { id: "pass", label: "Password", type: { kind: "secret", minimumLength: 1 } },
+      { id: "user", label: "Username", type: { kind: "text", maximumLength: 8, minimumLength: 0 } },
+    ];
+    render(
+      <ParametersForm
+        errors={new Map()}
+        idPrefix="test"
+        inputRefs={{ current: new Map() }}
+        inputs={new Map()}
+        onBlur={() => {}}
+        onChange={() => {}}
+        parameters={parameters}
+      />,
+    );
+
+    const secret = screen.getByRole("textbox", { name: "Password" });
+    expect(secret).toHaveAttribute("placeholder", "Generated at deploy");
+    expect(secret).toHaveValue("");
+    expect(secret).toHaveClass("placeholder:italic", "placeholder:text-muted-foreground");
+    expect(screen.getByRole("textbox", { name: "Username" })).not.toHaveAttribute("placeholder");
+  });
 });
 
 describe("ParametersDetails", () => {
@@ -52,17 +76,10 @@ describe("ParametersDetails", () => {
     { id: "pass", label: "Password", type: { kind: "secret", minimumLength: 12 } },
   ];
 
-  it("tags defaults and generated secrets, and shows empty text as Empty", () => {
+  it("shows values without tags, empty text as Empty and a masked secret", () => {
     render(
       <dl>
         <ParametersDetails
-          defaults={
-            new Map([
-              ["user", "admin"],
-              ["note", ""],
-            ])
-          }
-          generatedIds={new Set(["pass"])}
           parameters={parameters}
           values={
             new Map([
@@ -79,24 +96,9 @@ describe("ParametersDetails", () => {
       .getAllByRole("term")
       .map((term) => [term.textContent, term.nextElementSibling?.textContent]);
     expect(rows).toEqual([
-      ["Username", "defaultadmin"],
-      ["Note", "defaultEmpty"],
-      ["Password", "generated••••••••"],
+      ["Username", "admin"],
+      ["Note", "Empty"],
+      ["Password", "••••••••"],
     ]);
-    expect(within(screen.getAllByRole("definition")[0]).getByText("default")).toBeVisible();
-  });
-
-  it("tags a changed value with nothing", () => {
-    render(
-      <dl>
-        <ParametersDetails
-          defaults={new Map([["user", "admin"]])}
-          parameters={parameters.slice(0, 1)}
-          values={new Map([["user", "ops"]])}
-        />
-      </dl>,
-    );
-
-    expect(screen.getByRole("definition")).toHaveTextContent(/^ops$/);
   });
 });
