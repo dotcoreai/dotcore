@@ -242,6 +242,7 @@ export function AppCatalogPage() {
               inferenceRouteId: options.inferenceRouteId,
               expectedInferenceRouteGeneration: options.expectedInferenceRouteGeneration,
               parameterValues: [...(options.parameterValues ?? [])],
+              storageChoices: [...(options.storageChoices ?? [])],
             }
           : {
               applicationId: application.applicationId,
@@ -249,6 +250,7 @@ export function AppCatalogPage() {
                 options?.applicationDeploymentName ?? application.displayName,
               placement,
               parameterValues: [...(options?.parameterValues ?? [])],
+              storageChoices: [...(options?.storageChoices ?? [])],
             },
       );
       const deployment = response.deployment;
