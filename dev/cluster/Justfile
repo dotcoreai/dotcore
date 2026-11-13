@@ -37,10 +37,6 @@ join target *args:
     just dev::remote::run "$target" dev::cluster::_worker-prepare || fail 'prepare (sync and build)'
   fi
 
-  # Recorded before the join: a join can commit on the manager and then lose its connection, and the
-  # cleanup must still reach that worker.
-  record_target "$target"
-
   # node add holds the stopped site and prints nothing secret: the token travels through a private file
   # that exists only once the join listener is bound, so waiting for it replaces polling the port.
   step token
@@ -58,15 +54,19 @@ join target *args:
   done
   test -e "$token_file" || fail 'token (timed out waiting for node add to publish the join token)'
 
+  # Recorded once the join starts, so a failed or refused join forgets it and the same command can run again.
+  # A failure after the join (waiting for node add) keeps it: the manager may have committed the node.
+  record_target "$target"
+  join_failed() { forget_target "$target"; fail join; }
   step "join on $target"
   if test "$target" = local; then
-    just dev::cluster::_worker-join --token-file "$token_file" ${join_args[@]+"${join_args[@]}"} || fail join
+    just dev::cluster::_worker-join --token-file "$token_file" ${join_args[@]+"${join_args[@]}"} || join_failed
   else
     # exec keeps the token out of run records; its command is re-parsed by sh, so every word is quoted.
     quote() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
     command="just dev::cluster::_worker-join --token $(quote "$(cat "$token_file")")"
     for argument in ${join_args[@]+"${join_args[@]}"}; do command+=" $(quote "$argument")"; done
-    just dev::remote::exec "$target" "$command" || fail join
+    just dev::remote::exec "$target" "$command" || join_failed
   fi
 
   step 'wait for node add'

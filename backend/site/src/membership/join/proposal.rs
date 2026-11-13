@@ -475,6 +475,10 @@ pub(super) const DUPLICATE_HOST_REJECTION: &str = "duplicate-host";
 /// record the address it observed the connection from.
 pub(super) const UNUSABLE_HOST_REJECTION: &str = "unusable-host";
 
+/// [`REJECTION_METADATA_KEY`] value: the manager could not reach the joining node by its key at
+/// the host and private port it would record.
+pub(super) const UNREACHABLE_NODE_REJECTION: &str = "unreachable-node";
+
 /// [`REJECTION_METADATA_KEY`] value: a rejoining node's certificate names a node the site no
 /// longer declares.
 pub(super) const NODE_NOT_DECLARED_REJECTION: &str = "node-not-declared";

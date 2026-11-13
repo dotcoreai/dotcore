@@ -43,10 +43,12 @@ sequenceDiagram
   participant SM as Site manager handshake
   participant SA as Site authority
   actor OP as You
-  N->>N: Generate own key
+  N->>N: Generate own key, listen on its private port
   N->>SM: Handshake with the join token
-  SA->>N: Node identity
+  SM->>N: Dial back the host and private port to record
+  N-->>SM: Prove its key
   OP->>SA: Approve
+  SA->>N: Node identity
   SA->>SA: Record membership, pin
 ```
 
@@ -55,12 +57,17 @@ sequenceDiagram
   by the site manager.
 - A node joins through a handshake hosted by the site manager. It generates its own key and
   authenticates the site and its site manager with a short-lived, enrollment-only join token.
-- The site manager issues the node's identity, then records its membership and pin only after you
-  approve.
+- Before you approve, the site manager dials back the host and private port the join will record
+  and requires the answer to prove the joining node's key. If it cannot reach the node there, or
+  another key answers, the join fails with nothing issued or recorded. A node behind NAT must have
+  that port forwarded while it joins. The token allows a few failed dial-backs, so a corrected
+  retry works.
+- The site manager issues the node's identity only after you approve, then records its membership
+  and pin.
 - Join tokens never authorize runtime traffic.
 - Removing a node withdraws its membership and pin together. A removed node's identity no longer
   authenticates, even while its certificate is valid under the site's certificate authority.
-- A node with an intact folder joins again by proving its pinned identity. Only its addresses change.
+- A node with an intact folder joins again by proving its pinned identity. Only its addresses change, and the dial-back checks the new ones the same way.
 
 ### Connecting nodes
 

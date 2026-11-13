@@ -3,7 +3,9 @@
 //! authenticates it from the token alone, sends the node's proposal and signing request, installs
 //! the returned node folder, and commits.
 //!
-//! The private key never leaves this machine. The folder is moved into place before the commit,
+//! While the manager decides, the node listens on the address and private port its folder will
+//! record, presenting its own key, so the manager can check it reaches this node there. The
+//! private key never leaves this machine. The folder is moved into place before the commit,
 //! removed only when the manager clearly refuses the commit, and kept when the outcome is unknown
 //! so a node the site already recorded never loses its key.
 //!
@@ -23,7 +25,8 @@ use dotcore_domain::{
     BindAddress, HostResolver, SiteNodeHost, SystemHostResolver, real_time, timing::JoinTiming,
 };
 use dotcore_proto::dotcore::node::v1::{
-    CommitRequest, DeclaredMachine, JoinResponse, node_join_service_client::NodeJoinServiceClient,
+    CommitRequest, DeclaredMachine, JoinRequest, JoinResponse,
+    node_join_service_client::NodeJoinServiceClient,
 };
 use tonic::{
     Code, Status,
@@ -35,6 +38,7 @@ use url::Url;
 use super::{
     JoinProposal, JoinProposalError, JoinToken, NodeKey, NodeKeyError, RejoinProposal,
     RejoiningNodeFolder,
+    dial_back_listener::DialBackListener,
     installation::{
         NodeFolderContents, NodeFolderError, install_node_folder, reject_existing_folder,
         remove_node_folder, rewrite_bootstrap,
@@ -42,7 +46,8 @@ use super::{
     proposal::{
         CERTIFICATE_EXPIRED_REJECTION, CERTIFICATE_NOT_PINNED_REJECTION,
         CERTIFICATE_NOT_YET_VALID_REJECTION, DUPLICATE_HOST_REJECTION, DUPLICATE_NAME_REJECTION,
-        NODE_NOT_DECLARED_REJECTION, REJECTION_METADATA_KEY, UNUSABLE_HOST_REJECTION,
+        NODE_NOT_DECLARED_REJECTION, REJECTION_METADATA_KEY, UNREACHABLE_NODE_REJECTION,
+        UNUSABLE_HOST_REJECTION,
     },
     verifier::{JoinHostVerifier, VerifiedJoinHost},
 };
@@ -176,8 +181,9 @@ impl JoinConnection {
 
     /// Proposes this node, installs the offered node folder at `node_root`, and commits it.
     ///
-    /// `node_root` must not exist. A rejected proposal changes nothing on either side and the
-    /// same connection may retry.
+    /// The node listens on its private port from before the proposal until the offer arrives,
+    /// and its folder records the address it listened on. `node_root` must not exist. A rejected
+    /// proposal changes nothing on either side and the same connection may retry.
     pub async fn join(
         &mut self,
         proposal: &JoinProposal,
@@ -187,20 +193,18 @@ impl JoinConnection {
         proposal.validate()?;
         reject_existing_folder(node_root)?;
         let request = proposal.to_request(&self.token.secret, &self.manager_host, key.csr_der()?);
-        let offer = self
-            .client
-            .join(request)
-            .await
-            .map_err(NodeJoinError::from_join_status)?
-            .into_inner();
-        let host = offered_host(&offer, proposal.host.as_ref())?;
         let private_bind_address = private_bind_address(
-            &host,
+            proposal.host.as_ref(),
             proposal.private_port,
             &self.endpoint,
             self.resolver.as_ref(),
         )
         .await?;
+        let offer = self
+            .request_offer(request, &private_bind_address, key)
+            .await?;
+        let host = offered_host(&offer, proposal.host.as_ref())?;
+        let private_bind_address = private_bind_address.recorded;
         let contents = self.offer_contents(
             &offer,
             key,
@@ -248,6 +252,10 @@ impl JoinConnection {
     /// rewrites the folder's manager endpoint, private bind address, and observation
     /// configuration.
     ///
+    /// The node listens on the proposed private port, at the proposed host or else the folder's
+    /// bind host, from before the proposal until the offer arrives, and the folder records the
+    /// address it listened on.
+    ///
     /// The offer must keep the folder's node, certificate, and targets exactly; its observation
     /// configuration replaces the folder's, repairing drift from the site. A refusal or an
     /// unknown commit outcome leaves the folder unchanged; repeating the rejoin with a fresh token
@@ -266,22 +274,23 @@ impl JoinConnection {
             installed.worker_certificate_der().to_vec(),
             installed.observation_configuration().clone(),
         );
-        let offer = self
-            .client
-            .join(request)
-            .await
-            .map_err(NodeJoinError::from_join_status)?
-            .into_inner();
-        let host = offered_host(&offer, proposal.host.as_ref())?;
-        self.check_offered_site(&offer)?;
-        check_offered_folder(&offer, folder)?;
         let private_bind_address = private_bind_address(
-            &host,
+            proposal
+                .host
+                .as_ref()
+                .or(installed.private_bind_address().host()),
             proposal.private_port,
             &self.endpoint,
             self.resolver.as_ref(),
         )
         .await?;
+        let offer = self
+            .request_offer(request, &private_bind_address, folder.key())
+            .await?;
+        let host = offered_host(&offer, proposal.host.as_ref())?;
+        self.check_offered_site(&offer)?;
+        check_offered_folder(&offer, folder)?;
+        let private_bind_address = private_bind_address.recorded;
         let observation = offer
             .observation
             .clone()
@@ -337,6 +346,32 @@ impl JoinConnection {
             host,
             private_bind_address,
         })
+    }
+
+    /// Sends the join `request` while listening at `bind` with `key` for the manager's dial-back,
+    /// and returns the offer. The listener stops once the manager answered.
+    async fn request_offer(
+        &mut self,
+        request: JoinRequest,
+        bind: &PrivateBind,
+        key: &NodeKey,
+    ) -> Result<JoinResponse, NodeJoinError> {
+        let listened = bind.socket_address();
+        let listener = DialBackListener::start(listened, key).await?;
+        let offer = self.client.join(request).await;
+        listener.stop().await;
+        let offer = offer.map_err(|status| {
+            if is_unreachable_node(&status) {
+                NodeJoinError::UnreachableNode {
+                    status,
+                    listened,
+                    routed: bind.routed,
+                }
+            } else {
+                NodeJoinError::from_join_status(status)
+            }
+        })?;
+        Ok(offer.into_inner())
     }
 
     /// Commits the offer `offer_id`; past the commit timeout the outcome is unknown.
@@ -438,7 +473,7 @@ impl JoinConnection {
 
 /// Returns the local IPv4 address this machine uses to reach `endpoint`, such as the join
 /// endpoint a connection dialed. A host name is resolved through `resolver` first.
-pub async fn default_join_host(
+async fn default_join_host(
     endpoint: &Url,
     resolver: &dyn HostResolver,
 ) -> std::io::Result<Ipv4Addr> {
@@ -486,41 +521,9 @@ pub struct JoinedNodeFolder {
     /// Address or host name the site recorded for reaching this node.
     pub host: SiteNodeHost,
 
-    /// Address or host name the node's private listener binds, as recorded in `worker.yaml`.
+    /// Address or host name the node's private listener binds, as recorded in `worker.yaml`;
+    /// the node listened there while it joined.
     pub private_bind_address: BindAddress,
-}
-
-impl JoinedNodeFolder {
-    /// Describes the address translation the network must provide when the recorded host is not
-    /// an address of this machine, so the listener binds another one; `None` when it binds the
-    /// recorded host itself. Host names are compared by the addresses they resolve to here; a
-    /// name that does not resolve is reported instead, since nothing can be compared.
-    pub async fn address_translation_warning(&self, resolver: &dyn HostResolver) -> Option<String> {
-        if self.private_bind_address.host() == Some(&self.host) {
-            return None;
-        }
-        let unresolved =
-            |error| format!("{error}; the node's server resolves it again when it starts");
-        let host = match self.host.resolve(resolver).await {
-            Ok(host) => host,
-            Err(error) => return Some(unresolved(error)),
-        };
-        let bind = match self.private_bind_address.resolve(resolver).await {
-            Ok(bind) => bind,
-            Err(error) => return Some(unresolved(error)),
-        };
-        if bind.ip() == std::net::IpAddr::V4(host) {
-            return None;
-        }
-        Some(format!(
-            "the manager reaches this node at {host}, which is not an address of this \
-             machine; the private listener binds {bind}, so the network must forward \
-             {host}:{port} to it with the same port",
-            host = self.host,
-            bind = self.private_bind_address,
-            port = self.private_bind_address.port(),
-        ))
-    }
 }
 
 /// A node join did not complete. Each variant says what was left on this machine.
@@ -547,6 +550,23 @@ pub enum NodeJoinError {
     #[error("{message}", message = .0.message())]
     UnusableHost(Status),
 
+    #[error(
+        "{message}; this node listened at {listened}{forward}",
+        message = status.message(),
+        forward = if *routed {
+            ", so the network must forward that host and port to it"
+        } else {
+            ""
+        }
+    )]
+    UnreachableNode {
+        status: Status,
+        /// Address and port the node listened on for the dial-back.
+        listened: SocketAddr,
+        /// Whether the node listened on its route to the manager instead of its own host.
+        routed: bool,
+    },
+
     #[error("{message}", message = .0.message())]
     NodeNotDeclared(Status),
 
@@ -567,6 +587,18 @@ pub enum NodeJoinError {
          nothing was installed or recorded"
     )]
     BindAddress(#[source] std::io::Error),
+
+    #[error(
+        "could not listen on the node's private port {port} at {ip}; nothing was sent to the \
+         manager",
+        port = address.port(),
+        ip = address.ip()
+    )]
+    PrivateListener {
+        address: SocketAddr,
+        #[source]
+        source: std::io::Error,
+    },
 
     #[error("the node folder could not be installed; nothing was recorded: {0}")]
     Folder(#[from] NodeFolderError),
@@ -678,31 +710,65 @@ fn check_offered_folder(
     Ok(())
 }
 
-/// Returns the address the node's private listener binds at `port`: the recorded host, kept as
-/// a name when it is one, when it resolves to an address of this machine; else the local address
-/// on the route to the manager, which the network then must translate the recorded host to.
+/// Returns where the node's private listener binds at `port`: `host`, kept as a name when it is
+/// one, when it resolves to an address of this machine; else the local address on the route to
+/// the manager, which the network then must forward the recorded host to.
 async fn private_bind_address(
-    host: &SiteNodeHost,
+    host: Option<&SiteNodeHost>,
     port: u16,
     manager_endpoint: &Url,
     resolver: &dyn HostResolver,
-) -> Result<BindAddress, NodeJoinError> {
-    // Binding succeeds only for an address of this machine; the socket is dropped right away.
-    if let Ok(address) = host.resolve(resolver).await
+) -> Result<PrivateBind, NodeJoinError> {
+    if let Some(host) = host
+        && let Ok(address) = host.resolve(resolver).await
+        // Binding succeeds only for an address of this machine; the socket is dropped right away.
         && UdpSocket::bind((address, 0)).is_ok()
     {
-        return Ok(BindAddress::new(host.clone(), port));
+        return Ok(PrivateBind {
+            recorded: BindAddress::new(host.clone(), port),
+            address,
+            routed: false,
+        });
     }
     let route = default_join_host(manager_endpoint, resolver)
         .await
         .map_err(NodeJoinError::BindAddress)?;
-    Ok(BindAddress::from(SocketAddrV4::new(route, port)))
+    Ok(PrivateBind {
+        recorded: BindAddress::from(SocketAddrV4::new(route, port)),
+        address: route,
+        routed: true,
+    })
+}
+
+/// Where the node's private listener binds: the address its folder records, the address of this
+/// machine it resolved to, and whether that is the route to the manager rather than the node's
+/// host, so the network must forward the host to it.
+#[derive(Debug, PartialEq, Eq)]
+struct PrivateBind {
+    recorded: BindAddress,
+    address: Ipv4Addr,
+    routed: bool,
+}
+
+impl PrivateBind {
+    fn socket_address(&self) -> SocketAddr {
+        SocketAddr::from((self.address, self.recorded.port()))
+    }
 }
 
 /// Reports whether the leaf's only site identity names `node_id`, so the folder never installs a
 /// certificate issued for another node.
 fn certificate_names_node(certificate_der: &[u8], site_id: &str, node_id: &str) -> bool {
     exact_node_identity(certificate_der, site_id).as_deref() == Some(node_id)
+}
+
+/// Reports whether the host refused the join because it could not reach this node by its key.
+fn is_unreachable_node(status: &Status) -> bool {
+    status
+        .metadata()
+        .get(REJECTION_METADATA_KEY)
+        .and_then(|value| value.to_str().ok())
+        == Some(UNREACHABLE_NODE_REJECTION)
 }
 
 /// Codes the join host returns only when it definitely recorded nothing.
@@ -749,75 +815,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_listener_binds_a_local_recorded_host_and_otherwise_the_route_to_the_manager() {
+    async fn the_listener_binds_a_local_host_and_otherwise_the_route_to_the_manager() {
         let manager: Url = "https://127.0.0.1:7443".parse().expect("manager endpoint");
         // 192.0.2.0/24 is reserved for documentation and never assigned to this machine.
         let resolver = FakeHostResolver::default()
             .with("gpu-box.example", [Ipv4Addr::LOCALHOST])
             .with("remote.example", [Ipv4Addr::new(192, 0, 2, 8)]);
-        let bind = async |host: &str| {
-            let host = SiteNodeHost::parse(host).expect("host");
-            private_bind_address(&host, 7443, &manager, &resolver)
+        let bind = async |host: Option<&str>| {
+            let host = host.map(|host| SiteNodeHost::parse(host).expect("host"));
+            let bind = private_bind_address(host.as_ref(), 7443, &manager, &resolver)
                 .await
-                .expect("bind address")
-                .to_string()
+                .expect("bind address");
+            (bind.recorded.to_string(), bind.socket_address().to_string())
         };
+        let route = || ("127.0.0.1:7443".to_owned(), "127.0.0.1:7443".to_owned());
 
-        assert_eq!(bind("127.0.0.1").await, "127.0.0.1:7443");
-        assert_eq!(bind("gpu-box.example").await, "gpu-box.example:7443");
-        assert_eq!(bind("192.0.2.7").await, "127.0.0.1:7443");
-        assert_eq!(bind("remote.example").await, "127.0.0.1:7443");
-        assert_eq!(bind("unknown.example").await, "127.0.0.1:7443");
-    }
-
-    #[tokio::test]
-    async fn translation_is_reported_only_when_the_listener_binds_another_address() {
-        let resolver = FakeHostResolver::default()
-            .with("gpu-box.example", [Ipv4Addr::new(10, 0, 0, 7)])
-            .with("remote.example", [Ipv4Addr::new(192, 0, 2, 8)]);
-        let folder = |host: &str, bind: &str| JoinedNodeFolder {
-            site_id: "site-one".to_owned(),
-            node_id: "node-one".to_owned(),
-            display_name: "gpu-box".to_owned(),
-            root: PathBuf::from("/node"),
-            host: SiteNodeHost::parse(host).expect("host"),
-            private_bind_address: BindAddress::parse(bind).expect("bind address"),
-        };
-
-        let same_name = folder("gpu-box.example", "gpu-box.example:7443");
-        assert_eq!(same_name.address_translation_warning(&resolver).await, None);
-        let same_address = folder("gpu-box.example", "10.0.0.7:7443");
+        assert_eq!(bind(Some("127.0.0.1")).await, route());
         assert_eq!(
-            same_address.address_translation_warning(&resolver).await,
-            None
-        );
-        let translated = folder("remote.example", "10.0.0.7:7443");
-        assert_eq!(
-            translated
-                .address_translation_warning(&resolver)
-                .await
-                .as_deref(),
-            Some(
-                "the manager reaches this node at remote.example, which is not an address of \
-                 this machine; the private listener binds 10.0.0.7:7443, so the network must \
-                 forward remote.example:7443 to it with the same port"
+            bind(Some("gpu-box.example")).await,
+            (
+                "gpu-box.example:7443".to_owned(),
+                "127.0.0.1:7443".to_owned()
             )
         );
-        for (host, bind) in [
-            ("unknown.example", "10.0.0.7:7443"),
-            ("gpu-box.example", "unknown.example:7443"),
-        ] {
-            assert_eq!(
-                folder(host, bind)
-                    .address_translation_warning(&resolver)
-                    .await
-                    .as_deref(),
-                Some(
-                    "could not resolve host name unknown.example; check that the network \
-                     providing it is up; the node's server resolves it again when it starts"
-                ),
-                "{host} bound at {bind}"
-            );
-        }
+        assert_eq!(bind(Some("192.0.2.7")).await, route());
+        assert_eq!(bind(Some("remote.example")).await, route());
+        assert_eq!(bind(Some("unknown.example")).await, route());
+        assert_eq!(bind(None).await, route());
     }
 }

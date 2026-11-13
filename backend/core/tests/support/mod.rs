@@ -75,8 +75,8 @@ use dotcore_site::{
     membership::{
         OfflineSite,
         join::{
-            JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostLimits, JoinHostSettings,
-            JoinProposal, JoinReview, JoinToken, JoinedNodeFolder, LocalPeers, NodeKey,
+            DialBack, JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostLimits,
+            JoinHostSettings, JoinProposal, JoinReview, JoinToken, JoinedNodeFolder, NodeKey,
             RejoinProposal, RejoiningNodeFolder,
         },
     },
@@ -2056,9 +2056,9 @@ fn temporary_observation_fixtures(
 
 /// Joins one simulated node to the stopped site at `manager_root` through the join library, host
 /// and client in this process over loopback, and installs its node folder at `node_root`, which
-/// must not exist. The node proposes `host` (an address or a name) explicitly, since the manager
-/// refuses an observed loopback address, and records `private_port` as its private port; a worker
-/// process that binds that recorded port needs it from [`reserve_port`]. With
+/// must not exist. The node proposes `host` (an address or a name) explicitly and records
+/// `private_port` as its private port, where it listens while it joins so the manager can dial it
+/// back; the port must come from [`reserve_port`], held while it may be bound. With
 /// `manager_host`, the node dials the join listener at that address through a forwarder, as a
 /// node on another network would, and keeps that manager address; `host` must then be an IPv4
 /// address, which the forwarder connects from.
@@ -2238,8 +2238,6 @@ where
                             identity,
                             token: token.clone(),
                             manager_private_port: manager_private_port(&manager_private_endpoint),
-                            allow_observed_loopback: false,
-                            local_peers: LocalPeers::machine([]),
                             limits: JoinHostLimits::default(),
                         },
                         std::sync::Arc::new(site),
@@ -2283,6 +2281,10 @@ fn linux_host_platform() -> ExecutionPlatform {
 struct AllowEveryNode;
 
 impl JoinApproval for AllowEveryNode {
+    fn dialing_back(&self, _: &SiteNodeHost, _: u16) {}
+
+    fn dialed_back(&self, _: &DialBack) {}
+
     fn review(
         &self,
         _: JoinReview,

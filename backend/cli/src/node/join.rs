@@ -86,12 +86,13 @@ pub struct NodeJoinArgs {
     pub manager_host: Option<SiteNodeHost>,
 
     /// IPv4 address or DNS host name the manager reaches this node at; defaults to
-    /// DOTCORE_MACHINE_HOST, else the address the manager observes; bound when it resolves to an
-    /// address of this machine.
+    /// DOTCORE_MACHINE_HOST, else the address the manager observes. The manager connects back to
+    /// it on the private port while the node joins, so forward that port first when behind NAT.
     #[arg(long, env = "DOTCORE_MACHINE_HOST", value_parser = parse_host)]
     pub host: Option<SiteNodeHost>,
 
-    /// Port of this node's private listener.
+    /// Port of this node's private listener; the manager connects back to it while the node
+    /// joins.
     #[arg(long, value_name = "PORT", value_parser = clap::value_parser!(u16).range(1..))]
     pub private_port: Option<u16>,
 
@@ -375,7 +376,8 @@ fn announce_connection(
     ]))
 }
 
-/// Warns about addresses of the joined node that the network may not deliver.
+/// Warns about loopback addresses of the joined node or the manager, which other machines cannot
+/// reach.
 async fn warn_about_addresses(
     folder: &JoinedNodeFolder,
     connection: &JoinConnection,
@@ -383,9 +385,6 @@ async fn warn_about_addresses(
 ) -> anyhow::Result<()> {
     let mut notices = Notices::new(terminal);
     let resolver = SystemHostResolver;
-    if let Some(warning) = folder.address_translation_warning(&resolver).await {
-        notices.warn(&warning)?;
-    }
     for host in [&folder.host, connection.manager_host()] {
         if let Some(warning) = loopback_host_warning(host, &resolver).await {
             notices.warn(&warning)?;
@@ -700,6 +699,14 @@ fn join_failure(error: NodeJoinError) -> anyhow::Error {
         }
         NodeJoinError::DuplicateHost(_) | NodeJoinError::UnusableHost(_) => {
             "set this machine's address with --host"
+        }
+        NodeJoinError::UnreachableNode { .. } => {
+            "make sure the manager's machine reaches this node at that host and port, then join \
+             again; repeated failures revoke the token, so you may need a new one from \
+             `dotc node add`"
+        }
+        NodeJoinError::PrivateListener { .. } => {
+            "free that port, or choose another with --private-port"
         }
         _ => "",
     };

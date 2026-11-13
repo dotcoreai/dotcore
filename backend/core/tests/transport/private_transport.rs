@@ -1082,14 +1082,16 @@ fn joined_node_configuration(site_paths: dotcore_domain::SitePaths) -> BackendCo
 }
 
 fn add_worker(manager_root: &Path, node_root: &Path, display_name: &str, host: &str) -> String {
+    // The worker listens on its recorded private port only while it joins; once joined, these
+    // workers bind an explicit private address instead.
+    let private_port = dotcore::testing::reserve_port();
     support::join_worker(
         manager_root,
         "https://127.0.0.1:9443",
         node_root,
         display_name,
         host.parse().expect("worker host"),
-        // These workers bind an explicit private address, never the port their folder records.
-        9444,
+        private_port.port(),
         None,
     )
     .node_id

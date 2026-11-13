@@ -97,7 +97,7 @@ test("join on a remote host resolves it, prepares through run and joins through 
   assert.equal(await f.record(), "gb10:spark node-1\n");
 });
 
-test("a failed join names the step, stops node add, and keeps the target recorded for cleanup", async (t) => {
+test("a failed join names the step, stops node add, and leaves no worker recorded so the join can run again", async (t) => {
   const f = await fixture(t);
   await mkdir(f.site, { recursive: true });
   f.env.TEST_REMOTE_EXEC_STATUS = "1";
@@ -107,7 +107,13 @@ test("a failed join names the step, stops node add, and keeps the target recorde
   assert.match(failed.stderr, /cluster join apple:mac: join failed/);
   // node add waits for the join, so only the trap that kills it lets the recipe return.
   await assert.rejects(stat(`${f.workerDir}.join-token`), { code: "ENOENT" });
-  assert.equal(await f.record(), "apple:mac\n");
+  assert.equal(await f.record(), null);
+
+  delete f.env.TEST_REMOTE_EXEC_STATUS;
+  await f.reset();
+  const again = f.run("dev::cluster::join", "apple", "--", "--name", "mac");
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(await f.record(), "apple:mac node-1\n");
 });
 
 test("up and down act on the manager and every recorded worker, or on one target", async (t) => {

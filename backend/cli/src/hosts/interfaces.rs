@@ -60,11 +60,6 @@ impl InterfaceAddress {
         self.loopback_flag = loopback_flag;
         self
     }
-
-    /// Returns the observed address.
-    pub fn address(&self) -> IpAddr {
-        self.address
-    }
 }
 
 /// How an operator should read a candidate address. Variants are declared in

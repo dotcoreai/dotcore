@@ -1,6 +1,7 @@
 //! Hosts the manager side of one node join: a TLS listener presenting the manager's identity,
-//! the join secret check, operator approval, certificate signing, and the two-step commit that
-//! records the approved node. The offline node addition runs it while the manager is stopped.
+//! the join secret check, a dial-back proving the manager reaches the joining node by its key,
+//! operator approval, certificate signing, and the two-step commit that records the approved
+//! node. The offline node addition runs it while the manager is stopped.
 //! A declared node joining again from its intact folder takes the same steps, except that it
 //! proves its pinned identity, nothing is signed, and the commit records only its new addresses.
 //!
@@ -11,7 +12,7 @@
 
 use std::{
     fmt,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -43,10 +44,13 @@ use super::{
     admission::{AdmissionError, RejoinProof, admit, admit_rejoin, certified_node_id},
     connection::{JoinConnectionInfo, JoinConnections},
     csr_key_fingerprint,
+    dial_back::{DialBack, dial_back},
+    node_key::verified_csr_key,
     proposal::{
         CERTIFICATE_EXPIRED_REJECTION, CERTIFICATE_NOT_PINNED_REJECTION,
         CERTIFICATE_NOT_YET_VALID_REJECTION, DUPLICATE_HOST_REJECTION, DUPLICATE_NAME_REJECTION,
-        NODE_NOT_DECLARED_REJECTION, ProposedJoin, REJECTION_METADATA_KEY, UNUSABLE_HOST_REJECTION,
+        NODE_NOT_DECLARED_REJECTION, ProposedJoin, REJECTION_METADATA_KEY,
+        UNREACHABLE_NODE_REJECTION, UNUSABLE_HOST_REJECTION,
     },
     publication::NodePublicationError,
 };
@@ -86,8 +90,8 @@ impl JoinHost {
         }
     }
 
-    /// Replaces the system resolver used to look up a proposed host name before comparing it
-    /// with the join connection's address.
+    /// Replaces the system resolver used to look up a node host name before dialing it back and
+    /// comparing it with the join connection's address.
     #[cfg(test)]
     pub(crate) fn with_host_resolver(mut self, resolver: Arc<dyn HostResolver>) -> Self {
         self.shared.resolver = resolver;
@@ -177,54 +181,8 @@ pub struct JoinHostSettings {
     /// manager address that node dialed.
     pub manager_private_port: u16,
 
-    /// Records an observed loopback source address as the node host. A local forwarder hides the
-    /// joining node's own address behind loopback, so this stays off outside same-machine tests.
-    pub allow_observed_loopback: bool,
-
-    /// Connection sources that come from the manager's own machine. A node joining from anywhere
-    /// else is refused a loopback host, since the manager would reach its own machine there.
-    /// A node joining through a local forwarder, such as an SSH tunnel, looks local and is not
-    /// caught.
-    pub local_peers: LocalPeers,
-
     /// Token lifetime and attempt limits.
     pub limits: JoinHostLimits,
-}
-
-/// The connection sources a join host treats as the manager's own machine.
-#[derive(Clone, Debug)]
-pub struct LocalPeers {
-    loopback: bool,
-    addresses: Vec<IpAddr>,
-}
-
-impl LocalPeers {
-    /// The manager's machine: every loopback address and the given interface addresses. The
-    /// whole loopback range counts, since interfaces list only part of it.
-    pub fn machine(addresses: impl IntoIterator<Item = IpAddr>) -> Self {
-        Self {
-            loopback: true,
-            addresses: addresses
-                .into_iter()
-                .map(|address| address.to_canonical())
-                .collect(),
-        }
-    }
-
-    /// Reports whether a connection from `address` comes from the manager's machine.
-    pub fn contains(&self, address: IpAddr) -> bool {
-        let address = address.to_canonical();
-        (self.loopback && address.is_loopback()) || self.addresses.contains(&address)
-    }
-
-    /// Only the given addresses, so tests can treat a loopback connection as another machine's.
-    #[cfg(test)]
-    pub(crate) fn only(addresses: impl IntoIterator<Item = IpAddr>) -> Self {
-        Self {
-            loopback: false,
-            ..Self::machine(addresses)
-        }
-    }
 }
 
 /// The manager's node identity the join listener presents, with the site CA sent in the chain.
@@ -295,6 +253,10 @@ pub struct JoinHostLimits {
 
     /// Wrong secrets accepted across all connections before the host stops.
     pub max_failed_attempts: u32,
+
+    /// Joins whose dial-back failed, across all connections, before the host stops. It bounds
+    /// how often a token holder can make the manager's machine connect somewhere before approval.
+    pub max_failed_dial_backs: u32,
 }
 
 impl Default for JoinHostLimits {
@@ -303,6 +265,7 @@ impl Default for JoinHostLimits {
             overall_timeout: Duration::from_secs(15 * 60),
             max_connections: 16,
             max_failed_attempts: 5,
+            max_failed_dial_backs: 3,
         }
     }
 }
@@ -385,8 +348,17 @@ impl From<NodePublicationError> for JoinSiteError {
     }
 }
 
-/// The operator's decision on one join proposal; reviews never run concurrently.
+/// The operator's side of a join: each dial-back's outcome and the decision on each proposal;
+/// reviews never run concurrently.
 pub trait JoinApproval: Send + Sync + 'static {
+    /// Shows the operator that the host is about to dial the joining node back at `host` and
+    /// `port`, before it connects anywhere. It must return promptly.
+    fn dialing_back(&self, host: &SiteNodeHost, port: u16);
+
+    /// Shows the operator the outcome of one dial-back, before any review of that join. It must
+    /// return promptly.
+    fn dialed_back(&self, dial: &DialBack);
+
     /// Shows `review` to the operator and resolves to the decision.
     ///
     /// `cancel` fires when the join is abandoned, because its connection closed or the host
@@ -548,6 +520,12 @@ pub enum JoinHostError {
     #[error("too many join attempts used a wrong secret; the join token is revoked")]
     TooManyFailedAttempts,
 
+    #[error(
+        "too many joins named a host and port where the manager could not reach the node; the \
+         join token is revoked"
+    )]
+    TooManyFailedDialBacks,
+
     #[error("the node may or may not have been recorded: {0}")]
     PublicationUncertain(#[source] JoinSiteError),
 
@@ -599,8 +577,9 @@ impl HostShared {
     }
 
     /// Checks a decoded request against the current site: a new node's proposal, or a declared
-    /// node's proof that it holds its pinned identity for this join. A new node without a
-    /// proposed host is recorded at `peer_address`; a rejoining one keeps its declared host.
+    /// node's proof that it holds its pinned identity for this join, then dials the node back at
+    /// the host it would record. A new node without a proposed host is recorded at
+    /// `peer_address`; a rejoining one keeps its declared host.
     async fn admit(
         &self,
         request: &JoinRequest,
@@ -614,15 +593,12 @@ impl HostShared {
             .map_err(|error| site_status(&error))?;
         match proposed {
             ProposedJoin::New(proposal) => {
-                let (host, host_source) = recorded_host(
-                    proposal.host.as_ref(),
-                    peer_address,
-                    self.settings.allow_observed_loopback,
-                )?;
-                self.check_host_reachable(&host, peer_address).await?;
+                let (host, host_source) = recorded_host(proposal.host.as_ref(), peer_address)?;
                 let rules = self.site.declaration_rules();
                 let admission = admit(&site, &rules, &proposal, &host, manager_host)
                     .map_err(|error| admission_status(&error))?;
+                self.dial_back(&host, proposal.private_port, &request.csr_der)
+                    .await?;
                 Ok(Admitted {
                     site,
                     host,
@@ -660,7 +636,8 @@ impl HostShared {
                 .map_err(|error| admission_status(&error))?;
                 let host = SiteNodeHost::parse(&admission.node.host)
                     .map_err(|_| Status::internal("the declared node host is invalid"))?;
-                self.check_host_reachable(&host, peer_address).await?;
+                self.dial_back(&host, proposal.private_port, &request.csr_der)
+                    .await?;
                 let host_source = match proposal.host {
                     Some(_) => JoinHostSource::Proposed,
                     None => JoinHostSource::Declared,
@@ -686,31 +663,61 @@ impl HostShared {
         }
     }
 
-    /// Refuses a loopback node host for a join from another machine: the manager would reach
-    /// its own machine there instead of the node. A name that does not resolve on the manager is
-    /// left to the operator's review.
-    async fn check_host_reachable(
+    /// Dials the joining node back at `host` and `port`, which must answer with the key its
+    /// signing request `csr_der` proves. Each dial is shown to the operator as it starts and as it
+    /// ends. It counts as failed from the start and is refunded only once it succeeds, so a join
+    /// abandoned mid-dial still counts; the host stops at the limit.
+    async fn dial_back(
         &self,
         host: &SiteNodeHost,
-        peer_address: SocketAddr,
+        port: u16,
+        csr_der: &[u8],
     ) -> Result<(), Status> {
-        if self.settings.local_peers.contains(peer_address.ip()) {
-            return Ok(());
+        let node_key = verified_csr_key(csr_der)
+            .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let limit = self.settings.limits.max_failed_dial_backs;
+        let failed = {
+            let mut state = self.lock_state();
+            if state.failed_dial_backs >= limit {
+                drop(state);
+                self.stop(JoinHostError::TooManyFailedDialBacks);
+                return Err(finished_status());
+            }
+            state.failed_dial_backs += 1;
+            state.failed_dial_backs
+        };
+        self.approval.dialing_back(host, port);
+        let outcome = dial_back(
+            host,
+            port,
+            &node_key,
+            self.resolver.as_ref(),
+            self.timing.connect_timeout,
+        )
+        .await;
+        let dial = DialBack {
+            host: host.clone(),
+            port,
+            outcome,
+        };
+        self.approval.dialed_back(&dial);
+        let error = match dial.outcome {
+            Ok(address) => {
+                self.lock_state().failed_dial_backs -= 1;
+                info!(%host, port, %address, "joining node reached by its key");
+                return Ok(());
+            }
+            Err(error) => error.detailed(),
+        };
+        warn!(%host, port, %error, failed_dial_backs = failed, "joining node not reached");
+        if failed >= limit {
+            self.stop(JoinHostError::TooManyFailedDialBacks);
         }
-        let loopback = host
-            .resolve_all(self.resolver.as_ref())
-            .await
-            .is_ok_and(|addresses| addresses.iter().all(Ipv4Addr::is_loopback));
-        if !loopback {
-            return Ok(());
-        }
-        let peer = peer_address.ip().to_canonical();
         Err(rejection_status(
-            Status::invalid_argument(format!(
-                "the node host {host} is a loopback address, which the manager cannot reach \
-                 this node at: the node joined from {peer}, another machine"
+            Status::failed_precondition(format!(
+                "the manager could not reach this node at {host}:{port}: {error}"
             )),
-            UNUSABLE_HOST_REJECTION,
+            UNREACHABLE_NODE_REJECTION,
         ))
     }
 
@@ -920,6 +927,7 @@ impl HostShared {
 #[derive(Default)]
 struct HostState {
     failed_attempts: u32,
+    failed_dial_backs: u32,
     next_ticket: u64,
     slot: Slot,
     stop_after_commit: Option<JoinHostError>,
@@ -1129,21 +1137,17 @@ fn release_slot(state: &mut HostState) {
 }
 
 /// Returns the address the site records for the joining node: the proposed host, else the
-/// connection's source address. An observed address that other machines cannot dial is refused,
-/// since a local forwarder or proxy would otherwise be recorded in place of the node.
+/// connection's source address, which must be a specific IPv4 address.
 fn recorded_host(
     proposed_host: Option<&SiteNodeHost>,
     peer_address: SocketAddr,
-    allow_loopback: bool,
 ) -> Result<(SiteNodeHost, JoinHostSource), Status> {
     if let Some(host) = proposed_host {
         return Ok((host.clone(), JoinHostSource::Proposed));
     }
     let observed = peer_address.ip().to_canonical();
     let host = match observed {
-        IpAddr::V4(host) if !host.is_multicast() && (allow_loopback || !host.is_loopback()) => {
-            SiteNodeHost::from_ipv4(host).ok()
-        }
+        IpAddr::V4(host) if !host.is_multicast() => SiteNodeHost::from_ipv4(host).ok(),
         _ => None,
     };
     host.map(|host| (host, JoinHostSource::Observed))

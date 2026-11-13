@@ -313,6 +313,8 @@ struct NodeLeaveFixture {
     manager_network: String,
     manager_application: String,
     image_was_present: bool,
+    /// Private port the worker listens on while it joins, kept from other test processes.
+    worker_private_port: dotcore::testing::ReservedPort,
 }
 
 impl NodeLeaveFixture {
@@ -338,6 +340,7 @@ impl NodeLeaveFixture {
             site_id,
             worker_node_id: String::new(),
             image_was_present,
+            worker_private_port: dotcore::testing::reserve_port(),
         }
     }
 
@@ -469,6 +472,8 @@ impl NodeLeaveFixture {
                 "simulated",
                 "--applications",
                 "docker",
+                "--private-port",
+                &self.worker_private_port.port().to_string(),
             ])
             .output()
             .expect("run dotc node join");

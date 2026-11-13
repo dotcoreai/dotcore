@@ -4,8 +4,13 @@
 //! A declared node that joins again keeps its key and proves it holds it with a signing request
 //! bound to the one join it is made for, so a captured request is useless with another token.
 
+use std::sync::Arc;
+
 use rcgen::{Attribute, CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256};
-use rustls::pki_types::PrivatePkcs8KeyDer;
+use rustls::{
+    ServerConfig,
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+};
 use sha2::{Digest, Sha256};
 use x509_parser::{
     certificate::X509Certificate, certification_request::X509CertificationRequest,
@@ -72,6 +77,24 @@ impl NodeKey {
         key_fingerprint(self.key.public_key_raw())
     }
 
+    /// Builds the TLS server configuration of the joining node's dial-back listener: TLS 1.3
+    /// only, no client authentication, and a self-signed certificate of this key, so each
+    /// handshake proves to the dialer that this node holds the key its signing request carries.
+    pub(super) fn dial_back_server_config(&self) -> Result<ServerConfig, NodeKeyError> {
+        let certificate = CertificateParams::default()
+            .self_signed(&self.key)
+            .map_err(NodeKeyError::Certificate)?;
+        ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .and_then(|builder| {
+                builder.with_no_client_auth().with_single_cert(
+                    vec![CertificateDer::from(certificate.der().to_vec())],
+                    PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(self.key.serialize_der())),
+                )
+            })
+            .map_err(NodeKeyError::ListenerIdentity)
+    }
+
     /// Reports whether `certificate_der` certifies this key, so the node never installs a
     /// leaf issued for some other key.
     pub fn certifies(&self, certificate_der: &[u8]) -> bool {
@@ -86,19 +109,42 @@ impl NodeKey {
 /// Computes the fingerprint of the public key inside a signing request without trusting the
 /// request: it only parses the structure, and signing verifies the proof of possession.
 pub fn csr_key_fingerprint(csr_der: &[u8]) -> Result<CertificateFingerprint, NodeKeyError> {
+    Ok(key_fingerprint(&csr_public_key(csr_der)?))
+}
+
+/// Returns the raw public key inside a signing request, without trusting the request: it only
+/// parses the structure.
+pub(super) fn csr_public_key(csr_der: &[u8]) -> Result<Vec<u8>, NodeKeyError> {
     let (remainder, request) =
         X509CertificationRequest::from_der(csr_der).map_err(|_| NodeKeyError::MalformedRequest)?;
     if !remainder.is_empty() {
         return Err(NodeKeyError::MalformedRequest);
     }
-    Ok(key_fingerprint(
-        request
-            .certification_request_info
-            .subject_pki
-            .subject_public_key
-            .data
-            .as_ref(),
-    ))
+    Ok(request
+        .certification_request_info
+        .subject_pki
+        .subject_public_key
+        .data
+        .to_vec())
+}
+
+/// Checks that a signing request is well formed and signed by its own key, and returns that raw
+/// public key, which the request thereby proves its sender holds.
+pub(super) fn verified_csr_key(csr_der: &[u8]) -> Result<Vec<u8>, NodeKeyError> {
+    let (remainder, request) =
+        X509CertificationRequest::from_der(csr_der).map_err(|_| NodeKeyError::MalformedRequest)?;
+    if !remainder.is_empty() {
+        return Err(NodeKeyError::MalformedRequest);
+    }
+    request
+        .verify_signature()
+        .map_err(|_| NodeKeyError::RequestSignature)?;
+    Ok(request
+        .certification_request_info
+        .subject_pki
+        .subject_public_key
+        .data
+        .to_vec())
 }
 
 /// Checks a rejoin signing request: well formed, signed by its own key, and bound to `secret`.
@@ -178,6 +224,12 @@ pub enum NodeKeyError {
 
     #[error("could not build the certificate signing request")]
     Request(#[source] rcgen::Error),
+
+    #[error("could not build the node's self-signed listener certificate")]
+    Certificate(#[source] rcgen::Error),
+
+    #[error("could not present the node key on the dial-back listener")]
+    ListenerIdentity(#[source] rustls::Error),
 
     #[error("the certificate signing request is not a well-formed DER structure")]
     MalformedRequest,
