@@ -507,6 +507,7 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: true
+      # ninfer accepts 1 to 5 MTP draft tokens (docs/startup-configuration.md at 13ebb92); 0 turns it off.
       - optionId: "mtp"
         parameters:
           - parameterId: "token-count"

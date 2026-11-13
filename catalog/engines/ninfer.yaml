@@ -29,6 +29,7 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests generated at once; more wait in a queue, and new ones are refused when the queue is full. Each added request uses some extra accelerator memory, so raise it only when several callers use the model together."
+      # ninfer's `--max-concurrency` accepts 1 to 8 (docs/startup-configuration.md at 13ebb92).
       unsignedInteger:
         minimum: "1"
         maximum: "8"

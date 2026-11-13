@@ -16,6 +16,8 @@ graph:
       displayName: "VRAM mode"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "How ComfyUI keeps models in GPU memory. Leave it on auto to load and offload on demand; use another mode to force models to stay on the GPU or to save GPU memory, which needs a GPU target."
+      # The modes `apps/comfyui/entrypoint.sh` maps to ComfyUI's `--highvram`, `--gpu-only` and
+      # `--novram` flags; `auto` passes none.
       stringEnum:
         values: ["auto", "highvram", "gpu-only", "novram"]
         defaultValue: "auto"

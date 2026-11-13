@@ -3,11 +3,14 @@
 ## How it is built
 
 * [`docker-image.lock.json`](docker-image.lock.json) pins the upstream image; nothing is built here.
-* Login is on and sign-up is off. The admin email and password are parameters; Open WebUI creates
-  that admin only when its data folder has no user, so login needs a fresh data folder, which each
-  deployment has. A data folder opened with login off holds a default admin that stays valid and
-  skips the parameters' admin. `WEBUI_ADMIN_NAME`, `WEBUI_SECRET_KEY` and `DEFAULT_USER_ROLE` stay
-  unbound.
+* Login is off by default, and sign-up is always off. The `require-login` parameter drives
+  `WEBUI_AUTH`, and only the admin email and password bindings depend on it: with login off they are
+  not set at all, because Open WebUI creates the admin from them even with login off and then
+  refuses visitors with an "existing users" error.
+* With login on, Open WebUI creates the admin only when its data folder has no user, so login needs
+  a fresh data folder, which each deployment has. A data folder opened with login off holds a default
+  admin that stays valid and skips the parameters' admin. `WEBUI_ADMIN_NAME`, `WEBUI_SECRET_KEY` and
+  `DEFAULT_USER_ROLE` stay unbound.
 * Configuration bindings set every Open WebUI environment value, persistent configuration is off,
   and `OPENAI_API_BASE_URL` gets the site's inference endpoint. Data lives at
   `/app/backend/data`.
@@ -20,5 +23,8 @@
 ## Validate
 
 1. On a Docker apps site, deploy a model and Open WebUI, open the endpoint the console shows.
-2. Sign in with the sidebar's email and password; unauthenticated access is refused.
-3. The model list shows the site's routes; one chat returns an answer.
+2. With login off (the default), the app opens straight into the chat, and the container has no
+   admin email or password variable.
+3. Deploy again with "Require login" on: sign in with the sidebar's email and password;
+   unauthenticated access is refused.
+4. The model list shows the site's routes; one chat returns an answer.
