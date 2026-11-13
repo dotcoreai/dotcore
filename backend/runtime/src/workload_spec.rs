@@ -1031,7 +1031,7 @@ mod tests {
     fn fingerprint(spec: &WorkloadSpec) -> String {
         let mut digest = Sha256::new();
         spec.update_exact_intent(&mut digest);
-        format!("{:x}", digest.finalize())
+        hex::encode(digest.finalize())
     }
 
     fn template(value: &str) -> WorkloadValue {

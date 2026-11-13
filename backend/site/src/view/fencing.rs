@@ -230,7 +230,7 @@ impl NodeViewProjection {
                 &self.application_assignments,
             );
         }
-        NodeViewDigest(hex_digest(hasher.finalize().as_slice()))
+        NodeViewDigest(hex::encode(hasher.finalize()))
     }
 }
 
@@ -1256,10 +1256,6 @@ fn valid_sha256(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn hex_digest(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

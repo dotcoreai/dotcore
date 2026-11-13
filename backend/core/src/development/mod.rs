@@ -1741,7 +1741,7 @@ fn digest_prefix(domain: &[u8], values: &[&str], length: usize) -> String {
         }
         digest.update(value.as_bytes());
     }
-    format!("{:x}", digest.finalize())[..length].to_owned()
+    hex::encode(digest.finalize())[..length].to_owned()
 }
 
 impl DirectWorkloadLaunchError {

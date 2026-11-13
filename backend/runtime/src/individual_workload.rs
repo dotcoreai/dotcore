@@ -581,7 +581,7 @@ impl WorkloadLaunch {
             update_fingerprint(&mut digest, device.as_bytes());
         }
         self.spec.update_exact_intent(&mut digest);
-        format!("{:x}", digest.finalize())
+        hex::encode(digest.finalize())
     }
 }
 

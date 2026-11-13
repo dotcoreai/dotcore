@@ -44,7 +44,7 @@ impl NodeObservationConfigurationDigest {
         let mut hasher = Sha256::new();
         hasher.update(DIGEST_DOMAIN);
         hasher.update(configuration.encode_to_vec());
-        Ok(Self(encode_hex(&hasher.finalize())))
+        Ok(Self(hex::encode(hasher.finalize())))
     }
 
     /// Parses one complete canonical lowercase SHA-256 digest.
@@ -318,15 +318,6 @@ fn application_docker_observation(device_ids: &[String]) -> DockerRuntimeObserva
         accelerator_transport: DockerAcceleratorTransport::Cdi as i32,
         accelerator_device_ids,
     }
-}
-
-fn encode_hex(bytes: &[u8]) -> String {
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write as _;
-        write!(&mut encoded, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    encoded
 }
 
 #[cfg(test)]

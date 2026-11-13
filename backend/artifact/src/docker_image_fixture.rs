@@ -302,7 +302,10 @@ impl DockerImageInspector for FakeDockerDaemon {
 fn image_id(entry: &str) -> String {
     use sha2::Digest as _;
 
-    format!("sha256:{:x}", sha2::Sha256::digest(entry.as_bytes()))
+    format!(
+        "sha256:{}",
+        hex::encode(sha2::Sha256::digest(entry.as_bytes()))
+    )
 }
 
 fn write_executable(path: &Path, content: &str) {
