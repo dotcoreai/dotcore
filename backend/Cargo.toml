@@ -27,12 +27,12 @@ dotcore-runtime-backends = { path = "runtime_backends", version = "0.1.0" }
 dotcore-site = { path = "site", version = "0.1.0" }
 
 anyhow = "1.0.104"
-base64 = "0.22.1"
+base64 = "0.23.1"
 clap = { version = "4.5.53", features = ["derive", "env"] }
 futures-util = "0.3.31"
 getrandom = "0.4.3"
 libc = "0.2.189"
-pbjson = "0.8.0"
+pbjson = "0.9.0"
 prost = "0.14.4"
 rcgen = "0.14.10"
 rustls = "0.23.43"
@@ -41,7 +41,7 @@ serde_json = "1.0.145"
 serde_yaml_ng = "0.10.0"
 sha2 = "0.10.9"
 subtle = "2.6.1"
-sysinfo = "0.38.4"
+sysinfo = "0.39.6"
 tempfile = "3.20.0"
 thiserror = "2.0.19"
 time = { version = "0.3.55", default-features = false, features = ["formatting", "parsing"] }
