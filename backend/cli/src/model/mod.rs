@@ -7,6 +7,7 @@
 //! stdout, for example `DOTCORE_MODEL_DEPLOYMENT_STATE=Ready`.
 
 mod list;
+mod parameters;
 mod projection;
 mod show;
 

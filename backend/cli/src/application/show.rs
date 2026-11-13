@@ -18,6 +18,7 @@ use super::{
 use crate::{
     management::{ManagerArgs, NodeNames, find_deployment, single_line},
     node::write_records,
+    parameters::{ParameterRow, record_lines},
     terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
 };
 
@@ -84,7 +85,7 @@ struct Details {
     route: String,
     failure: String,
     message: String,
-    parameters: Vec<parameters::ParameterRow>,
+    parameters: Vec<ParameterRow>,
 }
 
 impl Details {
@@ -215,13 +216,10 @@ impl Details {
             self.failure,
             self.message,
         );
-        for row in &self.parameters {
-            block.push_str(&format!(
-                "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_{}={}\n",
-                parameters::record_key(&row.id),
-                row.value,
-            ));
-        }
+        block.push_str(&record_lines(
+            "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER",
+            &self.parameters,
+        ));
         block
     }
 }

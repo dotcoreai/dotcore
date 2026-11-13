@@ -3,12 +3,21 @@
 use std::process::{Command, Output, Stdio};
 
 use dotcore_proto::{
-    dotcore::model::v1::{
-        DeploymentLogEntry, DeploymentLogResumePosition, DeploymentLogSource,
-        DeploymentLogSourceEvent, DeploymentLogSourceState, FollowDeploymentLogsResponse,
-        ModelDeployment, ModelDeploymentDesiredState, ModelDeploymentFailure,
-        ModelDeploymentProgress, ModelDeploymentStatus, ReadDeploymentLogsResponse,
-        follow_deployment_logs_response::Event,
+    dotcore::{
+        catalog::v1::{
+            BooleanParameterSchema, EngineParameterSchema, ParameterDefinition, ParameterValue,
+            ParameterValues, ParameterVisibility, ParameterVisibilityOverride,
+            SecretParameterSchema, UnsignedIntegerParameterSchema,
+            parameter_definition::ParameterType, parameter_value::Value,
+        },
+        model::v1::{
+            DeploymentLogEntry, DeploymentLogResumePosition, DeploymentLogSource,
+            DeploymentLogSourceEvent, DeploymentLogSourceState, FollowDeploymentLogsResponse,
+            ModelDeployment, ModelDeploymentDesiredState, ModelDeploymentFailure,
+            ModelDeploymentProgress, ModelDeploymentSnapshot, ModelDeploymentStatus,
+            ReadDeploymentLogsResponse, ResolvedSizing, UpstreamModelDesiredConfiguration,
+            follow_deployment_logs_response::Event, model_deployment_snapshot::Source,
+        },
     },
     google::protobuf::Timestamp,
 };
@@ -775,6 +784,227 @@ fn a_terminal_shows_a_failure_as_a_verdict_with_next_steps() {
     ] {
         assert!(lines.contains(&expected), "{expected}\n{}", run.screen());
     }
+}
+
+#[test]
+fn show_prints_visible_parameters_in_schema_order_with_secrets_masked() {
+    let manager = FakeManager::start(FakeState::with_models(vec![deployment_with_parameters()]));
+
+    let output = run(&manager, &["show", "Gemma"]);
+
+    assert_eq!(text(&output.stderr), "");
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = text(&output.stdout);
+    assert!(!stdout.contains("s3cretKey"), "{stdout}");
+    assert_eq!(parameter_lines(&stdout), PARAMETER_LINES_MASKED);
+}
+
+#[test]
+fn show_reveals_secret_parameters_with_the_flag() {
+    let manager = FakeManager::start(FakeState::with_models(vec![deployment_with_parameters()]));
+
+    let output = run(&manager, &["show", "Gemma", "--reveal-secrets"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    let revealed = PARAMETER_LINES_MASKED.map(|line| line.replace("********", "s3cretKey"));
+    assert_eq!(parameter_lines(&text(&output.stdout)), revealed);
+}
+
+#[test]
+fn show_prints_the_upstream_api_key_masked_unless_revealed() {
+    let mut upstream = local_model_deployment("model-9", "Remote", Ready, Present);
+    upstream.snapshot = Some(ModelDeploymentSnapshot {
+        source: Some(Source::Upstream(Default::default())),
+    });
+    upstream.upstream_desired_configuration = Some(UpstreamModelDesiredConfiguration {
+        api_key: "sk-remote".to_owned(),
+        ..Default::default()
+    });
+    let manager = FakeManager::start(FakeState::with_models(vec![upstream]));
+
+    let masked = text(&run(&manager, &["show", "Remote"]).stdout);
+    let revealed = text(&run(&manager, &["show", "Remote", "--reveal-secrets"]).stdout);
+
+    assert!(!masked.contains("sk-remote"), "{masked}");
+    assert_eq!(
+        parameter_lines(&masked),
+        ["DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=********"]
+    );
+    assert_eq!(
+        parameter_lines(&revealed),
+        ["DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=sk-remote"]
+    );
+}
+
+#[test]
+fn help_describes_the_reveal_flag() {
+    let manager = FakeManager::start(FakeState::with_models(Vec::new()));
+
+    let output = run(&manager, &["show", "--help"]);
+
+    let help = text(&output.stdout);
+    let line = help
+        .lines()
+        .find(|line| line.contains("--reveal-secrets"))
+        .unwrap_or_else(|| panic!("no flag in help\n{help}"));
+    assert_eq!(
+        line.split_whitespace().collect::<Vec<_>>().join(" "),
+        "--reveal-secrets Print secret parameter values instead of masking them"
+    );
+}
+
+#[test]
+fn a_terminal_shows_parameters_under_their_own_heading() {
+    let manager = FakeManager::start(FakeState::with_models(vec![deployment_with_parameters()]));
+
+    let Some(run) = run_in_pty(
+        terminal_command(&manager, &["show", "Gemma"]),
+        Session::new([]),
+    ) else {
+        return;
+    };
+
+    assert_eq!(run.code(), Some(0), "screen:\n{}", run.screen());
+    let lines = run.screen().lines().map(str::trim).collect::<Vec<_>>();
+    let start = lines
+        .iter()
+        .position(|line| *line == "Parameters")
+        .unwrap_or_else(|| panic!("no Parameters heading\n{}", run.screen()));
+    let rows = lines[start + 1..]
+        .iter()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows,
+        [
+            "Flash attention true (default)",
+            "Parallel requests 4",
+            "Expert cap 24576 MiB (sized)",
+            "Tuned flag false",
+            "API key ******** (generated)",
+        ]
+    );
+}
+
+const PARAMETER_LINES_MASKED: [&str; 5] = [
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_FLASH_ATTENTION=true (default)",
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_PARALLEL_REQUESTS=4",
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_EXPERT_CAP=24576 MiB (sized)",
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_TUNED_FLAG=false",
+    "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=******** (generated)",
+];
+
+/// The parameter lines of a record block.
+fn parameter_lines(stdout: &str) -> Vec<&str> {
+    stdout
+        .lines()
+        .filter(|line| line.starts_with("DOTCORE_MODEL_DEPLOYMENT_PARAMETER_"))
+        .collect()
+}
+
+/// A local deployment whose schema has a default flag, a plain integer, a sized integer, a flag
+/// the profile makes visible, a generated secret and two hidden parameters (one hidden by the
+/// engine, one by the profile).
+fn deployment_with_parameters() -> ModelDeployment {
+    let definition = |id: &str, name: &str, visibility, parameter_type| ParameterDefinition {
+        parameter_id: id.to_owned(),
+        display_name: name.to_owned(),
+        visibility: visibility as i32,
+        parameter_type: Some(parameter_type),
+        ..Default::default()
+    };
+    let integer = |default_value| {
+        ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
+            minimum: 1,
+            maximum: 100_000,
+            unit: String::new(),
+            default_value,
+        })
+    };
+    let flag = |default_value| ParameterType::Boolean(BooleanParameterSchema { default_value });
+    let value = |id: &str, value| ParameterValue {
+        parameter_id: id.to_owned(),
+        value: Some(value),
+    };
+    use ParameterVisibility::{Advanced, Basic, Hidden};
+
+    let mut deployment = local_model_deployment("model-1", "Gemma", Ready, Present);
+    let Some(Source::Local(local)) = deployment
+        .snapshot
+        .as_mut()
+        .and_then(|snapshot| snapshot.source.as_mut())
+    else {
+        unreachable!("seeded local snapshot");
+    };
+    let mut expert_cap = definition("expert-cap", "Expert cap", Advanced, integer(None));
+    if let Some(ParameterType::UnsignedInteger(schema)) = expert_cap.parameter_type.as_mut() {
+        schema.unit = "MiB".to_owned();
+    }
+    local.engine_parameter_schema = Some(EngineParameterSchema {
+        parameters: vec![
+            definition(
+                "flash-attention",
+                "Flash attention",
+                Basic,
+                flag(Some(false)),
+            ),
+            definition(
+                "parallel-requests",
+                "Parallel requests",
+                Basic,
+                integer(Some(1)),
+            ),
+            expert_cap,
+            definition("engine-hidden", "Engine hidden", Hidden, integer(Some(7))),
+            definition("profile-hidden", "Profile hidden", Basic, integer(Some(8))),
+            definition("tuned-flag", "Tuned flag", Hidden, flag(Some(true))),
+            definition(
+                "api-key",
+                "API key",
+                Basic,
+                ParameterType::Secret(SecretParameterSchema {
+                    generated_length: 32,
+                    minimum_length: 8,
+                }),
+            ),
+        ],
+        ..Default::default()
+    });
+    local.engine_parameter_values = Some(ParameterValues {
+        values: vec![
+            value("flash-attention", Value::Boolean(true)),
+            value("parallel-requests", Value::UnsignedInteger(4)),
+            value("expert-cap", Value::UnsignedInteger(24576)),
+            value("engine-hidden", Value::UnsignedInteger(7)),
+            value("profile-hidden", Value::UnsignedInteger(8)),
+            value("tuned-flag", Value::Boolean(false)),
+            value("api-key", Value::String("s3cretKey".to_owned())),
+        ],
+    });
+    local.profile_engine_parameter_defaults = Some(ParameterValues {
+        values: vec![
+            value("flash-attention", Value::Boolean(true)),
+            value("parallel-requests", Value::UnsignedInteger(1)),
+            value("tuned-flag", Value::Boolean(true)),
+        ],
+    });
+    local.profile_engine_parameter_visibility_overrides = vec![
+        ParameterVisibilityOverride {
+            parameter_id: "profile-hidden".to_owned(),
+            visibility: Hidden as i32,
+        },
+        ParameterVisibilityOverride {
+            parameter_id: "tuned-flag".to_owned(),
+            visibility: Basic as i32,
+        },
+    ];
+    local.sizing = Some(ResolvedSizing {
+        derived_engine_parameter_ids: vec!["expert-cap".to_owned()],
+        ..Default::default()
+    });
+    local.generated_engine_parameter_ids = vec!["api-key".to_owned()];
+    deployment
 }
 
 /// Seeds one deployment in each state the commands present differently.
