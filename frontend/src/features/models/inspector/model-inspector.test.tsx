@@ -508,7 +508,7 @@ describe("model inspectors", () => {
     const sections = within(panel).getAllByRole("region");
     expect(
       sections.map((section) => within(section).getByRole("heading", { level: 2 }).textContent),
-    ).toEqual(["Status", "Configuration", "Deployment", "Requests"]);
+    ).toEqual(["Status", "Configuration", "Parameters", "Deployment", "Requests"]);
     expect(within(panel).getByRole("region", { name: "Deployment" })).toHaveTextContent(
       "Memory rows",
     );
@@ -519,7 +519,11 @@ describe("model inspectors", () => {
       "SECTION",
       "SECTION",
       "SECTION",
+      "SECTION",
     ]);
+    expect(
+      detailRows(within(panel).getByRole("region", { name: "Parameters" }).querySelector("dl")!),
+    ).toEqual([["Total context", "8k"]]);
 
     expect(within(panel).getByRole("link", { name: "Test Model" })).toHaveAttribute(
       "href",
@@ -563,7 +567,7 @@ describe("model inspectors", () => {
   });
 
   it.each([
-    { derived: ["context-per-request"], perRequest: 131072n, shown: "128k derived" },
+    { derived: ["context-per-request"], perRequest: 131072n, shown: "128k sized" },
     { derived: [], perRequest: 32768n, shown: "32k" },
   ])(
     "shows the total context and the context per request as $shown",
