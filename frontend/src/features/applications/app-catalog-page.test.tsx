@@ -188,6 +188,7 @@ describe("AppCatalogPage", () => {
       applicationDeploymentName: "OpenWebUI",
       placement: { siteNodeId: "local", executionTargetId: "local" },
       parameterValues: [],
+      storageChoices: [],
     });
   });
 
@@ -219,6 +220,7 @@ describe("AppCatalogPage", () => {
       applicationDeploymentName: "OpenWebUI",
       placement: { siteNodeId: "local", executionTargetId: "local" },
       parameterValues: [],
+      storageChoices: [],
     });
     await waitFor(() =>
       expect(currentLocation(router)).toBe("/apps?panel=apps%2Fdeployment%3Aaccepted-deployment"),
@@ -665,6 +667,7 @@ describe("AppCatalogPage", () => {
       applicationDeploymentName: "Custom • App",
       placement: { siteNodeId: "local", executionTargetId: "local" },
       parameterValues: [],
+      storageChoices: [],
       inferenceRouteId: "route-id",
       expectedInferenceRouteGeneration: 9n,
     });

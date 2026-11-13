@@ -33,8 +33,10 @@ import {
   useConfiguredExecutionTargets,
 } from "@/features/deployments/use-configured-execution-targets";
 import { useWizardSteps } from "@/features/deployments/use-wizard-steps";
+import type { ApplicationStorageChoice } from "@/gen/dotcore/application/v1/service_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import type { StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
 import type { InferenceRouteView } from "@/gen/dotcore/inference/v1/routes_pb";
 import {
   type ConfiguredExecutionTarget,
@@ -52,6 +54,17 @@ import {
   parameterInputError,
   parameterOverrides,
 } from "./application-parameters";
+import {
+  changedStorageChoices,
+  defaultStorageInputs,
+  storageBindingLabel,
+  type StorageChoiceField,
+  storageChoiceFields,
+  storageChoiceKey,
+  storageChoiceOverrides,
+  storagePlacementLabel,
+  storagePlacementLifetime,
+} from "./application-storage";
 
 export interface DeploymentCreationOptions {
   applicationDeploymentName?: string;
@@ -59,6 +72,8 @@ export interface DeploymentCreationOptions {
   expectedInferenceRouteGeneration: bigint;
   /** Parameter values the operator changed from their catalog defaults. */
   parameterValues?: readonly ParameterValue[];
+  /** Storage placements the operator moved off their catalog default. */
+  storageChoices?: readonly ApplicationStorageChoice[];
 }
 
 export interface ApplicationDeployDialogProps {
@@ -146,6 +161,8 @@ export function ApplicationDeployDialog({
   const [parameterInputs, setParameterInputs] = useState(() =>
     defaultParameterInputs(parameterFields),
   );
+  const storageFields = useMemo(() => storageChoiceFields(application), [application]);
+  const [storageInputs, setStorageInputs] = useState(() => defaultStorageInputs(storageFields));
   const parameterRefs = useRef(new Map<string, HTMLElement | null>());
   const parameterView = (parameterId: string) =>
     parameterFields.find((field) => field.view.id === parameterId)?.view;
@@ -159,7 +176,9 @@ export function ApplicationDeployDialog({
         (candidate === "Inference route" && routeBindings.length > 0) ||
         (candidate === "Target" && (advancedSteps || (lockedTargetStep ?? liveTargetStep))) ||
         (candidate === "Settings" && basicParameterFields.length > 0) ||
-        (candidate === "Advanced" && advancedSteps && advancedParameterFields.length > 0) ||
+        (candidate === "Advanced" &&
+          advancedSteps &&
+          (advancedParameterFields.length > 0 || storageFields.length > 0)) ||
         candidate === "Deploy",
     );
   const steps = stepsFor(advanced);
@@ -329,6 +348,7 @@ export function ApplicationDeployDialog({
       ...creationOptions,
       applicationDeploymentName: deploymentName.trim(),
       parameterValues: parameterOverrides(parameterFields, parameterInputs),
+      storageChoices: storageChoiceOverrides(storageFields, storageInputs),
     });
   };
   const toggleAdvanced = (nextAdvanced: boolean) =>
@@ -565,6 +585,22 @@ export function ApplicationDeployDialog({
         <DeploymentForm>
           <DeploymentStepHeading>Advanced</DeploymentStepHeading>
           {parametersForm(advancedParameterFields)}
+          {storageFields.length ? (
+            <div className="grid gap-3">
+              {storageFields.map((field) => (
+                <StorageChoiceSelect
+                  field={field}
+                  key={storageChoiceKey(field)}
+                  onChange={(placement) =>
+                    setStorageInputs((current) =>
+                      new Map(current).set(storageChoiceKey(field), placement),
+                    )
+                  }
+                  value={storageInputs.get(storageChoiceKey(field)) ?? field.placements[0]}
+                />
+              ))}
+            </div>
+          ) : null}
         </DeploymentForm>
       ) : null}
       {step === "Deploy" ? (
@@ -629,9 +665,59 @@ export function ApplicationDeployDialog({
               value={parameterDisplayValue(field.view, value)}
             />
           ))}
+          {changedStorageChoices(storageFields, storageInputs).map(({ field, placement }) => (
+            <Detail
+              key={storageChoiceKey(field)}
+              label={storageBindingLabel(field.bindingName)}
+              value={storagePlacementLabel(placement)}
+            />
+          ))}
         </DeploymentSummaryStep>
       ) : null}
     </DeploymentWizardShell>
+  );
+}
+
+/** Picks where one storage binding lives; the help popover says how long each choice keeps data. */
+function StorageChoiceSelect({
+  field,
+  onChange,
+  value,
+}: {
+  field: StorageChoiceField;
+  onChange: (placement: StoragePlacement) => void;
+  value: StoragePlacement;
+}) {
+  return (
+    <Field
+      controlId={`application-storage-${storageChoiceKey(field).replace("/", "-")}`}
+      help={
+        <ul className="grid gap-1">
+          {field.placements.map((placement) => (
+            <li key={placement}>
+              <strong>{`${storagePlacementLabel(placement)}.`}</strong>{" "}
+              {storagePlacementLifetime(placement)}
+            </li>
+          ))}
+        </ul>
+      }
+      label={storageBindingLabel(field.bindingName)}
+    >
+      {(control) => (
+        <NativeSelect
+          {...control}
+          className="w-full"
+          onChange={(event) => onChange(Number(event.target.value))}
+          value={value}
+        >
+          {field.placements.map((placement) => (
+            <NativeSelectOption key={placement} value={placement}>
+              {storagePlacementLabel(placement)}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      )}
+    </Field>
   );
 }
 

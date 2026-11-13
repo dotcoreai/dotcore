@@ -8,7 +8,7 @@ import {
   ExecutionTargetsWatch,
   executionTargetsWatch,
 } from "@/features/deployments/execution-targets-watch-test-support";
-import {} from "@/gen/dotcore/application/v1/service_pb";
+import { ApplicationStorageChoiceSchema } from "@/gen/dotcore/application/v1/service_pb";
 import {
   ApplicationConfigurationBindingSchema,
   ApplicationDeploymentInputSchema,
@@ -25,6 +25,7 @@ import {
   ParameterValueSchema,
   ParameterVisibility,
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { StorageBindingSchema, StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
 import {
   InferenceRouteAvailabilitySchema,
   InferenceRouteSchema,
@@ -279,6 +280,7 @@ describe("Application deployment dialog", () => {
         inferenceRouteId: undefined,
         expectedInferenceRouteGeneration: 0n,
         parameterValues: [],
+        storageChoices: [],
       },
     );
   });
@@ -330,6 +332,7 @@ describe("Application deployment dialog", () => {
           inferenceRouteId: "route-a",
           expectedInferenceRouteGeneration: 6n,
           parameterValues: [],
+          storageChoices: [],
         },
       );
     },
@@ -456,6 +459,7 @@ describe("Application deployment dialog", () => {
         inferenceRouteId: "route-a",
         expectedInferenceRouteGeneration: 5n,
         parameterValues: [],
+        storageChoices: [],
       },
     );
 
@@ -548,6 +552,7 @@ describe("Application deployment dialog", () => {
         inferenceRouteId: undefined,
         expectedInferenceRouteGeneration: 0n,
         parameterValues: [],
+        storageChoices: [],
       },
     );
   });
@@ -769,6 +774,7 @@ describe("Application deployment dialog", () => {
         inferenceRouteId: undefined,
         expectedInferenceRouteGeneration: 0n,
         parameterValues: [],
+        storageChoices: [],
       },
     );
   });
@@ -1253,6 +1259,7 @@ describe("Application deployment dialog", () => {
         inferenceRouteId: undefined,
         expectedInferenceRouteGeneration: 0n,
         parameterValues: [],
+        storageChoices: [],
       },
     );
   });
@@ -1474,6 +1481,7 @@ describe("Application deployment dialog parameters", () => {
             value: { case: "unsignedInteger", value: 4n },
           }),
         ],
+        storageChoices: [],
       },
     );
   });
@@ -1627,7 +1635,123 @@ describe("Application deployment dialog parameters", () => {
       await user.clear(password);
       await user.type(password, "has=equals-sign");
       await user.tab();
-      expect(screen.getByText(`Password can't contain "=".`)).toBeVisible();
+      // Blur validation lands on a deferred tick, so wait for the error to show.
+      expect(await screen.findByText(`Password can't contain "=".`)).toBeVisible();
     });
+  });
+});
+
+describe("Application deployment dialog storage choices", () => {
+  // ComfyUI's shape: models allow shared or per deployment, data allows only this deployment.
+  const storageApp = create(ApplicationSchema, {
+    applicationId: "comfyui",
+    displayName: "ComfyUI",
+    version: "1",
+    graph: create(ApplicationGraphSchema, {
+      services: [
+        create(ApplicationServiceSchema, {
+          serviceName: "comfyui",
+          storageBindings: [
+            create(StorageBindingSchema, {
+              bindingName: "data",
+              placements: [StoragePlacement.DEPLOYMENT],
+            }),
+            create(StorageBindingSchema, {
+              bindingName: "models",
+              placements: [StoragePlacement.APPLICATION, StoragePlacement.DEPLOYMENT],
+            }),
+          ],
+        }),
+      ],
+    }),
+  });
+
+  function renderDialog(onSubmit = vi.fn()) {
+    render(
+      <ApplicationDeployDialog
+        application={storageApp}
+        onSubmit={onSubmit}
+        onOpenChange={vi.fn()}
+        open
+        pending={false}
+        executionTargets={[applicationTarget("local")]}
+      />,
+    );
+    return onSubmit;
+  }
+
+  it("shows one select for the binding with a choice, defaulting to the catalog's first placement", async () => {
+    const user = setupUser();
+    const onSubmit = renderDialog();
+
+    // Basic mode has no Advanced step, so no select.
+    expect(screen.queryByRole("combobox", { name: "Models storage" })).toBeNull();
+    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    expect(stepLabels()).toEqual(["1. Target", "2. Advanced", "3. Deploy"]);
+    await user.click(screen.getByRole("button", { name: "Back" }));
+
+    const models = screen.getByRole("combobox", { name: "Models storage" });
+    expect(models).toHaveValue(String(StoragePlacement.APPLICATION));
+    expect(
+      within(models)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Shared by the app", "This deployment"]);
+    expect(screen.queryByRole("combobox", { name: "Data storage" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "About Models storage" }));
+    const help = await screen.findByRole("dialog", { name: "About Models storage" });
+    expect(models).toHaveAccessibleDescription(
+      "Shared by the app. Kept after teardown and reused by the app's next deployment. This deployment. Deleted when the deployment is torn down.",
+    );
+    expect(help).toHaveTextContent(
+      "Shared by the app. Kept after teardown and reused by the app's next deployment.",
+    );
+    expect(help).toHaveTextContent("This deployment. Deleted when the deployment is torn down.");
+    await user.keyboard("{Escape}");
+
+    // The default pick is not sent and not summarized.
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(summaryRows()).toEqual([
+      ["Target", "local / Docker applications"],
+      ["GPU devices", "none"],
+    ]);
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    expect(onSubmit).toHaveBeenCalledWith(
+      { siteNodeId: "local", executionTargetId: "local" },
+      expect.objectContaining({ storageChoices: [] }),
+    );
+  });
+
+  it("summarizes and sends a non-default choice", async () => {
+    const user = setupUser();
+    const onSubmit = renderDialog();
+
+    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Models storage" }),
+      String(StoragePlacement.DEPLOYMENT),
+    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(summaryRows()).toEqual([
+      ["Target", "local / Docker applications"],
+      ["GPU devices", "none"],
+      ["Models storage", "This deployment"],
+    ]);
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      { siteNodeId: "local", executionTargetId: "local" },
+      expect.objectContaining({
+        storageChoices: [
+          create(ApplicationStorageChoiceSchema, {
+            serviceName: "comfyui",
+            bindingName: "models",
+            placement: StoragePlacement.DEPLOYMENT,
+          }),
+        ],
+      }),
+    );
   });
 });
