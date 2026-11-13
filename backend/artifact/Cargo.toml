@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-rust-version = "1.88"
+rust-version = "1.99"
 
 [dependencies]
 anyhow.workspace = true
@@ -15,7 +15,6 @@ base64.workspace = true
 bollard = { version = "0.21.0", default-features = false, features = ["pipe"] }
 dotcore-domain.workspace = true
 dotcore-proto.workspace = true
-fs4.workspace = true
 futures-util.workspace = true
 hf-hub = "1.0.0"
 libc.workspace = true

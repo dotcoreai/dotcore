@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme.workspace = true
-rust-version = "1.88"
+rust-version = "1.99"
 
 [dependencies]
 anyhow.workspace = true
@@ -23,7 +23,6 @@ dotcore-observability.workspace = true
 dotcore-runtime.workspace = true
 dotcore-runtime-backends.workspace = true
 dotcore-site.workspace = true
-fs4.workspace = true
 futures-util.workspace = true
 getrandom = { workspace = true, features = ["std"] }
 http = "1.4.0"

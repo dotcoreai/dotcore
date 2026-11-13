@@ -8,7 +8,7 @@
 
 use std::{
     collections::BTreeSet,
-    fs::{self, OpenOptions},
+    fs::{self, OpenOptions, TryLockError},
     future::Future,
     net::Ipv4Addr,
     os::unix::fs::PermissionsExt,
@@ -47,7 +47,6 @@ use dotcore_runtime::{
 use dotcore_runtime_backends::docker::{
     DockerAcceleratorTransport, DockerBackendFactory, DockerRuntimeFactory,
 };
-use fs4::fs_std::FileExt;
 use prost::Message;
 use serde_json::Value;
 use tokio::{
@@ -2430,13 +2429,13 @@ async fn wait_for_backend_service_release(configuration: &SitePaths) -> Result<(
                 .truncate(false)
                 .open(&lock_path)
                 .map_err(|error| format!("open current-state lock probe: {error}"))?;
-            match lock.try_lock_exclusive() {
-                Ok(true) => {
+            match lock.try_lock() {
+                Ok(()) => {
                     drop(lock);
                     return Ok(());
                 }
-                Ok(false) => sleep(Duration::from_millis(25)).await,
-                Err(error) => {
+                Err(TryLockError::WouldBlock) => sleep(Duration::from_millis(25)).await,
+                Err(TryLockError::Error(error)) => {
                     return Err(format!("acquire current-state lock probe: {error}"));
                 }
             }

@@ -5,7 +5,7 @@
 
 use std::{
     fmt,
-    fs::{self, OpenOptions},
+    fs::{self, OpenOptions, TryLockError},
     io::{self, Write},
     os::unix::fs::OpenOptionsExt,
     path::Path,
@@ -18,7 +18,6 @@ use dotcore_proto::dotcore::{
     node::v1::{DeclaredMachine, NodeObservationConfiguration},
     site::v1::ExecutionTarget,
 };
-use fs4::fs_std::FileExt;
 use rustls::{
     RootCertStore,
     pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, UnixTime},
@@ -295,13 +294,10 @@ impl WorkerNodeCustody {
                 source: anyhow::Error::new(source)
                     .context(format!("open worker custody lock {}", path.display())),
             })?;
-        match file.try_lock_exclusive() {
-            Ok(true) => {}
-            Ok(false) => return Err(WorkerNodeCustodyError::AlreadyHeld),
-            Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
-                return Err(WorkerNodeCustodyError::AlreadyHeld);
-            }
-            Err(source) => {
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => return Err(WorkerNodeCustodyError::AlreadyHeld),
+            Err(TryLockError::Error(source)) => {
                 return Err(WorkerNodeCustodyError::Storage {
                     source: anyhow::Error::new(source)
                         .context(format!("lock worker custody {}", path.display())),
@@ -314,7 +310,7 @@ impl WorkerNodeCustody {
 
 impl Drop for WorkerNodeCustody {
     fn drop(&mut self) {
-        let _ = FileExt::unlock(&self.file);
+        let _ = self.file.unlock();
     }
 }
 

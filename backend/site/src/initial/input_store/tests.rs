@@ -6,8 +6,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use fs4::fs_std::FileExt;
-
 use super::{
     DirectoryTransactionFileSystem, InitialSiteInputWriter, InitialSitePresence,
     InitialSiteWriteError, InitialSiteWriteOutcome, SITE_FILE, SiteInputLockError,
@@ -598,17 +596,12 @@ fn shared_site_lock_excludes_initialization_and_lock_file_is_not_stale_state() {
         .open(&lock_path)
         .expect("lock contender");
 
-    assert!(
-        !contender
-            .try_lock_exclusive()
-            .expect("exclusive lock probe")
-    );
+    assert!(matches!(
+        contender.try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
     drop(shared);
-    assert!(
-        contender
-            .try_lock_exclusive()
-            .expect("released exclusive lock")
-    );
+    contender.try_lock().expect("released exclusive lock");
     drop(contender);
 
     InitialSiteInputWriter::new(SiteInputBundleValidator::for_test())

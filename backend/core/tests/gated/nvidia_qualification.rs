@@ -16,7 +16,7 @@
 use std::{
     collections::{BTreeSet, HashMap},
     fmt,
-    fs::{self, File, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -68,7 +68,6 @@ use dotcore_proto::dotcore::{
     site::v1::{HardwareObservationConfiguration, Site},
 };
 use dotcore_runtime_backends::docker::OWNERSHIP_SCHEMA;
-use fs4::fs_std::FileExt;
 
 /// One lock for every suite, since each needs the GPU to itself.
 const LOCK_FILE: &str = "dotcore-nvidia-qualification.lock";
@@ -1171,12 +1170,15 @@ fn acquire_lock() -> anyhow::Result<File> {
         .write(true)
         .open(crate::support::canonical_temp_dir().join(LOCK_FILE))
         .context("open the host-local NVIDIA qualification lock")?;
-    anyhow::ensure!(
-        lock.try_lock_exclusive()
-            .context("acquire the host-local NVIDIA qualification lock")?,
-        "another NVIDIA qualification is already running"
-    );
-    Ok(lock)
+    match lock.try_lock() {
+        Ok(()) => Ok(lock),
+        Err(TryLockError::WouldBlock) => {
+            anyhow::bail!("another NVIDIA qualification is already running")
+        }
+        Err(TryLockError::Error(error)) => {
+            Err(error).context("acquire the host-local NVIDIA qualification lock")
+        }
+    }
 }
 
 fn fixtures_root() -> PathBuf {

@@ -10,7 +10,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{self, File, OpenOptions},
+    fs::{self, File, OpenOptions, TryLockError},
     io::{BufReader, Read, Write},
     os::unix::ffi::OsStrExt,
     os::unix::fs::MetadataExt,
@@ -25,7 +25,6 @@ use std::{
 use anyhow::anyhow;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use dotcore_domain::real_time;
-use fs4::fs_std::FileExt;
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use hf_hub::{
     HFClient, HFError,
@@ -2555,12 +2554,12 @@ async fn acquire_lock_as(
             attempted.notify_one();
         }
         let locked = match mode {
-            LockMode::Exclusive => file.try_lock_exclusive(),
-            LockMode::Shared => FileExt::try_lock_shared(&file),
+            LockMode::Exclusive => file.try_lock(),
+            LockMode::Shared => file.try_lock_shared(),
         };
         match locked {
-            Ok(true) => return Ok(file),
-            Ok(false) => {
+            Ok(()) => return Ok(file),
+            Err(TryLockError::WouldBlock) => {
                 if let Some(step) = waiting.take() {
                     step.waiting();
                 }
@@ -2570,7 +2569,7 @@ async fn acquire_lock_as(
                     () = real_time::pause(Duration::from_millis(10)) => {},
                 }
             }
-            Err(error) => {
+            Err(TryLockError::Error(error)) => {
                 return Err(ArtifactCacheError::context(
                     "artifact coordinate lock acquisition failed",
                     error,
