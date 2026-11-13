@@ -85,7 +85,6 @@ use operations::{
     update_metadata,
 };
 use owner::ApplicationOwner;
-pub use parameters::{RandomSecretGenerator, SecretGenerator};
 use projection::project;
 use realization::{
     ApplicationRealizationInput, ApplicationRealizationResults, ApplicationRealizationSnapshot,
@@ -218,7 +217,7 @@ pub struct ApplicationControllerConfiguration {
     pub configuration_sources: ApplicationConfigurationSources,
     pub inference_route_resolver: Arc<dyn InferenceRouteResolver>,
     pub target_capabilities: Arc<dyn TargetCapabilitySource>,
-    pub secret_generator: Arc<dyn SecretGenerator>,
+    pub secret_generator: Arc<dyn crate::SecretGenerator>,
 }
 
 /// Apps-controller lifecycle authority on the site manager: the owner of application deployment

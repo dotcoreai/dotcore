@@ -102,11 +102,6 @@ pub(crate) struct OwnerLogSources<T> {
 }
 
 impl<T> OwnerLogSources<T> {
-    /// Results of a deployment whose launch holds no protected values.
-    pub(crate) fn unprotected(sources: Vec<T>) -> Self {
-        Self::protected(sources, ProtectedLogValues::default())
-    }
-
     /// Results whose entries and diagnostics the node redacts `protected` from.
     pub(crate) fn protected(sources: Vec<T>, protected: ProtectedLogValues) -> Self {
         Self {

@@ -1153,6 +1153,7 @@ profiles:
             &target,
             &inventory,
             None,
+            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
     }
 

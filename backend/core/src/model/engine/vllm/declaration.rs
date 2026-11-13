@@ -875,6 +875,7 @@ mod tests {
                 &target,
                 &inventory,
                 None,
+                crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
             )
             .expect("vLLM launch on a GPU of a mixed machine");
             let total = launch
@@ -1211,6 +1212,7 @@ profiles:
             &target,
             &inventory,
             None,
+            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
     }
 

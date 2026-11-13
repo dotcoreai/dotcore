@@ -46,9 +46,10 @@ use source::{CatalogSourceRecords, CatalogSourceRole, load_catalog_source};
 pub use validation::CatalogDiagnostic;
 pub use validation::EngineDeclarationValidator;
 pub use validation::{
-    overlay_parameter_defaults, valid_configuration_value, valid_environment_variable,
-    valid_pinned_hugging_face_artifact, validate_application_with_policy,
-    validate_parameter_values, validate_supplied_parameter_values,
+    is_secret_parameter, overlay_parameter_defaults, valid_configuration_value,
+    valid_environment_variable, valid_pinned_hugging_face_artifact,
+    validate_application_with_policy, validate_parameter_values,
+    validate_parameter_values_before_secrets, validate_supplied_parameter_values,
     validate_upstream_model_template,
 };
 
@@ -1932,6 +1933,90 @@ artifacts:
             error.contains(
                 "configuration \"local\" sizing derives engine parameter \"parallel-requests\", which its engine release also defaults; drop one of them"
             ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_secret_engine_parameter_needs_no_default_and_takes_no_profile_default_or_sizing() {
+        let load = |sizing: &str, profile_defaults: &str| {
+            let root = temporary_catalog_root();
+            create_empty_catalog_source(&root);
+            write_sizing_engine(&root);
+            let engine_path = root.join("engines/fixture.yaml");
+            let engine = std::fs::read_to_string(&engine_path).expect("sizing engine");
+            std::fs::write(
+                &engine_path,
+                engine.replace(
+                    "artifacts:\n",
+                    "    - parameterId: \"api-key\"\n      displayName: \"API key\"\n      visibility: \"PARAMETER_VISIBILITY_ADVANCED\"\n      secret: { generatedLength: 32, minimumLength: 16 }\nartifacts:\n",
+                ),
+            )
+            .expect("sizing engine with a secret");
+            write_sizing_model_with(
+                &root,
+                sizing,
+                UNPARAMETERIZED_BINDING_SIZING,
+                profile_defaults,
+            );
+            Catalog::load_with_policy(
+                &root,
+                OciArtifactPolicy::Development,
+                &ACCEPT_ENGINE_DECLARATIONS,
+            )
+        };
+        let sizing = |estimate: &str, derived: &str| {
+            format!(
+                "    sizing:\n{derived}      estimates:\n        acceleratorMemory:\n          unit: bytes\n          equation: \"{estimate}\"\n"
+            )
+        };
+        let defaults = format!("      values:\n{SIZING_ENGINE_CACHE_DEFAULT}");
+
+        let catalog = load(&sizing("${total-context}", ""), &defaults).expect("secret engine");
+        assert_eq!(
+            catalog
+                .local_defaults_for(&CatalogModelId("fixture-model".to_owned()), "balanced")
+                .expect("profile defaults")
+                .1,
+            unsigned_values(&[
+                ("prompt-cache-memory-mib", 0),
+                ("total-context", 32_768),
+                ("parallel-requests", 4),
+            ])
+        );
+
+        let error = load(
+            &sizing("${total-context}", ""),
+            &format!(
+                "{defaults}        - parameterId: \"api-key\"\n          string: \"catalog-literal-key\"\n"
+            ),
+        )
+        .expect_err("a profile default on a secret")
+        .to_string();
+        assert!(
+            error.contains(
+                "profile \"balanced\" sets secret engine parameter \"api-key\", which each deployment generates or receives"
+            ),
+            "{error}"
+        );
+        assert!(!error.contains("catalog-literal-key"), "{error}");
+
+        let error = load(&sizing("${total-context} + ${api-key}", ""), &defaults)
+            .expect_err("an estimate reading a secret")
+            .to_string();
+        assert!(error.contains("api-key"), "{error}");
+
+        let error = load(
+            &sizing(
+                "${total-context}",
+                "      derivedParameters:\n        api-key: \"1\"\n",
+            ),
+            &defaults,
+        )
+        .expect_err("a derivation of a secret")
+        .to_string();
+        assert!(
+            error.contains("derived parameter \"api-key\" is not an unsigned engine parameter"),
             "{error}"
         );
     }

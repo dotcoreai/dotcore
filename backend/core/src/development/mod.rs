@@ -66,8 +66,8 @@ use tokio_util::sync::CancellationToken;
 use crate::model::{
     engine::{self, EngineIntegrationRegistry},
     resolution::{
-        apply_profile_defaults, resolve_local_launch, resolve_local_values_on_target,
-        select_engine_artifact,
+        EngineSecrets, apply_profile_defaults, resolve_local_launch,
+        resolve_local_values_on_target, select_engine_artifact,
     },
     resolved::ResolvedModelLaunch,
 };
@@ -373,6 +373,7 @@ impl DirectWorkloadFacade {
             &configured_target,
             &target_inventory,
             engine_identity.as_ref(),
+            EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
         .map_err(DirectWorkloadLaunchError::resolution)?;
         self.pin_nix_engine(&mut snapshot, &cancellation).await?;

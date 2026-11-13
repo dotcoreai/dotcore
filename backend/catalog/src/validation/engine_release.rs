@@ -233,7 +233,7 @@ fn validate_parameter_schema(
 }
 
 /// Validates one engine parameter definition: the shared definition rules, a unique id, and the
-/// engine owner rule that parameters are booleans or unsigned integers with a unit.
+/// engine owner rule that parameters are booleans, unsigned integers with a unit, or secrets.
 fn validate_parameter_definition(
     definition: &ParameterDefinition,
     ids: &mut BTreeSet<String>,
@@ -248,12 +248,17 @@ fn validate_parameter_definition(
         Some(ParameterType::UnsignedInteger(schema)) if schema.unit.trim().is_empty() => {
             errors.push(anyhow::anyhow!("engine parameter {id:?} requires a unit"));
         }
-        Some(ParameterType::StringEnum(_) | ParameterType::Text(_) | ParameterType::Secret(_)) => {
+        Some(ParameterType::StringEnum(_) | ParameterType::Text(_)) => {
             errors.push(anyhow::anyhow!(
-                "engine parameter {id:?} must be a boolean or an unsigned integer"
+                "engine parameter {id:?} must be a boolean, an unsigned integer or a secret"
             ))
         }
-        Some(ParameterType::Boolean(_) | ParameterType::UnsignedInteger(_)) | None => {}
+        Some(
+            ParameterType::Boolean(_)
+            | ParameterType::UnsignedInteger(_)
+            | ParameterType::Secret(_),
+        )
+        | None => {}
     }
 }
 
@@ -433,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn engine_parameters_are_booleans_or_unsigned_integers_with_a_unit() {
+    fn engine_parameters_are_booleans_unsigned_integers_with_a_unit_or_secrets() {
         let definition = |parameter_type| ParameterDefinition {
             parameter_id: "feature".to_owned(),
             display_name: "Feature".to_owned(),
@@ -475,7 +480,17 @@ mod tests {
                     default_value: Some("on".to_owned()),
                 },
             ))),
-            ["engine parameter \"feature\" must be a boolean or an unsigned integer"]
+            ["engine parameter \"feature\" must be a boolean, an unsigned integer or a secret"]
+        );
+        assert_eq!(
+            errors(&definition(ParameterType::Text(
+                dotcore_proto::dotcore::catalog::v1::TextParameterSchema {
+                    minimum_length: 0,
+                    maximum_length: 8,
+                    default_value: Some("on".to_owned()),
+                },
+            ))),
+            ["engine parameter \"feature\" must be a boolean, an unsigned integer or a secret"]
         );
         assert_eq!(
             errors(&definition(ParameterType::Secret(
@@ -484,7 +499,7 @@ mod tests {
                     minimum_length: 12,
                 },
             ))),
-            ["engine parameter \"feature\" must be a boolean or an unsigned integer"]
+            Vec::<String>::new()
         );
         let mut basic = definition(boolean.clone());
         basic.visibility = ParameterVisibility::Basic as i32;
