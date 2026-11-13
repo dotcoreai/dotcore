@@ -1561,9 +1561,11 @@ async fn manager_backend_server_streams_resource_watches() {
             break response.tick_sequence;
         }
     };
+    // A tick reads every watched kind at once, so the console read of the pause's tick may
+    // already see the update and publish it under that same tick.
     assert!(
-        console_update > update,
-        "console update tick {console_update} follows {update}"
+        console_update >= update,
+        "console update tick {console_update} is not before {update}"
     );
 
     // An idle stream heartbeats once fifteen seconds pass without an event.
