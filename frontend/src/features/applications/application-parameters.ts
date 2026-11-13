@@ -182,13 +182,6 @@ export function parameterOverrides(
   );
 }
 
-/** Each parameter's catalog default, keyed by parameter ID. */
-export function parameterDefaults(
-  fields: readonly ApplicationParameterField[],
-): Map<string, ParameterViewValue | undefined> {
-  return new Map(fields.map((field) => [field.view.id, field.defaultValue]));
-}
-
 /** The values a deployment retained, keyed by parameter ID. */
 export function retainedParameterValues(
   snapshot: ResolvedApplicationDeploymentSnapshot | undefined,

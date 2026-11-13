@@ -4,7 +4,7 @@ import { Detail } from "@/components/ui/detail-list";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { SecretValue, ValueTag } from "@/components/ui/secret-value";
+import { SecretValue } from "@/components/ui/secret-value";
 import { Switch } from "@/components/ui/switch";
 
 import {
@@ -107,6 +107,11 @@ export function ParametersForm({
               {...control}
               autoComplete="off"
               inputMode={parameter.type.kind === "unsignedInteger" ? "numeric" : undefined}
+              className={
+                parameter.type.kind === "secret"
+                  ? "placeholder:text-muted-foreground placeholder:italic"
+                  : undefined
+              }
               placeholder={parameter.type.kind === "secret" ? "Generated at deploy" : undefined}
               spellCheck={false}
               onBlur={() => onBlur(parameter.id)}
@@ -152,21 +157,13 @@ function RangeFact({ type }: { type: { maximum: bigint; minimum: bigint; unit: s
 
 /**
  * Detail rows for retained parameter values, in view order; a missing or mistyped value is skipped.
- * A value equal to its default is tagged `default`, a secret is masked until revealed, the IDs in
- * `generatedIds` are tagged `generated`, and the IDs in `sizedIds` are tagged `sized` instead of
- * `default`.
+ * A secret is masked until revealed and empty text reads as Empty.
  */
 export function ParametersDetails({
-  defaults,
-  generatedIds,
   parameters,
-  sizedIds,
   values,
 }: {
-  defaults?: ReadonlyMap<string, ParameterViewValue | undefined>;
-  generatedIds?: ReadonlySet<string>;
   parameters: readonly ParameterView[];
-  sizedIds?: ReadonlySet<string>;
   values: ReadonlyMap<string, ParameterViewValue>;
 }) {
   return parameters.map((parameter) => {
@@ -174,24 +171,12 @@ export function ParametersDetails({
     const displayValue = parameterDisplayValue(parameter, value);
     if (displayValue === undefined) return null;
 
-    const isDefault = value !== undefined && defaults?.get(parameter.id) === value;
-    const tag = sizedIds?.has(parameter.id) ? (
-      <ValueTag>sized</ValueTag>
-    ) : isDefault ? (
-      <ValueTag>default</ValueTag>
-    ) : null;
     if (parameter.type.kind === "secret") {
       return (
         <Detail
           key={parameter.id}
           label={parameter.label}
-          value={
-            <SecretValue
-              label={parameter.label}
-              tags={generatedIds?.has(parameter.id) ? <ValueTag>generated</ValueTag> : null}
-              value={displayValue}
-            />
-          }
+          value={<SecretValue label={parameter.label} value={displayValue} />}
         />
       );
     }
@@ -200,14 +185,11 @@ export function ParametersDetails({
         key={parameter.id}
         label={parameter.label}
         value={
-          <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
-            {tag}
-            {parameter.type.kind === "text" && displayValue === "" ? (
-              <span className="text-muted-foreground">Empty</span>
-            ) : (
-              displayValue
-            )}
-          </span>
+          parameter.type.kind === "text" && displayValue === "" ? (
+            <span className="text-muted-foreground">Empty</span>
+          ) : (
+            displayValue
+          )
         }
       />
     );

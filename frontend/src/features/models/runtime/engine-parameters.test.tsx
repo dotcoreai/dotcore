@@ -55,22 +55,21 @@ const snapshot = create(ResolvedLocalModelDeploymentSnapshotSchema, {
     { parameterId: "profile-hidden", visibility: ParameterVisibility.HIDDEN },
     { parameterId: "profile-shown", visibility: ParameterVisibility.BASIC },
   ],
-  generatedEngineParameterIds: ["key"],
   sizing: { derivedEngineParameterIds: ["cap"] },
 });
 
 describe("DeploymentParametersSection", () => {
-  it("lists visible parameters in schema order with their tags and a masked secret", () => {
+  it("lists visible parameters in schema order without tags and with a masked secret", () => {
     render(<DeploymentParametersSection snapshot={snapshot} />);
 
     const rows = screen
       .getAllByRole("term")
       .map((term) => [term.textContent, term.nextElementSibling?.textContent]);
     expect(rows).toEqual([
-      ["Slots", "default4"],
-      ["Expert cap", "sized900"],
+      ["Slots", "4"],
+      ["Expert cap", "900"],
       ["Profile shown", "5"],
-      ["API key", "generated••••••••"],
+      ["API key", "••••••••"],
     ]);
     expect(screen.queryByText("s3cretvalue-abc")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reveal API key" })).toBeVisible();

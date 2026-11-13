@@ -69,8 +69,7 @@ export function EngineParametersDetails({
 
 /**
  * A model deployment's Parameters section: every engine parameter it uses that is basic or advanced
- * for its profile, in schema order, read from the snapshot alone. Values equal to the profile's
- * default are tagged `default`, sizing's `sized` and a generated secret `generated`.
+ * for its profile, in schema order, read from the snapshot alone.
  */
 export function DeploymentParametersSection({
   snapshot,
@@ -88,7 +87,6 @@ export function DeploymentParametersSection({
     return visibility !== ParameterVisibility.HIDDEN;
   });
   const retained = parameterValueMap(values);
-  const defaults = parameterValueMap(snapshot.profileEngineParameterDefaults);
   const views = engineParameterViews(shown).filter((view) => retained.has(view.id));
   if (!views.length) return null;
 
@@ -96,13 +94,7 @@ export function DeploymentParametersSection({
     <section aria-labelledby="deployment-parameters-heading">
       <InspectorSectionHeader headingId="deployment-parameters-heading" title="Parameters" />
       <DetailList>
-        <ParametersDetails
-          defaults={defaults}
-          generatedIds={new Set(snapshot.generatedEngineParameterIds)}
-          parameters={views}
-          sizedIds={new Set(snapshot.sizing?.derivedEngineParameterIds)}
-          values={retained}
-        />
+        <ParametersDetails parameters={views} values={retained} />
       </DetailList>
     </section>
   );

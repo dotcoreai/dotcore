@@ -564,7 +564,7 @@ describe("Application deployment dialog", () => {
     expect(sectionNames().slice(0, 3)).toEqual(["Status", "Deployment", "Parameters"]);
     expect(detailTexts(screen.getByRole("region", { name: "Parameters" }))).toEqual([
       ["VRAM mode", "highvram"],
-      ["Previews", "defaultDisabled"],
+      ["Previews", "Disabled"],
     ]);
   });
 
