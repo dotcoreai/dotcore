@@ -48,7 +48,7 @@ storageBindings:
   - bindingName: "data"
     mountPath: "/data"
     kind: "STORAGE_KIND_CACHE"
-    scope: "STORAGE_SCOPE_DEPLOYMENT"
+    placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
 artifacts:
   - artifactId: "linux-amd64-cuda"
     nix:

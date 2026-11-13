@@ -75,7 +75,7 @@ storageBindings:
   - bindingName: "engine-cache"
     mountPath: "/var/cache/dotcore-engine"
     kind: "STORAGE_KIND_CACHE"
-    scope: "STORAGE_SCOPE_ENGINE_ARTIFACT"
+    placements: ["STORAGE_PLACEMENT_ENGINE_ARTIFACT"]
     environment:
       - { name: "VLLM_CACHE_ROOT", relativePath: "vllm" }
       - { name: "TRITON_CACHE_DIR", relativePath: "triton" }
