@@ -398,26 +398,23 @@ export function useModelDeployForm({
     context,
     fitStart,
   );
-  // Where the total context comes from: the operator's choice when it differs from the largest fit,
-  // which the largest fit can replace again, else the largest fit. A chosen context per request
-  // pins the total too, so the value, not the pin, decides. Returning to the largest fit forgets
-  // the default's frozen value, so the next read of the defaults freezes the live one and a value
-  // frozen from a stale read is corrected.
-  const customTotal = Boolean(context.inputs && Number(context.inputs.total) !== fitStart);
-  const totalSource = customTotal
-    ? {
-        label: "Custom",
-        onReset:
-          readFitStart === undefined
-            ? undefined
-            : () => {
-                forgetDefaultStart();
-                resetContext();
-              },
-      }
-    : fitStart === undefined
+  // The largest fit offered as the total context's last chip. While the total follows it or the
+  // operator's total equals it, the chip reads as chosen. Choosing it otherwise forgets the default's
+  // frozen value, so the next read of the defaults freezes the live one and a value frozen from a
+  // stale read is corrected; without a read to freeze, it sets the value like a size chip.
+  const largestFit =
+    fitStart === undefined
       ? undefined
-      : { label: "Largest fit" };
+      : {
+          onSelect:
+            readFitStart === undefined
+              ? undefined
+              : () => {
+                  forgetDefaultStart();
+                  resetContext();
+                },
+          value: fitStart,
+        };
 
   const selectedProfileRow = profileRows.find((row) => row.profileId === profileId);
   const selectedAvailability = selectedProfileRow && profileAvailability?.(selectedProfileRow);
@@ -918,6 +915,7 @@ export function useModelDeployForm({
     ineligibleTarget,
     kvCachePrecision,
     kvCachePrecisionOption,
+    largestFit,
     launchValuesLoadingVisible,
     memory,
     name,
@@ -960,7 +958,6 @@ export function useModelDeployForm({
     targetsLoadingPresentation,
     targetsLoadingVisible,
     toggleAdvanced,
-    totalSource,
     updateCustomArguments,
     updateShownProfiles,
     validateRoute,

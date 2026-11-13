@@ -1,13 +1,15 @@
 import type { ReactNode, RefObject } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DeploymentForm,
   DeploymentStepHeading,
 } from "@/features/deployments/deployment-form-layout";
 import { ContextSizeField } from "@/features/models/runtime/context-size-field";
-import type { ContextSizeRange } from "@/features/models/runtime/context-size-input";
+import type {
+  ContextSizeLargestFit,
+  ContextSizeRange,
+} from "@/features/models/runtime/context-size-input";
 import {
   engineParameterHelp,
   maximumContext,
@@ -28,6 +30,8 @@ interface ModelDeployContextStepProps {
   /** The context per request the backend fills while the input is empty, from the latest estimate. */
   filledContextPerRequest?: number;
   inputs: ReadonlyMap<string, string>;
+  /** The largest total context that fits the selected target, offered as the total's last chip. */
+  largestFit?: ContextSizeLargestFit;
   model: Model;
   onParameterBlur: (parameter: EngineParameterDefinition) => void;
   /** Receives each change, and whether it is settled, as a slider or preset is, or typed. */
@@ -37,11 +41,6 @@ interface ModelDeployContextStepProps {
     settled?: boolean,
   ) => void;
   profile?: ModelProfile;
-  /**
-   * Where the total context comes from: its label, and a reset back to the default once the
-   * operator chose it. Absent while the engine default applies.
-   */
-  totalSource?: { label: string; onReset?: () => void };
 }
 
 /**
@@ -57,11 +56,11 @@ export function ModelDeployContextStep({
   fieldErrors,
   filledContextPerRequest,
   inputs,
+  largestFit,
   model,
   onParameterBlur,
   onParameterChange,
   profile,
-  totalSource,
 }: ModelDeployContextStepProps) {
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
@@ -75,7 +74,12 @@ export function ModelDeployContextStep({
   const sliderRange = contextSliderRange([totalContext, contextPerRequest]);
   const contextField = (
     parameter: EngineParameterDefinition,
-    field: { emptyValue?: number; help?: ReactNode; hint?: string; source?: ReactNode } = {},
+    field: {
+      emptyValue?: number;
+      help?: ReactNode;
+      hint?: string;
+      largestFit?: ContextSizeLargestFit;
+    } = {},
   ) => (
     <ContextSizeField
       disabled={disabled}
@@ -102,22 +106,7 @@ export function ModelDeployContextStep({
         ? contextField(totalContext, {
             help: engineParameterHelp(totalContext),
             hint: contextHint,
-            source: totalSource ? (
-              <>
-                <Badge variant="outline">{totalSource.label}</Badge>
-                {totalSource.onReset ? (
-                  <Button
-                    disabled={disabled}
-                    onClick={totalSource.onReset}
-                    size="xs"
-                    type="button"
-                    variant="link"
-                  >
-                    Use largest fit
-                  </Button>
-                ) : null}
-              </>
-            ) : undefined,
+            largestFit,
           })
         : null}
       {contextPerRequest

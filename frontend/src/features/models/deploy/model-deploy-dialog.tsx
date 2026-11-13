@@ -222,11 +222,11 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           fieldErrors={form.contextFieldErrors}
           filledContextPerRequest={memory.estimate.filledContextPerRequest}
           inputs={form.engineParameterInputs}
+          largestFit={form.largestFit}
           model={model}
           onParameterBlur={form.blurContext}
           onParameterChange={form.changeContext}
           profile={form.profile}
-          totalSource={form.totalSource}
         />
       ) : null}
       {step === "Runtime" ? (

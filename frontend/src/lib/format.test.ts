@@ -99,6 +99,8 @@ describe("formatCompactCount", () => {
   it("switches to millions", () => {
     expect(formatCompactCount(1_500_000)).toBe("1.5M");
     expect(formatCompactCount(1024 ** 2)).toBe("1M");
+    expect(formatCompactCount(3405 * 1024)).toBe("3.3M");
+    expect(formatCompactCount(1_999_872)).toBe("1.9M");
     expect(formatCompactCount(999_600)).toBe("1M");
   });
 });

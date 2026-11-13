@@ -323,6 +323,12 @@ async function waitForAnimationFrame() {
   await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+// Lets the focus a freshly mounted layer defers to its next frames run before the test moves on.
+async function settleFocus() {
+  await waitForAnimationFrame();
+  await waitForAnimationFrame();
+}
+
 function setViewportWidth(width: number) {
   Object.defineProperty(window, "innerWidth", { configurable: true, value: width });
   window.dispatchEvent(new Event("resize"));
@@ -703,7 +709,10 @@ describe("InspectorShell", () => {
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     setViewportWidth(720);
-    await waitForAnimationFrame();
+    await waitFor(() =>
+      expect(screen.getByTestId("inspector-content")).not.toHaveAttribute("data-inspector-panel"),
+    );
+    await settleFocus();
 
     const inspector = screen.getByTestId("inspector-content");
     expect(inspector).toHaveStyle({ zIndex: "calc(var(--layer-modal) - 1)" });
@@ -717,7 +726,7 @@ describe("InspectorShell", () => {
 
     expect(screen.queryByRole("dialog", { name: "Deploy resource" })).not.toBeInTheDocument();
     expect(screen.getByRole("dialog", { name: "Responsive inspector" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Deploy" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deploy" })).toHaveFocus());
   });
 
   it("keeps an active child dialog isolated when the inspector crosses into wide mode", async () => {
@@ -729,7 +738,10 @@ describe("InspectorShell", () => {
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     setViewportWidth(721);
-    await waitForAnimationFrame();
+    await waitFor(() =>
+      expect(screen.getByTestId("inspector-content")).toHaveAttribute("data-inspector-panel"),
+    );
+    await settleFocus();
 
     const inspector = screen.getByTestId("inspector-content");
     expect(inspector).toHaveAttribute("aria-hidden", "true");
@@ -742,7 +754,7 @@ describe("InspectorShell", () => {
 
     expect(screen.queryByRole("dialog", { name: "Deploy resource" })).not.toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Responsive inspector" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "Deploy" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Deploy" })).toHaveFocus());
   });
 
   it("gives an active feature modal precedence over inspector dismissal", async () => {

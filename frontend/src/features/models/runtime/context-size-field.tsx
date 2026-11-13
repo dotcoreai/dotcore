@@ -3,7 +3,11 @@ import type { ReactNode, RefObject } from "react";
 import { FieldError } from "@/components/ui/field-error";
 import type { EngineParameterDefinition } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 
-import { ContextSizeInput, type ContextSizeRange } from "./context-size-input";
+import {
+  ContextSizeInput,
+  type ContextSizeLargestFit,
+  type ContextSizeRange,
+} from "./context-size-input";
 
 interface ContextSizeFieldProps {
   disabled: boolean;
@@ -16,6 +20,8 @@ interface ContextSizeFieldProps {
   hint?: string;
   input: string;
   inputRefs: RefObject<Map<string, HTMLElement | null>>;
+  /** The largest size that fits the selected target, offered as the input's last chip. */
+  largestFit?: ContextSizeLargestFit;
   onBlur: (parameter: EngineParameterDefinition) => void;
   /** Receives each change, and whether it is settled rather than typing in progress. */
   onChange: (parameter: EngineParameterDefinition, input: string, settled: boolean) => void;
@@ -23,8 +29,6 @@ interface ContextSizeFieldProps {
   parameter: EngineParameterDefinition;
   /** The range the slider is drawn over, shared with other context fields so they line up. */
   sliderRange?: ContextSizeRange;
-  /** Where the value comes from, shown after the name. */
-  source?: ReactNode;
 }
 
 /**
@@ -40,11 +44,11 @@ export function ContextSizeField({
   hint,
   input,
   inputRefs,
+  largestFit,
   onBlur,
   onChange,
   parameter,
   sliderRange,
-  source,
 }: ContextSizeFieldProps) {
   if (parameter.parameterType.case !== "unsignedInteger") return null;
 
@@ -60,10 +64,7 @@ export function ContextSizeField({
   return (
     <div className="grid min-w-0 gap-2">
       <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-          <label htmlFor={inputId}>{parameter.displayName}</label>
-          {source}
-        </span>
+        <label htmlFor={inputId}>{parameter.displayName}</label>
         {hint ? (
           <span className="text-xs text-muted-foreground" id={hintId}>
             {hint}
@@ -79,6 +80,7 @@ export function ContextSizeField({
           inputRefs.current.set(parameter.parameterId, control);
         }}
         invalid={Boolean(error)}
+        largestFit={largestFit}
         label={parameter.displayName}
         maximum={Number(maximum)}
         minimum={Number(minimum)}
