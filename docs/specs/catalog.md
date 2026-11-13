@@ -127,12 +127,12 @@ option effects itself.
 
 ### Model profile
 
-A preset of defaults for one engine configuration.
+A preset of defaults and parameter visibility overrides for one engine configuration.
 
 - Supplies defaults, never ongoing deployment authority.
 - Supplies no default for total context or context per request.
-- May override the default and the visibility of its engine's parameters. It may hide total context
-  and context per request, never make them advanced.
+- May override the default and the visibility of its engine's parameters. It may hide total
+  context and context per request, never make them advanced.
 - Carries no platform. The hardware class follows from the exact placement, so one profile serves
   every hardware class its configuration supports.
 
@@ -170,10 +170,13 @@ are on the [recommendations](recommendations.md) page.
   hidden.
 - May name the use cases it serves and the accelerator vendors it prefers
   ([recommendations](recommendations.md#app-use-case)).
+- A configuration or secret binding may be enabled by a boolean parameter of the same graph. When
+  that parameter is off, the binding never reaches the service, not even as an empty value.
 - Engine releases and apps declare the storage they need. Each storage binding lists its allowed
-  placements in order, the first being the default. An app binding may allow this deployment or
-  shared by the app ([apps](apps.md)); an engine binding allows exactly one. Deployments keep that
-  declaration and the chosen placement ([runtime](runtime.md)).
+  storage placements in order, the first being the default. An app binding may allow this
+  deployment or shared by the app ([apps](apps.md#app-storage)). An engine binding allows exactly
+  one. Deployments keep that declaration and the chosen storage placement
+  ([runtime](runtime.md)).
 
 ## Components
 
@@ -184,9 +187,9 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 #### Responsibilities
 
 - Own the immutable catalog declarations and their lifecycle.
-- Own the typed parameter definition engine releases and apps share, with its basic, advanced or
-  hidden visibility, and its types (boolean, integer, text, string enum and secret), and the shape of the shared
-  engine parameters. Apps use any type; engines use boolean, integer and secret.
+- Own the typed parameter definition that engine releases and apps share: its basic, advanced or
+  hidden visibility and its types (boolean, integer, text, string enum and secret). Apps use any
+  type. Engines use boolean, integer and secret.
 - Validate catalogs as described above.
 
 #### Boundaries
@@ -199,6 +202,8 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
   ([models](models.md#deployment-snapshot)).
 - Scores and licences never affect admission, placement or fit. Recommendations follow the same
   rule ([recommendations](recommendations.md#invariants)).
+- Each parameter restriction (length bounds, ranges, accepted values) of an app, an engine release
+  or a model comes from what that app, engine or model requires, and the catalog names its source.
 
 ## Future direction
 

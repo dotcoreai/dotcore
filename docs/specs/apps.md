@@ -113,10 +113,12 @@ What an application deployment keeps from creation:
   its configured GPU set.
 - The exact, immutable launch identity of each service.
 - The resolved typed parameters: catalog defaults, then operator overrides at creation, projected
-  into service configuration.
+  into service configuration. A binding enabled by a boolean parameter is left out when that
+  parameter is off ([catalog](catalog.md#app-graph)).
 - Its secret parameters: generated at creation unless you supply them, and fixed from then on.
-  Redeploy to change one. A secret binding hands a service the value in plain form, or as a password
-  hash computed once at creation. Access rules: [access](access.md).
+  Redeploy to change one. A secret binding hands a service the value in plain form, or as a
+  password hash computed once at creation. A secret is still generated and kept when its binding
+  is left out. Access rules: [access](access.md#secrets).
 - The inference base URL at which the hosting node reaches the site manager, composed at creation.
 - Its own published URL and a site-unique published host port, allocated at creation. The port
   belongs to the deployment, not to its snapshot or launch plan.
@@ -130,9 +132,9 @@ What an application deployment keeps from creation:
   An app binding may allow this deployment, shared by the app, or both. You pick one storage
   placement per binding at creation. It is fixed: redeploy to change it.
 - The apps controller owns the attachments and their storage placement, never their content.
-- Teardown deletes the deployment's own data. Storage shared across the app's deployments on a node
-  outlives teardown. Machine cleanup removes it once unused
-  ([storage](storage.md#machine-cleanup)), and site reset removes it too.
+- Teardown deletes the deployment's own data. Storage shared by the app on a node outlives
+  teardown. Machine cleanup removes it once unused ([storage](storage.md#machine-cleanup)), and
+  site reset removes it too.
 - App content belongs to you and the app.
 
 ## Components
@@ -164,7 +166,8 @@ What an application deployment keeps from creation:
 
 - Never owns app content, only the attachments and their storage placement.
 - Never waits on route availability or substitutes another route.
-- Doesn't enforce access. The app proxy forwards traffic and the identity and access manager decides.
+- Doesn't enforce access. The app proxy forwards traffic and the identity and access manager
+  decides.
 
 ### App proxy
 
