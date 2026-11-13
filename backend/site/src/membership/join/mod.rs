@@ -28,7 +28,7 @@ pub use client::{JoinConnection, JoinedNodeFolder, NodeJoinError, default_join_h
 pub use host::{
     JoinApproval, JoinDecision, JoinHost, JoinHostError, JoinHostIdentity, JoinHostLimits,
     JoinHostSettings, JoinHostSource, JoinReview, JoinSiteError, JoinSiteWriter, JoinedNode,
-    NodeRejoin, ReviewedJoin, blocking_review,
+    LocalPeers, NodeRejoin, ReviewedJoin, blocking_review,
 };
 pub use installation::{NodeFolderError, RejoiningNodeFolder};
 pub use node_key::{NodeKey, NodeKeyError, csr_key_fingerprint};

@@ -42,8 +42,8 @@ use tonic::{
 use super::{
     JOIN_SECRET_BYTES, JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostError,
     JoinHostLimits, JoinHostSettings, JoinHostSource, JoinProposal, JoinReview, JoinSecret,
-    JoinSiteError, JoinSiteWriter, JoinToken, JoinedNode, NodeFolderError, NodeJoinError, NodeKey,
-    NodeRejoin, RejoinProposal, RejoiningNodeFolder, ReviewedJoin,
+    JoinSiteError, JoinSiteWriter, JoinToken, JoinedNode, LocalPeers, NodeFolderError,
+    NodeJoinError, NodeKey, NodeRejoin, RejoinProposal, RejoiningNodeFolder, ReviewedJoin,
     test_fixtures::{InitializedSite, initialized_site, initialized_site_with_manager_host},
     verifier::JoinHostVerifier,
 };
@@ -517,6 +517,86 @@ async fn an_implicit_loopback_observation_is_rejected_with_the_unusable_host_rea
         .await
         .expect("an explicit host joins");
     harness.finish().await.expect("host result");
+}
+
+#[tokio::test]
+async fn a_loopback_host_from_another_machine_is_refused_and_the_token_stays_usable() {
+    let resolver = Arc::new(
+        FakeHostResolver::default().with("gpu-box.example.ts.net", [Ipv4Addr::new(127, 0, 0, 2)]),
+    );
+    let harness = Harness::start(Options {
+        resolver: Some(resolver),
+        local_peers: LocalPeers::only([]),
+        ..Options::default()
+    })
+    .await;
+    let site_before = harness.site_bytes();
+    let node_root = harness.node_root();
+    let key = NodeKey::generate().expect("key");
+    let mut connection = harness.connect().await;
+
+    for (loopback_host, message) in [
+        (
+            "127.0.0.1",
+            "the node host 127.0.0.1 is a loopback address, which the manager cannot reach this \
+             node at: the node joined from 127.0.0.1, another machine",
+        ),
+        (
+            "gpu-box.example.ts.net",
+            "the node host gpu-box.example.ts.net is a loopback address, which the manager cannot \
+             reach this node at: the node joined from 127.0.0.1, another machine",
+        ),
+    ] {
+        let error = connection
+            .join(&proposal("worker", loopback_host), &key, &node_root)
+            .await
+            .expect_err("loopback host from another machine");
+        let NodeJoinError::UnusableHost(status) = &error else {
+            panic!("{loopback_host}: {error:?}");
+        };
+        assert_eq!(status.code(), Code::InvalidArgument, "{loopback_host}");
+        assert_eq!(status.message(), message);
+    }
+    assert!(!node_root.exists());
+    assert_eq!(harness.site_bytes(), site_before);
+    assert!(harness.approval.reviews().is_empty());
+
+    connection
+        .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+        .await
+        .expect("a reachable host joins on the same token");
+    let recorded = harness.finish().await.expect("host result");
+    assert_eq!(recorded.host, host(WORKER_HOST));
+}
+
+#[tokio::test]
+async fn a_loopback_host_from_an_address_of_the_manager_machine_is_recorded() {
+    // The peer counts as the manager's machine through its interface addresses, as a same-machine
+    // node dialing the manager's non-loopback address does.
+    const HOST: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 5);
+    if !loopback_addresses_usable(&[HOST]) {
+        return;
+    }
+    let harness = Harness::start(Options {
+        local_peers: LocalPeers::only([Ipv4Addr::LOCALHOST.into()]),
+        ..Options::default()
+    })
+    .await;
+
+    let joined = harness
+        .connect()
+        .await
+        .join(
+            &proposal("worker", "127.0.0.5"),
+            &NodeKey::generate().expect("key"),
+            &harness.node_root(),
+        )
+        .await
+        .expect("join");
+    let recorded = harness.finish().await.expect("host result");
+
+    assert_eq!(joined.host, ipv4_host(HOST));
+    assert_eq!(recorded.host, ipv4_host(HOST));
 }
 
 #[tokio::test]
@@ -1264,6 +1344,88 @@ async fn a_rejoin_without_a_host_keeps_the_declared_host_name() {
 }
 
 #[tokio::test]
+async fn a_rejoin_from_another_machine_is_refused_a_proposed_loopback_host() {
+    let harness = rejoin_harness(
+        &proposal("worker", WORKER_HOST),
+        Options {
+            local_peers: LocalPeers::only([]),
+            ..Options::default()
+        },
+    )
+    .await;
+    let node_root = harness.node_root();
+    let site_bytes = harness.site_bytes();
+
+    let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
+    let error = harness
+        .connect()
+        .await
+        .rejoin(
+            &RejoinProposal {
+                host: Some(host("127.0.0.2")),
+                private_port: folder.private_port(),
+            },
+            &folder,
+        )
+        .await
+        .expect_err("loopback rejoin host");
+
+    let NodeJoinError::UnusableHost(status) = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(
+        status.message(),
+        "the node host 127.0.0.2 is a loopback address, which the manager cannot reach this node \
+         at: the node joined from 127.0.0.1, another machine"
+    );
+    assert_eq!(harness.site_bytes(), site_bytes);
+    assert!(harness.approval.reviews().is_empty());
+}
+
+#[tokio::test]
+async fn a_rejoin_from_another_machine_is_refused_a_declared_loopback_host() {
+    const DECLARED: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 5);
+    if !loopback_addresses_usable(&[DECLARED]) {
+        return;
+    }
+    let harness = rejoin_harness(
+        &proposal("worker", "127.0.0.5"),
+        Options {
+            local_peers: LocalPeers::only([]),
+            ..Options::default()
+        },
+    )
+    .await;
+    let node_root = harness.node_root();
+    let site_bytes = harness.site_bytes();
+
+    let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
+    let error = harness
+        .connect()
+        .await
+        .rejoin(
+            &RejoinProposal {
+                host: None,
+                private_port: folder.private_port(),
+            },
+            &folder,
+        )
+        .await
+        .expect_err("declared loopback host");
+
+    let NodeJoinError::UnusableHost(status) = &error else {
+        panic!("{error:?}");
+    };
+    assert_eq!(
+        status.message(),
+        "the node host 127.0.0.5 is a loopback address, which the manager cannot reach this node \
+         at: the node joined from 127.0.0.1, another machine"
+    );
+    assert_eq!(harness.site_bytes(), site_bytes);
+    assert!(harness.approval.reviews().is_empty());
+}
+
+#[tokio::test]
 async fn a_rejoin_refreshes_an_observation_configuration_that_drifted_from_the_site() {
     let harness = rejoin_harness(&proposal("worker", WORKER_HOST), Options::default()).await;
     let node_root = harness.node_root();
@@ -1864,6 +2026,9 @@ struct Options {
     /// Resolver both sides look host names up with; the system resolver when `None`.
     resolver: Option<Arc<FakeHostResolver>>,
     allow_observed_loopback: bool,
+    /// Connection sources the host treats as the manager's machine; every loopback address by
+    /// default, as on a real manager.
+    local_peers: LocalPeers,
     /// Binds the join listener on a reserved port, for tests that bind the same number on
     /// another address.
     reserved_listener_port: bool,
@@ -1882,6 +2047,7 @@ impl Default for Options {
             manager_host: None,
             resolver: None,
             allow_observed_loopback: false,
+            local_peers: LocalPeers::machine([]),
             reserved_listener_port: false,
             decisions: Vec::new(),
             review_delay: Duration::ZERO,
@@ -1978,6 +2144,7 @@ impl Harness {
                 token: token.clone(),
                 manager_private_port: 7443,
                 allow_observed_loopback: options.allow_observed_loopback,
+                local_peers: options.local_peers,
                 limits: options.limits,
             },
             Arc::clone(&site_writer) as Arc<dyn JoinSiteWriter>,

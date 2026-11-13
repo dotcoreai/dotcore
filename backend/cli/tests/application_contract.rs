@@ -2,11 +2,17 @@
 
 use std::process::{Command, Output, Stdio};
 
-use dotcore_proto::dotcore::application::v1::{
-    ApplicationDeployment, ApplicationDeploymentDesiredState, ApplicationDeploymentFailure,
-    ApplicationEndpoint, ApplicationLifecycleState, ApplicationReadinessState,
-    ApplicationSelectedInferenceRoute, ApplicationServiceLifecycleState,
-    ApplicationServiceObservation,
+use dotcore_proto::{
+    dotcore::application::v1::{
+        ApplicationDeployment, ApplicationDeploymentDesiredState, ApplicationDeploymentFailure,
+        ApplicationEndpoint, ApplicationLifecycleState, ApplicationReadinessState,
+        ApplicationSelectedInferenceRoute, ApplicationServiceLifecycleState,
+        ApplicationServiceObservation, DeploymentLogEntry, DeploymentLogResumePosition,
+        DeploymentLogSource, DeploymentLogSourceEvent, DeploymentLogSourceState,
+        FollowDeploymentLogsResponse, ReadDeploymentLogsResponse,
+        follow_deployment_logs_response::Event,
+    },
+    google::protobuf::Timestamp,
 };
 use tonic::Status;
 
@@ -371,7 +377,61 @@ fn commands_need_no_site_folder() {
 }
 
 #[test]
-fn help_lists_the_five_verbs_and_the_manager_flag() {
+fn logs_read_then_follow_an_application_deployment() {
+    let manager = FakeManager::start(FakeState::with_applications(mixed_deployments()));
+    {
+        let mut state = manager.state();
+        state.application_logs.page = ReadDeploymentLogsResponse {
+            sources: vec![
+                log_source("web", DeploymentLogSourceState::Available),
+                log_source("db", DeploymentLogSourceState::Unavailable),
+            ],
+            entries: vec![log_entry("web", 10, b"serving")],
+            latest_positions: vec![DeploymentLogResumePosition {
+                source_name: "web".to_owned(),
+                latest_timestamp: Some(timestamp(10)),
+            }],
+            ..Default::default()
+        };
+        state.application_logs.follow = vec![
+            Ok(FollowDeploymentLogsResponse {
+                event: Some(Event::SourceEvent(DeploymentLogSourceEvent {
+                    source_name: "db".to_owned(),
+                    source_label: label_of("db"),
+                    state: DeploymentLogSourceState::Available as i32,
+                })),
+            }),
+            Ok(FollowDeploymentLogsResponse {
+                event: Some(Event::Entry(log_entry("db", 11, b"accepting connections"))),
+            }),
+        ];
+    }
+
+    let output = run(&manager, &["logs", "Chat", "--follow"]);
+
+    assert_eq!(
+        text(&output.stderr),
+        "Db (db): unavailable\nDb (db): available\nthe log follow of application deployment Chat ended\n"
+    );
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        text(&output.stdout),
+        "[Web (web)] serving\n[Db (db)] accepting connections\n"
+    );
+    let logs = &manager.state().application_logs;
+    assert_eq!(logs.reads[0].application_deployment_id, "app-1");
+    assert_eq!(logs.follows[0].application_deployment_id, "app-1");
+    assert_eq!(
+        logs.follows[0].resume_positions,
+        [DeploymentLogResumePosition {
+            source_name: "web".to_owned(),
+            latest_timestamp: Some(timestamp(10)),
+        }]
+    );
+}
+
+#[test]
+fn help_lists_the_six_verbs_and_the_manager_flag() {
     let group = isolated_dotc()
         .args(["application", "--help"])
         .output()
@@ -383,7 +443,7 @@ fn help_lists_the_five_verbs_and_the_manager_flag() {
 
     assert_eq!(group.status.code(), Some(0));
     let group = text(&group.stdout);
-    for verb in ["list", "show", "pause", "resume", "teardown"] {
+    for verb in ["list", "show", "pause", "resume", "teardown", "logs"] {
         assert!(
             group
                 .lines()
@@ -769,6 +829,31 @@ fn lifecycle_calls(manager: &FakeManager) -> Vec<Call> {
         .collect()
 }
 
+fn log_source(name: &str, state: DeploymentLogSourceState) -> DeploymentLogSource {
+    DeploymentLogSource {
+        source_name: name.to_owned(),
+        source_label: label_of(name),
+        state: state as i32,
+    }
+}
+
+fn log_entry(source: &str, second: i64, content: &[u8]) -> DeploymentLogEntry {
+    DeploymentLogEntry {
+        source_name: source.to_owned(),
+        source_label: label_of(source),
+        timestamp: Some(timestamp(second)),
+        content: content.to_vec(),
+        ..Default::default()
+    }
+}
+
+fn timestamp(second: i64) -> Timestamp {
+    Timestamp {
+        seconds: 1_794_500_000 + second,
+        nanos: 0,
+    }
+}
+
 /// Runs `dotc application <arguments>` against the fake without any terminal.
 fn run(manager: &FakeManager, arguments: &[&str]) -> Output {
     dotc_at("application", &manager.address().to_string(), arguments)
@@ -790,4 +875,13 @@ fn terminal_command(manager: &FakeManager, arguments: &[&str]) -> Command {
 
 fn text(value: &[u8]) -> String {
     String::from_utf8_lossy(value).into_owned()
+}
+
+/// The label the manager shows for a source, different from its name like real sources.
+fn label_of(name: &str) -> String {
+    let mut characters = name.chars();
+    characters
+        .next()
+        .map(|first| first.to_uppercase().chain(characters).collect())
+        .unwrap_or_default()
 }

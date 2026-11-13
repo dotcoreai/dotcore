@@ -71,6 +71,21 @@ fn application_commands_drive_a_simulated_deployment_through_pause_resume_and_te
         ])
     );
 
+    // The simulated runtime retains twelve numbered lines for the deployment's one service.
+    let logs = run(&manager, &["logs", "Round trip", "--lines", "3"]);
+    assert_eq!(text(&logs.stderr), "");
+    assert_eq!(logs.status.code(), Some(0));
+    let lines = text(&logs.stdout);
+    let lines = lines.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    for (line, number) in lines.iter().zip(10..=12) {
+        assert!(
+            line.starts_with(&format!("simulated workload log line {number:03} owner="))
+                && line.ends_with(" unit=web"),
+            "{lines:?}"
+        );
+    }
+
     // The manager accepts resuming a present deployment as a no-op rather than rejecting it.
     let resumed = run(&manager, &["resume", "Round trip"]);
     assert_accepted(&resumed, &id, "Ready", "Present");

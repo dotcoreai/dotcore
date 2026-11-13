@@ -11,7 +11,7 @@
 
 use std::{
     fmt,
-    net::{IpAddr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
@@ -181,8 +181,50 @@ pub struct JoinHostSettings {
     /// joining node's own address behind loopback, so this stays off outside same-machine tests.
     pub allow_observed_loopback: bool,
 
+    /// Connection sources that come from the manager's own machine. A node joining from anywhere
+    /// else is refused a loopback host, since the manager would reach its own machine there.
+    /// A node joining through a local forwarder, such as an SSH tunnel, looks local and is not
+    /// caught.
+    pub local_peers: LocalPeers,
+
     /// Token lifetime and attempt limits.
     pub limits: JoinHostLimits,
+}
+
+/// The connection sources a join host treats as the manager's own machine.
+#[derive(Clone, Debug)]
+pub struct LocalPeers {
+    loopback: bool,
+    addresses: Vec<IpAddr>,
+}
+
+impl LocalPeers {
+    /// The manager's machine: every loopback address and the given interface addresses. The
+    /// whole loopback range counts, since interfaces list only part of it.
+    pub fn machine(addresses: impl IntoIterator<Item = IpAddr>) -> Self {
+        Self {
+            loopback: true,
+            addresses: addresses
+                .into_iter()
+                .map(|address| address.to_canonical())
+                .collect(),
+        }
+    }
+
+    /// Reports whether a connection from `address` comes from the manager's machine.
+    pub fn contains(&self, address: IpAddr) -> bool {
+        let address = address.to_canonical();
+        (self.loopback && address.is_loopback()) || self.addresses.contains(&address)
+    }
+
+    /// Only the given addresses, so tests can treat a loopback connection as another machine's.
+    #[cfg(test)]
+    pub(crate) fn only(addresses: impl IntoIterator<Item = IpAddr>) -> Self {
+        Self {
+            loopback: false,
+            ..Self::machine(addresses)
+        }
+    }
 }
 
 /// The manager's node identity the join listener presents, with the site CA sent in the chain.
@@ -577,6 +619,7 @@ impl HostShared {
                     peer_address,
                     self.settings.allow_observed_loopback,
                 )?;
+                self.check_host_reachable(&host, peer_address).await?;
                 let rules = self.site.declaration_rules();
                 let admission = admit(&site, &rules, &proposal, &host, manager_host)
                     .map_err(|error| admission_status(&error))?;
@@ -617,6 +660,7 @@ impl HostShared {
                 .map_err(|error| admission_status(&error))?;
                 let host = SiteNodeHost::parse(&admission.node.host)
                     .map_err(|_| Status::internal("the declared node host is invalid"))?;
+                self.check_host_reachable(&host, peer_address).await?;
                 let host_source = match proposal.host {
                     Some(_) => JoinHostSource::Proposed,
                     None => JoinHostSource::Declared,
@@ -640,6 +684,34 @@ impl HostShared {
                 })
             }
         }
+    }
+
+    /// Refuses a loopback node host for a join from another machine: the manager would reach
+    /// its own machine there instead of the node. A name that does not resolve on the manager is
+    /// left to the operator's review.
+    async fn check_host_reachable(
+        &self,
+        host: &SiteNodeHost,
+        peer_address: SocketAddr,
+    ) -> Result<(), Status> {
+        if self.settings.local_peers.contains(peer_address.ip()) {
+            return Ok(());
+        }
+        let loopback = host
+            .resolve_all(self.resolver.as_ref())
+            .await
+            .is_ok_and(|addresses| addresses.iter().all(Ipv4Addr::is_loopback));
+        if !loopback {
+            return Ok(());
+        }
+        let peer = peer_address.ip().to_canonical();
+        Err(rejection_status(
+            Status::invalid_argument(format!(
+                "the node host {host} is a loopback address, which the manager cannot reach \
+                 this node at: the node joined from {peer}, another machine"
+            )),
+            UNUSABLE_HOST_REJECTION,
+        ))
     }
 
     /// Counts a wrong secret and stops the host once the limit is reached.

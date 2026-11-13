@@ -210,7 +210,7 @@ two-node-init inference applications display_name="Worker two" worker_host="127.
 _worker-prepare:
   cd ../.. && nix build .#dotc --no-link
 
-# Join this machine's worker folder with `dotc node join`, passing every argument through (the token included). It adds `--yes`, and the worker folder and worker private port unless given.
+# Join this machine's worker folder with `dotc node join`, passing every argument through (the token included). It adds `--yes`, and the worker folder and worker private port unless given. Without `--host`, a loopback machine host is dropped so the manager records the address it sees the worker join from.
 [private]
 [script]
 _worker-join *args:
@@ -226,6 +226,10 @@ _worker-join *args:
   }
   has_option --site-dir || join_args=(--site-dir "$DOTCORE_WORKER_DIR" ${join_args[@]+"${join_args[@]}"})
   has_option --private-port || join_args+=(--private-port "$DOTCORE_WORKER_PRIVATE_PORT")
+  # The workspace's default machine host is loopback, which a manager on another machine cannot reach.
+  if ! has_option --host; then
+    case "${DOTCORE_MACHINE_HOST:-}" in 127.*|localhost) unset DOTCORE_MACHINE_HOST ;; esac
+  fi
   mkdir -p "$(dirname "$DOTCORE_WORKER_DIR")"
   cd ../.. && dotc node join ${join_args[@]+"${join_args[@]}"} --yes
 
