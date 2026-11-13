@@ -1018,7 +1018,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-openai",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bollard",
  "bytes",
  "dotcore",
@@ -1050,7 +1050,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "sha2 0.10.9",
- "sysinfo 0.38.4",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "time",
@@ -1074,7 +1074,7 @@ name = "dotcore-artifact"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bollard",
  "dotcore-domain",
  "dotcore-proto",
@@ -1167,7 +1167,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "sysinfo 0.38.4",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -1257,7 +1257,7 @@ name = "dotcore-site"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "base64 0.22.1",
+ "base64 0.23.1",
  "dotcore-catalog",
  "dotcore-domain",
  "dotcore-host-process",
@@ -1277,7 +1277,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "subtle",
- "sysinfo 0.38.4",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "time",
@@ -2696,9 +2696,9 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "pbjson"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "898bac3fa00d0ba57a4e8289837e965baa2dee8c3749f3b11d45a64b4223d9c3"
+checksum = "e8edd1efdd8ab23ba9cb9ace3d9987a72663d5d7c9f74fa00b51d6213645cf6c"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -2706,9 +2706,9 @@ dependencies = [
 
 [[package]]
 name = "pbjson-build"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af22d08a625a2213a78dbb0ffa253318c5c79ce3133d32d296655a7bdfb02095"
+checksum = "2ed4d5c6ae95e08ac768883c8401cf0e8deb4e6e1d6a4e1fd3d2ec4f0ec63200"
 dependencies = [
  "heck",
  "itertools",
@@ -3782,20 +3782,6 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.38.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92ab6a2f8bfe508deb3c6406578252e491d299cbbf3bc0529ecc3313aee4a52f"
-dependencies = [
- "libc",
- "memchr",
- "ntapi",
- "objc2-core-foundation",
- "objc2-io-kit",
- "windows",
-]
-
-[[package]]
-name = "sysinfo"
 version = "0.39.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2071df9448915b71c4fe6d25deaf1c22f12bd234f01540b77312bb8e41361e6"
@@ -4109,9 +4095,9 @@ dependencies = [
 
 [[package]]
 name = "tonic-web"
-version = "0.14.7"
+version = "0.14.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f556875d6e82fcb200f406e605e92f51222c3da6408855b1e8fd16d249a9d657"
+checksum = "323c7492987fadf7b27005a4597c977ffa51907a146621273bda37e231aff406"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -4991,7 +4977,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shellexpand",
- "sysinfo 0.39.6",
+ "sysinfo",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
