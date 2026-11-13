@@ -1,8 +1,8 @@
 # Each artifact names a Docker image derivation package; the package pins the exact image.
 # NVIDIA host integration testing remains an explicit responsibility.
-engineReleaseId: "llama-cpp-linux-2026-10-19"
+engineReleaseId: "llama-cpp-linux-2026-11-13"
 engineKind: "ENGINE_KIND_LLAMA_CPP"
-version: "b11723"
+version: "b12359" # v1.0.0
 # Same schema id as the macOS release, so one model configuration can approve artifacts of both.
 parameterSchema:
   schemaId: "llama-cpp-v2"

@@ -15,23 +15,28 @@
 
 ## Update
 
-1. Pick the newest tag that has both the Linux image and the macOS asset (the two usually move
-   together). Linux image: `just image-lock ghcr.io/ggml-org/llama.cpp:server-cuda13-<tag>`. Images
-   appear after the release tarballs, so the newest tag can lack one; the recipe then fails.
-2. macOS package: check the release has a `llama-<tag>-bin-macos-arm64.tar.gz` asset (some, such as
-   `b10156`, have none). Set `version` in [`package.nix`](package.nix) to the tag, and `src.hash`
-   to the asset's SHA-256 in SRI form (`sha256-...`): the release asset's `digest`, or
+1. Target the newest stable release (`v<semver>`, such as `v1.0.0`), not a nightly. Each stable
+   release is also a nightly build tag (`b<build>`) on the same commit; both artifacts are keyed on
+   that build, and nightlies don't all get an image.
+2. Linux image: tagged `server-cuda13-v<semver>-b<build>-<sha7>` (the `v<semver>` release page
+   names the commit). Lock it by its image index digest, so the lock stays immutable:
+   `just image-lock ghcr.io/ggml-org/llama.cpp@sha256:<index digest>`. Images appear after the
+   release tarballs, so a new release can lack one for a while.
+3. macOS package: the asset `llama-b<build>-bin-macos-arm64.tar.gz` sits on the `b<build>` release,
+   not the `v<semver>` one. Set `version` in [`package.nix`](package.nix) to `b<build>`, and
+   `src.hash` to the asset's SHA-256 in SRI form (`sha256-...`): the release asset's `digest`, or
    `nix store prefetch-file` on its URL; convert hex with `nix hash convert --hash-algo sha256 <hex>`.
-3. Declare new releases with the tag as `version`: `llama-cpp-linux-<date>` in `llama-cpp.yaml` and
-   `llama-cpp-<date>` in `llama-cpp-macos.yaml`, after the build's publish date, and move every
-   model approving the old releases to them. Releases are immutable, and the macOS package `version`
-   must equal its release's `version` (`checks.dotcore-catalog` fails otherwise); keep an older
-   release by pinning it to the `github:dotcoreai/dotcore/<rev>` revision that built it.
+4. Declare new releases with `b<build>` as `version` and the semver in a comment:
+   `llama-cpp-linux-<date>` in `llama-cpp.yaml` and `llama-cpp-<date>` in `llama-cpp-macos.yaml`,
+   after the build's publish date, and move every model approving the old releases to them. Releases
+   are immutable, and the macOS package `version` must equal its release's `version`
+   (`checks.dotcore-catalog` fails otherwise); keep an older release by pinning it to the
+   `github:dotcoreai/dotcore/<rev>` revision that built it.
 
 ## Validate
 
 1. `just smoke` (on a Mac): prints the package store path and `llama-server --version`; the build
-   number must match the tag. No model or GPU needed.
+   number must match `b<build>`. No model or GPU needed.
 2. Linux image, on an NVIDIA host: `just image-load`, then from the root
    `just dev::workload-launch <model> <profile> --device nvidia.com/gpu=0` with a small model
    approving the new release; the workload answers a request.

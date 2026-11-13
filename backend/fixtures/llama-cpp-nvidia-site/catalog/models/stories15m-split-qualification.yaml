@@ -21,7 +21,7 @@ artifacts:
 configurations:
   - configurationId: "nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+      - engineReleaseId: "llama-cpp-linux-2026-11-13"
         engineArtifactId: "cuda13"
     artifactBindings:
       - bindingId: "split-q8"

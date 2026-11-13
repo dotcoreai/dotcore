@@ -30,9 +30,9 @@ configurations:
     # The model card's encoder default; the weights accept up to the model's maximum context.
     maximumContextTokens: 16384
     engineArtifacts:
-      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+      - engineReleaseId: "llama-cpp-linux-2026-11-13"
         engineArtifactId: "cuda13"
-      - engineReleaseId: "llama-cpp-2026-10-19"
+      - engineReleaseId: "llama-cpp-2026-11-13"
         engineArtifactId: "metal"
     artifactBindings:
       - bindingId: "q4-k-m"

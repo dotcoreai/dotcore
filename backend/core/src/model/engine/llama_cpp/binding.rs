@@ -56,7 +56,7 @@ fn classify(rejections: &[(u16, &str)], status: u16, body: &[u8]) -> Option<Inva
 /// message format, where `%d` stands for a token count.
 ///
 /// A prompt larger than the micro-batch is a server error, and one larger than a slot's context
-/// is a context-size error (b11723 `tools/server/server-context.cpp`).
+/// is a context-size error (b12359 `tools/server/server-context.cpp`).
 const OVERSIZED_PROMPT_REJECTIONS: [(u16, &str); 2] = [
     (
         500,
@@ -69,7 +69,7 @@ const OVERSIZED_PROMPT_REJECTIONS: [(u16, &str); 2] = [
 ];
 
 /// llama.cpp's refusal of a chat prompt larger than a slot's context: the HTTP status it answers
-/// with and its message format (b11723 `tools/server/server-context.cpp`).
+/// with and its message format (b12359 `tools/server/server-context.cpp`).
 const OVERSIZED_CHAT_REJECTIONS: [(u16, &str); 1] = [(
     400,
     "request (%d tokens) exceeds the available context size (%d tokens), try increasing it",

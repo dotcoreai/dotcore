@@ -57,7 +57,7 @@ artifacts:
 configurations:
   - configurationId: "llama-cpp"
     engineArtifacts:
-      - engineReleaseId: "llama-cpp-linux-2026-10-19"
+      - engineReleaseId: "llama-cpp-linux-2026-11-13"
         engineArtifactId: "cuda13"
     artifactBindings:
       - bindingId: "q3-iq3-s"
