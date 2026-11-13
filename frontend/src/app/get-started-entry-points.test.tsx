@@ -103,7 +103,7 @@ describe("Get started entry points", () => {
     expect(sidebarLink("Get started")).not.toBeInTheDocument();
   });
 
-  it("clears the setting and opens the page from the profile menu", async () => {
+  it("opens the page from the profile menu without changing the hidden setting", async () => {
     const user = setupUser();
     const settings = new FakeConsoleSettings(true);
     const { router } = renderConsole("/overview", settings);
@@ -112,13 +112,10 @@ describe("Get started entry points", () => {
 
     await openGetStartedFromProfileMenu(user);
 
-    expect(settings.updates).toEqual([hiddenRequest(false)]);
     expect(await screen.findByRole("heading", { name: "Get started" })).toBeVisible();
     expect(router.state.location.pathname).toBe("/get-started");
-    expect(await screen.findByRole("link", { name: "Get started" })).toHaveAttribute(
-      "href",
-      "/get-started",
-    );
+    expect(settings.updates).toEqual([]);
+    expect(sidebarLink("Get started")).not.toBeInTheDocument();
   });
 
   it("stays on the page with the reason when Dismiss cannot be saved", async () => {
@@ -136,21 +133,5 @@ describe("Get started entry points", () => {
     expect(router.state.location.pathname).toBe("/get-started");
     expect(sidebarLink("Get started")).toBeVisible();
     expect(settings.updates).toEqual([hiddenRequest(true)]);
-  });
-
-  it("opens the page with the reason when the profile menu cannot clear the setting", async () => {
-    const user = setupUser();
-    const settings = new FakeConsoleSettings(true);
-    const { router } = renderConsole("/overview", settings);
-    await screen.findByRole("link", { name: "Overview" });
-    settings.failing = true;
-
-    await openGetStartedFromProfileMenu(user);
-
-    expect(
-      await screen.findByText(/Saving the Get started setting outcome is uncertain/),
-    ).toBeVisible();
-    expect(router.state.location.pathname).toBe("/get-started");
-    expect(sidebarLink("Get started")).not.toBeInTheDocument();
   });
 });
