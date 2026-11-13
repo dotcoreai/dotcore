@@ -478,6 +478,9 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                         description: "Maximum prompt and generation context.".to_owned(),
                     }],
                 }),
+                profile_engine_parameter_defaults: None,
+                profile_engine_parameter_visibility_overrides: Vec::new(),
+                generated_engine_parameter_ids: Vec::new(),
                 custom_argument_tokens: Vec::new(),
                 resolved_options: Vec::new(),
                 selected_target: Some(dotcore_proto::dotcore::model::v1::ResolvedSelectedTarget {
