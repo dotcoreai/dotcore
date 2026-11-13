@@ -479,7 +479,9 @@ configurations:
         # The prompt cache shares the unified pool with the model.
         parameters:
           promptCacheOnAccelerator: 1
-          baseOffsetBytes: 0
+          # Measured on a GB10 with llama.cpp b12359 (2026-11-13): the derived base terms read up to
+          # 392 MiB low at the profile defaults (Q4_K_M; Q6_K 267 MiB).
+          baseOffsetBytes: 469762048
         bindingSizing:
           # Derived from qwen3-6 q4-xl (GB10): main-weight difference -1,158,046,240 B.
           - bindingId: "q4-k-m"
@@ -513,8 +515,9 @@ configurations:
         # The prompt cache stays in host memory, outside the GPU's own memory.
         parameters:
           promptCacheOnAccelerator: 0
-          # The qwen3-6 dedicated-memory offset (400 MiB, from its RTX 5090 smoke runs).
-          baseOffsetBytes: 419430400
+          # Measured on an RTX 5090 with llama.cpp b12359 (2026-11-13): the derived base terms read up
+          # to 766 MiB low at the profile defaults (Q4_K_M; Q5_K_M 704 MiB, Q6_K 640 MiB).
+          baseOffsetBytes: 889192448
         # The binding parameters are the nvidia-unified values verbatim, as in qwen3-6.
         bindingSizing:
           - bindingId: "q4-k-m"
