@@ -8,11 +8,11 @@
 # invalidate their arm64 signatures, so the fixup phase is disabled.
 stdenvNoCC.mkDerivation (finalAttrs: {
   pname = "llama-cpp";
-  version = "b11723";
+  version = "b12359";
 
   src = fetchurl {
     url = "https://github.com/ggml-org/llama.cpp/releases/download/${finalAttrs.version}/llama-${finalAttrs.version}-bin-macos-arm64.tar.gz";
-    hash = "sha256-3rwRu7E8eF1GbqEag303UEdtzVCgZzdYZEaZ91q9hIs=";
+    hash = "sha256-grAKvHQBYOG5mA5sx5wRc0X6NK8FjIDmwKaaqN3M3nU=";
   };
 
   dontConfigure = true;

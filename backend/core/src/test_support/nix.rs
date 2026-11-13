@@ -25,7 +25,7 @@ pub(crate) fn apple_metal_snapshot(model_id: &str) -> ModelDeploymentSnapshot {
         panic!("Apple Metal fixture requires a local snapshot");
     };
     let engine = local.engine_artifact.as_mut().expect("snapshot engine");
-    engine.engine_release_id = "llama-cpp-2026-10-19".to_owned();
+    engine.engine_release_id = "llama-cpp-2026-11-13".to_owned();
     let mut artifact = EngineArtifact {
         selectors: Vec::new(),
         ..engine_artifact("metal", &locked_flake(), "darwin", "arm64", "apple")

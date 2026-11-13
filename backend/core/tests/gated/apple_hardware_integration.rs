@@ -129,11 +129,12 @@ fn hw_apple_gpu_is_observed_with_a_fixed_device_id_across_polls() {
         NodeAcceleratorObservation::from_hardware_snapshot("node-a", &snapshots[0], false),
         NodeAcceleratorObservation::available_at(
             "node-a",
-            NodeAcceleratorFacts::apple(),
+            NodeAcceleratorFacts::apple()
+                .with_device_memory(gpu.device_id.clone(), None, None)
+                .with_device_model(gpu.model.clone())
+                .with_host_memory(host_total, host_available),
             observed_at
         )
-        .with_device_memory(gpu.device_id.clone(), None, None)
-        .with_host_memory(host_total, host_available)
     );
 }
 

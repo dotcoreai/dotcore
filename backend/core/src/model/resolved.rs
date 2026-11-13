@@ -1255,7 +1255,7 @@ mod tests {
                 inputs.hardware_class_id.as_str(),
             ),
             (
-                "llama-cpp-2026-10-19",
+                "llama-cpp-2026-11-13",
                 "metal",
                 dotcore_domain::test_support::nix::STORE_PATH,
                 "apple",

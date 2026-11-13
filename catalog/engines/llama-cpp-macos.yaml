@@ -2,9 +2,9 @@
 # flake as `engines.llama-cpp.native`. The packaged master catalog rewrites `self` to the locked Dotcore
 # revision with precomputed store paths, and fails unless the version equals the engine package
 # version (checked by `checks.dotcore-catalog`).
-engineReleaseId: "llama-cpp-2026-10-19"
+engineReleaseId: "llama-cpp-2026-11-13"
 engineKind: "ENGINE_KIND_LLAMA_CPP"
-version: "b11723"
+version: "b12359" # v1.0.0
 parameterSchema:
   schemaId: "llama-cpp-v2"
   parameters:
