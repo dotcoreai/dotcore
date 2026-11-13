@@ -168,9 +168,6 @@ message ResolvedLocalModelDeploymentSnapshot {
   // Engine parameter visibility overrides of the selected profile at creation.
   repeated dotcore.catalog.v1.ParameterVisibilityOverride profile_engine_parameter_visibility_overrides = 24;
 
-  // Secret engine parameter ids whose values were generated at creation, in schema order.
-  repeated string generated_engine_parameter_ids = 25;
-
   // Exact portable desired launch plan used for reconciliation.
   PortableModelLaunchPlan desired_launch_plan = 16;
 
