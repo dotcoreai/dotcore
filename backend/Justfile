@@ -133,9 +133,9 @@ gate-hardware-coverage:
   fi
   echo "hardware coverage gate: OK ($(wc -l < "$dir/hw_ignored" | tr -d ' ') hardware tests, $(wc -l < "$dir/allow" | tr -d ' ') marked non-hardware ignored tests)"
 
-# Build all backend workspace packages with locked dependencies.
-build:
-  cargo build --locked --workspace
+# Build all backend workspace packages with locked dependencies; extra arguments go to Cargo, such as a profile.
+build *args:
+  cargo build --locked --workspace "$@"
 
 # Remove Rust build output.
 clean:
