@@ -43,6 +43,7 @@ backend/
 ## Workflow
 
 - Use `just backend::<recipe>` from the repository root. Before completing backend changes, run `format`, `clippy`, `test` and `build`.
+- Development builds carry line tables only; use the `debugging` Cargo profile when you need full debug symbols.
 - Follow [`dev/AGENTS.md`](../dev/AGENTS.md) for the development stack, the workspace environment and `DOTCORE_BACKEND_RUN_MODE`. Composition owns the `DOTCORE_*` variables the backend reads; `dev/workspace-environment.mjs` derives them.
 - Every crate is published to crates.io, and each one must build from its own package: no build input outside its folder. `proto/dotcore` is a link to the repository's contracts for that reason; keep it a link. A new workspace crate:
   - inherits the shared package fields (`version`, `license`, `repository`, `homepage`, `readme`) with `.workspace = true`, and gets a `[workspace.dependencies]` entry with its version

@@ -57,3 +57,11 @@ tracing-appender = "0.2.5"
 tracing-subscriber = "0.3.23"
 url = "2.5.8"
 x509-parser = "0.18.0"
+
+# Line tables only to keep target dirs small; `debugging` has full symbols.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.debugging]
+inherits = "dev"
+debug = true
