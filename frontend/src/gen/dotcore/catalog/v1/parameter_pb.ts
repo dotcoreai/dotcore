@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/parameter.proto.
  */
 export const file_dotcore_catalog_v1_parameter: GenFile = /*@__PURE__*/
-  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEi8AMKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI7Cgp2aXNpYmlsaXR5GAcgASgOMicuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZpc2liaWxpdHkSPQoHYm9vbGVhbhgEIAEoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Cb29sZWFuUGFyYW1ldGVyU2NoZW1hSAASTgoQdW5zaWduZWRfaW50ZWdlchgFIAEoCzIyLmRvdGNvcmUuY2F0YWxvZy52MS5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWFIABJECgtzdHJpbmdfZW51bRgGIAEoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5TdHJpbmdFbnVtUGFyYW1ldGVyU2NoZW1hSAASNwoEdGV4dBgIIAEoCzInLmRvdGNvcmUuY2F0YWxvZy52MS5UZXh0UGFyYW1ldGVyU2NoZW1hSAASOwoGc2VjcmV0GAkgASgLMikuZG90Y29yZS5jYXRhbG9nLnYxLlNlY3JldFBhcmFtZXRlclNjaGVtYUgAQhAKDnBhcmFtZXRlcl90eXBlIkYKFkJvb2xlYW5QYXJhbWV0ZXJTY2hlbWESGgoNZGVmYXVsdF92YWx1ZRgBIAEoCEgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIn4KHlVuc2lnbmVkSW50ZWdlclBhcmFtZXRlclNjaGVtYRIPCgdtaW5pbXVtGAEgASgEEg8KB21heGltdW0YAiABKAQSDAoEdW5pdBgDIAEoCRIaCg1kZWZhdWx0X3ZhbHVlGAQgASgESACIAQFCEAoOX2RlZmF1bHRfdmFsdWUiWQoZU3RyaW5nRW51bVBhcmFtZXRlclNjaGVtYRIOCgZ2YWx1ZXMYASADKAkSGgoNZGVmYXVsdF92YWx1ZRgCIAEoCUgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlInMKE1RleHRQYXJhbWV0ZXJTY2hlbWESFgoObWluaW11bV9sZW5ndGgYASABKA0SFgoObWF4aW11bV9sZW5ndGgYAiABKA0SGgoNZGVmYXVsdF92YWx1ZRgDIAEoCUgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIkkKFVNlY3JldFBhcmFtZXRlclNjaGVtYRIYChBnZW5lcmF0ZWRfbGVuZ3RoGAEgASgNEhYKDm1pbmltdW1fbGVuZ3RoGAIgASgNIkUKD1BhcmFtZXRlclZhbHVlcxIyCgZ2YWx1ZXMYASADKAsyIi5kb3Rjb3JlLmNhdGFsb2cudjEuUGFyYW1ldGVyVmFsdWUicAoOUGFyYW1ldGVyVmFsdWUSFAoMcGFyYW1ldGVyX2lkGAEgASgJEhEKB2Jvb2xlYW4YAiABKAhIABIaChB1bnNpZ25lZF9pbnRlZ2VyGAMgASgESAASEAoGc3RyaW5nGAQgASgJSABCBwoFdmFsdWUqnwEKE1BhcmFtZXRlclZpc2liaWxpdHkSJAogUEFSQU1FVEVSX1ZJU0lCSUxJVFlfVU5TUEVDSUZJRUQQABIeChpQQVJBTUVURVJfVklTSUJJTElUWV9CQVNJQxABEiEKHVBBUkFNRVRFUl9WSVNJQklMSVRZX0FEVkFOQ0VEEAISHwobUEFSQU1FVEVSX1ZJU0lCSUxJVFlfSElEREVOEANiBnByb3RvMw");
+  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEi8AMKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI7Cgp2aXNpYmlsaXR5GAcgASgOMicuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZpc2liaWxpdHkSPQoHYm9vbGVhbhgEIAEoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Cb29sZWFuUGFyYW1ldGVyU2NoZW1hSAASTgoQdW5zaWduZWRfaW50ZWdlchgFIAEoCzIyLmRvdGNvcmUuY2F0YWxvZy52MS5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWFIABJECgtzdHJpbmdfZW51bRgGIAEoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5TdHJpbmdFbnVtUGFyYW1ldGVyU2NoZW1hSAASNwoEdGV4dBgIIAEoCzInLmRvdGNvcmUuY2F0YWxvZy52MS5UZXh0UGFyYW1ldGVyU2NoZW1hSAASOwoGc2VjcmV0GAkgASgLMikuZG90Y29yZS5jYXRhbG9nLnYxLlNlY3JldFBhcmFtZXRlclNjaGVtYUgAQhAKDnBhcmFtZXRlcl90eXBlIkYKFkJvb2xlYW5QYXJhbWV0ZXJTY2hlbWESGgoNZGVmYXVsdF92YWx1ZRgBIAEoCEgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIn4KHlVuc2lnbmVkSW50ZWdlclBhcmFtZXRlclNjaGVtYRIPCgdtaW5pbXVtGAEgASgEEg8KB21heGltdW0YAiABKAQSDAoEdW5pdBgDIAEoCRIaCg1kZWZhdWx0X3ZhbHVlGAQgASgESACIAQFCEAoOX2RlZmF1bHRfdmFsdWUiWQoZU3RyaW5nRW51bVBhcmFtZXRlclNjaGVtYRIOCgZ2YWx1ZXMYASADKAkSGgoNZGVmYXVsdF92YWx1ZRgCIAEoCUgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIosBChNUZXh0UGFyYW1ldGVyU2NoZW1hEhYKDm1pbmltdW1fbGVuZ3RoGAEgASgNEhsKDm1heGltdW1fbGVuZ3RoGAIgASgNSACIAQESGgoNZGVmYXVsdF92YWx1ZRgDIAEoCUgBiAEBQhEKD19tYXhpbXVtX2xlbmd0aEIQCg5fZGVmYXVsdF92YWx1ZSJ5ChVTZWNyZXRQYXJhbWV0ZXJTY2hlbWESGAoQZ2VuZXJhdGVkX2xlbmd0aBgBIAEoDRIWCg5taW5pbXVtX2xlbmd0aBgCIAEoDRIbCg5tYXhpbXVtX2xlbmd0aBgDIAEoDUgAiAEBQhEKD19tYXhpbXVtX2xlbmd0aCJFCg9QYXJhbWV0ZXJWYWx1ZXMSMgoGdmFsdWVzGAEgAygLMiIuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZhbHVlInAKDlBhcmFtZXRlclZhbHVlEhQKDHBhcmFtZXRlcl9pZBgBIAEoCRIRCgdib29sZWFuGAIgASgISAASGgoQdW5zaWduZWRfaW50ZWdlchgDIAEoBEgAEhAKBnN0cmluZxgEIAEoCUgAQgcKBXZhbHVlKp8BChNQYXJhbWV0ZXJWaXNpYmlsaXR5EiQKIFBBUkFNRVRFUl9WSVNJQklMSVRZX1VOU1BFQ0lGSUVEEAASHgoaUEFSQU1FVEVSX1ZJU0lCSUxJVFlfQkFTSUMQARIhCh1QQVJBTUVURVJfVklTSUJJTElUWV9BRFZBTkNFRBACEh8KG1BBUkFNRVRFUl9WSVNJQklMSVRZX0hJRERFThADYgZwcm90bzM");
 
 /**
  * Defines one owner-neutral typed parameter: its identity, label, guidance, visibility and value
@@ -193,25 +193,25 @@ export const StringEnumParameterSchemaSchema: GenMessage<StringEnumParameterSche
   messageDesc(file_dotcore_catalog_v1_parameter, 3);
 
 /**
- * Defines a free text parameter: any text within its length bounds, without `=` or control
- * characters.
+ * Defines a free text parameter: any single-line text within its length bounds, without control
+ * characters. Lengths count UTF-8 bytes.
  *
  * @generated from message dotcore.catalog.v1.TextParameterSchema
  */
 export type TextParameterSchema = Message<"dotcore.catalog.v1.TextParameterSchema"> & {
   /**
-   * Inclusive minimum length in characters.
+   * Inclusive minimum length in bytes.
    *
    * @generated from field: uint32 minimum_length = 1;
    */
   minimumLength: number;
 
   /**
-   * Inclusive maximum length in characters, at least 1.
+   * Inclusive maximum length in bytes, at least 1 and at least the minimum; none when unbounded.
    *
-   * @generated from field: uint32 maximum_length = 2;
+   * @generated from field: optional uint32 maximum_length = 2;
    */
-  maximumLength: number;
+  maximumLength?: number;
 
   /**
    * Value used when the caller supplies none, within the length bounds.
@@ -230,24 +230,31 @@ export const TextParameterSchemaSchema: GenMessage<TextParameterSchema> = /*@__P
 
 /**
  * Defines a secret parameter: never defaulted, generated at random from letters and digits when the
- * caller supplies none, and masked by clients until asked.
+ * caller supplies none, and masked by clients until asked. Lengths count UTF-8 bytes.
  *
  * @generated from message dotcore.catalog.v1.SecretParameterSchema
  */
 export type SecretParameterSchema = Message<"dotcore.catalog.v1.SecretParameterSchema"> & {
   /**
-   * Length in characters of a generated value, at least the minimum length.
+   * Length in bytes of a generated value, within the length bounds.
    *
    * @generated from field: uint32 generated_length = 1;
    */
   generatedLength: number;
 
   /**
-   * Inclusive minimum length in characters of a supplied value, at least 1.
+   * Inclusive minimum length in bytes of a supplied value, at least 1.
    *
    * @generated from field: uint32 minimum_length = 2;
    */
   minimumLength: number;
+
+  /**
+   * Inclusive maximum length in bytes of a supplied value; none when unbounded.
+   *
+   * @generated from field: optional uint32 maximum_length = 3;
+   */
+  maximumLength?: number;
 };
 
 /**

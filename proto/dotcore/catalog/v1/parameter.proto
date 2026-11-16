@@ -66,27 +66,30 @@ message StringEnumParameterSchema {
   optional string default_value = 2;
 }
 
-// Defines a free text parameter: any text within its length bounds, without `=` or control
-// characters.
+// Defines a free text parameter: any single-line text within its length bounds, without control
+// characters. Lengths count UTF-8 bytes.
 message TextParameterSchema {
-  // Inclusive minimum length in characters.
+  // Inclusive minimum length in bytes.
   uint32 minimum_length = 1;
 
-  // Inclusive maximum length in characters, at least 1.
-  uint32 maximum_length = 2;
+  // Inclusive maximum length in bytes, at least 1 and at least the minimum; none when unbounded.
+  optional uint32 maximum_length = 2;
 
   // Value used when the caller supplies none, within the length bounds.
   optional string default_value = 3;
 }
 
 // Defines a secret parameter: never defaulted, generated at random from letters and digits when the
-// caller supplies none, and masked by clients until asked.
+// caller supplies none, and masked by clients until asked. Lengths count UTF-8 bytes.
 message SecretParameterSchema {
-  // Length in characters of a generated value, at least the minimum length.
+  // Length in bytes of a generated value, within the length bounds.
   uint32 generated_length = 1;
 
-  // Inclusive minimum length in characters of a supplied value, at least 1.
+  // Inclusive minimum length in bytes of a supplied value, at least 1.
   uint32 minimum_length = 2;
+
+  // Inclusive maximum length in bytes of a supplied value; none when unbounded.
+  optional uint32 maximum_length = 3;
 }
 
 // Supplies a set of exact typed parameter values.
