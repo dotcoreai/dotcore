@@ -21,6 +21,9 @@ message StrataFixedModelSettings {
   // Generic engine parameter containing the accelerator memory cap for the model's experts in MiB.
   string expert_vram_mib_parameter_id = 1;
 
+  // Generic engine parameter containing the host memory pinned for the experts beyond the accelerator cap in MiB; empty when the configuration excludes it.
+  string expert_host_memory_mib_parameter_id = 7;
+
   // Model architecture Strata's engine runs, as the model's GGUF names it.
   string architecture = 2;
 
