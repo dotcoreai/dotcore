@@ -721,6 +721,66 @@ fn catalog_sizing_resolves_estimates_into_the_deployment_snapshot() {
     }
 }
 
+/// Qwen3.8 IQ2_XS on Strata derives its default expert host memory, and its host memory estimate
+/// is that budget, whatever value the deployment sets.
+#[test]
+fn repository_strata_host_memory_follows_the_expert_host_memory() {
+    let catalog = repository_catalog();
+    let selection = (
+        "qwen3-8-flash-next",
+        "strata-nvidia-cuda",
+        "nvidia-gb202",
+        "iq2-xs",
+    );
+    let context = [
+        ("total-context", 32_768),
+        ("context-per-request", 32_768),
+        ("parallel-requests", 1),
+    ];
+    let derived = catalog
+        .derive_local_parameters(
+            selection.0,
+            selection.1,
+            selection.2,
+            selection.3,
+            &unsigned_values(&context),
+            &[],
+        )
+        .expect("derived parameters");
+    assert_eq!(
+        derived,
+        [
+            ("expert-host-memory-mib".to_owned(), 29_988),
+            ("expert-vram-mib".to_owned(), 18_432),
+        ]
+    );
+
+    for host_mib in [29_988, 8_192, 0] {
+        let mut values = context.to_vec();
+        values.extend([
+            ("expert-vram-mib", 18_432),
+            ("expert-host-memory-mib", host_mib),
+        ]);
+        let estimates = catalog
+            .evaluate_local_sizing_inputs(
+                selection.0,
+                selection.1,
+                selection.2,
+                selection.3,
+                Some("iq2-xs"),
+                &["draft-layer".to_owned()],
+                &unsigned_values(&values),
+                &[],
+            )
+            .expect("estimates");
+        let host = estimates
+            .iter()
+            .find(|estimate| estimate.resource == "hostMemory")
+            .map(|estimate| estimate.value);
+        assert_eq!(host, Some(host_mib * 1_048_576), "{host_mib} MiB");
+    }
+}
+
 /// A llama.cpp sizing equation counts each parallel request's own state once per request, so the
 /// estimate moves by exactly that state per request added or removed.
 #[test]
