@@ -12,14 +12,15 @@ graph:
       displayName: "Dashboard username"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "The username for logging in to the Hermes dashboard."
+      # Hermes refuses an empty username and sets no maximum (`plugins/dashboard_auth/basic/__init__.py`).
       text:
         minimumLength: 1
-        maximumLength: 1024
         defaultValue: "admin"
     - parameterId: "dashboard-password"
       displayName: "Dashboard password"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "The password for logging in to the Hermes dashboard. Leave it empty to generate a random one, which you can read in the deployment's sidebar."
+      # Hermes refuses an empty password and sets no maximum (`plugins/dashboard_auth/basic/__init__.py`).
       secret:
         generatedLength: 32
         minimumLength: 1

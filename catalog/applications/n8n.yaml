@@ -15,7 +15,7 @@ graph:
       displayName: "Owner email"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "The email address for logging in to n8n as its owner."
-      # Email addresses run from `a@b` (3 characters) to 254 characters (RFC 5321 path limit).
+      # Email addresses run from `a@b` (3 bytes) to 254 bytes (RFC 5321 path limit).
       text:
         minimumLength: 3
         maximumLength: 254
@@ -24,9 +24,12 @@ graph:
       displayName: "Owner password"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "The password for logging in to n8n as its owner. Leave it empty to generate a random one, which you can read in the deployment's sidebar."
+      # The least minimum a secret accepts; n8n 2.43.5 hashes with bcryptjs 2.4.3, which reads only
+      # the first 72 bytes.
       secret:
         generatedLength: 32
         minimumLength: 1
+        maximumLength: 72
   services:
     - serviceName: "web"
       # The image and its digests are pinned by `apps/n8n/docker-image.nix`.

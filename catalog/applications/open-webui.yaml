@@ -17,7 +17,7 @@ graph:
       displayName: "Admin email"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "The email address for logging in to Open WebUI as its admin. Applies only when login is required."
-      # Email addresses run from `a@b` (3 characters) to 254 characters (RFC 5321 path limit).
+      # Email addresses run from `a@b` (3 bytes) to 254 bytes (RFC 5321 path limit).
       text:
         minimumLength: 3
         maximumLength: 254
@@ -26,9 +26,12 @@ graph:
       displayName: "Admin password"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "The initial password for logging in to Open WebUI as its admin. Leave it empty to generate a random one, which you can read in the deployment's sidebar. Applies only when login is required. If you change the password inside Open WebUI, the one shown here is no longer valid."
+      # The least minimum a secret accepts; Open WebUI 0.11.4 hashes with bcrypt and refuses more than
+      # 72 bytes (`PASSWORD_BCRYPT_MAX_BYTES`, `open_webui/utils/auth.py:53`).
       secret:
         generatedLength: 32
         minimumLength: 1
+        maximumLength: 72
   services:
     - serviceName: "web"
       # The image and its digests are pinned by `apps/open-webui/docker-image.nix`.
