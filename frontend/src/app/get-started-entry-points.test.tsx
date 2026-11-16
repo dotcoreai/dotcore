@@ -52,6 +52,22 @@ async function openGetStartedFromProfileMenu(user: ReturnType<typeof setupUser>)
 }
 
 describe("Get started entry points", () => {
+  it("opens the console root on the page while the site shows it", async () => {
+    const settings = new FakeConsoleSettings(false);
+    const { router } = renderConsole("/", settings);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Get started" })).toBeVisible();
+    expect(router.state.location.pathname).toBe("/get-started");
+  });
+
+  it("opens the console root on the overview once the site hides the page", async () => {
+    const settings = new FakeConsoleSettings(true);
+    const { router } = renderConsole("/", settings);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
+    expect(router.state.location.pathname).toBe("/overview");
+  });
+
   it("shows the sidebar item first while the site shows it and opens the page", async () => {
     const user = setupUser();
     const settings = new FakeConsoleSettings(false);

@@ -10,7 +10,8 @@ Code: `frontend/` (its `AGENTS.md` holds the code map).
 - Manage and observe the site, its machines, deployments and routes, through the management API.
 - See live updates as the site changes.
 - Start with a guided Get started page that proposes, for each use case, a model, an app or both
-  that can start now on your hardware ([recommendations](recommendations.md)).
+  that can start now on your hardware ([recommendations](recommendations.md)). The console opens
+  on it until it's hidden.
 - Check fit and preview memory before deploying, from the server's capacity answers.
 - Explore metric history across machines, devices, deployments and routes.
 - Try inference routes: conversations with chat routes, and typed questions to decision routes

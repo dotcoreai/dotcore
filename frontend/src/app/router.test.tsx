@@ -481,11 +481,10 @@ describe("application router", () => {
     expect(screen.queryByText("No applications deployed")).not.toBeInTheDocument();
   });
 
-  it("redirects the root route to Overview", async () => {
-    const { router } = renderAt("/");
+  it("renders the Overview route with active navigation", async () => {
+    renderAt("/overview");
 
     const h1 = await screen.findByRole("heading", { level: 1, name: "Overview" });
-    expect(router.state.location.pathname).toBe("/overview");
     const overviewLink = screen.getByRole("link", { name: "Overview" });
     expect(overviewLink).toHaveAttribute("aria-current", "page");
     expectPageHeader(h1, overviewLink, "lucide-layout-dashboard");
