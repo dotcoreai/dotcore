@@ -2021,6 +2021,59 @@ mod tests {
     }
 
     #[test]
+    fn a_parameter_the_configuration_excludes_gets_no_value_and_rejects_a_supplied_one() {
+        let catalog = shared_parameter_catalog_with("", |model| {
+            model
+                .replace(
+                    &format!(
+                        "      values:\n{}",
+                        dotcore_catalog::test_support::SIZING_ENGINE_CACHE_DEFAULT
+                    ),
+                    "      values: []\n",
+                )
+                .replace(
+                    "    hardwareSupport:\n",
+                    "    excludedEngineParameterIds: [\"prompt-cache-memory-mib\"]\n    hardwareSupport:\n",
+                )
+        });
+        let completed = apply_profile_defaults(
+            &catalog,
+            &derived_model_id(),
+            "balanced",
+            &LocalModelDeploymentConfiguration::default(),
+        )
+        .expect("engine defaults");
+        assert_eq!(
+            resolve_local_values(&catalog, &derived_model_id(), "balanced", &completed)
+                .expect("values without the excluded parameter")
+                .engine_parameter_values,
+            unsigned_values(&[
+                (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
+                (PARALLEL_REQUESTS_PARAMETER_ID, 4),
+                (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
+            ])
+        );
+
+        let mut supplied = completed;
+        supplied
+            .engine_parameter_values
+            .get_or_insert_default()
+            .values
+            .push(prompt_cache_value(512));
+        let Err(error) = resolve_local_values(&catalog, &derived_model_id(), "balanced", &supplied)
+        else {
+            panic!("a value for an excluded parameter must reject");
+        };
+        let error = error.to_string();
+        assert!(
+            error.contains(
+                "engine parameter \"prompt-cache-memory-mib\" is not a parameter of the configuration's engine release"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
     fn a_supplied_value_wins_over_profile_and_engine_defaults() {
         let catalog = shared_parameter_catalog(
             "        - parameterId: \"parallel-requests\"\n          unsignedInteger: \"2\"\n",

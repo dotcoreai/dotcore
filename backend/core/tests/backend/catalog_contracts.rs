@@ -2480,7 +2480,7 @@ fn catalog_rejects_mismatched_boolean_values_and_invalid_visibility_overrides() 
     for (overrides, expected) in [
         (
             vec![("missing", Hidden)],
-            "profile \"balanced\" overrides the visibility of engine parameter \"missing\", which is not a parameter of the engine release",
+            "profile \"balanced\" overrides the visibility of engine parameter \"missing\", which is not a parameter of the configuration's engine release",
         ),
         (
             vec![("feature-enabled", Hidden), ("feature-enabled", Advanced)],

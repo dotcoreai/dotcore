@@ -30,9 +30,11 @@ use crate::{
         valid_option_values,
     },
     selector::{SelectorRelation, selector_relation},
-    shared_parameters::{profile_may_default, profile_visibility_problem},
+    shared_parameters::{is_shared_parameter, profile_may_default, profile_visibility_problem},
     typed_parameters::{check_value, default_value, is_secret},
-    validation::{EngineDeclarationValidator, configuration_engine_release},
+    validation::{
+        EngineDeclarationValidator, configuration_engine_release, release_for_configuration,
+    },
 };
 
 const MAX_WEIGHT_QUANTIZATION_BYTES: usize = 128;
@@ -292,6 +294,7 @@ fn validate_configuration(
     let Some(engine) = validate_approved_engine_releases(configuration, engines, errors) else {
         return;
     };
+    validate_excluded_engine_parameters(configuration, engine, errors);
     let selected_artifacts = configuration
         .engine_artifacts
         .iter()
@@ -389,7 +392,7 @@ fn validate_configuration(
         model,
         configuration,
         &supported_classes,
-        engine,
+        &release_for_configuration(engine, configuration),
     ));
 }
 
@@ -442,6 +445,37 @@ fn validate_approved_engine_releases<'a>(
         releases.push(release);
     }
     releases.first().copied().filter(|_| consistent)
+}
+
+/// Checks that a configuration excludes each engine parameter at most once, only parameters its
+/// release declares, and never a shared engine parameter, which every configuration keeps.
+fn validate_excluded_engine_parameters(
+    configuration: &ModelEngineConfiguration,
+    engine: &EngineRelease,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    let declared = engine
+        .parameter_schema
+        .iter()
+        .flat_map(|schema| &schema.parameters)
+        .map(|parameter| parameter.parameter_id.as_str())
+        .collect::<BTreeSet<_>>();
+    let mut excluded = BTreeSet::new();
+    for parameter_id in &configuration.excluded_engine_parameter_ids {
+        let problem = if !excluded.insert(parameter_id.as_str()) {
+            "more than once"
+        } else if !declared.contains(parameter_id.as_str()) {
+            "which its engine release doesn't declare"
+        } else if is_shared_parameter(parameter_id) {
+            "which every configuration keeps"
+        } else {
+            continue;
+        };
+        errors.push(anyhow::anyhow!(
+            "configuration {:?} excludes engine parameter {parameter_id:?} {problem}",
+            configuration.configuration_id
+        ));
+    }
 }
 
 /// Whether two engine releases declare the same parameter schema id and the same parameter
@@ -819,6 +853,7 @@ fn validate_profiles(
         let Some(engine) = configuration_engine_release(configuration, engines) else {
             continue;
         };
+        let engine = &*engine;
         validate_visibility_overrides(profile, engine, errors);
         match profile.engine_parameter_defaults.as_ref() {
             Some(values) => {
@@ -881,7 +916,7 @@ fn validate_visibility_overrides(
             .any(|definition| &definition.parameter_id == parameter_id)
         {
             errors.push(anyhow::anyhow!(
-                "profile {profile_id:?} overrides the visibility of engine parameter {parameter_id:?}, which is not a parameter of the engine release"
+                "profile {profile_id:?} overrides the visibility of engine parameter {parameter_id:?}, which is not a parameter of the configuration's engine release"
             ));
             continue;
         }
@@ -985,7 +1020,7 @@ pub fn validate_supplied_parameter_values(
             .find(|definition| &definition.parameter_id == parameter_id)
         else {
             errors.push(anyhow::anyhow!(
-                "profile {profile_id:?} engine parameter {parameter_id:?} is not a parameter of the engine release"
+                "profile {profile_id:?} engine parameter {parameter_id:?} is not a parameter of the configuration's engine release"
             ));
             continue;
         };

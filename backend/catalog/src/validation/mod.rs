@@ -7,7 +7,10 @@
 //! stopping the pass, so all problems are reported and the load fails only as a whole, never
 //! publishing a partial catalog.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 use dotcore_proto::dotcore::catalog::v1::{
     Application, EngineRelease, HardwareClass, HardwareClassRecommendations, Model,
@@ -390,6 +393,7 @@ fn validate_sizing_coverage(
             let Some(engine) = configuration_engine_release(configuration, engines) else {
                 continue;
             };
+            let engine = &*engine;
             let binding_sizing = |hardware_class_id: &str, binding_id: &str| {
                 sizing.get(&SizingKey {
                     model_id: model.model_id.clone(),
@@ -533,6 +537,7 @@ fn configuration_engine_defaults(
                 .iter()
                 .filter_map(move |configuration| {
                     let engine = configuration_engine_release(configuration, engines)?;
+                    let engine = &*engine;
                     let defaults = model::overlay_parameter_defaults(
                         &engine_validator.configuration_parameter_defaults(
                             model,
@@ -553,18 +558,41 @@ fn configuration_engine_defaults(
         .collect()
 }
 
-/// Returns the engine release that stands for all of a configuration's approved releases: the
-/// release of its first approved artifact. Configuration validation requires every approved
-/// release to share one engine kind and identical parameter definitions, so for a validated
-/// configuration any approved release defines the same engine parameters.
+/// Returns the engine release that stands for all of a configuration's approved releases, narrowed
+/// to the configuration's engine parameters: the release of its first approved artifact.
+/// Configuration validation requires every approved release to share one engine kind and identical
+/// parameter definitions, so for a validated configuration any approved release defines the same
+/// engine parameters.
 pub(super) fn configuration_engine_release<'a>(
     configuration: &ModelEngineConfiguration,
     engines: &'a BTreeMap<String, EngineRelease>,
-) -> Option<&'a EngineRelease> {
+) -> Option<Cow<'a, EngineRelease>> {
     configuration
         .engine_artifacts
         .first()
         .and_then(|reference| engines.get(&reference.engine_release_id))
+        .map(|release| release_for_configuration(release, configuration))
+}
+
+/// Returns `release` with only the engine parameters `configuration` keeps: its parameter schema
+/// without the parameters the configuration excludes. Borrows the release when it excludes none.
+pub(crate) fn release_for_configuration<'a>(
+    release: &'a EngineRelease,
+    configuration: &ModelEngineConfiguration,
+) -> Cow<'a, EngineRelease> {
+    if configuration.excluded_engine_parameter_ids.is_empty() {
+        return Cow::Borrowed(release);
+    }
+
+    let mut narrowed = release.clone();
+    if let Some(schema) = narrowed.parameter_schema.as_mut() {
+        schema.parameters.retain(|parameter| {
+            !configuration
+                .excluded_engine_parameter_ids
+                .contains(&parameter.parameter_id)
+        });
+    }
+    Cow::Owned(narrowed)
 }
 
 fn report_duplicates<T>(
