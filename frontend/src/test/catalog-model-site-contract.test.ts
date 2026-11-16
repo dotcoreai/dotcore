@@ -302,6 +302,7 @@ describe("separate catalog and model read contracts", () => {
       "request_kinds",
       "options",
       "maximum_context_tokens",
+      "excluded_engine_parameter_ids",
     ]);
     expect(file_dotcore_catalog_v1_execution.enums.map(({ name }) => name)).toEqual([
       "ModelParallelShape",

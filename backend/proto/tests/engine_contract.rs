@@ -240,6 +240,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
             ("request_kinds", 11),
             ("options", 8),
             ("maximum_context_tokens", 10),
+            ("excluded_engine_parameter_ids", 12),
         ]
     );
     assert_eq!(
