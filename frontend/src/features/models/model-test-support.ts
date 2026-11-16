@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 
 import { EngineReleaseSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { EngineKind } from "@/gen/dotcore/engine/v1/engine_pb";
 import { ResolvedLocalModelDeploymentSnapshotSchema } from "@/gen/dotcore/model/v1/deployment_pb";
 import { ScalarResourceEstimateSchema } from "@/gen/dotcore/model/v1/service_pb";
@@ -76,7 +77,7 @@ export const releases = [
         {
           parameterId: "total-context",
           displayName: "Total context",
-          exposed: true,
+          visibility: ParameterVisibility.BASIC,
           parameterType: {
             case: "unsignedInteger",
             value: { minimum: 1024n, maximum: 32768n, unit: "tokens" },
@@ -96,7 +97,7 @@ export const multiParameterReleases = [
         {
           parameterId: "total-context",
           displayName: "Total context",
-          exposed: true,
+          visibility: ParameterVisibility.BASIC,
           parameterType: {
             case: "unsignedInteger",
             value: { minimum: 1024n, maximum: 131072n, unit: "tokens" },
@@ -104,6 +105,7 @@ export const multiParameterReleases = [
         },
         {
           parameterId: "parallel-requests",
+          visibility: ParameterVisibility.HIDDEN,
           displayName: "Parallel requests",
           parameterType: {
             case: "unsignedInteger",
@@ -112,6 +114,7 @@ export const multiParameterReleases = [
         },
         {
           parameterId: "kv-cache-memory-bytes",
+          visibility: ParameterVisibility.HIDDEN,
           displayName: "KV cache memory",
           parameterType: {
             case: "unsignedInteger",
@@ -120,6 +123,7 @@ export const multiParameterReleases = [
         },
         {
           parameterId: "enable-prefix-caching",
+          visibility: ParameterVisibility.ADVANCED,
           displayName: "Prefix caching",
           description: "Caches reusable prompt prefixes.",
           parameterType: { case: "boolean", value: {} },
@@ -158,7 +162,6 @@ export const multiParameterModel = create(ModelSchema, {
       description: "Runs the model through vLLM for text inference.",
       configurationId: "vllm-cuda",
       defaultModelArtifactBindingId: "nvfp4-binding",
-      exposedParameterIds: ["enable-prefix-caching", "total-context"],
       engineParameterDefaults: {
         values: [
           { parameterId: "total-context", value: { case: "unsignedInteger", value: 32768n } },
@@ -183,7 +186,7 @@ export const kvOffloadReleases = [
         {
           parameterId: "total-context",
           displayName: "Total context",
-          exposed: true,
+          visibility: ParameterVisibility.BASIC,
           parameterType: {
             case: "unsignedInteger",
             value: { minimum: 1024n, maximum: 131072n, unit: "tokens" },
@@ -191,7 +194,7 @@ export const kvOffloadReleases = [
         },
         {
           parameterId: "kv-offloading-size-gib",
-          exposed: true,
+          visibility: ParameterVisibility.ADVANCED,
           displayName: "KV offloading size",
           parameterType: {
             case: "unsignedInteger",

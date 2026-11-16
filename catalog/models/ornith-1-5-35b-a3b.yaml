@@ -286,6 +286,7 @@ configurations:
         parameters:
           - parameterId: "token-count"
             displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing was measured over.
             unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
         defaultValues:
           optionId: "mtp"
@@ -411,6 +412,7 @@ configurations:
         parameters:
           - parameterId: "token-count"
             displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing was measured over.
             unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
         defaultValues:
           optionId: "mtp"
@@ -621,6 +623,7 @@ configurations:
         parameters:
           - parameterId: "token-count"
             displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing was measured over.
             unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
         defaultValues:
           optionId: "mtp"

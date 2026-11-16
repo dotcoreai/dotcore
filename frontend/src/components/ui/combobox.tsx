@@ -2,6 +2,7 @@ import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react";
 import * as React from "react";
 
+import { FieldHelp } from "@/components/ui/field";
 import { useInspectorFloatingLayerRegistration } from "@/components/ui/inspector-shell";
 import { ResourceMarker } from "@/components/ui/resource-marker";
 import { StatusDot } from "@/components/ui/status-badge";
@@ -31,9 +32,10 @@ type ComboboxSharedProps = {
   options: readonly ComboboxOption[];
   ariaInvalid?: boolean;
   className?: string;
-  description?: string;
   disabled?: boolean;
   errorDescriptionId?: string;
+  /** What the field does, shown in a help popover beside the label. */
+  help?: string;
   /** Keeps the label for assistive technology only, where the surrounding layout names the field. */
   hideLabel?: boolean;
   inputRef?: React.Ref<HTMLInputElement>;
@@ -41,6 +43,8 @@ type ComboboxSharedProps = {
   loadingMessageVisible?: boolean;
   onBlur?: React.FocusEventHandler<HTMLInputElement>;
   placeholder?: string;
+  /** The field's current state, such as that its options are loading, shown under the input. */
+  status?: string;
 };
 
 type SingleComboboxProps = ComboboxSharedProps & {
@@ -77,9 +81,9 @@ function SingleCombobox({
   ariaInvalid,
   className,
   clearable = true,
-  description,
   disabled,
   errorDescriptionId,
+  help,
   hideLabel = false,
   inputRef,
   label,
@@ -90,14 +94,16 @@ function SingleCombobox({
   options,
   placeholder,
   searchable = true,
+  status,
   value,
 }: SingleComboboxProps) {
-  const descriptionId = React.useId();
   const inputId = React.useId();
   const labelId = React.useId();
-  const describedBy = [description ? descriptionId : undefined, errorDescriptionId]
-    .filter(Boolean)
-    .join(" ");
+  const { describedBy, descriptionId, statusId } = useComboboxDescription({
+    errorDescriptionId,
+    help,
+    status,
+  });
   const registerFloatingLayer = useInspectorFloatingLayerRegistration();
 
   return (
@@ -111,7 +117,14 @@ function SingleCombobox({
       value={value}
     >
       <div className={cn("grid grid-cols-[minmax(0,1fr)] gap-1.5", className)}>
-        <ComboboxLabel hidden={hideLabel} id={labelId} inputId={inputId} label={label} />
+        <ComboboxLabel
+          descriptionId={descriptionId}
+          help={help}
+          hidden={hideLabel}
+          id={labelId}
+          inputId={inputId}
+          label={label}
+        />
         <ComboboxPrimitive.InputGroup className="flex h-control-md items-center rounded-lg border border-input bg-card pr-1 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30">
           <ComboboxPrimitive.Input
             id={inputId}
@@ -132,11 +145,7 @@ function SingleCombobox({
             <ChevronDownIcon />
           </ComboboxPrimitive.Trigger>
         </ComboboxPrimitive.InputGroup>
-        {description ? (
-          <p id={descriptionId} className="text-sm text-muted-foreground">
-            {description}
-          </p>
-        ) : null}
+        <ComboboxStatus id={statusId} status={status} />
       </div>
       <ComboboxPopup
         loading={loading}
@@ -152,9 +161,9 @@ function MultipleCombobox({
   ariaInvalid,
   className,
   closeOnSelect = false,
-  description,
   disabled,
   errorDescriptionId,
+  help,
   hideLabel = false,
   inputRef,
   label,
@@ -164,14 +173,16 @@ function MultipleCombobox({
   onValueChange,
   options,
   placeholder = "Search options",
+  status,
   value,
 }: MultipleComboboxProps) {
-  const descriptionId = React.useId();
   const inputId = React.useId();
   const labelId = React.useId();
-  const describedBy = [description ? descriptionId : undefined, errorDescriptionId]
-    .filter(Boolean)
-    .join(" ");
+  const { describedBy, descriptionId, statusId } = useComboboxDescription({
+    errorDescriptionId,
+    help,
+    status,
+  });
   const optionLabel = createOptionLabel(options);
   const findOption = (id: string) => options.find((option) => option.id === id);
   const registerFloatingLayer = useInspectorFloatingLayerRegistration();
@@ -206,7 +217,14 @@ function MultipleCombobox({
       value={value}
     >
       <div className={cn("grid grid-cols-[minmax(0,1fr)] gap-1.5", className)}>
-        <ComboboxLabel hidden={hideLabel} id={labelId} inputId={inputId} label={label} />
+        <ComboboxLabel
+          descriptionId={descriptionId}
+          help={help}
+          hidden={hideLabel}
+          id={labelId}
+          inputId={inputId}
+          label={label}
+        />
         <ComboboxPrimitive.InputGroup className="flex min-h-control-md items-start gap-1 rounded-lg border border-input bg-card p-1 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30">
           {/* Chips and the input wrap as one flow beside the trigger, which stays on the first line.
               The vertical padding centers the first line on the taller trigger. */}
@@ -253,11 +271,7 @@ function MultipleCombobox({
             <ChevronDownIcon />
           </ComboboxPrimitive.Trigger>
         </ComboboxPrimitive.InputGroup>
-        {description ? (
-          <p id={descriptionId} className="text-sm text-muted-foreground">
-            {description}
-          </p>
-        ) : null}
+        <ComboboxStatus id={statusId} status={status} />
       </div>
       <ComboboxPopup
         loading={loading}
@@ -270,22 +284,59 @@ function MultipleCombobox({
 }
 
 /**
+ * Ids for a combobox's help, status and error descriptions, plus the `aria-describedby` that
+ * joins the ones currently shown.
+ */
+function useComboboxDescription({
+  errorDescriptionId,
+  help,
+  status,
+}: Pick<ComboboxSharedProps, "errorDescriptionId" | "help" | "status">) {
+  const descriptionId = React.useId();
+  const statusId = React.useId();
+  const describedBy = [
+    help ? descriptionId : undefined,
+    status ? statusId : undefined,
+    errorDescriptionId,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return { describedBy, descriptionId, statusId };
+}
+
+/** The field's current state, shown under the input and referenced by its description. */
+function ComboboxStatus({ id, status }: Pick<ComboboxSharedProps, "status"> & { id: string }) {
+  if (!status) return null;
+
+  return (
+    <p className="text-sm text-muted-foreground" id={id}>
+      {status}
+    </p>
+  );
+}
+
+/**
  * The field label. The input names itself through `aria-labelledby` rather than `htmlFor` alone:
  * while the popup is open Base UI hides everything outside it and the input from assistive
  * technology, label included, and only a label reference survives that hiding.
  */
 function ComboboxLabel({
+  descriptionId,
+  help,
   hidden,
   id,
   inputId,
   label,
 }: {
+  descriptionId: string;
+  help?: string;
   hidden: boolean;
   id: string;
   inputId: string;
   label: string;
 }) {
-  return (
+  const labelElement = (
     <label
       className={cn("text-sm font-medium text-foreground", hidden && "sr-only")}
       htmlFor={inputId}
@@ -293,6 +344,16 @@ function ComboboxLabel({
     >
       {label}
     </label>
+  );
+  if (!help) return labelElement;
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {labelElement}
+      <FieldHelp descriptionId={descriptionId} label={label}>
+        {help}
+      </FieldHelp>
+    </div>
   );
 }
 

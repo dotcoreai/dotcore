@@ -6,7 +6,7 @@ import {
   dedicatedPreview,
   gib,
 } from "@/features/models/deploy/memory/model-deploy-memory-test-support";
-import { EngineParameterValuesSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { ParameterValuesSchema } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   type ExactPlacement,
   ExactPlacementSchema,
@@ -146,7 +146,7 @@ function request(key: string, target?: string): ResourceEstimateRequest {
     values: {
       configuration: {
         customArgumentTokens: [],
-        engineParameterValues: create(EngineParameterValuesSchema),
+        engineParameterValues: create(ParameterValuesSchema),
         modelArtifactBindingId: `binding-${key}`,
         optionOverrides: [],
       },

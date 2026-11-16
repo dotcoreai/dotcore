@@ -44,7 +44,7 @@ use crate::{
         advisory::local_deployment_advisories,
         engine::{EngineIntegrationRegistry, engine_artifact_kinds, unsigned_parameter_value},
         resolution::{
-            ModelLaunchResolutionError, apply_profile_defaults,
+            EngineSecrets, ModelLaunchResolutionError, apply_profile_defaults,
             resolve_local_launch_on_selected_target,
         },
         selection::{EngineArtifactSelectionError, engine_artifact_kind},
@@ -261,6 +261,7 @@ pub(crate) fn evaluate_profile(
             target,
             selected,
             None,
+            EngineSecrets::Withhold,
         )
     });
     let snapshot = match resolved {

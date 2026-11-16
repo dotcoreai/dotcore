@@ -370,6 +370,7 @@ where
                 ),
                 inference_route_resolver: inference_route_resolver(routing.route_manager.clone()),
                 target_capabilities,
+                secret_generator: Arc::new(crate::RandomSecretGenerator),
             },
             log_admission,
         )?;

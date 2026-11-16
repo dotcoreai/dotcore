@@ -6,8 +6,9 @@
 //! serves the output of each preparation step it ran for the deployment, then
 //! reads or tails the runtime logs of the workload launch rebuilt from its
 //! installed view and prepared artifacts, addressed by the launch's container
-//! correlation. The configured upstream API keys and base URLs are also
-//! returned so the caller can redact them from returned log lines.
+//! correlation. The configured upstream API keys and base URLs, and the
+//! secret engine parameter values of local deployments, are also returned so
+//! the caller can redact them from returned log lines.
 
 use std::{
     future::Future,
@@ -129,7 +130,10 @@ where
                             .as_ref()
                             .map(|endpoint| endpoint.base_url.clone()),
                     )
-                });
+                })
+                .chain(crate::model::resolved::secret_engine_parameter_values(
+                    deployment,
+                ));
             Ok(ProtectedLogValues::new(values))
         }
     }
@@ -215,6 +219,28 @@ impl<D: ModelRealizationInput> NodeModelLogs<D> {
         }
     }
 
+    /// The secret engine parameter values of `deployment_id` in the installed view, which its
+    /// log lines never show. None without a view, since nothing was realized yet, or when the
+    /// view does not assign it; any other failure to read the view fails the read.
+    fn protected_values(
+        &self,
+        deployment_id: &str,
+    ) -> Result<ProtectedLogValues, DeploymentLogError> {
+        let assigned = match self.input.model_deployments() {
+            Ok(assigned) => assigned,
+            // Without an installed view this incarnation has realized nothing, so no line yet
+            // carries a value.
+            Err(SiteRepositoryError::NoAcceptedView) => Vec::new(),
+            Err(error) => return Err(DeploymentLogError::configuration(error)),
+        };
+        Ok(ProtectedLogValues::new(
+            assigned
+                .iter()
+                .filter(|deployment| deployment.model_deployment_id == deployment_id)
+                .flat_map(crate::model::resolved::secret_engine_parameter_values),
+        ))
+    }
+
     /// Whether `deployment_id` is assigned but withheld from the realizer: its engine is not
     /// pinned on this node yet, or its launch does not resolve.
     fn is_withheld(&self, deployment_id: &str) -> Result<bool, DeploymentLogError> {
@@ -244,8 +270,9 @@ impl<D: ModelRealizationInput> DeploymentLogOwner for NodeModelLogs<D> {
         deployment_id: &'a str,
         query: DeploymentLogReadQuery,
     ) -> DeploymentLogOwnerFuture<'a, OwnerLogSources<RuntimeLogSourceHistory>> {
-        // Node model deployments are never upstream, so no launch value is protected, in step
-        // lines either.
+        // Node model deployments are never upstream, so the protected values are their secret
+        // engine parameter values, in step lines too. A read that can't learn them fails rather
+        // than serve lines unprotected.
         Box::pin(async move {
             let selection = self.select(deployment_id, query.source_names());
             // Only a selected workload source is resolved, so steps stay readable whatever its
@@ -255,6 +282,7 @@ impl<D: ModelRealizationInput> DeploymentLogOwner for NodeModelLogs<D> {
                 .as_deref()
                 .map(|names| self.resolve(deployment_id, names))
                 .transpose()?;
+            let protected = self.protected_values(deployment_id)?;
             let mut histories = self
                 .preparation
                 .read(deployment_id, &selection.steps, query.history())
@@ -270,7 +298,7 @@ impl<D: ModelRealizationInput> DeploymentLogOwner for NodeModelLogs<D> {
                     }],
                 });
             }
-            Ok(OwnerLogSources::unprotected(histories))
+            Ok(OwnerLogSources::protected(histories, protected))
         })
     }
 
@@ -291,6 +319,7 @@ impl<D: ModelRealizationInput> DeploymentLogOwner for NodeModelLogs<D> {
                 .as_deref()
                 .map(|names| self.resolve(deployment_id, names))
                 .transpose()?;
+            let protected = self.protected_values(deployment_id)?;
             let mut streams = self.preparation.follow(
                 deployment_id,
                 &selection.steps,
@@ -319,7 +348,7 @@ impl<D: ModelRealizationInput> DeploymentLogOwner for NodeModelLogs<D> {
                     }],
                 });
             }
-            Ok(OwnerLogSources::unprotected(streams)
+            Ok(OwnerLogSources::protected(streams, protected)
                 .with_late(late)
                 .with_changes(changes))
         })
@@ -584,7 +613,8 @@ mod tests {
         dispatch::model::RuntimeTargetMapBuilder,
         model::controller::test_support::{
             TestCurrent, TestDesired, ready_oci_preparer, test_desired_deployment,
-            test_simulated_runtime_target, test_site, valid_upstream_desired_deployment,
+            test_simulated_runtime_target, test_site, test_strata_desired_deployment_with_api_key,
+            valid_upstream_desired_deployment,
         },
     };
 
@@ -640,6 +670,64 @@ mod tests {
         assert_eq!(source_history.entries[0].content, b"owned");
         assert!(source_history.has_older_output);
         assert!(!source_history.candidate_budget_truncated);
+    }
+
+    #[tokio::test]
+    async fn node_model_logs_protect_the_secret_engine_values_of_the_deployment() {
+        let directory = tempfile::tempdir().expect("preparation log directory");
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let desired = TestDesired::new(calls.clone());
+        desired
+            .state
+            .lock()
+            .expect("desired")
+            .model_deployments
+            .push(test_strata_desired_deployment_with_api_key(
+                "fixture-model",
+                "node-engine-secret-key",
+            ));
+        let mut runtimes = RuntimeTargetMapBuilder::new();
+        runtimes
+            .insert(
+                "target-one",
+                LogRuntime {
+                    calls: Arc::new(Mutex::new(Vec::new())),
+                },
+            )
+            .expect("log runtime");
+        let logs = NodeModelLogs::new(
+            desired,
+            runtimes.build().expect("Runtime map"),
+            ArtifactManager::new("/test-cache".into(), Some(ready_oci_preparer()))
+                .expect("artifact paths"),
+            Arc::new(AtomicBool::new(true)),
+            PreparationLogs::on_system_clock(directory.path()),
+            crate::deployment_logs::WorkloadLifecycle::new(),
+        );
+        let history = DeploymentLogReadQuery::new(
+            Vec::new(),
+            RuntimeLogQuery::new(NonZeroU16::new(2).expect("limit"), None).expect("query"),
+        );
+
+        let read = logs
+            .read_logs("deployment", history)
+            .await
+            .expect("history");
+        let other = logs
+            .read_logs(
+                "other-deployment",
+                DeploymentLogReadQuery::new(
+                    Vec::new(),
+                    RuntimeLogQuery::new(NonZeroU16::new(2).expect("limit"), None).expect("query"),
+                ),
+            )
+            .await;
+
+        assert_eq!(
+            read.protected.values(),
+            [b"node-engine-secret-key".to_vec()]
+        );
+        assert!(matches!(other, Err(DeploymentLogError::NotFound)));
     }
 
     #[tokio::test]
@@ -1104,7 +1192,10 @@ mod tests {
             .lock()
             .expect("desired")
             .model_deployments
-            .push(upstream);
+            .extend([
+                upstream,
+                test_strata_desired_deployment_with_api_key("fixture-model", "local-engine-key"),
+            ]);
         let controller = InferenceController::new(
             desired.clone(),
             TestCurrent::new(calls),
@@ -1128,19 +1219,24 @@ mod tests {
             .protected_log_values(id)
             .await
             .expect("fresh protected values");
+        let local = controller
+            .protected_log_values(ModelDeploymentId("deployment".to_owned()))
+            .await
+            .expect("local protected values");
 
+        // Protected values are kept longest first.
         assert_eq!(
             first.values(),
             [
-                b"first-secret".to_vec(),
-                b"https://private.example/v1".to_vec()
+                b"https://private.example/v1".to_vec(),
+                b"first-secret".to_vec()
             ]
         );
         assert_eq!(
             replacement.values(),
             [
-                b"replacement-secret".to_vec(),
-                b"https://private.example/v1".to_vec()
+                b"https://private.example/v1".to_vec(),
+                b"replacement-secret".to_vec()
             ]
         );
         assert!(
@@ -1149,6 +1245,7 @@ mod tests {
                 .iter()
                 .all(|value| value != b"private-upstream")
         );
+        assert_eq!(local.values(), [b"local-engine-key".to_vec()]);
     }
 
     fn entry_texts(entries: &[RuntimeLogEntry]) -> Vec<String> {

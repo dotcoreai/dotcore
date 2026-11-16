@@ -20,7 +20,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/application.proto.
  */
 export const file_dotcore_catalog_v1_application: GenFile = /*@__PURE__*/
-  fileDesc("CiRkb3Rjb3JlL2NhdGFsb2cvdjEvYXBwbGljYXRpb24ucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSL1AQoLQXBwbGljYXRpb24SFgoOYXBwbGljYXRpb25faWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAUgASgJEg0KBW5vdGVzGAYgASgJEg8KB3ZlcnNpb24YAyABKAkSMwoFZ3JhcGgYBCABKAsyJC5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25HcmFwaBIuCgl1c2VfY2FzZXMYByADKA4yGy5kb3Rjb3JlLmNhdGFsb2cudjEuVXNlQ2FzZRIeChZwcmVmZXJyZWRfYWNjZWxlcmF0b3JzGAggAygJItQBChBBcHBsaWNhdGlvbkdyYXBoEjgKCHNlcnZpY2VzGAEgAygLMiYuZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uU2VydmljZRJIChBwcmltYXJ5X2VuZHBvaW50GAIgASgLMi4uZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uUHJpbWFyeUVuZHBvaW50EjwKCnBhcmFtZXRlcnMYAyADKAsyKC5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25QYXJhbWV0ZXIiZQoUQXBwbGljYXRpb25QYXJhbWV0ZXISOwoKZGVmaW5pdGlvbhgBIAEoCzInLmRvdGNvcmUuY2F0YWxvZy52MS5QYXJhbWV0ZXJEZWZpbml0aW9uEhAKCGFkdmFuY2VkGAIgASgIIrEEChJBcHBsaWNhdGlvblNlcnZpY2USFAoMc2VydmljZV9uYW1lGAEgASgJEkAKCGFydGlmYWN0GAIgASgLMi4uZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uU2VydmljZUFydGlmYWN0Eg8KB2NvbW1hbmQYAyADKAkSEQoJYXJndW1lbnRzGAQgAygJEjkKBXBvcnRzGAUgAygLMiouZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uU2VydmljZVBvcnQSUwoWY29uZmlndXJhdGlvbl9iaW5kaW5ncxgGIAMoCzIzLmRvdGNvcmUuY2F0YWxvZy52MS5BcHBsaWNhdGlvbkNvbmZpZ3VyYXRpb25CaW5kaW5nEjwKEHN0b3JhZ2VfYmluZGluZ3MYByADKAsyIi5kb3Rjb3JlLmNhdGFsb2cudjEuU3RvcmFnZUJpbmRpbmcSRQoPc2VjcmV0X2JpbmRpbmdzGAggAygLMiwuZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uU2VjcmV0QmluZGluZxJGCgxkZXBlbmRlbmNpZXMYCSADKAsyMC5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25TZXJ2aWNlRGVwZW5kZW5jeRJCCglyZWFkaW5lc3MYCiABKAsyLy5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25TZXJ2aWNlUmVhZGluZXNzIsgBChpBcHBsaWNhdGlvblNlcnZpY2VBcnRpZmFjdBI0CgNvY2kYASABKAsyJS5kb3Rjb3JlLmNhdGFsb2cudjEuT2NpSW1hZ2VSZWZlcmVuY2VIABIuCgNuaXgYAyABKAsyHy5kb3Rjb3JlLmNhdGFsb2cudjEuTml4QXJ0aWZhY3RIABI8ChNzdXBwb3J0ZWRfcGxhdGZvcm1zGAIgAygLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk9jaVBsYXRmb3JtQgYKBGtpbmQiQAoWQXBwbGljYXRpb25TZXJ2aWNlUG9ydBIRCglwb3J0X25hbWUYASABKAkSEwoLcG9ydF9udW1iZXIYAiABKA0iewocQXBwbGljYXRpb25TZXJ2aWNlRGVwZW5kZW5jeRIUCgxzZXJ2aWNlX25hbWUYASABKAkSRQoJY29uZGl0aW9uGAIgASgOMjIuZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uRGVwZW5kZW5jeUNvbmRpdGlvbiJoChtBcHBsaWNhdGlvblNlcnZpY2VSZWFkaW5lc3MSQAoIaHR0cF9nZXQYASABKAsyLC5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25IdHRwUmVhZGluZXNzSABCBwoFY2hlY2siOwoYQXBwbGljYXRpb25IdHRwUmVhZGluZXNzEhEKCXBvcnRfbmFtZRgBIAEoCRIMCgRwYXRoGAIgASgJIu4BCh9BcHBsaWNhdGlvbkNvbmZpZ3VyYXRpb25CaW5kaW5nEhQKDGJpbmRpbmdfbmFtZRgBIAEoCRIcChRlbnZpcm9ubWVudF92YXJpYWJsZRgCIAEoCRIXCg1saXRlcmFsX3ZhbHVlGAMgASgJSAASHQoTcmVzb2x2ZWRfdmFsdWVfbmFtZRgEIAEoCUgAEhYKDHBhcmFtZXRlcl9pZBgGIAEoCUgAEj0KBWlucHV0GAUgASgLMi4uZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uRGVwbG95bWVudElucHV0QggKBnNvdXJjZSJzChpBcHBsaWNhdGlvbkRlcGxveW1lbnRJbnB1dBJNCg9pbmZlcmVuY2Vfcm91dGUYAiABKAsyMi5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25JbmZlcmVuY2VSb3V0ZUlucHV0SABCBgoEa2luZCJtCh5BcHBsaWNhdGlvbkluZmVyZW5jZVJvdXRlSW5wdXQSSwoKcHJvamVjdGlvbhgBIAEoDjI3LmRvdGNvcmUuY2F0YWxvZy52MS5BcHBsaWNhdGlvbkluZmVyZW5jZVJvdXRlUHJvamVjdGlvbiJOChhBcHBsaWNhdGlvblNlY3JldEJpbmRpbmcSFAoMYmluZGluZ19uYW1lGAEgASgJEhwKFGVudmlyb25tZW50X3ZhcmlhYmxlGAIgASgJIogBChpBcHBsaWNhdGlvblByaW1hcnlFbmRwb2ludBIUCgxzZXJ2aWNlX25hbWUYASABKAkSEQoJcG9ydF9uYW1lGAIgASgJEkEKCHByb3RvY29sGAMgASgOMi8uZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uRW5kcG9pbnRQcm90b2NvbCqUAQojQXBwbGljYXRpb25JbmZlcmVuY2VSb3V0ZVByb2plY3Rpb24SNgoyQVBQTElDQVRJT05fSU5GRVJFTkNFX1JPVVRFX1BST0pFQ1RJT05fVU5TUEVDSUZJRUQQABI1CjFBUFBMSUNBVElPTl9JTkZFUkVOQ0VfUk9VVEVfUFJPSkVDVElPTl9ST1VURV9OQU1FEAEqrAEKHkFwcGxpY2F0aW9uRGVwZW5kZW5jeUNvbmRpdGlvbhIwCixBUFBMSUNBVElPTl9ERVBFTkRFTkNZX0NPTkRJVElPTl9VTlNQRUNJRklFRBAAEiwKKEFQUExJQ0FUSU9OX0RFUEVOREVOQ1lfQ09ORElUSU9OX1NUQVJURUQQARIqCiZBUFBMSUNBVElPTl9ERVBFTkRFTkNZX0NPTkRJVElPTl9SRUFEWRACKnQKG0FwcGxpY2F0aW9uRW5kcG9pbnRQcm90b2NvbBItCilBUFBMSUNBVElPTl9FTkRQT0lOVF9QUk9UT0NPTF9VTlNQRUNJRklFRBAAEiYKIkFQUExJQ0FUSU9OX0VORFBPSU5UX1BST1RPQ09MX0hUVFAQAWIGcHJvdG8z", [file_dotcore_catalog_v1_nix, file_dotcore_catalog_v1_oci, file_dotcore_catalog_v1_parameter, file_dotcore_catalog_v1_recommendation, file_dotcore_catalog_v1_storage]);
+  fileDesc("CiRkb3Rjb3JlL2NhdGFsb2cvdjEvYXBwbGljYXRpb24ucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSL1AQoLQXBwbGljYXRpb24SFgoOYXBwbGljYXRpb25faWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAUgASgJEg0KBW5vdGVzGAYgASgJEg8KB3ZlcnNpb24YAyABKAkSMwoFZ3JhcGgYBCABKAsyJC5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25HcmFwaBIuCgl1c2VfY2FzZXMYByADKA4yGy5kb3Rjb3JlLmNhdGFsb2cudjEuVXNlQ2FzZRIeChZwcmVmZXJyZWRfYWNjZWxlcmF0b3JzGAggAygJItMBChBBcHBsaWNhdGlvbkdyYXBoEjgKCHNlcnZpY2VzGAEgAygLMiYuZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uU2VydmljZRJIChBwcmltYXJ5X2VuZHBvaW50GAIgASgLMi4uZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uUHJpbWFyeUVuZHBvaW50EjsKCnBhcmFtZXRlcnMYAyADKAsyJy5kb3Rjb3JlLmNhdGFsb2cudjEuUGFyYW1ldGVyRGVmaW5pdGlvbiKxBAoSQXBwbGljYXRpb25TZXJ2aWNlEhQKDHNlcnZpY2VfbmFtZRgBIAEoCRJACghhcnRpZmFjdBgCIAEoCzIuLmRvdGNvcmUuY2F0YWxvZy52MS5BcHBsaWNhdGlvblNlcnZpY2VBcnRpZmFjdBIPCgdjb21tYW5kGAMgAygJEhEKCWFyZ3VtZW50cxgEIAMoCRI5CgVwb3J0cxgFIAMoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5BcHBsaWNhdGlvblNlcnZpY2VQb3J0ElMKFmNvbmZpZ3VyYXRpb25fYmluZGluZ3MYBiADKAsyMy5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25Db25maWd1cmF0aW9uQmluZGluZxI8ChBzdG9yYWdlX2JpbmRpbmdzGAcgAygLMiIuZG90Y29yZS5jYXRhbG9nLnYxLlN0b3JhZ2VCaW5kaW5nEkUKD3NlY3JldF9iaW5kaW5ncxgIIAMoCzIsLmRvdGNvcmUuY2F0YWxvZy52MS5BcHBsaWNhdGlvblNlY3JldEJpbmRpbmcSRgoMZGVwZW5kZW5jaWVzGAkgAygLMjAuZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uU2VydmljZURlcGVuZGVuY3kSQgoJcmVhZGluZXNzGAogASgLMi8uZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uU2VydmljZVJlYWRpbmVzcyLIAQoaQXBwbGljYXRpb25TZXJ2aWNlQXJ0aWZhY3QSNAoDb2NpGAEgASgLMiUuZG90Y29yZS5jYXRhbG9nLnYxLk9jaUltYWdlUmVmZXJlbmNlSAASLgoDbml4GAMgASgLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk5peEFydGlmYWN0SAASPAoTc3VwcG9ydGVkX3BsYXRmb3JtcxgCIAMoCzIfLmRvdGNvcmUuY2F0YWxvZy52MS5PY2lQbGF0Zm9ybUIGCgRraW5kIkAKFkFwcGxpY2F0aW9uU2VydmljZVBvcnQSEQoJcG9ydF9uYW1lGAEgASgJEhMKC3BvcnRfbnVtYmVyGAIgASgNInsKHEFwcGxpY2F0aW9uU2VydmljZURlcGVuZGVuY3kSFAoMc2VydmljZV9uYW1lGAEgASgJEkUKCWNvbmRpdGlvbhgCIAEoDjIyLmRvdGNvcmUuY2F0YWxvZy52MS5BcHBsaWNhdGlvbkRlcGVuZGVuY3lDb25kaXRpb24iaAobQXBwbGljYXRpb25TZXJ2aWNlUmVhZGluZXNzEkAKCGh0dHBfZ2V0GAEgASgLMiwuZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uSHR0cFJlYWRpbmVzc0gAQgcKBWNoZWNrIjsKGEFwcGxpY2F0aW9uSHR0cFJlYWRpbmVzcxIRCglwb3J0X25hbWUYASABKAkSDAoEcGF0aBgCIAEoCSKwAgofQXBwbGljYXRpb25Db25maWd1cmF0aW9uQmluZGluZxIUCgxiaW5kaW5nX25hbWUYASABKAkSHAoUZW52aXJvbm1lbnRfdmFyaWFibGUYAiABKAkSFwoNbGl0ZXJhbF92YWx1ZRgDIAEoCUgAEh0KE3Jlc29sdmVkX3ZhbHVlX25hbWUYBCABKAlIABIWCgxwYXJhbWV0ZXJfaWQYBiABKAlIABI9CgVpbnB1dBgFIAEoCzIuLmRvdGNvcmUuY2F0YWxvZy52MS5BcHBsaWNhdGlvbkRlcGxveW1lbnRJbnB1dBIkChdlbmFibGVkX2J5X3BhcmFtZXRlcl9pZBgHIAEoCUgBiAEBQggKBnNvdXJjZUIaChhfZW5hYmxlZF9ieV9wYXJhbWV0ZXJfaWQicwoaQXBwbGljYXRpb25EZXBsb3ltZW50SW5wdXQSTQoPaW5mZXJlbmNlX3JvdXRlGAIgASgLMjIuZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uSW5mZXJlbmNlUm91dGVJbnB1dEgAQgYKBGtpbmQibQoeQXBwbGljYXRpb25JbmZlcmVuY2VSb3V0ZUlucHV0EksKCnByb2plY3Rpb24YASABKA4yNy5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25JbmZlcmVuY2VSb3V0ZVByb2plY3Rpb24i3wEKGEFwcGxpY2F0aW9uU2VjcmV0QmluZGluZxIUCgxiaW5kaW5nX25hbWUYASABKAkSHAoUZW52aXJvbm1lbnRfdmFyaWFibGUYAiABKAkSFAoMcGFyYW1ldGVyX2lkGAMgASgJEjcKBGZvcm0YBCABKA4yKS5kb3Rjb3JlLmNhdGFsb2cudjEuQXBwbGljYXRpb25TZWNyZXRGb3JtEiQKF2VuYWJsZWRfYnlfcGFyYW1ldGVyX2lkGAUgASgJSACIAQFCGgoYX2VuYWJsZWRfYnlfcGFyYW1ldGVyX2lkIogBChpBcHBsaWNhdGlvblByaW1hcnlFbmRwb2ludBIUCgxzZXJ2aWNlX25hbWUYASABKAkSEQoJcG9ydF9uYW1lGAIgASgJEkEKCHByb3RvY29sGAMgASgOMi8uZG90Y29yZS5jYXRhbG9nLnYxLkFwcGxpY2F0aW9uRW5kcG9pbnRQcm90b2NvbCqUAQojQXBwbGljYXRpb25JbmZlcmVuY2VSb3V0ZVByb2plY3Rpb24SNgoyQVBQTElDQVRJT05fSU5GRVJFTkNFX1JPVVRFX1BST0pFQ1RJT05fVU5TUEVDSUZJRUQQABI1CjFBUFBMSUNBVElPTl9JTkZFUkVOQ0VfUk9VVEVfUFJPSkVDVElPTl9ST1VURV9OQU1FEAEqhwEKFUFwcGxpY2F0aW9uU2VjcmV0Rm9ybRInCiNBUFBMSUNBVElPTl9TRUNSRVRfRk9STV9VTlNQRUNJRklFRBAAEiEKHUFQUExJQ0FUSU9OX1NFQ1JFVF9GT1JNX1BMQUlOEAESIgoeQVBQTElDQVRJT05fU0VDUkVUX0ZPUk1fQkNSWVBUEAIqrAEKHkFwcGxpY2F0aW9uRGVwZW5kZW5jeUNvbmRpdGlvbhIwCixBUFBMSUNBVElPTl9ERVBFTkRFTkNZX0NPTkRJVElPTl9VTlNQRUNJRklFRBAAEiwKKEFQUExJQ0FUSU9OX0RFUEVOREVOQ1lfQ09ORElUSU9OX1NUQVJURUQQARIqCiZBUFBMSUNBVElPTl9ERVBFTkRFTkNZX0NPTkRJVElPTl9SRUFEWRACKnQKG0FwcGxpY2F0aW9uRW5kcG9pbnRQcm90b2NvbBItCilBUFBMSUNBVElPTl9FTkRQT0lOVF9QUk9UT0NPTF9VTlNQRUNJRklFRBAAEiYKIkFQUExJQ0FUSU9OX0VORFBPSU5UX1BST1RPQ09MX0hUVFAQAWIGcHJvdG8z", [file_dotcore_catalog_v1_nix, file_dotcore_catalog_v1_oci, file_dotcore_catalog_v1_parameter, file_dotcore_catalog_v1_recommendation, file_dotcore_catalog_v1_storage]);
 
 /**
  * An immutable artifact-manager catalog declaration for an approved application release.
@@ -113,11 +113,12 @@ export type ApplicationGraph = Message<"dotcore.catalog.v1.ApplicationGraph"> & 
   primaryEndpoint?: ApplicationPrimaryEndpoint;
 
   /**
-   * Typed parameters operators may set at deployment creation, in display order.
+   * Typed parameters operators may set at deployment creation, in display order; each is basic or
+   * advanced and, except a secret, declares a default.
    *
-   * @generated from field: repeated dotcore.catalog.v1.ApplicationParameter parameters = 3;
+   * @generated from field: repeated dotcore.catalog.v1.ParameterDefinition parameters = 3;
    */
-  parameters: ApplicationParameter[];
+  parameters: ParameterDefinition[];
 };
 
 /**
@@ -126,34 +127,6 @@ export type ApplicationGraph = Message<"dotcore.catalog.v1.ApplicationGraph"> & 
  */
 export const ApplicationGraphSchema: GenMessage<ApplicationGraph> = /*@__PURE__*/
   messageDesc(file_dotcore_catalog_v1_application, 1);
-
-/**
- * One typed application parameter and how the console shows it.
- *
- * @generated from message dotcore.catalog.v1.ApplicationParameter
- */
-export type ApplicationParameter = Message<"dotcore.catalog.v1.ApplicationParameter"> & {
-  /**
-   * Typed definition; application parameters always declare a default.
-   *
-   * @generated from field: dotcore.catalog.v1.ParameterDefinition definition = 1;
-   */
-  definition?: ParameterDefinition;
-
-  /**
-   * Whether the console shows this parameter only in its advanced view.
-   *
-   * @generated from field: bool advanced = 2;
-   */
-  advanced: boolean;
-};
-
-/**
- * Describes the message dotcore.catalog.v1.ApplicationParameter.
- * Use `create(ApplicationParameterSchema)` to create a new message.
- */
-export const ApplicationParameterSchema: GenMessage<ApplicationParameter> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 2);
 
 /**
  * One named service in an immutable application graph.
@@ -212,7 +185,7 @@ export type ApplicationService = Message<"dotcore.catalog.v1.ApplicationService"
   storageBindings: StorageBinding[];
 
   /**
-   * Named secret references that require site-specific resolution.
+   * Secret parameters this service receives, each in the form it needs.
    *
    * @generated from field: repeated dotcore.catalog.v1.ApplicationSecretBinding secret_bindings = 8;
    */
@@ -238,7 +211,7 @@ export type ApplicationService = Message<"dotcore.catalog.v1.ApplicationService"
  * Use `create(ApplicationServiceSchema)` to create a new message.
  */
 export const ApplicationServiceSchema: GenMessage<ApplicationService> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 3);
+  messageDesc(file_dotcore_catalog_v1_application, 2);
 
 /**
  * One immutable artifact of an application service and the platforms it approves.
@@ -282,7 +255,7 @@ export type ApplicationServiceArtifact = Message<"dotcore.catalog.v1.Application
  * Use `create(ApplicationServiceArtifactSchema)` to create a new message.
  */
 export const ApplicationServiceArtifactSchema: GenMessage<ApplicationServiceArtifact> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 4);
+  messageDesc(file_dotcore_catalog_v1_application, 3);
 
 /**
  * One named internal TCP port served by an application service.
@@ -310,7 +283,7 @@ export type ApplicationServicePort = Message<"dotcore.catalog.v1.ApplicationServ
  * Use `create(ApplicationServicePortSchema)` to create a new message.
  */
 export const ApplicationServicePortSchema: GenMessage<ApplicationServicePort> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 5);
+  messageDesc(file_dotcore_catalog_v1_application, 4);
 
 /**
  * One dependency on a named service in the same application graph.
@@ -338,7 +311,7 @@ export type ApplicationServiceDependency = Message<"dotcore.catalog.v1.Applicati
  * Use `create(ApplicationServiceDependencySchema)` to create a new message.
  */
 export const ApplicationServiceDependencySchema: GenMessage<ApplicationServiceDependency> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 6);
+  messageDesc(file_dotcore_catalog_v1_application, 5);
 
 /**
  * Declares one protocol readiness check for an application service.
@@ -365,7 +338,7 @@ export type ApplicationServiceReadiness = Message<"dotcore.catalog.v1.Applicatio
  * Use `create(ApplicationServiceReadinessSchema)` to create a new message.
  */
 export const ApplicationServiceReadinessSchema: GenMessage<ApplicationServiceReadiness> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 7);
+  messageDesc(file_dotcore_catalog_v1_application, 6);
 
 /**
  * Declares an HTTP readiness request without asserting current readiness.
@@ -393,7 +366,7 @@ export type ApplicationHttpReadiness = Message<"dotcore.catalog.v1.ApplicationHt
  * Use `create(ApplicationHttpReadinessSchema)` to create a new message.
  */
 export const ApplicationHttpReadinessSchema: GenMessage<ApplicationHttpReadiness> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 8);
+  messageDesc(file_dotcore_catalog_v1_application, 7);
 
 /**
  * Declares one non-secret configuration source and its environment destination.
@@ -450,6 +423,13 @@ export type ApplicationConfigurationBinding = Message<"dotcore.catalog.v1.Applic
    * @generated from field: dotcore.catalog.v1.ApplicationDeploymentInput input = 5;
    */
   input?: ApplicationDeploymentInput;
+
+  /**
+   * Boolean graph parameter whose value enables this binding; when false the service never receives it.
+   *
+   * @generated from field: optional string enabled_by_parameter_id = 7;
+   */
+  enabledByParameterId?: string;
 };
 
 /**
@@ -457,7 +437,7 @@ export type ApplicationConfigurationBinding = Message<"dotcore.catalog.v1.Applic
  * Use `create(ApplicationConfigurationBindingSchema)` to create a new message.
  */
 export const ApplicationConfigurationBindingSchema: GenMessage<ApplicationConfigurationBinding> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 9);
+  messageDesc(file_dotcore_catalog_v1_application, 8);
 
 /**
  * Describes one deployment input projected into a configuration binding.
@@ -484,7 +464,7 @@ export type ApplicationDeploymentInput = Message<"dotcore.catalog.v1.Application
  * Use `create(ApplicationDeploymentInputSchema)` to create a new message.
  */
 export const ApplicationDeploymentInputSchema: GenMessage<ApplicationDeploymentInput> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 10);
+  messageDesc(file_dotcore_catalog_v1_application, 9);
 
 /**
  * Identifies a deployment input projected from an optionally linked inference route.
@@ -505,27 +485,48 @@ export type ApplicationInferenceRouteInput = Message<"dotcore.catalog.v1.Applica
  * Use `create(ApplicationInferenceRouteInputSchema)` to create a new message.
  */
 export const ApplicationInferenceRouteInputSchema: GenMessage<ApplicationInferenceRouteInput> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 11);
+  messageDesc(file_dotcore_catalog_v1_application, 10);
 
 /**
- * Declares a named unresolved secret reference and its environment destination.
+ * Declares one secret parameter's environment destination and the form the service receives.
  *
  * @generated from message dotcore.catalog.v1.ApplicationSecretBinding
  */
 export type ApplicationSecretBinding = Message<"dotcore.catalog.v1.ApplicationSecretBinding"> & {
   /**
-   * Stable name used by an application deployment to supply the secret.
+   * Stable binding name, unique within the service.
    *
    * @generated from field: string binding_name = 1;
    */
   bindingName: string;
 
   /**
-   * Environment variable that receives the resolved secret value.
+   * Environment variable that receives the secret in its form.
    *
    * @generated from field: string environment_variable = 2;
    */
   environmentVariable: string;
+
+  /**
+   * Graph secret parameter whose value supplies this binding.
+   *
+   * @generated from field: string parameter_id = 3;
+   */
+  parameterId: string;
+
+  /**
+   * Form of the value the service receives.
+   *
+   * @generated from field: dotcore.catalog.v1.ApplicationSecretForm form = 4;
+   */
+  form: ApplicationSecretForm;
+
+  /**
+   * Boolean graph parameter whose value enables this binding; when false the service never receives it.
+   *
+   * @generated from field: optional string enabled_by_parameter_id = 5;
+   */
+  enabledByParameterId?: string;
 };
 
 /**
@@ -533,7 +534,7 @@ export type ApplicationSecretBinding = Message<"dotcore.catalog.v1.ApplicationSe
  * Use `create(ApplicationSecretBindingSchema)` to create a new message.
  */
 export const ApplicationSecretBindingSchema: GenMessage<ApplicationSecretBinding> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 12);
+  messageDesc(file_dotcore_catalog_v1_application, 11);
 
 /**
  * Selects the one declared service port that can become the primary endpoint.
@@ -568,7 +569,7 @@ export type ApplicationPrimaryEndpoint = Message<"dotcore.catalog.v1.Application
  * Use `create(ApplicationPrimaryEndpointSchema)` to create a new message.
  */
 export const ApplicationPrimaryEndpointSchema: GenMessage<ApplicationPrimaryEndpoint> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_application, 13);
+  messageDesc(file_dotcore_catalog_v1_application, 12);
 
 /**
  * One application-neutral value projected from a linked inference route.
@@ -596,6 +597,40 @@ export enum ApplicationInferenceRouteProjection {
  */
 export const ApplicationInferenceRouteProjectionSchema: GenEnum<ApplicationInferenceRouteProjection> = /*@__PURE__*/
   enumDesc(file_dotcore_catalog_v1_application, 0);
+
+/**
+ * The form in which a service receives a secret parameter's value.
+ *
+ * @generated from enum dotcore.catalog.v1.ApplicationSecretForm
+ */
+export enum ApplicationSecretForm {
+  /**
+   * Invalid; every secret binding declares its form.
+   *
+   * @generated from enum value: APPLICATION_SECRET_FORM_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The value exactly as retained.
+   *
+   * @generated from enum value: APPLICATION_SECRET_FORM_PLAIN = 1;
+   */
+  PLAIN = 1,
+
+  /**
+   * A bcrypt hash of the value, computed once with a random salt when the deployment is created.
+   *
+   * @generated from enum value: APPLICATION_SECRET_FORM_BCRYPT = 2;
+   */
+  BCRYPT = 2,
+}
+
+/**
+ * Describes the enum dotcore.catalog.v1.ApplicationSecretForm.
+ */
+export const ApplicationSecretFormSchema: GenEnum<ApplicationSecretForm> = /*@__PURE__*/
+  enumDesc(file_dotcore_catalog_v1_application, 1);
 
 /**
  * The condition that a dependency service must meet before a dependent service starts.
@@ -629,7 +664,7 @@ export enum ApplicationDependencyCondition {
  * Describes the enum dotcore.catalog.v1.ApplicationDependencyCondition.
  */
 export const ApplicationDependencyConditionSchema: GenEnum<ApplicationDependencyCondition> = /*@__PURE__*/
-  enumDesc(file_dotcore_catalog_v1_application, 1);
+  enumDesc(file_dotcore_catalog_v1_application, 2);
 
 /**
  * The application protocol projected through a declared endpoint.
@@ -656,5 +691,5 @@ export enum ApplicationEndpointProtocol {
  * Describes the enum dotcore.catalog.v1.ApplicationEndpointProtocol.
  */
 export const ApplicationEndpointProtocolSchema: GenEnum<ApplicationEndpointProtocol> = /*@__PURE__*/
-  enumDesc(file_dotcore_catalog_v1_application, 2);
+  enumDesc(file_dotcore_catalog_v1_application, 3);
 

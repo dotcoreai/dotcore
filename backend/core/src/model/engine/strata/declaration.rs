@@ -1,27 +1,29 @@
 //! Strata-specific validation of catalog engine releases and model engine configurations.
 //!
-//! A release must declare well-formed unsigned-integer parameters, at most the parallel requests
-//! Strata's start wrapper accepts, Linux artifacts only, and the deployment's data folder the
-//! wrapper writes to. A configuration must bind model artifacts shaped as its fixed settings say,
-//! with the draft layer they name, run text-only on exactly one NVIDIA accelerator, declare no
-//! options, and reference every other release parameter. Launch values must give Strata a total
-//! context that is exactly what its parallel requests hold.
+//! A release must declare well-formed unsigned-integer or secret parameters, at most the parallel
+//! requests Strata's start wrapper accepts, Linux artifacts only, and the deployment's data folder
+//! the wrapper writes to. A configuration must bind model artifacts shaped as its fixed settings
+//! say, with the draft layer they name, run text-only on exactly one NVIDIA accelerator, declare no
+//! options, and reference every other unsigned-integer release parameter. Launch values must give
+//! Strata a total context that is exactly what its parallel requests hold.
 
 use std::collections::BTreeSet;
 
-use dotcore_catalog::shared_parameters::{
-    self, CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
-    TOTAL_CONTEXT_PARAMETER_ID, is_shared_parameter,
+use dotcore_catalog::{
+    shared_parameters::{
+        self, CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
+        TOTAL_CONTEXT_PARAMETER_ID, is_shared_parameter,
+    },
+    typed_parameters::is_secret,
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineParameterValue, EngineParameterValues, EngineRelease,
-        HardwareClass, HuggingFaceArtifactSource, Model, ModelEngineConfiguration,
-        ModelInputModality, ModelParallelShape, StorageScope,
-        engine_parameter_definition::ParameterType,
-        engine_parameter_value::Value as EngineParameterValueKind,
+        EngineParameterSchema, EngineRelease, HardwareClass, HuggingFaceArtifactSource, Model,
+        ModelEngineConfiguration, ModelInputModality, ModelParallelShape, ParameterValue,
+        ParameterValues, StoragePlacement,
         hugging_face_artifact_source::Content as HuggingFaceContent,
+        parameter_definition::ParameterType, parameter_value::Value as EngineParameterValueKind,
     },
     engine::{
         strata::v1::{
@@ -54,9 +56,9 @@ const READY_PACK_FILES: [&str; 2] = ["native_experts.txt", "tokenizer/vocab.json
 /// for each of them. Returns none when the shared rule would fill nothing.
 pub(crate) fn filled_context_per_request(
     schema: &EngineParameterSchema,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     maximum_context_tokens: u32,
-) -> Option<EngineParameterValue> {
+) -> Option<ParameterValue> {
     // The shared rule with no maximum yields the total context, or none when it fills nothing.
     let total_context = shared_parameters::filled_context_per_request(schema, values, u32::MAX)
         .and_then(|filled| match filled.value {
@@ -66,7 +68,7 @@ pub(crate) fn filled_context_per_request(
     let parallel_requests = unsigned_parameter_value(values, PARALLEL_REQUESTS_PARAMETER_ID)
         .unwrap_or(1)
         .max(1);
-    Some(EngineParameterValue {
+    Some(ParameterValue {
         parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
         value: Some(EngineParameterValueKind::UnsignedInteger(
             (total_context / parallel_requests).min(u64::from(maximum_context_tokens)),
@@ -80,7 +82,7 @@ pub(crate) fn filled_context_per_request(
 pub(crate) fn validate_parameter_values(
     model: &Model,
     configuration: &ModelEngineConfiguration,
-    values: &EngineParameterValues,
+    values: &ParameterValues,
 ) -> anyhow::Result<()> {
     let (Some(total_context), Some(context_per_request), Some(parallel_requests)) = (
         unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID),
@@ -108,8 +110,8 @@ pub(crate) fn validate_parameter_values(
     Ok(())
 }
 
-/// Accepts a release of non-empty unsigned-integer parameters that declares at most the parallel
-/// requests the start wrapper accepts, ships only Linux artifacts, and declares a
+/// Accepts a release of non-empty unsigned-integer or secret parameters that declares at most the
+/// parallel requests the start wrapper accepts, ships only Linux artifacts, and declares a
 /// deployment-scoped storage at the wrapper's data folder. The catalog checks the shared
 /// parameters' fixed shape.
 pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Error> {
@@ -123,16 +125,18 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
         !schema.parameters.is_empty()
             && schema.parameters.iter().all(|definition| {
                 !definition.parameter_id.is_empty()
-                    && matches!(
-                        definition.parameter_type.as_ref(),
-                        Some(ParameterType::UnsignedInteger(range))
-                            if range.maximum >= range.minimum && !range.unit.is_empty()
-                    )
+                    && match definition.parameter_type.as_ref() {
+                        Some(ParameterType::UnsignedInteger(range)) => {
+                            range.maximum >= range.minimum && !range.unit.is_empty()
+                        }
+                        Some(ParameterType::Secret(_)) => true,
+                        _ => false,
+                    }
             })
     });
     if !valid {
         errors.push(anyhow::anyhow!(
-            "Strata engine release requires non-empty unsigned-integer parameter definitions"
+            "Strata engine release requires non-empty unsigned-integer or secret parameter definitions"
         ));
     }
     if unsigned_parameter_maximum(engine, PARALLEL_REQUESTS_PARAMETER_ID)
@@ -158,11 +162,12 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
         ));
     }
     let data_folder = engine.storage_bindings.iter().any(|binding| {
-        binding.mount_path == DATA_MOUNT_PATH && binding.scope == StorageScope::Deployment as i32
+        binding.mount_path == DATA_MOUNT_PATH
+            && binding.placements == [StoragePlacement::Deployment as i32]
     });
     if !data_folder {
         errors.push(anyhow::anyhow!(
-            "Strata engine release must declare deployment-scoped storage at {DATA_MOUNT_PATH}"
+            "Strata engine release must declare deployment-placed storage at {DATA_MOUNT_PATH}"
         ));
     }
     errors
@@ -253,6 +258,8 @@ fn validate_parameters(
     fixed: &StrataFixedModelSettings,
     errors: &mut Vec<anyhow::Error>,
 ) {
+    // Secret parameters never enter the launch plan, so the reference rule below leaves them
+    // out.
     let declared = engine
         .parameter_schema
         .as_ref()
@@ -260,6 +267,7 @@ fn validate_parameters(
             schema
                 .parameters
                 .iter()
+                .filter(|definition| !is_secret(definition))
                 .map(|definition| definition.parameter_id.as_str())
                 .collect::<BTreeSet<_>>()
         })
@@ -272,8 +280,9 @@ fn validate_parameters(
         ));
     }
 
-    // Every release parameter must reach the launch plan, so none can be set without effect. The
-    // total context reaches it through the parallel requests and the context per request.
+    // Every other release parameter must reach the launch plan, so none can be set without
+    // effect. The total context reaches it through the parallel requests and the context per
+    // request.
     let launched = BTreeSet::from([
         expert_vram,
         TOTAL_CONTEXT_PARAMETER_ID,
@@ -454,9 +463,9 @@ mod tests {
     use dotcore_domain::ExecutionPlatform;
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            BooleanEngineParameterSchema, EngineParameterDefinition, HuggingFaceArtifactSource,
-            HuggingFaceFileArtifact, ModelConfigurationOption, ModelImageInputCapacity,
-            UnsignedIntegerEngineParameterSchema,
+            BooleanParameterSchema, HuggingFaceArtifactSource, HuggingFaceFileArtifact,
+            ModelConfigurationOption, ModelImageInputCapacity, ParameterDefinition,
+            UnsignedIntegerParameterSchema,
         },
         model::v1::{
             LocalModelDeploymentConfiguration, ResolvedLocalModelDeploymentSnapshot,
@@ -471,8 +480,10 @@ mod tests {
         },
         test_support::{
             strata::{
-                DRAFT_LAYER_ARTIFACT_ID, EXPERT_VRAM_MIB_PARAMETER_ID, configuration, model,
-                ready_pack_configuration, release, split_gguf_configuration,
+                API_KEY_PARAMETER_ID, CATALOG_ENGINE, CATALOG_MODEL, DRAFT_LAYER_ARTIFACT_ID,
+                EXPERT_VRAM_MIB_PARAMETER_ID, catalog_engine_with_api_key, configuration,
+                load_catalog, model, ready_pack_configuration, release, release_with_api_key,
+                split_gguf_configuration,
             },
             unsigned_parameter_values,
         },
@@ -514,10 +525,12 @@ mod tests {
 
         let mut boolean = release();
         parameter(&mut boolean, EXPERT_VRAM_MIB_PARAMETER_ID).parameter_type =
-            Some(ParameterType::Boolean(BooleanEngineParameterSchema {}));
+            Some(ParameterType::Boolean(BooleanParameterSchema::default()));
         assert_eq!(
             messages(validate_engine_release(&boolean)),
-            ["Strata engine release requires non-empty unsigned-integer parameter definitions"]
+            [
+                "Strata engine release requires non-empty unsigned-integer or secret parameter definitions"
+            ]
         );
     }
 
@@ -568,14 +581,14 @@ mod tests {
         let mut elsewhere = release();
         elsewhere.storage_bindings[0].mount_path = "/cache".to_owned();
         let mut shared = release();
-        shared.storage_bindings[0].scope = StorageScope::EngineArtifact as i32;
+        shared.storage_bindings[0].placements = vec![StoragePlacement::EngineArtifact as i32];
         let mut none = release();
         none.storage_bindings.clear();
 
         for release in [elsewhere, shared, none] {
             assert_eq!(
                 messages(validate_engine_release(&release)),
-                ["Strata engine release must declare deployment-scoped storage at /data"]
+                ["Strata engine release must declare deployment-placed storage at /data"]
             );
         }
     }
@@ -602,6 +615,41 @@ mod tests {
     }
 
     #[test]
+    fn accepts_a_secret_parameter_beyond_the_launched_ones() {
+        let release = release_with_api_key();
+
+        assert_eq!(
+            messages(validate_engine_release(&release)),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            messages(validate_model_configuration(
+                &model(),
+                &configuration(),
+                &release
+            )),
+            Vec::<String>::new()
+        );
+        load_catalog(&catalog_engine_with_api_key(), CATALOG_MODEL)
+            .expect("a profile leaving the secret to creation");
+
+        let mut configuration = configuration();
+        fixed_settings(&mut configuration).expert_vram_mib_parameter_id =
+            API_KEY_PARAMETER_ID.to_owned();
+        assert_eq!(
+            messages(validate_model_configuration(
+                &model(),
+                &configuration,
+                &release
+            )),
+            [
+                "configuration \"strata-nvidia\" has an invalid Strata engine parameter reference",
+                "configuration \"strata-nvidia\" must reference every Strata engine release parameter",
+            ]
+        );
+    }
+
+    #[test]
     fn rejects_release_parameters_the_configuration_does_not_reference() {
         let mut release = release();
         release
@@ -609,7 +657,7 @@ mod tests {
             .as_mut()
             .expect("schema")
             .parameters
-            .push(EngineParameterDefinition {
+            .push(ParameterDefinition {
                 parameter_id: "kv-bits".to_owned(),
                 parameter_type: Some(unsigned(4, 16, "bits")),
                 ..Default::default()
@@ -838,7 +886,7 @@ mod tests {
         );
         assert_ne!(model, CATALOG_MODEL);
 
-        let error = load_catalog(&model).expect_err("no expert cap");
+        let error = load_catalog(CATALOG_ENGINE, &model).expect_err("no expert cap");
 
         assert!(
             format!("{error:#}").contains(
@@ -1008,111 +1056,9 @@ mod tests {
         );
     }
 
-    const CATALOG_ENGINE: &str = r#"
-engineReleaseId: "fixture-strata"
-engineKind: "ENGINE_KIND_STRATA"
-version: "1"
-parameterSchema:
-  schemaId: "fixture-strata-v1"
-  parameters:
-    - { parameterId: "total-context", displayName: "Total context", exposed: true, description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", exposed: true, description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", exposed: true, description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
-    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", exposed: true, description: "expert-vram-mib", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "MiB" } }
-storageBindings:
-  - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", scope: "STORAGE_SCOPE_DEPLOYMENT" }
-artifacts:
-  - artifactId: "linux-amd64-cuda"
-    oci:
-      repository: { registry: { host: "registry.dotcore.test" }, name: "strata" }
-      digest: { algorithm: "sha256", encoded: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }
-    selectors:
-      - platform: { operatingSystem: "linux", architecture: "amd64" }
-        accelerators: ["nvidia"]
-        minimumNvidiaDriverMajorVersion: 580
-"#;
-
-    const CATALOG_MODEL: &str = r#"
-modelId: "fixture-strata-model"
-displayName: "Fixture Strata model"
-version: "1"
-maximumContextTokens: 262144
-artifacts:
-  - artifactId: "fixture-strata-artifact"
-    weightQuantization: "Q4_K_XL"
-    source:
-      repository: "dotcore/fixture-strata"
-      revision: "0123456789abcdef0123456789abcdef01234567"
-      file:
-        path: "fixture-Q4_K_XL.gguf"
-        provenanceDigest: "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
-configurations:
-  - configurationId: "strata-nvidia"
-    engineArtifacts: [{ engineReleaseId: "fixture-strata", engineArtifactId: "linux-amd64-cuda" }]
-    artifactBindings: [{ bindingId: "fixture-strata-artifact", modelArtifactId: "fixture-strata-artifact" }]
-    sizing:
-      parameters: { baseBytes: 1000, bytesPerKvToken: 10, expertMib: 20000, expertVramMib: 8192 }
-      derivedParameters:
-        expert-vram-mib: "${expertVramMib}"
-      estimates:
-        acceleratorMemory:
-          unit: bytes
-          equation: "${baseBytes} + ${bytesPerKvToken} * ${total-context} + ${expert-vram-mib} * MiB"
-        hostMemory:
-          unit: bytes
-          equation: "${expertMib} * MiB"
-    hardwareSupport:
-      - hardwareClassId: "nvidia"
-        hardwareRequirements:
-          minimumMemoryBytesPerDevice: "32000000000"
-          minimumSystemMemoryBytes: "64000000000"
-        bindingSizing:
-          - bindingId: "fixture-strata-artifact"
-    engineConfiguration:
-      engineKind: "ENGINE_KIND_STRATA"
-      strata:
-        fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen35moe"
-          mtpDraftTokens: 2
-          singleGguf: {}
-    executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
-    requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
-    inputCapabilities:
-      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
-profiles:
-  - profileId: "strata-q4"
-    displayName: "Q4 Strata"
-    description: "Runs the fixture through Strata."
-    configurationId: "strata-nvidia"
-    defaultModelArtifactBindingId: "fixture-strata-artifact"
-    engineParameterDefaults: {}
-    "#;
-
     /// Loads the profile-shaped engine and model with the shared hardware classes.
     fn profile_shaped_catalog() -> dotcore_catalog::Catalog {
-        load_catalog(CATALOG_MODEL).expect("Strata catalog")
-    }
-
-    /// Loads the engine and the given model with the shared hardware classes.
-    fn load_catalog(model: &str) -> anyhow::Result<dotcore_catalog::Catalog> {
-        let root = tempfile::tempdir().expect("Catalog root");
-        for (path, content) in [
-            ("engines/strata.yaml", CATALOG_ENGINE),
-            ("models/strata-model.yaml", model),
-        ] {
-            let path = root.path().join(path);
-            std::fs::create_dir_all(path.parent().expect("directory")).expect("directory");
-            std::fs::write(path, content).expect("declaration");
-        }
-        dotcore_catalog::test_support::write_hardware_classes(root.path());
-
-        dotcore_catalog::Catalog::load_with_policy(
-            root.path(),
-            dotcore_catalog::OciArtifactPolicy::Development,
-            crate::model::engine::declaration_validator(),
-        )
-        .map_err(anyhow::Error::new)
+        load_catalog(CATALOG_ENGINE, CATALOG_MODEL).expect("Strata catalog")
     }
 
     /// Resolves the profile on an NVIDIA target with the supplied engine parameter values after
@@ -1143,6 +1089,7 @@ profiles:
             &target,
             &inventory,
             None,
+            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
     }
 
@@ -1184,7 +1131,7 @@ profiles:
     fn parameter<'a>(
         release: &'a mut EngineRelease,
         parameter_id: &str,
-    ) -> &'a mut EngineParameterDefinition {
+    ) -> &'a mut ParameterDefinition {
         release
             .parameter_schema
             .as_mut()
@@ -1196,7 +1143,7 @@ profiles:
     }
 
     fn unsigned(minimum: u64, maximum: u64, unit: &str) -> ParameterType {
-        ParameterType::UnsignedInteger(UnsignedIntegerEngineParameterSchema {
+        ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
             minimum,
             maximum,
             unit: unit.to_owned(),

@@ -8,6 +8,7 @@ import {
   ModelSchema,
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { EngineKind } from "@/gen/dotcore/engine/v1/engine_pb";
 
 // Engine releases and a model mirroring the master catalog `catalog/engines/{llama-cpp,vllm,ninfer}.yaml`
@@ -333,7 +334,7 @@ function unsignedParameter(
   return {
     parameterId,
     displayName,
-    exposed,
+    visibility: exposed ? ParameterVisibility.ADVANCED : ParameterVisibility.HIDDEN,
     description,
     parameterType: {
       case: "unsignedInteger" as const,

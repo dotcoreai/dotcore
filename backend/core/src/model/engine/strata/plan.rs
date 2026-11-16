@@ -12,7 +12,7 @@ use dotcore_catalog::shared_parameters::{
     CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
 };
 use dotcore_proto::dotcore::{
-    catalog::v1::engine_parameter_value::Value as EngineParameterValue,
+    catalog::v1::parameter_value::Value as EngineParameterValueKind,
     engine::{
         strata::v1::{StrataResolvedModelState, strata_fixed_model_settings::ModelFiles},
         v1::{EngineKind, resolved_engine_model_state::State},
@@ -213,7 +213,7 @@ fn positive_parameter(
                 .find(|value| value.parameter_id == parameter_id)
         })
         .and_then(|value| match value.value.as_ref() {
-            Some(EngineParameterValue::UnsignedInteger(value)) => Some(*value),
+            Some(EngineParameterValueKind::UnsignedInteger(value)) => Some(*value),
             _ => None,
         })
         .filter(|value| *value > 0)
@@ -591,7 +591,7 @@ mod tests {
                 .iter_mut()
                 .find(|value| value.parameter_id == parameter_id)
                 .expect("parameter")
-                .value = Some(EngineParameterValue::UnsignedInteger(0));
+                .value = Some(EngineParameterValueKind::UnsignedInteger(0));
             let mut missing = local("qwen3-6-35b-a3b");
             missing
                 .engine_parameter_values

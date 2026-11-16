@@ -1,14 +1,28 @@
-import type {
-  EngineParameterDefinition,
-  EngineParameterValue,
-  EngineParameterValues,
-  EngineRelease,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import {
+  parameterDefaultValue,
+  parameterValueCase,
+  parameterView,
+} from "@/domain/parameter-definitions";
+import {
+  omitsParameterValue,
+  parameterInputError,
+  parameterInputValue,
+  type ParameterView,
+  type ParameterViewValue,
+} from "@/domain/parameter-view";
+import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type {
   Model,
   ModelEngineConfiguration,
   ModelProfile,
+  ParameterVisibilityOverride,
 } from "@/gen/dotcore/catalog/v1/model_pb";
+import {
+  type ParameterDefinition,
+  type ParameterValue,
+  type ParameterValues,
+  ParameterVisibility,
+} from "@/gen/dotcore/catalog/v1/parameter_pb";
 
 /** The shared engine parameter that sets the total context in tokens, declared by every engine. */
 export const TOTAL_CONTEXT_PARAMETER_ID = "total-context";
@@ -22,7 +36,7 @@ export const CONTEXT_PER_REQUEST_PARAMETER_ID = "context-per-request";
 /** The shared engine parameter setting how many requests an engine generates at once. */
 export const PARALLEL_REQUESTS_PARAMETER_ID = "parallel-requests";
 
-/** The context size parameters, which a launch sets on its own step apart from the runtime. */
+/** The context size parameters, which lead the deploy dialog's Settings step. */
 export const CONTEXT_PARAMETER_IDS: ReadonlySet<string> = new Set([
   TOTAL_CONTEXT_PARAMETER_ID,
   CONTEXT_PER_REQUEST_PARAMETER_ID,
@@ -30,31 +44,31 @@ export const CONTEXT_PARAMETER_IDS: ReadonlySet<string> = new Set([
 
 /**
  * A profile's exposed engine parameters, grouped as the deploy dialog presents them: the context
- * sizes form the context group of the Context step. On the Runtime step, parallel requests come
+ * sizes form the context group of the Settings step. On the Advanced step, parallel requests come
  * first, host-memory parameters form their own group, and every other parameter stays in the
  * generic form.
  */
 export interface RuntimeParameterGroups {
   context: ContextParameterGroup;
-  hostMemory: EngineParameterDefinition[];
-  other: EngineParameterDefinition[];
-  parallelRequests?: EngineParameterDefinition;
+  hostMemory: ParameterDefinition[];
+  other: ParameterDefinition[];
+  parallelRequests?: ParameterDefinition;
 }
 
 /** The context size parameters a profile exposes; every engine declares both. */
 export interface ContextParameterGroup {
-  contextPerRequest?: EngineParameterDefinition;
-  totalContext?: EngineParameterDefinition;
+  contextPerRequest?: ParameterDefinition;
+  totalContext?: ParameterDefinition;
 }
 
 /**
- * Groups exposed engine parameters for the Context and Runtime steps. Host-memory parameters are
+ * Groups exposed engine parameters for the Settings and Advanced steps. Host-memory parameters are
  * the ones the model configuration's engine settings declare as host budgets (vLLM KV offload,
  * ninfer host context), so an engine without such a declaration keeps every parameter in the
  * generic group.
  */
 export function runtimeParameterGroups(
-  parameters: readonly EngineParameterDefinition[],
+  parameters: readonly ParameterDefinition[],
   configuration: ModelEngineConfiguration | undefined,
 ): RuntimeParameterGroups {
   const hostMemoryIds = hostMemoryParameterIds(configuration);
@@ -92,18 +106,29 @@ export function maximumContext(
   return known.length ? Math.min(...known) : undefined;
 }
 
+/**
+ * The engine parameters the deploy dialog shows for `profile`, in schema order: each parameter's
+ * visibility is the engine's unless the profile overrides it, and hidden ones are left out.
+ */
 export function effectiveEngineParameters(
   release: EngineRelease | undefined,
   profile: ModelProfile | undefined,
-): EngineParameterDefinition[] {
-  const parameters = release?.parameterSchema?.parameters ?? [];
-  if (!profile?.exposedParameterIds.length)
-    return parameters.filter((parameter) => parameter.exposed);
+): ParameterDefinition[] {
+  const overrides = profile?.engineParameterVisibilityOverrides ?? [];
+  return (release?.parameterSchema?.parameters ?? []).filter(
+    (parameter) => effectiveVisibility(parameter, overrides) !== ParameterVisibility.HIDDEN,
+  );
+}
 
-  return profile.exposedParameterIds.flatMap((parameterId) => {
-    const parameter = parameters.find((candidate) => candidate.parameterId === parameterId);
-    return parameter ? [parameter] : [];
-  });
+/** A parameter's visibility under a profile's overrides: the override, else the engine's. */
+export function effectiveVisibility(
+  parameter: ParameterDefinition,
+  overrides: readonly ParameterVisibilityOverride[],
+): ParameterVisibility {
+  return (
+    overrides.find((override) => override.parameterId === parameter.parameterId)?.visibility ??
+    parameter.visibility
+  );
 }
 
 /**
@@ -113,110 +138,89 @@ export function effectiveEngineParameters(
 export function profileStartingValues(
   release: EngineRelease | undefined,
   profile: ModelProfile | undefined,
-): EngineParameterValues | undefined {
+): ParameterValues | undefined {
   if (!profile) return undefined;
 
   const values = [...(profile.engineParameterDefaults?.values ?? [])];
   for (const parameter of release?.parameterSchema?.parameters ?? []) {
-    const engineDefault =
-      parameter.parameterType.case === "unsignedInteger"
-        ? parameter.parameterType.value.defaultValue
-        : undefined;
+    const engineDefault = parameterDefaultValue(parameter);
     if (
       engineDefault !== undefined &&
       !values.some((value) => value.parameterId === parameter.parameterId)
     ) {
-      values.push({
-        parameterId: parameter.parameterId,
-        value: { case: "unsignedInteger", value: engineDefault },
-      } as EngineParameterValue);
+      values.push(engineParameterValue(parameter.parameterId, engineDefault));
     }
   }
-  return { values } as EngineParameterValues;
+  return { values } as ParameterValues;
 }
 
-export function engineParameterInputs(
-  values: EngineParameterValues | undefined,
-): Map<string, string> {
+/** Form inputs holding each typed value, keyed by parameter ID. */
+export function engineParameterInputs(values: ParameterValues | undefined): Map<string, string> {
   return new Map(
-    (values?.values ?? []).flatMap((parameter): Array<[string, string]> => {
-      switch (parameter.value.case) {
-        case "unsignedInteger":
-        case "boolean":
-          return [[parameter.parameterId, String(parameter.value.value)]];
-        default:
-          return [];
-      }
-    }),
+    (values?.values ?? []).flatMap((parameter): Array<[string, string]> =>
+      parameter.value.case === undefined
+        ? []
+        : [[parameter.parameterId, String(parameter.value.value)]],
+    ),
   );
 }
 
+/**
+ * The values a launch sends: the declared values with each exposed parameter's input applied, and
+ * the ones whose input leaves the value out removed. Undefined while any input is invalid.
+ */
 export function engineParameterValues(
-  declared: EngineParameterValues | undefined,
-  parameters: readonly EngineParameterDefinition[],
+  declared: ParameterValues | undefined,
+  parameters: readonly ParameterDefinition[],
   inputs: ReadonlyMap<string, string>,
   derived: ReadonlySet<string> = noDerivedParameters,
-): EngineParameterValues | undefined {
+): ParameterValues | undefined {
   if (parameters.some((parameter) => engineParameterError(parameter, inputs, derived)))
     return undefined;
 
-  const omitted = parameters.filter((parameter) =>
-    omitsOptionalValue(parameter, inputs.get(parameter.parameterId) ?? "", derived),
-  );
-  const edited = parameters
-    .filter((parameter) => !omitted.includes(parameter))
-    .map((parameter) =>
-      editedEngineParameterValue(parameter, inputs.get(parameter.parameterId) ?? ""),
-    );
-  if (edited.some((entry) => entry === undefined)) return undefined;
-
-  const values = (declared?.values ?? []).filter(
-    (value) => !omitted.some((parameter) => parameter.parameterId === value.parameterId),
-  );
-  for (const entry of edited) {
-    const index = values.findIndex((value) => value.parameterId === entry!.parameterId);
-    if (index < 0) values.push(entry!);
-    else values[index] = entry!;
+  const omitted = new Set<string>();
+  const edited: ParameterValue[] = [];
+  for (const parameter of parameters) {
+    const view = parameterView(parameter);
+    if (!view) continue;
+    const input = inputs.get(view.id) ?? "";
+    const value = parameterInputValue(view, input);
+    if (omitsEngineValue(view, input, derived)) omitted.add(view.id);
+    else if (value !== undefined) edited.push(engineParameterValue(view.id, value));
   }
-  return { values } as EngineParameterValues;
+
+  const values = (declared?.values ?? []).filter((value) => !omitted.has(value.parameterId));
+  for (const entry of edited) {
+    const index = values.findIndex((value) => value.parameterId === entry.parameterId);
+    if (index < 0) values.push(entry);
+    else values[index] = entry;
+  }
+  return { values } as ParameterValues;
 }
 
 /**
- * Why a parameter's input in `inputs` can't launch, or undefined when it can: a value outside the
- * schema range, or a context per request above the total context. An empty input of a parameter
- * in `derived` is valid.
+ * Why a parameter's input in `inputs` can't launch, or undefined when it can: a value its type
+ * refuses, or a context per request above the total context. An empty input is valid for a secret,
+ * which is generated at deploy, for the context per request, and for a parameter in `derived`.
  */
 export function engineParameterError(
-  parameter: EngineParameterDefinition,
+  parameter: ParameterDefinition,
   inputs: ReadonlyMap<string, string>,
   derived: ReadonlySet<string> = noDerivedParameters,
 ): string | undefined {
+  const view = parameterView(parameter);
   const input = inputs.get(parameter.parameterId) ?? "";
-  if (omitsOptionalValue(parameter, input, derived)) return undefined;
+  if (!view || omitsEngineValue(view, input, derived)) return undefined;
 
-  const value = editedEngineParameterValue(parameter, input);
-  if (value) {
-    const total = inputs.get(TOTAL_CONTEXT_PARAMETER_ID) ?? "";
-    return parameter.parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID &&
-      /^\d+$/.test(total) &&
-      BigInt(input) > BigInt(total)
-      ? `${parameter.displayName} must be at most the total context.`
-      : undefined;
-  }
-  if (parameter.parameterType.case === "unsignedInteger") {
-    const { maximum, minimum, unit } = parameter.parameterType.value;
-    return `${parameter.displayName} must be an integer from ${minimum} to ${maximum} ${unit}.`;
-  }
-  return `${parameter.displayName} must be enabled or disabled.`;
-}
+  const typeError = parameterInputError(view, input);
+  if (typeError) return typeError;
 
-/**
- * The short line under a parameter's field, a fixed one for the shared parameters every engine
- * declares; undefined for the others, whose unit the field shows. The schema description
- * documents the engine and stays out of the field.
- */
-export function engineParameterHelp(parameter: EngineParameterDefinition): string | undefined {
-  return sharedParameterHelp.get(parameter.parameterId);
+  const total = inputs.get(TOTAL_CONTEXT_PARAMETER_ID) ?? "";
+  return view.id === CONTEXT_PER_REQUEST_PARAMETER_ID &&
+    /^\d+$/.test(total) &&
+    BigInt(input) > BigInt(total)
+    ? `${view.label} must be at most the total context.`
+    : undefined;
 }
 
 /** Common context sizes, in tokens, offered as presets wherever a context size is entered. */
@@ -224,7 +228,7 @@ export const contextSizePresets: readonly number[] = [8192, 32768, 65536, 131072
 
 /** The unsigned integer value a deployment resolved for an engine parameter, if it holds one. */
 export function resolvedEngineParameterValue(
-  values: EngineParameterValues | undefined,
+  values: ParameterValues | undefined,
   parameterId: string,
 ): bigint | undefined {
   const parameter = values?.values.find(
@@ -233,11 +237,6 @@ export function resolvedEngineParameterValue(
   );
   return parameter?.value.case === "unsignedInteger" ? parameter.value.value : undefined;
 }
-
-const sharedParameterHelp: ReadonlyMap<string, string> = new Map([
-  [TOTAL_CONTEXT_PARAMETER_ID, "Memory the model holds for all requests at once."],
-  [PARALLEL_REQUESTS_PARAMETER_ID, "Requests generated at once; more wait in a queue."],
-]);
 
 function hostMemoryParameterIds(configuration: ModelEngineConfiguration | undefined): Set<string> {
   const engine = configuration?.engineConfiguration?.configuration;
@@ -252,43 +251,19 @@ function hostMemoryParameterIds(configuration: ModelEngineConfiguration | undefi
 
 const noDerivedParameters: ReadonlySet<string> = new Set();
 
-// An empty context per request or sizing-derived parameter is left out rather than rejected.
-function omitsOptionalValue(
-  parameter: EngineParameterDefinition,
+// An empty context per request or sizing-derived parameter is left out rather than rejected, on
+// top of the inputs every parameter type leaves out.
+function omitsEngineValue(
+  view: ParameterView,
   input: string,
   derived: ReadonlySet<string>,
 ): boolean {
   return (
-    input === "" &&
-    (parameter.parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID ||
-      derived.has(parameter.parameterId))
+    omitsParameterValue(view, input) ||
+    (input === "" && (view.id === CONTEXT_PER_REQUEST_PARAMETER_ID || derived.has(view.id)))
   );
 }
 
-function editedEngineParameterValue(
-  parameter: EngineParameterDefinition,
-  input: string,
-): EngineParameterValue | undefined {
-  switch (parameter.parameterType.case) {
-    case "boolean":
-      return input === "true" || input === "false"
-        ? ({
-            parameterId: parameter.parameterId,
-            value: { case: "boolean", value: input === "true" },
-          } as EngineParameterValue)
-        : undefined;
-    case "unsignedInteger": {
-      if (!/^\d+$/.test(input)) return undefined;
-      const value = BigInt(input);
-      const { maximum, minimum } = parameter.parameterType.value;
-      return value >= minimum && value <= maximum
-        ? ({
-            parameterId: parameter.parameterId,
-            value: { case: "unsignedInteger", value },
-          } as EngineParameterValue)
-        : undefined;
-    }
-    default:
-      return undefined;
-  }
+function engineParameterValue(parameterId: string, value: ParameterViewValue): ParameterValue {
+  return { parameterId, value: parameterValueCase(value) } as ParameterValue;
 }

@@ -20,11 +20,7 @@ import {
   speculativeOptionOverrides,
 } from "@/features/models/runtime/speculative-choice";
 import type { ApplicationDeployment } from "@/gen/dotcore/application/v1/deployment_pb";
-import {
-  type EngineParameterDefinition,
-  type EngineParameterValues,
-  type EngineRelease,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { type EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type {
   Model,
   ModelArtifactBinding,
@@ -32,6 +28,7 @@ import type {
   ModelOptionValues,
   ModelProfile,
 } from "@/gen/dotcore/catalog/v1/model_pb";
+import type { ParameterDefinition, ParameterValues } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { LocalModelDeploymentAdvisory } from "@/gen/dotcore/model/v1/service_pb";
@@ -276,14 +273,14 @@ export interface ModelDeployMemoryPreviewOptions {
   compatibilityRead?: ProfileCompatibility;
   configuration?: ModelEngineConfiguration;
   customArgumentTokens: string[];
-  declaredValues?: EngineParameterValues;
+  declaredValues?: ParameterValues;
   deployments?: readonly ModelDeployment[];
   /** Parameters catalog sizing derives for the profile, which an empty input leaves to it. */
   derivedParameterIds: ReadonlySet<string>;
   engineParameterInputs: ReadonlyMap<string, string>;
   engineRelease?: EngineRelease;
   engineReleases: readonly EngineRelease[];
-  exposedParameters: readonly EngineParameterDefinition[];
+  exposedParameters: readonly ParameterDefinition[];
   launchValuesPending: boolean;
   model: Model;
   name: string;
@@ -298,7 +295,7 @@ export interface ModelDeployMemoryPreviewOptions {
   storedSpeculativeChoice: SpeculativeChoice;
   targetsLoading: boolean;
   targetsLoadingPresentation: boolean;
-  values?: EngineParameterValues;
+  values?: ParameterValues;
 }
 
 export interface LocalMemoryPreviewValues extends LocalResourceEstimateValues {

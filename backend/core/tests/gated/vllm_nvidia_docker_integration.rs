@@ -734,6 +734,7 @@ fn qualification_case(
         &execution_target,
         &target_inventory,
         None,
+        dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
     )
     .with_context(|| format!("resolve vLLM qualification profile {profile_id:?}"))?;
     let plan = snapshot

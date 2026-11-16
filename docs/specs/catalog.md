@@ -97,6 +97,8 @@ option effects itself.
   omits and the engine release doesn't default.
 - Sizing equations must be linear in the total context, so the largest fitting total context follows
   from the estimates.
+- Repository checks reject a non-empty literal bound to a credential-like variable name in the
+  master catalog; such values come from secret parameters.
 - Repository checks keep the master catalog pointing only at Dotcore's own repository. The backend
   accepts any locked source in site and development catalogs.
 
@@ -125,18 +127,20 @@ option effects itself.
 
 ### Model profile
 
-A preset of defaults for one engine configuration.
+A preset of defaults and parameter visibility overrides for one engine configuration.
 
 - Supplies defaults, never ongoing deployment authority.
 - Supplies no default for total context or context per request.
+- May override the default and the visibility of its engine's parameters. It may hide total
+  context and context per request, never make them advanced.
 - Carries no platform. The hardware class follows from the exact placement, so one profile serves
   every hardware class its configuration supports.
 
 ### Engine release
 
 - Declares the shared engine parameters (total context, context per request, parallel requests),
-  exposed, with a default on total context and parallel requests and none on context per request.
-  Each release sets its own bounds, defaults and descriptions.
+  with fixed visibilities, a default on total context and parallel requests and none on context per
+  request. Each release sets its own bounds, defaults and descriptions.
 - May declare parameter defaults within their bounds. A default on a parameter that sizing derives
   is rejected.
 
@@ -162,10 +166,16 @@ are on the [recommendations](recommendations.md) page.
 ### App graph
 
 - Carries the app's portable artifact, configuration, storage, secret, dependency, readiness and
-  endpoint requirements, and its typed deployment parameters, shown as basic or advanced.
+  endpoint requirements, and its typed deployment parameters, shown as basic or advanced, never
+  hidden.
 - May name the use cases it serves and the accelerator vendors it prefers
   ([recommendations](recommendations.md#app-use-case)).
-- Engine releases and apps declare the storage they need. Deployments keep that declaration
+- A configuration or secret binding may be enabled by a boolean parameter of the same graph. When
+  that parameter is off, the binding never reaches the service, not even as an empty value.
+- Engine releases and apps declare the storage they need. Each storage binding lists its allowed
+  storage placements in order, the first being the default. An app binding may allow this
+  deployment or shared by the app ([apps](apps.md#app-storage)). An engine binding allows exactly
+  one. Deployments keep that declaration and the chosen storage placement
   ([runtime](runtime.md)).
 
 ## Components
@@ -177,7 +187,9 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 #### Responsibilities
 
 - Own the immutable catalog declarations and their lifecycle.
-- Own the shape of the shared engine parameters.
+- Own the typed parameter definition that engine releases and apps share: its basic, advanced or
+  hidden visibility and its types (boolean, integer, text, string enum and secret). Apps use any
+  type. Engines use boolean, integer and secret.
 - Validate catalogs as described above.
 
 #### Boundaries
@@ -190,6 +202,8 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
   ([models](models.md#deployment-snapshot)).
 - Scores and licences never affect admission, placement or fit. Recommendations follow the same
   rule ([recommendations](recommendations.md#invariants)).
+- Each parameter restriction (length bounds, ranges, accepted values) of an app, an engine release
+  or a model comes from what that app, engine or model requires, and the catalog names its source.
 
 ## Future direction
 

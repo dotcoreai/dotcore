@@ -187,9 +187,9 @@ mod tests {
     use dotcore_proto::{
         dotcore::{
             catalog::v1::{
-                EngineParameterValue, EngineParameterValues, ModelOptionParameterValue,
-                ModelOptionValues, engine_parameter_value::Value as EngineValue,
+                ModelOptionParameterValue, ModelOptionValues, ParameterValue, ParameterValues,
                 model_option_parameter_value::Value as OptionValue,
+                parameter_value::Value as EngineValue,
             },
             observation::v1::AcceleratorMemoryArchitecture,
             telemetry::v1::{
@@ -339,13 +339,13 @@ mod tests {
                 engine_release_id: "vllm-v0-32-0".to_owned(),
                 engine_artifact_id: "linux-amd64-cuda".to_owned(),
                 engine_artifact_reference: "docker.io/vllm/vllm-openai@sha256:d392".to_owned(),
-                engine_parameter_values: Some(EngineParameterValues {
+                engine_parameter_values: Some(ParameterValues {
                     values: vec![
-                        EngineParameterValue {
+                        ParameterValue {
                             parameter_id: "kv-cache-memory-bytes".to_owned(),
                             value: Some(EngineValue::UnsignedInteger(6_000_000_000)),
                         },
-                        EngineParameterValue {
+                        ParameterValue {
                             parameter_id: "prefix-caching".to_owned(),
                             value: Some(EngineValue::Boolean(false)),
                         },

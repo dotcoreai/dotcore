@@ -168,31 +168,35 @@ impl DeploymentLogFollowQuery {
 }
 
 /// Request-time values that must be removed from deployment-log output.
+///
+/// Values are distinct and kept longest first, so a value that contains a shorter one, such as a
+/// password containing the username, is replaced whole before the shorter one could split it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ProtectedLogValues(Vec<Vec<u8>>);
 
 impl ProtectedLogValues {
     pub fn new(values: impl IntoIterator<Item = String>) -> Self {
-        Self(
-            values
-                .into_iter()
-                .filter(|value| !value.is_empty())
-                .map(String::into_bytes)
-                .collect(),
-        )
+        let mut protected = Self::default();
+        protected.insert(values.into_iter().map(String::into_bytes));
+        protected
     }
 
+    /// Returns the values longest first.
     pub fn values(&self) -> &[Vec<u8>] {
         &self.0
     }
 
     /// Adds the values of `other` that are not protected yet.
     pub(crate) fn extend(&mut self, other: ProtectedLogValues) {
-        for value in other.0 {
-            if !self.0.contains(&value) {
-                self.0.push(value);
-            }
-        }
+        self.insert(other.0);
+    }
+
+    fn insert(&mut self, values: impl IntoIterator<Item = Vec<u8>>) {
+        self.0
+            .extend(values.into_iter().filter(|value| !value.is_empty()));
+        self.0
+            .sort_by(|left, right| right.len().cmp(&left.len()).then_with(|| left.cmp(right)));
+        self.0.dedup();
     }
 
     /// Returns `text` with every protected value replaced by the redaction marker, for free text
@@ -206,19 +210,8 @@ impl ProtectedLogValues {
     }
 }
 
-/// Names whose presence marks an environment variable or launch flag as carrying a secret value.
-const SENSITIVE_NAMES: [&str; 5] = ["TOKEN", "SECRET", "PASSWORD", "API_KEY", "CREDENTIAL"];
-
 /// Stands in for the value of a sensitive launch flag in recorded custom arguments.
 const MASKED_ARGUMENT_VALUE: &str = "<redacted>";
-
-/// Whether an environment variable name contains a sensitive name anywhere.
-pub(crate) fn is_sensitive_environment_name(name: &str) -> bool {
-    let name = name.to_ascii_uppercase();
-    SENSITIVE_NAMES
-        .iter()
-        .any(|sensitive| name.contains(sensitive))
-}
 
 /// Masks the value of every long flag whose name contains a sensitive name as whole words, in the
 /// `--flag value` and `--flag=value` forms, keeping the flag and the token order. Best effort:
@@ -239,7 +232,7 @@ pub(crate) fn mask_sensitive_arguments(tokens: &[String]) -> Vec<String> {
             Some((name, _)) => (name, true),
             None => (flag, false),
         };
-        if !is_sensitive_flag_name(name) {
+        if !dotcore_catalog::is_sensitive_name(name) {
             masked.push(token.clone());
         } else if has_value {
             masked.push(format!("--{name}={MASKED_ARGUMENT_VALUE}"));
@@ -249,22 +242,6 @@ pub(crate) fn mask_sensitive_arguments(tokens: &[String]) -> Vec<String> {
         }
     }
     masked
-}
-
-fn is_sensitive_flag_name(name: &str) -> bool {
-    let words = name
-        .split(['-', '_'])
-        .map(str::to_ascii_uppercase)
-        .collect::<Vec<_>>();
-    SENSITIVE_NAMES.iter().any(|sensitive| {
-        let sensitive_words = sensitive.split('_').collect::<Vec<_>>();
-        words.windows(sensitive_words.len()).any(|window| {
-            window
-                .iter()
-                .map(String::as_str)
-                .eq(sensitive_words.iter().copied())
-        })
-    })
 }
 
 /// Public-safe context attached to one internal deployment-log diagnostic.
@@ -433,12 +410,12 @@ pub(crate) fn filter_entry(
     mut entry: RuntimeLogEntry,
     protected: &ProtectedLogValues,
 ) -> RuntimeLogEntry {
-    let truncated_by_runtime = entry.truncated;
+    // The trailing part goes first, so a shorter value it contains can't split it.
+    if entry.truncated {
+        redact_trailing_partial_value(&mut entry.content, protected);
+    }
     for value in protected.values() {
         entry.content = filter_value(&entry.content, value, &mut entry.truncated);
-    }
-    if truncated_by_runtime {
-        redact_trailing_partial_value(&mut entry.content, protected);
     }
     if entry.content.len() > MAX_LOG_ENTRY_CONTENT_BYTES {
         entry.content.truncate(MAX_LOG_ENTRY_CONTENT_BYTES);
@@ -1044,13 +1021,6 @@ mod tests {
     }
 
     #[test]
-    fn environment_names_match_sensitive_names_anywhere_in_the_name() {
-        assert!(is_sensitive_environment_name("hf_token"));
-        assert!(is_sensitive_environment_name("MY_API_KEY_FILE"));
-        assert!(!is_sensitive_environment_name("CUDA_VISIBLE_DEVICES"));
-    }
-
-    #[test]
     fn unset_page_size_takes_the_default_and_bounded_sizes_pass_through() {
         for (requested, expected) in [
             (0, Some(DEFAULT_LOG_PAGE_SIZE)),
@@ -1235,6 +1205,41 @@ mod tests {
             history.entries[1].content, b"ends with launc",
             "a complete entry ending like a value is left as is"
         );
+    }
+
+    #[test]
+    fn a_shorter_protected_value_never_splits_a_longer_one() {
+        // The shorter value comes first, as a username listed before the password would.
+        let protected = ProtectedLogValues::new([
+            "admin".to_owned(),
+            "admin-Sup3rPass".to_owned(),
+            "admin".to_owned(),
+        ]);
+        assert_eq!(
+            protected.values(),
+            [b"admin-Sup3rPass".to_vec(), b"admin".to_vec()]
+        );
+
+        let filtered = filter_entry(
+            entry(source("web"), 1, b"login admin admin-Sup3rPass"),
+            &protected,
+        );
+        assert_eq!(filtered.content, b"login [REDACTED] [REDACTED]");
+        assert_eq!(
+            protected.redact("rejected admin-Sup3rPass for admin"),
+            "rejected [REDACTED] for [REDACTED]"
+        );
+
+        let mut cut = entry(source("web"), 2, b"login admin admin-Sup");
+        cut.truncated = true;
+        assert_eq!(
+            filter_entry(cut, &protected).content,
+            b"login [REDACTED] [REDACTED]"
+        );
+
+        let mut extended = ProtectedLogValues::new(["1".to_owned()]);
+        extended.extend(ProtectedLogValues::new(["key-1-secret".to_owned()]));
+        assert_eq!(extended.redact("key-1-secret"), "[REDACTED]");
     }
 
     #[test]

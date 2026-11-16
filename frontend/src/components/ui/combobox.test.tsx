@@ -38,7 +38,7 @@ function SingleCombobox({
         loading={loading}
         loadingMessageVisible={loadingMessageVisible}
         searchable={searchable}
-        description="Choose one deployment."
+        help="Choose one deployment."
       />
       <output data-testid="value">{value ?? "none"}</output>
     </>
@@ -93,6 +93,36 @@ function MultipleCombobox({
 }
 
 describe("Combobox", () => {
+  it("describes the input with its help and shows it in a popover beside the label", async () => {
+    const user = setupUser();
+    render(<SingleCombobox />);
+
+    expect(screen.getByRole("combobox", { name: "Deployment" })).toHaveAccessibleDescription(
+      "Choose one deployment.",
+    );
+    await user.click(screen.getByRole("button", { name: "About Deployment" }));
+    expect(await screen.findByRole("dialog", { name: "About Deployment" })).toHaveTextContent(
+      "Choose one deployment.",
+    );
+  });
+
+  it("shows its status under the input and in the input's description", () => {
+    render(
+      <Combobox
+        label="Deployment"
+        onValueChange={() => {}}
+        options={options}
+        status="Loading deployments…"
+        value={null}
+      />,
+    );
+
+    expect(screen.getByText("Loading deployments…")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Deployment" })).toHaveAccessibleDescription(
+      "Loading deployments…",
+    );
+  });
+
   it("filters options by label and stable ID", async () => {
     const user = setupUser();
     render(<SingleCombobox />);

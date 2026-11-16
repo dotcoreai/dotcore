@@ -68,7 +68,8 @@ use crate::application::repository::{
     CurrentApplicationRepository,
 };
 pub use errors::{
-    ApplicationLifecycleError, ParameterRejection, RetainedTargetMismatch, TargetIneligibility,
+    ApplicationLifecycleError, ParameterRejection, RetainedTargetMismatch, StorageChoiceRejection,
+    TargetIneligibility,
 };
 use errors::{configuration, configuration_with_source, outcome_uncertain_with_source};
 pub use logs::ApplicationDeploymentLogController;
@@ -217,6 +218,7 @@ pub struct ApplicationControllerConfiguration {
     pub configuration_sources: ApplicationConfigurationSources,
     pub inference_route_resolver: Arc<dyn InferenceRouteResolver>,
     pub target_capabilities: Arc<dyn TargetCapabilitySource>,
+    pub secret_generator: Arc<dyn crate::SecretGenerator>,
 }
 
 /// Apps-controller lifecycle authority on the site manager: the owner of application deployment
@@ -246,12 +248,14 @@ where
             configuration_sources,
             inference_route_resolver,
             target_capabilities,
+            secret_generator,
         } = controller_configuration;
         let owner = Arc::new(ApplicationOwner {
             catalog,
             configuration_sources,
             inference_route_resolver,
             target_capabilities,
+            secret_generator,
             desired: Arc::new(desired),
             current: Arc::new(current),
             operation: AsyncMutex::new(()),

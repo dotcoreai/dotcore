@@ -29,6 +29,7 @@ import {
   resolvedEngineParameterValue,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
+import { DeploymentParametersSection } from "@/features/models/runtime/engine-parameters";
 import { deploymentKvCachePrecisionLabel } from "@/features/models/runtime/kv-cache-precision";
 import { type Model } from "@/gen/dotcore/catalog/v1/model_pb";
 import {
@@ -93,9 +94,6 @@ export function DeploymentOverview({
   const contextPerRequest = resolvedEngineParameterValue(
     model?.engineParameterValues,
     CONTEXT_PER_REQUEST_PARAMETER_ID,
-  );
-  const contextPerRequestDerived = Boolean(
-    model?.sizing?.derivedEngineParameterIds.includes(CONTEXT_PER_REQUEST_PARAMETER_ID),
   );
   const speculative = model ? deploymentSpeculativeLabel(model, catalogModel) : undefined;
   const kvCachePrecision = model ? deploymentKvCachePrecisionLabel(model, catalogModel) : undefined;
@@ -191,11 +189,7 @@ export function DeploymentOverview({
               <ContextDetail label="Total context" tokens={totalContext} />
             )}
             {contextPerRequest === undefined ? null : (
-              <ContextDetail
-                derived={contextPerRequestDerived}
-                label="Context per request"
-                tokens={contextPerRequest}
-              />
+              <ContextDetail label="Context per request" tokens={contextPerRequest} />
             )}
             {kvCachePrecision ? (
               <Detail label="KV cache precision" value={kvCachePrecision} />
@@ -204,6 +198,7 @@ export function DeploymentOverview({
           </DetailList>
         </section>
       ) : null}
+      {model ? <DeploymentParametersSection snapshot={model} /> : null}
       <section aria-labelledby="deployment-identity-heading">
         <InspectorSectionHeader headingId="deployment-identity-heading" title="Deployment" />
         <DetailList>
@@ -302,33 +297,13 @@ function DeploymentModelMention({
   );
 }
 
-/**
- * A context detail showing the compact token count, with the exact count on hover. A value that
- * resolution derived rather than the deployment supplied is marked as derived.
- */
-function ContextDetail({
-  derived = false,
-  label,
-  tokens,
-}: {
-  derived?: boolean;
-  label: string;
-  tokens: bigint;
-}) {
+/** A context detail showing the compact token count, with the exact count on hover. */
+function ContextDetail({ label, tokens }: { label: string; tokens: bigint }) {
   return (
     <Detail
       label={label}
       title={`${tokens.toLocaleString("en-US")} tokens`}
-      value={
-        derived ? (
-          <>
-            {formatCompactCount(Number(tokens))}{" "}
-            <span className="font-normal text-muted-foreground">derived</span>
-          </>
-        ) : (
-          formatCompactCount(Number(tokens))
-        )
-      }
+      value={formatCompactCount(Number(tokens))}
     />
   );
 }

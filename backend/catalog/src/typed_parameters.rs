@@ -1,20 +1,21 @@
-//! Owner-neutral typed parameters: definition validation, value checks against a definition,
-//! and the canonical text form a value takes when projected into configuration.
+//! Owner-neutral typed parameters: definition validation, defaults, value checks against a
+//! definition, and the canonical text form a value takes when projected into configuration.
 //!
-//! Application graphs use these definitions today; the model lane keeps its own engine and
-//! option parameter schemas until it adopts this one. Owners layer their own rules on top,
-//! such as whether a default is required.
+//! Application graphs and engine releases declare their parameters with these definitions. Owners
+//! layer their own rules on top, such as which types and visibilities they accept and whether a
+//! default is required.
 
 use std::collections::BTreeSet;
 
 use anyhow::anyhow;
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
-    ParameterDefinition, ParameterValue, parameter_definition::ParameterType,
+    ParameterDefinition, ParameterValue, ParameterVisibility, parameter_definition::ParameterType,
     parameter_value::Value,
 };
 
-/// Validates one definition's identity, label, and type constraints, including any default.
+/// Validates one definition's identity, label, visibility and type constraints, including any
+/// default.
 pub(crate) fn validate_parameter_definition(
     definition: &ParameterDefinition,
 ) -> Vec<anyhow::Error> {
@@ -27,6 +28,11 @@ pub(crate) fn validate_parameter_definition(
     }
     if definition.display_name.trim().is_empty() {
         errors.push(anyhow!("parameter {id:?} requires a display name"));
+    }
+    if !ParameterVisibility::try_from(definition.visibility).is_ok_and(is_declared_visibility) {
+        errors.push(anyhow!(
+            "parameter {id:?} requires a basic, advanced or hidden visibility"
+        ));
     }
     match definition.parameter_type.as_ref() {
         Some(ParameterType::Boolean(_)) => {}
@@ -53,6 +59,41 @@ pub(crate) fn validate_parameter_definition(
                 ));
             }
         }
+        Some(ParameterType::Text(schema)) => {
+            if schema.maximum_length == Some(0) {
+                errors.push(anyhow!(
+                    "parameter {id:?} maximum length must be at least 1"
+                ));
+            }
+            if schema
+                .maximum_length
+                .is_some_and(|maximum| schema.minimum_length > maximum)
+            {
+                errors.push(anyhow!(
+                    "parameter {id:?} minimum length must not exceed its maximum length"
+                ));
+            }
+        }
+        Some(ParameterType::Secret(schema)) => {
+            if schema.minimum_length == 0 {
+                errors.push(anyhow!(
+                    "parameter {id:?} minimum length must be at least 1"
+                ));
+            }
+            if schema.minimum_length > schema.generated_length {
+                errors.push(anyhow!(
+                    "parameter {id:?} minimum length must not exceed its generated length"
+                ));
+            }
+            if schema
+                .maximum_length
+                .is_some_and(|maximum| schema.generated_length > maximum)
+            {
+                errors.push(anyhow!(
+                    "parameter {id:?} generated length must not exceed its maximum length"
+                ));
+            }
+        }
         None => errors.push(anyhow!("parameter {id:?} requires a type")),
     }
     if errors.is_empty()
@@ -64,16 +105,37 @@ pub(crate) fn validate_parameter_definition(
     errors
 }
 
-/// Returns the definition's declared default, if any.
+/// Whether a parameter may take the visibility: basic, advanced or hidden. Unspecified never may.
+pub(crate) fn is_declared_visibility(visibility: ParameterVisibility) -> bool {
+    matches!(
+        visibility,
+        ParameterVisibility::Basic | ParameterVisibility::Advanced | ParameterVisibility::Hidden
+    )
+}
+
+/// Returns the definition's declared default, if any. A secret never has one.
 pub fn default_value(definition: &ParameterDefinition) -> Option<Value> {
     match definition.parameter_type.as_ref()? {
         ParameterType::Boolean(schema) => schema.default_value.map(Value::Boolean),
         ParameterType::UnsignedInteger(schema) => schema.default_value.map(Value::UnsignedInteger),
         ParameterType::StringEnum(schema) => schema.default_value.clone().map(Value::String),
+        ParameterType::Text(schema) => schema.default_value.clone().map(Value::String),
+        ParameterType::Secret(_) => None,
     }
 }
 
-/// Checks that a value has the definition's type and lies within its range or choices.
+/// Returns whether the definition declares a secret.
+pub fn is_secret(definition: &ParameterDefinition) -> bool {
+    matches!(definition.parameter_type, Some(ParameterType::Secret(_)))
+}
+
+/// Longest secret value in bytes that a bcrypt hash covers. The bcrypt algorithm keys on at most 72
+/// bytes of its input and its implementations ignore the rest, so a longer value would hash weaker
+/// than it reads.
+pub const BCRYPT_MAXIMUM_SECRET_BYTES: u32 = 72;
+
+/// Checks that a value has the definition's type and lies within its range, choices or length
+/// bounds. Errors never quote a text or secret value.
 pub fn check_value(definition: &ParameterDefinition, value: &Value) -> anyhow::Result<()> {
     match (definition.parameter_type.as_ref(), value) {
         (Some(ParameterType::Boolean(_)), Value::Boolean(_)) => Ok(()),
@@ -94,6 +156,12 @@ pub fn check_value(definition: &ParameterDefinition, value: &Value) -> anyhow::R
             } else {
                 Err(anyhow!("{value:?} is not one of {:?}", schema.values))
             }
+        }
+        (Some(ParameterType::Text(schema)), Value::String(value)) => {
+            check_free_text(value, schema.minimum_length, schema.maximum_length)
+        }
+        (Some(ParameterType::Secret(schema)), Value::String(value)) => {
+            check_free_text(value, schema.minimum_length, schema.maximum_length)
         }
         _ => Err(anyhow!("value type does not match the parameter type")),
     }
@@ -118,10 +186,33 @@ pub fn canonical_value_text(values: &[ParameterValue], parameter_id: &str) -> Op
         .map(canonical_text)
 }
 
+/// Checks a text or secret value's length in UTF-8 bytes and that it is a single line safe as an
+/// environment value: no control characters.
+fn check_free_text(value: &str, minimum: u32, maximum: Option<u32>) -> anyhow::Result<()> {
+    if value.chars().any(char::is_control) {
+        return Err(anyhow!("it contains a control character"));
+    }
+    let length = value.len();
+    if length < minimum as usize {
+        return Err(anyhow!(
+            "it has fewer bytes than the minimum length of {minimum}"
+        ));
+    }
+    if let Some(maximum) = maximum
+        && length > maximum as usize
+    {
+        return Err(anyhow!(
+            "it has more bytes than the maximum length of {maximum}"
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use dotcore_proto::dotcore::catalog::v1::{
-        BooleanParameterSchema, StringEnumParameterSchema, UnsignedIntegerParameterSchema,
+        BooleanParameterSchema, SecretParameterSchema, StringEnumParameterSchema,
+        TextParameterSchema, UnsignedIntegerParameterSchema,
     };
 
     use super::*;
@@ -172,6 +263,143 @@ mod tests {
     }
 
     #[test]
+    fn check_value_bounds_text_and_secrets_in_bytes_without_quoting_them() {
+        let text = definition(ParameterType::Text(TextParameterSchema {
+            minimum_length: 2,
+            maximum_length: Some(4),
+            default_value: None,
+        }));
+        let secret = definition(ParameterType::Secret(SecretParameterSchema {
+            generated_length: 32,
+            minimum_length: 3,
+            maximum_length: Some(72),
+        }));
+        let unbounded = definition(ParameterType::Secret(SecretParameterSchema {
+            generated_length: 32,
+            minimum_length: 3,
+            maximum_length: None,
+        }));
+        let check = |definition: &ParameterDefinition, value: &str| {
+            check_value(definition, &Value::String(value.to_owned()))
+                .map_err(|error| error.to_string())
+        };
+
+        assert_eq!(check(&text, "ab"), Ok(()));
+        assert_eq!(check(&text, "éè"), Ok(()));
+        assert_eq!(
+            check(&text, "éèê"),
+            Err("it has more bytes than the maximum length of 4".to_owned())
+        );
+        assert_eq!(
+            check(&text, "a"),
+            Err("it has fewer bytes than the minimum length of 2".to_owned())
+        );
+        assert_eq!(check(&secret, &"s".repeat(72)), Ok(()));
+        assert_eq!(
+            check(&secret, &"s".repeat(73)),
+            Err("it has more bytes than the maximum length of 72".to_owned())
+        );
+        assert_eq!(
+            check(&secret, &"é".repeat(72)),
+            Err("it has more bytes than the maximum length of 72".to_owned())
+        );
+        assert_eq!(check(&unbounded, &"s".repeat(200_000)), Ok(()));
+        assert_eq!(
+            check(&secret, ""),
+            Err("it has fewer bytes than the minimum length of 3".to_owned())
+        );
+        assert_eq!(check(&secret, "c2VjcmV0LWtleQ=="), Ok(()));
+        for unsafe_value in ["ab\tc", "ab\nc", "ab\u{7f}c"] {
+            assert_eq!(
+                check(&secret, unsafe_value),
+                Err("it contains a control character".to_owned())
+            );
+        }
+        assert_eq!(
+            check_value(&secret, &Value::Boolean(true))
+                .unwrap_err()
+                .to_string(),
+            "value type does not match the parameter type"
+        );
+    }
+
+    #[test]
+    fn only_secrets_are_secret_and_secrets_have_no_default() {
+        let text = definition(ParameterType::Text(TextParameterSchema {
+            minimum_length: 2,
+            maximum_length: None,
+            default_value: None,
+        }));
+        let secret = definition(ParameterType::Secret(SecretParameterSchema {
+            generated_length: 32,
+            minimum_length: 3,
+            maximum_length: None,
+        }));
+
+        assert_eq!(default_value(&secret), None);
+        assert!(is_secret(&secret));
+        assert!(!is_secret(&text));
+    }
+
+    #[test]
+    fn definition_validation_orders_length_bounds() {
+        assert_errors(
+            &definition(ParameterType::Text(TextParameterSchema {
+                minimum_length: 5,
+                maximum_length: Some(4),
+                default_value: None,
+            })),
+            &["parameter \"mode\" minimum length must not exceed its maximum length"],
+        );
+        assert_errors(
+            &definition(ParameterType::Text(TextParameterSchema {
+                minimum_length: 0,
+                maximum_length: Some(0),
+                default_value: None,
+            })),
+            &["parameter \"mode\" maximum length must be at least 1"],
+        );
+        assert_errors(
+            &definition(ParameterType::Text(TextParameterSchema {
+                minimum_length: 0,
+                maximum_length: Some(4),
+                default_value: Some("abcde".into()),
+            })),
+            &[
+                "parameter \"mode\" default is invalid: it has more bytes than the maximum length of 4",
+            ],
+        );
+        assert_errors(
+            &definition(ParameterType::Secret(SecretParameterSchema {
+                generated_length: 73,
+                minimum_length: 12,
+                maximum_length: Some(72),
+            })),
+            &["parameter \"mode\" generated length must not exceed its maximum length"],
+        );
+        assert_errors(
+            &definition(ParameterType::Secret(SecretParameterSchema {
+                generated_length: 8,
+                minimum_length: 12,
+                maximum_length: None,
+            })),
+            &["parameter \"mode\" minimum length must not exceed its generated length"],
+        );
+        for maximum_length in [None, Some(72)] {
+            assert!(
+                validate_parameter_definition(&definition(ParameterType::Secret(
+                    SecretParameterSchema {
+                        generated_length: 72,
+                        minimum_length: 12,
+                        maximum_length,
+                    }
+                )))
+                .is_empty()
+            );
+        }
+    }
+
+    #[test]
     fn definition_validation_rejects_invalid_shapes() {
         let mut bad_id = definition(ParameterType::Boolean(BooleanParameterSchema {
             default_value: Some(false),
@@ -208,6 +436,12 @@ mod tests {
         let mut untyped = enum_definition(&["auto"], None);
         untyped.parameter_type = None;
         assert_errors(&untyped, &["parameter \"mode\" requires a type"]);
+        let mut unplaced = enum_definition(&["auto"], Some("auto"));
+        unplaced.visibility = ParameterVisibility::Unspecified as i32;
+        assert_errors(
+            &unplaced,
+            &["parameter \"mode\" requires a basic, advanced or hidden visibility"],
+        );
         assert!(
             validate_parameter_definition(&enum_definition(&["auto"], Some("auto"))).is_empty()
         );
@@ -233,6 +467,7 @@ mod tests {
             parameter_id: "mode".into(),
             display_name: "Mode".into(),
             description: String::new(),
+            visibility: ParameterVisibility::Basic as i32,
             parameter_type: Some(parameter_type),
         }
     }

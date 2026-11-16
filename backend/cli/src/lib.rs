@@ -30,6 +30,7 @@ mod hosts;
 mod management;
 mod model;
 mod node;
+mod parameters;
 mod paths;
 mod runtime_confirmation;
 mod server;

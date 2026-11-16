@@ -65,7 +65,7 @@ export function UpstreamDeployDialog({
   const { advanced } = advancedMode;
   const steps = UPSTREAM_DEPLOY_STEPS;
   const wizard = useWizardSteps(steps);
-  const step = wizard.current as UpstreamDeployStep;
+  const step = wizard.current;
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
   const nameRef = useRef<HTMLInputElement>(null);
   const baseUrlRef = useRef<HTMLInputElement>(null);
@@ -192,7 +192,7 @@ export function UpstreamDeployDialog({
   const handleStepChange = (nextStep: string) => {
     const forward = steps.indexOf(nextStep as UpstreamDeployStep) > steps.indexOf(step);
     if (forward && !exposeErrors(stepErrors(step))) return;
-    wizard.goTo(nextStep);
+    wizard.goTo(nextStep as UpstreamDeployStep);
   };
   const handlePrimary = () => {
     if (step === "Deploy") {
@@ -202,12 +202,13 @@ export function UpstreamDeployDialog({
     if (exposeErrors(stepErrors(step))) wizard.goTo(steps[steps.indexOf(step) + 1]);
   };
 
-  // Runs after the shell focuses a new step heading, so the invalid field keeps focus.
+  // Runs after the shell focuses a new step heading, so the invalid field keeps focus. An
+  // intermediate render can precede the step's, so the request stays until a field takes focus.
   useEffect(() => {
     const errors = pendingFocusRef.current;
-    if (!errors) return;
-    pendingFocusRef.current = undefined;
-    focusFirstInvalidField(errors, fieldControls());
+    if (errors && focusFirstInvalidField(errors, fieldControls())) {
+      pendingFocusRef.current = undefined;
+    }
   });
 
   return (

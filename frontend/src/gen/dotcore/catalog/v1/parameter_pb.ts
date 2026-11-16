@@ -2,19 +2,20 @@
 // @generated from file dotcore/catalog/v1/parameter.proto (package dotcore.catalog.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file dotcore/catalog/v1/parameter.proto.
  */
 export const file_dotcore_catalog_v1_parameter: GenFile = /*@__PURE__*/
-  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEivQIKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI9Cgdib29sZWFuGAQgASgLMiouZG90Y29yZS5jYXRhbG9nLnYxLkJvb2xlYW5QYXJhbWV0ZXJTY2hlbWFIABJOChB1bnNpZ25lZF9pbnRlZ2VyGAUgASgLMjIuZG90Y29yZS5jYXRhbG9nLnYxLlVuc2lnbmVkSW50ZWdlclBhcmFtZXRlclNjaGVtYUgAEkQKC3N0cmluZ19lbnVtGAYgASgLMi0uZG90Y29yZS5jYXRhbG9nLnYxLlN0cmluZ0VudW1QYXJhbWV0ZXJTY2hlbWFIAEIQCg5wYXJhbWV0ZXJfdHlwZSJGChZCb29sZWFuUGFyYW1ldGVyU2NoZW1hEhoKDWRlZmF1bHRfdmFsdWUYASABKAhIAIgBAUIQCg5fZGVmYXVsdF92YWx1ZSJ+Ch5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWESDwoHbWluaW11bRgBIAEoBBIPCgdtYXhpbXVtGAIgASgEEgwKBHVuaXQYAyABKAkSGgoNZGVmYXVsdF92YWx1ZRgEIAEoBEgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIlkKGVN0cmluZ0VudW1QYXJhbWV0ZXJTY2hlbWESDgoGdmFsdWVzGAEgAygJEhoKDWRlZmF1bHRfdmFsdWUYAiABKAlIAIgBAUIQCg5fZGVmYXVsdF92YWx1ZSJwCg5QYXJhbWV0ZXJWYWx1ZRIUCgxwYXJhbWV0ZXJfaWQYASABKAkSEQoHYm9vbGVhbhgCIAEoCEgAEhoKEHVuc2lnbmVkX2ludGVnZXIYAyABKARIABIQCgZzdHJpbmcYBCABKAlIAEIHCgV2YWx1ZWIGcHJvdG8z");
+  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEi8AMKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI7Cgp2aXNpYmlsaXR5GAcgASgOMicuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZpc2liaWxpdHkSPQoHYm9vbGVhbhgEIAEoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Cb29sZWFuUGFyYW1ldGVyU2NoZW1hSAASTgoQdW5zaWduZWRfaW50ZWdlchgFIAEoCzIyLmRvdGNvcmUuY2F0YWxvZy52MS5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWFIABJECgtzdHJpbmdfZW51bRgGIAEoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5TdHJpbmdFbnVtUGFyYW1ldGVyU2NoZW1hSAASNwoEdGV4dBgIIAEoCzInLmRvdGNvcmUuY2F0YWxvZy52MS5UZXh0UGFyYW1ldGVyU2NoZW1hSAASOwoGc2VjcmV0GAkgASgLMikuZG90Y29yZS5jYXRhbG9nLnYxLlNlY3JldFBhcmFtZXRlclNjaGVtYUgAQhAKDnBhcmFtZXRlcl90eXBlIkYKFkJvb2xlYW5QYXJhbWV0ZXJTY2hlbWESGgoNZGVmYXVsdF92YWx1ZRgBIAEoCEgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIn4KHlVuc2lnbmVkSW50ZWdlclBhcmFtZXRlclNjaGVtYRIPCgdtaW5pbXVtGAEgASgEEg8KB21heGltdW0YAiABKAQSDAoEdW5pdBgDIAEoCRIaCg1kZWZhdWx0X3ZhbHVlGAQgASgESACIAQFCEAoOX2RlZmF1bHRfdmFsdWUiWQoZU3RyaW5nRW51bVBhcmFtZXRlclNjaGVtYRIOCgZ2YWx1ZXMYASADKAkSGgoNZGVmYXVsdF92YWx1ZRgCIAEoCUgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIosBChNUZXh0UGFyYW1ldGVyU2NoZW1hEhYKDm1pbmltdW1fbGVuZ3RoGAEgASgNEhsKDm1heGltdW1fbGVuZ3RoGAIgASgNSACIAQESGgoNZGVmYXVsdF92YWx1ZRgDIAEoCUgBiAEBQhEKD19tYXhpbXVtX2xlbmd0aEIQCg5fZGVmYXVsdF92YWx1ZSJ5ChVTZWNyZXRQYXJhbWV0ZXJTY2hlbWESGAoQZ2VuZXJhdGVkX2xlbmd0aBgBIAEoDRIWCg5taW5pbXVtX2xlbmd0aBgCIAEoDRIbCg5tYXhpbXVtX2xlbmd0aBgDIAEoDUgAiAEBQhEKD19tYXhpbXVtX2xlbmd0aCJFCg9QYXJhbWV0ZXJWYWx1ZXMSMgoGdmFsdWVzGAEgAygLMiIuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZhbHVlInAKDlBhcmFtZXRlclZhbHVlEhQKDHBhcmFtZXRlcl9pZBgBIAEoCRIRCgdib29sZWFuGAIgASgISAASGgoQdW5zaWduZWRfaW50ZWdlchgDIAEoBEgAEhAKBnN0cmluZxgEIAEoCUgAQgcKBXZhbHVlKp8BChNQYXJhbWV0ZXJWaXNpYmlsaXR5EiQKIFBBUkFNRVRFUl9WSVNJQklMSVRZX1VOU1BFQ0lGSUVEEAASHgoaUEFSQU1FVEVSX1ZJU0lCSUxJVFlfQkFTSUMQARIhCh1QQVJBTUVURVJfVklTSUJJTElUWV9BRFZBTkNFRBACEh8KG1BBUkFNRVRFUl9WSVNJQklMSVRZX0hJRERFThADYgZwcm90bzM");
 
 /**
- * Defines one owner-neutral typed parameter: its identity, label, guidance, and value constraints.
- * Owners decide whether a default is required and how the parameter is shown.
+ * Defines one owner-neutral typed parameter: its identity, label, guidance, visibility and value
+ * constraints. Owners decide which types and visibilities they accept and whether a default is
+ * required.
  *
  * @generated from message dotcore.catalog.v1.ParameterDefinition
  */
@@ -39,6 +40,13 @@ export type ParameterDefinition = Message<"dotcore.catalog.v1.ParameterDefinitio
    * @generated from field: string description = 3;
    */
   description: string;
+
+  /**
+   * Where the console shows this parameter.
+   *
+   * @generated from field: dotcore.catalog.v1.ParameterVisibility visibility = 7;
+   */
+  visibility: ParameterVisibility;
 
   /**
    * @generated from oneof dotcore.catalog.v1.ParameterDefinition.parameter_type
@@ -67,6 +75,22 @@ export type ParameterDefinition = Message<"dotcore.catalog.v1.ParameterDefinitio
      */
     value: StringEnumParameterSchema;
     case: "stringEnum";
+  } | {
+    /**
+     * Free text constraints for this parameter.
+     *
+     * @generated from field: dotcore.catalog.v1.TextParameterSchema text = 8;
+     */
+    value: TextParameterSchema;
+    case: "text";
+  } | {
+    /**
+     * Secret constraints for this parameter; its value is generated when none is supplied.
+     *
+     * @generated from field: dotcore.catalog.v1.SecretParameterSchema secret = 9;
+     */
+    value: SecretParameterSchema;
+    case: "secret";
   } | { case: undefined; value?: undefined };
 };
 
@@ -169,6 +193,99 @@ export const StringEnumParameterSchemaSchema: GenMessage<StringEnumParameterSche
   messageDesc(file_dotcore_catalog_v1_parameter, 3);
 
 /**
+ * Defines a free text parameter: any single-line text within its length bounds, without control
+ * characters. Lengths count UTF-8 bytes.
+ *
+ * @generated from message dotcore.catalog.v1.TextParameterSchema
+ */
+export type TextParameterSchema = Message<"dotcore.catalog.v1.TextParameterSchema"> & {
+  /**
+   * Inclusive minimum length in bytes.
+   *
+   * @generated from field: uint32 minimum_length = 1;
+   */
+  minimumLength: number;
+
+  /**
+   * Inclusive maximum length in bytes, at least 1 and at least the minimum; none when unbounded.
+   *
+   * @generated from field: optional uint32 maximum_length = 2;
+   */
+  maximumLength?: number;
+
+  /**
+   * Value used when the caller supplies none, within the length bounds.
+   *
+   * @generated from field: optional string default_value = 3;
+   */
+  defaultValue?: string;
+};
+
+/**
+ * Describes the message dotcore.catalog.v1.TextParameterSchema.
+ * Use `create(TextParameterSchemaSchema)` to create a new message.
+ */
+export const TextParameterSchemaSchema: GenMessage<TextParameterSchema> = /*@__PURE__*/
+  messageDesc(file_dotcore_catalog_v1_parameter, 4);
+
+/**
+ * Defines a secret parameter: never defaulted, generated at random from letters and digits when the
+ * caller supplies none, and masked by clients until asked. Lengths count UTF-8 bytes.
+ *
+ * @generated from message dotcore.catalog.v1.SecretParameterSchema
+ */
+export type SecretParameterSchema = Message<"dotcore.catalog.v1.SecretParameterSchema"> & {
+  /**
+   * Length in bytes of a generated value, within the length bounds.
+   *
+   * @generated from field: uint32 generated_length = 1;
+   */
+  generatedLength: number;
+
+  /**
+   * Inclusive minimum length in bytes of a supplied value, at least 1.
+   *
+   * @generated from field: uint32 minimum_length = 2;
+   */
+  minimumLength: number;
+
+  /**
+   * Inclusive maximum length in bytes of a supplied value; none when unbounded.
+   *
+   * @generated from field: optional uint32 maximum_length = 3;
+   */
+  maximumLength?: number;
+};
+
+/**
+ * Describes the message dotcore.catalog.v1.SecretParameterSchema.
+ * Use `create(SecretParameterSchemaSchema)` to create a new message.
+ */
+export const SecretParameterSchemaSchema: GenMessage<SecretParameterSchema> = /*@__PURE__*/
+  messageDesc(file_dotcore_catalog_v1_parameter, 5);
+
+/**
+ * Supplies a set of exact typed parameter values.
+ *
+ * @generated from message dotcore.catalog.v1.ParameterValues
+ */
+export type ParameterValues = Message<"dotcore.catalog.v1.ParameterValues"> & {
+  /**
+   * Exact values keyed by stable parameter identity.
+   *
+   * @generated from field: repeated dotcore.catalog.v1.ParameterValue values = 1;
+   */
+  values: ParameterValue[];
+};
+
+/**
+ * Describes the message dotcore.catalog.v1.ParameterValues.
+ * Use `create(ParameterValuesSchema)` to create a new message.
+ */
+export const ParameterValuesSchema: GenMessage<ParameterValues> = /*@__PURE__*/
+  messageDesc(file_dotcore_catalog_v1_parameter, 6);
+
+/**
  * Supplies one exact typed parameter value.
  *
  * @generated from message dotcore.catalog.v1.ParameterValue
@@ -202,7 +319,7 @@ export type ParameterValue = Message<"dotcore.catalog.v1.ParameterValue"> & {
     case: "unsignedInteger";
   } | {
     /**
-     * Exact string-enum value.
+     * Exact string-enum, text or secret value.
      *
      * @generated from field: string string = 4;
      */
@@ -216,5 +333,46 @@ export type ParameterValue = Message<"dotcore.catalog.v1.ParameterValue"> & {
  * Use `create(ParameterValueSchema)` to create a new message.
  */
 export const ParameterValueSchema: GenMessage<ParameterValue> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 4);
+  messageDesc(file_dotcore_catalog_v1_parameter, 7);
+
+/**
+ * Where the console shows a parameter.
+ *
+ * @generated from enum dotcore.catalog.v1.ParameterVisibility
+ */
+export enum ParameterVisibility {
+  /**
+   * Invalid; every parameter declares its visibility.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Shown in the main view.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_BASIC = 1;
+   */
+  BASIC = 1,
+
+  /**
+   * Shown only in the advanced view.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_ADVANCED = 2;
+   */
+  ADVANCED = 2,
+
+  /**
+   * Never shown; the value comes from its default, a profile or sizing.
+   *
+   * @generated from enum value: PARAMETER_VISIBILITY_HIDDEN = 3;
+   */
+  HIDDEN = 3,
+}
+
+/**
+ * Describes the enum dotcore.catalog.v1.ParameterVisibility.
+ */
+export const ParameterVisibilitySchema: GenEnum<ParameterVisibility> = /*@__PURE__*/
+  enumDesc(file_dotcore_catalog_v1_parameter, 0);
 

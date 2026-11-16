@@ -6,6 +6,7 @@ import "dotcore/catalog/v1/engine_release.proto";
 import "dotcore/catalog/v1/execution.proto";
 import "dotcore/catalog/v1/hardware_class.proto";
 import "dotcore/catalog/v1/model_capabilities.proto";
+import "dotcore/catalog/v1/parameter.proto";
 import "dotcore/engine/v1/engine.proto";
 
 // An immutable artifact-manager catalog declaration. The inference controller
@@ -188,7 +189,10 @@ message ModelProfile {
   string default_model_artifact_binding_id = 3;
 
   // Typed engine parameter defaults for this profile, overlaid on the engine defaults.
-  EngineParameterValues engine_parameter_defaults = 4;
+  ParameterValues engine_parameter_defaults = 4;
+
+  // Engine parameters this profile shows differently from the engine, at most one per parameter.
+  repeated ParameterVisibilityOverride engine_parameter_visibility_overrides = 9;
 
   // Optional human-readable name for this profile.
   string display_name = 5;
@@ -198,9 +202,16 @@ message ModelProfile {
 
   // Sparse option defaults overlaid on configuration defaults.
   repeated ModelOptionValues option_defaults = 7;
+}
 
-  // Exact ordered engine parameters exposed by this profile; empty uses engine defaults.
-  repeated string exposed_parameter_ids = 8;
+// Sets where the console shows one engine parameter for a profile, in place of the engine's
+// visibility.
+message ParameterVisibilityOverride {
+  // Engine parameter identity.
+  string parameter_id = 1;
+
+  // Visibility the profile gives the parameter.
+  ParameterVisibility visibility = 2;
 }
 
 // Declares one stable semantic option that configurations may implement.

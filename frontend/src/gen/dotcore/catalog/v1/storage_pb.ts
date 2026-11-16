@@ -10,10 +10,10 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/storage.proto.
  */
 export const file_dotcore_catalog_v1_storage: GenFile = /*@__PURE__*/
-  fileDesc("CiBkb3Rjb3JlL2NhdGFsb2cvdjEvc3RvcmFnZS5wcm90bxISZG90Y29yZS5jYXRhbG9nLnYxIt8BCg5TdG9yYWdlQmluZGluZxIUCgxiaW5kaW5nX25hbWUYASABKAkSEgoKbW91bnRfcGF0aBgCIAEoCRItCgRraW5kGAMgASgOMh8uZG90Y29yZS5jYXRhbG9nLnYxLlN0b3JhZ2VLaW5kEi8KBXNjb3BlGAQgASgOMiAuZG90Y29yZS5jYXRhbG9nLnYxLlN0b3JhZ2VTY29wZRJDCgtlbnZpcm9ubWVudBgFIAMoCzIuLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlRW52aXJvbm1lbnRWYXJpYWJsZSJBChpTdG9yYWdlRW52aXJvbm1lbnRWYXJpYWJsZRIMCgRuYW1lGAEgASgJEhUKDXJlbGF0aXZlX3BhdGgYAiABKAkqWgoLU3RvcmFnZUtpbmQSHAoYU1RPUkFHRV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSU1RPUkFHRV9LSU5EX0NBQ0hFEAESFQoRU1RPUkFHRV9LSU5EX0RBVEEQAiqNAQoMU3RvcmFnZVNjb3BlEh0KGVNUT1JBR0VfU0NPUEVfVU5TUEVDSUZJRUQQABIcChhTVE9SQUdFX1NDT1BFX0RFUExPWU1FTlQQARIdChlTVE9SQUdFX1NDT1BFX0FQUExJQ0FUSU9OEAISIQodU1RPUkFHRV9TQ09QRV9FTkdJTkVfQVJUSUZBQ1QQA2IGcHJvdG8z");
+  fileDesc("CiBkb3Rjb3JlL2NhdGFsb2cvdjEvc3RvcmFnZS5wcm90bxISZG90Y29yZS5jYXRhbG9nLnYxIugBCg5TdG9yYWdlQmluZGluZxIUCgxiaW5kaW5nX25hbWUYASABKAkSEgoKbW91bnRfcGF0aBgCIAEoCRItCgRraW5kGAMgASgOMh8uZG90Y29yZS5jYXRhbG9nLnYxLlN0b3JhZ2VLaW5kEjgKCnBsYWNlbWVudHMYBCADKA4yJC5kb3Rjb3JlLmNhdGFsb2cudjEuU3RvcmFnZVBsYWNlbWVudBJDCgtlbnZpcm9ubWVudBgFIAMoCzIuLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlRW52aXJvbm1lbnRWYXJpYWJsZSJBChpTdG9yYWdlRW52aXJvbm1lbnRWYXJpYWJsZRIMCgRuYW1lGAEgASgJEhUKDXJlbGF0aXZlX3BhdGgYAiABKAkqWgoLU3RvcmFnZUtpbmQSHAoYU1RPUkFHRV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSU1RPUkFHRV9LSU5EX0NBQ0hFEAESFQoRU1RPUkFHRV9LSU5EX0RBVEEQAiqhAQoQU3RvcmFnZVBsYWNlbWVudBIhCh1TVE9SQUdFX1BMQUNFTUVOVF9VTlNQRUNJRklFRBAAEiAKHFNUT1JBR0VfUExBQ0VNRU5UX0RFUExPWU1FTlQQARIhCh1TVE9SQUdFX1BMQUNFTUVOVF9BUFBMSUNBVElPThACEiUKIVNUT1JBR0VfUExBQ0VNRU5UX0VOR0lORV9BUlRJRkFDVBADYgZwcm90bzM");
 
 /**
- * Declares one writable storage the owner attaches to a workload, and who shares it.
+ * Declares one writable storage the owner attaches to a workload, and where it may be placed.
  *
  * @generated from message dotcore.catalog.v1.StorageBinding
  */
@@ -40,11 +40,12 @@ export type StorageBinding = Message<"dotcore.catalog.v1.StorageBinding"> & {
   kind: StorageKind;
 
   /**
-   * What the storage is shared by: one deployment, an application, or an engine artifact.
+   * Placements a deployment may choose, in order; the first is the default. An engine binding
+   * declares exactly one.
    *
-   * @generated from field: dotcore.catalog.v1.StorageScope scope = 4;
+   * @generated from field: repeated dotcore.catalog.v1.StoragePlacement placements = 4;
    */
-  scope: StorageScope;
+  placements: StoragePlacement[];
 
   /**
    * Environment variables that point the workload at paths inside the storage.
@@ -124,43 +125,43 @@ export const StorageKindSchema: GenEnum<StorageKind> = /*@__PURE__*/
   enumDesc(file_dotcore_catalog_v1_storage, 0);
 
 /**
- * What a storage binding is shared by.
+ * Where a storage binding's folder lives, which sets who shares it and how long it is kept.
  *
- * @generated from enum dotcore.catalog.v1.StorageScope
+ * @generated from enum dotcore.catalog.v1.StoragePlacement
  */
-export enum StorageScope {
+export enum StoragePlacement {
   /**
-   * The storage scope unspecified value.
+   * The storage placement unspecified value.
    *
-   * @generated from enum value: STORAGE_SCOPE_UNSPECIFIED = 0;
+   * @generated from enum value: STORAGE_PLACEMENT_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * One deployment only; removed with it.
+   * One deployment only; deleted at its teardown.
    *
-   * @generated from enum value: STORAGE_SCOPE_DEPLOYMENT = 1;
+   * @generated from enum value: STORAGE_PLACEMENT_DEPLOYMENT = 1;
    */
   DEPLOYMENT = 1,
 
   /**
-   * Every deployment of one application on a node.
+   * Every deployment of one application on a node; kept after teardown until unused and cleaned up.
    *
-   * @generated from enum value: STORAGE_SCOPE_APPLICATION = 2;
+   * @generated from enum value: STORAGE_PLACEMENT_APPLICATION = 2;
    */
   APPLICATION = 2,
 
   /**
    * Every model deployment running one engine artifact on a node.
    *
-   * @generated from enum value: STORAGE_SCOPE_ENGINE_ARTIFACT = 3;
+   * @generated from enum value: STORAGE_PLACEMENT_ENGINE_ARTIFACT = 3;
    */
   ENGINE_ARTIFACT = 3,
 }
 
 /**
- * Describes the enum dotcore.catalog.v1.StorageScope.
+ * Describes the enum dotcore.catalog.v1.StoragePlacement.
  */
-export const StorageScopeSchema: GenEnum<StorageScope> = /*@__PURE__*/
+export const StoragePlacementSchema: GenEnum<StoragePlacement> = /*@__PURE__*/
   enumDesc(file_dotcore_catalog_v1_storage, 1);
 

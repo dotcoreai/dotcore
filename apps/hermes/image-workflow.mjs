@@ -40,10 +40,10 @@ const INVALID_STARTUPS = [
   ['http://127.0.0.1:50052/"/v1', ROUTE],
   [INFERENCE_URL, "Fixture route"],
 ];
-// The login the catalog sets for the dashboard: deliberate public placeholders, the same for every
-// deployment.
+// The login the catalog binds for the dashboard. The password stands in for the one a deployment
+// passes.
 const LOGIN_USERNAME = "admin";
-const LOGIN_PASSWORD = "dotcore";
+const LOGIN_PASSWORD = "test-dashboard-password";
 const BASE_IMAGE = dockerfileBaseImage(
   readFileSync(new URL("./Dockerfile", import.meta.url), "utf8"),
   /^nousresearch\/hermes-agent@sha256:[a-f0-9]{64}$/,

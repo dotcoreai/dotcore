@@ -67,6 +67,11 @@ import {
 import { formatGpuDevices } from "./application-gpu-devices";
 import { applicationInspectorPanelId } from "./application-inspector-panel";
 import { applicationParameterFields, retainedParameterValues } from "./application-parameters";
+import {
+  storageBindingLabel,
+  storagePlacementLabel,
+  teardownConsequence,
+} from "./application-storage";
 
 interface InspectorProps {
   onOpenChange: (open: boolean) => void;
@@ -177,9 +182,8 @@ export function DeploymentApplicationInspector({
   // The deployment's per-unit accelerator memory from its service observations; units the
   // projection does not cover render nothing.
   const acceleratorMemory = applicationAcceleratorMemory(deployment);
-  const retainedParameters = applicationParameterFields(deployment.snapshot?.graph?.parameters).map(
-    (field) => field.view,
-  );
+  const parameterFields = applicationParameterFields(deployment.snapshot?.graph?.parameters);
+  const retainedParameters = parameterFields.map((field) => field.view);
 
   useEffect(() => {
     if (!canRemove && confirmingRemoval) {
@@ -324,7 +328,7 @@ export function DeploymentApplicationInspector({
               </DetailList>
             </section>
 
-            {retainedParameters.length ? (
+            {retainedParameters.length || deployment.storageAttachments.length ? (
               <section aria-labelledby="application-deployment-parameters-heading">
                 <InspectorSectionHeader
                   headingId="application-deployment-parameters-heading"
@@ -335,6 +339,13 @@ export function DeploymentApplicationInspector({
                     parameters={retainedParameters}
                     values={retainedParameterValues(deployment.snapshot)}
                   />
+                  {deployment.storageAttachments.map((attachment) => (
+                    <Detail
+                      key={`${attachment.serviceName}/${attachment.bindingName}`}
+                      label={storageBindingLabel(attachment.bindingName)}
+                      value={storagePlacementLabel(attachment.placement)}
+                    />
+                  ))}
                 </DetailList>
               </section>
             ) : null}
@@ -505,10 +516,9 @@ export function DeploymentApplicationInspector({
               <DialogTitle>Teardown deployment?</DialogTitle>
               <DialogDescription id="remove-deployment-description">
                 Teardown deployment <ResourceMarker colorKey={deployment.applicationDeploymentId} />
-                {deployment.applicationDeploymentName || deployment.applicationDeploymentId}? The
-                apps controller will stop and remove its recognized workload group. The deployment
-                remains visible as Tearing down until cleanup completes. Its application data is
-                deleted; the catalog application is kept.
+                {deployment.applicationDeploymentName || deployment.applicationDeploymentId}?{" "}
+                {teardownConsequence(deployment.storageAttachments)} The deployment remains visible
+                as Tearing down until cleanup completes.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

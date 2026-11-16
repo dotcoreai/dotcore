@@ -79,7 +79,7 @@ export function ModelDeployTargetStep({
         <div className="grid gap-1">
           <Combobox
             ariaInvalid={Boolean(error)}
-            description={
+            status={
               loadingPresentation
                 ? loadingMessageVisible
                   ? "Loading configured execution targets…"

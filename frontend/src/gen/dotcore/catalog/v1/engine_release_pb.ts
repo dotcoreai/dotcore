@@ -8,6 +8,8 @@ import type { NixArtifact } from "./nix_pb";
 import { file_dotcore_catalog_v1_nix } from "./nix_pb";
 import type { OciImageReference } from "./oci_pb";
 import { file_dotcore_catalog_v1_oci } from "./oci_pb";
+import type { ParameterDefinition } from "./parameter_pb";
+import { file_dotcore_catalog_v1_parameter } from "./parameter_pb";
 import type { Selector } from "./selector_pb";
 import { file_dotcore_catalog_v1_selector } from "./selector_pb";
 import type { StorageBinding } from "./storage_pb";
@@ -20,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/engine_release.proto.
  */
 export const file_dotcore_catalog_v1_engine_release: GenFile = /*@__PURE__*/
-  fileDesc("Cidkb3Rjb3JlL2NhdGFsb2cvdjEvZW5naW5lX3JlbGVhc2UucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSKpAgoNRW5naW5lUmVsZWFzZRIZChFlbmdpbmVfcmVsZWFzZV9pZBgBIAEoCRIyCgtlbmdpbmVfa2luZBgCIAEoDjIdLmRvdGNvcmUuZW5naW5lLnYxLkVuZ2luZUtpbmQSDwoHdmVyc2lvbhgDIAEoCRI1CglhcnRpZmFjdHMYBCADKAsyIi5kb3Rjb3JlLmNhdGFsb2cudjEuRW5naW5lQXJ0aWZhY3QSQwoQcGFyYW1ldGVyX3NjaGVtYRgFIAEoCzIpLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVQYXJhbWV0ZXJTY2hlbWESPAoQc3RvcmFnZV9iaW5kaW5ncxgGIAMoCzIiLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlQmluZGluZyLEAQoORW5naW5lQXJ0aWZhY3QSEwoLYXJ0aWZhY3RfaWQYASABKAkSNAoDb2NpGAIgASgLMiUuZG90Y29yZS5jYXRhbG9nLnYxLk9jaUltYWdlUmVmZXJlbmNlSAASLgoDbml4GAQgASgLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk5peEFydGlmYWN0SAASLwoJc2VsZWN0b3JzGAMgAygLMhwuZG90Y29yZS5jYXRhbG9nLnYxLlNlbGVjdG9yQgYKBGtpbmQiUAoXRW5naW5lQXJ0aWZhY3RSZWZlcmVuY2USGQoRZW5naW5lX3JlbGVhc2VfaWQYASABKAkSGgoSZW5naW5lX2FydGlmYWN0X2lkGAIgASgJIm0KFUVuZ2luZVBhcmFtZXRlclNjaGVtYRIRCglzY2hlbWFfaWQYASABKAkSQQoKcGFyYW1ldGVycxgCIAMoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVQYXJhbWV0ZXJEZWZpbml0aW9uIpoCChlFbmdpbmVQYXJhbWV0ZXJEZWZpbml0aW9uEhQKDHBhcmFtZXRlcl9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSVAoQdW5zaWduZWRfaW50ZWdlchgDIAEoCzI4LmRvdGNvcmUuY2F0YWxvZy52MS5VbnNpZ25lZEludGVnZXJFbmdpbmVQYXJhbWV0ZXJTY2hlbWFIABJDCgdib29sZWFuGAQgASgLMjAuZG90Y29yZS5jYXRhbG9nLnYxLkJvb2xlYW5FbmdpbmVQYXJhbWV0ZXJTY2hlbWFIABIPCgdleHBvc2VkGAUgASgIEhMKC2Rlc2NyaXB0aW9uGAYgASgJQhAKDnBhcmFtZXRlcl90eXBlIh4KHEJvb2xlYW5FbmdpbmVQYXJhbWV0ZXJTY2hlbWEihAEKJFVuc2lnbmVkSW50ZWdlckVuZ2luZVBhcmFtZXRlclNjaGVtYRIPCgdtaW5pbXVtGAEgASgEEg8KB21heGltdW0YAiABKAQSDAoEdW5pdBgDIAEoCRIaCg1kZWZhdWx0X3ZhbHVlGAQgASgESACIAQFCEAoOX2RlZmF1bHRfdmFsdWUiUQoVRW5naW5lUGFyYW1ldGVyVmFsdWVzEjgKBnZhbHVlcxgBIAMoCzIoLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVQYXJhbWV0ZXJWYWx1ZSJkChRFbmdpbmVQYXJhbWV0ZXJWYWx1ZRIUCgxwYXJhbWV0ZXJfaWQYASABKAkSGgoQdW5zaWduZWRfaW50ZWdlchgCIAEoBEgAEhEKB2Jvb2xlYW4YAyABKAhIAEIHCgV2YWx1ZWIGcHJvdG8z", [file_dotcore_catalog_v1_nix, file_dotcore_catalog_v1_oci, file_dotcore_catalog_v1_selector, file_dotcore_catalog_v1_storage, file_dotcore_engine_v1_engine]);
+  fileDesc("Cidkb3Rjb3JlL2NhdGFsb2cvdjEvZW5naW5lX3JlbGVhc2UucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSKpAgoNRW5naW5lUmVsZWFzZRIZChFlbmdpbmVfcmVsZWFzZV9pZBgBIAEoCRIyCgtlbmdpbmVfa2luZBgCIAEoDjIdLmRvdGNvcmUuZW5naW5lLnYxLkVuZ2luZUtpbmQSDwoHdmVyc2lvbhgDIAEoCRI1CglhcnRpZmFjdHMYBCADKAsyIi5kb3Rjb3JlLmNhdGFsb2cudjEuRW5naW5lQXJ0aWZhY3QSQwoQcGFyYW1ldGVyX3NjaGVtYRgFIAEoCzIpLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVQYXJhbWV0ZXJTY2hlbWESPAoQc3RvcmFnZV9iaW5kaW5ncxgGIAMoCzIiLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlQmluZGluZyLEAQoORW5naW5lQXJ0aWZhY3QSEwoLYXJ0aWZhY3RfaWQYASABKAkSNAoDb2NpGAIgASgLMiUuZG90Y29yZS5jYXRhbG9nLnYxLk9jaUltYWdlUmVmZXJlbmNlSAASLgoDbml4GAQgASgLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk5peEFydGlmYWN0SAASLwoJc2VsZWN0b3JzGAMgAygLMhwuZG90Y29yZS5jYXRhbG9nLnYxLlNlbGVjdG9yQgYKBGtpbmQiUAoXRW5naW5lQXJ0aWZhY3RSZWZlcmVuY2USGQoRZW5naW5lX3JlbGVhc2VfaWQYASABKAkSGgoSZW5naW5lX2FydGlmYWN0X2lkGAIgASgJImcKFUVuZ2luZVBhcmFtZXRlclNjaGVtYRIRCglzY2hlbWFfaWQYASABKAkSOwoKcGFyYW1ldGVycxgCIAMoCzInLmRvdGNvcmUuY2F0YWxvZy52MS5QYXJhbWV0ZXJEZWZpbml0aW9uYgZwcm90bzM", [file_dotcore_catalog_v1_nix, file_dotcore_catalog_v1_oci, file_dotcore_catalog_v1_parameter, file_dotcore_catalog_v1_selector, file_dotcore_catalog_v1_storage, file_dotcore_engine_v1_engine]);
 
 /**
  * An immutable artifact-manager catalog declaration for reusable engine
@@ -172,11 +174,11 @@ export type EngineParameterSchema = Message<"dotcore.catalog.v1.EngineParameterS
   schemaId: string;
 
   /**
-   * Supported typed engine parameters.
+   * Supported typed engine parameters, in display order.
    *
-   * @generated from field: repeated dotcore.catalog.v1.EngineParameterDefinition parameters = 2;
+   * @generated from field: repeated dotcore.catalog.v1.ParameterDefinition parameters = 2;
    */
-  parameters: EngineParameterDefinition[];
+  parameters: ParameterDefinition[];
 };
 
 /**
@@ -185,187 +187,4 @@ export type EngineParameterSchema = Message<"dotcore.catalog.v1.EngineParameterS
  */
 export const EngineParameterSchemaSchema: GenMessage<EngineParameterSchema> = /*@__PURE__*/
   messageDesc(file_dotcore_catalog_v1_engine_release, 3);
-
-/**
- * Defines one typed engine parameter and its validation constraints.
- *
- * @generated from message dotcore.catalog.v1.EngineParameterDefinition
- */
-export type EngineParameterDefinition = Message<"dotcore.catalog.v1.EngineParameterDefinition"> & {
-  /**
-   * Stable engine parameter identity.
-   *
-   * @generated from field: string parameter_id = 1;
-   */
-  parameterId: string;
-
-  /**
-   * Human-readable parameter label.
-   *
-   * @generated from field: string display_name = 2;
-   */
-  displayName: string;
-
-  /**
-   * @generated from oneof dotcore.catalog.v1.EngineParameterDefinition.parameter_type
-   */
-  parameterType: {
-    /**
-     * Unsigned-integer constraints for this parameter.
-     *
-     * @generated from field: dotcore.catalog.v1.UnsignedIntegerEngineParameterSchema unsigned_integer = 3;
-     */
-    value: UnsignedIntegerEngineParameterSchema;
-    case: "unsignedInteger";
-  } | {
-    /**
-     * Boolean type for this parameter.
-     *
-     * @generated from field: dotcore.catalog.v1.BooleanEngineParameterSchema boolean = 4;
-     */
-    value: BooleanEngineParameterSchema;
-    case: "boolean";
-  } | { case: undefined; value?: undefined };
-
-  /**
-   * Whether the console exposes this parameter by default.
-   *
-   * @generated from field: bool exposed = 5;
-   */
-  exposed: boolean;
-
-  /**
-   * Optional practical guidance shown with this parameter.
-   *
-   * @generated from field: string description = 6;
-   */
-  description: string;
-};
-
-/**
- * Describes the message dotcore.catalog.v1.EngineParameterDefinition.
- * Use `create(EngineParameterDefinitionSchema)` to create a new message.
- */
-export const EngineParameterDefinitionSchema: GenMessage<EngineParameterDefinition> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_engine_release, 4);
-
-/**
- * Defines a boolean engine parameter.
- *
- * @generated from message dotcore.catalog.v1.BooleanEngineParameterSchema
- */
-export type BooleanEngineParameterSchema = Message<"dotcore.catalog.v1.BooleanEngineParameterSchema"> & {
-};
-
-/**
- * Describes the message dotcore.catalog.v1.BooleanEngineParameterSchema.
- * Use `create(BooleanEngineParameterSchemaSchema)` to create a new message.
- */
-export const BooleanEngineParameterSchemaSchema: GenMessage<BooleanEngineParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_engine_release, 5);
-
-/**
- * Defines the inclusive range for an unsigned-integer engine parameter.
- *
- * @generated from message dotcore.catalog.v1.UnsignedIntegerEngineParameterSchema
- */
-export type UnsignedIntegerEngineParameterSchema = Message<"dotcore.catalog.v1.UnsignedIntegerEngineParameterSchema"> & {
-  /**
-   * Inclusive minimum accepted value.
-   *
-   * @generated from field: uint64 minimum = 1;
-   */
-  minimum: bigint;
-
-  /**
-   * Inclusive maximum accepted value.
-   *
-   * @generated from field: uint64 maximum = 2;
-   */
-  maximum: bigint;
-
-  /**
-   * Human-readable unit label for this value.
-   *
-   * @generated from field: string unit = 3;
-   */
-  unit: string;
-
-  /**
-   * Value used when neither the deployment nor its profile supplies one, within the range.
-   *
-   * @generated from field: optional uint64 default_value = 4;
-   */
-  defaultValue?: bigint;
-};
-
-/**
- * Describes the message dotcore.catalog.v1.UnsignedIntegerEngineParameterSchema.
- * Use `create(UnsignedIntegerEngineParameterSchemaSchema)` to create a new message.
- */
-export const UnsignedIntegerEngineParameterSchemaSchema: GenMessage<UnsignedIntegerEngineParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_engine_release, 6);
-
-/**
- * Supplies a complete set of exact typed engine parameter values.
- *
- * @generated from message dotcore.catalog.v1.EngineParameterValues
- */
-export type EngineParameterValues = Message<"dotcore.catalog.v1.EngineParameterValues"> & {
-  /**
-   * Exact values keyed by stable parameter identity.
-   *
-   * @generated from field: repeated dotcore.catalog.v1.EngineParameterValue values = 1;
-   */
-  values: EngineParameterValue[];
-};
-
-/**
- * Describes the message dotcore.catalog.v1.EngineParameterValues.
- * Use `create(EngineParameterValuesSchema)` to create a new message.
- */
-export const EngineParameterValuesSchema: GenMessage<EngineParameterValues> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_engine_release, 7);
-
-/**
- * Supplies one exact typed engine parameter value.
- *
- * @generated from message dotcore.catalog.v1.EngineParameterValue
- */
-export type EngineParameterValue = Message<"dotcore.catalog.v1.EngineParameterValue"> & {
-  /**
-   * Stable engine parameter identity.
-   *
-   * @generated from field: string parameter_id = 1;
-   */
-  parameterId: string;
-
-  /**
-   * @generated from oneof dotcore.catalog.v1.EngineParameterValue.value
-   */
-  value: {
-    /**
-     * Exact unsigned-integer value.
-     *
-     * @generated from field: uint64 unsigned_integer = 2;
-     */
-    value: bigint;
-    case: "unsignedInteger";
-  } | {
-    /**
-     * Exact boolean value, preserving false presence.
-     *
-     * @generated from field: bool boolean = 3;
-     */
-    value: boolean;
-    case: "boolean";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message dotcore.catalog.v1.EngineParameterValue.
- * Use `create(EngineParameterValueSchema)` to create a new message.
- */
-export const EngineParameterValueSchema: GenMessage<EngineParameterValue> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_engine_release, 8);
 

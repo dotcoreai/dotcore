@@ -7,6 +7,7 @@
 //! stdout, for example `DOTCORE_MODEL_DEPLOYMENT_STATE=Ready`.
 
 mod list;
+mod parameters;
 mod projection;
 mod show;
 
@@ -184,6 +185,10 @@ impl ManagedDeployment for ModelDeployment {
 
     fn desired_state_label(&self) -> &'static str {
         desired_state_label(self.desired_state())
+    }
+
+    fn teardown_consequence(&self) -> String {
+        "This removes the deployment and its running workload resources.".to_owned()
     }
 }
 

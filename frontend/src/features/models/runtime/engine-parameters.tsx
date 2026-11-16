@@ -1,22 +1,27 @@
 import type { RefObject } from "react";
 
-import type { ParameterView, ParameterViewValue } from "@/components/parameters/parameter-view";
 import { ParametersDetails, ParametersForm } from "@/components/parameters/parameters";
-import type {
-  EngineParameterDefinition,
-  EngineParameterSchema,
-  EngineParameterValues,
-} from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { DetailList } from "@/components/ui/detail-list";
+import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
+import { parameterValueMap, parameterView } from "@/domain/parameter-definitions";
+import type { ParameterView } from "@/domain/parameter-view";
+import type { EngineParameterSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import {
+  type ParameterDefinition,
+  type ParameterValues,
+  ParameterVisibility,
+} from "@/gen/dotcore/catalog/v1/parameter_pb";
+import type { ResolvedLocalModelDeploymentSnapshot } from "@/gen/dotcore/model/v1/deployment_pb";
 
-import { engineParameterHelp } from "./engine-parameter-values";
+import { effectiveVisibility } from "./engine-parameter-values";
 
 interface EngineParametersFormProps {
   errors: ReadonlyMap<string, string>;
   inputs: ReadonlyMap<string, string>;
   inputRefs: RefObject<Map<string, HTMLElement | null>>;
-  onBlur: (parameter: EngineParameterDefinition) => void;
-  onChange: (parameter: EngineParameterDefinition, input: string) => void;
-  parameters: readonly EngineParameterDefinition[];
+  onBlur: (parameter: ParameterDefinition) => void;
+  onChange: (parameter: ParameterDefinition, input: string) => void;
+  parameters: readonly ParameterDefinition[];
 }
 
 export function EngineParametersForm({
@@ -53,35 +58,48 @@ export function EngineParametersDetails({
   values,
 }: {
   schema: EngineParameterSchema | undefined;
-  values: EngineParameterValues | undefined;
+  values: ParameterValues | undefined;
 }) {
   if (!schema || !values) return null;
 
-  const retained = new Map<string, ParameterViewValue>();
-  for (const value of values.values) {
-    if (value.value.case !== undefined) retained.set(value.parameterId, value.value.value);
-  }
   return (
-    <ParametersDetails parameters={engineParameterViews(schema.parameters)} values={retained} />
+    <ParametersDetails
+      parameters={engineParameterViews(schema.parameters)}
+      values={parameterValueMap(values.values)}
+    />
   );
 }
 
-function engineParameterViews(parameters: readonly EngineParameterDefinition[]): ParameterView[] {
-  return parameters.flatMap((parameter): ParameterView[] => {
-    const base = {
-      hint: engineParameterHelp(parameter),
-      id: parameter.parameterId,
-      label: parameter.displayName,
-    };
-    switch (parameter.parameterType.case) {
-      case "boolean":
-        return [{ ...base, type: { kind: "boolean" } }];
-      case "unsignedInteger": {
-        const { maximum, minimum, unit } = parameter.parameterType.value;
-        return [{ ...base, type: { kind: "unsignedInteger", maximum, minimum, unit } }];
-      }
-      default:
-        return [];
-    }
-  });
+/**
+ * A model deployment's Parameters section: every engine parameter it uses that is basic or advanced
+ * for its profile, in schema order, read from the snapshot alone.
+ */
+export function DeploymentParametersSection({
+  snapshot,
+}: {
+  snapshot: ResolvedLocalModelDeploymentSnapshot;
+}) {
+  const { engineParameterSchema: schema, engineParameterValues: values } = snapshot;
+  if (!schema || !values) return null;
+
+  const overrides = snapshot.profileEngineParameterVisibilityOverrides;
+  const shown = schema.parameters.filter(
+    (parameter) => effectiveVisibility(parameter, overrides) !== ParameterVisibility.HIDDEN,
+  );
+  const retained = parameterValueMap(values.values);
+  const views = engineParameterViews(shown).filter((view) => retained.has(view.id));
+  if (!views.length) return null;
+
+  return (
+    <section aria-labelledby="deployment-parameters-heading">
+      <InspectorSectionHeader headingId="deployment-parameters-heading" title="Parameters" />
+      <DetailList>
+        <ParametersDetails parameters={views} values={retained} />
+      </DetailList>
+    </section>
+  );
+}
+
+function engineParameterViews(parameters: readonly ParameterDefinition[]): ParameterView[] {
+  return parameters.flatMap((parameter) => parameterView(parameter) ?? []);
 }

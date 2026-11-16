@@ -48,6 +48,7 @@ pub(super) struct ApplicationOwner<D, S> {
     pub(super) configuration_sources: ApplicationConfigurationSources,
     pub(super) inference_route_resolver: Arc<dyn InferenceRouteResolver>,
     pub(super) target_capabilities: Arc<dyn TargetCapabilitySource>,
+    pub(super) secret_generator: Arc<dyn crate::SecretGenerator>,
     pub(super) desired: Arc<D>,
     pub(super) current: Arc<S>,
 

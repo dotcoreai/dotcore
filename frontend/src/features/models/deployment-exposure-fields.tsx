@@ -2,6 +2,7 @@ import { Link2Icon, Unlink2Icon } from "lucide-react";
 import type { RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
+import { FieldHelp } from "@/components/ui/field";
 import { FieldError } from "@/components/ui/field-error";
 import { Input } from "@/components/ui/input";
 import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/segmented-control";
@@ -11,7 +12,8 @@ import { cn } from "@/lib/utils";
 import type { DeploymentExposureValues } from "./deployment-exposure";
 
 /**
- * The route name field of a Deploy step, with the deployment's exposure choice beside its label.
+ * The route name field of a Deploy step, with its help popover and the deployment's exposure choice
+ * beside its label.
  * While `values.routeName` is undefined the input shows `defaultRouteName` in muted text and
  * follows the deployment name; typing makes it a custom value, and a toggle beside the label shows
  * that state and switches between following and custom. The Direct / Hidden choice sits at the
@@ -43,7 +45,11 @@ export function DeploymentExposureFields({
   const following = values.routeName === undefined;
   const showExposureChoice = advanced || !direct;
   const describedBy =
-    [routeNameError ? "deployment-route-name-error" : undefined, direct ? undefined : hiddenNoteId]
+    [
+      routeNameDescriptionId,
+      routeNameError ? "deployment-route-name-error" : undefined,
+      direct ? undefined : hiddenNoteId,
+    ]
       .filter(Boolean)
       .join(" ") || undefined;
   const setExposure = (exposure: DeploymentExposureValues["exposure"]) =>
@@ -71,6 +77,10 @@ export function DeploymentExposureFields({
     <div className="grid gap-1 text-sm">
       <div className="flex min-h-control-xs flex-wrap items-center gap-x-1">
         <label htmlFor="deployment-route-name">Route name</label>
+        <FieldHelp descriptionId={routeNameDescriptionId} label="Route name">
+          The model name callers send in requests. It follows the deployment name until you change
+          it.
+        </FieldHelp>
         {direct ? (
           <Tooltip>
             <TooltipTrigger
@@ -131,6 +141,7 @@ export function DeploymentExposureFields({
   );
 }
 
+const routeNameDescriptionId = "deployment-route-name-description";
 const hiddenNoteId = "deployment-route-name-hidden-note";
 
 const EXPOSURE_OPTIONS: readonly SegmentedControlOption<DeploymentExposureValues["exposure"]>[] = [

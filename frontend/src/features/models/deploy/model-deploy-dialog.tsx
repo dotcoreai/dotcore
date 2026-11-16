@@ -11,30 +11,27 @@ import { configurationSpeculativeOptions } from "@/features/models/profiles/mode
 import { profileTargetVerdict } from "@/features/models/profiles/profile-compatibility";
 import { profileCompatibilityStatus } from "@/features/models/profiles/profile-compatibility-copy";
 import {
-  engineParameterError,
-  PARALLEL_REQUESTS_PARAMETER_ID,
-} from "@/features/models/runtime/engine-parameter-values";
-import {
   speculativeChoiceError,
   speculativeMethodChoice,
 } from "@/features/models/runtime/speculative-choice";
 
 import { CommandPreviewDialog } from "./model-command-preview-dialog";
-import { ModelDeployContextStep } from "./model-deploy-context-step";
+import { ModelDeployAdvancedStep } from "./model-deploy-advanced-step";
 import { exactPlacement, moveToken } from "./model-deploy-launch";
 import { ModelDeployProfileStep } from "./model-deploy-profile-step";
-import { ModelDeployRuntimeStep } from "./model-deploy-runtime-step";
+import { ModelDeploySettingsStep } from "./model-deploy-settings-step";
 import { ModelDeploySummaryStep } from "./model-deploy-summary-step";
 import { ModelDeployTargetStep } from "./model-deploy-target-step";
 import { type ModelDeployFormOptions, useModelDeployForm } from "./use-model-deploy-form";
 
 /**
  * Deploys a catalog model to a local execution target. Basic mode asks for the profile, the
- * context, and the deployment name, plus the target when more than one can deploy the profile; the
- * Advanced checkbox adds every target, the context per request, runtime values, and routing without
- * discarding entered values. The Context step and the profile table's "Sized for" edit one shared
- * context. The opener receives the launch on submit and can name the last action after what it
- * does with it, such as keeping the choices without deploying.
+ * settings (the context and the profile's basic parameters), and the deployment name, plus the
+ * target when more than one can deploy the profile; the Advanced checkbox adds every target, the
+ * advanced parameters and options, and routing without discarding entered values. The Settings step
+ * and the profile table's "Sized for" edit one shared context. The opener receives the launch on
+ * submit and can name the last action after what it does with it, such as keeping the choices
+ * without deploying.
  */
 export function ModelDeployDialog(props: ModelDeployDialogProps) {
   const { error, labels = deployLabels, model, onOpenChange, open, openerRef, pending } = props;
@@ -214,8 +211,8 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           }}
         />
       ) : null}
-      {step === "Context" ? (
-        <ModelDeployContextStep
+      {step === "Settings" ? (
+        <ModelDeploySettingsStep
           contextHint={form.contextHint}
           disabled={pending}
           engineParameterRefs={form.engineParameterRefs}
@@ -227,11 +224,16 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           model={model}
           onParameterBlur={form.blurContext}
           onParameterChange={form.changeContext}
+          parameters={{
+            onBlur: form.blurParameter,
+            onChange: form.changeParameter,
+            shown: form.settingsParameters,
+          }}
           profile={form.profile}
         />
       ) : null}
-      {step === "Runtime" ? (
-        <ModelDeployRuntimeStep
+      {step === "Advanced" ? (
+        <ModelDeployAdvancedStep
           artifactRef={form.artifactRef}
           bindingId={form.bindingId}
           customArgumentTokens={form.customArgumentTokens}
@@ -249,7 +251,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           disabled={pending}
           engineParameterRefs={form.engineParameterRefs}
           engineReleases={memory.engineReleaseLabels}
-          exposedParameters={form.exposedParameters}
+          exposedParameters={form.advancedParameters}
           fieldErrors={fieldErrors}
           hostKvOffloadSharesMemory={memory.hostKvOffloadSharesMemory}
           inputs={form.engineParameterInputs}
@@ -269,42 +271,8 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
               setFieldError("artifact", nextBindingId ? undefined : "Select a model artifact.");
             commandPreview.invalidatePreview();
           }}
-          onParameterBlur={(parameter) => {
-            if (!dirtyFields.isDirty(parameter.parameterId)) return;
-            setTimeout(
-              () =>
-                setFieldError(
-                  parameter.parameterId,
-                  engineParameterError(
-                    parameter,
-                    form.engineParameterInputsRef.current,
-                    form.derivedParameterIds,
-                  ),
-                ),
-              0,
-            );
-          }}
-          onParameterChange={(parameter, nextInput) => {
-            dirtyFields.markDirty(parameter.parameterId);
-            const nextInputs = new Map(form.engineParameterInputs).set(
-              parameter.parameterId,
-              nextInput,
-            );
-            // Parallel requests belong to the shared context, which "Sized for" also edits and a
-            // profile change keeps.
-            if (parameter.parameterId === PARALLEL_REQUESTS_PARAMETER_ID)
-              form.setContext((previous) => ({ ...previous, parallelRequests: nextInput }));
-            else
-              form.setEditedInputs((inputs) =>
-                new Map(inputs).set(parameter.parameterId, nextInput),
-              );
-            if (fieldErrors.has(parameter.parameterId))
-              setFieldError(
-                parameter.parameterId,
-                engineParameterError(parameter, nextInputs, form.derivedParameterIds),
-              );
-            commandPreview.invalidatePreview();
-          }}
+          onParameterBlur={form.blurParameter}
+          onParameterChange={form.changeParameter}
           onPreview={() => void form.runPreview()}
           previewButtonRef={commandPreview.previewButtonRef}
           previewDisabled={
@@ -316,6 +284,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           previewPending={commandPreview.previewPending}
           profile={form.profile}
           revealedErrors={form.revealedErrors}
+          schemaExposesParameters={form.exposedParameters.length > 0}
           kvCachePrecision={{
             onChange: (precision) => {
               form.setPickedKvCachePrecision(precision);
@@ -370,6 +339,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
       ) : null}
       {step === "Deploy" ? (
         <ModelDeploySummaryStep
+          changedParameters={form.changedParameters}
           customizations={form.deployCustomizations}
           disabled={pending}
           exposureFields={

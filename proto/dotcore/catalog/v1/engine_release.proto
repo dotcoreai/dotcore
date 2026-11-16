@@ -4,6 +4,7 @@ package dotcore.catalog.v1;
 
 import "dotcore/catalog/v1/nix.proto";
 import "dotcore/catalog/v1/oci.proto";
+import "dotcore/catalog/v1/parameter.proto";
 import "dotcore/catalog/v1/selector.proto";
 import "dotcore/catalog/v1/storage.proto";
 import "dotcore/engine/v1/engine.proto";
@@ -62,67 +63,6 @@ message EngineParameterSchema {
   // Stable schema identity retained with resolved deployments.
   string schema_id = 1;
 
-  // Supported typed engine parameters.
-  repeated EngineParameterDefinition parameters = 2;
-}
-
-// Defines one typed engine parameter and its validation constraints.
-message EngineParameterDefinition {
-  // Stable engine parameter identity.
-  string parameter_id = 1;
-
-  // Human-readable parameter label.
-  string display_name = 2;
-
-  oneof parameter_type {
-    // Unsigned-integer constraints for this parameter.
-    UnsignedIntegerEngineParameterSchema unsigned_integer = 3;
-
-    // Boolean type for this parameter.
-    BooleanEngineParameterSchema boolean = 4;
-  }
-
-  // Whether the console exposes this parameter by default.
-  bool exposed = 5;
-
-  // Optional practical guidance shown with this parameter.
-  string description = 6;
-}
-
-// Defines a boolean engine parameter.
-message BooleanEngineParameterSchema {}
-
-// Defines the inclusive range for an unsigned-integer engine parameter.
-message UnsignedIntegerEngineParameterSchema {
-  // Inclusive minimum accepted value.
-  uint64 minimum = 1;
-
-  // Inclusive maximum accepted value.
-  uint64 maximum = 2;
-
-  // Human-readable unit label for this value.
-  string unit = 3;
-
-  // Value used when neither the deployment nor its profile supplies one, within the range.
-  optional uint64 default_value = 4;
-}
-
-// Supplies a complete set of exact typed engine parameter values.
-message EngineParameterValues {
-  // Exact values keyed by stable parameter identity.
-  repeated EngineParameterValue values = 1;
-}
-
-// Supplies one exact typed engine parameter value.
-message EngineParameterValue {
-  // Stable engine parameter identity.
-  string parameter_id = 1;
-
-  oneof value {
-    // Exact unsigned-integer value.
-    uint64 unsigned_integer = 2;
-
-    // Exact boolean value, preserving false presence.
-    bool boolean = 3;
-  }
+  // Supported typed engine parameters, in display order.
+  repeated ParameterDefinition parameters = 2;
 }

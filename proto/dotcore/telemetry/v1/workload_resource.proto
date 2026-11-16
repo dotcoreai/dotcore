@@ -2,8 +2,8 @@ syntax = "proto3";
 
 package dotcore.telemetry.v1;
 
-import "dotcore/catalog/v1/engine_release.proto";
 import "dotcore/catalog/v1/model.proto";
+import "dotcore/catalog/v1/parameter.proto";
 import "dotcore/observation/v1/observation.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
@@ -87,7 +87,7 @@ message WorkloadResourceInputs {
   string engine_artifact_reference = 8;
 
   // Complete resolved engine parameter values.
-  dotcore.catalog.v1.EngineParameterValues engine_parameter_values = 9;
+  dotcore.catalog.v1.ParameterValues engine_parameter_values = 9;
 
   // Complete resolved option values.
   repeated dotcore.catalog.v1.ModelOptionValues option_values = 10;

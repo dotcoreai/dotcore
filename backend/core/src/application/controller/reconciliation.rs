@@ -594,7 +594,8 @@ impl ApplicationRealizer {
     ) -> Result<(), ApplicationLifecycleError> {
         let previous = existing.and_then(|record| record.state.as_ref());
         let mut next = reconciliation.unwrap_or_else(|failure| {
-            error!(event_kind = "application_reconciliation_failed", deployment_id = %deployment.application_deployment_id, failure_stage = failure.stage, failure_code = failure.failure.map(DeploymentFailureCode::code), error = ?failure.source, "Application deployment reconciliation failed");
+            let error = redacted_debug(&failure.source, deployment);
+            error!(event_kind = "application_reconciliation_failed", deployment_id = %deployment.application_deployment_id, failure_stage = failure.stage, failure_code = failure.failure.map(DeploymentFailureCode::code), error = %error, "Application deployment reconciliation failed");
             deployment_failure_state(failure.stage, failure.failure)
         });
         next.observed_placement = match ApplicationLifecycleState::try_from(next.lifecycle_state)
@@ -990,7 +991,8 @@ impl ApplicationRealizer {
                 return Err(deployment_failure(stage, source));
             }
             Err(source) => {
-                warn!(event_kind = "application_reconciliation_retryable_failure", deployment_id = %desired.application_deployment_id, failure_stage = stage, outcome = "failed", error = ?source, "Application workload-group creation failed");
+                let error = redacted_debug(&source, desired);
+                warn!(event_kind = "application_reconciliation_retryable_failure", deployment_id = %desired.application_deployment_id, failure_stage = stage, outcome = "failed", error = %error, "Application workload-group creation failed");
                 return Ok(workload_creation_failure_state(
                     launch,
                     runtime_failure_code(&source),
@@ -1580,4 +1582,13 @@ fn runtime_failure_code(error: &ApplicationRuntimeError) -> Option<DeploymentFai
     } else {
         None
     }
+}
+
+/// Renders `error` for a log event with the deployment's launch attachments and secret parameter
+/// values removed, since a runtime error may quote the launch it rejected.
+fn redacted_debug(
+    error: &dyn std::fmt::Debug,
+    deployment: &ApplicationDeploymentDeclaration,
+) -> String {
+    super::logs::deployment_protected_values(deployment).redact(&format!("{error:?}"))
 }

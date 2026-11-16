@@ -1,10 +1,10 @@
 import { useState } from "react";
 
 /** Current and visited steps of a deployment wizard, with navigation to a named step. */
-export interface WizardSteps {
-  current: string;
-  goTo: (step: string) => void;
-  visited: ReadonlySet<string>;
+export interface WizardSteps<Step extends string> {
+  current: Step;
+  goTo: (step: Step) => void;
+  visited: ReadonlySet<Step>;
 }
 
 /**
@@ -12,11 +12,11 @@ export interface WizardSteps {
  * change while the dialog is open. When the step list changes, the current step is kept if it
  * still exists, otherwise `fallback` picks its replacement, and steps that appear are not visited.
  */
-export function useWizardSteps(
-  steps: readonly string[],
-  fallback?: (missingStep: string) => string,
-): WizardSteps {
-  const [state, setState] = useState<WizardStepsState>(() => ({
+export function useWizardSteps<Step extends string>(
+  steps: readonly Step[],
+  fallback?: (missingStep: Step) => Step,
+): WizardSteps<Step> {
+  const [state, setState] = useState<WizardStepsState<Step>>(() => ({
     current: steps[0] ?? "",
     steps,
     visited: new Set(steps.slice(0, 1)),
@@ -41,17 +41,17 @@ export function useWizardSteps(
   };
 }
 
-interface WizardStepsState {
-  current: string;
-  steps: readonly string[];
-  visited: ReadonlySet<string>;
+interface WizardStepsState<Step extends string> {
+  current: Step;
+  steps: readonly Step[];
+  visited: ReadonlySet<Step>;
 }
 
-function reconcileSteps(
-  state: WizardStepsState,
-  steps: readonly string[],
-  fallback: ((missingStep: string) => string) | undefined,
-): WizardStepsState {
+function reconcileSteps<Step extends string>(
+  state: WizardStepsState<Step>,
+  steps: readonly Step[],
+  fallback: ((missingStep: Step) => Step) | undefined,
+): WizardStepsState<Step> {
   const fallbackStep = fallback?.(state.current);
   const current = steps.includes(state.current)
     ? state.current
@@ -63,6 +63,6 @@ function reconcileSteps(
   return { current, steps, visited };
 }
 
-function sameSteps(left: readonly string[], right: readonly string[]): boolean {
+function sameSteps<Step extends string>(left: readonly Step[], right: readonly Step[]): boolean {
   return left.length === right.length && left.every((step, index) => step === right[index]);
 }

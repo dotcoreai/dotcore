@@ -16,12 +16,13 @@ use dotcore_domain::{SiteNodeHost, SiteNodeId};
 use dotcore_proto::dotcore::{
     application::v1::{
         ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
-        ApplicationStorageAttachment,
+        ApplicationSecretAttachment, ApplicationStorageAttachment, ApplicationStorageChoice,
     },
     catalog::v1::{
-        Application, ApplicationDependencyCondition, ApplicationInferenceRouteProjection,
-        ParameterValue, StorageScope, application_configuration_binding,
-        application_deployment_input, application_service_readiness,
+        Application, ApplicationDependencyCondition, ApplicationGraph,
+        ApplicationInferenceRouteProjection, ApplicationSecretForm, ParameterValue,
+        StoragePlacement, application_configuration_binding, application_deployment_input,
+        application_service_readiness,
     },
 };
 use dotcore_runtime::{
@@ -33,8 +34,9 @@ use tracing::debug;
 
 use super::{
     ApplicationConfigurationSources, ApplicationLifecycleError, InferenceRouteResolver,
-    ResolvedInferenceRoute, configuration, configuration_with_source,
+    ResolvedInferenceRoute, StorageChoiceRejection, configuration, configuration_with_source,
 };
+use crate::application::{binding::binding_enabled, secret_form::bcrypt_hash};
 use crate::storage::{deployment_storage, workload_storage};
 
 pub(super) fn workload_group_launch(
@@ -71,8 +73,8 @@ pub(super) fn deployment_site_node_id(
     })
 }
 
-/// Returns the data storage scoped to one application deployment alone: its launch attaches
-/// deployment-scoped bindings under this key and its teardown removes it.
+/// Returns the data storage placed with one application deployment alone: its launch attaches
+/// deployment-placed bindings under this key and its teardown removes it.
 pub(super) fn deployment_data(desired: &ApplicationDeploymentDeclaration) -> WorkloadStorageKey {
     deployment_storage(WorkloadStorageKind::Data, &deployment_storage_key(desired))
 }
@@ -87,12 +89,11 @@ fn published_port(
         .ok_or_else(|| configuration("Application deployment published host port is invalid"))
 }
 
-/// Returns the key of storage scoped to one application deployment.
+/// Returns the key of storage placed with one application deployment.
 fn deployment_storage_key(desired: &ApplicationDeploymentDeclaration) -> String {
     desired.application_deployment_id.clone()
 }
 
-#[derive(Debug)]
 struct LaunchPlan {
     deployment_id: String,
     site_node_id: SiteNodeId,
@@ -113,10 +114,10 @@ impl LaunchPlan {
     ) -> Result<Self, ApplicationLifecycleError> {
         let declaration = ValidatedLaunchDeclaration::extract(desired)?;
         let attachments = AttachmentIndexes::build(desired)?;
-        let storage_key = |scope| match scope {
-            StorageScope::Deployment => Some(deployment_storage_key(desired)),
-            StorageScope::Application => Some(declaration.application_id.to_owned()),
-            StorageScope::EngineArtifact | StorageScope::Unspecified => None,
+        let storage_key = |placement| match placement {
+            StoragePlacement::Deployment => Some(deployment_storage_key(desired)),
+            StoragePlacement::Application => Some(declaration.application_id.to_owned()),
+            StoragePlacement::EngineArtifact | StoragePlacement::Unspecified => None,
         };
         let ready_dependency_names = declaration
             .services
@@ -139,6 +140,7 @@ impl LaunchPlan {
                     service,
                     image,
                     &attachments,
+                    declaration.parameter_values,
                     &storage_key,
                     declaration.route_id.is_some(),
                     ready_dependency_names.contains(service.service_name.as_str()),
@@ -227,6 +229,7 @@ impl LaunchPlan {
 struct ValidatedLaunchDeclaration<'a> {
     application_id: &'a str,
     services: &'a [dotcore_proto::dotcore::catalog::v1::ApplicationService],
+    parameter_values: &'a [ParameterValue],
     service_images: BTreeMap<&'a str, String>,
     execution_target_id: String,
     accelerator_device_ids: Vec<String>,
@@ -306,6 +309,7 @@ impl<'a> ValidatedLaunchDeclaration<'a> {
         Ok(Self {
             application_id: &snapshot.application_id,
             services: &graph.services,
+            parameter_values: &snapshot.parameter_values,
             service_images,
             execution_target_id: placement.execution_target_id.clone(),
             accelerator_device_ids: snapshot.accelerator_device_ids.clone(),
@@ -325,10 +329,12 @@ struct LaunchPrimaryEndpoint {
     port_name: String,
 }
 
-#[derive(Debug)]
+/// Retained attachment values keyed by service and binding name. It holds secret values, so it
+/// has no `Debug` form.
 struct AttachmentIndexes {
-    storage: BTreeMap<(String, String), String>,
+    storage: BTreeMap<(String, String), (String, StoragePlacement)>,
     configuration: BTreeMap<(String, String), String>,
+    secret: BTreeMap<(String, String), String>,
 }
 
 impl AttachmentIndexes {
@@ -339,12 +345,14 @@ impl AttachmentIndexes {
             .storage_attachments
             .iter()
             .map(|attachment| {
+                let placement = StoragePlacement::try_from(attachment.placement)
+                    .map_err(|_| configuration("Application storage placement is invalid"))?;
                 Ok((
                     (
                         attachment.service_name.clone(),
                         attachment.binding_name.clone(),
                     ),
-                    attachment.storage_name.clone(),
+                    (attachment.storage_name.clone(), placement),
                 ))
             })
             .collect::<Result<BTreeMap<_, _>, ApplicationLifecycleError>>()?;
@@ -361,19 +369,33 @@ impl AttachmentIndexes {
                 ))
             })
             .collect::<Result<BTreeMap<_, _>, ApplicationLifecycleError>>()?;
+        let secret = desired
+            .secret_attachments
+            .iter()
+            .map(|attachment| {
+                (
+                    (
+                        attachment.service_name.clone(),
+                        attachment.binding_name.clone(),
+                    ),
+                    attachment.value.clone(),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
         if storage.len() != desired.storage_attachments.len()
             || configuration_values.len() != desired.configuration_attachments.len()
+            || secret.len() != desired.secret_attachments.len()
         {
             return Err(configuration("Application attachment is duplicated"));
         }
         Ok(Self {
             storage,
             configuration: configuration_values,
+            secret,
         })
     }
 }
 
-#[derive(Debug)]
 struct WorkloadUnitPlan {
     image: String,
     command: Vec<String>,
@@ -391,30 +413,45 @@ impl WorkloadUnitPlan {
         service: &dotcore_proto::dotcore::catalog::v1::ApplicationService,
         image: &str,
         attachments: &AttachmentIndexes,
-        storage_key: &dyn Fn(StorageScope) -> Option<String>,
+        parameter_values: &[ParameterValue],
+        storage_key: &dyn Fn(StoragePlacement) -> Option<String>,
         route_linked: bool,
         has_ready_dependents: bool,
     ) -> Result<Self, ApplicationLifecycleError> {
-        let mut environment: Vec<(String, LaunchEnvironmentValue)> = service
-            .configuration_bindings
-            .iter()
-            .map(|binding| {
-                let value = if route_linked && is_route_name_binding(binding)? {
-                    LaunchEnvironmentValue::RouteName
-                } else {
-                    LaunchEnvironmentValue::Fixed(
-                        attachments
-                            .configuration
-                            .get(&(service.service_name.clone(), binding.binding_name.clone()))
-                            .cloned()
-                            .ok_or_else(|| {
-                                configuration("Application configuration attachment is missing")
-                            })?,
-                    )
-                };
-                Ok((binding.environment_variable.clone(), value))
-            })
-            .collect::<Result<_, ApplicationLifecycleError>>()?;
+        let mut environment = Vec::new();
+        for binding in &service.configuration_bindings {
+            if !enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)? {
+                continue;
+            }
+            let value = if route_linked && is_route_name_binding(binding)? {
+                LaunchEnvironmentValue::RouteName
+            } else {
+                LaunchEnvironmentValue::Fixed(
+                    attachments
+                        .configuration
+                        .get(&(service.service_name.clone(), binding.binding_name.clone()))
+                        .cloned()
+                        .ok_or_else(|| {
+                            configuration("Application configuration attachment is missing")
+                        })?,
+                )
+            };
+            environment.push((binding.environment_variable.clone(), value));
+        }
+        for binding in &service.secret_bindings {
+            if !enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)? {
+                continue;
+            }
+            let value = attachments
+                .secret
+                .get(&(service.service_name.clone(), binding.binding_name.clone()))
+                .cloned()
+                .ok_or_else(|| configuration("Application secret attachment is missing"))?;
+            environment.push((
+                binding.environment_variable.clone(),
+                LaunchEnvironmentValue::Fixed(value),
+            ));
+        }
         let host_aliases = service
             .configuration_bindings
             .iter()
@@ -433,7 +470,7 @@ impl WorkloadUnitPlan {
                     .storage
                     .get(&(service.service_name.clone(), binding.binding_name.clone()))
                     .cloned()
-                    .map(|name| (name, binding))
+                    .map(|(name, placement)| (name, binding, placement))
                     .ok_or_else(|| configuration("Application storage attachment is missing"))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -543,7 +580,6 @@ impl WorkloadUnitPlan {
     }
 }
 
-#[derive(Debug)]
 enum LaunchEnvironmentValue {
     Fixed(String),
 
@@ -570,8 +606,14 @@ fn canonical_launch_generation(
     publication: &WorkloadPublicationRequest,
 ) -> u64 {
     let mut value = 0xcbf29ce484222325_u64;
+    // A unit's `Debug` form leaves out environment values, so they are hashed explicitly.
+    let environment = units
+        .values()
+        .flat_map(|unit| &unit.environment)
+        .map(|(name, value)| format!("{name}={value}\n"))
+        .collect::<String>();
     for byte in format!(
-        "{execution_target:?}:{execution_target_id}:{required_platform:?}:{units:?}:{publication:?}"
+        "{execution_target:?}:{execution_target_id}:{required_platform:?}:{units:?}:{publication:?}:{environment}"
     )
     .bytes()
     {
@@ -606,7 +648,8 @@ fn site_host_alias(
 ///
 /// Route-name bindings get no attachment when a route is linked, since launch projects the current
 /// route name; without a link they retain their catalog literal fallback. Parameter bindings
-/// retain the canonical text of their resolved `parameter_values` entry.
+/// retain the canonical text of their resolved `parameter_values` entry. A binding switched off by
+/// its enabling parameter gets no attachment.
 pub(super) fn configuration_attachments(
     application: &Application,
     resolve: impl Fn(&str) -> Option<String>,
@@ -617,48 +660,40 @@ pub(super) fn configuration_attachments(
         .graph
         .as_ref()
         .ok_or_else(|| configuration("Application graph is missing"))?;
-    if graph
-        .services
-        .iter()
-        .any(|service| !service.secret_bindings.is_empty())
-    {
-        return Err(ApplicationLifecycleError::FailedPrecondition);
+    let mut attachments = Vec::new();
+    for service in &graph.services {
+        for binding in &service.configuration_bindings {
+            let route_name = is_route_name_binding(binding)?;
+            if !enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)?
+                || (route_linked && route_name)
+            {
+                continue;
+            }
+            let value = configuration_attachment_value(binding, &resolve, parameter_values)?;
+            if !valid_configuration_value(&value) {
+                return Err(configuration(
+                    "Application configuration value cannot be represented safely",
+                ));
+            }
+            attachments.push(ApplicationConfigurationAttachment {
+                service_name: service.service_name.clone(),
+                binding_name: binding.binding_name.clone(),
+                environment_variable: binding.environment_variable.clone(),
+                value,
+            });
+        }
     }
-    let resolve = &resolve;
-    graph
-        .services
-        .iter()
-        .flat_map(|service| {
-            service
-                .configuration_bindings
-                .iter()
-                .filter_map(move |binding| match is_route_name_binding(binding) {
-                    Ok(true) if route_linked => None,
-                    Ok(_) => {
-                        let value = match configuration_attachment_value(
-                            binding,
-                            resolve,
-                            parameter_values,
-                        ) {
-                            Ok(value) if valid_configuration_value(&value) => value,
-                            Ok(_) => {
-                                return Some(Err(configuration(
-                                    "Application configuration value cannot be represented safely",
-                                )));
-                            }
-                            Err(error) => return Some(Err(error)),
-                        };
-                        Some(Ok(ApplicationConfigurationAttachment {
-                            service_name: service.service_name.clone(),
-                            binding_name: binding.binding_name.clone(),
-                            environment_variable: binding.environment_variable.clone(),
-                            value,
-                        }))
-                    }
-                    Err(error) => Some(Err(error)),
-                })
-        })
-        .collect()
+    Ok(attachments)
+}
+
+/// Returns whether a binding reaches its service, rejecting a retained declaration whose enabling
+/// parameter has no boolean value.
+fn enabled(
+    enabled_by_parameter_id: Option<&str>,
+    parameter_values: &[ParameterValue],
+) -> Result<bool, ApplicationLifecycleError> {
+    binding_enabled(enabled_by_parameter_id, parameter_values)
+        .ok_or_else(|| configuration("Application binding switch value is missing"))
 }
 
 /// Returns whether a binding projects the linked route name, rejecting unknown projections.
@@ -695,30 +730,115 @@ fn configuration_attachment_value(
     }
 }
 
+/// Resolves the retained secret attachments of a new deployment: each enabled secret binding
+/// receives its parameter's resolved value in the binding's form, and a binding switched off by
+/// its enabling parameter gets none. A bcrypt form hashes, so callers run it off the async
+/// executor, and only once per deployment.
+pub(super) fn secret_attachments(
+    graph: &ApplicationGraph,
+    parameter_values: &[ParameterValue],
+) -> Result<Vec<ApplicationSecretAttachment>, ApplicationLifecycleError> {
+    let mut attachments = Vec::new();
+    for service in &graph.services {
+        for binding in &service.secret_bindings {
+            if enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)? {
+                attachments.push(secret_attachment(service, binding, parameter_values)?);
+            }
+        }
+    }
+    Ok(attachments)
+}
+
+/// Resolves one enabled secret binding's attachment in the binding's form.
+fn secret_attachment(
+    service: &dotcore_proto::dotcore::catalog::v1::ApplicationService,
+    binding: &dotcore_proto::dotcore::catalog::v1::ApplicationSecretBinding,
+    parameter_values: &[ParameterValue],
+) -> Result<ApplicationSecretAttachment, ApplicationLifecycleError> {
+    let value = canonical_value_text(parameter_values, &binding.parameter_id)
+        .ok_or_else(|| configuration("Application secret parameter value is missing"))?;
+    let value = match ApplicationSecretForm::try_from(binding.form) {
+        Ok(ApplicationSecretForm::Plain) => value,
+        Ok(ApplicationSecretForm::Bcrypt) => bcrypt_hash(&value).map_err(|error| {
+            configuration_with_source("Application secret form cannot be computed", error)
+        })?,
+        Ok(ApplicationSecretForm::Unspecified) | Err(_) => {
+            return Err(configuration("Application secret binding form is invalid"));
+        }
+    };
+    if !valid_configuration_value(&value) {
+        return Err(configuration(
+            "Application secret value cannot be represented safely",
+        ));
+    }
+    Ok(ApplicationSecretAttachment {
+        service_name: service.service_name.clone(),
+        binding_name: binding.binding_name.clone(),
+        environment_variable: binding.environment_variable.clone(),
+        value,
+    })
+}
+
+/// Resolves one storage attachment per storage binding of a new deployment, each placed where the
+/// operator's `choices` say or at the binding's first allowed placement.
 pub(super) fn storage_attachments(
     application: &Application,
+    choices: &[ApplicationStorageChoice],
 ) -> Result<Vec<ApplicationStorageAttachment>, ApplicationLifecycleError> {
     let graph = application
         .graph
         .as_ref()
         .ok_or_else(|| configuration("Application graph is missing"))?;
+    let mut chosen = BTreeMap::new();
+    for choice in choices {
+        let reject = |reason| ApplicationLifecycleError::InvalidStorageChoice {
+            service_name: choice.service_name.clone(),
+            binding_name: choice.binding_name.clone(),
+            reason,
+        };
+        let binding = graph
+            .services
+            .iter()
+            .filter(|service| service.service_name == choice.service_name)
+            .flat_map(|service| &service.storage_bindings)
+            .find(|binding| binding.binding_name == choice.binding_name)
+            .ok_or_else(|| reject(StorageChoiceRejection::Unknown))?;
+        if !binding.placements.contains(&choice.placement) {
+            let placement = StoragePlacement::try_from(choice.placement).map_or_else(
+                |_| choice.placement.to_string(),
+                |placement| placement.as_str_name().to_owned(),
+            );
+            return Err(reject(StorageChoiceRejection::NotAllowed(placement)));
+        }
+        let key = (choice.service_name.as_str(), choice.binding_name.as_str());
+        if chosen.insert(key, choice.placement).is_some() {
+            return Err(reject(StorageChoiceRejection::Duplicate));
+        }
+    }
+
     graph
         .services
         .iter()
         .flat_map(|service| {
+            let chosen = &chosen;
             service.storage_bindings.iter().map(move |binding| {
                 let storage_name = format!("{}-{}", service.service_name, binding.binding_name);
-                if valid_id(&storage_name) {
-                    Ok(ApplicationStorageAttachment {
-                        service_name: service.service_name.clone(),
-                        binding_name: binding.binding_name.clone(),
-                        storage_name,
-                    })
-                } else {
-                    Err(configuration(
+                if !valid_id(&storage_name) {
+                    return Err(configuration(
                         "Application storage attachment name cannot be represented safely",
-                    ))
+                    ));
                 }
+                let placement = chosen
+                    .get(&(service.service_name.as_str(), binding.binding_name.as_str()))
+                    .or(binding.placements.first())
+                    .copied()
+                    .ok_or_else(|| configuration("Application storage binding has no placement"))?;
+                Ok(ApplicationStorageAttachment {
+                    service_name: service.service_name.clone(),
+                    binding_name: binding.binding_name.clone(),
+                    storage_name,
+                    placement,
+                })
             })
         })
         .collect()

@@ -13,9 +13,9 @@ use dotcore_catalog::shared_parameters;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineParameterValue, EngineParameterValues, EngineRelease,
-        HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding, ModelEngineConfiguration,
-        ModelOptionValues, engine_parameter_definition, engine_parameter_value,
+        EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
+        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
+        ParameterValues, parameter_definition, parameter_value,
     },
     engine::v1::{EngineKind, ResolvedEngineModelState},
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
@@ -74,8 +74,8 @@ pub(crate) trait EngineDefinition: Send + Sync {
         &self,
         _model: &Model,
         _configuration: &ModelEngineConfiguration,
-    ) -> EngineParameterValues {
-        EngineParameterValues::default()
+    ) -> ParameterValues {
+        ParameterValues::default()
     }
 
     /// Context per request for values that leave it out, which counts as derived. By default it is
@@ -84,9 +84,9 @@ pub(crate) trait EngineDefinition: Send + Sync {
     fn filled_context_per_request(
         &self,
         schema: &EngineParameterSchema,
-        values: &EngineParameterValues,
+        values: &ParameterValues,
         maximum_context_tokens: u32,
-    ) -> Option<EngineParameterValue> {
+    ) -> Option<ParameterValue> {
         shared_parameters::filled_context_per_request(schema, values, maximum_context_tokens)
     }
 
@@ -97,7 +97,7 @@ pub(crate) trait EngineDefinition: Send + Sync {
         &self,
         _model: &Model,
         _configuration: &ModelEngineConfiguration,
-        _values: &EngineParameterValues,
+        _values: &ParameterValues,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -195,7 +195,7 @@ pub(crate) fn definition(kind: i32) -> Option<&'static dyn EngineDefinition> {
 
 /// Returns the unsigned value of one engine parameter, or none when it is absent or not unsigned.
 pub(crate) fn unsigned_parameter_value(
-    values: &EngineParameterValues,
+    values: &ParameterValues,
     parameter_id: &str,
 ) -> Option<u64> {
     values
@@ -203,7 +203,7 @@ pub(crate) fn unsigned_parameter_value(
         .iter()
         .find(|value| value.parameter_id == parameter_id)
         .and_then(|value| match value.value {
-            Some(engine_parameter_value::Value::UnsignedInteger(value)) => Some(value),
+            Some(parameter_value::Value::UnsignedInteger(value)) => Some(value),
             _ => None,
         })
 }
@@ -229,7 +229,7 @@ pub(crate) fn unsigned_parameter_range(
         .iter()
         .find(|definition| definition.parameter_id == parameter_id)
         .and_then(|definition| match definition.parameter_type.as_ref() {
-            Some(engine_parameter_definition::ParameterType::UnsignedInteger(range)) => {
+            Some(parameter_definition::ParameterType::UnsignedInteger(range)) => {
                 Some(range.minimum..=range.maximum)
             }
             _ => None,

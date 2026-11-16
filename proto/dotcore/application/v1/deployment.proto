@@ -6,6 +6,7 @@ import "dotcore/application/v1/state.proto";
 import "dotcore/catalog/v1/application.proto";
 import "dotcore/catalog/v1/oci.proto";
 import "dotcore/catalog/v1/parameter.proto";
+import "dotcore/catalog/v1/storage.proto";
 import "dotcore/deployment/v1/accelerator_memory.proto";
 import "dotcore/deployment/v1/artifact.proto";
 import "dotcore/deployment/v1/placement.proto";
@@ -32,6 +33,9 @@ message ApplicationDeploymentDeclaration {
 
   // Resolved non-secret configuration required to reproduce this deployment.
   repeated ApplicationConfigurationAttachment configuration_attachments = 7;
+
+  // Secret parameter values in the form each secret binding needs, computed once at creation.
+  repeated ApplicationSecretAttachment secret_attachments = 12;
 
   // Optional stable inference route selected for this deployment.
   optional string inference_route_id = 8;
@@ -107,7 +111,8 @@ message ResolvedApplicationDeploymentSnapshot {
   // Immutable runtime-neutral graph retained from the catalog application.
   dotcore.catalog.v1.ApplicationGraph graph = 4;
 
-  // Complete parameter values resolved at creation, defaults filled, in graph declaration order.
+  // Complete parameter values resolved at creation, defaults filled and missing secrets generated,
+  // in graph declaration order.
   repeated dotcore.catalog.v1.ParameterValue parameter_values = 10;
 
   // The exact placement selected for this application deployment.
@@ -154,6 +159,9 @@ message ApplicationStorageAttachment {
 
   // Deployment-local logical storage name resolved by the runtime backend.
   string storage_name = 3;
+
+  // Placement resolved at creation, one the binding allows.
+  dotcore.catalog.v1.StoragePlacement placement = 4;
 }
 
 // One resolved non-secret configuration value in a deployment declaration.
@@ -168,6 +176,21 @@ message ApplicationConfigurationAttachment {
   string environment_variable = 3;
 
   // Resolved non-secret value supplied only to the runtime launch.
+  string value = 4;
+}
+
+// One secret parameter value in the form a service's secret binding needs.
+message ApplicationSecretAttachment {
+  // Name of the service that receives this attachment.
+  string service_name = 1;
+
+  // Secret binding name from the immutable application snapshot.
+  string binding_name = 2;
+
+  // Environment variable receiving the value.
+  string environment_variable = 3;
+
+  // Secret value in the binding's form, supplied only to the runtime launch.
   string value = 4;
 }
 

@@ -66,7 +66,6 @@ pub(super) fn validate_launch(
     let mut environment_names = BTreeSet::new();
     for (name, value) in &command.environment {
         if !valid_environment_name(name)
-            || value.contains('=')
             || value.chars().any(char::is_control)
             || !environment_names.insert(name)
         {
