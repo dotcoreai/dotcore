@@ -122,6 +122,24 @@ export function deploymentStatus(deployment: ModelDeployment): ModelDeploymentSt
   return status;
 }
 
+/** The accelerator memory measured on the deployment's devices; absent without a measure. */
+export function deploymentVramBytes(deployment: ModelDeployment): bigint | undefined {
+  const result = deployment.acceleratorMemory?.result;
+  const devices = result?.case === "available" ? result.value.devices : [];
+  return devices.length
+    ? devices.reduce((total, device) => total + device.usedMemoryBytes, 0n)
+    : undefined;
+}
+
+/** The machine a local deployment is placed on, else the one it was observed on. */
+export function deploymentSiteNodeId(deployment: ModelDeployment): string | undefined {
+  return (
+    deployment.intent?.placement?.siteNodeId ||
+    deployment.state?.observedPlacements[0]?.managedNodeId ||
+    undefined
+  );
+}
+
 export function isTransitioningModelStatus(state: ModelDeploymentStatus): boolean {
   return transitioningStates.has(state);
 }

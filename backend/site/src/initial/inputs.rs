@@ -99,6 +99,7 @@ impl InitialSiteInputs {
             application_deployments: Vec::new(),
             inference_routes: Vec::new(),
             hardware_observation: None,
+            console_settings: None,
             model_deployment_identity_allocator: Some(ModelDeploymentIdentityAllocator {
                 namespace: crate::store::model_deployment_identity_namespace(identities.site_id()),
                 next_sequence: 1,

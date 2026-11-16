@@ -290,11 +290,12 @@ impl ModelDeclarationRepository {
 
     /// Ranks the catalog's recommended model profiles for each of `use_cases` on the site's
     /// configured model execution targets against `inventory` and the site's `deployments`,
-    /// without reading or mutating the retained target capabilities. A missing inventory
-    /// recommends nothing.
+    /// without reading or mutating the retained target capabilities, keeping only what can start
+    /// now when `can_start_now` is set. A missing inventory recommends nothing.
     pub(crate) fn model_recommendations(
         &self,
         use_cases: &[UseCase],
+        can_start_now: bool,
         inventory: Option<&TargetCapabilityInventory>,
         deployments: &[ModelDeployment],
     ) -> Result<ListModelRecommendationsResponse, ModelDeclarationRepositoryError> {
@@ -305,8 +306,14 @@ impl ModelDeclarationRepository {
             .into_iter()
             .filter(is_model_target)
             .collect::<Vec<_>>();
-        let recommendations =
-            recommend_models(&self.catalog, &targets, inventory, deployments, use_cases);
+        let recommendations = recommend_models(
+            &self.catalog,
+            &targets,
+            inventory,
+            deployments,
+            use_cases,
+            can_start_now,
+        );
 
         Ok(recommendations_response(recommendations))
     }
@@ -697,6 +704,7 @@ fn recommendations_response(
                     .map(|row| RecommendedModelProfile {
                         model_id: row.model_id,
                         profile_id: row.profile_id,
+                        context_tokens_per_request: row.context_tokens_per_request,
                         targets: row
                             .targets
                             .into_iter()
@@ -713,7 +721,7 @@ fn recommendations_response(
                                     }
                                 }
                                 .into(),
-                                deployed: target.deployed,
+                                model_deployment_id: target.model_deployment_id,
                                 starting_total_context_tokens: target.starting_total_context_tokens,
                             })
                             .collect(),

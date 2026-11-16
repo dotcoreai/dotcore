@@ -12,7 +12,8 @@ Read this page first, then the page for the subject you work on. Terms from the
 | --- | --- | --- |
 | [Sites](sites.md) | A group of machines managed together, node membership, desired views, authority | Site manager, node agent |
 | [Machines](machines.md) | Hardware facts, execution targets, memory pools and fit | Site manager (inventory), capacity component |
-| [Catalog](catalog.md) | Models, engines, apps, hardware classes, sizing, recommendations | Artifact manager (declarations) |
+| [Catalog](catalog.md) | Models, engines, apps, hardware classes, sizing | Artifact manager (declarations) |
+| [Recommendations](recommendations.md) | What to run for each use case on your machines | Artifact manager (lists), inference controller, apps controller, capacity component |
 | [Models](models.md) | Model deployments, local or upstream | Inference controller |
 | [Apps](apps.md) | Application deployments and how users reach them | Apps controller, app proxy |
 | [Runtime](runtime.md) | Starting and stopping workloads on one machine | Runtime backends, engine integration registry |

@@ -1,7 +1,9 @@
-//! Serves the public read-only gRPC API for the site: its machines, execution targets, and current hardware.
+//! Serves the public gRPC API for the site: its machines, execution targets, current hardware and
+//! site-wide console settings.
 //!
 //! It answers inventory and hardware reads from current site configuration and the latest
-//! site-manager-owned node observation. Requests perform no collection or mutation.
+//! site-manager-owned node observation, without collecting anything. The console settings are
+//! the only site configuration it writes.
 
 use std::sync::Arc;
 
@@ -15,11 +17,13 @@ use dotcore_proto::{
         site::private::v1::node_hardware_observation,
         site::v1::{
             ConfiguredExecutionTarget, CurrentHardwareSnapshotAvailability,
-            ExecutionTargetAvailability, ExecutionTargetWorkloadKind, HardwareRefreshState,
+            ExecutionTargetAvailability, ExecutionTargetWorkloadKind, GetConsoleSettingsRequest,
+            GetConsoleSettingsResponse, HardwareRefreshState,
             ListConfiguredExecutionTargetsRequest, ListConfiguredExecutionTargetsResponse,
             ListHardwareSnapshotsRequest, ListHardwareSnapshotsResponse, ListMachinesRequest,
             ListMachinesResponse, Machine, MachineHardwareSnapshot, NodeObservationFreshness,
             NodeObservationState, RuntimeTargetAvailability, Site, SiteNode,
+            UpdateConsoleSettingsRequest, UpdateConsoleSettingsResponse,
             current_hardware_snapshot_availability, execution_target, hardware_refresh_state,
             runtime_target_availability, site_service_server::SiteService as SiteServiceContract,
         },
@@ -27,8 +31,9 @@ use dotcore_proto::{
     google::protobuf::Empty,
 };
 use tonic::{Request, Response, Status};
-use tracing::{Instrument, debug_span, error, field};
+use tracing::{Instrument, debug_span, error, field, info};
 
+use crate::console_settings::{ConsoleSettingsPatch, ConsoleSettingsStore};
 use crate::node::registry::{NodeConnectionState, NodeObservationView, NodeRegistry};
 use crate::repository::{SiteRepository, SiteRepositoryError};
 
@@ -59,9 +64,12 @@ impl SiteConfigurationSource for Site {
     }
 }
 
-/// Public site inventory service over the observations every SiteNode reports to the manager.
+/// Public site service: inventory over the observations every SiteNode reports to the manager,
+/// and the site-wide console settings.
 pub struct SiteService {
     site: Arc<dyn SiteConfigurationSource>,
+
+    console_settings: Arc<dyn ConsoleSettingsStore>,
 
     /// SiteNode hosting the manager process, projected with the site-manager marker.
     manager_node_id: SiteNodeId,
@@ -70,17 +78,27 @@ pub struct SiteService {
 }
 
 impl SiteService {
-    /// Creates a cache-only public service over the manager's registry of node observations.
+    /// Creates the public service over the manager's registry of node observations; inventory
+    /// reads answer from caches only.
     pub fn new(
         site: Arc<dyn SiteConfigurationSource>,
+        console_settings: Arc<dyn ConsoleSettingsStore>,
         manager_node_id: SiteNodeId,
         nodes: NodeRegistry,
     ) -> Self {
         Self {
             site,
+            console_settings,
             manager_node_id,
             nodes,
         }
+    }
+
+    /// Answers the site-wide console settings, with defaults for values never written.
+    pub fn console_settings(&self) -> Result<GetConsoleSettingsResponse, SiteRepositoryError> {
+        Ok(GetConsoleSettingsResponse {
+            settings: Some(self.console_settings.console_settings()?),
+        })
     }
 
     /// Answers every configured machine, in machine-identifier order.
@@ -275,6 +293,18 @@ impl SiteService {
 fn site_status(error: SiteRepositoryError) -> Status {
     error!(error = %error, "Site configuration snapshot failed");
     Status::internal("Site configuration snapshot failed")
+}
+
+/// Maps a failed console settings write. A storage failure leaves the accepted settings in memory,
+/// so the caller learns the outcome is uncertain rather than failed.
+fn console_settings_update_status(error: SiteRepositoryError) -> Status {
+    error!(error = %error, "Console settings update failed");
+    match error {
+        SiteRepositoryError::Storage(_) => Status::unavailable(
+            "Console settings were accepted but saving them is uncertain. Retry or read them back.",
+        ),
+        _ => Status::internal("Console settings update failed"),
+    }
 }
 
 /// Configured nodes in node-identifier order.
@@ -476,6 +506,36 @@ impl SiteServiceContract for SiteService {
         span.record("outcome", if result.is_ok() { "success" } else { "failed" });
         result
     }
+
+    async fn get_console_settings(
+        &self,
+        _request: Request<GetConsoleSettingsRequest>,
+    ) -> Result<Response<GetConsoleSettingsResponse>, Status> {
+        self.console_settings()
+            .map(Response::new)
+            .map_err(site_status)
+    }
+
+    async fn update_console_settings(
+        &self,
+        request: Request<UpdateConsoleSettingsRequest>,
+    ) -> Result<Response<UpdateConsoleSettingsResponse>, Status> {
+        let request = request.into_inner();
+        let patch =
+            ConsoleSettingsPatch::parse(request.settings.as_ref(), request.update_mask.as_ref())
+                .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let settings = self
+            .console_settings
+            .update_console_settings(&patch)
+            .map_err(console_settings_update_status)?;
+        info!(
+            get_started_hidden = settings.get_started_hidden,
+            "Console settings updated"
+        );
+        Ok(Response::new(UpdateConsoleSettingsResponse {
+            settings: Some(settings),
+        }))
+    }
 }
 
 #[cfg(test)]
@@ -497,8 +557,8 @@ mod tests {
                 NodeObservationAcceptance, NodeObservationSnapshot, node_hardware_observation,
             },
             site::v1::{
-                AcceleratorResolutionStatus, ApplicationRuntimeBinding, ExecutionTarget,
-                HardwareObservationConfiguration, HardwareRefreshState,
+                AcceleratorResolutionStatus, ApplicationRuntimeBinding, ConsoleSettings,
+                ExecutionTarget, HardwareObservationConfiguration, HardwareRefreshState,
                 ListConfiguredExecutionTargetsRequest, ListHardwareSnapshotsRequest,
                 ListMachinesRequest, ModelRuntimeBinding, SimulatedApplicationRuntimeAdapter,
                 SimulatedRuntimeAdapter, Site, SiteManagerRole, SiteNode,
@@ -506,7 +566,7 @@ mod tests {
                 model_runtime_binding,
             },
         },
-        google::protobuf::{Empty, Timestamp},
+        google::protobuf::{Empty, FieldMask, Timestamp},
     };
     use tokio::time::{Duration, advance};
 
@@ -526,6 +586,114 @@ mod tests {
     impl SiteConfigurationSource for MutableSite {
         fn snapshot(&self) -> Result<Site, SiteRepositoryError> {
             Ok(self.0.lock().expect("Site fixture lock").clone())
+        }
+    }
+
+    /// Console settings held in memory, as the site repository keeps them.
+    #[derive(Default)]
+    struct MemoryConsoleSettings(Mutex<ConsoleSettings>);
+
+    impl ConsoleSettingsStore for MemoryConsoleSettings {
+        fn console_settings(&self) -> Result<ConsoleSettings, SiteRepositoryError> {
+            Ok(*self.0.lock().expect("console settings lock"))
+        }
+
+        fn update_console_settings(
+            &self,
+            patch: &ConsoleSettingsPatch,
+        ) -> Result<ConsoleSettings, SiteRepositoryError> {
+            let mut settings = self.0.lock().expect("console settings lock");
+            patch.apply(&mut settings);
+            Ok(*settings)
+        }
+    }
+
+    #[tokio::test]
+    async fn console_settings_read_their_defaults_and_apply_a_masked_update() {
+        let store = Arc::new(MemoryConsoleSettings::default());
+        let (service, _) = service_with_console_settings(store.clone());
+
+        let initial = SiteServiceContract::get_console_settings(
+            &service,
+            Request::new(GetConsoleSettingsRequest {}),
+        )
+        .await
+        .expect("console settings read")
+        .into_inner();
+        assert_eq!(initial.settings, Some(ConsoleSettings::default()));
+
+        let accepted = SiteServiceContract::update_console_settings(
+            &service,
+            Request::new(UpdateConsoleSettingsRequest {
+                settings: Some(ConsoleSettings {
+                    get_started_hidden: true,
+                }),
+                update_mask: Some(FieldMask {
+                    paths: vec!["get_started_hidden".to_owned()],
+                }),
+            }),
+        )
+        .await
+        .expect("console settings update")
+        .into_inner();
+        let hidden = ConsoleSettings {
+            get_started_hidden: true,
+        };
+        assert_eq!(accepted.settings, Some(hidden));
+        let read = SiteServiceContract::get_console_settings(
+            &service,
+            Request::new(GetConsoleSettingsRequest {}),
+        )
+        .await
+        .expect("console settings read after update")
+        .into_inner();
+        assert_eq!(read.settings, Some(hidden));
+    }
+
+    #[tokio::test]
+    async fn console_settings_updates_without_a_valid_mask_are_rejected_unchanged() {
+        let hidden = ConsoleSettings {
+            get_started_hidden: true,
+        };
+        let mask = |paths: &[&str]| {
+            Some(FieldMask {
+                paths: paths.iter().map(|path| (*path).to_owned()).collect(),
+            })
+        };
+        let requests = [
+            (None, mask(&["get_started_hidden"])),
+            (Some(ConsoleSettings::default()), None),
+            (Some(ConsoleSettings::default()), mask(&[])),
+            (
+                Some(ConsoleSettings::default()),
+                mask(&["get_started_hidden", "get_started_hidden"]),
+            ),
+            (Some(ConsoleSettings::default()), mask(&["unknown_setting"])),
+        ];
+        for (settings, update_mask) in requests {
+            let store = Arc::new(MemoryConsoleSettings(Mutex::new(hidden)));
+            let (service, _) = service_with_console_settings(store.clone());
+
+            let error = SiteServiceContract::update_console_settings(
+                &service,
+                Request::new(UpdateConsoleSettingsRequest {
+                    settings,
+                    update_mask: update_mask.clone(),
+                }),
+            )
+            .await
+            .expect_err("invalid console settings update");
+
+            assert_eq!(
+                error.code(),
+                tonic::Code::InvalidArgument,
+                "{update_mask:?}"
+            );
+            assert_eq!(
+                store.console_settings().expect("console settings"),
+                hidden,
+                "{update_mask:?}"
+            );
         }
     }
 
@@ -568,7 +736,12 @@ mod tests {
         let site = Arc::new(MutableSite(Mutex::new(manager_site())));
         let source: Arc<dyn SiteConfigurationSource> = site.clone();
         let registry = NodeRegistry::new(Arc::clone(&source));
-        let service = SiteService::new(source, SiteNodeId::for_test("node-a"), registry.clone());
+        let service = SiteService::new(
+            source,
+            console_settings(),
+            SiteNodeId::for_test("node-a"),
+            registry.clone(),
+        );
         let reported = manager_site();
         registry
             .accept(manager_report(
@@ -763,6 +936,7 @@ mod tests {
         let registry = NodeRegistry::with_coordinator(Arc::new(site.clone()), coordinator.clone());
         let service = SiteService::new(
             Arc::new(site.clone()),
+            console_settings(),
             SiteNodeId::for_test("node-a"),
             registry.clone(),
         );
@@ -926,6 +1100,7 @@ mod tests {
         let registry = NodeRegistry::with_coordinator(Arc::new(site.clone()), coordinator.clone());
         let service = SiteService::new(
             Arc::new(site.clone()),
+            console_settings(),
             SiteNodeId::for_test("manager-node"),
             registry.clone(),
         );
@@ -1243,12 +1418,33 @@ mod tests {
         service_for(site, "node-a")
     }
 
+    fn service_with_console_settings(
+        store: Arc<MemoryConsoleSettings>,
+    ) -> (SiteService, NodeRegistry) {
+        let site: Arc<dyn SiteConfigurationSource> = Arc::new(node_site());
+        let registry = NodeRegistry::new(Arc::clone(&site));
+        (
+            SiteService::new(
+                site,
+                store,
+                SiteNodeId::for_test("manager-node"),
+                registry.clone(),
+            ),
+            registry,
+        )
+    }
+
+    fn console_settings() -> Arc<dyn ConsoleSettingsStore> {
+        Arc::new(MemoryConsoleSettings::default())
+    }
+
     fn service_for(site: Site, manager_node_id: &str) -> (SiteService, NodeRegistry) {
         let site: Arc<dyn SiteConfigurationSource> = Arc::new(site);
         let registry = NodeRegistry::new(Arc::clone(&site));
         (
             SiteService::new(
                 site,
+                console_settings(),
                 SiteNodeId::for_test(manager_node_id),
                 registry.clone(),
             ),

@@ -3,8 +3,9 @@
 A model deployment is one deployed model: a local workload on one target, or an upstream endpoint.
 The inference controller owns model deployments, from intent to serving eligibility.
 
-Code: `backend/core/src/model/` (inference controller, resolution, engine adapters,
-recommendations), `backend/core/src/telemetry/` (workload resource records).
+Code: `backend/core/src/model/` (inference controller, resolution, engine adapters),
+`backend/core/src/telemetry/` (workload resource records). Model recommendations are on the
+[recommendations](recommendations.md) page.
 
 ## Capabilities
 
@@ -13,8 +14,8 @@ recommendations), `backend/core/src/telemetry/` (workload resource records).
   execution target.
 - Use profiles as presets, and override typed options, engine parameters and expert launch arguments
   when you create a deployment.
-- Get model recommendations for your use cases across the site's targets, through a guided quick
-  start.
+- Get model recommendations for your use cases across the site's targets
+  ([recommendations](recommendations.md)).
 - See which configured targets can run each profile, and narrow the catalog to profiles whose fit
   allows them there.
 - See advisory memory estimates for a configuration when measured evidence exists, and its fit on
@@ -149,9 +150,8 @@ flowchart LR
   RES -->|"estimates per hardware class"| COMP["Compatibility read"]
   CAP["Capacity component"] -->|"fits on free and total memory, largest fit, starting total context"| COMP
   CAP -->|"placement preview"| EST["Resource estimates"]
-  CAP -->|"verdicts"| RECS["Recommendations: one ranking per use case"]
-  LISTS["Hardware class lists per use case"] --> RECS
-  STALE["Last observations of unreachable targets"] -.-> RECS
+  CAP -->|"verdicts"| RECS["Recommendations"]
+  RES --> RECS
 ```
 
 - The compatibility read covers catalog model profiles and configured model targets. It runs the same
@@ -164,12 +164,8 @@ flowchart LR
   starting total context. Narrowing by scenario uses the fit.
 - Resource estimates for a launch configuration carry the capacity component's placement preview for
   the selected target.
-- Recommendations: each target takes its most specific hardware class's list per use case. Entries
-  are kept or dropped by the capacity component's verdicts, entry minimums included, and the result
-  is one ranking per use case across the site.
-- A target that stopped reporting is judged on its last observations for recommendations, marked
-  unreachable with free memory unknown, until its node leaves the site. This is the only read that
-  accepts stale observations.
+- Recommendations rank the catalog's lists with the same resolution and the capacity component's
+  verdicts ([recommendations](recommendations.md#ranking-models-for-a-site)).
 
 ## Resources
 

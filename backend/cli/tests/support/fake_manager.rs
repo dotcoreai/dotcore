@@ -47,10 +47,11 @@ use dotcore_proto::dotcore::{
         model_deployment_snapshot,
     },
     site::v1::{
-        ConfiguredExecutionTarget, ExecutionTargetWorkloadKind,
-        ListConfiguredExecutionTargetsRequest, ListConfiguredExecutionTargetsResponse,
-        ListHardwareSnapshotsRequest, ListHardwareSnapshotsResponse, ListMachinesRequest,
-        ListMachinesResponse,
+        ConfiguredExecutionTarget, ExecutionTargetWorkloadKind, GetConsoleSettingsRequest,
+        GetConsoleSettingsResponse, ListConfiguredExecutionTargetsRequest,
+        ListConfiguredExecutionTargetsResponse, ListHardwareSnapshotsRequest,
+        ListHardwareSnapshotsResponse, ListMachinesRequest, ListMachinesResponse,
+        UpdateConsoleSettingsRequest, UpdateConsoleSettingsResponse,
         site_service_server::{SiteService, SiteServiceServer},
     },
 };
@@ -725,6 +726,13 @@ impl ApplicationDeploymentService for FakeApplications {
         )))
     }
 
+    async fn list_application_targets(
+        &self,
+        _request: Request<application::ListApplicationTargetsRequest>,
+    ) -> Result<Response<application::ListApplicationTargetsResponse>, Status> {
+        Err(not_faked())
+    }
+
     async fn update_application_deployment_metadata(
         &self,
         _request: Request<application::UpdateApplicationDeploymentMetadataRequest>,
@@ -762,6 +770,20 @@ impl SiteService for FakeSite {
         &self,
         _request: Request<ListHardwareSnapshotsRequest>,
     ) -> Result<Response<ListHardwareSnapshotsResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn get_console_settings(
+        &self,
+        _request: Request<GetConsoleSettingsRequest>,
+    ) -> Result<Response<GetConsoleSettingsResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn update_console_settings(
+        &self,
+        _request: Request<UpdateConsoleSettingsRequest>,
+    ) -> Result<Response<UpdateConsoleSettingsResponse>, Status> {
         Err(not_faked())
     }
 }

@@ -68,6 +68,7 @@ import {
 } from "@/gen/dotcore/site/v1/service_pb";
 import { ResourceWatchProvider } from "@/resource-watch/resource-watch-provider";
 import { FakeResourceWatch, hardwareSnapshotsPayload } from "@/test/fake-resource-watch";
+import { rejectConsoleSettingsUpdate } from "@/test/fake-site-client";
 import { renderWithClients } from "@/test/render-with-clients";
 
 import { ModelsPage } from "./models-page";
@@ -144,6 +145,7 @@ export function renderModelsSection({
       ),
     },
     model: {
+      listModelRecommendations: vi.fn(),
       listModelDeployments: vi.fn(() =>
         Promise.resolve(create(ListModelDeploymentsResponseSchema, { deployments })),
       ),
@@ -169,6 +171,7 @@ export function renderModelsSection({
     },
   };
   const siteClient: SiteClient = {
+    updateConsoleSettings: rejectConsoleSettingsUpdate,
     listConfiguredExecutionTargets: vi.fn(() =>
       Promise.resolve(create(ListConfiguredExecutionTargetsResponseSchema, { executionTargets })),
     ),

@@ -258,6 +258,9 @@ message ListModelProfileCompatibilityResponse {
 message ListModelRecommendationsRequest {
   // Use cases to rank; empty ranks every use case. Unspecified is rejected.
   repeated dotcore.catalog.v1.UseCase use_cases = 1;
+
+  // Keep only targets that run the profile or fit its memory now, and rows left with none are dropped; deployed rows come first.
+  bool can_start_now = 2;
 }
 
 // One ranked list of recommended model profiles per requested use case.
@@ -283,6 +286,9 @@ message RecommendedModelProfile {
   // Model-local profile identifier.
   string profile_id = 2;
 
+  // Context per request in tokens the row is sized with: the entry's own, else the profile's default.
+  uint64 context_tokens_per_request = 4;
+
   // Targets that can run the profile, ordered by node then target identifier.
   repeated RecommendedProfileTarget targets = 3;
 }
@@ -295,8 +301,8 @@ message RecommendedProfileTarget {
   // How the profile fits the target's memory now.
   ModelRecommendationFit fit = 2;
 
-  // Whether a deployment of the same model and profile is placed on the target.
-  bool deployed = 3;
+  // The running or starting deployment of the same model and profile on the target; absent when there is none.
+  optional string model_deployment_id = 3;
 
   // Total context in tokens a deployment of the profile starts from on the target; absent without a largest fit or a profile default.
   optional uint64 starting_total_context_tokens = 4;

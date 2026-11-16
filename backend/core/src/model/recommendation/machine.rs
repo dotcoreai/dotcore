@@ -9,7 +9,8 @@ use dotcore_catalog::{Catalog, SupportedHardwareClass};
 use dotcore_domain::{real_time, timing::NodeControlTiming};
 use dotcore_node_hardware::{MachineDescription, MachineError};
 use dotcore_proto::dotcore::{
-    catalog::v1::{HardwareClass, UseCase},
+    application::v1::ApplicationTargetOption,
+    catalog::v1::{Application, HardwareClass, UseCase},
     site::v1::{ExecutionTarget, execution_target::RuntimeBinding},
 };
 use dotcore_site::{
@@ -23,6 +24,7 @@ use tracing::debug;
 
 use super::{UseCaseRecommendations, recommend_models};
 use crate::{
+    application::recommend_application_targets,
     hardware::selection::select_hardware_class,
     model::compatibility::{StaleTargets, check_targets, node_workloads},
 };
@@ -139,7 +141,25 @@ impl IdleMachine {
             Some(&self.inventory),
             &[],
             use_cases,
+            false,
         )
+    }
+
+    /// Returns the machine's application targets that can run `application`, best first, with
+    /// nothing deployed on them.
+    pub fn recommend_application(&self, application: &Application) -> Vec<ApplicationTargetOption> {
+        let targets = self
+            .targets
+            .iter()
+            .filter(|target| {
+                matches!(
+                    target.runtime_binding,
+                    Some(RuntimeBinding::ApplicationRuntime(_))
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        recommend_application_targets(application, &targets, None, &self.inventory, &[])
     }
 
     /// The targets that run models, which recommendations and hardware classes apply to.
@@ -192,10 +212,7 @@ mod tests {
         assert_eq!(
             rows(
                 &mac,
-                &mac.recommend(
-                    &catalog,
-                    &[UseCase::CodingAndAgents, UseCase::DecisionMaking]
-                )
+                &mac.recommend(&catalog, &[UseCase::Coding, UseCase::ChatAssistant])
             ),
             [
                 vec![
@@ -203,7 +220,10 @@ mod tests {
                     "mid/q4 on Fixture Apple GPU: FitsNow from 454656",
                     "small/q4 on Fixture Apple GPU: FitsNow from 494592",
                 ],
-                vec!["decider/q8 on Fixture Apple GPU: FitsNow from 504832"],
+                vec![
+                    "mid/q4 on Fixture Apple GPU: FitsNow from 454656",
+                    "small/q4 on Fixture Apple GPU: FitsNow from 494592",
+                ],
             ]
         );
     }
@@ -220,7 +240,7 @@ mod tests {
         assert_eq!(
             rows(
                 &gpu,
-                &gpu.recommend(&catalog, &[UseCase::CodingAndAgents, UseCase::Translation])
+                &gpu.recommend(&catalog, &[UseCase::Coding, UseCase::ChatAssistant])
             ),
             [
                 vec![
@@ -264,7 +284,7 @@ mod tests {
                     .iter()
                     .flat_map(|row| {
                         row.targets.iter().map(move |target| {
-                            assert!(!target.deployed);
+                            assert_eq!(target.model_deployment_id, None);
                             let name = machine
                                 .targets()
                                 .iter()

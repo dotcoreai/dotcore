@@ -12,13 +12,27 @@ import {
   type SizingScenario,
 } from "@/features/models/profiles/sizing-scenario";
 import {
+  CONTEXT_PARAMETER_IDS,
   CONTEXT_PER_REQUEST_PARAMETER_ID,
+  effectiveEngineParameters,
   engineParameterInputs as engineParameterInputsOf,
   PARALLEL_REQUESTS_PARAMETER_ID,
   profileStartingValues,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
-import { defaultSpeculativeChoice } from "@/features/models/runtime/speculative-choice";
+import {
+  configurationKvCachePrecision,
+  overriddenKvCachePrecision,
+} from "@/features/models/runtime/kv-cache-precision";
+import {
+  type LocalDeploymentConfigurationValues,
+  profileEngineRelease,
+} from "@/features/models/runtime/local-deployment-configuration";
+import {
+  defaultSpeculativeChoice,
+  overriddenSpeculativeChoice,
+  type SpeculativeChoice,
+} from "@/features/models/runtime/speculative-choice";
 import {
   type EngineParameterValues,
   type EngineRelease,
@@ -101,6 +115,24 @@ export function scenarioContext(scenario: SizingScenario | undefined): LaunchCon
 }
 
 /**
+ * The context a launch starts from: the opener's scenario, or the default context without one, and
+ * the parallel requests of a configuration the dialog submitted before.
+ */
+export function startContext(
+  scenario: SizingScenario | undefined,
+  configuration: LocalDeploymentConfigurationValues | undefined,
+): LaunchContext {
+  const parallelRequests =
+    configuration &&
+    engineParameterInputsOf(configuration.engineParameterValues).get(
+      PARALLEL_REQUESTS_PARAMETER_ID,
+    );
+  return parallelRequests === undefined
+    ? scenarioContext(scenario)
+    : { ...scenarioContext(scenario), parallelRequests };
+}
+
+/**
  * The context once the edited input is left: the other of total context and context per request
  * follows it, and "Sized for" takes the inputs when they are valid. Unchanged, the same context.
  */
@@ -144,18 +176,71 @@ export function withoutUnsetContextPerRequest(
   };
 }
 
-export function profileDefaults(model: Model, profileId: string) {
+/**
+ * The runtime fields a launch starts from on a profile: a configuration the dialog submitted
+ * before, read back into its fields, or the profile's defaults without one. Its engine parameters
+ * become edits, except the context and parallel requests, which `startContext` reads.
+ */
+export function configurationStart(
+  model: Model,
+  engineReleases: readonly EngineRelease[],
+  profileId: string,
+  configuration: LocalDeploymentConfigurationValues | undefined,
+): ConfigurationStart {
+  const defaults = profileDefaults(model, profileId);
+  if (!configuration)
+    return {
+      bindingId: defaults.modelArtifactBindingId,
+      customArgumentTokens: [],
+      edits: new Map(),
+      kvCachePrecision: "",
+      speculativeChoice: defaults.speculativeChoice,
+    };
+
   const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
-  const configuration = model.configurations.find(
+  const modelConfiguration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
+  const exposedIds = new Set(
+    effectiveEngineParameters(profileEngineRelease(model, profile, engineReleases), profile).map(
+      (parameter) => parameter.parameterId,
+    ),
+  );
+  const inputs = engineParameterInputsOf(configuration.engineParameterValues);
+  const { optionOverrides } = configuration;
 
   return {
-    modelArtifactBindingId: profile?.defaultModelArtifactBindingId ?? "",
-    speculativeChoice: defaultSpeculativeChoice(
-      configurationSpeculativeOptions(model, configuration, profile),
+    // A launch that leaves the artifact unset takes the profile's.
+    bindingId: configuration.modelArtifactBindingId || defaults.modelArtifactBindingId,
+    customArgumentTokens: [...configuration.customArgumentTokens],
+    edits: new Map(
+      [...inputs].filter(
+        ([parameterId]) =>
+          exposedIds.has(parameterId) &&
+          !CONTEXT_PARAMETER_IDS.has(parameterId) &&
+          parameterId !== PARALLEL_REQUESTS_PARAMETER_ID,
+      ),
+    ),
+    kvCachePrecision: overriddenKvCachePrecision(
+      configurationKvCachePrecision(model, modelConfiguration, profile),
+      optionOverrides,
+    ),
+    speculativeChoice: overriddenSpeculativeChoice(
+      configurationSpeculativeOptions(model, modelConfiguration, profile),
+      optionOverrides,
     ),
   };
+}
+
+/** The runtime field values a launch starts from, in the form the dialog's fields hold them. */
+export interface ConfigurationStart {
+  bindingId: string;
+  customArgumentTokens: string[];
+  /** Engine parameter inputs over the profile's starting values. */
+  edits: Map<string, string>;
+  /** The picked KV cache precision; empty for the profile's default. */
+  kvCachePrecision: string;
+  speculativeChoice: SpeculativeChoice;
 }
 
 export function modelDeploySteps(target: boolean, advanced: boolean): ModelDeployStep[] {
@@ -192,4 +277,18 @@ export function moveToken(tokens: string[], index: number, direction: -1 | 1): s
 /** The backend's rejection reason as a sentence of the form. */
 export function operatorSentence(reason: string): string {
   return `${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`;
+}
+
+function profileDefaults(model: Model, profileId: string) {
+  const profile = model.profiles.find((candidate) => candidate.profileId === profileId);
+  const configuration = model.configurations.find(
+    (candidate) => candidate.configurationId === profile?.configurationId,
+  );
+
+  return {
+    modelArtifactBindingId: profile?.defaultModelArtifactBindingId ?? "",
+    speculativeChoice: defaultSpeculativeChoice(
+      configurationSpeculativeOptions(model, configuration, profile),
+    ),
+  };
 }

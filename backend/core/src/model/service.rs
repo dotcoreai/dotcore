@@ -352,9 +352,9 @@ where
         &self,
         request: Request<ListModelRecommendationsRequest>,
     ) -> Result<Response<ListModelRecommendationsResponse>, Status> {
-        let use_cases = parse_model_recommendations_request(request.into_inner())?;
+        let (use_cases, can_start_now) = parse_model_recommendations_request(request.into_inner())?;
         self.controller
-            .list_model_recommendations(use_cases)
+            .list_model_recommendations(use_cases, can_start_now)
             .await
             .map(Response::new)
             .map_err(Self::translate_controller_error)
@@ -840,13 +840,14 @@ fn parse_metadata_patch(
     })
 }
 
-/// Validates the use cases of a recommendations read: each must be a known, specified use case.
-/// Duplicates collapse to their first occurrence, and none asks for every use case.
+/// Validates a recommendations read: each use case must be a known, specified one. Duplicates
+/// collapse to their first occurrence, and none asks for every use case. Returns the use cases and
+/// whether only what can start now is asked for.
 fn parse_model_recommendations_request(
     request: ListModelRecommendationsRequest,
-) -> Result<Vec<UseCase>, Status> {
+) -> Result<(Vec<UseCase>, bool), Status> {
     if request.use_cases.is_empty() {
-        return Ok(ALL_USE_CASES.to_vec());
+        return Ok((ALL_USE_CASES.to_vec(), request.can_start_now));
     }
     let mut use_cases = Vec::new();
     for value in request.use_cases {
@@ -860,15 +861,14 @@ fn parse_model_recommendations_request(
             use_cases.push(use_case);
         }
     }
-    Ok(use_cases)
+    Ok((use_cases, request.can_start_now))
 }
 
 /// Every use case a recommendations read ranks when the request names none.
-const ALL_USE_CASES: [UseCase; 4] = [
-    UseCase::CodingAndAgents,
-    UseCase::GeneralAssistant,
-    UseCase::Translation,
-    UseCase::DecisionMaking,
+const ALL_USE_CASES: [UseCase; 3] = [
+    UseCase::Coding,
+    UseCase::ChatAssistant,
+    UseCase::ImageGeneration,
 ];
 
 /// Validated compatibility read selection: the model, the target and the sizing scenario.
@@ -1345,32 +1345,50 @@ mod tests {
 
     #[test]
     fn recommendation_requests_default_to_all_use_cases_and_reject_unspecified_ones() {
-        let parse = |use_cases: &[i32]| {
+        let parse = |use_cases: &[i32], can_start_now: bool| {
             super::parse_model_recommendations_request(ListModelRecommendationsRequest {
                 use_cases: use_cases.to_vec(),
+                can_start_now,
             })
         };
 
         assert_eq!(
-            parse(&[]).expect("all use cases"),
-            [
-                UseCase::CodingAndAgents,
-                UseCase::GeneralAssistant,
-                UseCase::Translation,
-                UseCase::DecisionMaking,
-            ]
+            parse(&[], false).expect("all use cases"),
+            (
+                vec![
+                    UseCase::Coding,
+                    UseCase::ChatAssistant,
+                    UseCase::ImageGeneration,
+                ],
+                false
+            )
         );
         assert_eq!(
-            parse(&[
-                UseCase::Translation as i32,
-                UseCase::CodingAndAgents as i32,
-                UseCase::Translation as i32,
-            ])
+            parse(&[], true).expect("all use cases that can start now"),
+            (
+                vec![
+                    UseCase::Coding,
+                    UseCase::ChatAssistant,
+                    UseCase::ImageGeneration,
+                ],
+                true
+            )
+        );
+        assert_eq!(
+            parse(
+                &[
+                    UseCase::ImageGeneration as i32,
+                    UseCase::Coding as i32,
+                    UseCase::ImageGeneration as i32,
+                ],
+                true
+            )
             .expect("named use cases"),
-            [UseCase::Translation, UseCase::CodingAndAgents]
+            (vec![UseCase::ImageGeneration, UseCase::Coding], true)
         );
         for invalid in [UseCase::Unspecified as i32, 99] {
-            let status = parse(&[UseCase::Translation as i32, invalid]).expect_err("invalid");
+            let status =
+                parse(&[UseCase::ImageGeneration as i32, invalid], false).expect_err("invalid");
             assert_eq!(status.code(), tonic::Code::InvalidArgument);
             assert_eq!(
                 status.message(),

@@ -639,6 +639,32 @@ describe("ModelDeployDialog", () => {
       expect(onSubmit.mock.calls[0][0].placement).toMatchObject(workerPlacement);
     });
 
+    it("starts on the opener's target among those that run the profile", async () => {
+      const user = setupUser();
+      const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
+      renderDialog({
+        initialPlacement: create(ExactPlacementSchema, workerPlacement),
+        listConfiguredExecutionTargets: targetsLoader(poolTarget(), workerTarget()),
+        listProfileCompatibility: compatibilityLoader(
+          targetCompatibility(poolPlacement, { default: {}, large: {} }),
+          targetCompatibility(workerPlacement, { default: {}, large: {} }),
+        ),
+        onSubmit,
+      });
+
+      await screen.findByRole("button", { name: "Runs on filter: this site" });
+      await nextToTarget(user);
+      expect(screen.getByRole("combobox", { name: "Execution target" })).toHaveValue(
+        "Worker / NVIDIA GB10",
+      );
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(summaryRows()[0]).toEqual(["Target", "Worker / NVIDIA GB10"]);
+      await user.click(screen.getByRole("button", { name: "Deploy" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+      expect(onSubmit.mock.calls[0][0].placement).toMatchObject(workerPlacement);
+    });
+
     it("asks for the target among those that run the profile", async () => {
       const user = setupUser();
       renderDialog({
@@ -2855,6 +2881,30 @@ describe("ModelDeployDialog", () => {
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
       await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    });
+  });
+
+  describe("submit labels", () => {
+    const applyLabels = { pending: "Applying…", submit: "Apply", title: "Customize model" };
+
+    it("names the dialog and its last action after the opener's labels", async () => {
+      const user = setupUser();
+      const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
+      renderDialog({ labels: applyLabels, onSubmit });
+
+      expect(screen.getByRole("dialog", { name: "Test Model — Customize model" })).toBeVisible();
+      await openContext(user);
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
+      expect(
+        within(screen.getByTestId("deployment-dialog-actions"))
+          .getAllByRole("button")
+          .map((button) => button.textContent),
+      ).toEqual(["Cancel", "Back", "Apply"]);
+
+      await user.click(screen.getByRole("button", { name: "Apply" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+      expect(onSubmit.mock.calls[0][0]).toMatchObject({ name: "Test Model", profileId: "default" });
     });
   });
 

@@ -9,12 +9,18 @@ import {
   executionTargetsWatch,
 } from "@/features/deployments/execution-targets-watch-test-support";
 import {
+  compatibilityLoader,
+  targetCompatibility,
+} from "@/features/models/profiles/profile-compatibility-test-support";
+import {
   modelWithKvCachePrecision,
   runtimeSchemaModel,
   runtimeSchemaReleases,
   unsignedValue,
 } from "@/features/models/runtime/runtime-schema-test-support";
 import {
+  ModelArtifactBindingSchema,
+  ModelArtifactSchema,
   ModelConfigurationOptionSchema,
   ModelOptionSchema,
   ModelOptionValuesSchema,
@@ -29,7 +35,10 @@ import {
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
+import type { LocalDeploymentValues } from "./model-deploy-launch";
 import { sharedContextEstimate } from "./resource-estimate-test-support";
+
+const poolPlacement = { executionTargetId: "pool", siteNodeId: "node" };
 
 describe("ModelDeployDialog Context step", () => {
   it("shows total context and context per request in both modes, with short help", async () => {
@@ -675,6 +684,126 @@ describe("ModelDeployDialog Runtime step", () => {
   });
 });
 
+describe("ModelDeployDialog reopened on an applied launch", () => {
+  it("shows every applied value and submits the same launch again", async () => {
+    const user = setupUser();
+    const model = modelWithArtifactChoice();
+    const applied = await applyEveryRuntimeEdit(user, model);
+    expect(applied).toMatchObject({
+      configuration: {
+        customArgumentTokens: ["--foo", "bar"],
+        modelArtifactBindingId: "q5-xl",
+      },
+      exposure: { kind: { case: "direct", value: { routeName: "team-route" } } },
+      name: "Team model",
+      profileId: "q4-xl",
+    });
+    expect(overrideTriples(applied)).toEqual([
+      ["mtp", "token-count", 5n],
+      ["kv-cache", "precision", "q8_0"],
+    ]);
+
+    const onSubmit = vi.fn();
+    renderDialog({ ...reopenedOn(applied), model, onSubmit });
+
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { checked: true })).toHaveAccessibleName(
+        /^Q4_K_XL(?! without)/,
+      ),
+    );
+    await openAdvancedRuntime(user);
+    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
+    await user.click(sectionToggle("Other parameters (1)"));
+    expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("4096");
+    await user.click(sectionToggle("Engine and artifact"));
+    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("q5-xl");
+    expect(kvCachePrecision()).toHaveValue("q8_0");
+    expect(speculativeMethod()).toHaveValue("mtp");
+    expect(speculativeCount()).toHaveValue("5");
+    await user.click(sectionToggle("Custom arguments and command"));
+    expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
+    expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
+
+    await deployFromRuntime(user);
+    expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
+    expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("team-route");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toEqual(applied);
+  });
+
+  it("resets the profile's runtime values on a profile change and keeps the launch's own", async () => {
+    const user = setupUser();
+    const model = modelWithArtifactChoice();
+    const applied = await applyEveryRuntimeEdit(user, model);
+
+    const onSubmit = vi.fn();
+    renderDialog({ ...reopenedOn(applied), model, onSubmit });
+
+    await waitFor(() =>
+      expect(screen.getByRole("radio", { checked: true })).toHaveAccessibleName(
+        /^Q4_K_XL(?! without)/,
+      ),
+    );
+    await user.click(screen.getByRole("radio", { name: /Q4_K_XL without MTP/ }));
+    await openAdvancedRuntime(user);
+    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
+    await user.click(sectionToggle("Other parameters (1)"));
+    expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("8192");
+    await user.click(sectionToggle("Engine and artifact"));
+    expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("Q4_K_XL");
+    expect(kvCachePrecision()).toHaveValue("f16");
+    expect(speculativeMethod()).toHaveValue("");
+    await user.click(sectionToggle("Custom arguments and command"));
+    expect(screen.getByRole("textbox", { name: "Custom token 1" })).toHaveValue("--foo");
+    expect(screen.getByRole("textbox", { name: "Custom token 2" })).toHaveValue("bar");
+
+    await deployFromRuntime(user);
+    expect(screen.getByRole("textbox", { name: "Deployment name" })).toHaveValue("Team model");
+    expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("team-route");
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toMatchObject({
+      configuration: { customArgumentTokens: ["--foo", "bar"], modelArtifactBindingId: "q4-xl" },
+      exposure: { kind: { case: "direct", value: { routeName: "team-route" } } },
+      name: "Team model",
+      profileId: "q4-xl-no-mtp",
+    });
+    expect(submittedOverrides(onSubmit)).toEqual([]);
+    expect(submittedValues(onSubmit)).toEqual([
+      ["prompt-cache-memory-mib", 8192n],
+      ["total-context", 32768n],
+      ["parallel-requests", 2n],
+    ]);
+  });
+
+  it("reads an applied hidden exposure and speculative decoding off back", async () => {
+    const user = setupUser();
+    const model = modelWithArtifactChoice();
+    const first = vi.fn();
+    const { unmount } = renderDialog({ initialProfileId: "q4-xl", model, onSubmit: first });
+
+    await openAdvancedRuntime(user);
+    await user.selectOptions(speculativeMethod(), "Off");
+    await deployFromRuntime(user);
+    await user.click(screen.getByRole("radio", { name: "Hidden" }));
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(first).toHaveBeenCalledOnce());
+    const applied = first.mock.calls[0][0] as LocalDeploymentValues;
+    unmount();
+
+    const onSubmit = vi.fn();
+    renderDialog({ ...reopenedOn(applied), model, onSubmit });
+    await openAdvancedRuntime(user);
+    expect(speculativeMethod()).toHaveValue("");
+    await deployFromRuntime(user);
+    expect(screen.getByRole("radio", { name: "Hidden" })).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0]).toEqual(applied);
+  });
+});
+
 function renderDialog(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {
   return render(dialog(props));
 }
@@ -731,6 +860,84 @@ function modelWithDflash() {
     }),
   );
   return model;
+}
+
+/**
+ * The fixture model with the KV cache precision option and a second llama.cpp artifact, "q5-xl",
+ * that no profile defaults to.
+ */
+function modelWithArtifactChoice() {
+  const model = modelWithKvCachePrecision();
+  model.artifacts.push(clone(ModelArtifactSchema, { ...model.artifacts[0], artifactId: "q5-xl" }));
+  model.configurations[0].artifactBindings.push(
+    create(ModelArtifactBindingSchema, { bindingId: "q5-xl", modelArtifactId: "q5-xl" }),
+  );
+  return model;
+}
+
+/**
+ * Deploys "q4-xl" with every runtime field, the name and the route edited, the way Customize
+ * applies a launch, and returns the submitted launch.
+ */
+async function applyEveryRuntimeEdit(
+  user: UserEvent,
+  model: ReturnType<typeof modelWithArtifactChoice>,
+): Promise<LocalDeploymentValues> {
+  const onSubmit = vi.fn();
+  const { unmount } = renderDialog({
+    initialProfileId: "q4-xl",
+    listProfileCompatibility: compatibilityLoader(
+      targetCompatibility(poolPlacement, { "q4-xl": {}, "q4-xl-no-mtp": {} }),
+    ),
+    model,
+    onSubmit,
+  });
+
+  await openAdvancedRuntime(user);
+  const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
+  await user.clear(parallel);
+  await user.type(parallel, "2");
+  await user.click(sectionToggle("Other parameters (1)"));
+  const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
+  await user.clear(promptCache);
+  await user.type(promptCache, "4096");
+  await user.click(sectionToggle("Engine and artifact"));
+  await user.click(screen.getByRole("combobox", { name: "Model artifact" }));
+  await user.click((await screen.findAllByText("q5-xl"))[0]);
+  await user.selectOptions(kvCachePrecision(), "q8_0");
+  await user.clear(speculativeCount());
+  await user.type(speculativeCount(), "5");
+  await user.click(sectionToggle("Custom arguments and command"));
+  await user.click(screen.getByRole("button", { name: "Add token" }));
+  await user.type(screen.getByRole("textbox", { name: "Custom token 1" }), "--foo");
+  await user.click(screen.getByRole("button", { name: "Add token" }));
+  await user.type(screen.getByRole("textbox", { name: "Custom token 2" }), "bar");
+
+  await deployFromRuntime(user);
+  const name = screen.getByRole("textbox", { name: "Deployment name" });
+  await user.clear(name);
+  await user.type(name, "Team model");
+  const route = screen.getByRole("textbox", { name: "Route name" });
+  await user.clear(route);
+  await user.type(route, "team-route");
+  await user.click(screen.getByRole("button", { name: "Deploy" }));
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+  unmount();
+  return onSubmit.mock.calls[0][0] as LocalDeploymentValues;
+}
+
+/** The dialog props that start it from a launch it submitted, as Customize reopens it. */
+function reopenedOn(launch: LocalDeploymentValues) {
+  return {
+    initialConfiguration: launch.configuration,
+    initialExposure: launch.exposure,
+    initialName: launch.name,
+    initialPlacement: launch.placement,
+    initialProfileId: launch.profileId,
+    listProfileCompatibility: compatibilityLoader(
+      targetCompatibility(poolPlacement, { "q4-xl": {}, "q4-xl-no-mtp": {} }),
+    ),
+  };
 }
 
 /** The fixture model whose "q4-xl" profile defaults MTP to 4 tokens, over the configuration's 3. */
@@ -827,7 +1034,7 @@ interface OverrideCarrier {
   configuration: {
     optionOverrides: {
       optionId: string;
-      values: { parameterId: string; value: { value: unknown } }[];
+      values: { parameterId: string; value: { value?: unknown } }[];
     }[];
   };
 }

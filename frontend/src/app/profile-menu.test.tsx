@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { DiagnosticLogOperations } from "@/api/diagnostic-log-client";
 import { ProfileMenu } from "@/app/profile-menu";
 import { renderWithClients } from "@/test/render-with-clients";
+import { StaticGetStartedHidden } from "@/test/static-get-started-hidden";
 import { setupUser } from "@/test/user";
 import { ThemeProvider } from "@/theme/theme-provider";
 
@@ -27,7 +28,9 @@ function renderProfileMenu(diagnostics?: DiagnosticLogOperations) {
         eventTarget={new EventTarget()}
         storage={new FakeStorage()}
       >
-        <ProfileMenu />
+        <StaticGetStartedHidden>
+          <ProfileMenu />
+        </StaticGetStartedHidden>
       </ThemeProvider>
     </MemoryRouter>,
     { diagnosticLogOperations: diagnostics },
@@ -79,6 +82,7 @@ describe("ProfileMenu", () => {
       ...within(menu).getAllByRole("menuitemcheckbox"),
     ];
     expect(items.map((item) => item.textContent)).toEqual([
+      "Get started",
       "Preferences",
       "Site logs",
       "Dark mode",
@@ -106,9 +110,9 @@ describe("ProfileMenu", () => {
         trigger.focus();
         await user.keyboard("{Enter}");
         await waitFor(() =>
-          expect(screen.getByRole("menuitem", { name: "Preferences" })).toHaveFocus(),
+          expect(screen.getByRole("menuitem", { name: "Get started" })).toHaveFocus(),
         );
-        await user.keyboard("{ArrowDown}");
+        await user.keyboard("{ArrowDown}{ArrowDown}");
         await waitFor(() =>
           expect(screen.getByRole("menuitem", { name: "Site logs" })).toHaveFocus(),
         );

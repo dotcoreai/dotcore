@@ -18,7 +18,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/site/v1/site.proto.
  */
 export const file_dotcore_site_v1_site: GenFile = /*@__PURE__*/
-  fileDesc("Chpkb3Rjb3JlL3NpdGUvdjEvc2l0ZS5wcm90bxIPZG90Y29yZS5zaXRlLnYxIpMECgRTaXRlEg8KB3NpdGVfaWQYASABKAkSOwoRZXhlY3V0aW9uX3RhcmdldHMYAiADKAsyIC5kb3Rjb3JlLnNpdGUudjEuRXhlY3V0aW9uVGFyZ2V0EkcKEW1vZGVsX2RlcGxveW1lbnRzGAMgAygLMiwuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnREZWNsYXJhdGlvbhIoCgVub2RlcxgEIAMoCzIZLmRvdGNvcmUuc2l0ZS52MS5TaXRlTm9kZRJZChdhcHBsaWNhdGlvbl9kZXBsb3ltZW50cxgFIAMoCzI4LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50RGVjbGFyYXRpb24SPgoQaW5mZXJlbmNlX3JvdXRlcxgGIAMoCzIkLmRvdGNvcmUuaW5mZXJlbmNlLnYxLkluZmVyZW5jZVJvdXRlEk8KFGhhcmR3YXJlX29ic2VydmF0aW9uGAcgASgLMjEuZG90Y29yZS5zaXRlLnYxLkhhcmR3YXJlT2JzZXJ2YXRpb25Db25maWd1cmF0aW9uEl4KI21vZGVsX2RlcGxveW1lbnRfaWRlbnRpdHlfYWxsb2NhdG9yGAggASgLMjEuZG90Y29yZS5zaXRlLnYxLk1vZGVsRGVwbG95bWVudElkZW50aXR5QWxsb2NhdG9yIkwKIE1vZGVsRGVwbG95bWVudElkZW50aXR5QWxsb2NhdG9yEhEKCW5hbWVzcGFjZRgBIAEoCRIVCg1uZXh0X3NlcXVlbmNlGAIgASgEImYKIEhhcmR3YXJlT2JzZXJ2YXRpb25Db25maWd1cmF0aW9uEiUKGHJlZnJlc2hfaW50ZXJ2YWxfc2Vjb25kcxgBIAEoDUgAiAEBQhsKGV9yZWZyZXNoX2ludGVydmFsX3NlY29uZHMijQEKCFNpdGVOb2RlEg8KB25vZGVfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEjYKDHNpdGVfbWFuYWdlchgDIAEoCzIgLmRvdGNvcmUuc2l0ZS52MS5TaXRlTWFuYWdlclJvbGUSDAoEaG9zdBgFIAEoCRIUCgxtYW5hZ2VyX2hvc3QYBiABKAkiygIKD0V4ZWN1dGlvblRhcmdldBIbChNleGVjdXRpb25fdGFyZ2V0X2lkGAEgASgJEhQKDHNpdGVfbm9kZV9pZBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYByABKAkSMQoIcGxhdGZvcm0YAyABKAsyHy5kb3Rjb3JlLmNhdGFsb2cudjEuT2NpUGxhdGZvcm0SHgoWYWNjZWxlcmF0b3JfZGV2aWNlX2lkcxgEIAMoCRI9Cg1tb2RlbF9ydW50aW1lGAUgASgLMiQuZG90Y29yZS5zaXRlLnYxLk1vZGVsUnVudGltZUJpbmRpbmdIABJJChNhcHBsaWNhdGlvbl9ydW50aW1lGAYgASgLMiouZG90Y29yZS5zaXRlLnYxLkFwcGxpY2F0aW9uUnVudGltZUJpbmRpbmdIAEIRCg9ydW50aW1lX2JpbmRpbmci6QEKE01vZGVsUnVudGltZUJpbmRpbmcSRQoRc2ltdWxhdGVkX3J1bnRpbWUYASABKAsyKC5kb3Rjb3JlLnNpdGUudjEuU2ltdWxhdGVkUnVudGltZUFkYXB0ZXJIABI/Cg5kb2NrZXJfcnVudGltZRgCIAEoCzIlLmRvdGNvcmUuc2l0ZS52MS5Eb2NrZXJSdW50aW1lQWRhcHRlckgAEj8KDm5hdGl2ZV9ydW50aW1lGAMgASgLMiUuZG90Y29yZS5zaXRlLnYxLk5hdGl2ZVJ1bnRpbWVBZGFwdGVySABCCQoHYWRhcHRlciLEAQoZQXBwbGljYXRpb25SdW50aW1lQmluZGluZxJKCg5kb2NrZXJfcnVudGltZRgBIAEoCzIwLmRvdGNvcmUuc2l0ZS52MS5Eb2NrZXJBcHBsaWNhdGlvblJ1bnRpbWVBZGFwdGVySAASUAoRc2ltdWxhdGVkX3J1bnRpbWUYAiABKAsyMy5kb3Rjb3JlLnNpdGUudjEuU2ltdWxhdGVkQXBwbGljYXRpb25SdW50aW1lQWRhcHRlckgAQgkKB2FkYXB0ZXIiEQoPU2l0ZU1hbmFnZXJSb2xlIiEKH0RvY2tlckFwcGxpY2F0aW9uUnVudGltZUFkYXB0ZXIiJAoiU2ltdWxhdGVkQXBwbGljYXRpb25SdW50aW1lQWRhcHRlciKxAQoXU2ltdWxhdGVkUnVudGltZUFkYXB0ZXISQwoQZGVmYXVsdF9zY2VuYXJpbxgBIAEoCzIpLmRvdGNvcmUuc2l0ZS52MS5TaW11bGF0ZWRSdW50aW1lU2NlbmFyaW8SUQoUZGVwbG95bWVudF9zY2VuYXJpb3MYAiADKAsyMy5kb3Rjb3JlLnNpdGUudjEuU2ltdWxhdGVkUnVudGltZURlcGxveW1lbnRTY2VuYXJpbyJ+CiJTaW11bGF0ZWRSdW50aW1lRGVwbG95bWVudFNjZW5hcmlvEhsKE21vZGVsX2RlcGxveW1lbnRfaWQYASABKAkSOwoIc2NlbmFyaW8YAiABKAsyKS5kb3Rjb3JlLnNpdGUudjEuU2ltdWxhdGVkUnVudGltZVNjZW5hcmlvIlEKGFNpbXVsYXRlZFJ1bnRpbWVTY2VuYXJpbxIaChJyZWFkeV9kZWxheV9taWxsaXMYASABKAQSGQoRc3RvcF9kZWxheV9taWxsaXMYAiABKAQiWgoUTmF0aXZlUnVudGltZUFkYXB0ZXISQgoRd29ya2xvYWRfbGlmZXRpbWUYASABKA4yJy5kb3Rjb3JlLnNpdGUudjEuTmF0aXZlV29ya2xvYWRMaWZldGltZSJiChREb2NrZXJSdW50aW1lQWRhcHRlchJKChVhY2NlbGVyYXRvcl90cmFuc3BvcnQYASABKA4yKy5kb3Rjb3JlLnNpdGUudjEuRG9ja2VyQWNjZWxlcmF0b3JUcmFuc3BvcnQqoAEKGkRvY2tlckFjY2VsZXJhdG9yVHJhbnNwb3J0EiwKKERPQ0tFUl9BQ0NFTEVSQVRPUl9UUkFOU1BPUlRfVU5TUEVDSUZJRUQQABIkCiBET0NLRVJfQUNDRUxFUkFUT1JfVFJBTlNQT1JUX0NESRABEi4KKkRPQ0tFUl9BQ0NFTEVSQVRPUl9UUkFOU1BPUlRfTEVHQUNZX05WSURJQRACKpMBChZOYXRpdmVXb3JrbG9hZExpZmV0aW1lEigKJE5BVElWRV9XT1JLTE9BRF9MSUZFVElNRV9VTlNQRUNJRklFRBAAEicKI05BVElWRV9XT1JLTE9BRF9MSUZFVElNRV9QRVJTSVNURU5UEAESJgoiTkFUSVZFX1dPUktMT0FEX0xJRkVUSU1FX0VQSEVNRVJBTBACYgZwcm90bzM", [file_dotcore_application_v1_deployment, file_dotcore_catalog_v1_oci, file_dotcore_inference_v1_routes, file_dotcore_model_v1_deployment]);
+  fileDesc("Chpkb3Rjb3JlL3NpdGUvdjEvc2l0ZS5wcm90bxIPZG90Y29yZS5zaXRlLnYxIs8ECgRTaXRlEg8KB3NpdGVfaWQYASABKAkSOwoRZXhlY3V0aW9uX3RhcmdldHMYAiADKAsyIC5kb3Rjb3JlLnNpdGUudjEuRXhlY3V0aW9uVGFyZ2V0EkcKEW1vZGVsX2RlcGxveW1lbnRzGAMgAygLMiwuZG90Y29yZS5tb2RlbC52MS5Nb2RlbERlcGxveW1lbnREZWNsYXJhdGlvbhIoCgVub2RlcxgEIAMoCzIZLmRvdGNvcmUuc2l0ZS52MS5TaXRlTm9kZRJZChdhcHBsaWNhdGlvbl9kZXBsb3ltZW50cxgFIAMoCzI4LmRvdGNvcmUuYXBwbGljYXRpb24udjEuQXBwbGljYXRpb25EZXBsb3ltZW50RGVjbGFyYXRpb24SPgoQaW5mZXJlbmNlX3JvdXRlcxgGIAMoCzIkLmRvdGNvcmUuaW5mZXJlbmNlLnYxLkluZmVyZW5jZVJvdXRlEk8KFGhhcmR3YXJlX29ic2VydmF0aW9uGAcgASgLMjEuZG90Y29yZS5zaXRlLnYxLkhhcmR3YXJlT2JzZXJ2YXRpb25Db25maWd1cmF0aW9uEl4KI21vZGVsX2RlcGxveW1lbnRfaWRlbnRpdHlfYWxsb2NhdG9yGAggASgLMjEuZG90Y29yZS5zaXRlLnYxLk1vZGVsRGVwbG95bWVudElkZW50aXR5QWxsb2NhdG9yEjoKEGNvbnNvbGVfc2V0dGluZ3MYCSABKAsyIC5kb3Rjb3JlLnNpdGUudjEuQ29uc29sZVNldHRpbmdzIi0KD0NvbnNvbGVTZXR0aW5ncxIaChJnZXRfc3RhcnRlZF9oaWRkZW4YASABKAgiTAogTW9kZWxEZXBsb3ltZW50SWRlbnRpdHlBbGxvY2F0b3ISEQoJbmFtZXNwYWNlGAEgASgJEhUKDW5leHRfc2VxdWVuY2UYAiABKAQiZgogSGFyZHdhcmVPYnNlcnZhdGlvbkNvbmZpZ3VyYXRpb24SJQoYcmVmcmVzaF9pbnRlcnZhbF9zZWNvbmRzGAEgASgNSACIAQFCGwoZX3JlZnJlc2hfaW50ZXJ2YWxfc2Vjb25kcyKNAQoIU2l0ZU5vZGUSDwoHbm9kZV9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSNgoMc2l0ZV9tYW5hZ2VyGAMgASgLMiAuZG90Y29yZS5zaXRlLnYxLlNpdGVNYW5hZ2VyUm9sZRIMCgRob3N0GAUgASgJEhQKDG1hbmFnZXJfaG9zdBgGIAEoCSLKAgoPRXhlY3V0aW9uVGFyZ2V0EhsKE2V4ZWN1dGlvbl90YXJnZXRfaWQYASABKAkSFAoMc2l0ZV9ub2RlX2lkGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgHIAEoCRIxCghwbGF0Zm9ybRgDIAEoCzIfLmRvdGNvcmUuY2F0YWxvZy52MS5PY2lQbGF0Zm9ybRIeChZhY2NlbGVyYXRvcl9kZXZpY2VfaWRzGAQgAygJEj0KDW1vZGVsX3J1bnRpbWUYBSABKAsyJC5kb3Rjb3JlLnNpdGUudjEuTW9kZWxSdW50aW1lQmluZGluZ0gAEkkKE2FwcGxpY2F0aW9uX3J1bnRpbWUYBiABKAsyKi5kb3Rjb3JlLnNpdGUudjEuQXBwbGljYXRpb25SdW50aW1lQmluZGluZ0gAQhEKD3J1bnRpbWVfYmluZGluZyLpAQoTTW9kZWxSdW50aW1lQmluZGluZxJFChFzaW11bGF0ZWRfcnVudGltZRgBIAEoCzIoLmRvdGNvcmUuc2l0ZS52MS5TaW11bGF0ZWRSdW50aW1lQWRhcHRlckgAEj8KDmRvY2tlcl9ydW50aW1lGAIgASgLMiUuZG90Y29yZS5zaXRlLnYxLkRvY2tlclJ1bnRpbWVBZGFwdGVySAASPwoObmF0aXZlX3J1bnRpbWUYAyABKAsyJS5kb3Rjb3JlLnNpdGUudjEuTmF0aXZlUnVudGltZUFkYXB0ZXJIAEIJCgdhZGFwdGVyIsQBChlBcHBsaWNhdGlvblJ1bnRpbWVCaW5kaW5nEkoKDmRvY2tlcl9ydW50aW1lGAEgASgLMjAuZG90Y29yZS5zaXRlLnYxLkRvY2tlckFwcGxpY2F0aW9uUnVudGltZUFkYXB0ZXJIABJQChFzaW11bGF0ZWRfcnVudGltZRgCIAEoCzIzLmRvdGNvcmUuc2l0ZS52MS5TaW11bGF0ZWRBcHBsaWNhdGlvblJ1bnRpbWVBZGFwdGVySABCCQoHYWRhcHRlciIRCg9TaXRlTWFuYWdlclJvbGUiIQofRG9ja2VyQXBwbGljYXRpb25SdW50aW1lQWRhcHRlciIkCiJTaW11bGF0ZWRBcHBsaWNhdGlvblJ1bnRpbWVBZGFwdGVyIrEBChdTaW11bGF0ZWRSdW50aW1lQWRhcHRlchJDChBkZWZhdWx0X3NjZW5hcmlvGAEgASgLMikuZG90Y29yZS5zaXRlLnYxLlNpbXVsYXRlZFJ1bnRpbWVTY2VuYXJpbxJRChRkZXBsb3ltZW50X3NjZW5hcmlvcxgCIAMoCzIzLmRvdGNvcmUuc2l0ZS52MS5TaW11bGF0ZWRSdW50aW1lRGVwbG95bWVudFNjZW5hcmlvIn4KIlNpbXVsYXRlZFJ1bnRpbWVEZXBsb3ltZW50U2NlbmFyaW8SGwoTbW9kZWxfZGVwbG95bWVudF9pZBgBIAEoCRI7CghzY2VuYXJpbxgCIAEoCzIpLmRvdGNvcmUuc2l0ZS52MS5TaW11bGF0ZWRSdW50aW1lU2NlbmFyaW8iUQoYU2ltdWxhdGVkUnVudGltZVNjZW5hcmlvEhoKEnJlYWR5X2RlbGF5X21pbGxpcxgBIAEoBBIZChFzdG9wX2RlbGF5X21pbGxpcxgCIAEoBCJaChROYXRpdmVSdW50aW1lQWRhcHRlchJCChF3b3JrbG9hZF9saWZldGltZRgBIAEoDjInLmRvdGNvcmUuc2l0ZS52MS5OYXRpdmVXb3JrbG9hZExpZmV0aW1lImIKFERvY2tlclJ1bnRpbWVBZGFwdGVyEkoKFWFjY2VsZXJhdG9yX3RyYW5zcG9ydBgBIAEoDjIrLmRvdGNvcmUuc2l0ZS52MS5Eb2NrZXJBY2NlbGVyYXRvclRyYW5zcG9ydCqgAQoaRG9ja2VyQWNjZWxlcmF0b3JUcmFuc3BvcnQSLAooRE9DS0VSX0FDQ0VMRVJBVE9SX1RSQU5TUE9SVF9VTlNQRUNJRklFRBAAEiQKIERPQ0tFUl9BQ0NFTEVSQVRPUl9UUkFOU1BPUlRfQ0RJEAESLgoqRE9DS0VSX0FDQ0VMRVJBVE9SX1RSQU5TUE9SVF9MRUdBQ1lfTlZJRElBEAIqkwEKFk5hdGl2ZVdvcmtsb2FkTGlmZXRpbWUSKAokTkFUSVZFX1dPUktMT0FEX0xJRkVUSU1FX1VOU1BFQ0lGSUVEEAASJwojTkFUSVZFX1dPUktMT0FEX0xJRkVUSU1FX1BFUlNJU1RFTlQQARImCiJOQVRJVkVfV09SS0xPQURfTElGRVRJTUVfRVBIRU1FUkFMEAJiBnByb3RvMw", [file_dotcore_application_v1_deployment, file_dotcore_catalog_v1_oci, file_dotcore_inference_v1_routes, file_dotcore_model_v1_deployment]);
 
 /**
  * Complete desired site configuration stored in site.yaml. Catalog records,
@@ -82,6 +82,13 @@ export type Site = Message<"dotcore.site.v1.Site"> & {
    * @generated from field: dotcore.site.v1.ModelDeploymentIdentityAllocator model_deployment_identity_allocator = 8;
    */
   modelDeploymentIdentityAllocator?: ModelDeploymentIdentityAllocator;
+
+  /**
+   * Site-wide console settings shared by every browser; never part of node desired views.
+   *
+   * @generated from field: dotcore.site.v1.ConsoleSettings console_settings = 9;
+   */
+  consoleSettings?: ConsoleSettings;
 };
 
 /**
@@ -90,6 +97,27 @@ export type Site = Message<"dotcore.site.v1.Site"> & {
  */
 export const SiteSchema: GenMessage<Site> = /*@__PURE__*/
   messageDesc(file_dotcore_site_v1_site, 0);
+
+/**
+ * Operator choices about the console that apply to the whole site, not to one browser or user.
+ *
+ * @generated from message dotcore.site.v1.ConsoleSettings
+ */
+export type ConsoleSettings = Message<"dotcore.site.v1.ConsoleSettings"> & {
+  /**
+   * Whether the Get started page is hidden from the console's navigation.
+   *
+   * @generated from field: bool get_started_hidden = 1;
+   */
+  getStartedHidden: boolean;
+};
+
+/**
+ * Describes the message dotcore.site.v1.ConsoleSettings.
+ * Use `create(ConsoleSettingsSchema)` to create a new message.
+ */
+export const ConsoleSettingsSchema: GenMessage<ConsoleSettings> = /*@__PURE__*/
+  messageDesc(file_dotcore_site_v1_site, 1);
 
 /**
  * Durable allocator for model deployment identities within this site.
@@ -117,7 +145,7 @@ export type ModelDeploymentIdentityAllocator = Message<"dotcore.site.v1.ModelDep
  * Use `create(ModelDeploymentIdentityAllocatorSchema)` to create a new message.
  */
 export const ModelDeploymentIdentityAllocatorSchema: GenMessage<ModelDeploymentIdentityAllocator> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 1);
+  messageDesc(file_dotcore_site_v1_site, 2);
 
 /**
  * Site-wide policy for current hardware observations.
@@ -138,7 +166,7 @@ export type HardwareObservationConfiguration = Message<"dotcore.site.v1.Hardware
  * Use `create(HardwareObservationConfigurationSchema)` to create a new message.
  */
 export const HardwareObservationConfigurationSchema: GenMessage<HardwareObservationConfiguration> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 2);
+  messageDesc(file_dotcore_site_v1_site, 3);
 
 /**
  * Declarative identity and roles for one node that belongs to a site.
@@ -188,7 +216,7 @@ export type SiteNode = Message<"dotcore.site.v1.SiteNode"> & {
  * Use `create(SiteNodeSchema)` to create a new message.
  */
 export const SiteNodeSchema: GenMessage<SiteNode> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 3);
+  messageDesc(file_dotcore_site_v1_site, 4);
 
 /**
  * Site-owned unified execution target with typed runtime binding.
@@ -261,7 +289,7 @@ export type ExecutionTarget = Message<"dotcore.site.v1.ExecutionTarget"> & {
  * Use `create(ExecutionTargetSchema)` to create a new message.
  */
 export const ExecutionTargetSchema: GenMessage<ExecutionTarget> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 4);
+  messageDesc(file_dotcore_site_v1_site, 5);
 
 /**
  * Runtime binding for model deployments on this execution target.
@@ -304,7 +332,7 @@ export type ModelRuntimeBinding = Message<"dotcore.site.v1.ModelRuntimeBinding">
  * Use `create(ModelRuntimeBindingSchema)` to create a new message.
  */
 export const ModelRuntimeBindingSchema: GenMessage<ModelRuntimeBinding> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 5);
+  messageDesc(file_dotcore_site_v1_site, 6);
 
 /**
  * Runtime binding for application deployments on this execution target.
@@ -339,7 +367,7 @@ export type ApplicationRuntimeBinding = Message<"dotcore.site.v1.ApplicationRunt
  * Use `create(ApplicationRuntimeBindingSchema)` to create a new message.
  */
 export const ApplicationRuntimeBindingSchema: GenMessage<ApplicationRuntimeBinding> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 6);
+  messageDesc(file_dotcore_site_v1_site, 7);
 
 /**
  * Empty typed role settings for the site manager.
@@ -354,7 +382,7 @@ export type SiteManagerRole = Message<"dotcore.site.v1.SiteManagerRole"> & {
  * Use `create(SiteManagerRoleSchema)` to create a new message.
  */
 export const SiteManagerRoleSchema: GenMessage<SiteManagerRole> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 7);
+  messageDesc(file_dotcore_site_v1_site, 8);
 
 /**
  * Empty typed configuration for a direct-Linux Docker application runtime.
@@ -369,7 +397,7 @@ export type DockerApplicationRuntimeAdapter = Message<"dotcore.site.v1.DockerApp
  * Use `create(DockerApplicationRuntimeAdapterSchema)` to create a new message.
  */
 export const DockerApplicationRuntimeAdapterSchema: GenMessage<DockerApplicationRuntimeAdapter> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 8);
+  messageDesc(file_dotcore_site_v1_site, 9);
 
 /**
  * Empty typed configuration for a simulated application runtime.
@@ -384,7 +412,7 @@ export type SimulatedApplicationRuntimeAdapter = Message<"dotcore.site.v1.Simula
  * Use `create(SimulatedApplicationRuntimeAdapterSchema)` to create a new message.
  */
 export const SimulatedApplicationRuntimeAdapterSchema: GenMessage<SimulatedApplicationRuntimeAdapter> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 9);
+  messageDesc(file_dotcore_site_v1_site, 10);
 
 /**
  * Typed settings for the simulated runtime adapter.
@@ -412,7 +440,7 @@ export type SimulatedRuntimeAdapter = Message<"dotcore.site.v1.SimulatedRuntimeA
  * Use `create(SimulatedRuntimeAdapterSchema)` to create a new message.
  */
 export const SimulatedRuntimeAdapterSchema: GenMessage<SimulatedRuntimeAdapter> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 10);
+  messageDesc(file_dotcore_site_v1_site, 11);
 
 /**
  * Deployment-specific simulated runtime behavior.
@@ -440,7 +468,7 @@ export type SimulatedRuntimeDeploymentScenario = Message<"dotcore.site.v1.Simula
  * Use `create(SimulatedRuntimeDeploymentScenarioSchema)` to create a new message.
  */
 export const SimulatedRuntimeDeploymentScenarioSchema: GenMessage<SimulatedRuntimeDeploymentScenario> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 11);
+  messageDesc(file_dotcore_site_v1_site, 12);
 
 /**
  * Typed lifecycle behavior for one simulated runtime workload.
@@ -468,7 +496,7 @@ export type SimulatedRuntimeScenario = Message<"dotcore.site.v1.SimulatedRuntime
  * Use `create(SimulatedRuntimeScenarioSchema)` to create a new message.
  */
 export const SimulatedRuntimeScenarioSchema: GenMessage<SimulatedRuntimeScenario> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 12);
+  messageDesc(file_dotcore_site_v1_site, 13);
 
 /**
  * Typed settings for the native runtime adapter.
@@ -489,7 +517,7 @@ export type NativeRuntimeAdapter = Message<"dotcore.site.v1.NativeRuntimeAdapter
  * Use `create(NativeRuntimeAdapterSchema)` to create a new message.
  */
 export const NativeRuntimeAdapterSchema: GenMessage<NativeRuntimeAdapter> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 13);
+  messageDesc(file_dotcore_site_v1_site, 14);
 
 /**
  * Typed settings for a local Docker runtime adapter.
@@ -510,7 +538,7 @@ export type DockerRuntimeAdapter = Message<"dotcore.site.v1.DockerRuntimeAdapter
  * Use `create(DockerRuntimeAdapterSchema)` to create a new message.
  */
 export const DockerRuntimeAdapterSchema: GenMessage<DockerRuntimeAdapter> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_site, 14);
+  messageDesc(file_dotcore_site_v1_site, 15);
 
 /**
  * Selects the Docker accelerator request transport.

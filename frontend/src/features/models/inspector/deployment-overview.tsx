@@ -26,10 +26,10 @@ import {
 import { deploymentSpeculativeLabel } from "@/features/models/runtime/deployment-speculative";
 import {
   CONTEXT_PER_REQUEST_PARAMETER_ID,
+  resolvedEngineParameterValue,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import { deploymentKvCachePrecisionLabel } from "@/features/models/runtime/kv-cache-precision";
-import { type EngineParameterValues } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import { type Model } from "@/gen/dotcore/catalog/v1/model_pb";
 import {
   type ModelDeployment,
@@ -239,10 +239,12 @@ export function DeploymentOverview({
  * The step bar of a starting deployment. The download step also shows the artifacts' byte progress,
  * with a percentage once the total size is known.
  */
-function DeploymentSteps({
+export function DeploymentSteps({
+  className = "mt-3",
   progress,
   steps,
 }: {
+  className?: string;
   progress: ModelDeploymentProgress | undefined;
   steps: ModelDeploymentSteps;
 }) {
@@ -250,7 +252,7 @@ function DeploymentSteps({
 
   return (
     <StepProgress
-      className="mt-3"
+      className={className}
       current={steps.current}
       currentProgress={downloading && progress ? downloadProgress(progress) : undefined}
       steps={steps.steps.map(modelStepLabel)}
@@ -329,15 +331,4 @@ function ContextDetail({
       }
     />
   );
-}
-
-function resolvedEngineParameterValue(
-  values: EngineParameterValues | undefined,
-  parameterId: string,
-): bigint | undefined {
-  const parameter = values?.values.find(
-    (candidate) =>
-      candidate.parameterId === parameterId && candidate.value.case === "unsignedInteger",
-  );
-  return parameter?.value.case === "unsignedInteger" ? parameter.value.value : undefined;
 }

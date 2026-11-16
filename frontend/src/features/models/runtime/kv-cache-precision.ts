@@ -77,6 +77,15 @@ export function currentKvCachePrecision(
   return option.choices.includes(picked) ? picked : option.defaultPrecision;
 }
 
+/** The precision a launch's option overrides pick for the option; empty for the default. */
+export function overriddenKvCachePrecision(
+  option: KvCachePrecisionOption | undefined,
+  overrides: readonly ModelOptionValues[],
+): string {
+  if (!option) return "";
+  return precisionValue(overrides.find((override) => override.optionId === option.optionId)) ?? "";
+}
+
 /**
  * The option overrides a precision sends: none while it matches the default, otherwise the
  * precision for the option.

@@ -23,18 +23,21 @@ use dotcore_proto::dotcore::{
         model_deployment_snapshot,
     },
     site::v1::{
-        ApplicationRuntimeBinding, ExecutionTarget, ModelRuntimeBinding,
+        ApplicationRuntimeBinding, ConsoleSettings, ExecutionTarget, ModelRuntimeBinding,
         SimulatedApplicationRuntimeAdapter, SimulatedRuntimeAdapter, SimulatedRuntimeScenario,
         Site, SiteManagerRole, SiteNode, application_runtime_binding, execution_target,
         model_runtime_binding,
     },
 };
 use dotcore_proto::yaml;
+use futures_util::FutureExt;
 
 use super::{SiteFileWriter, SiteRepository, SiteRepositoryError, SiteWriteFault};
 use crate::{
+    console_settings::ConsoleSettingsStore,
     persistence::SiteStorageError,
     view::contract::{MAX_APPLICATION_ASSIGNMENTS, MAX_MODEL_ASSIGNMENTS, MAX_NODE_VIEW_BYTES},
+    view::fencing::NodeViewProjection,
 };
 
 #[tokio::test]
@@ -776,6 +779,64 @@ async fn metadata_mutations_are_owner_scoped_and_do_not_notify_reconciliation() 
 }
 
 #[test]
+fn console_settings_persist_alone_without_waking_controllers_or_node_views() {
+    let directory = test_directory();
+    let path = directory.join("site.yaml");
+    let mut original = node_site();
+    original.model_deployments = vec![
+        model_deployment("deployment-one", "model-one"),
+        node_deployment("deployment-two", 0),
+    ];
+    fs::write(
+        &path,
+        yaml::to_string(&original).expect("desired site YAML"),
+    )
+    .expect("desired site fixture");
+    let site = SiteRepository::load(&path, crate::test_support::site_declaration_rules())
+        .expect("desired site");
+    let listener = site.register_change_listener();
+    let observed = counted_notifications(&site);
+    let views_before = node_views(&original);
+    assert_eq!(
+        ConsoleSettingsStore::console_settings(&site).expect("default console settings"),
+        ConsoleSettings::default()
+    );
+
+    let accepted = site
+        .mutate_console_settings(|settings| {
+            settings.get_started_hidden = true;
+            Ok::<_, std::convert::Infallible>(*settings)
+        })
+        .expect("console settings mutation");
+
+    assert_eq!(
+        accepted,
+        ConsoleSettings {
+            get_started_hidden: true,
+        }
+    );
+    let mut expected = original.clone();
+    expected.console_settings = Some(ConsoleSettings {
+        get_started_hidden: true,
+    });
+    assert_eq!(site.snapshot().expect("site after mutation"), expected);
+    let reloaded = SiteRepository::load(&path, crate::test_support::site_declaration_rules())
+        .expect("reloaded desired site");
+    assert_eq!(reloaded.snapshot().expect("reloaded site"), expected);
+    assert_eq!(node_views(&expected), views_before);
+    assert_eq!(
+        observed.load(Ordering::SeqCst),
+        0,
+        "no change observer runs"
+    );
+    assert!(
+        listener.notified().now_or_never().is_none(),
+        "console settings must not wake a controller"
+    );
+    fs::remove_dir_all(directory).expect("fixture cleanup");
+}
+
+#[test]
 fn failed_and_uncertain_writes_including_metadata_leave_the_site_dirty() {
     let directory = test_directory();
     let path = directory.join("site.yaml");
@@ -1432,6 +1493,14 @@ fn counted_notifications(site: &SiteRepository) -> Arc<AtomicUsize> {
         counter.fetch_add(1, Ordering::SeqCst);
     }));
     notifications
+}
+
+/// Every node's projected desired view of `site`, in node order.
+fn node_views(site: &Site) -> Vec<NodeViewProjection> {
+    site.nodes
+        .iter()
+        .map(|node| NodeViewProjection::for_site_node(site, &node.node_id).expect("node view"))
+        .collect()
 }
 
 fn simulated_runtime() -> SimulatedRuntimeAdapter {

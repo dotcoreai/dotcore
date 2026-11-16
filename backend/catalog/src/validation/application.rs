@@ -1,10 +1,16 @@
 //! Application declaration graph, service, and binding validation.
+//!
+//! Besides its graph, an application may name the use cases it serves and the accelerator vendors
+//! it prefers. Both are recommendation and display metadata: each use case is served by at most
+//! one master-catalog application, and they never decide admission or placement.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::anyhow;
-use dotcore_domain::valid_id;
-use dotcore_proto::dotcore::catalog::v1::Application;
+use dotcore_domain::{Accelerator, valid_id};
+use dotcore_proto::dotcore::catalog::v1::{Application, UseCase};
 
-use super::graph::validate_application_graph;
+use super::{CatalogDiagnostic, graph::validate_application_graph};
 use crate::OciArtifactPolicy;
 
 pub fn validate_application_with_policy(
@@ -28,11 +34,71 @@ pub fn validate_application_with_policy(
             "application notes must be at most {MAX_NOTES_BYTES} bytes and contain no control characters other than line breaks"
         ));
     }
+    validate_use_cases(application, &mut errors);
+    validate_preferred_accelerators(application, &mut errors);
     match application.graph.as_ref() {
         Some(graph) => errors.extend(validate_application_graph(graph, oci_artifact_policy)),
         None => errors.push(anyhow!("application requires a service graph")),
     }
     errors
+}
+
+/// Reports every application that serves a use case an earlier application already serves, so
+/// each use case leads to at most one application.
+pub(super) fn report_shared_use_cases(
+    applications: &[(String, Application)],
+    diagnostics: &mut Vec<CatalogDiagnostic>,
+) {
+    let mut served = BTreeMap::new();
+    for (location, application) in applications {
+        for use_case in application.use_cases().collect::<BTreeSet<_>>() {
+            if use_case == UseCase::Unspecified {
+                continue;
+            }
+            match served.get(&use_case) {
+                Some((first_id, first_location)) => diagnostics.push(CatalogDiagnostic::new(
+                    location,
+                    anyhow!(
+                        "application {:?} serves use case {}, already served by application {first_id:?} in {first_location}",
+                        application.application_id,
+                        use_case.as_str_name()
+                    ),
+                )),
+                None => {
+                    served.insert(use_case, (&application.application_id, location));
+                }
+            }
+        }
+    }
+}
+
+fn validate_use_cases(application: &Application, errors: &mut Vec<anyhow::Error>) {
+    let id = &application.application_id;
+    let mut use_cases = BTreeSet::new();
+    for use_case in &application.use_cases {
+        match UseCase::try_from(*use_case) {
+            Ok(UseCase::Unspecified) | Err(_) => {
+                errors.push(anyhow!("application {id:?} names an unspecified use case"))
+            }
+            Ok(use_case) if !use_cases.insert(use_case) => errors.push(anyhow!(
+                "application {id:?} serves use case {} more than once",
+                use_case.as_str_name()
+            )),
+            Ok(_) => {}
+        }
+    }
+}
+
+fn validate_preferred_accelerators(application: &Application, errors: &mut Vec<anyhow::Error>) {
+    let mut vendors = BTreeSet::new();
+    if application.preferred_accelerators.iter().any(|name| {
+        Accelerator::from_catalog_name(name).is_none() || !vendors.insert(name.as_str())
+    }) {
+        errors.push(anyhow!(
+            "application {:?} requires distinct preferred accelerators, each nvidia or apple",
+            application.application_id
+        ));
+    }
 }
 
 const MAX_NOTES_BYTES: usize = 1000;
@@ -64,7 +130,7 @@ mod tests {
         ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact,
         NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition, StorageBinding,
         StorageKind, StorageScope, StringEnumParameterSchema, UnsignedIntegerParameterSchema,
-        application_configuration_binding,
+        UseCase, application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
         parameter_definition::ParameterType,
     };
@@ -83,6 +149,8 @@ mod tests {
             description: String::new(),
             notes: String::new(),
             version: "0.10.1".to_owned(),
+            use_cases: Vec::new(),
+            preferred_accelerators: Vec::new(),
             graph: Some(ApplicationGraph {
                 services: vec![
                     ApplicationService {
@@ -215,6 +283,48 @@ mod tests {
         assert!(notes_error("carriage\rreturn"));
         // Bounded by bytes, not characters.
         assert!(notes_error(&"é".repeat(501)));
+    }
+
+    #[test]
+    fn application_use_cases_and_preferred_accelerators_are_validated() {
+        let errors = |use_cases: &[UseCase], accelerators: &[&str]| {
+            let mut application = application();
+            application.use_cases = use_cases.iter().map(|use_case| *use_case as i32).collect();
+            application.preferred_accelerators = accelerators
+                .iter()
+                .map(|accelerator| (*accelerator).to_owned())
+                .collect();
+            validate_application(&application)
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            errors(
+                &[UseCase::ChatAssistant, UseCase::Coding],
+                &["nvidia", "apple"]
+            ),
+            Vec::<String>::new()
+        );
+        assert_eq!(errors(&[], &[]), Vec::<String>::new());
+        assert_eq!(
+            errors(&[UseCase::Unspecified], &[]),
+            ["application \"open-webui\" names an unspecified use case"]
+        );
+        assert_eq!(
+            errors(&[UseCase::Coding, UseCase::Coding], &[]),
+            ["application \"open-webui\" serves use case USE_CASE_CODING more than once"]
+        );
+        for accelerators in [&["amd"][..], &["nvidia", "nvidia"], &[""]] {
+            assert_eq!(
+                errors(&[], accelerators),
+                [
+                    "application \"open-webui\" requires distinct preferred accelerators, each nvidia or apple"
+                ],
+                "{accelerators:?}"
+            );
+        }
     }
 
     #[test]

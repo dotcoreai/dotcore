@@ -49,6 +49,7 @@ import {
 } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   ApplicationDeploymentStep,
+  type ApplicationDeploymentSteps,
   ApplicationLifecycleState,
 } from "@/gen/dotcore/application/v1/state_pb";
 import {
@@ -248,13 +249,7 @@ export function DeploymentApplicationInspector({
                 ) : null}
                 {failure?.code ? <Detail label="Failure code" value={failure.code} /> : null}
               </DetailList>
-              {steps?.steps.length && !observationStale ? (
-                <StepProgress
-                  className="mt-3"
-                  current={steps.current}
-                  steps={steps.steps.map(applicationStepLabel)}
-                />
-              ) : null}
+              {steps?.steps.length && !observationStale ? <ApplicationSteps steps={steps} /> : null}
               {observationStale ? (
                 <Notice className="mt-3" role="status" tone="warning">
                   Machine stale. Showing the last state {remoteMachineName ?? "the machine"}{" "}
@@ -558,6 +553,23 @@ function placementNodeId(
       connectionState !== NodeObservationState.UNSPECIFIED &&
       !placementTarget?.siteManager);
   return remote ? deployment.placement?.siteNodeId : undefined;
+}
+
+/** The step bar of a starting application deployment. */
+export function ApplicationSteps({
+  className = "mt-3",
+  steps,
+}: {
+  className?: string;
+  steps: ApplicationDeploymentSteps;
+}) {
+  return (
+    <StepProgress
+      className={className}
+      current={steps.current}
+      steps={steps.steps.map(applicationStepLabel)}
+    />
+  );
 }
 
 function applicationStepLabel(step: ApplicationDeploymentStep): string {

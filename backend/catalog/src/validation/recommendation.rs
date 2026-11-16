@@ -2,7 +2,8 @@
 //! they name.
 //!
 //! Each hardware class's file lists, per use case, models and profiles that must be able to run
-//! on that class and accept the requests the use case sends. The classes that declare
+//! on that class and accept the requests the use case sends, each with an optional context per
+//! request within its configuration's context limits. The classes that declare
 //! recommendations must be disjoint or strictly nested, so the list a target uses is never
 //! ambiguous. Every problem is reported rather than only the first.
 
@@ -14,7 +15,10 @@ use dotcore_proto::dotcore::catalog::v1::{
 };
 
 use super::{CatalogDiagnostic, model::non_nested_classes};
-use crate::selector::{SelectorRelation, selector_relation};
+use crate::{
+    selector::{SelectorRelation, selector_relation},
+    shared_parameters::{MINIMUM_CONTEXT_TOKENS, maximum_context_tokens},
+};
 
 pub(super) fn validate_recommendations(
     recommendations: &HardwareClassRecommendations,
@@ -61,7 +65,6 @@ pub(super) fn validate_recommendations(
             }
             validate_entry(
                 entry,
-                use_case,
                 hardware_class,
                 models,
                 hardware_classes,
@@ -103,7 +106,6 @@ pub(super) fn report_overlapping_recommendation_classes(
 
 fn validate_entry(
     entry: &ModelRecommendation,
-    use_case: UseCase,
     hardware_class: &HardwareClass,
     models: &BTreeMap<String, Model>,
     hardware_classes: &BTreeMap<String, HardwareClass>,
@@ -136,19 +138,27 @@ fn validate_entry(
         ));
     }
 
-    let required_kind = if use_case == UseCase::DecisionMaking {
-        InferenceRequestKind::Decision
-    } else {
-        InferenceRequestKind::Chat
-    };
     if !configuration
         .request_kinds
-        .contains(&(required_kind as i32))
+        .contains(&(InferenceRequestKind::Chat as i32))
     {
         errors.push(anyhow::anyhow!(
             "{label} runs a configuration that doesn't accept {} requests",
-            required_kind.as_str_name()
+            InferenceRequestKind::Chat.as_str_name()
         ));
+    }
+
+    if let Some(context_tokens) = entry.context_tokens_per_request {
+        let maximum = maximum_context_tokens(model, configuration);
+        if context_tokens < MINIMUM_CONTEXT_TOKENS {
+            errors.push(anyhow::anyhow!(
+                "{label} sets context per request {context_tokens} tokens, below the minimum context of {MINIMUM_CONTEXT_TOKENS} tokens"
+            ));
+        } else if context_tokens > u64::from(maximum) {
+            errors.push(anyhow::anyhow!(
+                "{label} sets context per request {context_tokens} tokens, above its configuration's maximum context of {maximum} tokens"
+            ));
+        }
     }
 
     if let Some(requirements) = entry.hardware_requirements.as_ref()

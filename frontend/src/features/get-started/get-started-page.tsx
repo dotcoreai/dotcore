@@ -1,0 +1,250 @@
+import { X } from "lucide-react";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+import { useClients } from "@/api/clients";
+import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/ui/notice";
+import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
+import { GetStartedSectionIcon } from "@/components/ui/section-icons";
+import { modelDeploymentPresentationName } from "@/domain/model-projection";
+import { AddMachineDialog } from "@/features/machines/add-machine-dialog";
+import { useSiteMemory } from "@/features/memory/use-site-memory";
+import type { LocalDeploymentValues } from "@/features/models/deploy/model-deploy-launch";
+import { useSharedModelsPolling } from "@/features/models/polling/models-polling-context";
+import { UseCase } from "@/gen/dotcore/catalog/v1/recommendation_pb";
+import { useDelayedLoading } from "@/hooks/use-delayed-loading";
+import { useWatchedModelDeployments } from "@/resource-watch/resource-watch";
+
+import { CustomizeModelDialog } from "./customize-model-dialog";
+import type { FollowedDeployments } from "./deploying-step";
+import { FollowedStep } from "./followed-step";
+import { launchedProposal, proposalLaunch } from "./get-started-launch";
+import { type ModelProposal, modelProposalKey } from "./get-started-proposals";
+import { MachinesCard } from "./machines-card";
+import { ProposalCard } from "./proposal-card";
+import { UseCaseCards } from "./use-case-cards";
+import { useGetStartedData } from "./use-get-started-data";
+import { useGetStartedDeploy } from "./use-get-started-deploy";
+import { useGetStartedHidden } from "./use-get-started-hidden";
+import { useProposalMemory } from "./use-proposal-memory";
+
+/**
+ * The Get started page: a guided path from the site's machines to a running model and app. The
+ * operator picks a use case, reviews its proposal and deploys it. Dismissing the page, or showing
+ * a ready step, hides its sidebar item for the site until the profile menu reopens it.
+ */
+export function GetStartedPage() {
+  const navigate = useNavigate();
+  const { error: hiddenError, hideOnce, setHidden } = useGetStartedHidden();
+  const { applicationClient, modelClient, siteClient } = useClients();
+  const data = useGetStartedData({ applicationClient, modelClient });
+  const deployer = useGetStartedDeploy({ applicationClient, modelClient });
+  const { snapshot } = useSharedModelsPolling();
+  const watchedDeployments = useWatchedModelDeployments();
+  const siteMemory = useSiteMemory(
+    watchedDeployments?.value?.deployments,
+    watchedDeployments?.failed ?? false,
+  );
+  const [useCase, setUseCase] = useState(UseCase.CHAT_ASSISTANT);
+  const [pickedKeys, setPickedKeys] = useState<ReadonlyMap<UseCase, string>>(new Map());
+  const [customizations, setCustomizations] = useState<ReadonlyMap<UseCase, Customization>>(
+    new Map(),
+  );
+  const [following, setFollowing] = useState<ReadonlyMap<UseCase, FollowedDeployments>>(new Map());
+  const [customizing, setCustomizing] = useState(false);
+  const [addingMachine, setAddingMachine] = useState(false);
+
+  const listed = data.useCases.find((candidate) => candidate.useCase === useCase);
+  // A model deployment this page created for the use case stays its model, so a retry deploys
+  // only what is missing; going back from its progress releases it.
+  const created = deployer.createdModels.get(useCase);
+  const createdModel = created && {
+    ...created,
+    deployment: watchedDeployments?.value?.deployments.find(
+      (deployment) => deployment.modelDeploymentId === created.deploymentId,
+    ),
+  };
+  const proposal =
+    listed && createdModel ? { ...listed, model: createdModel, otherChoices: [] } : listed;
+  const choices = proposal?.model ? [proposal.model, ...proposal.otherChoices] : [];
+  // The pick holds while its row stays proposed; otherwise the best row is the proposal.
+  const choice =
+    choices.find((candidate) => modelProposalKey(candidate) === pickedKeys.get(useCase)) ??
+    choices[0];
+  const catalogModel = snapshot?.availableModels.find((model) => model.modelId === choice?.modelId);
+  // A customization holds while its choice stays picked; a running model has nothing to launch.
+  const customization = customizations.get(useCase);
+  const customLaunch =
+    choice && !choice.deploymentId && customization?.choiceKey === modelProposalKey(choice)
+      ? customization.launch
+      : undefined;
+  const launch =
+    choice && !choice.deploymentId
+      ? (customLaunch ?? proposalLaunch(choice, catalogModel?.displayName || choice.modelId))
+      : undefined;
+  const picked = choice && customLaunch ? launchedProposal(choice, customLaunch) : choice;
+  const memory = useProposalMemory(
+    modelClient,
+    customLaunch && picked ? [...choices, picked] : choices,
+  );
+  const failure = deployer.failures.get(useCase);
+  const followed = following.get(useCase);
+  const loadingVisible = useDelayedLoading(data.loading);
+
+  const pick = (model: ModelProposal) =>
+    setPickedKeys((current) => new Map(current).set(useCase, modelProposalKey(model)));
+  const apply = (applied: LocalDeploymentValues) => {
+    if (choice) {
+      const key = modelProposalKey(choice);
+      setCustomizations((current) =>
+        new Map(current).set(useCase, { choiceKey: key, launch: applied }),
+      );
+    }
+    setCustomizing(false);
+  };
+  const follow = (deployments: FollowedDeployments | undefined) =>
+    setFollowing((current) => {
+      const next = new Map(current);
+      if (deployments) next.set(useCase, deployments);
+      else next.delete(useCase);
+      return next;
+    });
+  // What the use case runs with `model`, named as the card shows it, with the ids of what
+  // already runs.
+  const planned = (model = choice): FollowedDeployments => {
+    const app = proposal?.app;
+    return {
+      application: app?.target?.target && {
+        id: app.target.applicationDeploymentId,
+        name: app.application.displayName || app.application.applicationId,
+      },
+      model: model && {
+        id: model.deploymentId,
+        name:
+          (model === choice ? launch?.name : undefined) ??
+          (model.deployment
+            ? modelDeploymentPresentationName(model.deployment)
+            : catalogModel?.displayName || model.modelId),
+      },
+    };
+  };
+  // A use case the site already serves opens on its ready step, which then follows what serves it
+  // like a deploy from this page.
+  if (!followed && proposal?.ready && deployer.pending === undefined) {
+    setFollowing((current) => new Map(current).set(useCase, planned(proposal.model)));
+  }
+  // Leaves a failed or removed deployment's progress for the proposal, which can deploy afresh.
+  const back = () => {
+    follow(undefined);
+    deployer.forget(useCase);
+  };
+  // The progress shows at once, its deployments queued until their creates answer; a failed
+  // create returns to the proposal, which shows why.
+  const deploy = async () => {
+    if (!proposal || deployer.pending !== undefined) return;
+    const { application, model } = planned();
+    follow({ application, model });
+    const started = await deployer.deploy({
+      app: proposal.app,
+      model: picked && launch ? { launch, proposal: picked } : undefined,
+      runningModelDeploymentId: choice?.deploymentId,
+      useCase,
+    });
+    follow(
+      started && {
+        application: application && { ...application, id: started.applicationDeploymentId },
+        model: model && { ...model, id: started.modelDeploymentId },
+      },
+    );
+  };
+  // Continue has nothing to deploy: what the use case needs already runs.
+  const proceed = () => follow(planned());
+
+  return (
+    <div className="flex w-full flex-col gap-6">
+      <PageHeader>
+        <PageHeaderHeading icon={GetStartedSectionIcon}>Get started</PageHeaderHeading>
+        <PageActions>
+          <Button
+            onClick={() => {
+              void setHidden(true).then((saved) => {
+                if (saved) void navigate("/overview");
+              });
+            }}
+            size="console"
+            type="button"
+            variant="outline"
+          >
+            <X aria-hidden="true" data-icon="inline-start" />
+            Dismiss
+          </Button>
+        </PageActions>
+      </PageHeader>
+      {hiddenError ? <Notice tone="destructive">{hiddenError}</Notice> : null}
+      {data.error ? <Notice tone="destructive">{data.error}</Notice> : null}
+      {data.loading && loadingVisible && !data.error ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          Loading recommendations…
+        </p>
+      ) : null}
+      <UseCaseCards onSelect={setUseCase} proposals={data.useCases} selected={useCase} />
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(260px,1fr)]">
+        {followed ? (
+          <FollowedStep
+            applicationClient={applicationClient}
+            deployments={followed}
+            machines={data.machines}
+            modelClient={modelClient}
+            onBack={back}
+            onReady={hideOnce}
+            useCase={useCase}
+          />
+        ) : proposal ? (
+          <ProposalCard
+            choiceKey={choice && modelProposalKey(choice)}
+            error={failure?.message}
+            machines={data.machines}
+            memory={memory}
+            modelDeployments={watchedDeployments?.value?.deployments ?? []}
+            models={snapshot?.availableModels ?? []}
+            onAddMachine={() => setAddingMachine(true)}
+            onContinue={proceed}
+            onCustomize={catalogModel ? () => setCustomizing(true) : undefined}
+            onDeploy={() => void deploy()}
+            onPick={pick}
+            pending={deployer.pending !== undefined}
+            picked={picked}
+            proposal={proposal}
+          />
+        ) : (
+          <div />
+        )}
+        <MachinesCard
+          machines={data.machines}
+          memory={siteMemory.kind === "loading" ? undefined : siteMemory.memory}
+          onAddMachine={() => setAddingMachine(true)}
+        />
+      </div>
+      {customizing && launch && catalogModel ? (
+        <CustomizeModelDialog
+          deployments={watchedDeployments?.value?.deployments ?? []}
+          launch={launch}
+          model={catalogModel}
+          modelClient={modelClient}
+          onApply={apply}
+          onClose={() => setCustomizing(false)}
+          routeConflict={failure?.routeConflict}
+          siteClient={siteClient}
+        />
+      ) : null}
+      <AddMachineDialog onOpenChange={setAddingMachine} open={addingMachine} />
+    </div>
+  );
+}
+
+/** The operator's launch for one use case, kept while the choice it was made from stays picked. */
+interface Customization {
+  choiceKey: string;
+  launch: LocalDeploymentValues;
+}

@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { PreferencesSectionIcon } from "@/components/ui/section-icons";
+import { GetStartedSectionIcon, PreferencesSectionIcon } from "@/components/ui/section-icons";
 import { DiagnosticLogViewer } from "@/features/diagnostic-logs/diagnostic-log-viewer";
 import { ColorScheme } from "@/gen/dotcore/console/v1/preferences_pb";
 import { useTheme } from "@/theme/theme-context";
@@ -63,6 +63,10 @@ export function ProfileMenu() {
           className="w-[min(12rem,calc(100vw-16px))] border border-border"
           sideOffset={8}
         >
+          <DropdownMenuItem onClick={() => void navigate("/get-started")}>
+            <GetStartedSectionIcon aria-hidden="true" />
+            Get started
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => void navigate("/preferences")}>
             <PreferencesSectionIcon aria-hidden="true" />
             Preferences

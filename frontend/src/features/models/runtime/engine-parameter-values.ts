@@ -222,6 +222,18 @@ export function engineParameterHelp(parameter: EngineParameterDefinition): strin
 /** Common context sizes, in tokens, offered as presets wherever a context size is entered. */
 export const contextSizePresets: readonly number[] = [8192, 32768, 65536, 131072, 262144, 1048576];
 
+/** The unsigned integer value a deployment resolved for an engine parameter, if it holds one. */
+export function resolvedEngineParameterValue(
+  values: EngineParameterValues | undefined,
+  parameterId: string,
+): bigint | undefined {
+  const parameter = values?.values.find(
+    (candidate) =>
+      candidate.parameterId === parameterId && candidate.value.case === "unsignedInteger",
+  );
+  return parameter?.value.case === "unsignedInteger" ? parameter.value.value : undefined;
+}
+
 const sharedParameterHelp: ReadonlyMap<string, string> = new Map([
   [TOTAL_CONTEXT_PARAMETER_ID, "Memory the model holds for all requests at once."],
   [PARALLEL_REQUESTS_PARAMETER_ID, "Requests generated at once; more wait in a queue."],

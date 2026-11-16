@@ -156,20 +156,15 @@ A preset of defaults for one engine configuration.
 
 ### Model recommendation
 
-Per hardware class and use case, a priority-ordered list of model profiles, each with optional memory
-minimums.
-
-- Only the master catalog declares recommendations. Site and development catalogs can't add or
-  replace them.
-- Validation keeps each entry runnable on its class and serving its use case's request kind, and
-  keeps the classes that declare lists disjoint or nested.
-- A site turns them into advisory recommendations per use case
-  ([models](models.md#advisory-reads)).
+Per hardware class and use case, a priority-ordered list of model profiles. Its rules and validation
+are on the [recommendations](recommendations.md) page.
 
 ### App graph
 
 - Carries the app's portable artifact, configuration, storage, secret, dependency, readiness and
   endpoint requirements, and its typed deployment parameters, shown as basic or advanced.
+- May name the use cases it serves and the accelerator vendors it prefers
+  ([recommendations](recommendations.md#app-use-case)).
 - Engine releases and apps declare the storage they need. Deployments keep that declaration
   ([runtime](runtime.md)).
 
@@ -193,7 +188,8 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 
 - Catalog declarations are immutable. Deployments keep what they resolved
   ([models](models.md#deployment-snapshot)).
-- Scores, licences and recommendations never affect admission, placement or fit.
+- Scores and licences never affect admission, placement or fit. Recommendations follow the same
+  rule ([recommendations](recommendations.md#invariants)).
 
 ## Future direction
 

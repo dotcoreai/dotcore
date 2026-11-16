@@ -27,6 +27,22 @@ export function deploymentExposure(
   } as ModelDeploymentExposure;
 }
 
+/**
+ * The exposure form state of a deployment exposure, read back as `deploymentExposure` builds it: a
+ * route name equal to the one the deployment name derives follows the name, any other is custom.
+ */
+export function deploymentExposureValues(
+  exposure: ModelDeploymentExposure,
+  deploymentName: string,
+): DeploymentExposureValues {
+  if (exposure.kind.case === "hidden") return { exposure: "hidden" };
+
+  const routeName = exposure.kind.case === "direct" ? exposure.kind.value.routeName : undefined;
+  return routeName === undefined || routeName === deriveRouteName(deploymentName)
+    ? { exposure: "direct" }
+    : { exposure: "direct", routeName };
+}
+
 export function validateDeploymentExposure(
   values: DeploymentExposureValues,
   deploymentName: string,

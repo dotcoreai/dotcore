@@ -168,6 +168,7 @@ where
     fn list_model_recommendations(
         &self,
         use_cases: Vec<dotcore_proto::dotcore::catalog::v1::UseCase>,
+        can_start_now: bool,
     ) -> impl std::future::Future<
         Output = Result<
             dotcore_proto::dotcore::model::v1::ListModelRecommendationsResponse,
@@ -179,12 +180,13 @@ where
         let span = debug_span!(
             "model_recommendations",
             operation = "model_recommendations",
+            can_start_now,
             outcome = field::Empty,
             error_kind = field::Empty,
         );
         let operation_span = span.clone();
         async move {
-            let result = execute_model_recommendations(&inner, &use_cases).await;
+            let result = execute_model_recommendations(&inner, &use_cases, can_start_now).await;
             record_operation_result(&operation_span, &result);
             result
         }
@@ -561,6 +563,7 @@ where
 async fn execute_model_recommendations<D, S>(
     inner: &ManagerInferenceControllerInner<D, S>,
     use_cases: &[dotcore_proto::dotcore::catalog::v1::UseCase],
+    can_start_now: bool,
 ) -> Result<dotcore_proto::dotcore::model::v1::ListModelRecommendationsResponse, ModelLifecycleError>
 where
     D: super::DesiredDeploymentRepository,
@@ -582,7 +585,7 @@ where
     let deployments = inner.public_projection()?.deployments;
     inner
         .desired
-        .model_recommendations(use_cases, inventory.as_ref(), &deployments)
+        .model_recommendations(use_cases, can_start_now, inventory.as_ref(), &deployments)
         .map_err(ModelLifecycleError::from_model_repository)
 }
 

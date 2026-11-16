@@ -4,7 +4,10 @@ import { createConsoleTransport } from "@/api/console-transport";
 import { resolveManagementOrigin } from "@/api/management-origin";
 import { SiteService } from "@/gen/dotcore/site/v1/service_pb";
 
-export type SiteClient = Pick<Client<typeof SiteService>, "listConfiguredExecutionTargets">;
+export type SiteClient = Pick<
+  Client<typeof SiteService>,
+  "listConfiguredExecutionTargets" | "updateConsoleSettings"
+>;
 
 const siteServerUrl = resolveManagementOrigin(import.meta.env.VITE_DOTCORE_MANAGEMENT_ORIGIN, {
   allowTestFallback: import.meta.env.MODE === "test",
@@ -17,5 +20,7 @@ export function createSiteClient(baseUrl = siteServerUrl): SiteClient {
   return {
     listConfiguredExecutionTargets: (request, options) =>
       generatedClient.listConfiguredExecutionTargets(request, options),
+    updateConsoleSettings: (request, options) =>
+      generatedClient.updateConsoleSettings(request, options),
   };
 }

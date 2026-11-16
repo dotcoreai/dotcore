@@ -253,6 +253,9 @@ fn subscriptions(request: WatchResourcesRequest) -> Result<Vec<(String, Resource
                     ResourceKind::ExecutionTargets
                 }
                 Some(resource_subscription::Kind::NodeMemory(_)) => ResourceKind::NodeMemory,
+                Some(resource_subscription::Kind::ConsoleSettings(_)) => {
+                    ResourceKind::ConsoleSettings
+                }
                 None => {
                     return Err(Status::invalid_argument(
                         "Resource watch subscription kind is required",
@@ -537,6 +540,9 @@ mod tests {
                     }
                     ResourceKind::NodeMemory => {
                         resource_subscription::Kind::NodeMemory(Default::default())
+                    }
+                    ResourceKind::ConsoleSettings => {
+                        resource_subscription::Kind::ConsoleSettings(Default::default())
                     }
                 }),
             };

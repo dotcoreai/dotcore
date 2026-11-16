@@ -526,6 +526,20 @@ profiles:
       values:
         - parameterId: "prompt-cache-memory-mib"
           unsignedInteger: "2048"
+  - profileId: "q3-xl-q8-kv"
+    displayName: "Unsloth Q3_K_XL with 8-bit KV cache"
+    description: "Uses the smaller Q3 weights and stores the context cache at 8 bits, which fits more context in the same memory."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q3-xl"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "kv-cache"
+        values:
+          - parameterId: "precision"
+            string: "q8_0"
   - profileId: "q4-xl"
     displayName: "Unsloth Q4_K_XL"
     configurationId: "llama-cpp"

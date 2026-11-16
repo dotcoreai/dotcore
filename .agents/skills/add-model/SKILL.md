@@ -25,7 +25,7 @@ Sizing is owned by the `model-sizing` skill. Catalog loading and validation live
    * Size each configuration with the `model-sizing` skill.
    * Leave out optional fields you cannot support.
 
-4. Decide whether the model belongs in any hardware class's lists in `catalog/recommendations/`, for each use case, and place it by priority. Lists stay short and best first; add a memory minimum only where the model fits but leaves too little room for context.
+4. Decide whether the model belongs in any hardware class's lists in `catalog/recommendations/`, for each use case, and place it by priority. An entry may set `contextTokensPerRequest`: coding entries carry the largest context per request that starts on an idle machine at the entry's minimum; the catalog test checks every entry fits. Lists stay short and best first; add a memory minimum only where the model fits but leaves too little room for context.
 
 5. Validate the declaration and any list you changed with the catalog tests and the area gates.
 
