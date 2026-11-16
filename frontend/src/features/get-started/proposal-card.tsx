@@ -56,7 +56,6 @@ export function ProposalCard({
   modelDeployments,
   models,
   onAddMachine,
-  onContinue,
   onCustomize,
   onDeploy,
   onPick,
@@ -75,7 +74,6 @@ export function ProposalCard({
   /** The catalog models, which name the proposals' models, profiles and engines. */
   models: readonly Model[];
   onAddMachine: () => void;
-  onContinue: () => void;
   /** Opens Customize on the picked model; absent while the catalog that names it loads. */
   onCustomize?: (model: ModelProposal) => void;
   onDeploy: () => void;
@@ -120,21 +118,15 @@ export function ProposalCard({
         </Notice>
       ) : null}
       <div className="mt-0.5 flex justify-end gap-2 border-t border-border pt-4">
-        {action === "continue" ? (
-          <Button onClick={onContinue} size="console" type="button">
-            Continue
-          </Button>
-        ) : (
-          <Button
-            disabled={action === "unavailable" || pending}
-            onClick={onDeploy}
-            size="console"
-            type="button"
-          >
-            <DeployActionIcon aria-hidden="true" data-icon="inline-start" />
-            {pending ? "Deploying…" : "Deploy"}
-          </Button>
-        )}
+        <Button
+          disabled={action === "unavailable" || pending}
+          onClick={onDeploy}
+          size="console"
+          type="button"
+        >
+          <DeployActionIcon aria-hidden="true" data-icon="inline-start" />
+          {pending ? "Deploying…" : "Deploy"}
+        </Button>
       </div>
     </Card>
   );

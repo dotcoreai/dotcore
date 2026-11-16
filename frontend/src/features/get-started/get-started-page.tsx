@@ -129,9 +129,8 @@ export function GetStartedPage() {
       },
     };
   };
-  // A use case the site already serves opens on its ready step, which then follows what serves it
-  // like a deploy from this page.
-  if (!followed && proposal?.ready && deployer.pending === undefined) {
+  // A use case the site already serves, or is deploying opens on its step, which then follows what serves it like a deploy from this page.
+  if (!followed && proposal && proposal.stage !== "none" && deployer.pending === undefined) {
     setFollowing((current) => new Map(current).set(useCase, planned(proposal.model)));
   }
   // Leaves a failed or removed deployment's progress for the proposal, which can deploy afresh.
@@ -158,8 +157,6 @@ export function GetStartedPage() {
       },
     );
   };
-  // Continue has nothing to deploy: what the use case needs already runs.
-  const proceed = () => follow(planned());
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -188,44 +185,50 @@ export function GetStartedPage() {
           Loading recommendations…
         </p>
       ) : null}
-      <UseCaseCards onSelect={setUseCase} proposals={data.useCases} selected={useCase} />
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(260px,1fr)]">
-        {followed ? (
-          <FollowedStep
-            applicationClient={applicationClient}
-            deployments={followed}
-            machines={data.machines}
-            modelClient={modelClient}
-            onBack={back}
-            onReady={hideOnce}
-            useCase={useCase}
-          />
-        ) : proposal ? (
-          <ProposalCard
-            choiceKey={choice && modelProposalKey(choice)}
-            error={failure?.message}
-            machines={data.machines}
-            memory={memory}
-            modelDeployments={watchedDeployments?.value?.deployments ?? []}
-            models={snapshot?.availableModels ?? []}
-            onAddMachine={() => setAddingMachine(true)}
-            onContinue={proceed}
-            onCustomize={catalogModel ? () => setCustomizing(true) : undefined}
-            onDeploy={() => void deploy()}
-            onPick={pick}
-            pending={deployer.pending !== undefined}
-            picked={picked}
-            proposal={proposal}
-          />
-        ) : (
-          <div />
-        )}
-        <MachinesCard
+      <UseCaseCards
+        following={following}
+        onSelect={setUseCase}
+        proposals={data.useCases}
+        selected={useCase}
+      />
+      {followed ? (
+        <FollowedStep
+          applicationClient={applicationClient}
+          deployments={followed}
           machines={data.machines}
-          memory={siteMemory.kind === "loading" ? undefined : siteMemory.memory}
-          onAddMachine={() => setAddingMachine(true)}
+          modelClient={modelClient}
+          onBack={back}
+          onReady={hideOnce}
+          useCase={useCase}
         />
-      </div>
+      ) : (
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(260px,1fr)]">
+          {proposal ? (
+            <ProposalCard
+              choiceKey={choice && modelProposalKey(choice)}
+              error={failure?.message}
+              machines={data.machines}
+              memory={memory}
+              modelDeployments={watchedDeployments?.value?.deployments ?? []}
+              models={snapshot?.availableModels ?? []}
+              onAddMachine={() => setAddingMachine(true)}
+              onCustomize={catalogModel ? () => setCustomizing(true) : undefined}
+              onDeploy={() => void deploy()}
+              onPick={pick}
+              pending={deployer.pending !== undefined}
+              picked={picked}
+              proposal={proposal}
+            />
+          ) : (
+            <div />
+          )}
+          <MachinesCard
+            machines={data.machines}
+            memory={siteMemory.kind === "loading" ? undefined : siteMemory.memory}
+            onAddMachine={() => setAddingMachine(true)}
+          />
+        </div>
+      )}
       {customizing && launch && catalogModel ? (
         <CustomizeModelDialog
           deployments={watchedDeployments?.value?.deployments ?? []}
