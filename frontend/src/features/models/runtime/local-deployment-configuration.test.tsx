@@ -1,4 +1,4 @@
-import { create } from "@bufbuild/protobuf";
+import { clone, create } from "@bufbuild/protobuf";
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,7 +9,7 @@ import {
 import { syntheticCatalog } from "@/features/models/catalog/catalog-table-test-support";
 import { ModelDeployDialog } from "@/features/models/deploy/model-deploy-dialog";
 import { EngineReleaseSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
-import { ModelProfileSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ModelProfileSchema, ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
 import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
 import { engineParameterError, engineParameterInputs } from "./engine-parameter-values";
@@ -18,6 +18,7 @@ import {
   defaultLocalDeploymentConfiguration,
   localDeploymentConfiguration,
   type LocalDeploymentConfigurationEdits,
+  profileEngineRelease,
   runtimeCustomizations,
 } from "./local-deployment-configuration";
 import {
@@ -60,6 +61,46 @@ describe("local deployment configuration", () => {
       ["maximum-batched-tokens", 4096n],
       ["maximum-cudagraph-capture-size", 32n],
       ["kv-offloading-size-gib", 0n],
+      ["total-context", 32768n],
+      ["parallel-requests", 4n],
+    ]);
+  });
+
+  it("leaves out the engine parameters the profile's configuration excludes", () => {
+    const catalogProfile = runtimeSchemaModel.profiles.find(
+      ({ profileId }) => profileId === "nvfp4-text",
+    )!;
+    // A profile can't default a parameter its configuration excludes.
+    const profile = clone(ModelProfileSchema, catalogProfile);
+    profile.engineParameterDefaults!.values = profile.engineParameterDefaults!.values.filter(
+      ({ parameterId }) => parameterId !== "kv-offloading-size-gib",
+    );
+    const model = create(ModelSchema, {
+      ...runtimeSchemaModel,
+      configurations: runtimeSchemaModel.configurations.map((configuration) =>
+        configuration.configurationId === profile.configurationId
+          ? { ...configuration, excludedEngineParameterIds: ["kv-offloading-size-gib"] }
+          : configuration,
+      ),
+    });
+
+    expect(
+      profileEngineRelease(model, profile, runtimeSchemaReleases)?.parameterSchema?.parameters.map(
+        ({ parameterId }) => parameterId,
+      ),
+    ).toEqual(
+      vllmRelease.parameterSchema?.parameters
+        .map(({ parameterId }) => parameterId)
+        .filter((parameterId) => parameterId !== "kv-offloading-size-gib"),
+    );
+    expect(
+      pairs(
+        defaultLocalDeploymentConfiguration(model, profile, runtimeSchemaReleases)
+          ?.engineParameterValues,
+      ),
+    ).toEqual([
+      ["maximum-batched-tokens", 4096n],
+      ["maximum-cudagraph-capture-size", 32n],
       ["total-context", 32768n],
       ["parallel-requests", 4n],
     ]);

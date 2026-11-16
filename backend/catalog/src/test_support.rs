@@ -66,10 +66,12 @@ pub fn sizing_not_linear_in_total_context(catalog: &Catalog) -> Vec<String> {
         else {
             continue;
         };
-        let Some(schema) =
+        let Some(engine) =
             validation::configuration_engine_release(configuration, &catalog.engines)
-                .and_then(|engine| engine.parameter_schema.as_ref())
         else {
+            continue;
+        };
+        let Some(schema) = engine.parameter_schema.as_ref() else {
             continue;
         };
         let maximum = maximum_context_tokens(model, configuration);

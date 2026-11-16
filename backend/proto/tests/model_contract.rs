@@ -1129,6 +1129,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("request_kinds", 11),
             ("options", 8),
             ("maximum_context_tokens", 10),
+            ("excluded_engine_parameter_ids", 12),
         ]
     );
     assert_eq!(
@@ -1144,6 +1145,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("request_kinds", "LABEL_REPEATED"),
             ("options", "LABEL_REPEATED"),
             ("maximum_context_tokens", "LABEL_OPTIONAL"),
+            ("excluded_engine_parameter_ids", "LABEL_REPEATED"),
         ]
     );
     assert_eq!(

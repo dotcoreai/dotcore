@@ -28,7 +28,7 @@ use dotcore_proto::dotcore::{
 
 use super::{SERVICE_PORT, draft_layer_artifact_id, valid_fixed_settings};
 
-pub(super) const PLAN_FORMAT_VERSION: u32 = 1;
+pub(super) const PLAN_FORMAT_VERSION: u32 = 2;
 pub(super) const MODEL_BINDING_ID: &str = "model";
 pub(super) const DRAFT_LAYER_BINDING_ID: &str = "draft-layer";
 /// The image's init, run explicitly because the runtime replaces the image's entrypoint with the
@@ -113,6 +113,14 @@ pub(crate) fn translate(
         "--expert-vram-mib",
         &expert_vram_mib.to_string(),
     ]));
+    if !fixed.expert_host_memory_mib_parameter_id.is_empty() {
+        let expert_host_memory_mib =
+            unsigned_parameter(snapshot, &fixed.expert_host_memory_mib_parameter_id)?;
+        arguments.extend(literals([
+            "--expert-host-memory-mib",
+            &expert_host_memory_mib.to_string(),
+        ]));
+    }
     // Only the pack path has settings for an accelerator sharing the host's memory.
     if draft_layer.is_some() && uses_unified_memory(snapshot)? {
         arguments.push(literal("--unified-memory"));
@@ -203,6 +211,17 @@ fn positive_parameter(
     snapshot: &ResolvedLocalModelDeploymentSnapshot,
     parameter_id: &str,
 ) -> Result<u64, StrataPlanError> {
+    unsigned_parameter(snapshot, parameter_id).and_then(|value| {
+        (value > 0)
+            .then_some(value)
+            .ok_or_else(|| StrataPlanError::ParameterNotConfigured(parameter_id.to_owned()))
+    })
+}
+
+fn unsigned_parameter(
+    snapshot: &ResolvedLocalModelDeploymentSnapshot,
+    parameter_id: &str,
+) -> Result<u64, StrataPlanError> {
     snapshot
         .engine_parameter_values
         .as_ref()
@@ -216,7 +235,6 @@ fn positive_parameter(
             Some(EngineParameterValueKind::UnsignedInteger(value)) => Some(*value),
             _ => None,
         })
-        .filter(|value| *value > 0)
         .ok_or_else(|| StrataPlanError::ParameterNotConfigured(parameter_id.to_owned()))
 }
 
@@ -284,15 +302,18 @@ mod tests {
     use dotcore_catalog::shared_parameters::TOTAL_CONTEXT_PARAMETER_ID;
     use dotcore_proto::dotcore::{
         catalog::v1::ModelEngineConfiguration,
-        engine::strata::v1::{StrataFixedModelSettings, StrataReadyPack, StrataSplitGguf},
+        engine::{
+            strata::v1::{StrataFixedModelSettings, StrataReadyPack, StrataSplitGguf},
+            v1::engine_model_configuration::Configuration,
+        },
         model::v1::model_deployment_snapshot::Source,
     };
 
     use super::*;
     use crate::test_support::strata::{
-        DRAFT_LAYER_ARTIFACT_ID, EXPERT_VRAM_MIB_PARAMETER_ID, configuration,
-        local_model_snapshot_with, parameter_values, ready_pack_configuration, refresh_launch_plan,
-        split_gguf_configuration,
+        DRAFT_LAYER_ARTIFACT_ID, EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
+        configuration, local_model_snapshot_with, parameter_values, ready_pack_configuration,
+        refresh_launch_plan, split_gguf_configuration,
     };
 
     #[test]
@@ -325,7 +346,7 @@ mod tests {
                 "8080",
             ]
         );
-        assert_eq!(plan.format_version, 1);
+        assert_eq!(plan.format_version, 2);
         assert_eq!(
             plan.artifact_bindings,
             [PortableModelArtifactBinding {
@@ -375,6 +396,34 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_expert_host_memory_reaches_the_wrapper() {
+        let mut local = local_with("qwen3-8-flash-next", &split_gguf_configuration());
+        local.engine_parameter_values = Some(parameter_values([
+            (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
+            (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
+            (PARALLEL_REQUESTS_PARAMETER_ID, 1),
+            (EXPERT_VRAM_MIB_PARAMETER_ID, 8_192),
+            (EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, 0),
+        ]));
+        refresh_launch_plan(&mut local);
+
+        let argv = argv(local.desired_launch_plan.as_ref().expect("plan"));
+
+        assert_eq!(
+            argv[argv.len() - 6..],
+            [
+                "--expert-vram-mib",
+                "8192",
+                "--expert-host-memory-mib",
+                "0",
+                "--port",
+                "8080"
+            ]
+        );
+        validate_snapshot(&local).expect("canonical plan with no expert host memory");
+    }
+
+    #[test]
     fn split_gguf_launches_the_pack_path_with_its_draft_layer() {
         let local = local_with("qwen3-8-flash-next", &split_gguf_configuration());
 
@@ -402,6 +451,8 @@ mod tests {
                 "1",
                 "--expert-vram-mib",
                 "8192",
+                "--expert-host-memory-mib",
+                "4096",
                 "--port",
                 "8080",
             ]
@@ -430,7 +481,23 @@ mod tests {
 
     #[test]
     fn ready_pack_on_unified_memory_names_its_files_and_the_unified_settings() {
-        let mut local = local_with("qwen3-8-flash-next", &ready_pack_configuration());
+        // Unified memory configurations exclude the expert host memory.
+        let mut configuration = ready_pack_configuration();
+        configuration.excluded_engine_parameter_ids =
+            vec![EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned()];
+        if let Some(Configuration::Strata(payload)) = configuration
+            .engine_configuration
+            .as_mut()
+            .and_then(|wrapper| wrapper.configuration.as_mut())
+        {
+            payload
+                .fixed_settings
+                .as_mut()
+                .expect("fixed settings")
+                .expert_host_memory_mib_parameter_id
+                .clear();
+        }
+        let mut local = local_with("qwen3-8-flash-next", &configuration);
         local
             .selected_target
             .as_mut()
@@ -666,12 +733,12 @@ mod tests {
         for (format_version, expected) in [
             (
                 PLAN_FORMAT_VERSION - 1,
-                "Strata deployment was created with launch plan format 0, which this Dotcore \
+                "Strata deployment was created with launch plan format 1, which this Dotcore \
                  version no longer supports; delete and recreate the deployment",
             ),
             (
                 PLAN_FORMAT_VERSION + 1,
-                "Strata deployment was created with launch plan format 2 by a newer Dotcore \
+                "Strata deployment was created with launch plan format 3 by a newer Dotcore \
                  version; upgrade Dotcore, or delete and recreate the deployment with this version",
             ),
         ] {

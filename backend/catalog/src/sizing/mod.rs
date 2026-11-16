@@ -744,7 +744,7 @@ fn compile_derived_parameters(
         .map(|(parameter_id, equation)| {
             if !engine_symbols.contains_key(parameter_id) {
                 return Err(SizingError::declaration(format!(
-                    "derived parameter {parameter_id:?} is not an unsigned engine parameter"
+                    "derived parameter {parameter_id:?} is not an unsigned parameter of the configuration's engine release"
                 )));
             }
             let expression =
@@ -1522,12 +1522,12 @@ mod tests {
             (
                 "feature-enabled",
                 "1",
-                "Catalog sizing declaration: derived parameter \"feature-enabled\" is not an unsigned engine parameter",
+                "Catalog sizing declaration: derived parameter \"feature-enabled\" is not an unsigned parameter of the configuration's engine release",
             ),
             (
                 "unknown",
                 "1",
-                "Catalog sizing declaration: derived parameter \"unknown\" is not an unsigned engine parameter",
+                "Catalog sizing declaration: derived parameter \"unknown\" is not an unsigned parameter of the configuration's engine release",
             ),
         ] {
             let mut declaration = source("${total-context}", None);

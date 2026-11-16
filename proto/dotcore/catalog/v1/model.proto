@@ -162,6 +162,9 @@ message ModelEngineConfiguration {
 
   // Maximum context per request below the model's, in tokens, when the engine can't serve it.
   optional uint32 maximum_context_tokens = 10;
+
+  // Engine release parameters this configuration's launch recipe can't use, so it has none of them.
+  repeated string excluded_engine_parameter_ids = 12;
 }
 
 // Binds one selectable model artifact to its required auxiliary artifacts.

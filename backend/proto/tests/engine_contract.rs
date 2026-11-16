@@ -165,6 +165,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
         field_layout(strata, "StrataFixedModelSettings"),
         [
             ("expert_vram_mib_parameter_id", 1, "TYPE_STRING"),
+            ("expert_host_memory_mib_parameter_id", 7, "TYPE_STRING"),
             ("architecture", 2, "TYPE_STRING"),
             ("mtp_draft_tokens", 3, "TYPE_UINT32"),
             (
@@ -240,6 +241,7 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
             ("request_kinds", 11),
             ("options", 8),
             ("maximum_context_tokens", 10),
+            ("excluded_engine_parameter_ids", 12),
         ]
     );
     assert_eq!(

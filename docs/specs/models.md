@@ -58,7 +58,7 @@ flowchart TB
   CAT["Catalog"] --> SEL
   FACTS["Target platform, runtime binding, observed facts"] --> SEL
   SEL --> MERGE
-  subgraph MERGE["Each engine parameter: first value that applies"]
+  subgraph MERGE["Each of the configuration's engine parameters: first value that applies"]
     S1["Supplied value"] --> S2["Profile default"] --> S3["Engine release default"]
     S3 --> S4["Sizing derivation"] --> S5["Generated secret"]
   end
@@ -73,8 +73,10 @@ keeps the result as the deployment's snapshot.
 - It selects only engine artifacts of a kind the target's runtime binding can realize, and only
   hardware classes the configuration supports.
 - A local request that omits its engine configuration takes the selected profile's default binding.
-- Engine parameter values merge per parameter: the supplied value, then the profile default, then
-  the engine release default, then the sizing derivation, then, for a secret, a generated value.
+- Values merge per engine parameter of the configuration: the supplied value, then the profile
+  default, then the engine release default, then the sizing derivation, then, for a secret, a
+  generated value. A supplied value for a parameter the configuration excludes is rejected like an
+  unknown one.
 - A secret engine parameter has no catalog default, and sizing never reads it. Only creation
   generates a missing one, after sizing. Previews, estimates and placement need no secret value,
   so a preview carries none.
@@ -193,6 +195,8 @@ never redefine it.
   derived rather than supplied.
 - The engine parameter values and the selected profile's engine parameter defaults and visibility
   overrides, so clients read every value and its origin from the deployment alone.
+- The definitions of the configuration's engine parameters, under the release's schema identity:
+  possibly a subset of that schema.
 - The selected target's memory architecture. Engine adapters derive launch settings and non-blocking
   advisories from it.
 - The selected target's device memory total, or its host memory total on unified targets. Engine

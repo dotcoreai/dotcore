@@ -71,14 +71,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--context", type=int, required=True, help="tokens of context per request")
     parser.add_argument("--parallel", type=int, default=1, help=f"requests served at once, 1 to {MAX_PARALLEL}")
     parser.add_argument("--expert-vram-mib", type=int, help="MiB of GPU memory for the model's experts; the rest stay in host memory")
+    parser.add_argument("--expert-host-memory-mib", type=int, help="with --draft-layer, MiB of host memory pinned for the experts the GPU doesn't hold; the rest are read from the model's files, all of them with 0")
     parser.add_argument("--port", type=int, default=8080, help="the port the server listens on")
     args = parser.parse_args()
 
     if args.draft_layer is None:
         if not args.model.is_file():
             parser.error(f"--model {args.model} is not a file")
-        if args.unified_memory or any(getattr(args, option) for option in READY_PACK_OPTIONS):
-            parser.error("--pack, its GGUF options and --unified-memory need --draft-layer")
+        if (args.unified_memory or args.expert_host_memory_mib is not None
+                or any(getattr(args, option) for option in READY_PACK_OPTIONS)):
+            parser.error("--pack, its GGUF options, --unified-memory and --expert-host-memory-mib need --draft-layer")
     else:
         if not args.model.is_dir():
             parser.error(f"--model {args.model} is not a folder")
@@ -102,6 +104,11 @@ def parse_args() -> argparse.Namespace:
         parser.error(f"--parallel must be 1 to {MAX_PARALLEL}")
     if args.expert_vram_mib is not None and args.expert_vram_mib < 1:
         parser.error("--expert-vram-mib must be at least 1")
+    if args.expert_host_memory_mib is not None:
+        if args.expert_host_memory_mib < 0:
+            parser.error("--expert-host-memory-mib must be at least 0")
+        if args.unified_memory:
+            parser.error("--expert-host-memory-mib can't be used with --unified-memory, where the GPU's cache already holds the experts in host memory")
     if not 1 <= args.port <= 65535:
         parser.error("--port must be 1 to 65535")
     return args
@@ -194,7 +201,8 @@ def pack_engine_args(args: argparse.Namespace, pack: Path) -> list[str]:
 
     The lookup table is read from disk as needed rather than locked in host memory. With unified
     memory, the experts are mapped from their files so the GPU's cache holds them without a second
-    copy, using upstream's measured settings for that part.
+    copy, using upstream's measured settings for that part. Otherwise a host memory budget keeps the
+    hottest experts the GPU doesn't hold pinned in host memory and maps the rest from their files.
     """
     cache = "auto" if args.expert_vram_mib is None else str(expert_cache_slots(pack, args.expert_vram_mib))
     engine_args = [
@@ -211,6 +219,11 @@ def pack_engine_args(args: argparse.Namespace, pack: Path) -> list[str]:
     ]
     if args.unified_memory:
         engine_args += ["--mmap-experts", "--mtp-q4", "all", "--mtp-hnorm", "stream"]
+    elif args.expert_host_memory_mib == 0:
+        engine_args += ["--mmap-experts"]
+    elif args.expert_host_memory_mib is not None:
+        # The engine takes GiB; MiB / 1024 is exact, so the budget is the MiB asked for.
+        engine_args += ["--resident-budget-gib", repr(args.expert_host_memory_mib / 1024)]
     return engine_args
 
 

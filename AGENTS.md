@@ -204,7 +204,8 @@ in the same change that adds, removes or renames a folder it lists.
   releases, hardware classes, `UpstreamModelTemplate`s. The **master catalog** is the platform's,
   apart from site or development additions.
 - **model-local engine configuration**: one model's launch recipe on one engine (artifact bindings,
-  approved engine artifacts, request kinds, sizing, hardware support).
+  approved engine artifacts, request kinds, sizing, hardware support, the engine parameters that
+  apply).
 - **model profile**: a preset of defaults and engine parameter visibility overrides for one engine
   configuration; never holds a total context or context per request value.
 - **engine release**: one version of an engine (llama.cpp, vLLM) and the parameters it exposes.

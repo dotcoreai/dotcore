@@ -34,6 +34,8 @@ use dotcore_proto::dotcore::{
     },
 };
 
+use dotcore_proto::dotcore::observation::v1::AcceleratorMemoryArchitecture;
+
 use crate::model::engine::{
     declaration::classes_outside_vendors,
     definition::{unsigned_parameter_maximum, unsigned_parameter_value},
@@ -179,7 +181,7 @@ pub(crate) fn validate_hardware_support(
     configuration: &ModelEngineConfiguration,
     hardware_classes: &[&HardwareClass],
 ) -> Vec<anyhow::Error> {
-    classes_outside_vendors(hardware_classes, &[Accelerator::Nvidia])
+    let mut errors = classes_outside_vendors(hardware_classes, &[Accelerator::Nvidia])
         .into_iter()
         .map(|hardware_class_id| {
             anyhow::anyhow!(
@@ -187,7 +189,31 @@ pub(crate) fn validate_hardware_support(
                 configuration.configuration_id
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    // On unified memory the accelerator's expert cache already holds the experts in host memory,
+    // so a pinned copy would hold them twice.
+    if configured_fixed_settings(configuration)
+        .is_some_and(|fixed| !fixed.expert_host_memory_mib_parameter_id.is_empty())
+    {
+        errors.extend(
+            hardware_classes
+                .iter()
+                .filter(|class| {
+                    class.selector.as_ref().is_some_and(|selector| {
+                        selector.memory_architecture == AcceleratorMemoryArchitecture::Unified as i32
+                    })
+                })
+                .map(|class| {
+                    anyhow::anyhow!(
+                        "configuration {:?} hardware class {:?} shares host memory with the accelerator, which takes no expert host memory; exclude that parameter",
+                        configuration.configuration_id,
+                        class.hardware_class_id
+                    )
+                }),
+        );
+    }
+    errors
 }
 
 pub(crate) fn validate_model_configuration(
@@ -273,25 +299,42 @@ fn validate_parameters(
         })
         .unwrap_or_default();
     let expert_vram = fixed.expert_vram_mib_parameter_id.as_str();
-    if !declared.contains(expert_vram) || is_shared_parameter(expert_vram) {
+    let expert_host = fixed.expert_host_memory_mib_parameter_id.as_str();
+    let mut references = vec![expert_vram];
+    references.extend((!expert_host.is_empty()).then_some(expert_host));
+    if expert_vram == expert_host
+        || references
+            .iter()
+            .any(|reference| !declared.contains(reference) || is_shared_parameter(reference))
+    {
         errors.push(anyhow::anyhow!(
             "configuration {:?} has an invalid Strata engine parameter reference",
             configuration.configuration_id
         ));
     }
+    // A single GGUF runs on Strata's engine for that format, which copies every expert outside the
+    // accelerator into host memory and takes no budget for them.
+    if !expert_host.is_empty() && matches!(fixed.model_files, Some(ModelFiles::SingleGguf(_))) {
+        errors.push(anyhow::anyhow!(
+            "configuration {:?} runs a single GGUF, whose engine path takes no expert host memory; exclude that parameter",
+            configuration.configuration_id
+        ));
+    }
 
-    // Every other release parameter must reach the launch plan, so none can be set without
-    // effect. The total context reaches it through the parallel requests and the context per
-    // request.
-    let launched = BTreeSet::from([
-        expert_vram,
-        TOTAL_CONTEXT_PARAMETER_ID,
-        CONTEXT_PER_REQUEST_PARAMETER_ID,
-        PARALLEL_REQUESTS_PARAMETER_ID,
-    ]);
+    // Every other parameter of the configuration must reach the launch plan, so none can be set
+    // without effect. The total context reaches it through the parallel requests and the context
+    // per request.
+    let launched = references
+        .into_iter()
+        .chain([
+            TOTAL_CONTEXT_PARAMETER_ID,
+            CONTEXT_PER_REQUEST_PARAMETER_ID,
+            PARALLEL_REQUESTS_PARAMETER_ID,
+        ])
+        .collect::<BTreeSet<_>>();
     if declared != launched {
         errors.push(anyhow::anyhow!(
-            "configuration {:?} must reference every Strata engine release parameter",
+            "configuration {:?} must reference every Strata engine parameter it keeps",
             configuration.configuration_id
         ));
     }
@@ -457,6 +500,21 @@ fn valid_draft_layer(source: &HuggingFaceArtifactSource) -> bool {
     folders.len() == 1 && DRAFT_LAYER_FILES.iter().all(|name| names.contains(name))
 }
 
+/// Returns the fixed Strata settings of a configuration's engine payload, if it has them.
+fn configured_fixed_settings(
+    configuration: &ModelEngineConfiguration,
+) -> Option<&StrataFixedModelSettings> {
+    match configuration
+        .engine_configuration
+        .as_ref()?
+        .configuration
+        .as_ref()?
+    {
+        Configuration::Strata(payload) => payload.fixed_settings.as_ref(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use dotcore_catalog::{CatalogModelId, test_support::vendor_hardware_class};
@@ -481,9 +539,9 @@ mod tests {
         test_support::{
             strata::{
                 API_KEY_PARAMETER_ID, CATALOG_ENGINE, CATALOG_MODEL, DRAFT_LAYER_ARTIFACT_ID,
-                EXPERT_VRAM_MIB_PARAMETER_ID, catalog_engine_with_api_key, configuration,
-                load_catalog, model, ready_pack_configuration, release, release_with_api_key,
-                split_gguf_configuration,
+                EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
+                catalog_engine_with_api_key, configuration, load_catalog, model,
+                ready_pack_configuration, release, release_with_api_key, split_gguf_configuration,
             },
             unsigned_parameter_values,
         },
@@ -607,7 +665,7 @@ mod tests {
                 )),
                 [
                     "configuration \"strata-nvidia\" has an invalid Strata engine parameter reference",
-                    "configuration \"strata-nvidia\" must reference every Strata engine release parameter",
+                    "configuration \"strata-nvidia\" must reference every Strata engine parameter it keeps",
                 ],
                 "{reference}"
             );
@@ -644,7 +702,7 @@ mod tests {
             )),
             [
                 "configuration \"strata-nvidia\" has an invalid Strata engine parameter reference",
-                "configuration \"strata-nvidia\" must reference every Strata engine release parameter",
+                "configuration \"strata-nvidia\" must reference every Strata engine parameter it keeps",
             ]
         );
     }
@@ -671,7 +729,7 @@ mod tests {
                 &release
             )),
             [
-                "configuration \"strata-nvidia\" must reference every Strata engine release parameter"
+                "configuration \"strata-nvidia\" must reference every Strata engine parameter it keeps"
             ]
         );
     }
@@ -837,6 +895,60 @@ mod tests {
             )),
             [
                 "configuration \"strata-nvidia\" hardware class \"apple\" must select only NVIDIA accelerators for Strata"
+            ]
+        );
+    }
+
+    #[test]
+    fn only_pack_paths_on_dedicated_memory_take_expert_host_memory() {
+        let mut unified = vendor_hardware_class("nvidia");
+        unified.hardware_class_id = "nvidia-unified".to_owned();
+        unified
+            .selector
+            .as_mut()
+            .expect("selector")
+            .memory_architecture = AcceleratorMemoryArchitecture::Unified as i32;
+        let nvidia = vendor_hardware_class("nvidia");
+
+        assert!(validate_hardware_support(&split_gguf_configuration(), &[&nvidia]).is_empty());
+        assert!(validate_hardware_support(&configuration(), &[&unified]).is_empty());
+        assert_eq!(
+            messages(validate_hardware_support(
+                &split_gguf_configuration(),
+                &[&nvidia, &unified]
+            )),
+            [
+                "configuration \"strata-fixture-split-gguf\" hardware class \"nvidia-unified\" shares host memory with the accelerator, which takes no expert host memory; exclude that parameter"
+            ]
+        );
+
+        let mut single_gguf = configuration();
+        single_gguf.excluded_engine_parameter_ids.clear();
+        fixed_settings(&mut single_gguf).expert_host_memory_mib_parameter_id =
+            EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned();
+        assert_eq!(
+            messages(validate_model_configuration(
+                &model(),
+                &single_gguf,
+                &release()
+            )),
+            [
+                "configuration \"strata-nvidia\" runs a single GGUF, whose engine path takes no expert host memory; exclude that parameter"
+            ]
+        );
+
+        let mut unreferenced = split_gguf_configuration();
+        fixed_settings(&mut unreferenced)
+            .expert_host_memory_mib_parameter_id
+            .clear();
+        assert_eq!(
+            messages(validate_model_configuration(
+                &model(),
+                &unreferenced,
+                &release()
+            )),
+            [
+                "configuration \"strata-fixture-split-gguf\" must reference every Strata engine parameter it keeps"
             ]
         );
     }
@@ -1184,5 +1296,23 @@ mod tests {
             }
             _ => panic!("Strata payload"),
         }
+    }
+
+    /// Validates `configuration` against `engine` without the parameters it excludes, as the
+    /// catalog hands a configuration its release.
+    fn validate_model_configuration(
+        model: &Model,
+        configuration: &ModelEngineConfiguration,
+        engine: &EngineRelease,
+    ) -> Vec<anyhow::Error> {
+        let mut engine = engine.clone();
+        if let Some(schema) = engine.parameter_schema.as_mut() {
+            schema.parameters.retain(|parameter| {
+                !configuration
+                    .excluded_engine_parameter_ids
+                    .contains(&parameter.parameter_id)
+            });
+        }
+        super::validate_model_configuration(model, configuration, &engine)
     }
 }

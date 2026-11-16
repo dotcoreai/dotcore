@@ -139,8 +139,9 @@ export function artifactCustomization(
 }
 
 /**
- * The engine release of the first engine artifact of a profile's configuration. Every release a
- * configuration approves shares one parameter schema, so this release describes them all.
+ * The engine release of the first engine artifact of a profile's configuration, with only the
+ * engine parameters the configuration keeps. Every release a configuration approves shares one
+ * parameter schema, so this release describes them all.
  */
 export function profileEngineRelease(
   model: Model,
@@ -150,9 +151,21 @@ export function profileEngineRelease(
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
-  return engineReleases.find(
+  const release = engineReleases.find(
     (candidate) => candidate.engineReleaseId === configuration?.engineArtifacts[0]?.engineReleaseId,
   );
+  const excluded = configuration?.excludedEngineParameterIds ?? [];
+  if (!release?.parameterSchema || !excluded.length) return release;
+
+  return {
+    ...release,
+    parameterSchema: {
+      ...release.parameterSchema,
+      parameters: release.parameterSchema.parameters.filter(
+        (parameter) => !excluded.includes(parameter.parameterId),
+      ),
+    },
+  };
 }
 
 /**

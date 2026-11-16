@@ -35,6 +35,13 @@ use dotcore_proto::dotcore::{
 /// Engine parameter holding the accelerator memory cap of the model's experts, in MiB.
 pub(crate) const EXPERT_VRAM_MIB_PARAMETER_ID: &str = "expert-vram-mib";
 
+/// Engine parameter holding the host memory pinned for the experts beyond the accelerator cap, in
+/// MiB. The pack configurations keep it; the single-GGUF one excludes it.
+pub(crate) const EXPERT_HOST_MEMORY_MIB_PARAMETER_ID: &str = "expert-host-memory-mib";
+
+/// Host memory budget a pack configuration's snapshot resolves, in MiB.
+const PACK_EXPERT_HOST_MEMORY_MIB: u64 = 4_096;
+
 /// Auxiliary artifact holding the fixture model's separate draft layer.
 pub(crate) const DRAFT_LAYER_ARTIFACT_ID: &str = "fixture-draft-layer";
 
@@ -99,9 +106,29 @@ pub(crate) fn local_model_snapshot_with(
         .hardware_requirements = configuration.hardware_support[0].hardware_requirements;
     local.resolved_engine_state = Some(selection.state);
     local.input_capabilities = Some(selection.input_capabilities);
-    local.engine_parameter_schema = release().parameter_schema;
+    let mut schema = release().parameter_schema.expect("fixture schema");
+    schema.parameters.retain(|parameter| {
+        !configuration
+            .excluded_engine_parameter_ids
+            .contains(&parameter.parameter_id)
+    });
+    let mut values = parameter_values(PROFILE_PARAMETERS);
+    if schema
+        .parameters
+        .iter()
+        .any(|parameter| parameter.parameter_id == EXPERT_HOST_MEMORY_MIB_PARAMETER_ID)
+    {
+        values.values.extend(
+            parameter_values([(
+                EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
+                PACK_EXPERT_HOST_MEMORY_MIB,
+            )])
+            .values,
+        );
+    }
+    local.engine_parameter_schema = Some(schema);
     local.engine_parameter_schema_id = "fixture-strata-v1".to_owned();
-    local.engine_parameter_values = Some(parameter_values(PROFILE_PARAMETERS));
+    local.engine_parameter_values = Some(values);
     local.resolved_options = Vec::new();
     local.desired_launch_plan = None;
     refresh_launch_plan(local);
@@ -118,7 +145,15 @@ pub(crate) fn local_model_snapshot_with_api_key(
     let Some(model_deployment_snapshot::Source::Local(local)) = snapshot.source.as_mut() else {
         panic!("local fixture snapshot");
     };
-    local.engine_parameter_schema = release_with_api_key().parameter_schema;
+    // The single-GGUF configuration keeps every parameter of the release but the expert host
+    // memory.
+    let mut schema = release_with_api_key()
+        .parameter_schema
+        .expect("fixture schema");
+    schema
+        .parameters
+        .retain(|parameter| parameter.parameter_id != EXPERT_HOST_MEMORY_MIB_PARAMETER_ID);
+    local.engine_parameter_schema = Some(schema);
     local
         .engine_parameter_values
         .as_mut()
@@ -188,6 +223,14 @@ pub(crate) fn release() -> EngineRelease {
                     EXPERT_VRAM_MIB_PARAMETER_ID,
                     "Expert accelerator memory",
                     1,
+                    1_048_576,
+                    "MiB",
+                    None,
+                ),
+                (
+                    EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
+                    "Expert host memory",
+                    0,
                     1_048_576,
                     "MiB",
                     None,
@@ -369,6 +412,7 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
             configuration: Some(Configuration::Strata(StrataModelConfiguration {
                 fixed_settings: Some(StrataFixedModelSettings {
                     expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+                    expert_host_memory_mib_parameter_id: String::new(),
                     architecture: "qwen35moe".to_owned(),
                     mtp_draft_tokens: 2,
                     model_files: Some(ModelFiles::SingleGguf(StrataSingleGguf {})),
@@ -383,6 +427,7 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
             supported_modalities: vec![ModelInputModality::Text as i32],
             image_input_capacity: None,
         }),
+        excluded_engine_parameter_ids: vec![EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned()],
         ..Default::default()
     }
 }
@@ -417,6 +462,7 @@ pub(crate) fn ready_pack_configuration() -> ModelEngineConfiguration {
 fn pack_configuration(artifact_id: &str, model_files: ModelFiles) -> ModelEngineConfiguration {
     let mut configuration = configuration();
     configuration.configuration_id = format!("strata-{artifact_id}");
+    configuration.excluded_engine_parameter_ids = Vec::new();
     configuration.artifact_bindings = vec![ModelArtifactBinding {
         binding_id: artifact_id.to_owned(),
         model_artifact_id: artifact_id.to_owned(),
@@ -427,6 +473,7 @@ fn pack_configuration(artifact_id: &str, model_files: ModelFiles) -> ModelEngine
         configuration: Some(Configuration::Strata(StrataModelConfiguration {
             fixed_settings: Some(StrataFixedModelSettings {
                 expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+                expert_host_memory_mib_parameter_id: EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned(),
                 architecture: "qwen4exp".to_owned(),
                 mtp_draft_tokens: 4,
                 model_files: Some(model_files),
@@ -469,6 +516,7 @@ parameterSchema:
     - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
     - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
     - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "MiB" } }
+    - { parameterId: "expert-host-memory-mib", displayName: "Expert host memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-host-memory-mib", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
 storageBindings:
   - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }
 artifacts:
@@ -500,6 +548,7 @@ artifacts:
         provenanceDigest: "74d2c57145e6ff11d1d2faa79594477f9bc903a611af1fb20218189fbbb77d82"
 configurations:
   - configurationId: "strata-nvidia"
+    excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts: [{ engineReleaseId: "fixture-strata", engineArtifactId: "linux-amd64-cuda" }]
     artifactBindings: [{ bindingId: "fixture-strata-artifact", modelArtifactId: "fixture-strata-artifact" }]
     sizing:

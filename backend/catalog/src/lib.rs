@@ -299,7 +299,11 @@ impl Catalog {
                         ))
                     })?;
                 Ok(ApprovedEngineArtifact {
-                    engine_release: engine_release.clone(),
+                    engine_release: validation::release_for_configuration(
+                        engine_release,
+                        configuration,
+                    )
+                    .into_owned(),
                     artifact: artifact.clone(),
                 })
             })
@@ -1797,6 +1801,133 @@ artifacts:
     }
 
     #[test]
+    fn an_excluded_parameter_has_no_value_and_no_place_in_the_configuration() {
+        const EXCLUDED: &str = "    excludedEngineParameterIds: [\"prompt-cache-memory-mib\"]\n";
+        let load = |case: &str, sizing: &str, profile_defaults: &str| {
+            let root = temporary_catalog_root().join(case);
+            create_empty_catalog_source(&root);
+            write_sizing_engine(&root);
+            // An engine default would otherwise fill the excluded parameter in every deployment.
+            let engine = root.join("engines/fixture.yaml");
+            let release = std::fs::read_to_string(&engine).expect("sizing engine fixture");
+            std::fs::write(
+                &engine,
+                release.replace(
+                    "        unit: \"MiB\"\n",
+                    "        unit: \"MiB\"\n        defaultValue: \"512\"\n",
+                ),
+            )
+            .expect("sizing engine fixture with a cache default");
+            let support_sizing = if sizing.contains("sizing:") {
+                UNPARAMETERIZED_BINDING_SIZING
+            } else {
+                ""
+            };
+            write_sizing_model_with(&root, sizing, support_sizing, profile_defaults);
+            Catalog::load_with_policy(
+                &root,
+                OciArtifactPolicy::Development,
+                &ACCEPT_ENGINE_DECLARATIONS,
+            )
+        };
+
+        let catalog = load("excluded", EXCLUDED, "      values: []\n")
+            .expect("an excluded parameter needs no value");
+        let model_id = CatalogModelId("fixture-model".to_owned());
+        let (_, defaults) = catalog
+            .local_defaults_for(&model_id, "balanced")
+            .expect("profile defaults");
+        assert_eq!(
+            defaults
+                .values
+                .iter()
+                .map(|value| value.parameter_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["total-context", "parallel-requests"]
+        );
+        let declarations = catalog
+            .local_model_declarations(&model_id, "balanced", "sized")
+            .expect("local declarations");
+        let schema = declarations.approved_engine_artifacts[0]
+            .engine_release
+            .parameter_schema
+            .as_ref()
+            .expect("parameter schema");
+        assert_eq!(schema.schema_id, "fixture-shared");
+        assert_eq!(
+            schema
+                .parameters
+                .iter()
+                .map(|parameter| parameter.parameter_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["total-context", "context-per-request", "parallel-requests"]
+        );
+
+        let error = load(
+            "profile-default",
+            EXCLUDED,
+            &format!("      values:\n{SIZING_ENGINE_CACHE_DEFAULT}"),
+        )
+        .expect_err("a profile can't default an excluded parameter")
+        .to_string();
+        assert!(
+            error.contains(
+                "profile \"balanced\" engine parameter \"prompt-cache-memory-mib\" is not a parameter of the configuration's engine release"
+            ),
+            "{error}"
+        );
+
+        let error = load(
+            "derived",
+            &format!(
+                "{EXCLUDED}    sizing:\n      derivedParameters:\n        prompt-cache-memory-mib: \"4096\"\n      estimates:\n        acceleratorMemory:\n          unit: bytes\n          equation: \"1\"\n"
+            ),
+            "      values: []\n",
+        )
+        .expect_err("sizing can't derive an excluded parameter")
+        .to_string();
+        assert!(
+            error.contains(
+                "derived parameter \"prompt-cache-memory-mib\" is not an unsigned parameter of the configuration's engine release"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_configuration_excludes_only_its_release_parameters_other_than_shared_ones() {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        write_sizing_engine(&root);
+        write_sizing_model_with(
+            &root,
+            "    excludedEngineParameterIds: [\"prompt-cache-memory-mib\", \"prompt-cache-memory-mib\", \"missing\", \"parallel-requests\"]\n",
+            "",
+            "      values: []\n",
+        );
+
+        let error = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("invalid exclusions must reject")
+        .to_string();
+        for problem in [
+            "\"prompt-cache-memory-mib\" more than once",
+            "\"missing\" which its engine release doesn't declare",
+            "\"parallel-requests\" which every configuration keeps",
+        ] {
+            assert!(
+                error.contains(&format!(
+                    "configuration \"local\" excludes engine parameter {problem}"
+                )),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
     fn a_profile_hides_only_parameters_with_a_default_or_a_derivation_on_every_binding() {
         let hidden = r#"    engineParameterVisibilityOverrides:
       - { parameterId: "prompt-cache-memory-mib", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
@@ -2015,7 +2146,7 @@ artifacts:
         .expect_err("a derivation of a secret")
         .to_string();
         assert!(
-            error.contains("derived parameter \"api-key\" is not an unsigned engine parameter"),
+            error.contains("derived parameter \"api-key\" is not an unsigned parameter of the configuration's engine release"),
             "{error}"
         );
     }
