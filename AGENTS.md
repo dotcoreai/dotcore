@@ -114,6 +114,11 @@ in the same change that adds, removes or renames a folder it lists.
   when that use goes away.
 - When a review finding goes against a recorded decision, point to the decision instead of adding
   code around it.
+- Every catalog parameter bound (length bounds, ranges, accepted values) comes from the app, engine
+  or model it describes and names its source in a short YAML comment: a constant or argument parser
+  at the pinned version, its docs, or the model's own limits. Never pick a cap. The console derives
+  its ranges from declared data, never from its own constants
+  ([catalog spec](docs/specs/catalog.md#invariants)).
 - Organize code top-down for readers: the primary or public API first, then its direct
   dependencies, then supporting types and helpers. Keep related definitions together and don't
   interleave unrelated ones.
