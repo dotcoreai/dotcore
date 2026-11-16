@@ -4,7 +4,9 @@ Run it with the image's Python and the wrapper's path, as `just image-test` does
 fake model files in a temporary folder and stops the wrapper where it would start the server.
 """
 
+import contextlib
 import importlib.machinery
+import io
 import importlib.util
 import json
 import sys
@@ -131,6 +133,33 @@ class StartWrapperTest(unittest.TestCase):
             "--kv", "int8",
             "--mmap-experts", "--mtp-q4", "all", "--mtp-hnorm", "stream",
         ])
+
+    def test_a_host_memory_budget_pins_the_hottest_experts_and_maps_the_rest(self):
+        model = self.files("model", ["IQ2_XS/m-00001-of-00002.gguf", "IQ2_XS/m-00002-of-00002.gguf"])
+
+        budget = self.run_wrapper("--model", model, "--draft-layer", self.draft, "--expert-vram-mib", "100", "--expert-host-memory-mib", "1536")
+        mapped = self.run_wrapper("--model", model, "--draft-layer", self.draft, "--expert-vram-mib", "100", "--expert-host-memory-mib", "0")
+
+        self.assertEqual(budget["args"][-2:], ["--resident-budget-gib", "1.5"])
+        self.assertEqual(mapped["args"][-1:], ["--mmap-experts"])
+        self.assertEqual(budget["args"][:-2], mapped["args"][:-1])
+        self.assertEqual(mapped["args"][-3:-1], ["--kv", "int8"])
+
+    def test_a_host_memory_budget_is_refused_where_the_engine_path_takes_none(self):
+        gguf = self.files("single", ["model.gguf"]) / "model.gguf"
+        split = self.files("model", ["IQ2_XS/m-00001-of-00002.gguf", "IQ2_XS/m-00002-of-00002.gguf"])
+        cases = [
+            (["--model", gguf, "--arch", "qwen35moe", "--mtp", "2"],
+             "--pack, its GGUF options, --unified-memory and --expert-host-memory-mib need --draft-layer"),
+            (["--model", split, "--draft-layer", self.draft, "--unified-memory"],
+             "--expert-host-memory-mib can't be used with --unified-memory, where the GPU's cache already holds the experts in host memory"),
+        ]
+        for args, message in cases:
+            stderr = io.StringIO()
+            with self.subTest(message=message), contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as stopped:
+                self.run_wrapper(*args, "--expert-vram-mib", "100", "--expert-host-memory-mib", "1024")
+            self.assertEqual(stopped.exception.code, 2)
+            self.assertIn(f"error: {message}", stderr.getvalue())
 
     def test_a_cap_below_one_expert_block_is_refused(self):
         model = self.files("model", ["IQ2_XS/m-00001-of-00002.gguf", "IQ2_XS/m-00002-of-00002.gguf"])
