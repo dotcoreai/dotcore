@@ -92,9 +92,12 @@ option effects itself.
   definitions.
 - A configuration may not approve artifacts from releases of different engines or different
   parameter schemas.
+- A configuration may exclude release parameters, never a shared engine parameter. Its profiles and
+  sizing may name only the parameters it keeps. Exclusions apply before the other checks; engine
+  adapters decide which exclusions an engine path requires.
 - A configuration whose engine requires sizing is rejected when a binding lacks a footprint
-  estimate for a supported hardware class, or a derivation for an engine parameter that a profile
-  omits and the engine release doesn't default.
+  estimate for a supported hardware class, or a derivation for one of the configuration's engine
+  parameters that a profile omits and the engine release doesn't default.
 - Sizing equations must be linear in the total context, so the largest fitting total context follows
   from the estimates.
 - Repository checks reject a non-empty literal bound to a credential-like variable name in the
@@ -122,6 +125,8 @@ option effects itself.
 
 - Names its approved engine artifacts, the inference request kinds it serves, its sizing and its
   hardware support.
+- May exclude release parameters its launch recipe can't use. Profiles, sizing, previews and
+  deployments see only the rest: the configuration's engine parameters.
 - Engine-specific configuration, and the resolved engine state of deployments, stay typed,
   engine-owned payloads inside engine-neutral catalog and deployment wrappers.
 
@@ -131,7 +136,7 @@ A preset of defaults and parameter visibility overrides for one engine configura
 
 - Supplies defaults, never ongoing deployment authority.
 - Supplies no default for total context or context per request.
-- May override the default and the visibility of its engine's parameters. It may hide total
+- May override the default and the visibility of its configuration's engine parameters. It may hide total
   context and context per request, never make them advanced.
 - Carries no platform. The hardware class follows from the exact placement, so one profile serves
   every hardware class its configuration supports.
@@ -143,6 +148,8 @@ A preset of defaults and parameter visibility overrides for one engine configura
   request. Each release sets its own bounds, defaults and descriptions.
 - May declare parameter defaults within their bounds. A default on a parameter that sizing derives
   is rejected.
+- Defines every engine parameter and its shape. A configuration only narrows that set, never adds
+  or redefines a parameter; a profile presets values and visibility.
 
 ### Hardware class
 

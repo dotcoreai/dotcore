@@ -13,6 +13,8 @@ rejects configurations the engine can't run.
 - Defaults, minimums, maximums and the descriptions people see: each release's parameters in
   `catalog/engines/*.yaml`.
 - Flag mapping: the adapter's `plan.rs`. Engine rules and limits: its `declaration.rs`.
+- Release parameters a configuration can't use: excluded in the model YAML; the adapter's
+  `declaration.rs` says which ones an engine path requires.
 
 ## Rules
 
