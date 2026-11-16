@@ -175,6 +175,12 @@ describe("GetStartedPage", () => {
       { label: "Coding", pressed: false },
       { label: "Image generation", pressed: false },
     ]);
+    expect(["Chat assistant", "Coding", "Image generation"].map(cardSummary)).toEqual([
+      { mark: undefined, text: "Chat, writing, questions and documents." },
+      { mark: undefined, text: "Coding agents in your repositories." },
+      { mark: undefined, text: "Image and video workflows." },
+    ]);
+    expect(screen.getByRole("region", { name: "Machines" })).toBeVisible();
     await waitFor(() => expect(detailsOf("Model")).toContainEqual(["Memory", "22 GiB"]));
     expect(modelItem()).toEqual({
       choices: "Other choices (1)",
@@ -268,14 +274,15 @@ describe("GetStartedPage", () => {
     expect(compatibilityReads).toEqual([]);
   });
 
-  it("opens a served use case on its ready step, with no ready marks on the use cases", async () => {
+  it("opens a served use case on its ready step, with its card saying what runs it and no Machines card", async () => {
+    const user = setupUser();
     const { site, watch } = await renderPage({
       applicationDeployments: [readyApp()],
       machines: [{ id: "gpu1", vramGib: 32 }],
       modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
       routes: [routeView("qwen3.8-27b", ["dep-1"])],
       rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
-      targets: { "open-webui": [["gpu1", true, "app-new"]] },
+      targets: { comfyui: [["gpu1", true]], "open-webui": [["gpu1", true, "app-new"]] },
     });
 
     const ready = await screen.findByRole("region", { name: "Ready" });
@@ -283,10 +290,16 @@ describe("GetStartedPage", () => {
       { action: "Chat", kind: "Model", name: "Qwen3.8 27B", status: "Ready" },
       { action: "Open", kind: "App", name: "Open WebUI", status: "Ready" },
     ]);
-    expect(screen.queryByRole("button", { name: /^(Deploy|Continue)$/ })).not.toBeInTheDocument();
-    expect(
-      within(screen.getByRole("group", { name: "Use case" })).queryByText("Ready"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Deploy$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Machines" })).not.toBeInTheDocument();
+    expect(cardSummary("Chat assistant")).toEqual({
+      mark: "Ready",
+      text: "Qwen3.8 27B·Open WebUI",
+    });
+    expect(cardSummary("Image generation")).toEqual({
+      mark: undefined,
+      text: "Image and video workflows.",
+    });
 
     // The model stops being ready: the step follows it back to its progress.
     site.modelDeployments!.splice(0, 1, {
@@ -295,6 +308,13 @@ describe("GetStartedPage", () => {
     });
     await act(() => watch.tick());
     await waitFor(() => expect(progressItems()[0]).toMatchObject({ status: "Loading" }));
+
+    // An unserved use case on the same site shows its proposal and the Machines card again.
+    await user.click(screen.getByRole("button", { name: /Image generation/ }));
+    expect(await screen.findByRole("region", { name: "App" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Machines" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Ready" })).not.toBeInTheDocument();
+    expect(cardSummary("Chat assistant").mark).toBe("Deploying");
   });
 
   it("says why no machine has room for a model and keeps the app", async () => {
@@ -757,6 +777,12 @@ describe("GetStartedPage", () => {
         { kind: "App", name: "Open WebUI", status: "Queued", steps: undefined },
       ]);
       expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+      // The card says Deploying before the watch lists anything, and the Machines card is gone.
+      expect(cardSummary("Chat assistant")).toEqual({
+        mark: "Deploying",
+        text: "Qwen3.8 27B·Open WebUI",
+      });
+      expect(screen.queryByRole("region", { name: "Machines" })).not.toBeInTheDocument();
 
       const show = async (model: ModelDeployment, app: ApplicationDeployment) => {
         site.modelDeployments!.splice(0, 1, model);
@@ -842,7 +868,12 @@ describe("GetStartedPage", () => {
       site.applicationDeployments!.push(readyApp());
       await act(() => watch.tick());
       await waitFor(() => expect(progressItems()[0].status).toBe("Failed"));
+      expect(cardSummary("Chat assistant")).toEqual({
+        mark: "Failed",
+        text: "Qwen3.8 27B·Open WebUI",
+      });
       await user.click(screen.getByRole("button", { name: "Back" }));
+      await act(() => watch.tick());
 
       expect(screen.queryByRole("status", { name: "Deployment progress" })).not.toBeInTheDocument();
       expect(screen.getByRole("region", { name: "Model" })).toBeVisible();
@@ -888,8 +919,7 @@ describe("GetStartedPage", () => {
       );
     });
 
-    it("continues to the progress when everything runs but is not ready yet", async () => {
-      const user = setupUser();
+    it("opens the progress on its own when everything runs but is not ready yet", async () => {
       const { site, watch } = await renderPage({
         applicationDeployments: [startingApp(ApplicationLifecycleState.STARTING, 1)],
         machines: [{ id: "gpu1", vramGib: 32 }],
@@ -899,16 +929,43 @@ describe("GetStartedPage", () => {
         targets: { "open-webui": [["gpu1", true, "app-new"]] },
       });
 
-      await user.click(await screen.findByRole("button", { name: "Continue" }));
       await waitFor(() => expect(progressItems()[1]).toMatchObject({ status: "Starting" }));
+      expect(screen.queryByRole("region", { name: "Machines" })).not.toBeInTheDocument();
+      expect(cardSummary("Chat assistant")).toEqual({
+        mark: "Deploying",
+        text: "Qwen3.8 27B·Open WebUI",
+      });
 
       site.applicationDeployments!.splice(0, 1, readyApp());
       await act(() => watch.tick());
       expect(await screen.findByRole("region", { name: "Ready" })).toBeVisible();
+      expect(cardSummary("Chat assistant").mark).toBe("Ready");
+    });
+
+    it("shows the proposal with Deploy enabled after a reload with a failed model", async () => {
+      await renderPage({
+        applicationDeployments: [readyApp()],
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        modelDeployments: [
+          {
+            ...modelDeployment("dep-1", "gpu1", 65536n, 23n * gib),
+            state: create(ModelDeploymentStateSchema, { status: ModelDeploymentStatus.FAILED }),
+          },
+        ],
+        rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1"]] },
+        targets: { "open-webui": [["gpu1", true, "app-new"]] },
+      });
+
+      expect(await screen.findByRole("region", { name: "Model" })).toBeVisible();
+      expect(primaryAction()).toEqual({ disabled: false, name: "Deploy" });
+      expect(screen.queryByRole("status", { name: "Deployment progress" })).not.toBeInTheDocument();
+      expect(cardSummary("Chat assistant")).toEqual({
+        mark: undefined,
+        text: "Chat, writing, questions and documents.",
+      });
     });
 
     it("hides Get started for the site once, when a step becomes ready", async () => {
-      const user = setupUser();
       const { settings, site, watch } = await renderPage({
         applicationDeployments: [startingApp(ApplicationLifecycleState.STARTING, 1)],
         machines: [{ id: "gpu1", vramGib: 32 }],
@@ -917,7 +974,6 @@ describe("GetStartedPage", () => {
         rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
         targets: { "open-webui": [["gpu1", true, "app-new"]] },
       });
-      await user.click(await screen.findByRole("button", { name: "Continue" }));
       await waitFor(() => expect(progressItems()[1]).toMatchObject({ status: "Starting" }));
       expect(settings.updates).toEqual([]);
 
@@ -1545,6 +1601,20 @@ function useCaseCards() {
     }));
 }
 
+// What a use case card shows under its title: the ready check or Deploying badge, and its text.
+function cardSummary(name: string) {
+  const card = within(screen.getByRole("group", { name: "Use case" })).getByRole("button", {
+    name: new RegExp(name),
+  });
+  const badge = card.querySelector("[data-slot=badge]")?.textContent;
+  const summary = card.children[1].textContent ?? "";
+
+  return {
+    mark: within(card).queryByRole("img", { name: "Ready" }) ? "Ready" : badge,
+    text: badge ? summary.slice(badge.length) : summary,
+  };
+}
+
 function modelItem() {
   const item = screen.getByRole("region", { name: "Model" });
   const head = item.children[1];
@@ -1581,7 +1651,7 @@ function detailsOf(kind: string) {
 }
 
 function primaryAction() {
-  const button = screen.getByRole("button", { name: /^(Deploy|Continue)$/ });
+  const button = screen.getByRole("button", { name: "Deploy" });
   return { disabled: button.hasAttribute("disabled"), name: button.textContent };
 }
 

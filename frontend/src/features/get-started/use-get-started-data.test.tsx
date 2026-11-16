@@ -100,13 +100,13 @@ describe("useGetStartedData", () => {
       app: undefined,
       model: "qwen-27b/nvfp4 @gpu1 context 131072",
       otherChoices: ["qwen-8b/q4 context 32768", "qwen-8b/q8 context 16384"],
-      ready: false,
+      stage: "none",
     });
     expect(describeProposal(CHAT_ASSISTANT)).toEqual({
       app: "open-webui @docker cpu=false",
       model: "qwen-8b/q4 @gpu1 context 32768",
       otherChoices: [],
-      ready: false,
+      stage: "none",
     });
     expect(hook.current.machines.map((machine) => machine.machineId)).toEqual(["m1"]);
   });
@@ -123,7 +123,8 @@ describe("useGetStartedData", () => {
       deploymentId: "dep-1",
     });
     expect(proposal(CHAT_ASSISTANT).model?.deployment?.modelDeploymentId).toBe("dep-1");
-    expect(proposal(CHAT_ASSISTANT).ready).toBe(false);
+    // The app deployment the read names isn't listed by the watch yet.
+    expect(proposal(CHAT_ASSISTANT).stage).toBe("none");
 
     watch.payload(
       "applicationDeployments",
@@ -132,7 +133,7 @@ describe("useGetStartedData", () => {
       }),
     );
     await flush();
-    expect(proposal(CHAT_ASSISTANT).ready).toBe(true);
+    expect(proposal(CHAT_ASSISTANT).stage).toBe("ready");
   });
 
   it("falls back to the row's context while the watch has not listed the running deployment", async () => {
@@ -154,7 +155,7 @@ describe("useGetStartedData", () => {
       app: "open-webui @docker cpu=false",
       model: undefined,
       otherChoices: [],
-      ready: false,
+      stage: "none",
     });
   });
 
@@ -166,7 +167,7 @@ describe("useGetStartedData", () => {
       app: "comfyui @docker cpu=true",
       model: undefined,
       otherChoices: [],
-      ready: false,
+      stage: "none",
     });
   });
 
@@ -182,10 +183,55 @@ describe("useGetStartedData", () => {
     });
   });
 
-  it("marks image generation ready only when its app deployment is ready", async () => {
+  it("stages a deploying use case and an idle one", async () => {
+    backend.rows[CHAT_ASSISTANT] = [["qwen-8b", "q4", 32768, ["gpu1", "dep-1"]]];
+    backend.targets["open-webui"] = [["docker", true, "app-1"]];
+    await mount({
+      applicationDeployments: [applicationDeployment("app-1", false)],
+      modelDeployments: [modelDeployment("dep-1", ModelDeploymentStatus.LOADING, 32768n)],
+    });
+
+    expect(proposal(CHAT_ASSISTANT).stage).toBe("deploying");
+    expect(proposal(CODING).stage).toBe("none");
+  });
+
+  it("stages a model that runs while its app is not deployed as none", async () => {
+    backend.rows[CHAT_ASSISTANT] = [["qwen-8b", "q4", 32768, ["gpu1", "dep-1"]]];
+    backend.targets["open-webui"] = [["docker", true]];
+    await mount({
+      modelDeployments: [modelDeployment("dep-1", ModelDeploymentStatus.LOADING, 32768n)],
+    });
+
+    expect(proposal(CHAT_ASSISTANT).stage).toBe("none");
+  });
+
+  it("stages a failed model as none, since the read doesn't name it", async () => {
+    backend.rows[CHAT_ASSISTANT] = [["qwen-8b", "q4", 32768, ["gpu1"]]];
+    backend.targets["open-webui"] = [["docker", true, "app-1"]];
+    await mount({
+      applicationDeployments: [applicationDeployment("app-1", true)],
+      modelDeployments: [modelDeployment("dep-1", ModelDeploymentStatus.FAILED, 32768n)],
+    });
+
+    expect(proposal(CHAT_ASSISTANT).model).toMatchObject({
+      deployment: undefined,
+      deploymentId: undefined,
+    });
+    expect(proposal(CHAT_ASSISTANT).stage).toBe("none");
+  });
+
+  it("stages a use case as none while the watch doesn't list the deployments the read names", async () => {
+    backend.rows[CHAT_ASSISTANT] = [["qwen-8b", "q4", 32768, ["gpu1", "dep-1"]]];
+    backend.targets["open-webui"] = [["docker", true, "app-1"]];
+    await mount();
+
+    expect(proposal(CHAT_ASSISTANT).stage).toBe("none");
+  });
+
+  it("stages image generation by its app deployment alone", async () => {
     backend.targets["comfyui"] = [["docker", true, "app-2"]];
     const watch = await mount({ applicationDeployments: [applicationDeployment("app-2", false)] });
-    expect(proposal(IMAGE_GENERATION).ready).toBe(false);
+    expect(proposal(IMAGE_GENERATION).stage).toBe("deploying");
 
     watch.payload(
       "applicationDeployments",
@@ -194,7 +240,7 @@ describe("useGetStartedData", () => {
       }),
     );
     await flush();
-    expect(proposal(IMAGE_GENERATION).ready).toBe(true);
+    expect(proposal(IMAGE_GENERATION).stage).toBe("ready");
   });
 
   it("reads again after a deployment changes, and not for unrelated updates", async () => {
@@ -364,7 +410,7 @@ function proposal(useCase: UseCase): UseCaseProposal {
 
 /** A proposal as `model/profile @target context N` strings, for exact comparisons. */
 function describeProposal(useCase: UseCase) {
-  const { app, model, otherChoices, ready } = proposal(useCase);
+  const { app, model, otherChoices, stage } = proposal(useCase);
   const row = (m: NonNullable<typeof model>) =>
     `${m.modelId}/${m.profileId} context ${m.contextTokensPerRequest}`;
   const placed = (m: NonNullable<typeof model>) =>
@@ -376,7 +422,7 @@ function describeProposal(useCase: UseCase) {
       `${app.application.applicationId} @${app.target.target?.executionTargetId} cpu=${app.runsOnCpu}`,
     model: model && placed(model),
     otherChoices: otherChoices.map(row),
-    ready,
+    stage,
   };
 }
 

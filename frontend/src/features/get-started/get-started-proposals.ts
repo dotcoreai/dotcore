@@ -30,7 +30,14 @@ export const getStartedUseCases: readonly UseCase[] = [
   UseCase.IMAGE_GENERATION,
 ];
 
-/** The proposal for one use case: a model, an app, or both, and whether the site already serves it. */
+/**
+ * How far the site is in serving a use case: `ready` when everything proposed is deployed and
+ * ready, `deploying` when everything proposed has a listed deployment, none failed, but not all
+ * are ready, and `none` otherwise (partly deployed included, so Deploy creates the rest).
+ */
+export type UseCaseStage = "deploying" | "none" | "ready";
+
+/** The proposal for one use case: a model, an app, or both, and the stage the site serves it at. */
 export interface UseCaseProposal {
   useCase: UseCase;
   /** The best model row on its first target; absent when no machine can start one. */
@@ -39,8 +46,7 @@ export interface UseCaseProposal {
   otherChoices: ModelProposal[];
   /** The catalog app declared for the use case; absent when none is. */
   app?: AppProposal;
-  /** Whether everything proposed is already deployed and ready. */
-  ready: boolean;
+  stage: UseCaseStage;
 }
 
 /** One recommended model profile on one target. */
@@ -81,10 +87,10 @@ export interface UseCaseReads {
 }
 
 /**
- * What the proposal's primary action does: deploy what isn't running yet, continue when everything
- * proposed already runs, or nothing when no machine can start what the use case needs.
+ * What the proposal's primary action does: deploy what isn't running yet, or nothing when no
+ * machine can start what the use case needs or everything proposed already runs.
  */
-export type ProposalAction = "continue" | "deploy" | "unavailable";
+export type ProposalAction = "deploy" | "unavailable";
 
 /** Whether a use case is served by a model; image generation is served by its app alone. */
 export function usesModel(useCase: UseCase): boolean {
@@ -102,7 +108,7 @@ export function proposalAction(
   const deployApp = Boolean(proposal.app?.target && !proposal.app.target.applicationDeploymentId);
   if (deployModel || deployApp) return "deploy";
 
-  return model || proposal.app?.target ? "continue" : "unavailable";
+  return "unavailable";
 }
 
 /** A model proposal's identity, stable across reads while the same row stays on the same target. */
@@ -148,7 +154,7 @@ export function buildProposals(
       app,
       model: first,
       otherChoices: rest,
-      ready: isServed(useCase, first, app),
+      stage: useCaseStage(useCase, first, app),
       useCase,
     };
   });
@@ -202,19 +208,39 @@ function appProposal(
   };
 }
 
-function isServed(
+function useCaseStage(
   useCase: UseCase,
   model: ModelProposal | undefined,
   app: AppProposal | undefined,
-): boolean {
+): UseCaseStage {
   const appServed = app?.target ? isApplicationReady(app.deployment) : undefined;
-  if (!usesModel(useCase)) return appServed === true;
-
   const modelReady = model?.deployment
     ? deploymentStatus(model.deployment) === ModelDeploymentStatus.READY
     : false;
+  if (usesModel(useCase) ? modelReady && appServed !== false : appServed === true) return "ready";
 
-  return modelReady && appServed !== false;
+  // Every proposed piece needs a deployment the watch lists, so a stale read can't open a step
+  // whose deployments are gone.
+  const modelPiece = usesModel(useCase) ? [model?.deployment] : [];
+  const appPiece = app?.target ? [app.deployment] : [];
+  const pieces = [...modelPiece, ...appPiece];
+  if (!pieces.length || pieces.some((deployment) => !deployment)) return "none";
+
+  const failed =
+    (model?.deployment !== undefined && isModelDeploymentFailed(model.deployment)) ||
+    (app?.deployment !== undefined && isApplicationDeploymentFailed(app.deployment));
+
+  return failed ? "none" : "deploying";
+}
+
+/** Whether a model deployment has failed. */
+export function isModelDeploymentFailed(deployment: ModelDeployment): boolean {
+  return deploymentStatus(deployment) === ModelDeploymentStatus.FAILED;
+}
+
+/** Whether an application deployment has failed. */
+export function isApplicationDeploymentFailed(deployment: ApplicationDeployment): boolean {
+  return applicationDeploymentLifecycleState(deployment) === ApplicationLifecycleState.FAILED;
 }
 
 /** Whether an application deployment is up: its lifecycle and readiness are both ready. */
