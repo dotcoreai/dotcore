@@ -15,8 +15,11 @@ milestones and commercial plans live outside this repository. Treat the pages as
 ## Pages
 
 - `README.md` lists the pages and the components each owns. Add a page only when a new component
-  owns a new kind of state, or when a new client (a way people reach Dotcore) appears.
-- Each page names the code it covers. Every component that has code appears in an area code map
+  owns a new kind of state, when a new client (a way people reach Dotcore) appears, or for a
+  capability central to the product that several components deliver together, such as
+  recommendations. That page owns the capability's rules; the components' pages link to it.
+- Each page names the code it covers by folder, never by file: files move and get renamed, folders
+  follow components. Every component that has code appears in an area code map
   (`backend/AGENTS.md`, `frontend/AGENTS.md`), and every crate that holds a component appears on
   one page.
 
@@ -24,7 +27,8 @@ milestones and commercial plans live outside this repository. Treat the pages as
 
 Use these sections, in this order, and leave out any that would be empty:
 
-1. Title, a one or two sentence definition naming the owning components, and the code it covers.
+1. Title, a one or two sentence definition naming the owning components, and the code folders it
+   covers.
 2. `## Capabilities`: what the subject lets users and operators do. Outcomes, not screens or commands.
 3. `## Architecture`: a component diagram, each component in one line, then one `###` per flow: a
    flow or sequence diagram, what moves between which components, then that flow's rules as

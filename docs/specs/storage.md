@@ -5,8 +5,7 @@ metrics, logs and diagnostics, and backups. The artifact manager, the site store
 observability and the backups manager own them.
 
 Code: `backend/artifact/`, `backend/site/` (site store and node store), `backend/observability/`,
-`backend/core/src/{diagnostic,deployment_logs}/` and `backend/core/src/metrics.rs` (logs and metric
-transport).
+`backend/core/src/{diagnostic,deployment_logs}/` (log transport).
 
 ## Capabilities
 
