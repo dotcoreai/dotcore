@@ -194,38 +194,33 @@ impl ManagedDeployment for ApplicationDeployment {
         desired_state_label(self.desired_state())
     }
 
+    /// What tearing a deployment down does to its data: storage placed with the deployment is
+    /// deleted, storage shared by the app is kept, each listed by binding name.
     fn teardown_consequence(&self) -> String {
-        teardown_consequence(self)
-    }
-}
+        let bindings = |placement: StoragePlacement| {
+            self.storage_attachments
+                .iter()
+                .filter(|attachment| attachment.placement == placement as i32)
+                .map(|attachment| single_line(&attachment.binding_name))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let deleted = bindings(StoragePlacement::Deployment);
+        let kept = bindings(StoragePlacement::Application);
 
-/// What tearing a deployment down does to its data: storage placed with the deployment is
-/// deleted, storage shared by the app is kept, each listed by binding name.
-fn teardown_consequence(deployment: &ApplicationDeployment) -> String {
-    let bindings = |placement: StoragePlacement| {
-        deployment
-            .storage_attachments
-            .iter()
-            .filter(|attachment| attachment.placement == placement as i32)
-            .map(|attachment| single_line(&attachment.binding_name))
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    let deleted = bindings(StoragePlacement::Deployment);
-    let kept = bindings(StoragePlacement::Application);
-
-    let mut text = "This stops and removes its workloads".to_owned();
-    if !deleted.is_empty() {
-        text.push_str(&format!(" and deletes this deployment's data ({deleted})"));
+        let mut text = "This stops and removes its workloads".to_owned();
+        if !deleted.is_empty() {
+            text.push_str(&format!(" and deletes this deployment's data ({deleted})"));
+        }
+        if kept.is_empty() {
+            text.push_str(". The catalog application is kept.");
+        } else {
+            text.push_str(&format!(
+                ". It keeps the data shared by the app ({kept}) and the catalog application."
+            ));
+        }
+        text
     }
-    if kept.is_empty() {
-        text.push_str(". The catalog application is kept.");
-    } else {
-        text.push_str(&format!(
-            ". It keeps the data shared by the app ({kept}) and the catalog application."
-        ));
-    }
-    text
 }
 
 impl LoggedDeployment for ApplicationDeployment {
@@ -366,18 +361,19 @@ mod tests {
         };
 
         assert_eq!(
-            teardown_consequence(&with_storage(&[])),
+            with_storage(&[]).teardown_consequence(),
             "This stops and removes its workloads. The catalog application is kept."
         );
         assert_eq!(
-            teardown_consequence(&with_storage(&[
+            with_storage(&[
                 ("data", StoragePlacement::Deployment),
                 ("models", StoragePlacement::Deployment),
-            ])),
+            ])
+            .teardown_consequence(),
             "This stops and removes its workloads and deletes this deployment's data (data, models). The catalog application is kept."
         );
         assert_eq!(
-            teardown_consequence(&with_storage(&[("models", StoragePlacement::Application)])),
+            with_storage(&[("models", StoragePlacement::Application)]).teardown_consequence(),
             "This stops and removes its workloads. It keeps the data shared by the app (models) and the catalog application."
         );
     }

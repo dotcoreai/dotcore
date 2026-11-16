@@ -6513,8 +6513,15 @@ async fn creation_failure_is_local_redacted_logged_retried_and_does_not_block_la
         .expect("declaration repository");
     let current =
         TestCurrentApplicationRepository::open(&directory, "site-one").expect("current repository");
-    let first = deployment(ApplicationDeploymentDesiredState::Present);
+    let mut first = deployment(ApplicationDeploymentDesiredState::Present);
+    first.secret_attachments = vec![ApplicationSecretAttachment {
+        service_name: "web".to_owned(),
+        binding_name: "secret".to_owned(),
+        environment_variable: "WEBUI_SECRET".to_owned(),
+        value: LAUNCH_SECRET_VALUE.to_owned(),
+    }];
     let mut second = first.clone();
+    second.secret_attachments.clear();
     second.application_deployment_id = "open-webui-2".to_owned();
     second.application_deployment_name = "open-webui-2".to_owned();
     desired.upsert(first.clone(), 0).expect("first desired");
@@ -6626,6 +6633,8 @@ async fn creation_failure_is_local_redacted_logged_retried_and_does_not_block_la
     assert!(logs.contains("runtime-creation"));
     assert!(logs.contains("secret-runtime-detail"));
     assert!(logs.contains("/var/lib/docker/container-deadbeef"));
+    assert!(logs.contains("env=[REDACTED]"));
+    assert!(!logs.contains(LAUNCH_SECRET_VALUE));
     let created = controller
         .create_deployment(CreateApplicationDeploymentRequest {
             application_id: "open-webui".to_owned(),
@@ -8298,6 +8307,57 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
 }
 
 #[tokio::test]
+async fn typed_values_with_equals_signs_and_72_byte_passwords_reach_the_launch() {
+    let directory = test_directory();
+    let (controller, desired) =
+        secret_parameter_test_controller(&directory, test_secret_generator());
+    let base64_password = "c2VjcmV0LXBhc3N3b3Jk==";
+    let longest_password = "p".repeat(72);
+
+    for (username, password) in [
+        ("user=name", base64_password),
+        ("operator", longest_password.as_str()),
+    ] {
+        let created = controller
+            .create_deployment(parameter_request(vec![
+                string_parameter("username", username),
+                string_parameter("password", password),
+            ]))
+            .await
+            .expect("deployment with typed values");
+        let declaration = desired
+            .snapshot()
+            .expect("persisted declarations")
+            .deployments
+            .into_iter()
+            .find(|declaration| {
+                declaration.application_deployment_id == created.application_deployment_id
+            })
+            .expect("created declaration");
+
+        let password_hash = declaration.secret_attachments[1].value.clone();
+        assert!(bcrypt::verify(password, &password_hash).expect("verifiable hash"));
+        assert_eq!(
+            workload_group_launch(
+                &declaration,
+                Ipv4Addr::LOCALHOST,
+                test_inference_route_resolver().as_ref(),
+            )
+            .expect("workload launch")
+            .units[&WorkloadUnitName("web".to_owned())]
+                .environment,
+            BTreeMap::from([
+                ("PASSWORD".to_owned(), password.to_owned()),
+                ("PASSWORD_HASH".to_owned(), password_hash),
+                ("USERNAME".to_owned(), username.to_owned()),
+            ])
+        );
+    }
+    drop(controller);
+    fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
 async fn bindings_enabled_by_a_switch_reach_the_service_only_when_it_is_on() {
     let directory = test_directory();
     let (controller, desired) = test_controller_for(
@@ -8394,27 +8454,31 @@ async fn invalid_secret_and_text_values_reject_creation_without_quoting_them() {
     let cases = [
         (
             string_parameter("password", ""),
-            "Application parameter \"password\" has an invalid value: it is shorter than the minimum length of 12",
+            "Application parameter \"password\" has an invalid value: it has fewer bytes than the minimum length of 12",
         ),
         (
             string_parameter("password", "short-pass"),
-            "Application parameter \"password\" has an invalid value: it is shorter than the minimum length of 12",
+            "Application parameter \"password\" has an invalid value: it has fewer bytes than the minimum length of 12",
         ),
         (
-            string_parameter("password", "typed=password-1"),
-            "Application parameter \"password\" has an invalid value: it contains `=` or a control character",
+            string_parameter("password", &"p".repeat(73)),
+            "Application parameter \"password\" has an invalid value: it has more bytes than the maximum length of 72",
+        ),
+        (
+            string_parameter("password", &"é".repeat(72)),
+            "Application parameter \"password\" has an invalid value: it has more bytes than the maximum length of 72",
         ),
         (
             string_parameter("password", "typed-password\n1"),
-            "Application parameter \"password\" has an invalid value: it contains `=` or a control character",
+            "Application parameter \"password\" has an invalid value: it contains a control character",
         ),
         (
             string_parameter("username", ""),
-            "Application parameter \"username\" has an invalid value: it is shorter than the minimum length of 1",
+            "Application parameter \"username\" has an invalid value: it has fewer bytes than the minimum length of 1",
         ),
         (
             string_parameter("username", &"u".repeat(65)),
-            "Application parameter \"username\" has an invalid value: it is longer than the maximum length of 64",
+            "Application parameter \"username\" has an invalid value: it has more bytes than the maximum length of 64",
         ),
     ];
 

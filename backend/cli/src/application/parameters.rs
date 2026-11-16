@@ -1,8 +1,9 @@
 //! The parameters of one application deployment, as rows an operator can read.
 
+use dotcore_catalog::typed_parameters::default_value;
 use dotcore_proto::dotcore::application::v1::ApplicationDeployment;
 
-use crate::parameters::{ParameterInput, ParameterRow, definition_default, retained};
+use crate::parameters::{ParameterInput, ParameterRow, retained};
 
 /// The deployment's parameters in catalog order. A parameter without a retained value shows its
 /// default, and one with neither is left out.
@@ -21,7 +22,7 @@ pub(super) fn rows(deployment: &ApplicationDeployment, reveal_secrets: bool) -> 
             ParameterInput {
                 definition,
                 value: retained(&snapshot.parameter_values, &definition.parameter_id),
-                default: definition_default(definition),
+                default: default_value(definition),
             }
             .row(reveal_secrets)
         })

@@ -5,14 +5,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
     ApplicationDependencyCondition, ApplicationEndpointProtocol, ApplicationGraph,
-    ApplicationService, ParameterVisibility, application_configuration_binding,
-    parameter_definition::ParameterType,
+    ApplicationSecretForm, ApplicationService, ParameterVisibility,
+    application_configuration_binding, parameter_definition::ParameterType,
 };
 
-use super::application::valid_configuration_value;
 use super::service::validate_application_service;
 use crate::OciArtifactPolicy;
-use crate::typed_parameters::{default_value, is_secret, validate_parameter_definition};
+use crate::typed_parameters::{
+    BCRYPT_MAXIMUM_SECRET_BYTES, default_value, is_secret, validate_parameter_definition,
+};
 
 pub(super) fn validate_application_graph(
     graph: &ApplicationGraph,
@@ -206,17 +207,6 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
                 "application parameter {id:?} must be basic or advanced, not hidden"
             ));
         }
-        // Enum values are projected verbatim into environment variables.
-        if let Some(ParameterType::StringEnum(schema)) = definition.parameter_type.as_ref()
-            && !schema
-                .values
-                .iter()
-                .all(|value| valid_configuration_value(value))
-        {
-            errors.push(anyhow::anyhow!(
-                "application parameter {id:?} has an unsafe enum value"
-            ));
-        }
     }
 
     let parameter_kinds = graph
@@ -224,7 +214,9 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
         .iter()
         .map(|definition| {
             let kind = match definition.parameter_type {
-                Some(ParameterType::Secret(_)) => ParameterKind::Secret,
+                Some(ParameterType::Secret(schema)) => ParameterKind::Secret {
+                    maximum_length: schema.maximum_length,
+                },
                 Some(ParameterType::Boolean(_)) => ParameterKind::Boolean,
                 _ => ParameterKind::Other,
             };
@@ -264,7 +256,7 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
                 None => errors.push(anyhow::anyhow!(
                     "application configuration binding {binding_name:?} on service {service_name:?} references missing parameter {id:?}"
                 )),
-                Some(ParameterKind::Secret) => errors.push(anyhow::anyhow!(
+                Some(ParameterKind::Secret { .. }) => errors.push(anyhow::anyhow!(
                     "application configuration binding {binding_name:?} on service {service_name:?} references secret parameter {id:?}; secrets use secret bindings"
                 )),
                 Some(_) => {}
@@ -289,7 +281,17 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
                 None => errors.push(anyhow::anyhow!(
                     "application secret binding {binding_name:?} on service {service_name:?} references missing parameter {id:?}"
                 )),
-                Some(ParameterKind::Secret) => {}
+                // A bcrypt hash covers only a value's first bytes, so a longer one must be refused.
+                Some(ParameterKind::Secret { maximum_length })
+                    if binding.form() == ApplicationSecretForm::Bcrypt
+                        && maximum_length
+                            .is_none_or(|maximum| maximum > BCRYPT_MAXIMUM_SECRET_BYTES) =>
+                {
+                    errors.push(anyhow::anyhow!(
+                        "application secret binding {binding_name:?} on service {service_name:?} hashes parameter {id:?} with bcrypt, so it must declare a maximum length of at most {BCRYPT_MAXIMUM_SECRET_BYTES} bytes"
+                    ));
+                }
+                Some(ParameterKind::Secret { .. }) => {}
                 Some(_) => errors.push(anyhow::anyhow!(
                     "application secret binding {binding_name:?} on service {service_name:?} references parameter {id:?}, which is not a secret"
                 )),
@@ -306,7 +308,7 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
 /// The kind of a graph parameter that decides which bindings may reference it.
 #[derive(Clone, Copy)]
 enum ParameterKind {
-    Secret,
+    Secret { maximum_length: Option<u32> },
     Boolean,
     Other,
 }

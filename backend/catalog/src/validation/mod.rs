@@ -24,9 +24,8 @@ pub use application::{
     valid_configuration_value, valid_environment_variable, validate_application_with_policy,
 };
 pub use model::{
-    is_secret_parameter, overlay_parameter_defaults, valid_pinned_hugging_face_artifact,
-    validate_parameter_values, validate_parameter_values_before_secrets,
-    validate_supplied_parameter_values,
+    overlay_parameter_defaults, valid_pinned_hugging_face_artifact, validate_parameter_values,
+    validate_parameter_values_before_secrets, validate_supplied_parameter_values,
 };
 pub(super) use sensitive_literal::validate_sensitive_literals;
 pub use upstream_model_template::validate_upstream_model_template;

@@ -113,6 +113,36 @@ fn startup_log_protection_selects_sensitive_environment_values() {
 }
 
 #[test]
+fn startup_log_protection_selects_run_together_sensitive_names() {
+    let environment = BTreeMap::from([
+        (
+            "HFTOKEN".to_owned(),
+            dotcore_runtime::WorkloadValue::literal("hf-private"),
+        ),
+        (
+            "APIKEY".to_owned(),
+            dotcore_runtime::WorkloadValue::literal("key-private"),
+        ),
+        (
+            "THREADS".to_owned(),
+            dotcore_runtime::WorkloadValue::literal("16"),
+        ),
+    ]);
+    let protected = super::protected_startup_values(
+        &test_desired_deployment("fixture-model", ModelDeploymentDesiredState::Present),
+        &environment,
+    );
+    assert_eq!(
+        protected.values(),
+        &[b"key-private".to_vec(), b"hf-private".to_vec()]
+    );
+    assert_eq!(
+        protected.redact("hf-private key-private 16"),
+        "[REDACTED] [REDACTED] 16"
+    );
+}
+
+#[test]
 fn startup_log_protection_selects_literal_parts_of_symbolic_sensitive_values() {
     let environment = BTreeMap::from([
         (

@@ -2,15 +2,17 @@
 //! parallel requests.
 //!
 //! The catalog owns their ids and their fixed shape and visibility, so controllers, adapters and
-//! the console name and place them the same way on every engine, while each release sets its own maxima, default values
-//! and descriptions. It also fills the context per request a deployment leaves out, from the
-//! maximum context and the total context.
+//! the console name and place them the same way on every engine, while each release sets its own
+//! maxima, default values and descriptions. It also fills the context per request a deployment
+//! leaves out, from the maximum context and the total context.
 
 use dotcore_proto::dotcore::catalog::v1::{
     EngineParameterSchema, Model, ModelEngineConfiguration, ParameterDefinition, ParameterValue,
     ParameterValues, ParameterVisibility, parameter_definition::ParameterType,
     parameter_value::Value,
 };
+
+use crate::typed_parameters::is_declared_visibility;
 
 /// Id of the total context: the KV pool an engine holds at start, shared by active requests.
 pub const TOTAL_CONTEXT_PARAMETER_ID: &str = "total-context";
@@ -23,7 +25,6 @@ pub const PARALLEL_REQUESTS_PARAMETER_ID: &str = "parallel-requests";
 
 /// Smallest total context and context per request a release declares and a deployment or sizing
 /// scenario may use, in tokens.
-// One ninfer KV page, the smallest context ninfer accepts, so every engine accepts it.
 pub const MINIMUM_CONTEXT_TOKENS: u64 = 1024;
 
 /// Whether the parameter is one of the shared parameters, which adapters read by id rather than
@@ -90,9 +91,9 @@ pub(crate) fn profile_may_default(parameter_id: &str) -> bool {
         .is_none_or(|shared| shared.profile_default)
 }
 
-/// Whether the parameter is fixed in the main view: the context parameters are, and may only be
-/// hidden there; an engine or a profile may show any other parameter there too.
-pub(crate) fn in_main_view(parameter_id: &str) -> bool {
+/// Whether the parameter always sits in the main view: the context parameters do, and a profile
+/// may only hide them.
+fn in_main_view(parameter_id: &str) -> bool {
     SHARED_PARAMETERS.iter().any(|shared| {
         shared.parameter_id == parameter_id && shared.visibility == ParameterVisibility::Basic
     })
@@ -105,14 +106,13 @@ pub(crate) fn profile_visibility_problem(
     parameter_id: &str,
     visibility: ParameterVisibility,
 ) -> Option<&'static str> {
-    let main_view = in_main_view(parameter_id);
-    match visibility {
-        ParameterVisibility::Unspecified => Some("requires a basic, advanced or hidden visibility"),
-        ParameterVisibility::Advanced if main_view => Some("may be hidden but not advanced"),
-        ParameterVisibility::Basic
-        | ParameterVisibility::Advanced
-        | ParameterVisibility::Hidden => None,
+    if !is_declared_visibility(visibility) {
+        return Some("requires a basic, advanced or hidden visibility");
     }
+    if visibility == ParameterVisibility::Advanced && in_main_view(parameter_id) {
+        return Some("may be hidden but not advanced");
+    }
+    None
 }
 
 /// Checks that an engine parameter schema declares every shared parameter with its fixed shape,

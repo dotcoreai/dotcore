@@ -38,3 +38,16 @@ pub fn canonical_temp_dir() -> std::path::PathBuf {
 pub fn canonical_tempdir() -> std::io::Result<tempfile::TempDir> {
     tempfile::tempdir_in(canonical_temp_dir())
 }
+
+/// The lines of a record block whose key starts with the given prefix, such as one deployment's
+/// parameters.
+#[allow(
+    dead_code,
+    reason = "only the deployment contracts read parameter records"
+)]
+pub fn parameter_lines<'a>(stdout: &'a str, prefix: &str) -> Vec<&'a str> {
+    stdout
+        .lines()
+        .filter(|line| line.starts_with(prefix))
+        .collect()
+}

@@ -113,8 +113,10 @@ pub fn valid_environment_variable(value: &str) -> bool {
         && values.all(|value| value.is_ascii_uppercase() || value.is_ascii_digit() || value == b'_')
 }
 
+/// Whether a value is safe as a single-line environment value: no control characters. `=` is
+/// allowed, since only a variable's name ends at the first one.
 pub fn valid_configuration_value(value: &str) -> bool {
-    !value.contains('=') && !value.chars().any(char::is_control)
+    !value.chars().any(char::is_control)
 }
 
 #[cfg(test)]
@@ -536,7 +538,7 @@ mod tests {
                 binding_name: "unsafe-value".to_owned(),
                 environment_variable: "UNSAFE_VALUE".to_owned(),
                 source: Some(application_configuration_binding::Source::LiteralValue(
-                    "not=safe".to_owned(),
+                    "not\nsafe".to_owned(),
                 )),
                 input: None,
                 enabled_by_parameter_id: None,
@@ -731,13 +733,6 @@ mod tests {
             ),
             (
                 parameterized_application(
-                    vec![parameter("mode", string_enum(&["a=b"], Some("a=b")))],
-                    &["mode"],
-                ),
-                "application parameter \"mode\" has an unsafe enum value",
-            ),
-            (
-                parameterized_application(
                     vec![parameter("mode", string_enum(&["auto"], Some("auto")))],
                     &["mode", "other"],
                 ),
@@ -790,8 +785,8 @@ mod tests {
     fn application_validation_accepts_text_and_secret_parameters() {
         let mut application = parameterized_application(
             vec![
-                parameter("username", text(1, 64, Some("admin"))),
-                parameter("password", secret(32, 12)),
+                parameter("username", text(1, None, Some("admin"))),
+                parameter("password", secret(32, 12, Some(72))),
             ],
             &["username"],
         );
@@ -829,57 +824,90 @@ mod tests {
         };
         let cases = [
             (
-                with_secret_binding(vec![parameter("password", secret(8, 12))], &[], "password"),
+                with_secret_binding(
+                    vec![parameter("password", secret(8, 12, None))],
+                    &[],
+                    "password",
+                ),
                 "parameter \"password\" minimum length must not exceed its generated length",
             ),
             (
-                with_secret_binding(vec![parameter("password", secret(32, 0))], &[], "password"),
+                with_secret_binding(
+                    vec![parameter("password", secret(32, 0, None))],
+                    &[],
+                    "password",
+                ),
                 "parameter \"password\" minimum length must be at least 1",
             ),
             (
                 parameterized_application(
-                    vec![parameter("username", text(1, 4, Some("administrator")))],
+                    vec![parameter(
+                        "username",
+                        text(1, Some(4), Some("administrator")),
+                    )],
                     &["username"],
                 ),
-                "parameter \"username\" default is invalid: it is longer than the maximum length of 4",
+                "parameter \"username\" default is invalid: it has more bytes than the maximum length of 4",
             ),
             (
                 parameterized_application(
-                    vec![parameter("username", text(6, 64, Some("admin")))],
+                    vec![parameter("username", text(6, Some(64), Some("admin")))],
                     &["username"],
                 ),
-                "parameter \"username\" default is invalid: it is shorter than the minimum length of 6",
+                "parameter \"username\" default is invalid: it has fewer bytes than the minimum length of 6",
             ),
             (
                 parameterized_application(
-                    vec![parameter("username", text(1, 64, Some("a=b")))],
+                    vec![parameter("username", text(1, Some(64), Some("a\tb")))],
                     &["username"],
                 ),
-                "parameter \"username\" default is invalid: it contains `=` or a control character",
+                "parameter \"username\" default is invalid: it contains a control character",
             ),
             (
                 parameterized_application(
-                    vec![parameter("username", text(0, 0, Some("")))],
+                    vec![parameter("username", text(0, Some(0), Some("")))],
                     &["username"],
                 ),
                 "parameter \"username\" maximum length must be at least 1",
             ),
             (
                 parameterized_application(
-                    vec![parameter("username", text(1, 64, None))],
+                    vec![parameter("username", text(1, Some(64), None))],
                     &["username"],
                 ),
                 "application parameter \"username\" requires a default",
             ),
             (
-                with_secret_binding(vec![parameter("password", secret(32, 12))], &[], "missing"),
+                with_form_binding(
+                    vec![parameter("password", secret(32, 12, None))],
+                    &[],
+                    "password",
+                    ApplicationSecretForm::Bcrypt,
+                ),
+                "application secret binding \"password\" on service \"web\" hashes parameter \"password\" with bcrypt, so it must declare a maximum length of at most 72 bytes",
+            ),
+            (
+                with_form_binding(
+                    vec![parameter("password", secret(32, 12, Some(73)))],
+                    &[],
+                    "password",
+                    ApplicationSecretForm::Bcrypt,
+                ),
+                "application secret binding \"password\" on service \"web\" hashes parameter \"password\" with bcrypt, so it must declare a maximum length of at most 72 bytes",
+            ),
+            (
+                with_secret_binding(
+                    vec![parameter("password", secret(32, 12, None))],
+                    &[],
+                    "missing",
+                ),
                 "application secret binding \"password\" on service \"web\" references missing parameter \"missing\"",
             ),
             (
                 with_secret_binding(
                     vec![
-                        parameter("username", text(1, 64, Some("admin"))),
-                        parameter("password", secret(32, 12)),
+                        parameter("username", text(1, Some(64), Some("admin"))),
+                        parameter("password", secret(32, 12, None)),
                     ],
                     &["password"],
                     "username",
@@ -901,7 +929,7 @@ mod tests {
 
         for form in [ApplicationSecretForm::Plain, ApplicationSecretForm::Bcrypt] {
             let not_secret = with_form_binding(
-                vec![parameter("username", text(1, 64, Some("admin")))],
+                vec![parameter("username", text(1, Some(64), Some("admin")))],
                 &[],
                 "username",
                 form,
@@ -918,7 +946,7 @@ mod tests {
         }
 
         let mut unknown_form =
-            parameterized_application(vec![parameter("password", secret(32, 12))], &[]);
+            parameterized_application(vec![parameter("password", secret(32, 12, None))], &[]);
         bind_secret(
             &mut unknown_form,
             "password",
@@ -956,7 +984,10 @@ services:
         )
         .expect("secret graph decodes");
 
-        assert_eq!(graph.parameters, [parameter("password", secret(32, 12))]);
+        assert_eq!(
+            graph.parameters,
+            [parameter("password", secret(32, 12, None))]
+        );
         assert_eq!(
             graph.services[0].secret_bindings,
             [ApplicationSecretBinding {
@@ -1019,7 +1050,7 @@ services:
                 vec![
                     parameter("login", boolean(Some(false))),
                     parameter("mode", string_enum(&["auto"], Some("auto"))),
-                    parameter("password", secret(32, 1)),
+                    parameter("password", secret(32, 1, None)),
                 ],
                 &["login", "mode"],
             );
@@ -1221,7 +1252,7 @@ services:
 
     fn text(
         minimum_length: u32,
-        maximum_length: u32,
+        maximum_length: Option<u32>,
         default_value: Option<&str>,
     ) -> ParameterType {
         ParameterType::Text(TextParameterSchema {
@@ -1231,10 +1262,15 @@ services:
         })
     }
 
-    fn secret(generated_length: u32, minimum_length: u32) -> ParameterType {
+    fn secret(
+        generated_length: u32,
+        minimum_length: u32,
+        maximum_length: Option<u32>,
+    ) -> ParameterType {
         ParameterType::Secret(SecretParameterSchema {
             generated_length,
             minimum_length,
+            maximum_length,
         })
     }
 

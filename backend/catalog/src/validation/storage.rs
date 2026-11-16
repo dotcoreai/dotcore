@@ -3,8 +3,9 @@
 //! A storage binding names writable storage an owner attaches to its workloads: a unique name, a
 //! unique absolute mount path, a kind and the placements the owner supports, and environment
 //! variables that point at paths inside the mount. An application binding lists the placements a
-//! deployment may choose, the first being the default; an engine binding has exactly one. Mount paths may nest, so one binding can sit inside
-//! another; Docker binds the inner mount over the outer one's folder.
+//! deployment may choose, the first being the default; an engine binding has exactly one. Mount
+//! paths may nest, so one binding can sit inside another; Docker binds the inner mount over the
+//! outer one's folder.
 
 use std::collections::BTreeSet;
 

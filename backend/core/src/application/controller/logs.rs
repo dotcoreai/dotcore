@@ -572,6 +572,14 @@ fn step_sources(services: &[RuntimeLogSource]) -> Vec<PreparationStep> {
         .collect()
 }
 
+/// Returns the values of `deployment` that no log or recorded failure text may reveal: its launch
+/// attachments and secret parameter values.
+pub(super) fn deployment_protected_values(
+    deployment: &ApplicationDeploymentDeclaration,
+) -> ProtectedLogValues {
+    protected_values(deployment, attachment_values(deployment))
+}
+
 /// Returns the configuration and secret values the deployment's launch receives, which step
 /// lines must not reveal either.
 fn attachment_values(

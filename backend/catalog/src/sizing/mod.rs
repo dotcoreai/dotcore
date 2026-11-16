@@ -10,8 +10,7 @@ use dotcore_proto::dotcore::catalog::v1::{
     EngineParameterSchema, ModelEngineConfiguration, ModelOptionParameterValue, ModelOptionValues,
     ParameterValues, model_option_parameter_definition::ParameterType as OptionParameterType,
     model_option_parameter_value::Value as OptionParameterValue,
-    parameter_definition::ParameterType as EngineParameterType,
-    parameter_value::Value as EngineParameterValueKind,
+    parameter_definition::ParameterType, parameter_value::Value as ParameterValueKind,
 };
 use serde::Deserialize;
 
@@ -799,7 +798,7 @@ fn unsigned_engine_symbols(
         .filter(|parameter| {
             matches!(
                 parameter.parameter_type.as_ref(),
-                Some(EngineParameterType::UnsignedInteger(_))
+                Some(ParameterType::UnsignedInteger(_))
             )
         })
         .map(|parameter| {
@@ -845,13 +844,13 @@ fn insert_engine_values(
 ) -> Result<(), SizingError> {
     for parameter in &values.values {
         match parameter.value.as_ref() {
-            Some(EngineParameterValueKind::UnsignedInteger(value)) => insert_value(
+            Some(ParameterValueKind::UnsignedInteger(value)) => insert_value(
                 symbols,
                 parameter.parameter_id.clone(),
                 expression::Value::Unsigned(*value),
             )?,
             // Sizing references integers only.
-            Some(EngineParameterValueKind::Boolean(_) | EngineParameterValueKind::String(_)) => {}
+            Some(ParameterValueKind::Boolean(_) | ParameterValueKind::String(_)) => {}
             None => {
                 return Err(SizingError::evaluation(format!(
                     "Engine parameter {:?} has no value",
@@ -925,8 +924,7 @@ mod tests {
         UnsignedIntegerModelOptionParameterSchema, UnsignedIntegerParameterSchema,
         model_option_parameter_definition::ParameterType as OptionParameterType,
         model_option_parameter_value::Value as OptionParameterValueKind,
-        parameter_definition::ParameterType as EngineParameterType,
-        parameter_value::Value as EngineParameterValueKind,
+        parameter_definition::ParameterType, parameter_value::Value as ParameterValueKind,
     };
 
     use super::{EstimateSource, ScalarResourceEstimate, SizingSource, compile};
@@ -937,7 +935,7 @@ mod tests {
             parameters: vec![ParameterDefinition {
                 parameter_id: "total-context".to_owned(),
                 display_name: "Total context".to_owned(),
-                parameter_type: Some(EngineParameterType::UnsignedInteger(
+                parameter_type: Some(ParameterType::UnsignedInteger(
                     UnsignedIntegerParameterSchema {
                         minimum: 1,
                         maximum: 131_072,
@@ -1018,7 +1016,7 @@ mod tests {
         ParameterValues {
             values: vec![ParameterValue {
                 parameter_id: "total-context".to_owned(),
-                value: Some(EngineParameterValueKind::UnsignedInteger(total_context)),
+                value: Some(ParameterValueKind::UnsignedInteger(total_context)),
             }],
         }
     }
@@ -1027,7 +1025,7 @@ mod tests {
         let mut values = engine_values(total_context);
         values.values.push(ParameterValue {
             parameter_id: "feature-enabled".to_owned(),
-            value: Some(EngineParameterValueKind::Boolean(enabled)),
+            value: Some(ParameterValueKind::Boolean(enabled)),
         });
         values
     }
@@ -1577,7 +1575,7 @@ mod tests {
         schema.parameters.push(ParameterDefinition {
             parameter_id: "cache-bytes".to_owned(),
             display_name: "Cache bytes".to_owned(),
-            parameter_type: Some(EngineParameterType::UnsignedInteger(
+            parameter_type: Some(ParameterType::UnsignedInteger(
                 UnsignedIntegerParameterSchema {
                     minimum: 1,
                     maximum: u64::MAX,
@@ -1591,9 +1589,7 @@ mod tests {
         schema.parameters.push(ParameterDefinition {
             parameter_id: "feature-enabled".to_owned(),
             display_name: "Feature".to_owned(),
-            parameter_type: Some(EngineParameterType::Boolean(
-                BooleanParameterSchema::default(),
-            )),
+            parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema::default())),
             visibility: ParameterVisibility::Hidden as i32,
             description: "Feature toggle.".to_owned(),
         });
@@ -1612,7 +1608,7 @@ mod tests {
     fn cache_bytes_value(value: u64) -> ParameterValue {
         ParameterValue {
             parameter_id: "cache-bytes".to_owned(),
-            value: Some(EngineParameterValueKind::UnsignedInteger(value)),
+            value: Some(ParameterValueKind::UnsignedInteger(value)),
         }
     }
 }

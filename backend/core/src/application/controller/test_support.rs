@@ -2212,6 +2212,9 @@ impl dotcore_runtime::WorkloadGroupBackend for ColdAbsentRuntime {
     }
 }
 
+/// Secret attachment value the fake creation failure quotes, like a runtime echoing its launch.
+pub(super) const LAUNCH_SECRET_VALUE: &str = "synthetic-launch-secret";
+
 pub(super) struct SelectiveCreateRuntime {
     pub(super) failures: Arc<Mutex<BTreeSet<String>>>,
     pub(super) missing_images: Arc<Mutex<BTreeSet<String>>>,
@@ -2318,7 +2321,7 @@ impl dotcore_runtime::WorkloadGroupBackend for SelectiveCreateRuntime {
             .contains(&group.correlation.owner_id)
         {
             return Box::pin(ready(Err(RuntimeBackendError::InvalidLaunch(anyhow!(
-                "secret-runtime-detail /var/lib/docker/container-deadbeef"
+                "secret-runtime-detail /var/lib/docker/container-deadbeef env={LAUNCH_SECRET_VALUE}"
             )))));
         }
         Box::pin(ready(Ok(running_group(
@@ -3054,7 +3057,7 @@ pub(super) fn application_with_secret_parameters() -> Application {
             description: String::new(),
             parameter_type: Some(ParameterType::Text(TextParameterSchema {
                 minimum_length: 1,
-                maximum_length: 64,
+                maximum_length: Some(64),
                 default_value: Some("admin".to_owned()),
             })),
             visibility: ParameterVisibility::Basic as i32,
@@ -3146,6 +3149,7 @@ pub(super) fn secret_parameter(
         parameter_type: Some(ParameterType::Secret(SecretParameterSchema {
             generated_length: 32,
             minimum_length: 12,
+            maximum_length: Some(72),
         })),
         visibility: ParameterVisibility::Basic as i32,
     }

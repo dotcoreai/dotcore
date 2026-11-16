@@ -18,7 +18,7 @@ use super::nix::{AcceptedProvides, nix_systems, validate_nix_artifact};
 use super::storage::{StorageOwner, validate_storage_bindings};
 use crate::{
     OciArtifactPolicy, shared_parameters::validate_shared_parameters,
-    typed_parameters::validate_parameter_definition as validate_shared_definition,
+    typed_parameters::validate_parameter_definition as validate_typed_definition,
 };
 
 pub fn validate_engine_release_with_policy(
@@ -243,7 +243,7 @@ fn validate_parameter_definition(
     if !ids.insert(id.clone()) {
         errors.push(anyhow::anyhow!("duplicate engine parameter {id:?}"));
     }
-    errors.extend(validate_shared_definition(definition));
+    errors.extend(validate_typed_definition(definition));
     match definition.parameter_type.as_ref() {
         Some(ParameterType::UnsignedInteger(schema)) if schema.unit.trim().is_empty() => {
             errors.push(anyhow::anyhow!("engine parameter {id:?} requires a unit"));
@@ -486,7 +486,7 @@ mod tests {
             errors(&definition(ParameterType::Text(
                 dotcore_proto::dotcore::catalog::v1::TextParameterSchema {
                     minimum_length: 0,
-                    maximum_length: 8,
+                    maximum_length: Some(8),
                     default_value: Some("on".to_owned()),
                 },
             ))),
@@ -497,6 +497,7 @@ mod tests {
                 dotcore_proto::dotcore::catalog::v1::SecretParameterSchema {
                     generated_length: 32,
                     minimum_length: 12,
+                    maximum_length: None,
                 },
             ))),
             Vec::<String>::new()

@@ -29,12 +29,7 @@ pub(crate) fn validate_parameter_definition(
     if definition.display_name.trim().is_empty() {
         errors.push(anyhow!("parameter {id:?} requires a display name"));
     }
-    if !matches!(
-        ParameterVisibility::try_from(definition.visibility),
-        Ok(ParameterVisibility::Basic
-            | ParameterVisibility::Advanced
-            | ParameterVisibility::Hidden)
-    ) {
+    if !ParameterVisibility::try_from(definition.visibility).is_ok_and(is_declared_visibility) {
         errors.push(anyhow!(
             "parameter {id:?} requires a basic, advanced or hidden visibility"
         ));
@@ -65,19 +60,17 @@ pub(crate) fn validate_parameter_definition(
             }
         }
         Some(ParameterType::Text(schema)) => {
-            if schema.maximum_length == 0 {
+            if schema.maximum_length == Some(0) {
                 errors.push(anyhow!(
                     "parameter {id:?} maximum length must be at least 1"
                 ));
             }
-            if schema.minimum_length > schema.maximum_length {
+            if schema
+                .maximum_length
+                .is_some_and(|maximum| schema.minimum_length > maximum)
+            {
                 errors.push(anyhow!(
                     "parameter {id:?} minimum length must not exceed its maximum length"
-                ));
-            }
-            if schema.maximum_length > MAXIMUM_FREE_TEXT_LENGTH {
-                errors.push(anyhow!(
-                    "parameter {id:?} maximum length must not exceed {MAXIMUM_FREE_TEXT_LENGTH}"
                 ));
             }
         }
@@ -92,9 +85,12 @@ pub(crate) fn validate_parameter_definition(
                     "parameter {id:?} minimum length must not exceed its generated length"
                 ));
             }
-            if schema.generated_length > MAXIMUM_FREE_TEXT_LENGTH {
+            if schema
+                .maximum_length
+                .is_some_and(|maximum| schema.generated_length > maximum)
+            {
                 errors.push(anyhow!(
-                    "parameter {id:?} generated length must not exceed {MAXIMUM_FREE_TEXT_LENGTH}"
+                    "parameter {id:?} generated length must not exceed its maximum length"
                 ));
             }
         }
@@ -107,6 +103,14 @@ pub(crate) fn validate_parameter_definition(
         errors.push(anyhow!("parameter {id:?} default is invalid: {error}"));
     }
     errors
+}
+
+/// Whether a parameter may take the visibility: basic, advanced or hidden. Unspecified never may.
+pub(crate) fn is_declared_visibility(visibility: ParameterVisibility) -> bool {
+    matches!(
+        visibility,
+        ParameterVisibility::Basic | ParameterVisibility::Advanced | ParameterVisibility::Hidden
+    )
 }
 
 /// Returns the definition's declared default, if any. A secret never has one.
@@ -124,6 +128,11 @@ pub fn default_value(definition: &ParameterDefinition) -> Option<Value> {
 pub fn is_secret(definition: &ParameterDefinition) -> bool {
     matches!(definition.parameter_type, Some(ParameterType::Secret(_)))
 }
+
+/// Longest secret value in bytes that a bcrypt hash covers. The bcrypt algorithm keys on at most 72
+/// bytes of its input and its implementations ignore the rest, so a longer value would hash weaker
+/// than it reads.
+pub const BCRYPT_MAXIMUM_SECRET_BYTES: u32 = 72;
 
 /// Checks that a value has the definition's type and lies within its range, choices or length
 /// bounds. Errors never quote a text or secret value.
@@ -152,7 +161,7 @@ pub fn check_value(definition: &ParameterDefinition, value: &Value) -> anyhow::R
             check_free_text(value, schema.minimum_length, schema.maximum_length)
         }
         (Some(ParameterType::Secret(schema)), Value::String(value)) => {
-            check_free_text(value, schema.minimum_length, MAXIMUM_FREE_TEXT_LENGTH)
+            check_free_text(value, schema.minimum_length, schema.maximum_length)
         }
         _ => Err(anyhow!("value type does not match the parameter type")),
     }
@@ -177,24 +186,24 @@ pub fn canonical_value_text(values: &[ParameterValue], parameter_id: &str) -> Op
         .map(canonical_text)
 }
 
-/// Longest text or secret value in characters, which keeps every value a reasonable environment
-/// value; a secret declares no maximum of its own.
-const MAXIMUM_FREE_TEXT_LENGTH: u32 = 1024;
-
-/// Checks a text or secret value's length in characters and that it is safe as an environment
-/// value: no `=` and no control characters.
-fn check_free_text(value: &str, minimum: u32, maximum: u32) -> anyhow::Result<()> {
-    if value.contains('=') || value.chars().any(char::is_control) {
-        return Err(anyhow!("it contains `=` or a control character"));
+/// Checks a text or secret value's length in UTF-8 bytes and that it is a single line safe as an
+/// environment value: no control characters.
+fn check_free_text(value: &str, minimum: u32, maximum: Option<u32>) -> anyhow::Result<()> {
+    if value.chars().any(char::is_control) {
+        return Err(anyhow!("it contains a control character"));
     }
-    let length = value.chars().count();
+    let length = value.len();
     if length < minimum as usize {
         return Err(anyhow!(
-            "it is shorter than the minimum length of {minimum}"
+            "it has fewer bytes than the minimum length of {minimum}"
         ));
     }
-    if length > maximum as usize {
-        return Err(anyhow!("it is longer than the maximum length of {maximum}"));
+    if let Some(maximum) = maximum
+        && length > maximum as usize
+    {
+        return Err(anyhow!(
+            "it has more bytes than the maximum length of {maximum}"
+        ));
     }
     Ok(())
 }
@@ -254,15 +263,21 @@ mod tests {
     }
 
     #[test]
-    fn check_value_bounds_text_and_secrets_without_quoting_them() {
+    fn check_value_bounds_text_and_secrets_in_bytes_without_quoting_them() {
         let text = definition(ParameterType::Text(TextParameterSchema {
             minimum_length: 2,
-            maximum_length: 4,
+            maximum_length: Some(4),
             default_value: None,
         }));
         let secret = definition(ParameterType::Secret(SecretParameterSchema {
             generated_length: 32,
             minimum_length: 3,
+            maximum_length: Some(72),
+        }));
+        let unbounded = definition(ParameterType::Secret(SecretParameterSchema {
+            generated_length: 32,
+            minimum_length: 3,
+            maximum_length: None,
         }));
         let check = |definition: &ParameterDefinition, value: &str| {
             check_value(definition, &Value::String(value.to_owned()))
@@ -270,28 +285,34 @@ mod tests {
         };
 
         assert_eq!(check(&text, "ab"), Ok(()));
-        assert_eq!(check(&text, "éèêë"), Ok(()));
+        assert_eq!(check(&text, "éè"), Ok(()));
+        assert_eq!(
+            check(&text, "éèê"),
+            Err("it has more bytes than the maximum length of 4".to_owned())
+        );
         assert_eq!(
             check(&text, "a"),
-            Err("it is shorter than the minimum length of 2".to_owned())
+            Err("it has fewer bytes than the minimum length of 2".to_owned())
+        );
+        assert_eq!(check(&secret, &"s".repeat(72)), Ok(()));
+        assert_eq!(
+            check(&secret, &"s".repeat(73)),
+            Err("it has more bytes than the maximum length of 72".to_owned())
         );
         assert_eq!(
-            check(&text, "abcde"),
-            Err("it is longer than the maximum length of 4".to_owned())
+            check(&secret, &"é".repeat(72)),
+            Err("it has more bytes than the maximum length of 72".to_owned())
         );
-        assert_eq!(check(&secret, &"s".repeat(1024)), Ok(()));
-        assert_eq!(
-            check(&secret, &"s".repeat(1025)),
-            Err("it is longer than the maximum length of 1024".to_owned())
-        );
+        assert_eq!(check(&unbounded, &"s".repeat(200_000)), Ok(()));
         assert_eq!(
             check(&secret, ""),
-            Err("it is shorter than the minimum length of 3".to_owned())
+            Err("it has fewer bytes than the minimum length of 3".to_owned())
         );
-        for unsafe_value in ["a=bc", "ab\tc", "ab\nc"] {
+        assert_eq!(check(&secret, "c2VjcmV0LWtleQ=="), Ok(()));
+        for unsafe_value in ["ab\tc", "ab\nc", "ab\u{7f}c"] {
             assert_eq!(
                 check(&secret, unsafe_value),
-                Err("it contains `=` or a control character".to_owned())
+                Err("it contains a control character".to_owned())
             );
         }
         assert_eq!(
@@ -300,37 +321,82 @@ mod tests {
                 .to_string(),
             "value type does not match the parameter type"
         );
+    }
+
+    #[test]
+    fn only_secrets_are_secret_and_secrets_have_no_default() {
+        let text = definition(ParameterType::Text(TextParameterSchema {
+            minimum_length: 2,
+            maximum_length: None,
+            default_value: None,
+        }));
+        let secret = definition(ParameterType::Secret(SecretParameterSchema {
+            generated_length: 32,
+            minimum_length: 3,
+            maximum_length: None,
+        }));
+
         assert_eq!(default_value(&secret), None);
         assert!(is_secret(&secret));
         assert!(!is_secret(&text));
     }
 
     #[test]
-    fn definition_validation_caps_text_and_generated_secret_lengths() {
+    fn definition_validation_orders_length_bounds() {
+        assert_errors(
+            &definition(ParameterType::Text(TextParameterSchema {
+                minimum_length: 5,
+                maximum_length: Some(4),
+                default_value: None,
+            })),
+            &["parameter \"mode\" minimum length must not exceed its maximum length"],
+        );
         assert_errors(
             &definition(ParameterType::Text(TextParameterSchema {
                 minimum_length: 0,
-                maximum_length: 1025,
+                maximum_length: Some(0),
                 default_value: None,
             })),
-            &["parameter \"mode\" maximum length must not exceed 1024"],
+            &["parameter \"mode\" maximum length must be at least 1"],
+        );
+        assert_errors(
+            &definition(ParameterType::Text(TextParameterSchema {
+                minimum_length: 0,
+                maximum_length: Some(4),
+                default_value: Some("abcde".into()),
+            })),
+            &[
+                "parameter \"mode\" default is invalid: it has more bytes than the maximum length of 4",
+            ],
         );
         assert_errors(
             &definition(ParameterType::Secret(SecretParameterSchema {
-                generated_length: 1025,
+                generated_length: 73,
                 minimum_length: 12,
+                maximum_length: Some(72),
             })),
-            &["parameter \"mode\" generated length must not exceed 1024"],
+            &["parameter \"mode\" generated length must not exceed its maximum length"],
         );
-        assert!(
-            validate_parameter_definition(&definition(ParameterType::Secret(
-                SecretParameterSchema {
-                    generated_length: 1024,
-                    minimum_length: 12,
-                }
-            )))
-            .is_empty()
+        assert_errors(
+            &definition(ParameterType::Secret(SecretParameterSchema {
+                generated_length: 8,
+                minimum_length: 12,
+                maximum_length: None,
+            })),
+            &["parameter \"mode\" minimum length must not exceed its generated length"],
         );
+        for maximum_length in [None, Some(72)] {
+            assert!(
+                validate_parameter_definition(&definition(ParameterType::Secret(
+                    SecretParameterSchema {
+                        generated_length: 72,
+                        minimum_length: 12,
+                        maximum_length,
+                    }
+                )))
+                .is_empty()
+            );
+        }
     }
 
     #[test]

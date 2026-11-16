@@ -957,7 +957,7 @@ pub fn validate_parameter_values_before_secrets(
 }
 
 /// Whether the engine release declares `parameter_id` as a secret.
-pub fn is_secret_parameter(engine: &EngineRelease, parameter_id: &str) -> bool {
+pub(super) fn is_secret_parameter(engine: &EngineRelease, parameter_id: &str) -> bool {
     engine
         .parameter_schema
         .iter()
@@ -1008,9 +1008,14 @@ pub fn validate_supplied_parameter_values(
                     ));
                 }
             }
-            (Some(EngineParameterType::Boolean(_)), Some(EngineParameterValueKind::Boolean(_))) => {
-            }
-            (Some(EngineParameterType::Secret(_)), Some(value @ EngineParameterValueKind::String(_))) => {
+            (
+                Some(EngineParameterType::Boolean(_)),
+                Some(EngineParameterValueKind::Boolean(_)),
+            ) => {}
+            (
+                Some(EngineParameterType::Secret(_)),
+                Some(value @ EngineParameterValueKind::String(_)),
+            ) => {
                 if let Err(error) = check_value(definition, value) {
                     errors.push(anyhow::anyhow!(
                         "profile {profile_id:?} engine parameter {parameter_id:?} value is invalid: {error}"

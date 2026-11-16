@@ -252,6 +252,7 @@ pub(crate) fn release_with_api_key() -> EngineRelease {
                 SecretParameterSchema {
                     generated_length: API_KEY_GENERATED_LENGTH,
                     minimum_length: 16,
+                    maximum_length: None,
                 },
             )),
             visibility: ParameterVisibility::Advanced as i32,

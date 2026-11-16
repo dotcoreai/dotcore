@@ -76,9 +76,7 @@ pub(super) fn validate_group_launch(
             ));
         }
         if unit.environment.iter().any(|(name, value)| {
-            !valid_environment_name(name)
-                || value.contains('=')
-                || value.chars().any(char::is_control)
+            !valid_environment_name(name) || value.chars().any(char::is_control)
         }) {
             return Err(runtime_error(
                 "Docker runtime group requires safe explicit environment values",

@@ -23,9 +23,8 @@ impl SecretGenerator for RandomSecretGenerator {
         let mut value = String::with_capacity(length);
         let mut bytes = [0_u8; 64];
         while value.len() < length {
-            getrandom::fill(&mut bytes).map_err(|source| {
-                anyhow::Error::new(EntropyError(source)).context("Secret entropy failed")
-            })?;
+            getrandom::fill(&mut bytes)
+                .map_err(|source| anyhow::Error::new(source).context("Secret entropy failed"))?;
             value.extend(
                 bytes
                     .iter()
@@ -43,10 +42,6 @@ impl SecretGenerator for RandomSecretGenerator {
 /// Characters a generated secret is drawn from: safe in environment values, URLs and shells.
 const SECRET_ALPHABET: &[u8; 62] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-struct EntropyError(getrandom::Error);
 
 #[cfg(test)]
 mod tests {

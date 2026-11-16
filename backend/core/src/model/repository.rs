@@ -1383,10 +1383,13 @@ mod tests {
         let repository = strata_repository(&site_path, crate::test_support::strata::CATALOG_MODEL);
 
         for (value, reason) in [
-            ("short-key", "it is shorter than the minimum length of 16"),
             (
-                "unsafe=api-key-0123456789",
-                "it contains `=` or a control character",
+                "short-key",
+                "it has fewer bytes than the minimum length of 16",
+            ),
+            (
+                "unsafe\napi-key-0123456789",
+                "it contains a control character",
             ),
         ] {
             let error = repository

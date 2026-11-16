@@ -748,7 +748,10 @@ fn show_prints_parameters_in_catalog_order_with_secrets_masked() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = text(&output.stdout);
     assert!(!stdout.contains("s3cretPassw0rd"), "{stdout}");
-    assert_eq!(parameter_lines(&stdout), PARAMETER_LINES_MASKED);
+    assert_eq!(
+        support::parameter_lines(&stdout, PARAMETER_PREFIX),
+        PARAMETER_LINES_MASKED
+    );
 }
 
 #[test]
@@ -761,7 +764,10 @@ fn show_reveals_secret_parameters_with_the_flag() {
 
     assert_eq!(output.status.code(), Some(0));
     let revealed = PARAMETER_LINES_MASKED.map(|line| line.replace("********", "s3cretPassw0rd"));
-    assert_eq!(parameter_lines(&text(&output.stdout)), revealed);
+    assert_eq!(
+        support::parameter_lines(&text(&output.stdout), PARAMETER_PREFIX),
+        revealed
+    );
 }
 
 #[test]
@@ -817,6 +823,7 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
     );
 }
 
+const PARAMETER_PREFIX: &str = "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_";
 const PARAMETER_LINES_MASKED: [&str; 5] = [
     "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WEB_SEARCH=true",
     "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_MEMORY_LIMIT=2048 MB",
@@ -824,14 +831,6 @@ const PARAMETER_LINES_MASKED: [&str; 5] = [
     "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_WELCOME_NOTE=Empty",
     "DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_ADMIN_PASSWORD=********",
 ];
-
-/// The parameter lines of a record block.
-fn parameter_lines(stdout: &str) -> Vec<&str> {
-    stdout
-        .lines()
-        .filter(|line| line.starts_with("DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_"))
-        .collect()
-}
 
 /// A deployment with one parameter of each kind: a default boolean, a non-default integer with a
 /// unit, an enum, an empty text and a secret.
@@ -881,7 +880,7 @@ fn deployment_with_parameters() -> ApplicationDeployment {
                 "Welcome note",
                 ParameterType::Text(TextParameterSchema {
                     minimum_length: 0,
-                    maximum_length: 100,
+                    maximum_length: Some(100),
                     default_value: None,
                 }),
             ),
@@ -891,6 +890,7 @@ fn deployment_with_parameters() -> ApplicationDeployment {
                 ParameterType::Secret(SecretParameterSchema {
                     generated_length: 32,
                     minimum_length: 8,
+                    maximum_length: None,
                 }),
             ),
         ],

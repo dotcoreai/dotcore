@@ -3,11 +3,13 @@
 //! Each row carries the parameter's display name and its value. Secret values are masked unless
 //! the caller asks to reveal them.
 
+use dotcore_catalog::typed_parameters::is_secret;
 use dotcore_proto::dotcore::catalog::v1::{
     ParameterDefinition, ParameterValue, parameter_definition, parameter_value,
 };
 
 use crate::management::single_line;
+use crate::terminal::{Message, Terminal};
 
 const SECRET_MASK: &str = "********";
 const EMPTY_TEXT: &str = "Empty";
@@ -24,6 +26,7 @@ pub(crate) struct ParameterRow {
 
 /// What a deployment retains about one parameter, from which its row is built.
 pub(crate) struct ParameterInput<'a> {
+    /// The parameter as the deployment snapshot declares it.
     pub(crate) definition: &'a ParameterDefinition,
     /// The retained value, if any.
     pub(crate) value: Option<&'a parameter_value::Value>,
@@ -37,12 +40,7 @@ impl ParameterInput<'_> {
     pub(crate) fn row(&self, reveal_secrets: bool) -> Option<ParameterRow> {
         let definition = self.definition;
         let value = self.value.or(self.default.as_ref())?;
-        let is_secret = matches!(
-            definition.parameter_type,
-            Some(parameter_definition::ParameterType::Secret(_))
-        );
-
-        let text = if is_secret && !reveal_secrets {
+        let text = if is_secret(definition) && !reveal_secrets {
             SECRET_MASK.to_owned()
         } else {
             match single_line(&display(value, definition)) {
@@ -82,29 +80,6 @@ pub(crate) fn retained<'a>(
         .and_then(|value| value.value.as_ref())
 }
 
-/// The default the parameter's own definition declares; secrets have none.
-pub(crate) fn definition_default(
-    definition: &ParameterDefinition,
-) -> Option<parameter_value::Value> {
-    use parameter_definition::ParameterType;
-
-    match definition.parameter_type.as_ref()? {
-        ParameterType::Boolean(schema) => schema.default_value.map(parameter_value::Value::Boolean),
-        ParameterType::UnsignedInteger(schema) => schema
-            .default_value
-            .map(parameter_value::Value::UnsignedInteger),
-        ParameterType::StringEnum(schema) => schema
-            .default_value
-            .clone()
-            .map(parameter_value::Value::String),
-        ParameterType::Text(schema) => schema
-            .default_value
-            .clone()
-            .map(parameter_value::Value::String),
-        ParameterType::Secret(_) => None,
-    }
-}
-
 /// The record key suffix of a parameter: its id upper-cased, with every non-alphanumeric
 /// character replaced by an underscore.
 pub(crate) fn record_key(id: &str) -> String {
@@ -124,6 +99,24 @@ pub(crate) fn record_lines(prefix: &str, rows: &[ParameterRow]) -> String {
     rows.iter()
         .map(|row| format!("{prefix}_{}={}\n", record_key(&row.id), row.value))
         .collect()
+}
+
+/// Writes the parameter rows under a Parameters heading on the terminal, or nothing when there are
+/// none.
+pub(crate) fn write_parameters(
+    terminal: &mut dyn Terminal,
+    rows: &[ParameterRow],
+) -> anyhow::Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    terminal.message(&Message::Heading("Parameters".to_owned()))?;
+    terminal.message(&Message::KeyValues(
+        rows.iter()
+            .map(|row| (row.name.clone(), row.value.clone()))
+            .collect(),
+    ))?;
+    Ok(())
 }
 
 fn display(value: &parameter_value::Value, definition: &ParameterDefinition) -> String {

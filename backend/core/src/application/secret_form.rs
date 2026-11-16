@@ -8,6 +8,7 @@
 use std::str::FromStr;
 
 use bcrypt::HashParts;
+use dotcore_catalog::typed_parameters::BCRYPT_MAXIMUM_SECRET_BYTES;
 
 /// Work factor of a new hash; the one services such as n8n use for their own hashes.
 const COST: u32 = 10;
@@ -21,20 +22,20 @@ const VALID_COSTS: std::ops::RangeInclusive<u32> = 4..=31;
 /// Failure to compute the bcrypt form of a value.
 #[derive(Debug, thiserror::Error)]
 pub(super) enum BcryptFormError {
+    #[error("Bcrypt form takes at most {BCRYPT_MAXIMUM_SECRET_BYTES} bytes")]
+    TooLong,
+
     #[error("Bcrypt hashing failed")]
     Hash(#[source] bcrypt::BcryptError),
-
-    #[error("Bcrypt hash does not verify against its value")]
-    Mismatch,
 }
 
-/// Returns a bcrypt hash of `value` with a fresh random salt, verified against `value` once.
+/// Returns a bcrypt hash of `value` with a fresh random salt. A value longer than bcrypt covers is
+/// refused before hashing rather than hashed on its first bytes only.
 pub(super) fn bcrypt_hash(value: &str) -> Result<String, BcryptFormError> {
-    let hash = bcrypt::hash(value, COST).map_err(BcryptFormError::Hash)?;
-    match bcrypt::verify(value, &hash).map_err(BcryptFormError::Hash)? {
-        true => Ok(hash),
-        false => Err(BcryptFormError::Mismatch),
+    if value.len() > BCRYPT_MAXIMUM_SECRET_BYTES as usize {
+        return Err(BcryptFormError::TooLong);
     }
+    bcrypt::hash(value, COST).map_err(BcryptFormError::Hash)
 }
 
 /// Reports whether `text` is a well-formed bcrypt hash in this form's version, without verifying
@@ -58,6 +59,23 @@ mod tests {
         assert!(bcrypt::verify("retained-password", &first).expect("verify"));
         assert!(!bcrypt::verify("other-password", &first).expect("verify"));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn bcrypt_hash_covers_72_bytes_and_refuses_longer_values() {
+        let longest = "p".repeat(72);
+        let hash = bcrypt_hash(&longest).expect("72-byte hash");
+
+        assert!(bcrypt::verify(&longest, &hash).expect("verify"));
+        assert!(!bcrypt::verify("p".repeat(71), &hash).expect("verify"));
+        assert!(matches!(
+            bcrypt_hash(&"p".repeat(73)),
+            Err(BcryptFormError::TooLong)
+        ));
+        assert!(matches!(
+            bcrypt_hash(&"é".repeat(37)),
+            Err(BcryptFormError::TooLong)
+        ));
     }
 
     #[test]

@@ -796,7 +796,10 @@ fn show_prints_visible_parameters_in_schema_order_with_secrets_masked() {
     assert_eq!(output.status.code(), Some(0));
     let stdout = text(&output.stdout);
     assert!(!stdout.contains("s3cretKey"), "{stdout}");
-    assert_eq!(parameter_lines(&stdout), PARAMETER_LINES_MASKED);
+    assert_eq!(
+        support::parameter_lines(&stdout, PARAMETER_PREFIX),
+        PARAMETER_LINES_MASKED
+    );
 }
 
 #[test]
@@ -807,7 +810,10 @@ fn show_reveals_secret_parameters_with_the_flag() {
 
     assert_eq!(output.status.code(), Some(0));
     let revealed = PARAMETER_LINES_MASKED.map(|line| line.replace("********", "s3cretKey"));
-    assert_eq!(parameter_lines(&text(&output.stdout)), revealed);
+    assert_eq!(
+        support::parameter_lines(&text(&output.stdout), PARAMETER_PREFIX),
+        revealed
+    );
 }
 
 #[test]
@@ -827,11 +833,11 @@ fn show_prints_the_upstream_api_key_masked_unless_revealed() {
 
     assert!(!masked.contains("sk-remote"), "{masked}");
     assert_eq!(
-        parameter_lines(&masked),
+        support::parameter_lines(&masked, PARAMETER_PREFIX),
         ["DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=********"]
     );
     assert_eq!(
-        parameter_lines(&revealed),
+        support::parameter_lines(&revealed, PARAMETER_PREFIX),
         ["DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=sk-remote"]
     );
 }
@@ -887,6 +893,7 @@ fn a_terminal_shows_parameters_under_their_own_heading() {
     );
 }
 
+const PARAMETER_PREFIX: &str = "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_";
 const PARAMETER_LINES_MASKED: [&str; 5] = [
     "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_FLASH_ATTENTION=true",
     "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_PARALLEL_REQUESTS=4",
@@ -894,14 +901,6 @@ const PARAMETER_LINES_MASKED: [&str; 5] = [
     "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_TUNED_FLAG=false",
     "DOTCORE_MODEL_DEPLOYMENT_PARAMETER_API_KEY=********",
 ];
-
-/// The parameter lines of a record block.
-fn parameter_lines(stdout: &str) -> Vec<&str> {
-    stdout
-        .lines()
-        .filter(|line| line.starts_with("DOTCORE_MODEL_DEPLOYMENT_PARAMETER_"))
-        .collect()
-}
 
 /// A local deployment whose schema has a default flag, a plain integer, a sized integer, a flag
 /// the profile makes visible, a secret and two hidden parameters (one hidden by the
@@ -966,6 +965,7 @@ fn deployment_with_parameters() -> ModelDeployment {
                 ParameterType::Secret(SecretParameterSchema {
                     generated_length: 32,
                     minimum_length: 8,
+                    maximum_length: None,
                 }),
             ),
         ],

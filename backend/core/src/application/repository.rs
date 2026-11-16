@@ -746,7 +746,6 @@ fn validate_storage_attachments(
     } in &deployment.storage_attachments
     {
         let key = (service_name.as_str(), binding_name.as_str());
-        // Every retained attachment names a known binding, so equal counts mean every binding has one.
         let allowed_placement = *placement != StoragePlacement::Unspecified as i32
             && allowed
                 .get(&key)
@@ -761,6 +760,7 @@ fn validate_storage_attachments(
             return Err(ApplicationRepositoryError::InvalidState);
         }
     }
+    // Every retained attachment names a known binding, so equal counts mean every binding has one.
     if actual.len() != allowed.len() {
         return Err(ApplicationRepositoryError::InvalidState);
     }
@@ -851,8 +851,9 @@ fn validate_configuration_attachments(
 }
 
 /// Checks that every enabled secret binding has exactly one attachment carrying its parameter's
-/// retained value in the binding's form, and that a disabled one has none. A bcrypt attachment is the authoritative hash computed at create: it must be well formed, and
-/// is never verified against the value here.
+/// retained value in the binding's form, and that a disabled one has none. A bcrypt attachment is
+/// the authoritative hash computed at create: it must be well formed, and is never verified against
+/// the value here.
 fn validate_secret_attachments(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> Result<(), ApplicationRepositoryError> {
@@ -1446,7 +1447,7 @@ mod tests {
                     description: String::new(),
                     parameter_type: Some(ParameterType::Text(TextParameterSchema {
                         minimum_length: 1,
-                        maximum_length: 64,
+                        maximum_length: Some(64),
                         default_value: Some("admin".to_owned()),
                     })),
                     visibility: ParameterVisibility::Basic as i32,
@@ -1458,6 +1459,7 @@ mod tests {
                     parameter_type: Some(ParameterType::Secret(SecretParameterSchema {
                         generated_length: 32,
                         minimum_length: 12,
+                        maximum_length: Some(72),
                     })),
                     visibility: ParameterVisibility::Basic as i32,
                 },

@@ -16,7 +16,7 @@ use super::{
 use crate::{
     management::{ManagerArgs, NodeNames, find_deployment, single_line},
     node::write_records,
-    parameters::{ParameterRow, record_lines},
+    parameters::{ParameterRow, record_lines, write_parameters},
     terminal::{Message, TerminalCondition, controlling_terminal_condition, open_terminal},
 };
 
@@ -49,16 +49,7 @@ pub(crate) async fn model_show(arguments: ModelShowArgs) -> anyhow::Result<()> {
             details.name
         )))?;
         terminal.message(&Message::KeyValues(details.pairs()))?;
-        if !details.parameters.is_empty() {
-            terminal.message(&Message::Heading("Parameters".to_owned()))?;
-            terminal.message(&Message::KeyValues(
-                details
-                    .parameters
-                    .iter()
-                    .map(|row| (row.name.clone(), row.value.clone()))
-                    .collect(),
-            ))?;
-        }
+        write_parameters(&mut *terminal, &details.parameters)?;
         return Ok(());
     }
 

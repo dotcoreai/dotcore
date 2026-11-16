@@ -1,11 +1,15 @@
 //! The engine parameters of one model deployment, as rows an operator can read.
 
+use dotcore_catalog::typed_parameters::default_value;
 use dotcore_proto::dotcore::{
-    catalog::v1::ParameterVisibility,
-    model::v1::{ModelDeployment, UpstreamModelDesiredConfiguration, model_deployment_snapshot},
+    catalog::v1::{ParameterDefinition, ParameterVisibility},
+    model::v1::{
+        ModelDeployment, ResolvedLocalModelDeploymentSnapshot, UpstreamModelDesiredConfiguration,
+        model_deployment_snapshot,
+    },
 };
 
-use crate::parameters::{ParameterInput, ParameterRow, definition_default, retained, secret_row};
+use crate::parameters::{ParameterInput, ParameterRow, retained, secret_row};
 
 const UPSTREAM_API_KEY_NAME: &str = "API key";
 const UPSTREAM_API_KEY_ID: &str = "api-key";
@@ -37,12 +41,7 @@ pub(super) fn rows(deployment: &ModelDeployment, reveal_secrets: bool) -> Vec<Pa
                 .parameters
                 .iter()
                 .filter(|definition| {
-                    let overridden = local
-                        .profile_engine_parameter_visibility_overrides
-                        .iter()
-                        .find(|entry| entry.parameter_id == definition.parameter_id)
-                        .map(|entry| entry.visibility());
-                    overridden.unwrap_or(definition.visibility()) != ParameterVisibility::Hidden
+                    effective_visibility(local, definition) != ParameterVisibility::Hidden
                 })
                 .filter_map(|definition| {
                     ParameterInput {
@@ -50,19 +49,32 @@ pub(super) fn rows(deployment: &ModelDeployment, reveal_secrets: bool) -> Vec<Pa
                         value: retained(values, &definition.parameter_id),
                         default: retained(defaults, &definition.parameter_id)
                             .cloned()
-                            .or_else(|| definition_default(definition)),
+                            .or_else(|| default_value(definition)),
                     }
                     .row(reveal_secrets)
                 })
                 .collect()
         }
-        _ => upstream_api_key(
+        Some(model_deployment_snapshot::Source::Upstream(_)) | None => upstream_api_key(
             deployment.upstream_desired_configuration.as_ref(),
             reveal_secrets,
         )
         .into_iter()
         .collect(),
     }
+}
+
+/// The visibility a parameter shows with: the profile's override when it has one, else the
+/// engine's own visibility.
+fn effective_visibility(
+    local: &ResolvedLocalModelDeploymentSnapshot,
+    definition: &ParameterDefinition,
+) -> ParameterVisibility {
+    local
+        .profile_engine_parameter_visibility_overrides
+        .iter()
+        .find(|entry| entry.parameter_id == definition.parameter_id)
+        .map_or(definition.visibility(), |entry| entry.visibility())
 }
 
 fn upstream_api_key(
