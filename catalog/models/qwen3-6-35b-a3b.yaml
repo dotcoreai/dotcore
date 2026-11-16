@@ -406,6 +406,9 @@ configurations:
   # only. It accepts only the Q4_K_XL, Q6_K_XL and Q8_0 files. Each engine build carries kernels for
   # its own GPUs, so each Strata configuration pairs one build with one hardware class.
   - configurationId: "strata-nvidia-cuda"
+    # A single GGUF runs on Strata's engine for that format, which copies every expert the GPU
+    # doesn't hold into host memory and takes no budget for them.
+    excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
       - engineReleaseId: "strata-0-2-13"
         engineArtifactId: "linux-amd64-cuda"
@@ -487,6 +490,9 @@ configurations:
       supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
   # Strata on the GB10, with the arm64 build.
   - configurationId: "strata-nvidia-gb10"
+    # A single GGUF runs on Strata's engine for that format, which copies every expert the GPU
+    # doesn't hold into host memory and takes no budget for them.
+    excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
       - engineReleaseId: "strata-0-2-13"
         engineArtifactId: "linux-arm64-cuda"

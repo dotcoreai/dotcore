@@ -85,8 +85,15 @@ auxiliaryArtifacts:
 # - kvBytesPerToken: 13 attention layers (12 and the draft layer) x 1056 bytes of int8 KV.
 #   workBytesPerToken: the measured slope above the KV cache.
 # - expertBytes: a full expert cache, 48 layers x 512 slots of the pack's largest per-layer expert
-#   block, from the GGUF headers; the cap's slots never exceed it. hostExpertBytes: the experts'
-#   own bytes, which the engine copies into pinned host memory when they don't all fit the cap.
+#   block, from the GGUF headers; the cap's slots never exceed it.
+# - expertHostMib: the default expert host memory. It holds the experts outside the default cap:
+#   the experts' own bytes (IQ2_XS 35,454,976,000, IQ3_S 50,292,326,400, from the GGUF headers)
+#   times the share of expertBytes the cap leaves out, rounded up to MiB. Where the host has room,
+#   it also holds the experts of the cache slots the engine lends to long prompts, which are
+#   otherwise read from disk on every prompt chunk. IQ2_XS has room and pins the 29.28 GiB the
+#   engine measured for both; IQ3_S keeps only the experts outside the cap, so it fits the class's
+#   system minimum. The engine never pins more than this budget, so the host estimate is the
+#   budget itself.
 # - marginBytes covers 8 parallel requests' extra sessions, which measured 1.13 GB on IQ2_XS.
 configurations:
   # Strata packs the split GGUF shards on first start and reads the experts from them. Each engine
@@ -104,12 +111,13 @@ configurations:
         auxiliaryArtifactIds: ["draft-layer"]
     sizing:
       classParameters: ["workBytesPerToken"]
-      bindingParameters: ["baseAccelBytes", "expertBytes", "hostExpertBytes", "expertVramMib", "marginBytes"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "expertHostMib", "expertVramMib", "marginBytes"]
       parameters:
         kvBytesPerToken: 13728
       derivedParameters:
-        # A fixed cap keeps accelerator memory independent of what is free at start.
+        # Fixed budgets keep both memories independent of what is free at start.
         expert-vram-mib: "${expertVramMib}"
+        expert-host-memory-mib: "${expertHostMib}"
       estimates:
         # Whole expert blocks fill the GPU's cache up to the cap.
         acceleratorMemory:
@@ -121,15 +129,15 @@ configurations:
             + ${workBytesPerToken} * ${total-context}
           allowance: >-
             ${marginBytes}
-        # Every expert is copied into pinned host memory when they don't all fit the cap.
+        # The engine pins at most the expert host memory; the other experts are read from disk.
         hostMemory:
           unit: bytes
           equation: >-
-            if(${expert-vram-mib} * MiB < ${expertBytes}, ${hostExpertBytes}, 0)
+            ${expert-host-memory-mib} * MiB
     hardwareSupport:
       - hardwareClassId: "nvidia-gb202"
         # The device minimum fits the default cap and context. The system minimum holds IQ3_S's
-        # experts with upstream's 10 GB beside them.
+        # default expert host memory with the rest of the process beside it.
         hardwareRequirements:
           minimumMemoryBytesPerDevice: "32000000000"
           minimumSystemMemoryBytes: "64000000000"
@@ -142,7 +150,7 @@ configurations:
             parameters:
               baseAccelBytes: 5917039104
               expertBytes: 65431142400
-              hostExpertBytes: 50292326400
+              expertHostMib: 33796
               expertVramMib: 18432
               marginBytes: 1207959552
           # Measured on an RTX 5090.
@@ -150,7 +158,7 @@ configurations:
             parameters:
               baseAccelBytes: 5708447744
               expertBytes: 37119590400
-              hostExpertBytes: 35454976000
+              expertHostMib: 29988
               expertVramMib: 18432
               marginBytes: 1207959552
     engineConfiguration:
@@ -158,6 +166,7 @@ configurations:
       strata:
         fixedSettings:
           expertVramMibParameterId: "expert-vram-mib"
+          expertHostMemoryMibParameterId: "expert-host-memory-mib"
           architecture: "qwen4exp"
           mtpDraftTokens: 4
           splitGguf:
@@ -169,6 +178,8 @@ configurations:
       supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
   # The split GGUFs on the GB10, with the arm64 build. Upstream runs only IQ3_S and NVFP4 there.
   - configurationId: "strata-nvidia-gb10"
+    # The GPU's expert cache already holds the experts in host memory.
+    excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
       - engineReleaseId: "strata-0-2-13"
         engineArtifactId: "linux-arm64-cuda"
@@ -235,11 +246,12 @@ configurations:
         auxiliaryArtifactIds: ["draft-layer"]
     sizing:
       classParameters: ["workBytesPerToken"]
-      bindingParameters: ["baseAccelBytes", "expertBytes", "hostExpertBytes", "expertVramMib", "marginBytes"]
+      bindingParameters: ["baseAccelBytes", "expertBytes", "expertHostMib", "expertVramMib", "marginBytes"]
       parameters:
         kvBytesPerToken: 13728
       derivedParameters:
         expert-vram-mib: "${expertVramMib}"
+        expert-host-memory-mib: "${expertHostMib}"
       estimates:
         acceleratorMemory:
           unit: bytes
@@ -253,7 +265,7 @@ configurations:
         hostMemory:
           unit: bytes
           equation: >-
-            if(${expert-vram-mib} * MiB < ${expertBytes}, ${hostExpertBytes}, 0)
+            ${expert-host-memory-mib} * MiB
     hardwareSupport:
       - hardwareClassId: "nvidia-gb202"
         # The device minimum takes the RTX PRO 6000 and leaves out the RTX 5090. The system
@@ -271,7 +283,7 @@ configurations:
             parameters:
               baseAccelBytes: 7929050624
               expertBytes: 67948118016
-              hostExpertBytes: 67948118016
+              expertHostMib: 0
               expertVramMib: 64801
               marginBytes: 1207959552
     engineConfiguration:
@@ -279,6 +291,7 @@ configurations:
       strata:
         fixedSettings:
           expertVramMibParameterId: "expert-vram-mib"
+          expertHostMemoryMibParameterId: "expert-host-memory-mib"
           architecture: "qwen4exp"
           mtpDraftTokens: 4
           readyPack:
@@ -294,6 +307,8 @@ configurations:
       supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
   # The NVFP4 pack on the GB10, with the arm64 build.
   - configurationId: "strata-nvfp4-nvidia-gb10"
+    # The GPU's expert cache already holds the experts in host memory.
+    excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
       - engineReleaseId: "strata-0-2-13"
         engineArtifactId: "linux-arm64-cuda"
@@ -380,6 +395,8 @@ profiles:
     configurationId: "strata-nvfp4-nvidia-gb10"
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults: {}
+intelligence:
+  overall: 38
 license:
   id: LicenseRef-Qwen-Community-1.0
   termsUrl: https://huggingface.co/Qwen/Qwen3.8-Flash-Next/blob/812d96e10a0dd82b69d749e68693698cf6c36daa/LICENSE
