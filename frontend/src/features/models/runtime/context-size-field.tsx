@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from "react";
 
+import { RangeFact } from "@/components/parameters/parameters";
 import { Field } from "@/components/ui/field";
 import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
@@ -65,10 +66,7 @@ export function ContextSizeField({
       error={error}
       facts={
         <>
-          <p>
-            Range {`${minimum}–${maximum}`}
-            {unit ? ` ${unit}` : ""}
-          </p>
+          <RangeFact maximum={maximum} minimum={minimum} unit={unit} />
           {facts?.map((fact) => (
             <p key={fact}>{fact}</p>
           ))}

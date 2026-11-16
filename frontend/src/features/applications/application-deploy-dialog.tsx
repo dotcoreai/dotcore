@@ -1,7 +1,6 @@
 import type { RefObject } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { parameterDisplayValue } from "@/components/parameters/parameter-view";
 import { ParametersForm } from "@/components/parameters/parameters";
 import { Detail } from "@/components/ui/detail-list";
 import { Field } from "@/components/ui/field";
@@ -17,6 +16,7 @@ import {
   executionTargetName,
   executionTargetPresentation,
 } from "@/domain/execution-target";
+import { parameterDisplayValue, parameterInputError } from "@/domain/parameter-view";
 import { servesChat } from "@/domain/request-kinds";
 import { projectRouteHealth } from "@/domain/route-projection";
 import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
@@ -51,7 +51,6 @@ import {
   applicationParameterFields,
   changedParameterValues,
   defaultParameterInputs,
-  parameterInputError,
   parameterOverrides,
 } from "./application-parameters";
 import {
@@ -65,6 +64,20 @@ import {
   storagePlacementLabel,
   storagePlacementLifetime,
 } from "./application-storage";
+
+/**
+ * Every step in flow order; the dialog shows those with fields, and Target and Advanced per
+ * mode.
+ */
+const APPLICATION_DEPLOY_STEPS = [
+  "Inference route",
+  "Target",
+  "Settings",
+  "Advanced",
+  "Deploy",
+] as const;
+
+type ApplicationDeployStep = (typeof APPLICATION_DEPLOY_STEPS)[number];
 
 export interface DeploymentCreationOptions {
   applicationDeploymentName?: string;
@@ -170,28 +183,33 @@ export function ApplicationDeployDialog({
   const [lockedTargetStep, setLockedTargetStep] = useState<boolean>();
   // Basic mode asks for the target only when several can take the deployment.
   const liveTargetStep = deployableExecutionTargets.length > 1;
+  const stepShown = (candidate: ApplicationDeployStep, advancedSteps: boolean): boolean => {
+    switch (candidate) {
+      case "Inference route":
+        return routeBindings.length > 0;
+      case "Target":
+        return advancedSteps || (lockedTargetStep ?? liveTargetStep);
+      case "Settings":
+        return basicParameterFields.length > 0;
+      case "Advanced":
+        return advancedSteps && (advancedParameterFields.length > 0 || storageFields.length > 0);
+      case "Deploy":
+        return true;
+    }
+  };
   const stepsFor = (advancedSteps: boolean): ApplicationDeployStep[] =>
-    APPLICATION_DEPLOY_STEPS.filter(
-      (candidate) =>
-        (candidate === "Inference route" && routeBindings.length > 0) ||
-        (candidate === "Target" && (advancedSteps || (lockedTargetStep ?? liveTargetStep))) ||
-        (candidate === "Settings" && basicParameterFields.length > 0) ||
-        (candidate === "Advanced" &&
-          advancedSteps &&
-          (advancedParameterFields.length > 0 || storageFields.length > 0)) ||
-        candidate === "Deploy",
-    );
+    APPLICATION_DEPLOY_STEPS.filter((candidate) => stepShown(candidate, advancedSteps));
   const steps = stepsFor(advanced);
   const firstStep = steps[0];
   // A vanished step falls forward to the next step that still shows.
   const wizard = useWizardSteps(
     steps,
     (missingStep) =>
-      APPLICATION_DEPLOY_STEPS.slice(
-        APPLICATION_DEPLOY_STEPS.indexOf(missingStep as ApplicationDeployStep) + 1,
-      ).find((candidate) => steps.includes(candidate)) ?? "Deploy",
+      APPLICATION_DEPLOY_STEPS.slice(APPLICATION_DEPLOY_STEPS.indexOf(missingStep) + 1).find(
+        (candidate) => steps.includes(candidate),
+      ) ?? "Deploy",
   );
-  const step = wizard.current as ApplicationDeployStep;
+  const step = wizard.current;
   const targetStepShown = steps.includes("Target");
   const goToStep = (nextStep: ApplicationDeployStep) => {
     const leavingFirstStep = step === firstStep && nextStep !== firstStep;
@@ -768,17 +786,6 @@ function validateApplicationRouteSelection(
   if (!routeId || route) return undefined;
   return "The selected inference route no longer exists. Select another route or no route.";
 }
-
-/** Every step in flow order; the dialog shows those with fields, and Target and Advanced per mode. */
-const APPLICATION_DEPLOY_STEPS = [
-  "Inference route",
-  "Target",
-  "Settings",
-  "Advanced",
-  "Deploy",
-] as const;
-
-type ApplicationDeployStep = (typeof APPLICATION_DEPLOY_STEPS)[number];
 
 // Fields whose dirty state gates validation: the fixed fields and one key per parameter.
 type DeployField = "name" | "placement" | `parameter:${string}`;

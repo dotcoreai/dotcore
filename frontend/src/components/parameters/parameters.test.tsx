@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ParameterView } from "./parameter-view";
+import type { ParameterView } from "@/domain/parameter-view";
+
 import { ParametersDetails, ParametersForm } from "./parameters";
 
 describe("ParametersForm", () => {

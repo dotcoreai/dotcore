@@ -6,12 +6,13 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { SecretValue } from "@/components/ui/secret-value";
 import { Switch } from "@/components/ui/switch";
-
 import {
+  lengthBounds,
   parameterDisplayValue,
   type ParameterView,
+  type ParameterViewType,
   type ParameterViewValue,
-} from "./parameter-view";
+} from "@/domain/parameter-view";
 
 interface ParametersFormProps {
   errors: ReadonlyMap<string, string>;
@@ -89,30 +90,15 @@ export function ParametersForm({
       );
     }
 
+    const inputProps = textInputProps(parameter.type);
     return (
-      <Field
-        {...field}
-        facts={
-          parameter.type.kind === "unsignedInteger" ? (
-            <RangeFact type={parameter.type} />
-          ) : parameter.type.kind === "text" || parameter.type.kind === "secret" ? (
-            <LengthFact type={parameter.type} />
-          ) : null
-        }
-        key={parameter.id}
-      >
+      <Field {...field} facts={parameterFacts(parameter.type)} key={parameter.id}>
         {(control) => {
           const input = (
             <Input
               {...control}
+              {...inputProps}
               autoComplete="off"
-              inputMode={parameter.type.kind === "unsignedInteger" ? "numeric" : undefined}
-              className={
-                parameter.type.kind === "secret"
-                  ? "placeholder:text-muted-foreground placeholder:italic"
-                  : undefined
-              }
-              placeholder={parameter.type.kind === "secret" ? "Generated at deploy" : undefined}
               spellCheck={false}
               onBlur={() => onBlur(parameter.id)}
               onChange={(event) => onChange(parameter.id, event.target.value)}
@@ -134,23 +120,12 @@ export function ParametersForm({
   });
 }
 
-/** The accepted length of a text or secret parameter. */
-function LengthFact({ type }: { type: { maximumLength?: number; minimumLength: number } }) {
+/** The accepted range of a number, with its unit when it has one. */
+export function RangeFact({ maximum, minimum, unit }: RangeBounds) {
   return (
     <p>
-      {type.maximumLength === undefined
-        ? `At least ${type.minimumLength} characters`
-        : `${type.minimumLength}–${type.maximumLength} characters`}
-    </p>
-  );
-}
-
-/** The accepted range of a number parameter, with its unit when it has one. */
-function RangeFact({ type }: { type: { maximum: bigint; minimum: bigint; unit: string } }) {
-  return (
-    <p>
-      Range {`${type.minimum}–${type.maximum}`}
-      {type.unit ? ` ${type.unit}` : ""}
+      Range {`${minimum}–${maximum}`}
+      {unit ? ` ${unit}` : ""}
     </p>
   );
 }
@@ -194,4 +169,34 @@ export function ParametersDetails({
       />
     );
   });
+}
+
+type RangeBounds = Omit<Extract<ParameterViewType, { kind: "unsignedInteger" }>, "kind">;
+type TextType = Extract<ParameterViewType, { kind: "secret" | "text" }>;
+
+// The facts under a typed input field: a number's range, or a text's accepted length.
+function parameterFacts(type: ParameterViewType) {
+  if (type.kind === "unsignedInteger")
+    return <RangeFact maximum={type.maximum} minimum={type.minimum} unit={type.unit} />;
+  if (type.kind === "text" || type.kind === "secret") return <LengthFact type={type} />;
+  return null;
+}
+
+// The input attributes that differ by type: a numeric keyboard for numbers, and a hint that an
+// empty secret is generated.
+function textInputProps(type: ParameterViewType) {
+  if (type.kind === "unsignedInteger") return { inputMode: "numeric" as const };
+  if (type.kind === "secret")
+    return {
+      className: "placeholder:text-muted-foreground placeholder:italic",
+      placeholder: "Generated at deploy",
+    };
+  return {};
+}
+
+/** The accepted length of a text or secret parameter, when it has bounds. */
+function LengthFact({ type }: { type: TextType }) {
+  const bounds = lengthBounds(type);
+  if (!bounds) return null;
+  return <p>{bounds.charAt(0).toUpperCase() + bounds.slice(1)}</p>;
 }

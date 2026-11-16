@@ -567,10 +567,10 @@ describe("model inspectors", () => {
   });
 
   it.each([
-    { derived: ["context-per-request"], perRequest: 131072n, shown: "128k sized" },
+    { derived: ["context-per-request"], perRequest: 131072n, shown: "128k" },
     { derived: [], perRequest: 32768n, shown: "32k" },
   ])(
-    "shows the total context and the context per request as $shown",
+    "shows the total context and the context per request as $shown, without a value tag",
     ({ derived, perRequest, shown }) => {
       const resolved = create(ResolvedLocalModelDeploymentSnapshotSchema, {
         ...snapshot,

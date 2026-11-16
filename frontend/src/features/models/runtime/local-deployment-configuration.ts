@@ -199,5 +199,6 @@ function engineParameterInputLabel(
   if (!input || engineParameterError(parameter, inputs)) return input || "empty";
   if (parameter.parameterType.case === "unsignedInteger")
     return formatQuantity(BigInt(input), parameter.parameterType.value.unit);
-  return input === "true" ? "enabled" : "disabled";
+  if (parameter.parameterType.case === "boolean") return input === "true" ? "enabled" : "disabled";
+  return input;
 }

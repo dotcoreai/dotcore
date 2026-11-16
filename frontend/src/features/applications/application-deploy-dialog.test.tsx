@@ -1579,13 +1579,16 @@ describe("Application deployment dialog parameters", () => {
             parameterId: "dashboard-password",
             displayName: "Password",
             visibility: ParameterVisibility.BASIC,
-            parameterType: { case: "secret", value: { generatedLength: 32, minimumLength: 12 } },
+            parameterType: {
+              case: "secret",
+              value: { generatedLength: 32, minimumLength: 12, maximumLength: 72 },
+            },
           }),
         ],
       }),
     });
 
-    it("leaves an empty secret out of the request and sends a typed one", async () => {
+    it("leaves an empty secret out of the request", async () => {
       const user = setupUser();
       const onSubmit = renderDialog(vi.fn(), login);
 
@@ -1601,42 +1604,50 @@ describe("Application deployment dialog parameters", () => {
       );
     });
 
-    it("sends a typed secret as typed", async () => {
-      const user = setupUser();
-      const onSubmit = renderDialog(vi.fn(), login);
+    it.each(["typed-password-1", "c2VjcmV0LXBhc3N3b3Jk==", "p".repeat(72)])(
+      "sends the typed secret %s as typed",
+      async (typed) => {
+        const user = setupUser();
+        const onSubmit = renderDialog(vi.fn(), login);
 
-      await user.type(screen.getByRole("textbox", { name: "Password" }), "typed-password-1");
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await user.click(screen.getByRole("button", { name: "Deploy" }));
-      expect(onSubmit).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({
-          parameterValues: [
-            create(ParameterValueSchema, {
-              parameterId: "dashboard-password",
-              value: { case: "string", value: "typed-password-1" },
-            }),
-          ],
-        }),
-      );
-    });
+        await user.click(screen.getByRole("textbox", { name: "Password" }));
+        await user.paste(typed);
+        await user.click(screen.getByRole("button", { name: "Next" }));
+        await user.click(screen.getByRole("button", { name: "Deploy" }));
+        expect(onSubmit).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({
+            parameterValues: [
+              create(ParameterValueSchema, {
+                parameterId: "dashboard-password",
+                value: { case: "string", value: typed },
+              }),
+            ],
+          }),
+        );
+      },
+    );
 
-    it("shows a length or character error per field", async () => {
+    it("shows a length error per field", async () => {
       const user = setupUser();
       renderDialog(vi.fn(), login);
 
       await user.type(screen.getByRole("textbox", { name: "Password" }), "short");
       await user.type(screen.getByRole("textbox", { name: "Username" }), "-way-too-long");
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(screen.getByText("Username must be 1 to 8 characters.")).toBeVisible();
-      expect(screen.getByText("Password must be at least 12 characters.")).toBeVisible();
+      expect(screen.getByText("Username must be 1 to 8 bytes.")).toBeVisible();
+      expect(screen.getByText("Password must be 12 to 72 bytes.")).toBeVisible();
+    });
 
-      const password = screen.getByRole("textbox", { name: "Password" });
-      await user.clear(password);
-      await user.type(password, "has=equals-sign");
-      await user.tab();
-      // Blur validation lands on a deferred tick, so wait for the error to show.
-      expect(await screen.findByText(`Password can't contain "=".`)).toBeVisible();
+    it.each(["p".repeat(73), "é".repeat(72)])("refuses a password over 72 bytes", async (typed) => {
+      const user = setupUser();
+      renderDialog(vi.fn(), login);
+
+      await user.click(screen.getByRole("textbox", { name: "Password" }));
+      await user.paste(typed);
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Password must be 12 to 72 bytes.")).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Deploy" })).not.toBeInTheDocument();
     });
   });
 });

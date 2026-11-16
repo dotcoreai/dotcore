@@ -98,8 +98,8 @@ export function storagePlacementLifetime(placement: StoragePlacement): string {
 }
 
 /**
- * What tearing a deployment down does to its data, in the words `dotc application teardown` uses:
- * storage placed with the deployment is deleted, storage shared by the app is kept.
+ * What tearing a deployment down does to its data: storage placed with the deployment is deleted,
+ * storage shared by the app is kept.
  */
 export function teardownConsequence(attachments: readonly ApplicationStorageAttachment[]): string {
   const bindings = (placement: StoragePlacement) =>

@@ -16,6 +16,7 @@ interface SecretValueProps {
  */
 export function SecretValue({ label, value }: SecretValueProps) {
   const [revealed, setRevealed] = useState(false);
+  const toggleName = `${revealed ? "Hide" : "Reveal"} ${label}`;
 
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-x-1.5 gap-y-1">
@@ -26,12 +27,12 @@ export function SecretValue({ label, value }: SecretValueProps) {
           <span className="font-mono">••••••••</span>
         )}
         <Button
-          aria-label={`${revealed ? "Hide" : "Reveal"} ${label}`}
+          aria-label={toggleName}
           aria-pressed={revealed}
           className="shrink-0 cursor-pointer"
           onClick={() => setRevealed((current) => !current)}
           size="icon-xs"
-          title={`${revealed ? "Hide" : "Reveal"} ${label}`}
+          title={toggleName}
           type="button"
           variant="ghost"
         >

@@ -97,17 +97,13 @@ function SingleCombobox({
   status,
   value,
 }: SingleComboboxProps) {
-  const descriptionId = React.useId();
   const inputId = React.useId();
   const labelId = React.useId();
-  const statusId = React.useId();
-  const describedBy = [
-    help ? descriptionId : undefined,
-    status ? statusId : undefined,
+  const { describedBy, descriptionId, statusId } = useComboboxDescription({
     errorDescriptionId,
-  ]
-    .filter(Boolean)
-    .join(" ");
+    help,
+    status,
+  });
   const registerFloatingLayer = useInspectorFloatingLayerRegistration();
 
   return (
@@ -149,11 +145,7 @@ function SingleCombobox({
             <ChevronDownIcon />
           </ComboboxPrimitive.Trigger>
         </ComboboxPrimitive.InputGroup>
-        {status ? (
-          <p className="text-sm text-muted-foreground" id={statusId}>
-            {status}
-          </p>
-        ) : null}
+        <ComboboxStatus id={statusId} status={status} />
       </div>
       <ComboboxPopup
         loading={loading}
@@ -184,17 +176,13 @@ function MultipleCombobox({
   status,
   value,
 }: MultipleComboboxProps) {
-  const descriptionId = React.useId();
   const inputId = React.useId();
   const labelId = React.useId();
-  const statusId = React.useId();
-  const describedBy = [
-    help ? descriptionId : undefined,
-    status ? statusId : undefined,
+  const { describedBy, descriptionId, statusId } = useComboboxDescription({
     errorDescriptionId,
-  ]
-    .filter(Boolean)
-    .join(" ");
+    help,
+    status,
+  });
   const optionLabel = createOptionLabel(options);
   const findOption = (id: string) => options.find((option) => option.id === id);
   const registerFloatingLayer = useInspectorFloatingLayerRegistration();
@@ -283,11 +271,7 @@ function MultipleCombobox({
             <ChevronDownIcon />
           </ComboboxPrimitive.Trigger>
         </ComboboxPrimitive.InputGroup>
-        {status ? (
-          <p className="text-sm text-muted-foreground" id={statusId}>
-            {status}
-          </p>
-        ) : null}
+        <ComboboxStatus id={statusId} status={status} />
       </div>
       <ComboboxPopup
         loading={loading}
@@ -296,6 +280,39 @@ function MultipleCombobox({
         selectedValues={value}
       />
     </ComboboxPrimitive.Root>
+  );
+}
+
+/**
+ * Ids for a combobox's help, status and error descriptions, plus the `aria-describedby` that
+ * joins the ones currently shown.
+ */
+function useComboboxDescription({
+  errorDescriptionId,
+  help,
+  status,
+}: Pick<ComboboxSharedProps, "errorDescriptionId" | "help" | "status">) {
+  const descriptionId = React.useId();
+  const statusId = React.useId();
+  const describedBy = [
+    help ? descriptionId : undefined,
+    status ? statusId : undefined,
+    errorDescriptionId,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return { describedBy, descriptionId, statusId };
+}
+
+/** The field's current state, shown under the input and referenced by its description. */
+function ComboboxStatus({ id, status }: Pick<ComboboxSharedProps, "status"> & { id: string }) {
+  if (!status) return null;
+
+  return (
+    <p className="text-sm text-muted-foreground" id={id}>
+      {status}
+    </p>
   );
 }
 

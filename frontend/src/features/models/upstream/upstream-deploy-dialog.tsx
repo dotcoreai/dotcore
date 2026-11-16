@@ -65,7 +65,7 @@ export function UpstreamDeployDialog({
   const { advanced } = advancedMode;
   const steps = UPSTREAM_DEPLOY_STEPS;
   const wizard = useWizardSteps(steps);
-  const step = wizard.current as UpstreamDeployStep;
+  const step = wizard.current;
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
   const nameRef = useRef<HTMLInputElement>(null);
   const baseUrlRef = useRef<HTMLInputElement>(null);
@@ -192,7 +192,7 @@ export function UpstreamDeployDialog({
   const handleStepChange = (nextStep: string) => {
     const forward = steps.indexOf(nextStep as UpstreamDeployStep) > steps.indexOf(step);
     if (forward && !exposeErrors(stepErrors(step))) return;
-    wizard.goTo(nextStep);
+    wizard.goTo(nextStep as UpstreamDeployStep);
   };
   const handlePrimary = () => {
     if (step === "Deploy") {

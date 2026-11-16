@@ -108,10 +108,13 @@ function FieldHelp({
   label: string;
 }) {
   const [open, setOpen] = useState(false);
+  // The popover opens on hover, on keyboard focus of the trigger, and on click or tap. Focus
+  // opens are tracked so that a press on a trigger that focus already opened keeps the help open,
+  // and so that blurring the trigger closes only what focus opened.
   const openedByFocus = useRef(false);
   const pointerDown = useRef(false);
 
-  const change = (nextOpen: boolean) => {
+  const setOpenAndForgetFocus = (nextOpen: boolean) => {
     openedByFocus.current = false;
     setOpen(nextOpen);
   };
@@ -126,7 +129,7 @@ function FieldHelp({
             openedByFocus.current = false;
             return;
           }
-          change(nextOpen);
+          setOpenAndForgetFocus(nextOpen);
         }}
         open={open}
       >
@@ -136,7 +139,7 @@ function FieldHelp({
           delay={timing().tooltipOpenMs}
           onBlur={() => {
             pointerDown.current = false;
-            if (openedByFocus.current) change(false);
+            if (openedByFocus.current) setOpenAndForgetFocus(false);
           }}
           onFocus={() => {
             // A pointer press focuses the button too; its click opens the help instead.

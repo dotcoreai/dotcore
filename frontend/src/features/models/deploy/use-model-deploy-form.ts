@@ -569,16 +569,16 @@ export function useModelDeployForm({
     CONTEXT_PARAMETER_IDS.has(parameter.parameterId),
   );
   // The other parameters split by the profile's visibility: basic ones follow the context on the
-  // Settings step, advanced ones sit on the Advanced step.
-  const settingsParameters = exposedParameters.filter(
-    (parameter) =>
-      !CONTEXT_PARAMETER_IDS.has(parameter.parameterId) &&
-      effectiveVisibility(parameter, profile) === ParameterVisibility.BASIC,
-  );
-  const advancedParameters = exposedParameters.filter(
-    (parameter) =>
-      !CONTEXT_PARAMETER_IDS.has(parameter.parameterId) && !settingsParameters.includes(parameter),
-  );
+  // Settings step, advanced ones sit on the Advanced step. Hidden ones are not exposed.
+  const overrides = profile?.engineParameterVisibilityOverrides ?? [];
+  const nonContextParameters = (visibility: ParameterVisibility) =>
+    exposedParameters.filter(
+      (parameter) =>
+        !CONTEXT_PARAMETER_IDS.has(parameter.parameterId) &&
+        effectiveVisibility(parameter, overrides) === visibility,
+    );
+  const settingsParameters = nonContextParameters(ParameterVisibility.BASIC);
+  const advancedParameters = nonContextParameters(ParameterVisibility.ADVANCED);
   // A context change edits the shared context: total context and context per request become the
   // chosen ones, starting from what the step shows. A settled change, from a slider or preset, also
   // moves the other of the two to keep the edited one, and sizes "Sized for" when valid; typing

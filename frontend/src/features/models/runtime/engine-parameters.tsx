@@ -1,9 +1,10 @@
 import type { RefObject } from "react";
 
-import type { ParameterView, ParameterViewValue } from "@/components/parameters/parameter-view";
 import { ParametersDetails, ParametersForm } from "@/components/parameters/parameters";
 import { DetailList } from "@/components/ui/detail-list";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
+import { parameterValueMap, parameterView } from "@/domain/parameter-definitions";
+import type { ParameterView } from "@/domain/parameter-view";
 import type { EngineParameterSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import {
   type ParameterDefinition,
@@ -11,6 +12,8 @@ import {
   ParameterVisibility,
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ResolvedLocalModelDeploymentSnapshot } from "@/gen/dotcore/model/v1/deployment_pb";
+
+import { effectiveVisibility } from "./engine-parameter-values";
 
 interface EngineParametersFormProps {
   errors: ReadonlyMap<string, string>;
@@ -62,7 +65,7 @@ export function EngineParametersDetails({
   return (
     <ParametersDetails
       parameters={engineParameterViews(schema.parameters)}
-      values={parameterValueMap(values)}
+      values={parameterValueMap(values.values)}
     />
   );
 }
@@ -79,14 +82,11 @@ export function DeploymentParametersSection({
   const { engineParameterSchema: schema, engineParameterValues: values } = snapshot;
   if (!schema || !values) return null;
 
-  const shown = schema.parameters.filter((parameter) => {
-    const visibility =
-      snapshot.profileEngineParameterVisibilityOverrides.find(
-        (override) => override.parameterId === parameter.parameterId,
-      )?.visibility ?? parameter.visibility;
-    return visibility !== ParameterVisibility.HIDDEN;
-  });
-  const retained = parameterValueMap(values);
+  const overrides = snapshot.profileEngineParameterVisibilityOverrides;
+  const shown = schema.parameters.filter(
+    (parameter) => effectiveVisibility(parameter, overrides) !== ParameterVisibility.HIDDEN,
+  );
+  const retained = parameterValueMap(values.values);
   const views = engineParameterViews(shown).filter((view) => retained.has(view.id));
   if (!views.length) return null;
 
@@ -100,45 +100,6 @@ export function DeploymentParametersSection({
   );
 }
 
-function parameterValueMap(values: ParameterValues | undefined): Map<string, ParameterViewValue> {
-  const map = new Map<string, ParameterViewValue>();
-  for (const value of values?.values ?? []) {
-    if (value.value.case !== undefined) map.set(value.parameterId, value.value.value);
-  }
-  return map;
-}
-
 function engineParameterViews(parameters: readonly ParameterDefinition[]): ParameterView[] {
-  return parameters.flatMap((parameter): ParameterView[] => {
-    const base = {
-      description: parameter.description,
-      id: parameter.parameterId,
-      label: parameter.displayName,
-    };
-    switch (parameter.parameterType.case) {
-      case "boolean":
-        return [{ ...base, type: { kind: "boolean" } }];
-      case "unsignedInteger": {
-        const { maximum, minimum, unit } = parameter.parameterType.value;
-        return [{ ...base, type: { kind: "unsignedInteger", maximum, minimum, unit } }];
-      }
-      case "stringEnum":
-        return [
-          { ...base, type: { kind: "stringEnum", values: parameter.parameterType.value.values } },
-        ];
-      case "text": {
-        const { maximumLength, minimumLength } = parameter.parameterType.value;
-        return [{ ...base, type: { kind: "text", maximumLength, minimumLength } }];
-      }
-      case "secret":
-        return [
-          {
-            ...base,
-            type: { kind: "secret", minimumLength: parameter.parameterType.value.minimumLength },
-          },
-        ];
-      default:
-        return [];
-    }
-  });
+  return parameters.flatMap((parameter) => parameterView(parameter) ?? []);
 }

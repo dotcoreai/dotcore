@@ -11,6 +11,7 @@ import {
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import type { ChangedEngineParameter } from "@/features/models/runtime/local-deployment-configuration";
+import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
 import { formatBytes, formatCompactCount } from "@/lib/format";
 
@@ -73,7 +74,7 @@ export function ModelDeploySummaryStep({
         <Detail
           key={parameter.parameterId}
           label={parameter.displayName}
-          value={capitalized(value)}
+          value={typedText(parameter, inputs) ? value : capitalized(value)}
         />
       ))}
       {customizations.length ? (
@@ -128,6 +129,15 @@ function contextSummary(
   return [total && `${tokens(total)} total`, perRequest && `${tokens(perRequest)} per request`]
     .filter(Boolean)
     .join(" · ");
+}
+
+// A string parameter's typed input is shown as typed, never capitalized like a value label.
+function typedText(parameter: ParameterDefinition, inputs: ReadonlyMap<string, string>): boolean {
+  const kind = parameter.parameterType.case;
+  return (
+    (kind === "stringEnum" || kind === "text" || kind === "secret") &&
+    Boolean(inputs.get(parameter.parameterId))
+  );
 }
 
 function capitalized(text: string): string {

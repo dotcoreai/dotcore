@@ -1,3 +1,4 @@
+import { create } from "@bufbuild/protobuf";
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,7 +8,11 @@ import {
 } from "@/features/deployments/execution-targets-watch-test-support";
 import { syntheticCatalog } from "@/features/models/catalog/catalog-table-test-support";
 import { ModelDeployDialog } from "@/features/models/deploy/model-deploy-dialog";
+import { EngineReleaseSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
+import { ModelProfileSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
+import { engineParameterError, engineParameterInputs } from "./engine-parameter-values";
 import {
   changedEngineParameters,
   defaultLocalDeploymentConfiguration,
@@ -210,6 +215,61 @@ describe("local deployment configuration", () => {
       ["parallel-requests", "2 requests"],
       ["prompt-cache-memory-mib", "4 GiB"],
     ]);
+  });
+});
+
+describe("secret engine parameters", () => {
+  const release = create(EngineReleaseSchema, {
+    parameterSchema: {
+      parameters: [
+        {
+          parameterId: "total-context",
+          displayName: "Total context",
+          visibility: ParameterVisibility.BASIC,
+          parameterType: {
+            case: "unsignedInteger",
+            value: { minimum: 1n, maximum: 1000n, unit: "tokens", defaultValue: 100n },
+          },
+        },
+        {
+          parameterId: "api-key",
+          displayName: "API key",
+          visibility: ParameterVisibility.ADVANCED,
+          parameterType: { case: "secret", value: { minimumLength: 12 } },
+        },
+      ],
+    },
+  });
+  const profile = create(ModelProfileSchema, {});
+  const apiKey = release.parameterSchema!.parameters[1];
+  const inputs = (key: string) =>
+    new Map([
+      ["total-context", "100"],
+      ["api-key", key],
+    ]);
+  const configured = (key: string) =>
+    localDeploymentConfiguration(profile, release, { bindingId: "q4", inputs: inputs(key) });
+
+  it("leaves an empty secret out so it is generated at deploy, without blocking Deploy", () => {
+    expect(engineParameterError(apiKey, inputs(""))).toBeUndefined();
+    expect(pairs(configured("")?.engineParameterValues)).toEqual([["total-context", 100n]]);
+  });
+
+  it("sends a typed secret as a string and keeps it as an input", () => {
+    const values = configured("correct-horse-battery")?.engineParameterValues;
+
+    expect(pairs(values)).toEqual([
+      ["total-context", 100n],
+      ["api-key", "correct-horse-battery"],
+    ]);
+    expect(engineParameterInputs(values).get("api-key")).toBe("correct-horse-battery");
+  });
+
+  it("blocks Deploy on a typed secret below its minimum length", () => {
+    expect(engineParameterError(apiKey, inputs("short"))).toBe(
+      "API key must be at least 12 bytes.",
+    );
+    expect(configured("short")).toBeUndefined();
   });
 });
 

@@ -95,9 +95,6 @@ export function DeploymentOverview({
     model?.engineParameterValues,
     CONTEXT_PER_REQUEST_PARAMETER_ID,
   );
-  const contextPerRequestSized = Boolean(
-    model?.sizing?.derivedEngineParameterIds.includes(CONTEXT_PER_REQUEST_PARAMETER_ID),
-  );
   const speculative = model ? deploymentSpeculativeLabel(model, catalogModel) : undefined;
   const kvCachePrecision = model ? deploymentKvCachePrecisionLabel(model, catalogModel) : undefined;
   const devices = state?.observedPlacements.flatMap((placement) => placement.acceleratorDeviceIds);
@@ -192,11 +189,7 @@ export function DeploymentOverview({
               <ContextDetail label="Total context" tokens={totalContext} />
             )}
             {contextPerRequest === undefined ? null : (
-              <ContextDetail
-                sized={contextPerRequestSized}
-                label="Context per request"
-                tokens={contextPerRequest}
-              />
+              <ContextDetail label="Context per request" tokens={contextPerRequest} />
             )}
             {kvCachePrecision ? (
               <Detail label="KV cache precision" value={kvCachePrecision} />
@@ -304,33 +297,13 @@ function DeploymentModelMention({
   );
 }
 
-/**
- * A context detail showing the compact token count, with the exact count on hover. A value that
- * resolution sized rather than the deployment supplied is marked as sized.
- */
-function ContextDetail({
-  sized = false,
-  label,
-  tokens,
-}: {
-  sized?: boolean;
-  label: string;
-  tokens: bigint;
-}) {
+/** A context detail showing the compact token count, with the exact count on hover. */
+function ContextDetail({ label, tokens }: { label: string; tokens: bigint }) {
   return (
     <Detail
       label={label}
       title={`${tokens.toLocaleString("en-US")} tokens`}
-      value={
-        sized ? (
-          <>
-            {formatCompactCount(Number(tokens))}{" "}
-            <span className="font-normal text-muted-foreground">sized</span>
-          </>
-        ) : (
-          formatCompactCount(Number(tokens))
-        )
-      }
+      value={formatCompactCount(Number(tokens))}
     />
   );
 }

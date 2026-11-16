@@ -81,8 +81,8 @@ export const launchRejectionField = "launchRejection";
  * The engine parameter inputs a launch shows and the declared values it submits beneath them. The
  * declared values are the starting values: the backend's read for the dialog's scenario, else its
  * read without a scenario, else the profile's defaults with the release defaults they leave out.
- * The inputs overlay them with the operator's parameter edits, then the launch's context, whose total
- * context follows the starting value of the target's largest fit until chosen.
+ * The inputs overlay them with the operator's parameter edits, then the launch's context, whose
+ * total context follows the starting value of the target's largest fit until chosen.
  */
 export function useLaunchEngineValues(
   scenarioValues: ParameterValues | undefined,
