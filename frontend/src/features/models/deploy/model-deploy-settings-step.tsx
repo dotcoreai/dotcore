@@ -18,7 +18,7 @@ import {
 } from "@/features/models/runtime/engine-parameter-values";
 import { EngineParametersForm } from "@/features/models/runtime/engine-parameters";
 import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
-import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import type { ParameterDefinition, ParameterGroup } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
@@ -40,8 +40,12 @@ interface ModelDeploySettingsStepProps {
   onParameterChange: (parameter: ParameterDefinition, input: string, settled?: boolean) => void;
   /** The basic engine parameters outside the context, which follow the context fields. */
   parameters: {
+    /** The engine's parameter groups the configuration keeps. */
+    groups: readonly ParameterGroup[];
     onBlur: (parameter: ParameterDefinition) => void;
     onChange: (parameter: ParameterDefinition, input: string) => void;
+    /** The errors of the latest blocked navigation, which open the groups holding them. */
+    revealedErrors: FieldErrors;
     shown: readonly ParameterDefinition[];
   };
   profile?: ModelProfile;
@@ -70,10 +74,7 @@ export function ModelDeploySettingsStep({
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
-  const { contextPerRequest, totalContext } = runtimeParameterGroups(
-    exposedParameters,
-    configuration,
-  ).context;
+  const { contextPerRequest, totalContext } = runtimeParameterGroups(exposedParameters).context;
   const maximum = maximumContext(model, configuration);
   const ends = contextSliderEnds({
     contextPerRequest,
@@ -154,11 +155,13 @@ export function ModelDeploySettingsStep({
       {parameters.shown.length ? (
         <EngineParametersForm
           errors={fieldErrors}
+          groups={parameters.groups}
           inputRefs={engineParameterRefs}
           inputs={inputs}
           onBlur={parameters.onBlur}
           onChange={parameters.onChange}
           parameters={parameters.shown}
+          revealedErrors={parameters.revealedErrors}
         />
       ) : null}
     </DeploymentForm>

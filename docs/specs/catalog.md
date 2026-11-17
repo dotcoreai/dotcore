@@ -178,8 +178,9 @@ are on the [recommendations](recommendations.md) page.
   hidden.
 - May name the use cases it serves and the accelerator vendors it prefers
   ([recommendations](recommendations.md#app-use-case)).
-- A configuration or secret binding may be enabled by a boolean parameter of the same graph. When
-  that parameter is off, the binding never reaches the service, not even as an empty value.
+- A parameter may be enabled by a boolean parameter of the same graph, or by the switch of its
+  group. A disabled parameter keeps no value, and its bindings never reach the service, not even
+  as an empty value.
 - Engine releases and apps declare the storage they need. Each storage binding lists its allowed
   storage placements in order, the first being the default. An app binding may allow this
   deployment or shared by the app ([apps](apps.md#app-storage)). An engine binding allows exactly
@@ -198,6 +199,9 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 - Own the typed parameter definition that engine releases and apps share: its basic, advanced or
   hidden visibility and its types (boolean, integer, text, string enum and secret). Apps use any
   type. Engines use boolean, integer and secret. An integer has a minimum and an optional maximum.
+- Own the parameter groups of that definition, which present related parameters together. Apps and
+  engines declare groups. Only apps declare conditions: a parameter enabled by a boolean parameter
+  or by its group's switch.
 - Validate catalogs as described above.
 
 #### Boundaries

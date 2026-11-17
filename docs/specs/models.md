@@ -196,7 +196,7 @@ never redefine it.
 - The engine parameter values and the selected profile's engine parameter defaults and visibility
   overrides, so clients read every value and its origin from the deployment alone.
 - The definitions of the configuration's engine parameters, under the release's schema identity:
-  possibly a subset of that schema.
+  possibly a subset of that schema. Its parameter groups travel with it.
 - The selected target's memory architecture. Engine adapters derive launch settings and non-blocking
   advisories from it.
 - The selected target's device memory total, or its host memory total on unified targets. Engine

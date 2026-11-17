@@ -6,6 +6,10 @@ engineKind: "ENGINE_KIND_VLLM"
 version: "v0.32.0"
 parameterSchema:
   schemaId: "vllm-v2"
+  parameterGroups:
+    - groupId: "host-memory"
+      displayName: "Host memory"
+      description: "Host memory the engine uses, in addition to accelerator memory, to keep context it can reuse."
   parameters:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
@@ -68,6 +72,7 @@ parameterSchema:
     - parameterId: "kv-offloading-size-gib"
       displayName: "KV offloading size"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      groupId: "host-memory"
       description: "Host memory that keeps context evicted from the total context, so a later request with the same prompt start reuses it instead of processing it again. Raise it for long prompts that repeat; 0 turns it off."
       # vLLM validates no range (`kv_offloading_size`, `vllm/config/cache.py`); the adapter leaves 0
       # out, which turns offloading off.

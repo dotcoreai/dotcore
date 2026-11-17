@@ -6,6 +6,10 @@ engineKind: "ENGINE_KIND_STRATA"
 version: "0.2.13"
 parameterSchema:
   schemaId: "strata-v2"
+  parameterGroups:
+    - groupId: "expert-memory"
+      displayName: "Expert memory"
+      description: "Where the model keeps its experts. Experts in accelerator memory run fastest, then host memory; the rest are read from disk."
   parameters:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
@@ -44,6 +48,7 @@ parameterSchema:
     - parameterId: "expert-vram-mib"
       displayName: "Expert accelerator memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      groupId: "expert-memory"
       description: "Accelerator memory for the model's most used experts; the others run from host memory or disk, which is slower. The model's sizing sets it; raise it to speed up generation if memory allows, or lower it to free accelerator memory. Where the model offers expert host memory, lowering this one leaves the extra experts on disk unless you raise that one too."
       # The wrapper requires a positive count (`engines/strata/start.py`); Strata caps nothing above,
       # since the expert cache never holds more than one slot per expert.
@@ -53,6 +58,7 @@ parameterSchema:
     - parameterId: "expert-host-memory-mib"
       displayName: "Expert host memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      groupId: "expert-memory"
       description: "Host memory kept for the most used experts that don't fit in expert accelerator memory; the rest are read from disk when needed, which is slower. 0 reads all of them from disk. Room beyond those experts keeps long prompts from reading experts from disk. The model's sizing sets it; lower it to free host memory, or raise it to speed up generation when you lower expert accelerator memory."
       # Strata takes any budget and trims one above the free host memory (`--resident-budget-gib`
       # in upstream's `src/program/generate.cpp`), so no maximum.

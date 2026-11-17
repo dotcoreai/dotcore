@@ -3,40 +3,54 @@ import type { RefObject } from "react";
 import { ParametersDetails, ParametersForm } from "@/components/parameters/parameters";
 import { DetailList } from "@/components/ui/detail-list";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
-import { parameterValueMap, parameterView } from "@/domain/parameter-definitions";
+import {
+  parameterGroupView,
+  parameterValueMap,
+  parameterView,
+} from "@/domain/parameter-definitions";
 import type { ParameterView } from "@/domain/parameter-view";
 import type { EngineParameterSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import {
   type ParameterDefinition,
+  type ParameterGroup,
   type ParameterValues,
   ParameterVisibility,
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ResolvedLocalModelDeploymentSnapshot } from "@/gen/dotcore/model/v1/deployment_pb";
+import type { FieldErrors } from "@/lib/form-validation";
 
 import { effectiveVisibility } from "./engine-parameter-values";
 
 interface EngineParametersFormProps {
-  errors: ReadonlyMap<string, string>;
+  errors: FieldErrors;
+  /** The engine's parameter groups, which lay out the parameters that name one. */
+  groups: readonly ParameterGroup[];
   inputs: ReadonlyMap<string, string>;
   inputRefs: RefObject<Map<string, HTMLElement | null>>;
   onBlur: (parameter: ParameterDefinition) => void;
   onChange: (parameter: ParameterDefinition, input: string) => void;
   parameters: readonly ParameterDefinition[];
+  /** The errors of the latest blocked navigation, which open the groups holding them. */
+  revealedErrors: FieldErrors;
 }
 
+/** Edits one deploy step's engine parameters, laid out by the engine's parameter groups. */
 export function EngineParametersForm({
   errors,
+  groups,
   inputs,
   inputRefs,
   onBlur,
   onChange,
   parameters,
+  revealedErrors,
 }: EngineParametersFormProps) {
   const definitions = new Map(parameters.map((parameter) => [parameter.parameterId, parameter]));
 
   return (
     <ParametersForm
       errors={errors}
+      groups={groups.map(parameterGroupView)}
       idPrefix="engine-parameter"
       inputRefs={inputRefs}
       inputs={inputs}
@@ -49,6 +63,7 @@ export function EngineParametersForm({
         if (parameter) onChange(parameter, input);
       }}
       parameters={engineParameterViews(parameters)}
+      revealedErrors={revealedErrors}
     />
   );
 }

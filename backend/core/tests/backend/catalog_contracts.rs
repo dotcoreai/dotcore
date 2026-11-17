@@ -3292,6 +3292,8 @@ fn synthetic_boolean_engine_release() -> EngineRelease {
             ),
             visibility: ParameterVisibility::Advanced as i32,
             description: "Enables the synthetic feature.".to_owned(),
+            enabled_by_parameter_id: None,
+            group_id: None,
         });
     engine
 }

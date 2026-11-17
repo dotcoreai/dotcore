@@ -65,4 +65,7 @@ message EngineParameterSchema {
 
   // Supported typed engine parameters, in display order.
   repeated ParameterDefinition parameters = 2;
+
+  // Plain groups presenting consecutive parameters together, in display order.
+  repeated ParameterGroup parameter_groups = 3;
 }

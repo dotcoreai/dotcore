@@ -1,6 +1,10 @@
-import type { ParameterDefinition, ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import type {
+  ParameterDefinition,
+  ParameterGroup,
+  ParameterValue,
+} from "@/gen/dotcore/catalog/v1/parameter_pb";
 
-import type { ParameterView, ParameterViewValue } from "./parameter-view";
+import type { ParameterGroupView, ParameterView, ParameterViewValue } from "./parameter-view";
 
 /**
  * A catalog parameter definition as the console renders and validates it, for applications and
@@ -9,6 +13,8 @@ import type { ParameterView, ParameterViewValue } from "./parameter-view";
 export function parameterView(definition: ParameterDefinition): ParameterView | undefined {
   const base = {
     description: definition.description,
+    enabledById: definition.enabledByParameterId,
+    groupId: definition.groupId,
     id: definition.parameterId,
     label: definition.displayName,
   };
@@ -33,6 +39,16 @@ export function parameterView(definition: ParameterDefinition): ParameterView | 
     default:
       return undefined;
   }
+}
+
+/** A catalog parameter group as the console lays it out, for applications and engines alike. */
+export function parameterGroupView(group: ParameterGroup): ParameterGroupView {
+  return {
+    description: group.description || undefined,
+    id: group.groupId,
+    label: group.displayName,
+    switchId: group.switchParameterId,
+  };
 }
 
 /** The definition's catalog default, or undefined when it declares none. A secret never has one. */

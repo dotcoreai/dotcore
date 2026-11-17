@@ -22,6 +22,6 @@ Each engine's `engines/<engine>/AGENTS.md` owns its pin, release id convention a
    * Run remote hosts one at a time, with one remote command per row: an ssh agent that prompts for approval rejects concurrent signing.
    * Check a host's free disk before each new model download. The model cache is shared with other workspaces, so report a nearly full disk to the user instead of pruning it.
 
-6. Re-check every declared parameter bound in the bumped engine's `catalog/engines/*.yaml` against the new pin: each value and its source comment (constant or flag, file). Update a changed bound, add a maximum only when the new pin has a limit, and drop one the pin no longer has.
+6. Re-check every declared parameter bound in the bumped engine's `catalog/engines/*.yaml` against the new pin, per `catalog/AGENTS.md`: update a changed bound or its source comment, and add or drop a maximum when the pin's limits change.
 
 7. Fix any `AGENTS.md` step that proved wrong.

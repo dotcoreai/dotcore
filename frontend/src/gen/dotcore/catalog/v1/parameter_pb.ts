@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/parameter.proto.
  */
 export const file_dotcore_catalog_v1_parameter: GenFile = /*@__PURE__*/
-  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEi8AMKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI7Cgp2aXNpYmlsaXR5GAcgASgOMicuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZpc2liaWxpdHkSPQoHYm9vbGVhbhgEIAEoCzIqLmRvdGNvcmUuY2F0YWxvZy52MS5Cb29sZWFuUGFyYW1ldGVyU2NoZW1hSAASTgoQdW5zaWduZWRfaW50ZWdlchgFIAEoCzIyLmRvdGNvcmUuY2F0YWxvZy52MS5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWFIABJECgtzdHJpbmdfZW51bRgGIAEoCzItLmRvdGNvcmUuY2F0YWxvZy52MS5TdHJpbmdFbnVtUGFyYW1ldGVyU2NoZW1hSAASNwoEdGV4dBgIIAEoCzInLmRvdGNvcmUuY2F0YWxvZy52MS5UZXh0UGFyYW1ldGVyU2NoZW1hSAASOwoGc2VjcmV0GAkgASgLMikuZG90Y29yZS5jYXRhbG9nLnYxLlNlY3JldFBhcmFtZXRlclNjaGVtYUgAQhAKDnBhcmFtZXRlcl90eXBlIkYKFkJvb2xlYW5QYXJhbWV0ZXJTY2hlbWESGgoNZGVmYXVsdF92YWx1ZRgBIAEoCEgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIo8BCh5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWESDwoHbWluaW11bRgBIAEoBBIUCgdtYXhpbXVtGAIgASgESACIAQESDAoEdW5pdBgDIAEoCRIaCg1kZWZhdWx0X3ZhbHVlGAQgASgESAGIAQFCCgoIX21heGltdW1CEAoOX2RlZmF1bHRfdmFsdWUiWQoZU3RyaW5nRW51bVBhcmFtZXRlclNjaGVtYRIOCgZ2YWx1ZXMYASADKAkSGgoNZGVmYXVsdF92YWx1ZRgCIAEoCUgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIosBChNUZXh0UGFyYW1ldGVyU2NoZW1hEhYKDm1pbmltdW1fbGVuZ3RoGAEgASgNEhsKDm1heGltdW1fbGVuZ3RoGAIgASgNSACIAQESGgoNZGVmYXVsdF92YWx1ZRgDIAEoCUgBiAEBQhEKD19tYXhpbXVtX2xlbmd0aEIQCg5fZGVmYXVsdF92YWx1ZSJ5ChVTZWNyZXRQYXJhbWV0ZXJTY2hlbWESGAoQZ2VuZXJhdGVkX2xlbmd0aBgBIAEoDRIWCg5taW5pbXVtX2xlbmd0aBgCIAEoDRIbCg5tYXhpbXVtX2xlbmd0aBgDIAEoDUgAiAEBQhEKD19tYXhpbXVtX2xlbmd0aCJFCg9QYXJhbWV0ZXJWYWx1ZXMSMgoGdmFsdWVzGAEgAygLMiIuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZhbHVlInAKDlBhcmFtZXRlclZhbHVlEhQKDHBhcmFtZXRlcl9pZBgBIAEoCRIRCgdib29sZWFuGAIgASgISAASGgoQdW5zaWduZWRfaW50ZWdlchgDIAEoBEgAEhAKBnN0cmluZxgEIAEoCUgAQgcKBXZhbHVlKp8BChNQYXJhbWV0ZXJWaXNpYmlsaXR5EiQKIFBBUkFNRVRFUl9WSVNJQklMSVRZX1VOU1BFQ0lGSUVEEAASHgoaUEFSQU1FVEVSX1ZJU0lCSUxJVFlfQkFTSUMQARIhCh1QQVJBTUVURVJfVklTSUJJTElUWV9BRFZBTkNFRBACEh8KG1BBUkFNRVRFUl9WSVNJQklMSVRZX0hJRERFThADYgZwcm90bzM");
+  fileDesc("CiJkb3Rjb3JlL2NhdGFsb2cvdjEvcGFyYW1ldGVyLnByb3RvEhJkb3Rjb3JlLmNhdGFsb2cudjEi1gQKE1BhcmFtZXRlckRlZmluaXRpb24SFAoMcGFyYW1ldGVyX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRI7Cgp2aXNpYmlsaXR5GAcgASgOMicuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZpc2liaWxpdHkSFQoIZ3JvdXBfaWQYCiABKAlIAYgBARIkChdlbmFibGVkX2J5X3BhcmFtZXRlcl9pZBgLIAEoCUgCiAEBEj0KB2Jvb2xlYW4YBCABKAsyKi5kb3Rjb3JlLmNhdGFsb2cudjEuQm9vbGVhblBhcmFtZXRlclNjaGVtYUgAEk4KEHVuc2lnbmVkX2ludGVnZXIYBSABKAsyMi5kb3Rjb3JlLmNhdGFsb2cudjEuVW5zaWduZWRJbnRlZ2VyUGFyYW1ldGVyU2NoZW1hSAASRAoLc3RyaW5nX2VudW0YBiABKAsyLS5kb3Rjb3JlLmNhdGFsb2cudjEuU3RyaW5nRW51bVBhcmFtZXRlclNjaGVtYUgAEjcKBHRleHQYCCABKAsyJy5kb3Rjb3JlLmNhdGFsb2cudjEuVGV4dFBhcmFtZXRlclNjaGVtYUgAEjsKBnNlY3JldBgJIAEoCzIpLmRvdGNvcmUuY2F0YWxvZy52MS5TZWNyZXRQYXJhbWV0ZXJTY2hlbWFIAEIQCg5wYXJhbWV0ZXJfdHlwZUILCglfZ3JvdXBfaWRCGgoYX2VuYWJsZWRfYnlfcGFyYW1ldGVyX2lkIocBCg5QYXJhbWV0ZXJHcm91cBIQCghncm91cF9pZBgBIAEoCRIUCgxkaXNwbGF5X25hbWUYAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAkSIAoTc3dpdGNoX3BhcmFtZXRlcl9pZBgEIAEoCUgAiAEBQhYKFF9zd2l0Y2hfcGFyYW1ldGVyX2lkIkYKFkJvb2xlYW5QYXJhbWV0ZXJTY2hlbWESGgoNZGVmYXVsdF92YWx1ZRgBIAEoCEgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIo8BCh5VbnNpZ25lZEludGVnZXJQYXJhbWV0ZXJTY2hlbWESDwoHbWluaW11bRgBIAEoBBIUCgdtYXhpbXVtGAIgASgESACIAQESDAoEdW5pdBgDIAEoCRIaCg1kZWZhdWx0X3ZhbHVlGAQgASgESAGIAQFCCgoIX21heGltdW1CEAoOX2RlZmF1bHRfdmFsdWUiWQoZU3RyaW5nRW51bVBhcmFtZXRlclNjaGVtYRIOCgZ2YWx1ZXMYASADKAkSGgoNZGVmYXVsdF92YWx1ZRgCIAEoCUgAiAEBQhAKDl9kZWZhdWx0X3ZhbHVlIosBChNUZXh0UGFyYW1ldGVyU2NoZW1hEhYKDm1pbmltdW1fbGVuZ3RoGAEgASgNEhsKDm1heGltdW1fbGVuZ3RoGAIgASgNSACIAQESGgoNZGVmYXVsdF92YWx1ZRgDIAEoCUgBiAEBQhEKD19tYXhpbXVtX2xlbmd0aEIQCg5fZGVmYXVsdF92YWx1ZSJ5ChVTZWNyZXRQYXJhbWV0ZXJTY2hlbWESGAoQZ2VuZXJhdGVkX2xlbmd0aBgBIAEoDRIWCg5taW5pbXVtX2xlbmd0aBgCIAEoDRIbCg5tYXhpbXVtX2xlbmd0aBgDIAEoDUgAiAEBQhEKD19tYXhpbXVtX2xlbmd0aCJFCg9QYXJhbWV0ZXJWYWx1ZXMSMgoGdmFsdWVzGAEgAygLMiIuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlclZhbHVlInAKDlBhcmFtZXRlclZhbHVlEhQKDHBhcmFtZXRlcl9pZBgBIAEoCRIRCgdib29sZWFuGAIgASgISAASGgoQdW5zaWduZWRfaW50ZWdlchgDIAEoBEgAEhAKBnN0cmluZxgEIAEoCUgAQgcKBXZhbHVlKp8BChNQYXJhbWV0ZXJWaXNpYmlsaXR5EiQKIFBBUkFNRVRFUl9WSVNJQklMSVRZX1VOU1BFQ0lGSUVEEAASHgoaUEFSQU1FVEVSX1ZJU0lCSUxJVFlfQkFTSUMQARIhCh1QQVJBTUVURVJfVklTSUJJTElUWV9BRFZBTkNFRBACEh8KG1BBUkFNRVRFUl9WSVNJQklMSVRZX0hJRERFThADYgZwcm90bzM");
 
 /**
  * Defines one owner-neutral typed parameter: its identity, label, guidance, visibility and value
@@ -47,6 +47,22 @@ export type ParameterDefinition = Message<"dotcore.catalog.v1.ParameterDefinitio
    * @generated from field: dotcore.catalog.v1.ParameterVisibility visibility = 7;
    */
   visibility: ParameterVisibility;
+
+  /**
+   * Group this parameter belongs to, declared by the same owner; none when ungrouped.
+   *
+   * @generated from field: optional string group_id = 10;
+   */
+  groupId?: string;
+
+  /**
+   * Boolean parameter of the same owner that enables this one: while its value is false this
+   * parameter is disabled and keeps no value. A member of a switched group declares none; the
+   * group's switch enables it. Engines declare none.
+   *
+   * @generated from field: optional string enabled_by_parameter_id = 11;
+   */
+  enabledByParameterId?: string;
 
   /**
    * @generated from oneof dotcore.catalog.v1.ParameterDefinition.parameter_type
@@ -102,6 +118,52 @@ export const ParameterDefinitionSchema: GenMessage<ParameterDefinition> = /*@__P
   messageDesc(file_dotcore_catalog_v1_parameter, 0);
 
 /**
+ * Presents consecutive parameters of one owner together. A plain group has a display name and a
+ * description. A switched group has neither: its switch parameter's name and guidance are its
+ * title, and its other members are disabled while the switch is false. Engines declare plain
+ * groups only.
+ *
+ * @generated from message dotcore.catalog.v1.ParameterGroup
+ */
+export type ParameterGroup = Message<"dotcore.catalog.v1.ParameterGroup"> & {
+  /**
+   * Stable group identity, unique within its declaring owner.
+   *
+   * @generated from field: string group_id = 1;
+   */
+  groupId: string;
+
+  /**
+   * Human-readable group title; empty for a switched group.
+   *
+   * @generated from field: string display_name = 2;
+   */
+  displayName: string;
+
+  /**
+   * Optional practical guidance shown with this group; empty for a switched group.
+   *
+   * @generated from field: string description = 3;
+   */
+  description: string;
+
+  /**
+   * Boolean first member of this group that switches the other members on and off; none for a
+   * plain group.
+   *
+   * @generated from field: optional string switch_parameter_id = 4;
+   */
+  switchParameterId?: string;
+};
+
+/**
+ * Describes the message dotcore.catalog.v1.ParameterGroup.
+ * Use `create(ParameterGroupSchema)` to create a new message.
+ */
+export const ParameterGroupSchema: GenMessage<ParameterGroup> = /*@__PURE__*/
+  messageDesc(file_dotcore_catalog_v1_parameter, 1);
+
+/**
  * Defines a boolean parameter.
  *
  * @generated from message dotcore.catalog.v1.BooleanParameterSchema
@@ -120,7 +182,7 @@ export type BooleanParameterSchema = Message<"dotcore.catalog.v1.BooleanParamete
  * Use `create(BooleanParameterSchemaSchema)` to create a new message.
  */
 export const BooleanParameterSchemaSchema: GenMessage<BooleanParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 1);
+  messageDesc(file_dotcore_catalog_v1_parameter, 2);
 
 /**
  * Defines the inclusive range for an unsigned-integer parameter.
@@ -162,7 +224,7 @@ export type UnsignedIntegerParameterSchema = Message<"dotcore.catalog.v1.Unsigne
  * Use `create(UnsignedIntegerParameterSchemaSchema)` to create a new message.
  */
 export const UnsignedIntegerParameterSchemaSchema: GenMessage<UnsignedIntegerParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 2);
+  messageDesc(file_dotcore_catalog_v1_parameter, 3);
 
 /**
  * Defines the closed set of accepted string values for a parameter.
@@ -190,7 +252,7 @@ export type StringEnumParameterSchema = Message<"dotcore.catalog.v1.StringEnumPa
  * Use `create(StringEnumParameterSchemaSchema)` to create a new message.
  */
 export const StringEnumParameterSchemaSchema: GenMessage<StringEnumParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 3);
+  messageDesc(file_dotcore_catalog_v1_parameter, 4);
 
 /**
  * Defines a free text parameter: any single-line text within its length bounds, without control
@@ -226,7 +288,7 @@ export type TextParameterSchema = Message<"dotcore.catalog.v1.TextParameterSchem
  * Use `create(TextParameterSchemaSchema)` to create a new message.
  */
 export const TextParameterSchemaSchema: GenMessage<TextParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 4);
+  messageDesc(file_dotcore_catalog_v1_parameter, 5);
 
 /**
  * Defines a secret parameter: never defaulted, generated at random from letters and digits when the
@@ -262,7 +324,7 @@ export type SecretParameterSchema = Message<"dotcore.catalog.v1.SecretParameterS
  * Use `create(SecretParameterSchemaSchema)` to create a new message.
  */
 export const SecretParameterSchemaSchema: GenMessage<SecretParameterSchema> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 5);
+  messageDesc(file_dotcore_catalog_v1_parameter, 6);
 
 /**
  * Supplies a set of exact typed parameter values.
@@ -283,7 +345,7 @@ export type ParameterValues = Message<"dotcore.catalog.v1.ParameterValues"> & {
  * Use `create(ParameterValuesSchema)` to create a new message.
  */
 export const ParameterValuesSchema: GenMessage<ParameterValues> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 6);
+  messageDesc(file_dotcore_catalog_v1_parameter, 7);
 
 /**
  * Supplies one exact typed parameter value.
@@ -333,7 +395,7 @@ export type ParameterValue = Message<"dotcore.catalog.v1.ParameterValue"> & {
  * Use `create(ParameterValueSchema)` to create a new message.
  */
 export const ParameterValueSchema: GenMessage<ParameterValue> = /*@__PURE__*/
-  messageDesc(file_dotcore_catalog_v1_parameter, 7);
+  messageDesc(file_dotcore_catalog_v1_parameter, 8);
 
 /**
  * Where the console shows a parameter.

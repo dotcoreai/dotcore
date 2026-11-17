@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ParameterView } from "@/domain/parameter-view";
+import type { ParameterGroupView, ParameterView } from "@/domain/parameter-view";
+import type { FieldErrors } from "@/lib/form-validation";
+import { setupUser } from "@/test/user";
 
 import { ParametersDetails, ParametersForm } from "./parameters";
 
@@ -22,6 +24,7 @@ describe("ParametersForm", () => {
     render(
       <ParametersForm
         errors={new Map()}
+        groups={[]}
         idPrefix="test"
         inputRefs={{ current: new Map() }}
         inputs={
@@ -53,6 +56,7 @@ describe("ParametersForm", () => {
     render(
       <ParametersForm
         errors={new Map()}
+        groups={[]}
         idPrefix="test"
         inputRefs={{ current: new Map() }}
         inputs={new Map()}
@@ -67,6 +71,103 @@ describe("ParametersForm", () => {
     expect(secret).toHaveValue("");
     expect(secret).toHaveClass("placeholder:italic", "placeholder:text-muted-foreground");
     expect(screen.getByRole("textbox", { name: "Username" })).not.toHaveAttribute("placeholder");
+  });
+
+  it("boxes a group's members under its title and help, and reopens it on a revealed error", async () => {
+    const user = setupUser();
+    const parameters: ParameterView[] = [
+      { id: "slots", label: "Slots", type: { kind: "unsignedInteger", minimum: 1n, unit: "" } },
+      expertField("gpu", "Expert GPU memory"),
+      expertField("host", "Expert host memory"),
+    ];
+    const groups: ParameterGroupView[] = [
+      { description: "Where expert weights live.", id: "expert", label: "Expert memory" },
+    ];
+    const form = (revealedErrors: FieldErrors) => (
+      <ParametersForm
+        errors={revealedErrors}
+        groups={groups}
+        idPrefix="test"
+        inputRefs={{ current: new Map() }}
+        inputs={new Map()}
+        onBlur={() => {}}
+        onChange={() => {}}
+        parameters={parameters}
+        revealedErrors={revealedErrors}
+      />
+    );
+    const { rerender } = render(form(new Map()));
+
+    const group = screen.getByRole("group", { name: "Expert memory" });
+    expect(group).not.toContainElement(screen.getByRole("textbox", { name: "Slots" }));
+    const toggle = within(group).getByRole("button", { name: "Expert memory" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleDescription("Where expert weights live.");
+    expect(
+      within(group)
+        .getAllByRole("textbox")
+        .map((input) => input.id),
+    ).toEqual(["test-gpu", "test-host"]);
+
+    await user.click(toggle);
+    expect(within(group).queryByRole("textbox")).toBeNull();
+
+    rerender(form(new Map([["host", "Expert host memory must be an integer."]])));
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(group).getByRole("textbox", { name: "Expert host memory" })).toBeInvalid();
+  });
+
+  it("shows a switched group's members and a switch's dependents only while on", () => {
+    const parameters: ParameterView[] = [
+      { groupId: "login", id: "login", label: "Require login", type: { kind: "boolean" } },
+      {
+        groupId: "login",
+        id: "email",
+        label: "Admin email",
+        type: { kind: "text", minimumLength: 1 },
+      },
+      { id: "reports", label: "Send reports", type: { kind: "boolean" } },
+      {
+        enabledById: "reports",
+        id: "url",
+        label: "Report URL",
+        type: { kind: "text", minimumLength: 1 },
+      },
+    ];
+    const form = (inputs: [string, string][]) => (
+      <ParametersForm
+        errors={new Map()}
+        groups={[{ id: "login", label: "", switchId: "login" }]}
+        idPrefix="test"
+        inputRefs={{ current: new Map() }}
+        inputs={new Map(inputs)}
+        onBlur={() => {}}
+        onChange={() => {}}
+        parameters={parameters}
+      />
+    );
+    const { rerender } = render(
+      form([
+        ["login", "false"],
+        ["reports", "false"],
+      ]),
+    );
+
+    const login = screen.getByRole("group", { name: "Require login" });
+    expect(within(login).getByRole("switch", { name: "Require login" })).not.toBeChecked();
+    expect(within(login).queryByRole("button", { name: /^Require login/ })).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+
+    rerender(
+      form([
+        ["login", "true"],
+        ["reports", "true"],
+      ]),
+    );
+    expect(within(login).getByRole("textbox", { name: "Admin email" })).toBeInTheDocument();
+    const url = screen.getByRole("textbox", { name: "Report URL" });
+    expect(login).not.toContainElement(url);
+    expect(url.closest("[data-slot=field]")?.parentElement).toHaveClass("border-l-2");
   });
 });
 
@@ -103,3 +204,12 @@ describe("ParametersDetails", () => {
     ]);
   });
 });
+
+function expertField(id: string, label: string): ParameterView {
+  return {
+    groupId: "expert",
+    id,
+    label,
+    type: { kind: "unsignedInteger", minimum: 0n, unit: "MiB" },
+  };
+}

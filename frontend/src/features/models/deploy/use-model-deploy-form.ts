@@ -267,7 +267,7 @@ export function useModelDeployForm({
   const [name, setName] = useState(initialName ?? model.displayName);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
-  // The errors of the latest blocked step change or Deploy, which open collapsed Advanced sections.
+  // The errors of the latest blocked step change or Deploy, which open collapsed sections and groups.
   const [revealedErrors, setRevealedErrors] = useState<FieldErrors>(new Map());
   const artifactRef = useRef<HTMLInputElement>(null);
   const engineParameterRefs = useRef<Map<string, HTMLElement | null>>(new Map());
@@ -286,6 +286,7 @@ export function useModelDeployForm({
   );
   const engineRelease = profileEngineRelease(model, profile, engineReleases);
   const exposedParameters = effectiveEngineParameters(engineRelease, profile);
+  const parameterGroups = engineRelease?.parameterSchema?.parameterGroups ?? [];
   // The scenario's values for the profile, hidden ones included, replace the profile's defaults.
   // Resolution fills the context per request the scenario leaves unset; it stays empty here so it
   // isn't submitted as a supplied value and keeps following the total context.
@@ -738,7 +739,7 @@ export function useModelDeployForm({
       ["name", nameRef.current],
       ["routeName", routeNameRef.current],
     ]);
-  // Focus waits for the render that shows the errors, which also opens a collapsed Advanced section
+  // Focus waits for the render that shows the errors, which also opens a collapsed section or group
   // holding an invalid field.
   const exposeErrors = (errors: FieldErrors): boolean => {
     setFieldErrors(errors);
@@ -986,6 +987,7 @@ export function useModelDeployForm({
     memory,
     name,
     nameRef,
+    parameterGroups,
     placement,
     profile,
     profileCompatibility,

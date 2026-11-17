@@ -23,8 +23,10 @@ import {
 } from "./local-deployment-configuration";
 import {
   llamaCppRelease,
+  modelWithStrata,
   runtimeSchemaModel,
   runtimeSchemaReleases,
+  strataRelease,
   unsignedValue,
   vllmRelease,
 } from "./runtime-schema-test-support";
@@ -93,6 +95,10 @@ describe("local deployment configuration", () => {
         .map(({ parameterId }) => parameterId)
         .filter((parameterId) => parameterId !== "kv-offloading-size-gib"),
     );
+    // The host memory group loses its only member, so it goes too.
+    expect(
+      profileEngineRelease(model, profile, runtimeSchemaReleases)?.parameterSchema?.parameterGroups,
+    ).toEqual([]);
     expect(
       pairs(
         defaultLocalDeploymentConfiguration(model, profile, runtimeSchemaReleases)
@@ -104,6 +110,20 @@ describe("local deployment configuration", () => {
       ["total-context", 32768n],
       ["parallel-requests", 4n],
     ]);
+  });
+
+  it("keeps a parameter group while the configuration keeps one of its members", () => {
+    const model = modelWithStrata({ excludedEngineParameterIds: ["expert-host-memory-mib"] });
+    const profile = model.profiles.find(({ profileId }) => profileId === "strata");
+    const schema = profileEngineRelease(model, profile, [strataRelease])?.parameterSchema;
+
+    expect(schema?.parameters.map(({ parameterId }) => parameterId)).toEqual([
+      "total-context",
+      "context-per-request",
+      "parallel-requests",
+      "expert-vram-mib",
+    ]);
+    expect(schema?.parameterGroups.map(({ groupId }) => groupId)).toEqual(["expert-memory"]);
   });
 
   it("submits a typed context per request and omits a cleared one", () => {

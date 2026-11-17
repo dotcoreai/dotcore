@@ -320,6 +320,7 @@ mod tests {
                     protocol: ApplicationEndpointProtocol::Http as i32,
                 }),
                 parameters: Vec::new(),
+                parameter_groups: Vec::new(),
             }),
         }
     }

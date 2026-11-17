@@ -99,6 +99,8 @@ pub(super) const RECOMMENDATION_DIRECTORY: &str = "recommendations";
 pub(super) const APPLICATION_DIRECTORY: &str = "applications";
 pub(super) const UPSTREAM_MODEL_DIRECTORY: &str = "upstream";
 pub(super) const UPSTREAM_MODEL_TEMPLATE_DIRECTORY: &str = "models/upstream";
+/// Agent instructions for writing the catalog; the only file a catalog root may hold.
+const INSTRUCTIONS_FILE: &str = "AGENTS.md";
 
 pub(super) struct CatalogFile {
     pub(super) location: String,
@@ -409,6 +411,7 @@ fn validate_catalog_root(
                     ) =>
                 {
             }
+            Ok(kind) if kind.is_file() && name == INSTRUCTIONS_FILE => {}
             Ok(_) => diagnostics.push(CatalogDiagnostic::new(
                 catalog_location(source, name),
                 anyhow::anyhow!("unexpected catalog root entry; expected \"models\", \"engines\", \"hardware-classes\", \"recommendations\", or \"applications\" directory"),

@@ -49,8 +49,10 @@ import { formatGpuDevices } from "./application-gpu-devices";
 import {
   type ApplicationParameterField,
   applicationParameterFields,
+  applicationParameterGroups,
   changedParameterValues,
   defaultParameterInputs,
+  enabledParameterFields,
   parameterOverrides,
 } from "./application-parameters";
 import {
@@ -169,10 +171,20 @@ export function ApplicationDeployDialog({
     () => applicationParameterFields(application.graph?.parameters),
     [application],
   );
+  const parameterGroups = useMemo(
+    () => applicationParameterGroups(application.graph?.parameterGroups),
+    [application],
+  );
   const basicParameterFields = parameterFields.filter((field) => !field.advanced);
   const advancedParameterFields = parameterFields.filter((field) => field.advanced);
   const [parameterInputs, setParameterInputs] = useState(() =>
     defaultParameterInputs(parameterFields),
+  );
+  // Disabled parameters keep their inputs, so switching them back on restores what was typed.
+  const enabledParameterIds = new Set(
+    enabledParameterFields(parameterFields, parameterGroups, parameterInputs).map(
+      (field) => field.view.id,
+    ),
   );
   const storageFields = useMemo(() => storageChoiceFields(application), [application]);
   const [storageInputs, setStorageInputs] = useState(() => defaultStorageInputs(storageFields));
@@ -224,6 +236,13 @@ export function ApplicationDeployDialog({
   const [selectedRouteId, setSelectedRouteId] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
+  // The errors of the latest blocked step change or Deploy, which open collapsed parameter groups.
+  const [revealedErrors, setRevealedErrors] = useState<FieldErrors>(new Map());
+  // Converted once per blocked navigation, since a new map is what opens the groups.
+  const revealedParameterErrors = useMemo(
+    () => parameterIdErrors(revealedErrors),
+    [revealedErrors],
+  );
   const targetDefaultAppliedRef = useRef(false);
   const deploymentNameRef = useRef<HTMLInputElement>(null);
   const executionTargetRef = useRef<HTMLSelectElement>(null);
@@ -278,10 +297,12 @@ export function ApplicationDeployDialog({
   const parameterErrors = (
     fields: readonly ApplicationParameterField[],
   ): [string, string | undefined][] =>
-    fields.map((field) => [
-      parameterErrorKey(field.view.id),
-      parameterInputError(field.view, parameterInputs.get(field.view.id) ?? ""),
-    ]);
+    fields
+      .filter((field) => enabledParameterIds.has(field.view.id))
+      .map((field) => [
+        parameterErrorKey(field.view.id),
+        parameterInputError(field.view, parameterInputs.get(field.view.id) ?? ""),
+      ]);
   const stepErrors = (activeStep: ApplicationDeployStep): FieldErrors => {
     switch (activeStep) {
       case "Inference route":
@@ -308,19 +329,21 @@ export function ApplicationDeployDialog({
       ["name", deploymentNameRef.current],
       ["placement", executionTargetRef.current],
     ]);
+  // Focus waits for the render that shows the errors, which also opens a collapsed group holding an
+  // invalid field.
   const exposeErrors = (errors: FieldErrors): boolean => {
     setFieldErrors(errors);
     if (!errors.size) return true;
-    focusFirstInvalidField(errors, fieldControls());
+    setRevealedErrors(errors);
+    pendingFocusRef.current = errors;
     return false;
   };
   // Opens the step that owns the errors, turning Advanced on when that step is hidden, and focuses
   // the first invalid field once the step renders.
   const revealErrors = (owner: ApplicationDeployStep, errors: FieldErrors) => {
-    setFieldErrors(errors);
     if (!steps.includes(owner))
       advancedMode.enable(`Advanced on to fix ${owner.toLocaleLowerCase()} settings`);
-    pendingFocusRef.current = errors;
+    exposeErrors(errors);
     if (owner !== step) goToStep(owner);
   };
   // Runs after the shell focuses a new step heading, so the invalid field keeps focus. An
@@ -366,7 +389,7 @@ export function ApplicationDeployDialog({
     onSubmit(selectedPlacement, {
       ...creationOptions,
       applicationDeploymentName: deploymentName.trim(),
-      parameterValues: parameterOverrides(parameterFields, parameterInputs),
+      parameterValues: parameterOverrides(parameterFields, parameterGroups, parameterInputs),
       storageChoices: storageChoiceOverrides(storageFields, storageInputs),
     });
   };
@@ -399,14 +422,8 @@ export function ApplicationDeployDialog({
         : step === "Deploy" && (targetValidationPending || targetsUnavailable || routeUnavailable));
   const parametersForm = (fields: readonly ApplicationParameterField[]) => (
     <ParametersForm
-      errors={
-        new Map(
-          parameterFields.flatMap((field) => {
-            const fieldError = fieldErrors.get(parameterErrorKey(field.view.id));
-            return fieldError ? [[field.view.id, fieldError]] : [];
-          }),
-        )
-      }
+      errors={parameterIdErrors(fieldErrors)}
+      groups={parameterGroups}
       idPrefix="application-parameter"
       inputRefs={parameterRefs}
       inputs={parameterInputs}
@@ -426,6 +443,7 @@ export function ApplicationDeployDialog({
         if (view && fieldErrors.has(key)) setFieldError(key, parameterInputError(view, input));
       }}
       parameters={fields.map((field) => field.view)}
+      revealedErrors={revealedParameterErrors}
     />
   );
   const targetNotice = !effectiveExecutionTargetsCurrent
@@ -677,13 +695,15 @@ export function ApplicationDeployDialog({
               value={formatGpuDevices(selectedExecutionTarget.acceleratorDeviceIds)}
             />
           ) : null}
-          {changedParameterValues(parameterFields, parameterInputs).map(({ field, value }) => (
-            <Detail
-              key={field.view.id}
-              label={field.view.label}
-              value={parameterDisplayValue(field.view, value)}
-            />
-          ))}
+          {changedParameterValues(parameterFields, parameterGroups, parameterInputs).map(
+            ({ field, value }) => (
+              <Detail
+                key={field.view.id}
+                label={field.view.label}
+                value={parameterDisplayValue(field.view, value)}
+              />
+            ),
+          )}
           {changedStorageChoices(storageFields, storageInputs).map(({ field, placement }) => (
             <Detail
               key={storageChoiceKey(field)}
@@ -793,6 +813,15 @@ type DeployField = "name" | "placement" | `parameter:${string}`;
 // Parameter error keys share the dialog's field-error map with its fixed fields.
 function parameterErrorKey(parameterId: string): `parameter:${string}` {
   return `parameter:${parameterId}`;
+}
+
+// The parameter errors of the dialog's field-error map, keyed by parameter ID.
+function parameterIdErrors(errors: FieldErrors): FieldErrors {
+  return new Map(
+    [...errors].flatMap(([key, error]): [string, string][] =>
+      key.startsWith("parameter:") ? [[key.slice("parameter:".length), error]] : [],
+    ),
+  );
 }
 
 function withFieldError(

@@ -2,18 +2,23 @@ import { create } from "@bufbuild/protobuf";
 
 import {
   parameterDefaultValue,
+  parameterGroupView,
   parameterValueCase,
   parameterValueMap,
   parameterView,
 } from "@/domain/parameter-definitions";
+import { enabledParameters } from "@/domain/parameter-layout";
 import {
+  type ParameterGroupView,
   parameterInputValue,
+  parameterInputValues,
   type ParameterView,
   type ParameterViewValue,
 } from "@/domain/parameter-view";
 import type { ResolvedApplicationDeploymentSnapshot } from "@/gen/dotcore/application/v1/deployment_pb";
 import {
   type ParameterDefinition,
+  type ParameterGroup,
   type ParameterValue,
   ParameterValueSchema,
   ParameterVisibility,
@@ -43,6 +48,13 @@ export function applicationParameterFields(
   });
 }
 
+/** The application's parameter groups, as the deploy dialog lays them out. */
+export function applicationParameterGroups(
+  groups: readonly ParameterGroup[] | undefined,
+): ParameterGroupView[] {
+  return (groups ?? []).map(parameterGroupView);
+}
+
 /** Form inputs holding each parameter's catalog default. */
 export function defaultParameterInputs(
   fields: readonly ApplicationParameterField[],
@@ -55,23 +67,41 @@ export function defaultParameterInputs(
   );
 }
 
-/** The parameters whose valid input differs from its catalog default, in declaration order. */
+/**
+ * The fields the current inputs enable, in declaration order. A disabled field keeps its input but
+ * is neither validated nor sent.
+ */
+export function enabledParameterFields(
+  fields: readonly ApplicationParameterField[],
+  groups: readonly ParameterGroupView[],
+  inputs: ReadonlyMap<string, string>,
+): ApplicationParameterField[] {
+  const views = fields.map((field) => field.view);
+  const enabled = new Set(enabledParameters(views, groups, parameterInputValues(views, inputs)));
+  return fields.filter((field) => enabled.has(field.view));
+}
+
+/**
+ * The enabled parameters whose valid input differs from its catalog default, in declaration order.
+ */
 export function changedParameterValues(
   fields: readonly ApplicationParameterField[],
+  groups: readonly ParameterGroupView[],
   inputs: ReadonlyMap<string, string>,
 ): { field: ApplicationParameterField; value: ParameterViewValue }[] {
-  return fields.flatMap((field) => {
+  return enabledParameterFields(fields, groups, inputs).flatMap((field) => {
     const value = parameterInputValue(field.view, inputs.get(field.view.id) ?? "");
     return value === undefined || value === field.defaultValue ? [] : [{ field, value }];
   });
 }
 
-/** The creation request's overrides: only parameters the operator changed from their default. */
+/** The creation request's overrides: only enabled parameters the operator changed from default. */
 export function parameterOverrides(
   fields: readonly ApplicationParameterField[],
+  groups: readonly ParameterGroupView[],
   inputs: ReadonlyMap<string, string>,
 ): ParameterValue[] {
-  return changedParameterValues(fields, inputs).map(({ field, value }) =>
+  return changedParameterValues(fields, groups, inputs).map(({ field, value }) =>
     create(ParameterValueSchema, { parameterId: field.view.id, value: parameterValueCase(value) }),
   );
 }

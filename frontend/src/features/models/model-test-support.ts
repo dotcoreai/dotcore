@@ -196,12 +196,14 @@ export const kvOffloadReleases = [
           parameterId: "kv-offloading-size-gib",
           visibility: ParameterVisibility.ADVANCED,
           displayName: "KV offloading size",
+          groupId: "host-memory",
           parameterType: {
             case: "unsignedInteger",
             value: { minimum: 1n, maximum: 1024n, unit: "GiB" },
           },
         },
       ],
+      parameterGroups: [{ groupId: "host-memory", displayName: "Host memory" }],
     },
   }),
 ];

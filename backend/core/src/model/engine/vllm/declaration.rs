@@ -462,6 +462,7 @@ mod tests {
                     unsigned(CONTEXT_PER_REQUEST_PARAMETER_ID, None, "tokens"),
                     unsigned(PARALLEL_REQUESTS_PARAMETER_ID, None, "requests"),
                 ],
+                parameter_groups: Vec::new(),
             }),
             ..Default::default()
         }

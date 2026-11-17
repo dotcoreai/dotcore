@@ -36,7 +36,10 @@ use super::{
     ApplicationConfigurationSources, ApplicationLifecycleError, InferenceRouteResolver,
     ResolvedInferenceRoute, StorageChoiceRejection, configuration, configuration_with_source,
 };
-use crate::application::{binding::binding_enabled, secret_form::bcrypt_hash};
+use crate::application::{
+    binding::{configuration_binding_enabled, enabled_parameters, secret_binding_enabled},
+    secret_form::bcrypt_hash,
+};
 use crate::storage::{deployment_storage, workload_storage};
 
 pub(super) fn workload_group_launch(
@@ -140,7 +143,7 @@ impl LaunchPlan {
                     service,
                     image,
                     &attachments,
-                    declaration.parameter_values,
+                    &declaration.enabled_parameters,
                     &storage_key,
                     declaration.route_id.is_some(),
                     ready_dependency_names.contains(service.service_name.as_str()),
@@ -229,7 +232,7 @@ impl LaunchPlan {
 struct ValidatedLaunchDeclaration<'a> {
     application_id: &'a str,
     services: &'a [dotcore_proto::dotcore::catalog::v1::ApplicationService],
-    parameter_values: &'a [ParameterValue],
+    enabled_parameters: BTreeSet<&'a str>,
     service_images: BTreeMap<&'a str, String>,
     execution_target_id: String,
     accelerator_device_ids: Vec<String>,
@@ -306,10 +309,14 @@ impl<'a> ValidatedLaunchDeclaration<'a> {
             .placement
             .as_ref()
             .ok_or_else(|| configuration("Application retained exact placement is missing"))?;
+        let enabled_parameters =
+            enabled_parameters(graph, &snapshot.parameter_values).ok_or_else(|| {
+                configuration("Application parameter values do not match the enabled parameters")
+            })?;
         Ok(Self {
             application_id: &snapshot.application_id,
             services: &graph.services,
-            parameter_values: &snapshot.parameter_values,
+            enabled_parameters,
             service_images,
             execution_target_id: placement.execution_target_id.clone(),
             accelerator_device_ids: snapshot.accelerator_device_ids.clone(),
@@ -413,14 +420,14 @@ impl WorkloadUnitPlan {
         service: &dotcore_proto::dotcore::catalog::v1::ApplicationService,
         image: &str,
         attachments: &AttachmentIndexes,
-        parameter_values: &[ParameterValue],
+        enabled_parameters: &BTreeSet<&str>,
         storage_key: &dyn Fn(StoragePlacement) -> Option<String>,
         route_linked: bool,
         has_ready_dependents: bool,
     ) -> Result<Self, ApplicationLifecycleError> {
         let mut environment = Vec::new();
         for binding in &service.configuration_bindings {
-            if !enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)? {
+            if !configuration_binding_enabled(binding, enabled_parameters) {
                 continue;
             }
             let value = if route_linked && is_route_name_binding(binding)? {
@@ -439,7 +446,7 @@ impl WorkloadUnitPlan {
             environment.push((binding.environment_variable.clone(), value));
         }
         for binding in &service.secret_bindings {
-            if !enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)? {
+            if !secret_binding_enabled(binding, enabled_parameters) {
                 continue;
             }
             let value = attachments
@@ -648,8 +655,8 @@ fn site_host_alias(
 ///
 /// Route-name bindings get no attachment when a route is linked, since launch projects the current
 /// route name; without a link they retain their catalog literal fallback. Parameter bindings
-/// retain the canonical text of their resolved `parameter_values` entry. A binding switched off by
-/// its enabling parameter gets no attachment.
+/// retain the canonical text of their resolved `parameter_values` entry. A binding fed by a
+/// disabled parameter gets no attachment.
 pub(super) fn configuration_attachments(
     application: &Application,
     resolve: impl Fn(&str) -> Option<String>,
@@ -660,13 +667,12 @@ pub(super) fn configuration_attachments(
         .graph
         .as_ref()
         .ok_or_else(|| configuration("Application graph is missing"))?;
+    let enabled = resolved_enabled_parameters(graph, parameter_values)?;
     let mut attachments = Vec::new();
     for service in &graph.services {
         for binding in &service.configuration_bindings {
             let route_name = is_route_name_binding(binding)?;
-            if !enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)?
-                || (route_linked && route_name)
-            {
+            if !configuration_binding_enabled(binding, &enabled) || (route_linked && route_name) {
                 continue;
             }
             let value = configuration_attachment_value(binding, &resolve, parameter_values)?;
@@ -686,14 +692,15 @@ pub(super) fn configuration_attachments(
     Ok(attachments)
 }
 
-/// Returns whether a binding reaches its service, rejecting a retained declaration whose enabling
-/// parameter has no boolean value.
-fn enabled(
-    enabled_by_parameter_id: Option<&str>,
+/// Returns the enabled parameters of a new deployment's resolved values, rejecting values that
+/// don't hold exactly one per enabled parameter.
+fn resolved_enabled_parameters<'a>(
+    graph: &'a ApplicationGraph,
     parameter_values: &[ParameterValue],
-) -> Result<bool, ApplicationLifecycleError> {
-    binding_enabled(enabled_by_parameter_id, parameter_values)
-        .ok_or_else(|| configuration("Application binding switch value is missing"))
+) -> Result<BTreeSet<&'a str>, ApplicationLifecycleError> {
+    enabled_parameters(graph, parameter_values).ok_or_else(|| {
+        configuration("Application parameter values do not match the enabled parameters")
+    })
 }
 
 /// Returns whether a binding projects the linked route name, rejecting unknown projections.
@@ -730,18 +737,19 @@ fn configuration_attachment_value(
     }
 }
 
-/// Resolves the retained secret attachments of a new deployment: each enabled secret binding
-/// receives its parameter's resolved value in the binding's form, and a binding switched off by
-/// its enabling parameter gets none. A bcrypt form hashes, so callers run it off the async
+/// Resolves the retained secret attachments of a new deployment: each secret binding of an
+/// enabled parameter receives its resolved value in the binding's form, and a binding of a
+/// disabled parameter gets none. A bcrypt form hashes, so callers run it off the async
 /// executor, and only once per deployment.
 pub(super) fn secret_attachments(
     graph: &ApplicationGraph,
     parameter_values: &[ParameterValue],
 ) -> Result<Vec<ApplicationSecretAttachment>, ApplicationLifecycleError> {
+    let enabled = resolved_enabled_parameters(graph, parameter_values)?;
     let mut attachments = Vec::new();
     for service in &graph.services {
         for binding in &service.secret_bindings {
-            if enabled(binding.enabled_by_parameter_id.as_deref(), parameter_values)? {
+            if secret_binding_enabled(binding, &enabled) {
                 attachments.push(secret_attachment(service, binding, parameter_values)?);
             }
         }

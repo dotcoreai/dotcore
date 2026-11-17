@@ -140,7 +140,8 @@ export function artifactCustomization(
 
 /**
  * The engine release of the first engine artifact of a profile's configuration, with only the
- * engine parameters the configuration keeps. Every release a configuration approves shares one
+ * engine parameters the configuration keeps and the parameter groups left with a member. Every
+ * release a configuration approves shares one
  * parameter schema, so this release describes them all.
  */
 export function profileEngineRelease(
@@ -157,13 +158,17 @@ export function profileEngineRelease(
   const excluded = configuration?.excludedEngineParameterIds ?? [];
   if (!release?.parameterSchema || !excluded.length) return release;
 
+  const parameters = release.parameterSchema.parameters.filter(
+    (parameter) => !excluded.includes(parameter.parameterId),
+  );
   return {
     ...release,
     parameterSchema: {
       ...release.parameterSchema,
-      parameters: release.parameterSchema.parameters.filter(
-        (parameter) => !excluded.includes(parameter.parameterId),
+      parameterGroups: release.parameterSchema.parameterGroups.filter((group) =>
+        parameters.some((parameter) => parameter.groupId === group.groupId),
       ),
+      parameters,
     },
   };
 }

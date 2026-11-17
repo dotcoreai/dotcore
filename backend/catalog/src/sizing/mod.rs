@@ -945,7 +945,10 @@ mod tests {
                 )),
                 visibility: ParameterVisibility::Basic as i32,
                 description: "Maximum context.".to_owned(),
+                enabled_by_parameter_id: None,
+                group_id: None,
             }],
+            parameter_groups: Vec::new(),
         }
     }
 
@@ -1585,6 +1588,8 @@ mod tests {
             )),
             visibility: ParameterVisibility::Hidden as i32,
             description: "Cache size.".to_owned(),
+            enabled_by_parameter_id: None,
+            group_id: None,
         });
         schema.parameters.push(ParameterDefinition {
             parameter_id: "feature-enabled".to_owned(),
@@ -1592,6 +1597,8 @@ mod tests {
             parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema::default())),
             visibility: ParameterVisibility::Hidden as i32,
             description: "Feature toggle.".to_owned(),
+            enabled_by_parameter_id: None,
+            group_id: None,
         });
         schema
     }
