@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 interface DetailProps {
   label: string;
   title?: string;
@@ -8,15 +10,22 @@ interface DetailProps {
 
 interface DetailListProps {
   children: ReactNode;
+  /** Adjusts the grid, such as its columns or the value alignment. */
+  className?: string;
 }
 
 /**
  * A label/value definition list, laid out as a two-column grid with the label on the left and the
  * value right-aligned. Composes with any number of `Detail` rows.
  */
-function DetailList({ children }: DetailListProps) {
+function DetailList({ children, className }: DetailListProps) {
   return (
-    <dl className="mt-3 grid grid-cols-[minmax(100px,1fr)_minmax(130px,1.4fr)] gap-x-3.5 gap-y-2">
+    <dl
+      className={cn(
+        "mt-3 grid grid-cols-[minmax(100px,1fr)_minmax(130px,1.4fr)] gap-x-3.5 gap-y-2",
+        className,
+      )}
+    >
       {children}
     </dl>
   );

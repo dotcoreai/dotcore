@@ -8,7 +8,7 @@ import { Notice } from "@/components/ui/notice";
 import { PageActions, PageHeader, PageHeaderHeading } from "@/components/ui/page-header";
 import { GetStartedSectionIcon } from "@/components/ui/section-icons";
 import { modelDeploymentPresentationName } from "@/domain/model-projection";
-import { AddMachineDialog } from "@/features/machines/add-machine-dialog";
+import { AddMachineDialog } from "@/features/machines/add-machine/add-machine-dialog";
 import { useSiteMemory } from "@/features/memory/use-site-memory";
 import type { LocalDeploymentValues } from "@/features/models/deploy/model-deploy-launch";
 import { useSharedModelsPolling } from "@/features/models/polling/models-polling-context";

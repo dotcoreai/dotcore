@@ -15,7 +15,7 @@ import {
   PageSectionHeading,
 } from "@/components/ui/page-header";
 import { MachinesSectionIcon } from "@/components/ui/section-icons";
-import { AddMachineDialog } from "@/features/machines/add-machine-dialog";
+import { AddMachineDialog } from "@/features/machines/add-machine/add-machine-dialog";
 import { useHardwareSnapshots } from "@/features/memory/use-hardware-snapshots";
 import { useMemoryView } from "@/features/memory/use-memory-view";
 import type { Machine } from "@/gen/dotcore/site/v1/service_pb";

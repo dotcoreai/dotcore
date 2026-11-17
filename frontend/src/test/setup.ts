@@ -30,6 +30,8 @@ const testTiming: Timing = Object.freeze({
   // An hour, which no test outlives; a delay past 2^31-1 ms would fire at once instead.
   profileCompatibilityRefreshMs: 60 * 60 * 1_000,
   recommendationReadMs: 10,
+  // An hour, which no test outlives, so the countdown only moves in tests that drive it.
+  joinCountdownTickMs: 60 * 60 * 1_000,
 });
 
 setTiming(testTiming);
