@@ -44,7 +44,8 @@ sequenceDiagram
   it ([README](README.md#managing-the-site)).
 - Adding a machine is one of these changes: `dotc` starts a join on the running site, shows the
   joining machine for your approval, and ends the join if you stop the command
-  ([access](access.md#joining-a-node)). Removal is the stopped-site administration below.
+  ([access](access.md#joining-a-node)). On the joining machine, `dotc` starts the node once it
+  joins, unless you skip that. Removal is the stopped-site administration below.
 
 ### Before the site starts
 
