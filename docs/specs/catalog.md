@@ -145,7 +145,8 @@ A preset of defaults and parameter visibility overrides for one engine configura
 
 - Declares the shared engine parameters (total context, context per request, parallel requests),
   with fixed visibilities, a default on total context and parallel requests and none on context per
-  request. Each release sets its own bounds, defaults and descriptions.
+  request. Each release sets its own bounds, defaults and descriptions. A bound the engine doesn't
+  have stays undeclared, so a parameter may have no maximum.
 - May declare parameter defaults within their bounds. A default on a parameter that sizing derives
   is rejected.
 - Defines every engine parameter and its shape. A configuration only narrows that set, never adds
@@ -196,7 +197,7 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 - Own the immutable catalog declarations and their lifecycle.
 - Own the typed parameter definition that engine releases and apps share: its basic, advanced or
   hidden visibility and its types (boolean, integer, text, string enum and secret). Apps use any
-  type. Engines use boolean, integer and secret.
+  type. Engines use boolean, integer and secret. An integer has a minimum and an optional maximum.
 - Validate catalogs as described above.
 
 #### Boundaries
@@ -211,6 +212,10 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
   rule ([recommendations](recommendations.md#invariants)).
 - Each parameter restriction (length bounds, ranges, accepted values) of an app, an engine release
   or a model comes from what that app, engine or model requires, and the catalog names its source.
+  A limit the engine doesn't have is not declared, and nothing substitutes a cap for it.
+- The one product floor is Dotcore's context floor of 512 tokens: no engine serves a useful
+  request below it, so every engine release's total context and context per request start at it
+  or at the engine's own higher minimum.
 
 ## Future direction
 
