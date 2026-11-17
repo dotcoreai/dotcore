@@ -14,8 +14,10 @@ import {
 } from "@/features/models/profiles/profile-compatibility-test-support";
 import {
   modelWithKvCachePrecision,
+  modelWithStrata,
   runtimeSchemaModel,
   runtimeSchemaReleases,
+  strataRelease,
   unsignedValue,
 } from "@/features/models/runtime/runtime-schema-test-support";
 import {
@@ -27,6 +29,7 @@ import {
   ModelSchema,
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
+import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import {
   ConfiguredExecutionTargetSchema,
   ExecutionTargetWorkloadKind,
@@ -132,7 +135,7 @@ describe("ModelDeployDialog Settings step", () => {
     );
   });
 
-  it("groups the vLLM KV offload size as host memory and submits it with the hidden defaults", async () => {
+  it("shows the vLLM KV offload size in its host memory group and submits it with the hidden defaults", async () => {
     const user = setupUser();
     const onSubmit = vi.fn();
     renderDialog({ initialProfileId: "nvfp4-text", onSubmit });
@@ -141,14 +144,13 @@ describe("ModelDeployDialog Settings step", () => {
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
     await user.click(preset("64k"));
     await user.click(screen.getByRole("button", { name: "Next" }));
-    const hostMemory = screen.getByRole("region", { name: "Host memory" });
+    const hostMemory = screen.getByRole("group", { name: "Host memory" });
     const kvOffload = within(hostMemory).getByRole("textbox", { name: "KV offloading size" });
     expect(kvOffload).toHaveAccessibleDescription(
       "Host memory used to offload the KV cache, in GiB.",
     );
     expect(kvOffload).toHaveValue("0");
-    // Parameters the schema does not expose stay out of the form, so no other parameter remains.
-    expect(screen.queryByRole("button", { name: /^Other parameters/ })).toBeNull();
+    // Parameters the schema does not expose stay out of the form.
     expect(screen.queryByRole("textbox", { name: "Maximum batched tokens" })).toBeNull();
 
     await user.clear(kvOffload);
@@ -367,7 +369,7 @@ describe("ModelDeployDialog Settings step", () => {
 });
 
 describe("ModelDeployDialog Advanced step", () => {
-  it("leads with parallel requests and groups the ninfer host context as host memory", async () => {
+  it("leads with parallel requests, then the ninfer host context in its host memory group", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
@@ -378,28 +380,34 @@ describe("ModelDeployDialog Advanced step", () => {
     expect(parallel).toHaveAccessibleDescription(
       "Requests the server generates at the same time; further requests wait in a queue.",
     );
-    const hostMemory = screen.getByRole("region", { name: "Host memory" });
+    const hostMemory = screen.getByRole("group", { name: "Host memory" });
     const hostContext = within(hostMemory).getByRole("textbox", { name: "Host context memory" });
     expect(hostContext).toHaveValue("20480");
     expect(hostContext).toHaveAccessibleDescription(
       "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
     );
 
-    // No parameter is left for the other parameters section, and the context sizes sit on the
-    // Settings step.
-    expect(screen.queryByRole("button", { name: /^Other parameters/ })).toBeNull();
+    // The context sizes sit on the Settings step.
     for (const name of ["Total context", "Context per request"])
       expect(screen.queryByRole("textbox", { name })).not.toBeInTheDocument();
   });
 
-  it("keeps the llama.cpp prompt cache, artifact and custom arguments in collapsed sections", async () => {
+  it("keeps the llama.cpp prompt cache at the top level, and the artifact and custom arguments in collapsed sections", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
     await openAdvancedStep(user);
-    // llama.cpp declares no host-memory parameter; the prompt cache is its other parameter.
-    expect(screen.queryByRole("region", { name: "Host memory" })).not.toBeInTheDocument();
-    expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "false");
+    // llama.cpp declares no parameter group, so its prompt cache follows parallel requests, ahead
+    // of the speculative decoding choice.
+    expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
+      "engine-parameter-parallel-requests",
+      "engine-parameter-prompt-cache-memory-mib",
+      "speculative-decoding-count",
+    ]);
+    expect(screen.getAllByRole("group").map((group) => group.getAttribute("aria-label"))).toEqual([
+      "Engine and artifact",
+      "Custom arguments and command",
+    ]);
     expect(sectionToggle("Engine and artifact")).toHaveAttribute("aria-expanded", "false");
     expect(sectionToggle("Custom arguments and command")).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("combobox", { name: "Model artifact" })).not.toBeInTheDocument();
@@ -412,35 +420,91 @@ describe("ModelDeployDialog Advanced step", () => {
     expect(screen.getByRole("button", { name: "Preview resolved command" })).toBeVisible();
   });
 
-  it("expands and focuses an invalid value hidden in a collapsed section", async () => {
+  it("shows the Strata expert memory group open, after parallel requests, with its help", async () => {
     const user = setupUser();
-    const onSubmit = vi.fn();
-    renderDialog({ initialProfileId: "q4-xl", onSubmit });
-    const error = "Prompt cache memory must be an integer from 0 to 2,147,483,647 MiB.";
+    renderStrataDialog();
 
     await openAdvancedStep(user);
-    await user.click(sectionToggle("Other parameters (1)"));
-    const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
-    await user.clear(promptCache);
-    await user.type(promptCache, "3000000000");
-    await user.click(sectionToggle("Other parameters (1)"));
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("textbox", { name: "Prompt cache memory" }),
-      ).not.toBeInTheDocument(),
+    expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
+      "engine-parameter-parallel-requests",
+      "engine-parameter-expert-vram-mib",
+      "engine-parameter-expert-host-memory-mib",
+    ]);
+    const group = screen.getByRole("group", { name: "Expert memory" });
+    expect(group).not.toContainElement(screen.getByRole("textbox", { name: "Parallel requests" }));
+    const toggle = within(group).getByRole("button", { name: "Expert memory" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleDescription("Where Strata keeps the model's expert weights.");
+    expect(within(group).getByRole("textbox", { name: "Expert host memory" })).toHaveValue("16384");
+  });
+
+  it("shows a group in each step that holds a member, by the profile's visibility", async () => {
+    const user = setupUser();
+    renderStrataDialog(
+      {},
+      {
+        engineParameterVisibilityOverrides: [
+          { parameterId: "expert-vram-mib", visibility: ParameterVisibility.BASIC },
+        ],
+      },
     );
 
-    // Leaving Advanced re-opens the section and focuses the field.
+    await openAdvancedSettings(user);
+    const settingsGroup = screen.getByRole("group", { name: "Expert memory" });
+    expect(
+      within(settingsGroup)
+        .getAllByRole("textbox")
+        .map((input) => input.id),
+    ).toEqual(["engine-parameter-expert-vram-mib"]);
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const advancedGroup = screen.getByRole("group", { name: "Expert memory" });
+    expect(
+      within(advancedGroup)
+        .getAllByRole("textbox")
+        .map((input) => input.id),
+    ).toEqual(["engine-parameter-expert-host-memory-mib"]);
+  });
+
+  it("shows no box for a group whose members the configuration excludes", async () => {
+    const user = setupUser();
+    renderStrataDialog({
+      excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"],
+    });
+
+    await openAdvancedStep(user);
+    expect(screen.queryByRole("group", { name: "Expert memory" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
+      "engine-parameter-parallel-requests",
+    ]);
+  });
+
+  it("reopens a collapsed group and focuses its invalid value", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    renderStrataDialog({}, {}, onSubmit);
+    const error = "Expert host memory must be an integer of 0 or more MiB.";
+
+    await openAdvancedStep(user);
+    const hostMemory = screen.getByRole("textbox", { name: "Expert host memory" });
+    await user.clear(hostMemory);
+    await user.type(hostMemory, "1.5");
+    await user.click(sectionToggle("Expert memory"));
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox", { name: "Expert host memory" })).not.toBeInTheDocument(),
+    );
+
+    // Leaving Advanced re-opens the group and focuses the field.
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
-    expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "true");
+    expect(sectionToggle("Expert memory")).toHaveAttribute("aria-expanded", "true");
     await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveFocus(),
+      expect(screen.getByRole("textbox", { name: "Expert host memory" })).toHaveFocus(),
     );
     expect(screen.getByText(error)).toBeVisible();
 
     // With Advanced off, Deploy turns it back on and reveals the same field.
-    await user.click(sectionToggle("Other parameters (1)"));
+    await user.click(sectionToggle("Expert memory"));
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
     // The new step takes focus in an effect after it renders; acting earlier loses that move.
@@ -451,8 +515,8 @@ describe("ModelDeployDialog Advanced step", () => {
 
     expect(await screen.findByText("Step 4 of 5 — Advanced")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
-    expect(sectionToggle("Other parameters (1)")).toHaveAttribute("aria-expanded", "true");
-    const revealed = screen.getByRole("textbox", { name: "Prompt cache memory" });
+    expect(sectionToggle("Expert memory")).toHaveAttribute("aria-expanded", "true");
+    const revealed = screen.getByRole("textbox", { name: "Expert host memory" });
     await waitFor(() => expect(revealed).toHaveFocus());
     expect(revealed).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText(error)).toBeVisible();
@@ -792,7 +856,6 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     );
     await openAdvancedStep(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
-    await user.click(sectionToggle("Other parameters (1)"));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("4096");
     await user.click(sectionToggle("Engine and artifact"));
     expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("q5-xl");
@@ -827,7 +890,6 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     await user.click(screen.getByRole("radio", { name: /Q4_K_XL without MTP/ }));
     await openAdvancedStep(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
-    await user.click(sectionToggle("Other parameters (1)"));
     expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("8192");
     await user.click(sectionToggle("Engine and artifact"));
     expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("Q4_K_XL");
@@ -976,7 +1038,6 @@ async function applyEveryRuntimeEdit(
   const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
   await user.clear(parallel);
   await user.type(parallel, "2");
-  await user.click(sectionToggle("Other parameters (1)"));
   const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
   await user.clear(promptCache);
   await user.type(promptCache, "4096");
@@ -1140,4 +1201,20 @@ function optionLabels(select: HTMLElement) {
   return within(select)
     .getAllByRole("option")
     .map((option) => option.textContent);
+}
+
+// The dialog on the fixture model's Strata profile; the arguments adjust the configuration and
+// the profile as `modelWithStrata` does.
+function renderStrataDialog(
+  configuration: Parameters<typeof modelWithStrata>[0] = {},
+  profile: Parameters<typeof modelWithStrata>[1] = {},
+  onSubmit = vi.fn(),
+) {
+  const model = modelWithStrata(configuration, profile);
+  return renderDialog({
+    engineReleases: [...runtimeSchemaReleases, strataRelease],
+    initialProfileId: "strata",
+    model,
+    onSubmit,
+  });
 }

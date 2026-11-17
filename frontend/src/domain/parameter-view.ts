@@ -4,9 +4,29 @@ import { formatQuantity } from "@/lib/format";
 export interface ParameterView {
   /** What the parameter does, shown in the field's help; absent when the label says enough. */
   description?: string;
+  /**
+   * The boolean parameter of the same owner that enables this one; absent when nothing does or
+   * only its group's switch does.
+   */
+  enabledById?: string;
+  /** The group this parameter belongs to; absent when it is ungrouped. */
+  groupId?: string;
   id: string;
   label: string;
   type: ParameterViewType;
+}
+
+/**
+ * Consecutive parameters of one owner that the forms present together. A plain group has its own
+ * title and help; a switched group takes both from its switch, a boolean member that enables the
+ * other members.
+ */
+export interface ParameterGroupView {
+  description?: string;
+  id: string;
+  label: string;
+  /** The member that switches the other members on and off; absent for a plain group. */
+  switchId?: string;
 }
 
 /** The value type and constraints of a parameter view. */
@@ -35,6 +55,19 @@ export function parameterDisplayValue(
     case "secret":
       return typeof value === "string" ? value : undefined;
   }
+}
+
+/** The typed value each parameter's input holds, keyed by parameter ID; others are left out. */
+export function parameterInputValues(
+  parameters: readonly ParameterView[],
+  inputs: ReadonlyMap<string, string>,
+): Map<string, ParameterViewValue> {
+  const values = new Map<string, ParameterViewValue>();
+  for (const parameter of parameters) {
+    const value = parameterInputValue(parameter, inputs.get(parameter.id) ?? "");
+    if (value !== undefined) values.set(parameter.id, value);
+  }
+  return values;
 }
 
 /**

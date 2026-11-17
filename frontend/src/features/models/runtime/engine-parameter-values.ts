@@ -43,15 +43,13 @@ export const CONTEXT_PARAMETER_IDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * A profile's exposed engine parameters, grouped as the deploy dialog presents them: the context
- * sizes form the context group of the Settings step. On the Advanced step, parallel requests come
- * first, host-memory parameters form their own group, and every other parameter stays in the
- * generic form.
+ * A profile's exposed engine parameters, split as the deploy dialog presents them: the context
+ * sizes have their fixed place in the Settings step, parallel requests lead the Advanced step, and
+ * the others follow in schema order, laid out by the engine's parameter groups.
  */
 export interface RuntimeParameterGroups {
   context: ContextParameterGroup;
-  hostMemory: ParameterDefinition[];
-  other: ParameterDefinition[];
+  others: ParameterDefinition[];
   parallelRequests?: ParameterDefinition;
 }
 
@@ -61,17 +59,10 @@ export interface ContextParameterGroup {
   totalContext?: ParameterDefinition;
 }
 
-/**
- * Groups exposed engine parameters for the Settings and Advanced steps. Host-memory parameters are
- * the ones the model configuration's engine settings declare as host budgets (vLLM KV offload,
- * ninfer host context), so an engine without such a declaration keeps every parameter in the
- * generic group.
- */
+/** Splits exposed engine parameters into the context sizes, parallel requests and the others. */
 export function runtimeParameterGroups(
   parameters: readonly ParameterDefinition[],
-  configuration: ModelEngineConfiguration | undefined,
 ): RuntimeParameterGroups {
-  const hostMemoryIds = hostMemoryParameterIds(configuration);
   const unsigned = (parameterId: string) =>
     parameters.find(
       (parameter) =>
@@ -82,13 +73,11 @@ export function runtimeParameterGroups(
     totalContext: unsigned(TOTAL_CONTEXT_PARAMETER_ID),
   };
   const parallelRequests = unsigned(PARALLEL_REQUESTS_PARAMETER_ID);
-  const grouped = new Set([...Object.values(context), parallelRequests]);
-  const rest = parameters.filter((parameter) => !grouped.has(parameter));
+  const placed = new Set([...Object.values(context), parallelRequests]);
 
   return {
     context,
-    hostMemory: rest.filter((parameter) => hostMemoryIds.has(parameter.parameterId)),
-    other: rest.filter((parameter) => !hostMemoryIds.has(parameter.parameterId)),
+    others: parameters.filter((parameter) => !placed.has(parameter)),
     parallelRequests,
   };
 }
@@ -236,17 +225,6 @@ export function resolvedEngineParameterValue(
       candidate.parameterId === parameterId && candidate.value.case === "unsignedInteger",
   );
   return parameter?.value.case === "unsignedInteger" ? parameter.value.value : undefined;
-}
-
-function hostMemoryParameterIds(configuration: ModelEngineConfiguration | undefined): Set<string> {
-  const engine = configuration?.engineConfiguration?.configuration;
-  const id =
-    engine?.case === "vllm"
-      ? engine.value.fixedSettings?.kvOffloadingSizeGibParameterId
-      : engine?.case === "ninfer"
-        ? engine.value.fixedSettings?.hostContextMibParameterId
-        : undefined;
-  return new Set(id ? [id] : []);
 }
 
 const noDerivedParameters: ReadonlySet<string> = new Set();

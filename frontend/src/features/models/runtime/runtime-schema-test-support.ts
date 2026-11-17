@@ -3,8 +3,10 @@ import { clone, create } from "@bufbuild/protobuf";
 import { EngineReleaseSchema } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import {
   ModelConfigurationOptionSchema,
+  ModelEngineConfigurationSchema,
   ModelOptionSchema,
   ModelOptionValuesSchema,
+  ModelProfileSchema,
   ModelSchema,
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
@@ -14,6 +16,13 @@ import { EngineKind } from "@/gen/dotcore/engine/v1/engine_pb";
 // Engine releases and a model mirroring the master catalog `catalog/engines/{llama-cpp,vllm,ninfer}.yaml`
 // parameter schemas and the `qwen3-8-27b` profiles that run on them. The llama.cpp configuration
 // declares the MTP speculative option; the vLLM and ninfer ones leave it out.
+
+// The host memory group the vLLM and ninfer schemas put their host budget in.
+const hostMemoryGroup = {
+  groupId: "host-memory",
+  displayName: "Host memory",
+  description: "Host memory the engine keeps beside the accelerator's.",
+};
 
 export const llamaCppRelease = create(EngineReleaseSchema, {
   engineReleaseId: "llama-cpp-2026-07-28",
@@ -112,9 +121,11 @@ export const vllmRelease = create(EngineReleaseSchema, {
         "GiB",
         {
           description: "Host memory used to offload the KV cache, in GiB.",
+          groupId: "host-memory",
         },
       ),
     ],
+    parameterGroups: [hostMemoryGroup],
   },
 });
 
@@ -154,13 +165,72 @@ export const ninferRelease = create(EngineReleaseSchema, {
         {
           description:
             "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
+          groupId: "host-memory",
         },
       ),
     ],
+    parameterGroups: [hostMemoryGroup],
   },
 });
 
 export const runtimeSchemaReleases = [llamaCppRelease, vllmRelease, ninferRelease];
+
+// A Strata release mirroring `catalog/engines/strata.yaml`, with its expert memory group.
+export const strataRelease = create(EngineReleaseSchema, {
+  engineReleaseId: "strata-2026-11-01",
+  engineKind: EngineKind.STRATA,
+  version: "0.1.0",
+  parameterSchema: {
+    schemaId: "strata-v2",
+    parameters: [
+      unsignedParameter("total-context", "Total context", true, 512n, undefined, "tokens", {
+        defaultValue: 32768n,
+      }),
+      unsignedParameter(
+        "context-per-request",
+        "Context per request",
+        true,
+        512n,
+        undefined,
+        "tokens",
+      ),
+      unsignedParameter("parallel-requests", "Parallel requests", true, 1n, undefined, "requests", {
+        defaultValue: 1n,
+      }),
+      unsignedParameter(
+        "expert-vram-mib",
+        "Expert accelerator memory",
+        true,
+        0n,
+        undefined,
+        "MiB",
+        {
+          defaultValue: 8192n,
+          groupId: "expert-memory",
+        },
+      ),
+      unsignedParameter(
+        "expert-host-memory-mib",
+        "Expert host memory",
+        true,
+        0n,
+        undefined,
+        "MiB",
+        {
+          defaultValue: 16384n,
+          groupId: "expert-memory",
+        },
+      ),
+    ],
+    parameterGroups: [
+      {
+        groupId: "expert-memory",
+        displayName: "Expert memory",
+        description: "Where Strata keeps the model's expert weights.",
+      },
+    ],
+  },
+});
 
 export const runtimeSchemaModel = create(ModelSchema, {
   modelId: "qwen3-8-27b",
@@ -347,11 +417,16 @@ function unsignedParameter(
   minimum: bigint,
   maximum: bigint | undefined,
   unit: string,
-  { defaultValue, description = "" }: { defaultValue?: bigint; description?: string } = {},
+  {
+    defaultValue,
+    description = "",
+    groupId,
+  }: { defaultValue?: bigint; description?: string; groupId?: string } = {},
 ) {
   return {
     parameterId,
     displayName,
+    groupId,
     visibility: exposed ? ParameterVisibility.ADVANCED : ParameterVisibility.HIDDEN,
     description,
     parameterType: {
@@ -371,4 +446,49 @@ function artifact(artifactId: string, weightQuantization: string) {
       content: { case: "file" as const, value: { path: `${artifactId}.bin` } },
     },
   };
+}
+
+/**
+ * The fixture model with a Strata configuration and its "strata" profile, run with `strataRelease`.
+ * `profile` adjusts the profile, such as its engine parameter visibility overrides.
+ */
+export function modelWithStrata(
+  configuration: { excludedEngineParameterIds?: string[] } = {},
+  profile: {
+    engineParameterVisibilityOverrides?: { parameterId: string; visibility: ParameterVisibility }[];
+  } = {},
+) {
+  const model = clone(ModelSchema, runtimeSchemaModel);
+  model.configurations.push(
+    create(ModelEngineConfigurationSchema, {
+      configurationId: "strata-nvidia-cuda",
+      engineArtifacts: [
+        { engineReleaseId: strataRelease.engineReleaseId, engineArtifactId: "linux-amd64-cuda" },
+      ],
+      artifactBindings: [{ bindingId: "strata-q4", modelArtifactId: "q4-xl" }],
+      engineConfiguration: {
+        engineKind: EngineKind.STRATA,
+        configuration: {
+          case: "strata",
+          value: {
+            fixedSettings: {
+              expertHostMemoryMibParameterId: "expert-host-memory-mib",
+              expertVramMibParameterId: "expert-vram-mib",
+            },
+          },
+        },
+      },
+      ...configuration,
+    }),
+  );
+  model.profiles.push(
+    create(ModelProfileSchema, {
+      profileId: "strata",
+      displayName: "Strata",
+      configurationId: "strata-nvidia-cuda",
+      defaultModelArtifactBindingId: "strata-q4",
+      ...profile,
+    }),
+  );
+  return model;
 }

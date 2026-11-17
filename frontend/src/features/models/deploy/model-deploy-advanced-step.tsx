@@ -1,17 +1,14 @@
-import { Collapsible } from "@base-ui/react/collapsible";
-import { ChevronRightIcon } from "lucide-react";
-import type { ReactNode, RefObject } from "react";
-import { useState } from "react";
+import type { RefObject } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { FieldError } from "@/components/ui/field-error";
+import { FormGroup } from "@/components/ui/form-group";
 import { Notice } from "@/components/ui/notice";
 import { weightQuantizationLabel } from "@/domain/model-projection";
 import {
   DeploymentForm,
-  DeploymentFormSection,
   DeploymentStepHeading,
 } from "@/features/deployments/deployment-form-layout";
 import type { SpeculativeOption } from "@/features/models/profiles/model-row";
@@ -27,7 +24,7 @@ import type {
   ModelEngineConfiguration,
   ModelProfile,
 } from "@/gen/dotcore/catalog/v1/model_pb";
-import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import type { ParameterDefinition, ParameterGroup } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
 
 interface ModelDeployAdvancedStepProps {
@@ -63,11 +60,13 @@ interface ModelDeployAdvancedStepProps {
   onParameterBlur: (parameter: ParameterDefinition) => void;
   onParameterChange: (parameter: ParameterDefinition, input: string) => void;
   onPreview: () => void;
+  /** The engine's parameter groups the configuration keeps. */
+  parameterGroups: readonly ParameterGroup[];
   previewButtonRef: RefObject<HTMLButtonElement | null>;
   previewDisabled: boolean;
   previewPending: boolean;
   profile?: ModelProfile;
-  /** The errors of the latest blocked navigation; a new value opens the sections it flags. */
+  /** The errors of the latest blocked navigation; a new value opens the sections and groups it flags. */
   revealedErrors: FieldErrors;
   /** Whether the profile shows any engine parameter, on this step or the Settings step. */
   schemaExposesParameters: boolean;
@@ -84,11 +83,11 @@ interface ModelDeployAdvancedStepProps {
 
 /**
  * The Advanced step of the model deploy dialog, driven by the selected profile's advanced engine
- * parameters and options: parallel requests, a host memory group, the KV cache precision and
- * speculative decoding choices, and the remaining parameters, model artifact, and custom arguments
- * in collapsed sections. The context sizes and basic parameters belong to the Settings step. A
- * collapsed section opens when a blocked navigation flags one of its fields, so the field can take
- * focus.
+ * parameters and options: parallel requests, the other parameters laid out by the engine's
+ * parameter groups, the KV cache precision and speculative decoding choices, then the model
+ * artifact and custom arguments in collapsed sections. The context sizes and basic parameters
+ * belong to the Settings step. A collapsed section or group opens when a blocked navigation flags
+ * one of its fields, so the field can take focus.
  */
 export function ModelDeployAdvancedStep({
   artifactRef,
@@ -109,6 +108,7 @@ export function ModelDeployAdvancedStep({
   onParameterBlur,
   onParameterChange,
   onPreview,
+  parameterGroups,
   previewButtonRef,
   previewDisabled,
   previewPending,
@@ -126,15 +126,17 @@ export function ModelDeployAdvancedStep({
   const artifact = model.artifacts.find(
     (candidate) => candidate.artifactId === binding?.modelArtifactId,
   );
-  const groups = runtimeParameterGroups(exposedParameters, configuration);
+  const { others, parallelRequests } = runtimeParameterGroups(exposedParameters);
   const parametersForm = (parameters: readonly ParameterDefinition[]) => (
     <EngineParametersForm
       errors={fieldErrors}
+      groups={parameterGroups}
       inputRefs={engineParameterRefs}
       inputs={inputs}
       onBlur={onParameterBlur}
       onChange={onParameterChange}
       parameters={parameters}
+      revealedErrors={revealedErrors}
     />
   );
 
@@ -146,15 +148,8 @@ export function ModelDeployAdvancedStep({
           The selected engine release schema has no exposed parameters.
         </Notice>
       )}
-      {groups.parallelRequests ? parametersForm([groups.parallelRequests]) : null}
-      {groups.hostMemory.length ? (
-        <DeploymentFormSection
-          className="min-w-0 rounded-lg border border-border bg-card p-4"
-          title="Host memory"
-        >
-          {parametersForm(groups.hostMemory)}
-        </DeploymentFormSection>
-      ) : null}
+      {parallelRequests ? parametersForm([parallelRequests]) : null}
+      {others.length ? parametersForm(others) : null}
       {hostKvOffloadSharesMemory ? (
         <Notice tone="warning">
           KV cache offload adds no capacity on this target. Its GPU already uses shared system
@@ -181,18 +176,8 @@ export function ModelDeployAdvancedStep({
           options={speculative.options}
         />
       ) : null}
-      {groups.other.length ? (
-        <AdvancedSection
-          count={groups.other.length}
-          errors={fieldErrors}
-          fields={groups.other.map((parameter) => parameter.parameterId)}
-          revealedErrors={revealedErrors}
-          title="Other parameters"
-        >
-          {parametersForm(groups.other)}
-        </AdvancedSection>
-      ) : null}
-      <AdvancedSection
+      <FormGroup
+        defaultOpen={false}
         errors={fieldErrors}
         fields={["artifact"]}
         revealedErrors={revealedErrors}
@@ -222,8 +207,9 @@ export function ModelDeployAdvancedStep({
             />
           ) : null}
         </DetailList>
-      </AdvancedSection>
-      <AdvancedSection
+      </FormGroup>
+      <FormGroup
+        defaultOpen={false}
         errors={fieldErrors}
         revealedErrors={revealedErrors}
         title="Custom arguments and command"
@@ -245,20 +231,9 @@ export function ModelDeployAdvancedStep({
         >
           {previewPending ? "Previewing…" : "Preview resolved command"}
         </Button>
-      </AdvancedSection>
+      </FormGroup>
     </DeploymentForm>
   );
-}
-
-interface AdvancedSectionProps {
-  children: ReactNode;
-  /** The number of fields inside, shown after the title. */
-  count?: number;
-  errors: FieldErrors;
-  /** The error keys of the fields inside. */
-  fields?: readonly string[];
-  revealedErrors: FieldErrors;
-  title: string;
 }
 
 /**
@@ -283,49 +258,4 @@ function artifactOptions(model: Model, configuration: ModelEngineConfiguration |
         ? names[index]
         : binding.modelArtifactId,
   }));
-}
-
-/**
- * An Advanced section, collapsed unless one of its fields is invalid when it mounts. A new blocked
- * navigation that flags one of its fields opens it, so the field renders before the dialog moves
- * focus to it; the operator can collapse it again.
- */
-function AdvancedSection({
-  children,
-  count,
-  errors,
-  fields = [],
-  revealedErrors,
-  title,
-}: AdvancedSectionProps) {
-  const [open, setOpen] = useState(() => fields.some((field) => errors.has(field)));
-  const [shownReveal, setShownReveal] = useState(revealedErrors);
-
-  if (revealedErrors !== shownReveal) {
-    setShownReveal(revealedErrors);
-    if (fields.some((field) => revealedErrors.has(field))) setOpen(true);
-  }
-
-  return (
-    <Collapsible.Root
-      className="min-w-0 rounded-lg border border-border bg-card"
-      onOpenChange={setOpen}
-      open={open}
-    >
-      <Collapsible.Trigger className="group/section flex w-full items-center gap-2 rounded-lg px-4 py-3 text-left text-sm font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
-        <ChevronRightIcon
-          aria-hidden="true"
-          className="size-4 shrink-0 text-muted-foreground transition-transform group-data-panel-open/section:rotate-90 motion-reduce:transition-none"
-        />
-        <span>{title}</span>
-        {count === undefined ? null : (
-          <>
-            {" "}
-            <span className="font-normal text-muted-foreground">({count})</span>
-          </>
-        )}
-      </Collapsible.Trigger>
-      <Collapsible.Panel className="grid min-w-0 gap-3 px-4 pb-4">{children}</Collapsible.Panel>
-    </Collapsible.Root>
-  );
 }

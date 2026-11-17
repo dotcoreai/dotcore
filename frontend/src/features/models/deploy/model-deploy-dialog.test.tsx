@@ -262,7 +262,6 @@ describe("ModelDeployDialog", () => {
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
       expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("4");
-      expect(screen.queryByText(/Other parameters/)).not.toBeInTheDocument();
     });
 
     it("shows parameters a profile makes basic on the Settings step after the context", async () => {
@@ -303,7 +302,6 @@ describe("ModelDeployDialog", () => {
       await user.click(stepButton("Advanced"));
       expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
       expect(screen.queryByRole("textbox", { name: "Parallel requests" })).not.toBeInTheDocument();
-      expect(screen.queryByText(/Other parameters/)).not.toBeInTheDocument();
 
       await goToDeploy(user);
       await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -425,7 +423,6 @@ describe("ModelDeployDialog", () => {
       renderDialog({ engineReleases: multiParameterReleases, model: multiParameterModel });
 
       await openAdvancedStep(user);
-      await expandSection(user, "Other parameters (1)");
       await user.click(screen.getByRole("switch", { name: "Prefix caching" }));
       await expandSection(user, "Custom arguments and command");
       await user.click(screen.getByRole("button", { name: "Add token" }));
@@ -2010,8 +2007,7 @@ describe("ModelDeployDialog", () => {
       await user.clear(context);
       await user.type(context, "65536");
       await user.click(screen.getByRole("button", { name: "Next" }));
-      // The unknown boolean stays in the generic collapsed list.
-      await expandSection(user, "Other parameters (1)");
+      // The unknown boolean sits ungrouped at the step's top level.
       const prefixCaching = screen.getByRole("switch", { name: "Prefix caching" });
       expect(prefixCaching).not.toBeChecked();
       expect(prefixCaching).toHaveAccessibleDescription("Caches reusable prompt prefixes.");
@@ -2084,7 +2080,7 @@ describe("ModelDeployDialog", () => {
       await openAdvancedStep(user);
 
       // The KV offload field surfaces the schema label and the profile default (16 GiB).
-      const kvOffload = within(screen.getByRole("region", { name: "Host memory" })).getByRole(
+      const kvOffload = within(screen.getByRole("group", { name: "Host memory" })).getByRole(
         "textbox",
         { name: "KV offloading size" },
       );

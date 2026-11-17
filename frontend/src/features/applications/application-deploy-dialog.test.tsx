@@ -1650,6 +1650,134 @@ describe("Application deployment dialog parameters", () => {
       expect(screen.queryByRole("button", { name: "Deploy" })).not.toBeInTheDocument();
     });
   });
+
+  describe("switched group", () => {
+    // Open WebUI's catalog shape: a login group switched by its first member.
+    const openWebUi = create(ApplicationSchema, {
+      applicationId: "open-webui",
+      displayName: "Open WebUI",
+      version: "1.0.0",
+      graph: create(ApplicationGraphSchema, {
+        parameterGroups: [{ groupId: "login", switchParameterId: "require-login" }],
+        parameters: [
+          create(ParameterDefinitionSchema, {
+            parameterId: "require-login",
+            displayName: "Require login",
+            description: "Ask for an email and password to use Open WebUI.",
+            groupId: "login",
+            visibility: ParameterVisibility.BASIC,
+            parameterType: { case: "boolean", value: { defaultValue: false } },
+          }),
+          create(ParameterDefinitionSchema, {
+            parameterId: "admin-email",
+            displayName: "Admin email",
+            groupId: "login",
+            visibility: ParameterVisibility.BASIC,
+            parameterType: {
+              case: "text",
+              value: { minimumLength: 3, maximumLength: 64, defaultValue: "admin@example.com" },
+            },
+          }),
+          create(ParameterDefinitionSchema, {
+            parameterId: "admin-password",
+            displayName: "Admin password",
+            groupId: "login",
+            visibility: ParameterVisibility.BASIC,
+            parameterType: {
+              case: "secret",
+              value: { generatedLength: 32, minimumLength: 12, maximumLength: 72 },
+            },
+          }),
+        ],
+      }),
+    });
+
+    it("shows only the switch while login is off and sends no admin values", async () => {
+      const user = setupUser();
+      const onSubmit = renderDialog(vi.fn(), openWebUi);
+
+      const group = screen.getByRole("group", { name: "Require login" });
+      const requireLogin = within(group).getByRole("switch", { name: "Require login" });
+      expect(requireLogin).not.toBeChecked();
+      expect(requireLogin).toHaveAccessibleDescription(
+        "Ask for an email and password to use Open WebUI.",
+      );
+      expect(within(group).queryByRole("button", { name: /^Require login/ })).toBeNull();
+      expect(screen.queryByRole("textbox")).toBeNull();
+
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(summaryRows()).toEqual([
+        ["Target", "local / Docker applications"],
+        ["GPU devices", "none"],
+      ]);
+      await user.click(screen.getByRole("button", { name: "Deploy" }));
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ parameterValues: [] }),
+      );
+    });
+
+    it("shows the admin fields while on, keeps typed text across off and on, and validates them", async () => {
+      const user = setupUser();
+      const onSubmit = renderDialog(vi.fn(), openWebUi);
+
+      const requireLogin = screen.getByRole("switch", { name: "Require login" });
+      await user.click(requireLogin);
+      expect(requireLogin).toHaveFocus();
+      const group = screen.getByRole("group", { name: "Require login" });
+      expect(
+        within(group)
+          .getAllByRole("textbox")
+          .map((input) => input.id),
+      ).toEqual(["application-parameter-admin-email", "application-parameter-admin-password"]);
+      await user.type(within(group).getByRole("textbox", { name: "Admin password" }), "short");
+
+      // Off, the invalid password is neither shown nor validated, and nothing is sent for it.
+      await user.click(requireLogin);
+      expect(screen.queryByRole("textbox")).toBeNull();
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Step 2 of 2 — Deploy")).toBeVisible();
+      expect(summaryRows()).toEqual([
+        ["Target", "local / Docker applications"],
+        ["GPU devices", "none"],
+      ]);
+      await user.click(screen.getByRole("button", { name: "Back" }));
+
+      // On again, the typed text is back and blocks Next until fixed.
+      await user.click(screen.getByRole("switch", { name: "Require login" }));
+      const password = screen.getByRole("textbox", { name: "Admin password" });
+      expect(password).toHaveValue("short");
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(screen.getByText("Admin password must be 12 to 72 bytes.")).toBeVisible();
+      expect(password).toHaveFocus();
+
+      await user.clear(password);
+      await user.type(password, "typed-password-1");
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      expect(summaryRows()).toEqual([
+        ["Target", "local / Docker applications"],
+        ["GPU devices", "none"],
+        ["Require login", "Enabled"],
+        ["Admin password", "typed-password-1"],
+      ]);
+      await user.click(screen.getByRole("button", { name: "Deploy" }));
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          parameterValues: [
+            create(ParameterValueSchema, {
+              parameterId: "require-login",
+              value: { case: "boolean", value: true },
+            }),
+            create(ParameterValueSchema, {
+              parameterId: "admin-password",
+              value: { case: "string", value: "typed-password-1" },
+            }),
+          ],
+        }),
+      );
+    });
+  });
 });
 
 describe("Application deployment dialog storage choices", () => {

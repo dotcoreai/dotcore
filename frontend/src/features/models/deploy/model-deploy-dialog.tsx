@@ -226,7 +226,9 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           onParameterChange={form.changeContext}
           parameters={{
             onBlur: form.blurParameter,
+            groups: form.parameterGroups,
             onChange: form.changeParameter,
+            revealedErrors: form.revealedErrors,
             shown: form.settingsParameters,
           }}
           profile={form.profile}
@@ -274,6 +276,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           onParameterBlur={form.blurParameter}
           onParameterChange={form.changeParameter}
           onPreview={() => void form.runPreview()}
+          parameterGroups={form.parameterGroups}
           previewButtonRef={commandPreview.previewButtonRef}
           previewDisabled={
             pending ||
