@@ -155,9 +155,11 @@ expect_init_env '127.0.0.1:6003 127.0.0.1:6001 127.0.0.1:6002' "${inherited[@]}"
 expect_init_env '0.0.0.0:50053 unset unset' "${inherited[@]}" "$init_fixture" \
   --private-addr 0.0.0.0:50053 --management-port 6101 --inference-port 6102
 rm -rf -- "$markers"
-mkdir -m 700 "$DOTCORE_SITE_DIR"
-cp -R "${DOTCORE_PACKAGE_SITE_FIXTURE:?Site fixture is required}"/. "$DOTCORE_SITE_DIR/"
-chmod -R u+rwX "$DOTCORE_SITE_DIR"
+# A manager always serves its private listener, so the site needs the trust `site init` creates.
+env -u DOTCORE_PRIVATE_ADDR -u DOTCORE_MANAGEMENT_ADDR -u DOTCORE_INFERENCE_ADDR \
+  "${DOTCORE_PACKAGE_BACKEND_COMMAND:?backend command is required}" site init --non-interactive \
+  --site-dir "$DOTCORE_SITE_DIR" --host 127.0.0.1 --inference simulated --applications simulated \
+  >"$work/site-init.out" 2>"$work/site-init.err" || fail "site init failed: $(cat "$work/site-init.err")"
 site_before=$(sha256sum "$DOTCORE_SITE_DIR/site.yaml" "$DOTCORE_SITE_DIR/node.yaml")
 cp -R "$DOTCORE_SITE_DIR" "$work/site-before"
 

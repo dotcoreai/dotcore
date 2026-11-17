@@ -159,7 +159,6 @@ let
   } ''
     shellcheck ${./real-child-failure.sh}
     export DOTCORE_FAILURE_LAUNCHER=${recordedFixture}/bin/dotcore
-    export DOTCORE_FAILURE_SITE_FIXTURE=${root}/backend/fixtures/simulated-site
     export DOTCORE_FAILURE_CA_BUNDLE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
     export DOTCORE_FAILURE_BACKEND_COMMAND=${backend}/bin/dotc
     export DOTCORE_FAILURE_CADDY_COMMAND=${pkgs.lib.getExe caddy}
@@ -174,7 +173,6 @@ let
     shellcheck ${./package.sh}
     export DOTCORE_PACKAGE_LAUNCHER=${launcher}/bin/dotcore
     export DOTCORE_PACKAGE_BACKEND_COMMAND=${backend}/bin/dotc
-    export DOTCORE_PACKAGE_SITE_FIXTURE=${root}/backend/fixtures/simulated-site
     export DOTCORE_PACKAGE_CA_BUNDLE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
     export DOTCORE_PACKAGE_CATALOG=${catalog}
     export DOTCORE_PACKAGE_INIT_FIXTURE_LAUNCHER=${noPublicationFixture}/bin/dotcore
