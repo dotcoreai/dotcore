@@ -2396,7 +2396,13 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
     let token_file = nodes.root.join("join.token");
     let site_before = std::fs::read(fixture.site_path().join("site.yaml")).expect("Site input");
 
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
+    let private_port = JoinToken::parse(&add.token())
+        .expect("token")
+        .endpoint
+        .port()
+        .expect("token port");
     let joined = node_join(&token_file, &node_dir, "Worker two", "127.0.0.3")
         .output()
         .expect("run node join");
@@ -2405,16 +2411,14 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     assert_eq!(text(&joined.stderr), "");
     assert_eq!(added.status.code(), Some(0), "{}", text(&added.stderr));
-    // The non-default manager private port is called out first, then the loopback manager host,
-    // then the dial-back to the node. The loopback test node proposes 127.0.0.3 but connects
-    // from the source address the host picks toward the 127.0.0.2 listener: 127.0.0.1 on Linux,
-    // 127.0.0.2 on macOS.
+    // The loopback manager host is called out first, then the host the node proposes. The
+    // loopback test node proposes 127.0.0.3 but connects from the source address the host picks
+    // toward the 127.0.0.2 listener: 127.0.0.1 on Linux, 127.0.0.2 on macOS.
     assert_eq!(
         text(&added.stderr),
         format!(
-            "Warning: nodes will reach the manager on port 9443; start the manager with DOTCORE_PRIVATE_ADDR=127.0.0.2:9443 (or dotcore --private-addr 127.0.0.2:9443)\nWarning: the manager host 127.0.0.2 is a loopback address, which only this machine reaches; a remote node must join with --manager-host <address it reaches this machine at>, and this command and the manager need DOTCORE_PRIVATE_ADDR=<that address>:9443 (or dotcore --private-addr <that address>:9443); for the node's apps to reach inference, the manager also needs DOTCORE_INFERENCE_ADDR=<that address>:50052\nNotice: dialing the node back at 127.0.0.3:{port}\nNotice: reached the node at 127.0.0.3:{port}\nWarning: the node proposes host 127.0.0.3 but connected from {}; confirm that other nodes reach it at the proposed host\n",
+            "Warning: the manager host 127.0.0.2 is a loopback address, which only this machine reaches; a remote node must join with --manager-host <address it reaches this machine at>, and the manager must listen on that address\nWarning: the node proposes host 127.0.0.3 but connected from {}; confirm that other nodes reach it at the proposed host\n",
             loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2)),
-            port = node_private_port(),
         )
     );
     let node_id = record(&text(&added.stdout), "DOTCORE_NODE_ID=");
@@ -2492,7 +2496,9 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
     );
     assert!(manifest.contains("nodeId: cli-test-node"), "{manifest}");
     assert!(
-        manifest.contains("privateEndpoint: https://127.0.0.2:9443/"),
+        manifest.contains(&format!(
+            "privateEndpoint: https://127.0.0.2:{private_port}/"
+        )),
         "{manifest}"
     );
     assert!(
@@ -2503,41 +2509,33 @@ fn node_add_and_join_run_non_interactively_and_install_a_node_folder() {
 }
 
 #[test]
-fn node_add_advertises_the_declared_manager_host_when_it_listens_on_another_address() {
+fn node_add_advertises_the_declared_manager_host_when_the_manager_listens_on_another_address() {
     let fixture = TemporarySite::new();
     let nodes = TemporarySite::empty();
     let token_file = nodes.root.join("join.token");
     let node_dir = nodes.root.join("joined-node");
 
-    // The site declares 127.0.0.2 while the listener binds the wildcard address.
-    {
-        let listen = "0.0.0.0:0";
-        let mut command =
-            node_add_command_listening(fixture.site_path(), Some(&token_file), listen);
-        command
-            .arg("--yes")
-            .env("DOTCORE_PRIVATE_ADDR", "127.0.0.1:50999")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        let add = NodeAdd::start_command(command, &token_file);
-        let token = JoinToken::parse(&add.token()).expect("token");
-        assert_eq!(token.endpoint.host_str(), Some("127.0.0.2"), "{listen}");
-        assert_ne!(token.endpoint.port(), Some(0));
+    // The site declares 127.0.0.2 while the private listener binds the wildcard address.
+    let manager = LiveManager::start_listening(fixture.site_path(), "0.0.0.0:0");
+    let add = NodeAdd::start(&manager, &token_file);
+    let token = JoinToken::parse(&add.token()).expect("token");
+    assert_eq!(token.endpoint.host_str(), Some("127.0.0.2"));
+    let port = token.endpoint.port().expect("token port");
+    assert_ne!(port, 0);
 
-        let joined = node_join(&token_file, &node_dir, "Wildcard node", "127.0.0.3")
-            .output()
-            .expect("run node join");
-        assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
-        let added = add.finish();
-        assert_eq!(added.status.code(), Some(0), "{}", text(&added.stderr));
+    let joined = node_join(&token_file, &node_dir, "Wildcard node", "127.0.0.3")
+        .output()
+        .expect("run node join");
+    assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
+    let added = add.finish();
+    assert_eq!(added.status.code(), Some(0), "{}", text(&added.stderr));
 
-        // The recorded private endpoint is the declared host with the private listener's port.
-        let manifest = std::fs::read_to_string(node_dir.join("worker.yaml")).expect("manifest");
-        assert!(
-            manifest.contains("privateEndpoint: https://127.0.0.2:50999/"),
-            "{manifest}"
-        );
-    }
+    // The recorded private endpoint is the declared host with the private listener's port.
+    let manifest = std::fs::read_to_string(node_dir.join("worker.yaml")).expect("manifest");
+    assert!(
+        manifest.contains(&format!("privateEndpoint: https://127.0.0.2:{port}/")),
+        "{manifest}"
+    );
 }
 
 #[test]
@@ -2548,16 +2546,11 @@ fn node_join_manager_host_reaches_a_listener_the_token_address_does_not_name() {
     let node_dir = nodes.root.join("joined-node");
 
     // The token names the declared host 127.0.0.2 while the node reaches the manager at 127.0.0.1.
-    let mut command =
-        node_add_command_listening(fixture.site_path(), Some(&token_file), "0.0.0.0:0");
-    command
-        .arg("--yes")
-        .args(["--manager-private-port", "50999"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let add = NodeAdd::start_command(command, &token_file);
+    let manager = LiveManager::start_listening(fixture.site_path(), "0.0.0.0:0");
+    let add = NodeAdd::start(&manager, &token_file);
     let token = JoinToken::parse(&add.token()).expect("token");
     assert_eq!(token.endpoint.host_str(), Some("127.0.0.2"));
+    let port = token.endpoint.port().expect("token port");
 
     let mut join = node_join(&token_file, &node_dir, "Split node", "127.0.0.3");
     join.args(["--manager-host", "127.0.0.1"]);
@@ -2570,7 +2563,7 @@ fn node_join_manager_host_reaches_a_listener_the_token_address_does_not_name() {
     assert!(site.contains("managerHost: 127.0.0.1"), "{site}");
     let manifest = std::fs::read_to_string(node_dir.join("worker.yaml")).expect("manifest");
     assert!(
-        manifest.contains("privateEndpoint: https://127.0.0.1:50999/"),
+        manifest.contains(&format!("privateEndpoint: https://127.0.0.1:{port}/")),
         "{manifest}"
     );
 }
@@ -2581,7 +2574,8 @@ fn node_add_prints_a_join_command_that_joins_when_run_on_the_new_machine() {
     let nodes = TemporarySite::empty();
     let node_dir = nodes.root.join("joined-node");
 
-    let mut command = node_add_command_listening(fixture.site_path(), None, "0.0.0.0:0");
+    let manager = LiveManager::start_listening(fixture.site_path(), "0.0.0.0:0");
+    let mut command = node_add_command(&manager, None);
     command
         .arg("--yes")
         .stdout(Stdio::piped())
@@ -2659,7 +2653,8 @@ fn node_join_reads_the_token_from_the_flag_and_warns_about_a_shared_token_file()
     let fixture = TemporarySite::new();
     let nodes = TemporarySite::empty();
 
-    let add = NodeAdd::start(fixture.site_path(), &nodes.root.join("env.token"));
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &nodes.root.join("env.token"));
     let token = add.token();
     let joined = node_join_with_token_flag(&token, &nodes.root.join("flag-node"))
         .output()
@@ -2672,7 +2667,8 @@ fn node_join_reads_the_token_from_the_flag_and_warns_about_a_shared_token_file()
     // configured loopback aliases as local addresses.
     let shared_fixture = TemporarySite::new();
     let shared = nodes.root.join("shared.token");
-    let add = NodeAdd::start(shared_fixture.site_path(), &shared);
+    let shared_manager = LiveManager::start_listening(shared_fixture.site_path(), "127.0.0.2:0");
+    let add = NodeAdd::start(&shared_manager, &shared);
     std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o644)).expect("loosen");
     let joined = node_join(
         &shared,
@@ -2699,7 +2695,8 @@ fn rejected_joins_leave_the_site_unchanged_and_the_token_usable_for_a_corrected_
     let nodes = TemporarySite::empty();
     let token_file = nodes.root.join("join.token");
     let site_before = std::fs::read(fixture.site_path().join("site.yaml")).expect("Site input");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
 
     // A token with the wrong secret is refused before anything is recorded.
     let wrong_token_file = nodes.root.join("wrong.token");
@@ -2797,38 +2794,11 @@ fn rejected_joins_leave_the_site_unchanged_and_the_token_usable_for_a_corrected_
 }
 
 #[test]
-fn node_add_refuses_a_locked_site_with_the_exact_diagnostic() {
-    let fixture = TemporarySite::new();
-    let lock = File::options()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(format!("{}.lock", fixture.site_path().display()))
-        .expect("Site lock");
-    // SAFETY: flock is called with a valid owned file descriptor and released when the file closes.
-    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_SH) }, 0);
-
-    let output = node_add_command(fixture.site_path(), None)
-        .arg("--yes")
-        .output()
-        .expect("run locked node add");
-
-    assert_eq!(output.status.code(), Some(1));
-    assert!(output.stdout.is_empty());
-    assert_eq!(
-        text(&output.stderr),
-        format!(
-            "cannot add a node to the site at {site}: site at {site} is running or locked; stop the manager and retry\n",
-            site = fixture.site_path().display()
-        )
-    );
-}
-
-#[test]
 fn node_add_without_yes_needs_a_terminal() {
-    let fixture = TemporarySite::new();
-    let mut command = node_add_command(fixture.site_path(), None);
+    let mut command = dotc();
+    command
+        .args(["node", "add", "--manager", "127.0.0.1:1"])
+        .clear_test_environment();
     detach_from_controlling_terminal(&mut command);
 
     let output = command.output().expect("run node add without a terminal");
@@ -2840,6 +2810,53 @@ fn node_add_without_yes_needs_a_terminal() {
         "{}",
         text(&output.stderr)
     );
+}
+
+#[test]
+fn node_add_against_a_stopped_manager_says_the_manager_must_run() {
+    let closed = dotcore::testing::reserve_port();
+    let address = format!("127.0.0.1:{}", closed.port());
+
+    let output = dotc()
+        .args(["node", "add", "--yes", "--manager", &address])
+        .clear_test_environment()
+        .output()
+        .expect("run node add without a manager");
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = text(&output.stderr);
+    assert!(
+        stderr.starts_with(&format!(
+            "adding a node needs the site manager running: cannot reach the manager at http://{address}; start it with `dotcore` or pass its address with --manager: "
+        )),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn node_add_ending_early_cancels_the_join() {
+    let fixture = TemporarySite::new();
+    let nodes = TemporarySite::empty();
+    let token_file = nodes.root.join("join.token");
+    let node_dir = nodes.root.join("late-node");
+    let manager = LiveManager::start(fixture.site_path());
+    let mut add = NodeAdd::start(&manager, &token_file);
+    let token = add.token();
+
+    // Interrupting the command ends it and removes its token file.
+    send_signal(add.child.as_ref().expect("running node add"), libc::SIGINT);
+    let ended = add.child.take().expect("node add").wait().expect("wait");
+    assert_eq!(ended.code(), Some(130));
+    assert!(!token_file.exists());
+
+    // The manager refuses the token of the cancelled join, and records nothing.
+    let late = node_join_with_token_flag(&token, &node_dir)
+        .output()
+        .expect("join with the cancelled token");
+    assert_eq!(late.status.code(), Some(1));
+    assert!(!node_dir.exists());
+    assert!(pin_files(fixture.site_path()).is_empty());
 }
 
 const WORKER_NODE_ID: &str = "node-7b836d678d251736";
@@ -3136,15 +3153,18 @@ impl JoinedState {
     }
 }
 
-/// Runs `node add --yes` on the fixture site and `node join` from the intact folder, with the
-/// extra join arguments.
+/// Runs `node add --yes` against the fixture site's manager and `node join` from the intact
+/// folder, with the extra join arguments; the manager is stopped again afterwards.
 fn rejoin_node(site_dir: &Path, node_dir: &Path, extra: &[&str]) -> (Output, Output) {
+    let manager = LiveManager::start(site_dir);
     let token_file = node_dir.with_extension("rejoin.token");
-    let add = NodeAdd::start(site_dir, &token_file);
+    let add = NodeAdd::start(&manager, &token_file);
     let joined = rejoin_command(&token_file, node_dir, extra)
         .output()
         .expect("run node join again");
-    (joined, add.finish())
+    let added = add.finish();
+    manager.stop();
+    (joined, added)
 }
 
 fn rejoin_command(token_file: &Path, node_dir: &Path, extra: &[&str]) -> Command {
@@ -3258,32 +3278,21 @@ fn the_operator_reviews_a_rejoin_and_declining_leaves_the_site_and_the_folder_un
     let nodes = TemporarySite::empty();
     let node_dir = nodes.root.join("worker");
     join_node(fixture.site_path(), &node_dir, "Worker two", "127.0.0.3");
-    place_worker_application(fixture.site_path(), "worker-app");
     let before = JoinedState::read(fixture.site_path(), &node_dir);
     let token_file = nodes.root.join("rejoin.token");
 
-    // The listener outlives the decline until its short timeout ends the command.
-    let mut add = dotc();
-    add.args(["node", "add", "--site-dir"])
-        .arg(fixture.site_path())
-        .args([
-            "--listen",
-            "127.0.0.2:0",
-            "--timeout",
-            "3s",
-            "--manager-private-port",
-            "9443",
-            "--token-file",
-        ])
-        .arg(&token_file)
-        .clear_test_environment()
-        .stdin(Stdio::null());
+    // The join stays open after the decline, so the operator interrupts the command to end it.
+    let manager = LiveManager::start(fixture.site_path());
+    let mut add = node_add_command(&manager, Some(&token_file));
+    add.stdin(Stdio::null());
     let add_run = thread::spawn(move || {
         run_in_pty(
             add,
             Session::new([
                 Step::Wait("Allow this node to join again?"),
                 Step::Send(b"no\n"),
+                Step::Wait("the token still works for another attempt"),
+                Step::Send(b"\x03"),
             ]),
         )
     });
@@ -3297,7 +3306,7 @@ fn the_operator_reviews_a_rejoin_and_declining_leaves_the_site_and_the_folder_un
     let screen = added.screen();
     let peer = loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2));
     let review = format!(
-        "A node asks to join again\n  name             Worker two\n  host             127.0.0.3 -> 127.0.0.4\n  manager host     default (no change)\n  deployments      1 stays on this node\n  connected from   {peer}:{}\n  key fingerprint  {}\n! Proposed host 127.0.0.4 differs from where the node connected from ({peer})\nAllow this node to join again? [no]: no",
+        "A node asks to join again\n  name             Worker two\n  host             127.0.0.3 -> 127.0.0.4\n  manager host     default (no change)\n  deployments      none placed on this node\n  connected from   {peer}:{}\n  key fingerprint  {}\n! Proposed host 127.0.0.4 differs from where the node connected from ({peer})\nAllow this node to join again? [no]: no",
         review_value(screen, "connected from")
             .rsplit(':')
             .next()
@@ -3396,7 +3405,8 @@ fn a_running_node_or_a_mismatched_name_is_refused_before_the_manager_is_asked() 
     join_node(fixture.site_path(), &node_dir, "Worker two", "127.0.0.3");
     let before = JoinedState::read(fixture.site_path(), &node_dir);
     let token_file = nodes.root.join("rejoin.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
 
     let renamed = rejoin_command(&token_file, &node_dir, &["--name", "Worker three"])
         .output()
@@ -3444,7 +3454,8 @@ fn the_intact_folder_of_a_removed_node_is_refused_with_the_leave_then_join_steps
     let worker_before = std::fs::read(node_dir.join("worker.yaml")).expect("worker.yaml");
 
     let token_file = nodes.root.join("rejoin.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
     let joined = rejoin_command(&token_file, &node_dir, &[])
         .output()
         .expect("run node join again");
@@ -3480,7 +3491,8 @@ fn a_lost_folder_with_a_declared_name_points_to_remove_then_join() {
     );
     let site_before = std::fs::read(fixture.site_path().join("site.yaml")).expect("site.yaml");
     let token_file = nodes.root.join("fresh.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
 
     let joined = node_join(
         &token_file,
@@ -3984,7 +3996,8 @@ fn node_join_in_the_default_folder_prints_the_plain_start_command() {
     let nodes = TemporarySite::empty();
     let state = nodes.root.join("state");
     let token_file = nodes.root.join("join.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
 
     let joined = dotc()
         .args(["node", "join", "--yes", "--token-file"])
@@ -4022,7 +4035,8 @@ fn node_join_in_a_folder_from_the_environment_prints_the_plain_start_command() {
     let nodes = TemporarySite::empty();
     let node_dir = nodes.root.join("env-node");
     let token_file = nodes.root.join("join.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
 
     let joined = dotc()
         .args(["node", "join", "--yes", "--token-file"])
@@ -4096,7 +4110,8 @@ fn the_printed_start_command_starts_the_joined_node() {
     let nodes = TemporarySite::empty();
     let node_dir = nodes.root.join("joined-node");
     let token_file = nodes.root.join("join.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
     let joined = node_join(&token_file, &node_dir, "Started node", "127.0.0.3")
         .output()
         .expect("run node join");
@@ -4192,7 +4207,8 @@ fn node_join_ignores_the_removed_join_environment_variables() {
     let fixture = TemporarySite::new();
     let nodes = TemporarySite::empty();
     let token_file = nodes.root.join("join.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
     let token = add.token();
     let node_dir = nodes.root.join("ignored-env-node");
 
@@ -4225,7 +4241,8 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
 
     // The variable alone names the proposed host.
     let token_file = nodes.root.join("variable.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let manager = LiveManager::start(fixture.site_path());
+    let add = NodeAdd::start(&manager, &token_file);
     let joined = dotc()
         .args([
             "node",
@@ -4253,7 +4270,7 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
 
     // The flag wins over the variable.
     let token_file = nodes.root.join("flag.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let add = NodeAdd::start(&manager, &token_file);
     let mut join = node_join(
         &token_file,
         &nodes.root.join("flag"),
@@ -4275,7 +4292,7 @@ fn node_join_proposes_the_machine_host_variable_unless_the_host_flag_is_given() 
     // own host, which the manager refuses as a duplicate.
     let observed_host = loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2));
     let token_file = nodes.root.join("retired.token");
-    let add = NodeAdd::start(fixture.site_path(), &token_file);
+    let add = NodeAdd::start(&manager, &token_file);
     let observed = dotc()
         .args([
             "node",
@@ -4407,7 +4424,8 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
     let token_file = nodes.root.join("join.token");
 
     // The manager operator allows the node on the terminal.
-    let mut add = node_add_command(fixture.site_path(), Some(&token_file));
+    let manager = LiveManager::start(fixture.site_path());
+    let mut add = node_add_command(&manager, Some(&token_file));
     add.stdin(Stdio::null());
     let add_run = thread::spawn(move || {
         run_in_pty(
@@ -5444,10 +5462,10 @@ fn rich_guided_init(site_dir: &Path, extra: &[&str]) -> Command {
 /// The warning for a host that is no address of this machine, as stderr prints it.
 fn non_local_host_warning(host: &str) -> String {
     format!(
-        "Warning: node host {host} is not an address of this machine: the console and inference \
-         cannot start on this host, and the private listener cannot once nodes join; use an \
-         address of this machine, or start the manager with DOTCORE_INFERENCE_ADDR=0.0.0.0:50052 \
-         and DOTCORE_PRIVATE_ADDR=0.0.0.0:50053 (or dotcore --private-addr 0.0.0.0:50053)\n"
+        "Warning: node host {host} is not an address of this machine: the console, inference \
+         and private listeners cannot start on this host; use an address of this machine, or \
+         start the manager with DOTCORE_INFERENCE_ADDR=0.0.0.0:50052 and \
+         DOTCORE_PRIVATE_ADDR=0.0.0.0:50053 (or dotcore --private-addr 0.0.0.0:50053)\n"
     )
 }
 
@@ -5492,9 +5510,9 @@ struct NodeAdd {
 }
 
 impl NodeAdd {
-    /// Starts node add on the fixture site and waits until its listener published the token.
-    fn start(site_dir: &Path, token_file: &Path) -> Self {
-        let mut command = node_add_command(site_dir, Some(token_file));
+    /// Starts node add against the manager and waits until it published the token.
+    fn start(manager: &LiveManager, token_file: &Path) -> Self {
+        let mut command = node_add_command(manager, Some(token_file));
         command
             .arg("--yes")
             .stdout(Stdio::piped())
@@ -5559,19 +5577,76 @@ impl Drop for NodeAdd {
     }
 }
 
-/// Builds `dotc node add` for the fixture site on loopback, optionally with a token file.
-fn node_add_command(site_dir: &Path, token_file: Option<&Path>) -> Command {
-    let mut command = node_add_command_listening(site_dir, token_file, "127.0.0.2:0");
-    command.args(["--manager-private-port", "9443"]);
-    command
+/// A real site manager on a fixture site, so node joins run through its management API. Its
+/// private listener binds the fixture's declared manager host. Stopping it releases the site for
+/// the commands that need the manager stopped.
+struct LiveManager {
+    server: ServerProcess,
+    management: std::net::SocketAddr,
+    // Kept so the server's pipes stay open until it stops.
+    _stdout: mpsc::Receiver<String>,
+    _stderr: mpsc::Receiver<Vec<u8>>,
 }
 
-fn node_add_command_listening(site_dir: &Path, token_file: Option<&Path>, listen: &str) -> Command {
+impl LiveManager {
+    /// Starts the manager of the fixture site at `site_dir`, listening on the test's own private
+    /// port so a manager started again for the same site keeps the endpoint nodes recorded.
+    fn start(site_dir: &Path) -> Self {
+        let port = MANAGER_PRIVATE_PORT.with(|port| port.port());
+        Self::start_listening(site_dir, &format!("127.0.0.2:{port}"))
+    }
+
+    /// Starts the manager with its private listener bound to `private_addr`.
+    fn start_listening(site_dir: &Path, private_addr: &str) -> Self {
+        let mut command = dotc();
+        command
+            .args(["server", "start"])
+            .clear_test_environment()
+            .env("DOTCORE_MANAGEMENT_ADDR", "127.0.0.1:0")
+            .env("DOTCORE_INFERENCE_ADDR", "127.0.0.1:0")
+            .env("DOTCORE_PRIVATE_ADDR", private_addr)
+            .env("DOTCORE_FRONTEND_ORIGIN", "http://127.0.0.1:5173")
+            .env("DOTCORE_SITE_DIR", site_dir)
+            .env("DOTCORE_CATALOG_DIR", site_dir.join("master-catalog"))
+            .env("DOTCORE_CACHE_DIR", site_dir.join("cache"))
+            .env("RUST_LOG", "off");
+        let child = command
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("start dotc server");
+        let mut server = ServerProcess { child };
+        let stdout = server.child.stdout.take().expect("server stdout");
+        let stderr = server.child.stderr.take().expect("server stderr");
+        let (lines, _) = read_lines(stdout);
+        let (errors, _) = read_output(stderr);
+        let startup = wait_for_startup(&mut server.child, &lines, &errors);
+        Self {
+            management: startup_addresses(&startup).management,
+            server,
+            _stdout: lines,
+            _stderr: errors,
+        }
+    }
+
+    /// The management address to pass as `--manager`.
+    fn management(&self) -> String {
+        self.management.to_string()
+    }
+
+    /// Stops the manager and waits until it released the site.
+    fn stop(mut self) {
+        send_signal(&self.server.child, libc::SIGTERM);
+        assert_eq!(wait_for_exit(&mut self.server.child).code(), Some(0));
+    }
+}
+
+/// Builds `dotc node add` against the manager, optionally with a token file.
+fn node_add_command(manager: &LiveManager, token_file: Option<&Path>) -> Command {
     let mut command = dotc();
     command
-        .args(["node", "add", "--site-dir"])
-        .arg(site_dir)
-        .args(["--listen", listen, "--timeout", "120s"])
+        .args(["node", "add", "--manager"])
+        .arg(manager.management())
         .clear_test_environment();
     if let Some(token_file) = token_file {
         command.arg("--token-file").arg(token_file);
@@ -5614,6 +5689,9 @@ fn node_join_without_token(node_dir: &Path, name: &str, host: &str) -> Command {
 }
 
 thread_local! {
+    /// Private port the test's manager listens on, held for the whole test.
+    static MANAGER_PRIVATE_PORT: dotcore::testing::ReservedPort = dotcore::testing::reserve_port();
+
     /// Private port joining nodes of the running test listen on while they join, held for the
     /// whole test. Each test runs on its own thread or process, so tests never share it.
     static NODE_PRIVATE_PORT: dotcore::testing::ReservedPort = dotcore::testing::reserve_port();
@@ -5624,16 +5702,19 @@ fn node_private_port() -> String {
     NODE_PRIVATE_PORT.with(|port| port.port().to_string())
 }
 
-/// Adds one simulated node to the fixture site through the two real commands.
+/// Adds one simulated node to the fixture site through the two real commands against its manager,
+/// which is stopped again afterwards.
 fn join_node(site_dir: &Path, node_dir: &Path, name: &str, host: &str) {
+    let manager = LiveManager::start(site_dir);
     let token_file = node_dir.with_extension("token");
-    let add = NodeAdd::start(site_dir, &token_file);
+    let add = NodeAdd::start(&manager, &token_file);
     let joined = node_join(&token_file, node_dir, name, host)
         .output()
         .expect("run node join");
     assert_eq!(joined.status.code(), Some(0), "{}", text(&joined.stderr));
     let added = add.finish();
     assert_eq!(added.status.code(), Some(0), "{}", text(&added.stderr));
+    manager.stop();
 }
 
 const MANAGER_LIST_BLOCK: &str = "Node\nDOTCORE_NODE_ID=cli-test-node\nDOTCORE_NODE_NAME=CLI test node\nDOTCORE_NODE_ROLE=manager\nDOTCORE_NODE_HOST=127.0.0.2\nDOTCORE_NODE_MANAGER_HOST=default\nDOTCORE_NODE_PIN=own identity\nDOTCORE_NODE_EXECUTION_TARGET=cli-test-target model linux/amd64\nDOTCORE_NODE_EXECUTION_TARGET=cli-test-application-target application linux/amd64\nDOTCORE_NODE_MODEL_DEPLOYMENTS=0\nDOTCORE_NODE_APPLICATION_DEPLOYMENTS=0\n";

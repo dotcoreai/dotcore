@@ -69,9 +69,7 @@ fn not_local_warning(host: &SiteNodeHost, inference_set: bool, private_set: bool
     let private_remedy = private_address_remedy(&format!("0.0.0.0:{DEFAULT_PRIVATE_PORT}"));
     let (failure, remedy) = match (inference_set, private_set) {
         (false, false) => (
-            "the console and inference cannot start on this host, and the private listener \
-             cannot once nodes join"
-                .to_owned(),
+            "the console, inference and private listeners cannot start on this host".to_owned(),
             format!("{inference_remedy} and {private_remedy}"),
         ),
         (false, true) => (
@@ -79,8 +77,7 @@ fn not_local_warning(host: &SiteNodeHost, inference_set: bool, private_set: bool
             inference_remedy,
         ),
         _ => (
-            "server start will fail to bind the private listener on this host once nodes join"
-                .to_owned(),
+            "the private listener cannot start on this host".to_owned(),
             private_remedy,
         ),
     };
@@ -130,10 +127,9 @@ mod tests {
             assert_eq!(
                 warning(&environment, host).await,
                 Some(format!(
-                    "node host {host} is not an address of this machine: the console and \
-                     inference cannot start on this host, and the private listener cannot once \
-                     nodes join; use an address of this machine, or start the manager with \
-                     DOTCORE_INFERENCE_ADDR=0.0.0.0:50052 and DOTCORE_PRIVATE_ADDR=0.0.0.0:50053 \
+                    "node host {host} is not an address of this machine: the console, \
+                     inference and private listeners cannot start on this host; use an address of \
+                     this machine, or start the manager with DOTCORE_INFERENCE_ADDR=0.0.0.0:50052 and DOTCORE_PRIVATE_ADDR=0.0.0.0:50053 \
                      (or dotcore --private-addr 0.0.0.0:50053)"
                 )),
                 "{host}"
@@ -156,10 +152,10 @@ mod tests {
         assert_eq!(
             warning(&inference_only, "192.0.2.10").await,
             Some(
-                "node host 192.0.2.10 is not an address of this machine: server start will fail \
-                 to bind the private listener on this host once nodes join; use an address of \
-                 this machine, or start the manager with DOTCORE_PRIVATE_ADDR=0.0.0.0:50053 (or \
-                 dotcore --private-addr 0.0.0.0:50053)"
+                "node host 192.0.2.10 is not an address of this machine: the private \
+                 listener cannot start on this host; use an address of this machine, or start \
+                 the manager with DOTCORE_PRIVATE_ADDR=0.0.0.0:50053 (or dotcore --private-addr \
+                 0.0.0.0:50053)"
                     .to_owned()
             )
         );
