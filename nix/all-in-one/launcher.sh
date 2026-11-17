@@ -273,7 +273,7 @@ read_startup_line() {
 # Reports a backend that never became ready, which includes one that cannot listen on its addresses,
 # and exits.
 readiness_failed() {
-  echo "dotcore: the backend did not start; if it cannot listen on $DOTCORE_INFERENCE_ADDR, use a node host that is an address of this machine, or set DOTCORE_INFERENCE_ADDR" >&2
+  echo "dotcore: the backend did not start; if it cannot listen on $DOTCORE_INFERENCE_ADDR, use a node host that is an address of this machine, or set DOTCORE_INFERENCE_ADDR; the same goes for its private address and DOTCORE_PRIVATE_ADDR" >&2
   exit 1
 }
 
@@ -315,7 +315,7 @@ print_banner() {
   ${bold}Next steps${reset}
     1. Open the console and deploy a model from Models > Catalog
     2. Point any OpenAI-compatible client at the API URL above
-    3. Add a machine: stop Dotcore, then run ${bold}${cyan}dotc node add${reset}
+    3. Add a machine: run ${bold}${cyan}dotc node add${reset}
 
   ${yellow}Warning: no login or TLS yet. Anyone who can reach $url_host
   can use your models and change your site.${reset}
