@@ -1519,6 +1519,34 @@ artifacts:
     }
 
     #[test]
+    fn a_catalog_root_holds_its_directories_and_instructions_only() {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        fs::write(root.join("AGENTS.md"), "# Catalog agentic instructions\n")
+            .expect("instructions");
+        Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("instructions file is allowed");
+
+        fs::write(root.join("notes.md"), "notes\n").expect("stray file");
+        let error = Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect_err("stray root file must reject")
+        .to_string();
+
+        assert_eq!(
+            error,
+            "Catalog diagnostics: notes.md: unexpected catalog root entry; expected \"models\", \"engines\", \"hardware-classes\", \"recommendations\", or \"applications\" directory"
+        );
+    }
+
+    #[test]
     fn misplaced_sizing_constants_fail_the_catalog_load() {
         for (case, support_sizing, expected) in [
             (
