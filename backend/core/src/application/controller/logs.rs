@@ -761,7 +761,7 @@ mod tests {
         let authority = crate::test_support::private_tls::TestAuthority::new();
         let (worker_certificate, _) = authority.issue("site-one", "node-two", true);
         NodeDeploymentLogs::new(
-            Some(WorkerChannels::new(
+            WorkerChannels::new(
                 &authority.private_configuration(
                     "site-one",
                     "node-one",
@@ -774,7 +774,7 @@ mod tests {
                     )],
                 ),
                 Timing::test().private,
-            )),
+            ),
             SiteRepository::load(&path, crate::test_support::site_declaration_rules())
                 .expect("Site repository"),
             ManagerNodeControlCoordinator::on_system_clock(

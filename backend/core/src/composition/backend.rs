@@ -15,6 +15,10 @@ use dotcore_domain::{
 use dotcore_site::node::control::NodeLivenessAges;
 use dotcore_site::{
     initial::input_store::{SiteInputLock, SiteInputLockError, acquire_shared_site_lock},
+    membership::{
+        MembershipRecorder,
+        join::{JoinHostIdentity, JoinRegistry},
+    },
     node::{
         agent::{NodeReporterTask, WorkerPrivateClientConfiguration},
         binding::DEFAULT_LOG_RETENTION_DAYS,
@@ -22,6 +26,7 @@ use dotcore_site::{
         folder::{NodeFolderValidator, WorkerNodeCustody},
         session::{ManagerNodeControlClient, NodeControlObservations, NodeControlSessionTask},
     },
+    private_transport::JoinGate,
     store::prepare_joined_node_store,
     view::fencing::NodeIncarnation,
     worker_channels::WorkerChannels,
@@ -276,6 +281,7 @@ impl Backend {
                 )
             })?;
         let timing = super::checked_timing(&test_support)?;
+        let clock = super::backend_clock(&test_support);
         // One holder of worker channels serves both forwarded inference and logs; it shares the
         // listener's live worker pins.
         let worker_channels = WorkerChannels::new(&private_configuration, timing.private);
@@ -293,11 +299,37 @@ impl Backend {
             test_support,
             collector,
             Some(current),
-            Some(worker_channels),
+            worker_channels,
         )
         .await?;
+        // Joins record into the manager's site and trust each joined node in the listener's live
+        // pins; the listener admits joining machines while any join holds its gate open.
+        let join_gate = JoinGate::default();
+        let joins = JoinRegistry::new(
+            JoinHostIdentity::new(
+                &private_configuration.site_id,
+                &private_configuration.local_node_id,
+                private_configuration.trust_anchor_der.clone(),
+                private_configuration.certificate_der.clone(),
+            ),
+            Arc::new(MembershipRecorder::new(
+                capabilities.manager.site_repository.clone(),
+                &configuration.site_paths.root,
+                private_configuration.peers.clone(),
+            )),
+            join_gate.clone(),
+            timing.join,
+            Arc::clone(&clock),
+        );
         let (routes, router, observers, manager_private_services, lifecycle, resource_watch) =
-            routes::assemble(capabilities);
+            routes::assemble(
+                capabilities,
+                routes::ManagerJoins {
+                    registry: joins.clone(),
+                    clock,
+                    heartbeat_interval: timing.watch.heartbeat_interval,
+                },
+            );
         // Open watches would otherwise hold the graceful shutdown of the management listener.
         let shutdown = async move {
             shutdown.await;
@@ -308,7 +340,9 @@ impl Backend {
             private_configuration.local_role,
             &private_configuration.local_node_id,
         );
-        let private_listener = PrivateListener::new(private_configuration, private_routes, &timing);
+        let mut private_listener =
+            PrivateListener::new(private_configuration, private_routes, &timing);
+        private_listener.join_gate = join_gate;
         let server = crate::server::Server::prepare(
             transports,
             server.allowed_origins,
@@ -323,6 +357,7 @@ impl Backend {
         })?;
         addresses.private = server.private_address();
         if let Some(address) = addresses.private {
+            joins.listen_on(address.port());
             info!(event_kind = "manager_private_listener_bound", address = %address, requested = %private_bind_address, source = private_source, "manager private listener bound");
         }
         info!(event_kind = "backend_preparation_completed", management_address = ?addresses.management, inference_address = ?addresses.inference, "backend preparation completed");

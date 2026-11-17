@@ -53,7 +53,8 @@ pub struct ApplicationSiteSnapshot {
 ///
 /// Accepted memory stays authoritative when a `site.yaml` write fails or is uncertain; the site is
 /// then dirty until a later whole-file write succeeds, and dirty memory never justifies an
-/// irreversible cross-node effect such as a cleanup acknowledgement.
+/// irreversible cross-node effect such as a cleanup acknowledgement. Membership changes are the
+/// exception: they are accepted only once written.
 pub struct SiteRepository {
     path: PathBuf,
     /// Site lock. It follows the node-control coordinator and any owner operation guard and
@@ -318,6 +319,40 @@ impl SiteRepository {
         Ok(result)
     }
 
+    /// Runs a membership mutation: adding a joined node with its execution targets, or replacing a
+    /// declared node's addresses. Nothing is written when the operation changes nothing.
+    ///
+    /// Unlike other owner mutations it is persist-or-reject: the change is accepted in memory and
+    /// controllers are notified only once `site.yaml` holds it, because recording a node hands it
+    /// its identity, which can't be taken back. A storage error means nothing was accepted.
+    pub fn mutate_membership<T, E: std::error::Error + 'static>(
+        &self,
+        operation: impl FnOnce(&mut MembershipSiteTransaction<'_>) -> Result<T, E>,
+    ) -> Result<T, ScopedSiteMutationError<E>> {
+        let mut current = lock(&self.state).map_err(ScopedSiteMutationError::Repository)?;
+        let mut candidate = current.site.clone();
+        let mut transaction = MembershipSiteTransaction {
+            nodes: &mut candidate.nodes,
+            execution_targets: &mut candidate.execution_targets,
+        };
+        let result = operation(&mut transaction).map_err(ScopedSiteMutationError::Owner)?;
+        if candidate == current.site {
+            return Ok(result);
+        }
+        validate_site(&candidate, &self.rules).map_err(ScopedSiteMutationError::Repository)?;
+        let contents = yaml::to_string(&candidate)
+            .map_err(SiteRepositoryError::SerializeYaml)
+            .map_err(ScopedSiteMutationError::Repository)?;
+        self.persist_or_reject(&mut current, candidate, &contents)
+            .map_err(ScopedSiteMutationError::Repository)?;
+        Ok(result)
+    }
+
+    /// Returns the owner rules every accepted site satisfies.
+    pub fn declaration_rules(&self) -> SiteDeclarationRules {
+        self.rules
+    }
+
     /// Registers one controller listener for accepted management mutations or future reloads.
     pub fn register_change_listener(&self) -> Arc<tokio::sync::Notify> {
         let listener = Arc::new(tokio::sync::Notify::new());
@@ -407,9 +442,55 @@ impl SiteRepository {
     ) -> Result<(), SiteRepositoryError> {
         reject_node_view_growth(&current.site, &candidate)?;
         let persistence = self.write_accepted(current, candidate, contents);
+        self.notify_change(&current.site);
+        persistence
+    }
+
+    /// Writes a validated candidate, then accepts it and notifies controllers; a failed or
+    /// uncertain write accepts nothing. After an uncertain write the accepted site is written
+    /// again, so the file holds what memory holds; the site stays dirty when that fails too.
+    fn persist_or_reject(
+        &self,
+        current: &mut SiteState,
+        candidate: Site,
+        contents: &str,
+    ) -> Result<(), SiteRepositoryError> {
+        reject_node_view_growth(&current.site, &candidate)?;
+        if let Err(error) = self.writer.replace(&self.path, contents) {
+            error!(
+                event_kind = "site_store_write_rejected",
+                storage = "site.yaml",
+                path = %self.path.display(),
+                error = %error,
+                "Site store rejected a change it could not write"
+            );
+            if matches!(
+                error,
+                super::persistence::SiteStorageError::OutcomeUncertain(_)
+            ) {
+                current.dirty = true;
+                // The rewrite logs its own outcome; the change stays rejected either way.
+                let _ = self.flush(current);
+            }
+            return Err(SiteRepositoryError::Storage(error));
+        }
+        current.site = candidate;
+        current.dirty = false;
+        info!(
+            event_kind = "site_store_write_succeeded",
+            storage = "site.yaml",
+            path = %self.path.display(),
+            "Site store wrote site.yaml"
+        );
+        self.notify_change(&current.site);
+        Ok(())
+    }
+
+    /// Updates owner projections and wakes controllers after an accepted change.
+    fn notify_change(&self, site: &Site) {
         if let Ok(observers) = self.change_observers.lock() {
             for observer in observers.iter() {
-                observer(&current.site);
+                observer(site);
             }
         }
         if let Ok(mut listeners) = self.listeners.lock() {
@@ -420,7 +501,6 @@ impl SiteRepository {
                 })
             });
         }
-        persistence
     }
 
     /// The single `site.yaml` write seam. Dirty is set before accepted memory changes and cleared
@@ -877,6 +957,12 @@ pub struct RouteSiteTransaction<'a> {
     pub applications:
         &'a [dotcore_proto::dotcore::application::v1::ApplicationDeploymentDeclaration],
     pub routes: &'a mut Vec<InferenceRoute>,
+}
+
+/// Mutable membership section: the declared nodes and their execution targets.
+pub struct MembershipSiteTransaction<'a> {
+    pub nodes: &'a mut Vec<dotcore_proto::dotcore::site::v1::SiteNode>,
+    pub execution_targets: &'a mut Vec<dotcore_proto::dotcore::site::v1::ExecutionTarget>,
 }
 
 /// Distinguishes an owner-rule rejection from a shared site transaction failure.

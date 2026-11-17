@@ -831,8 +831,10 @@ mod tests {
                 node_target_for_test("fallback", &"b".repeat(64))
                     .with_request_kinds(decision_kinds()),
             ]);
-            let router = InferenceRouter::new(source)
-                .with_peer_client(PeerInferenceClient::new(None, node.admission()));
+            let router = InferenceRouter::new(source).with_peer_client(PeerInferenceClient::new(
+                WorkerChannels::trusting_no_worker(Timing::test().private),
+                node.admission(),
+            ));
             let route = Arc::new(route(
                 "route",
                 vec![
@@ -1145,7 +1147,7 @@ mod tests {
         let authority = TestAuthority::new();
         let (worker_certificate, _) = authority.issue("site-one", "worker-one", true);
         PeerInferenceClient::new(
-            Some(WorkerChannels::new(
+            WorkerChannels::new(
                 &authority.private_configuration(
                     "site-one",
                     "manager-one",
@@ -1158,7 +1160,7 @@ mod tests {
                     )],
                 ),
                 Timing::test().private,
-            )),
+            ),
             crate::router::peer_service::test_support::Fixture::installed(
                 crate::router::peer_service::test_support::Script::Complete,
             )

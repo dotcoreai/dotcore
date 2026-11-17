@@ -16,7 +16,7 @@ mod tailnet;
 pub(crate) mod test_support;
 
 pub use candidates::HostCandidate;
-pub use check::{host_warning, inference_address_remedy, private_address_remedy};
+pub use check::host_warning;
 pub use environment::{HostEnvironment, SystemHostEnvironment};
 pub use interfaces::InterfaceAddress;
 pub use listener::ListenerHost;

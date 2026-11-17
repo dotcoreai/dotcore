@@ -23,7 +23,6 @@ use std::{
 use base64::Engine as _;
 use dotcore::{
     composition::{IsolatedApplicationService, IsolatedModelService, SelectedModelService},
-    model::engine::declaration_validator,
     testing::{SimulatedInferenceTestSupport, Timing, relax_sync_for_tests},
 };
 use dotcore_domain::{
@@ -60,15 +59,13 @@ use dotcore_site::{
     initial::{
         inputs::{ApplicationTargetChoice, ModelTargetChoice, NodeTargetChoices},
         request::{InitialApplicationRuntime, derive_model_execution_target_id},
-        validation::SiteInputBundleValidator,
     },
     manager_trust::{ManagerTrust, SITE_TRUST_DIRECTORY},
     membership::{
-        OfflineSite,
+        MembershipRecorder,
         join::{
-            DialBack, JoinApproval, JoinConnection, JoinDecision, JoinHost, JoinHostLimits,
-            JoinHostSettings, JoinProposal, JoinReview, JoinToken, JoinedNodeFolder, NodeKey,
-            RejoinProposal, RejoiningNodeFolder,
+            JoinConnection, JoinHostIdentity, JoinProposal, JoinRegistry, JoinStatus, JoinToken,
+            JoinedNodeFolder, NodeKey, RejoinProposal, RejoiningNodeFolder,
         },
     },
     node::{
@@ -77,6 +74,10 @@ use dotcore_site::{
             ValidatedNodeFolder,
         },
         target_inventory::NodeAcceleratorObservation,
+    },
+    private_transport::{
+        JoinGate, PeerPins, PrivateConnections, PrivateNodeRole, PrivateServerConfiguration,
+        UnpinnedConnectionLimits,
     },
     store::FileCurrentState,
 };
@@ -778,21 +779,110 @@ impl TwoProcessObservationHarness {
 }
 
 impl TwoProcessObservationHarness {
-    /// Joins the stopped worker's intact node folder to the stopped manager's site again at
-    /// `host`, keeping the folder, and starts its process on the folder's recorded bind address.
-    /// Restart the manager before the node can connect.
-    pub fn rejoin_worker_in_place(&mut self, host: SiteNodeHost) -> JoinedNodeFolder {
+    /// Starts the manager of a site with no other node, joins the worker to it while it runs
+    /// through its management API, as an operator approving the join would, and then starts the
+    /// worker. Returns `None`, after printing a notice, when the host cannot bind the worker's
+    /// loopback address.
+    pub async fn start_by_live_join(manager_controls: ProcessTestControls) -> Option<Self> {
+        if !loopback_addresses_available(&[WORKER_LOOPBACK_HOST]) {
+            return None;
+        }
+        let manager_private_port = reserve_port();
+        let worker_private_port = reserve_port();
+        let manager_private_address =
+            SocketAddr::from((Ipv4Addr::LOCALHOST, manager_private_port.port()));
+        let manager_fixture = temporary_fast_fixture();
+        configure_observation_interval(&manager_fixture, 1);
+        let worker_fixture = temporary_uncreated_fixture("dotcore-observation-worker");
+        let mut manager = ExternalBackendProcess::spawn(
+            manager_fixture.path.clone(),
+            ProcessPrivateListener::ManagerSiteDefault(manager_private_address.port()),
+            manager_controls,
+        );
+        manager.capture_startup();
+
+        let management = manager.addresses().management.expect("management listener");
+        let proposal = worker_proposal(
+            WORKER_DISPLAY_NAME.to_owned(),
+            (
+                SiteNodeHost::from_ipv4(WORKER_LOOPBACK_HOST).expect("specific worker host"),
+                worker_private_port.port(),
+            ),
+            (
+                WorkerModelTarget::SimulatedLinux,
+                InitialApplicationRuntime::Simulated,
+            ),
+        );
+        let node_root = worker_fixture.path.clone();
+        let (joined, node_id) =
+            join_running_manager(management, None, |mut connection, _| async move {
+                connection
+                    .join(
+                        &proposal,
+                        &NodeKey::generate().expect("node key"),
+                        &node_root,
+                    )
+                    .await
+                    .expect("join the running manager")
+            })
+            .await;
+        assert_eq!(
+            (joined.node_id.as_str(), node_id.as_str()),
+            (WORKER_NODE_ID, WORKER_NODE_ID)
+        );
+
+        let worker_controls = ProcessTestControls::default();
+        let mut worker = ExternalBackendProcess::spawn(
+            worker_fixture.path.clone(),
+            ProcessPrivateListener::Address(SocketAddr::from((WORKER_LOOPBACK_HOST, 0))),
+            worker_controls,
+        );
+        worker.capture_startup();
+        Some(Self {
+            manager,
+            worker,
+            _manager_fixture: manager_fixture,
+            worker_fixture,
+            worker_target: WorkerModelTarget::SimulatedLinux,
+            manager_private_address,
+            _manager_private_port: manager_private_port,
+            worker_private_port,
+            forwarders: Vec::new(),
+        })
+    }
+
+    /// Joins the stopped worker's intact node folder again at `host` while the manager runs,
+    /// approving the rejoin through the management API, and starts the worker on the folder's
+    /// recorded bind address.
+    pub async fn rejoin_worker_live(&mut self, host: SiteNodeHost) -> JoinedNodeFolder {
         assert!(
-            !self.manager.is_running() && !self.worker.is_running(),
-            "rejoining needs a stopped manager and a stopped worker"
+            self.manager.is_running() && !self.worker.is_running(),
+            "a live rejoin needs a running manager and a stopped worker"
         );
-        let manager_private_address = self.manager_private_address;
-        let joined = rejoin_worker_folder(
-            self.manager.site_root(),
-            &format!("https://{manager_private_address}"),
-            self.worker.site_root(),
-            host,
-        );
+        let management = self
+            .manager
+            .addresses()
+            .management
+            .expect("management listener");
+        let node_root = self.worker.site_root().to_owned();
+        let (joined, node_id) =
+            join_running_manager(management, None, |mut connection, token| async move {
+                let folder = RejoiningNodeFolder::open(&node_root, &token)
+                    .expect("open the intact node folder");
+                let private_port = folder.private_port();
+                connection
+                    .rejoin(
+                        &RejoinProposal {
+                            host: Some(host),
+                            private_port,
+                        },
+                        &folder,
+                    )
+                    .await
+                    .expect("rejoin the running manager")
+            })
+            .await;
+        assert_eq!(joined.node_id, node_id);
         let mut worker = ExternalBackendProcess::spawn(
             self.worker.site_root().to_owned(),
             ProcessPrivateListener::Unset,
@@ -1394,6 +1484,11 @@ impl ExternalBackendProcess {
     /// Returns this process's node-store state file path.
     pub fn node_state_path(&self) -> PathBuf {
         self.site_root.join("node/state.pb")
+    }
+
+    /// Returns the operating system id of the running child process, if any.
+    pub fn process_id(&self) -> Option<u32> {
+        self.child.as_ref().map(Child::id)
     }
 
     /// Reports whether the owned child process remains active.
@@ -2072,7 +2167,7 @@ pub fn join_worker_with_target(
                 .expect("a forwarded join needs an IPv4 node host"),
         )
     });
-    let model_target = target.proposal();
+    let proposal = worker_proposal(display_name, (host, private_port), (target, applications));
     let manager_host =
         manager_host.map(|host| SiteNodeHost::from_ipv4(host).expect("specific manager host"));
     host_join_session(
@@ -2083,21 +2178,7 @@ pub fn join_worker_with_target(
         move |mut connection, _| async move {
             connection
                 .join(
-                    &JoinProposal {
-                        display_name,
-                        host: Some(host),
-                        private_port,
-                        targets: NodeTargetChoices {
-                            model_targets: vec![model_target],
-                            application_targets: vec![ApplicationTargetChoice {
-                                applications,
-                                platform: linux_host_platform(),
-                                accelerator_device_ids: Vec::new(),
-                            }],
-                            accelerator_facts: Vec::new(),
-                            declared_machine: target.simulated_hardware().map(declared_machine),
-                        },
-                    },
+                    &proposal,
                     &NodeKey::generate().expect("node key"),
                     &node_root,
                 )
@@ -2105,6 +2186,31 @@ pub fn join_worker_with_target(
                 .expect("join the site")
         },
     )
+}
+
+/// What a harness worker proposes when it joins: its name, the host and private port the
+/// manager reaches it at, its model target and its application runtime on the linux platform of
+/// this machine's architecture.
+fn worker_proposal(
+    display_name: String,
+    (host, private_port): (SiteNodeHost, u16),
+    (target, applications): (WorkerModelTarget, InitialApplicationRuntime),
+) -> JoinProposal {
+    JoinProposal {
+        display_name,
+        host: Some(host),
+        private_port,
+        targets: NodeTargetChoices {
+            model_targets: vec![target.proposal()],
+            application_targets: vec![ApplicationTargetChoice {
+                applications,
+                platform: linux_host_platform(),
+                accelerator_device_ids: Vec::new(),
+            }],
+            accelerator_facts: Vec::new(),
+            declared_machine: target.simulated_hardware().map(declared_machine),
+        },
+    }
 }
 
 /// Joins the machine again from its intact node folder at `node_root`, through the join library
@@ -2144,9 +2250,10 @@ pub fn rejoin_worker_folder(
 
 /// Hosts one join session of the stopped site at `manager_root` in this process, on a dedicated
 /// thread and runtime so it is callable from sync and async tests alike, and runs `client`
-/// against a connection to it and the session's token. With `forwarder` as (manager host, node source address), the node
-/// dials the join listener at the manager host through a forwarder, as a node on another network
-/// would.
+/// against a connection to it and the session's token. A join registry over the site records the
+/// node, as the running manager's does, and every proposal is approved. With `forwarder` as
+/// (manager host, node source address), the node dials the manager through a forwarder, as a
+/// node on another network would.
 fn host_join_session<F, Fut>(
     manager_root: &Path,
     manager_private_endpoint: &str,
@@ -2166,29 +2273,78 @@ where
             .build()
             .expect("join runtime")
             .block_on(async move {
-                let site = OfflineSite::open(
-                    &manager_root,
-                    &SiteInputBundleValidator::new(
-                        declaration_validator(),
-                        dotcore::model::site_declaration_rules(),
-                    ),
+                let _ = rustls::crypto::ring::default_provider().install_default();
+                let repository = dotcore_site::repository::SiteRepository::load(
+                    &manager_root.join("site.yaml"),
+                    dotcore::model::site_declaration_rules(),
                 )
-                .expect("open manager site");
-                let identity = site.host_identity().expect("manager join identity");
+                .expect("load the manager site");
+                let site = repository.snapshot().expect("manager site");
+                let identity =
+                    dotcore_site::manager_trust::validate_for_private_startup(&manager_root, &site)
+                        .expect("manager join identity");
+                let manager = site
+                    .nodes
+                    .iter()
+                    .find(|node| node.site_manager.is_some())
+                    .expect("manager node")
+                    .clone();
+                let pins = PeerPins::default();
+                let configuration = PrivateServerConfiguration {
+                    bind_address: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+                    site_id: site.site_id.clone(),
+                    local_node_id: manager.node_id.clone(),
+                    local_role: PrivateNodeRole::Manager,
+                    certificate_der: identity.certificate.clone(),
+                    private_key_pkcs8: identity.private_key,
+                    trust_anchor_der: identity.trust_anchor.clone(),
+                    peers: pins.clone(),
+                };
+                let registry = JoinRegistry::new(
+                    JoinHostIdentity::new(
+                        &site.site_id,
+                        &manager.node_id,
+                        identity.trust_anchor,
+                        identity.certificate,
+                    ),
+                    Arc::new(MembershipRecorder::new(repository, &manager_root, pins)),
+                    JoinGate::default(),
+                    Timing::test().join,
+                    Arc::new(SystemClock),
+                );
                 // The forwarder binds the same number on another address, so it must come from the
                 // reserved pool, which no ephemeral socket can hold.
                 let join_port = reserve_port();
                 let listener = tokio::net::TcpListener::bind(("127.0.0.1", join_port.port()))
                     .await
                     .expect("bind join listener");
-                let token = identity
-                    .token(
-                        format!("https://{}", listener.local_addr().expect("join address"))
-                            .parse()
-                            .expect("join endpoint"),
-                    )
-                    .expect("join token");
                 let join_address = listener.local_addr().expect("join address");
+                // Joined nodes keep dialing the manager's own private port, not this listener's.
+                registry.listen_on_with_offered_port(
+                    join_address.port(),
+                    manager_private_port(&manager_private_endpoint),
+                );
+                let incoming = PrivateConnections::new(
+                    &configuration,
+                    UnpinnedConnectionLimits {
+                        max_open: 16,
+                        idle_timeout: Timing::test().join.idle_timeout,
+                    },
+                )
+                .expect("join connections")
+                .incoming(listener);
+                let server = tokio::spawn(
+                    tonic::transport::Server::builder()
+                        .add_service(registry.join_service())
+                        .serve_with_incoming(incoming),
+                );
+                let started = registry.start().await.expect("start the join");
+                let watch = registry.watch(&started.join_id).expect("follow the join");
+                let approval = tokio::spawn(approve_every_proposal(
+                    registry.clone(),
+                    started.join_id.clone(),
+                    watch,
+                ));
                 let _forwarder = forwarder.map(|(manager_host, source)| {
                     LoopbackForwarder::start(
                         SocketAddr::from((manager_host, join_address.port())),
@@ -2196,35 +2352,118 @@ where
                         join_address,
                     )
                 });
-                let host_task = tokio::spawn(
-                    JoinHost::new(
-                        JoinHostSettings {
-                            identity,
-                            token: token.clone(),
-                            manager_private_port: manager_private_port(&manager_private_endpoint),
-                            limits: JoinHostLimits::default(),
-                        },
-                        std::sync::Arc::new(site),
-                        std::sync::Arc::new(AllowEveryNode),
-                        Timing::test().join,
-                    )
-                    .serve(listener),
+                let connection = JoinConnection::connect(
+                    started.token.clone(),
+                    manager_host,
+                    Timing::test().join,
+                )
+                .await
+                .expect("connect to the join session");
+                let joined = client(connection, started.token).await;
+                let ended = approval.await.expect("join approval task");
+                assert!(
+                    matches!(ended, JoinStatus::Committed(_)),
+                    "the join ended as {ended:?}"
                 );
-                let connection =
-                    JoinConnection::connect(token.clone(), manager_host, Timing::test().join)
-                        .await
-                        .expect("connect to join host");
-                let joined = client(connection, token).await;
-                host_task
-                    .await
-                    .expect("join host task")
-                    .expect("join host result");
+                server.abort();
                 drop(join_port);
                 joined
             })
     })
     .join()
     .expect("join thread")
+}
+
+/// Joins one machine to the running manager whose management API listens at `management`:
+/// starts a join, approves its proposal from a watch as an operator would, and runs `client`
+/// against a connection to the manager's private port. With `manager_host`, the node dials the
+/// manager there. Returns the joined folder and the node id the join committed.
+pub async fn join_running_manager<F, Fut>(
+    management: SocketAddr,
+    manager_host: Option<SiteNodeHost>,
+    client: F,
+) -> (JoinedNodeFolder, String)
+where
+    F: FnOnce(JoinConnection, JoinToken) -> Fut,
+    Fut: std::future::Future<Output = JoinedNodeFolder>,
+{
+    use dotcore_proto::dotcore::site::v1::{
+        ApproveJoinRequest, StartJoinRequest, WatchJoinRequest, join_state,
+        site_join_service_client::SiteJoinServiceClient, watch_join_response,
+    };
+
+    let mut joins = SiteJoinServiceClient::connect(format!("http://{management}"))
+        .await
+        .expect("manager join API");
+    let started = joins
+        .start_join(StartJoinRequest {})
+        .await
+        .expect("start a join")
+        .into_inner();
+    let token = JoinToken::parse(&started.token).expect("join token");
+    let mut watch = joins
+        .watch_join(WatchJoinRequest {
+            join_id: started.join_id.clone(),
+        })
+        .await
+        .expect("follow the join")
+        .into_inner();
+    let join_id = started.join_id;
+    let operator = tokio::spawn(async move {
+        loop {
+            let message = tokio::time::timeout(CONVERGENCE_DEADLINE, watch.message())
+                .await
+                .expect("a join watch message")
+                .expect("join watch")
+                .expect("the join watch ends only after a final state");
+            let Some(watch_join_response::Event::State(state)) = message.event else {
+                continue;
+            };
+            match state.state.expect("join state") {
+                join_state::State::AwaitingApproval(awaiting) => {
+                    joins
+                        .approve_join(ApproveJoinRequest {
+                            join_id: join_id.clone(),
+                            proposal_id: awaiting.proposal_id,
+                        })
+                        .await
+                        .expect("approve the join");
+                }
+                join_state::State::Committed(committed) => return committed.node_id,
+                join_state::State::Waiting(_) => {}
+                other => panic!("the join ended without a node: {other:?}"),
+            }
+        }
+    });
+    let connection = JoinConnection::connect(token.clone(), manager_host, Timing::test().join)
+        .await
+        .expect("connect to the running manager");
+    let joined = client(connection, token).await;
+    let node_id = operator.await.expect("join operator");
+    (joined, node_id)
+}
+
+/// Approves every proposal of one in-process join and returns the state it ended in.
+async fn approve_every_proposal(
+    registry: JoinRegistry,
+    join_id: String,
+    mut watch: dotcore_site::membership::join::JoinWatch,
+) -> JoinStatus {
+    let mut status = watch.status();
+    loop {
+        match &status {
+            JoinStatus::AwaitingApproval { proposal_id, .. } => {
+                registry
+                    .approve(&join_id, proposal_id)
+                    .expect("approve the join");
+            }
+            status if status.is_final() => return status.clone(),
+            _ => {}
+        }
+        status = tokio::time::timeout(CONVERGENCE_DEADLINE, watch.changed())
+            .await
+            .expect("the join progresses");
+    }
 }
 
 fn manager_private_port(endpoint: &str) -> u16 {
@@ -2239,23 +2478,6 @@ fn manager_private_port(endpoint: &str) -> u16 {
 fn linux_host_platform() -> ExecutionPlatform {
     ExecutionPlatform::normalize("linux", std::env::consts::ARCH)
         .expect("this machine's architecture has a supported execution platform")
-}
-
-/// Allows every node that presents the token.
-struct AllowEveryNode;
-
-impl JoinApproval for AllowEveryNode {
-    fn dialing_back(&self, _: &SiteNodeHost, _: u16) {}
-
-    fn dialed_back(&self, _: &DialBack) {}
-
-    fn review(
-        &self,
-        _: JoinReview,
-        _: tokio_util::sync::CancellationToken,
-    ) -> futures_util::future::BoxFuture<'static, JoinDecision> {
-        Box::pin(async { JoinDecision::Allow })
-    }
 }
 
 /// Sets how often the site under `root` samples node hardware, so tests waiting for a fresh

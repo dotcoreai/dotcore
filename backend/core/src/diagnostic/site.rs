@@ -229,8 +229,8 @@ pub(crate) struct DeclaredMachine {
 /// every other node over its pinned private diagnostics channel.
 #[derive(Clone)]
 pub(crate) struct NodeDiagnostics {
-    /// Channels to other nodes; absent on a manager without a private listener.
-    channels: Option<WorkerChannels>,
+    /// Channels to other nodes.
+    channels: WorkerChannels,
     site: SiteRepository,
     coordinator: ManagerNodeControlCoordinator,
     local: Option<(String, NodeDiagnosticReader)>,
@@ -239,7 +239,7 @@ pub(crate) struct NodeDiagnostics {
 
 impl NodeDiagnostics {
     pub(crate) fn new(
-        channels: Option<WorkerChannels>,
+        channels: WorkerChannels,
         site: SiteRepository,
         coordinator: ManagerNodeControlCoordinator,
     ) -> Self {
@@ -274,11 +274,7 @@ impl NodeDiagnostics {
                 node_incarnation: endpoint.incarnation,
             });
         }
-        let Some(channels) = &self.channels else {
-            record_unavailable(node_id, "connect", "private_transport_unconfigured");
-            return None;
-        };
-        channels
+        self.channels
             .connect(&self.site, &self.coordinator, node_id)
             .map(NodeConnection::from)
             .inspect_err(|error| {

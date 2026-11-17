@@ -63,8 +63,8 @@ pub(super) type StillPresent = Arc<dyn Fn() -> bool + Send + Sync>;
 /// manager process is read in process and is never a channel dial target.
 #[derive(Clone)]
 pub(crate) struct NodeDeploymentLogs {
-    /// Channels to other nodes; absent on a manager without a private listener.
-    channels: Option<WorkerChannels>,
+    /// Channels to other nodes.
+    channels: WorkerChannels,
     site: SiteRepository,
     coordinator: ManagerNodeControlCoordinator,
     local: Option<Arc<LocalNodeLogs>>,
@@ -78,7 +78,7 @@ struct LocalNodeLogs {
 
 impl NodeDeploymentLogs {
     pub(crate) fn new(
-        channels: Option<WorkerChannels>,
+        channels: WorkerChannels,
         site: SiteRepository,
         coordinator: ManagerNodeControlCoordinator,
     ) -> Self {
@@ -168,11 +168,7 @@ impl NodeDeploymentLogs {
                 node_incarnation: endpoint.incarnation,
             });
         }
-        let Some(channels) = &self.channels else {
-            request.record_unavailable("connect", "private_transport_unconfigured");
-            return None;
-        };
-        channels
+        self.channels
             .connect(&self.site, &self.coordinator, request.node_id)
             .map(NodeLogConnection::from)
             .inspect_err(|error| {

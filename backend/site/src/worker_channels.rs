@@ -66,6 +66,23 @@ impl WorkerChannels {
         }
     }
 
+    /// Channels of a composition without a private listener, which trusts no worker, so every
+    /// channel is refused for a missing pin.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn trusting_no_worker(timing: PrivateTiming) -> Self {
+        Self {
+            identity: Arc::new(ManagerClientIdentity {
+                site_id: String::new(),
+                trust_anchor_der: Vec::new(),
+                certificate_der: Vec::new(),
+                private_key_pkcs8: Vec::new(),
+                pins: PeerPins::default(),
+            }),
+            channels: Arc::default(),
+            timing,
+        }
+    }
+
     /// Resolves the worker's current address and returns its diagnostics channel with the
     /// manager session and worker incarnation a request to it must name.
     ///

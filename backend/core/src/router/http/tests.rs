@@ -1744,7 +1744,12 @@ impl MeteredRouter {
         let recorder = Arc::new(CapturingRecorder::default());
         let router = crate::router::InferenceRouter::new(targets)
             .with_routes(routes)
-            .with_peer_client(PeerInferenceClient::new(None, node.admission()))
+            .with_peer_client(PeerInferenceClient::new(
+                dotcore_site::worker_channels::WorkerChannels::trusting_no_worker(
+                    dotcore_domain::timing::Timing::test().private,
+                ),
+                node.admission(),
+            ))
             .with_metrics(recorder.clone(), Arc::new(clock.clone()));
         Self {
             router,
