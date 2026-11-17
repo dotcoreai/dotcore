@@ -118,6 +118,7 @@ export function CatalogProfiles({
       start: compatibility?.startBasis ?? defaultMemoryBasis,
       value: basis,
     },
+    row.profiles,
   );
   const availability = useMemo(
     () => (read ? siteProfileAvailability(read, row.modelId, targets) : undefined),

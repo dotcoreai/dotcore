@@ -6,9 +6,11 @@
 use dotcore_artifact::{ArtifactManager, LocalImageIdentityResolutionError};
 use dotcore_catalog::{
     ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogError, CatalogModelId, HOST_MEMORY_RESOURCE,
-    ScalarResourceEstimate, SupportedHardwareClass, options::resolve_model_option_values,
-    overlay_parameter_defaults, shared_parameters, validate_parameter_values_before_secrets,
-    validate_supplied_parameter_values,
+    ScalarResourceEstimate, SupportedHardwareClass,
+    options::resolve_model_option_values,
+    overlay_parameter_defaults, shared_parameters,
+    typed_parameters::{unsigned_range_contains, unsigned_range_text},
+    validate_parameter_values_before_secrets, validate_supplied_parameter_values,
 };
 use dotcore_domain::deployment::artifact::immutable_remote_launch_identity;
 use dotcore_proto::dotcore::{
@@ -1114,13 +1116,12 @@ pub enum ModelLaunchResolutionError {
     },
 
     #[error(
-        "derived engine parameter {parameter_id:?} value {value} is outside its range {minimum}..={maximum}; adjust the parameters it derives from or supply it explicitly"
+        "derived engine parameter {parameter_id:?} value {value} is outside its range {range}; adjust the parameters it derives from or supply it explicitly"
     )]
     DerivedParameterOutOfRange {
         parameter_id: String,
         value: u64,
-        minimum: u64,
-        maximum: u64,
+        range: String,
     },
 
     #[error(
@@ -1208,12 +1209,11 @@ fn validate_derived_ranges(
         else {
             continue;
         };
-        if !(range.minimum..=range.maximum).contains(&derived_value) {
+        if !unsigned_range_contains(range, derived_value) {
             return Err(ModelLaunchResolutionError::DerivedParameterOutOfRange {
                 parameter_id: value.parameter_id.clone(),
                 value: derived_value,
-                minimum: range.minimum,
-                maximum: range.maximum,
+                range: unsigned_range_text(range),
             });
         }
     }

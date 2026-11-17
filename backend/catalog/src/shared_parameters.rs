@@ -3,7 +3,7 @@
 //!
 //! The catalog owns their ids and their fixed shape and visibility, so controllers, adapters and
 //! the console name and place them the same way on every engine, while each release sets its own
-//! maxima, default values and descriptions. It also fills the context per request a deployment
+//! ranges, default values and descriptions. It also fills the context per request a deployment
 //! leaves out, from the maximum context and the total context.
 
 use dotcore_proto::dotcore::catalog::v1::{
@@ -23,9 +23,10 @@ pub const CONTEXT_PER_REQUEST_PARAMETER_ID: &str = "context-per-request";
 /// Id of the parallel requests: requests an engine generates at once, while others queue.
 pub const PARALLEL_REQUESTS_PARAMETER_ID: &str = "parallel-requests";
 
-/// Smallest total context and context per request a release declares and a deployment or sizing
-/// scenario may use, in tokens.
-pub const MINIMUM_CONTEXT_TOKENS: u64 = 1024;
+/// Dotcore's context floor, in tokens: the smallest total context and context per request any
+/// engine release may accept. Below it no engine serves a useful request, so it is a product
+/// decision rather than an engine limit; a release may still declare a higher minimum of its own.
+pub const CONTEXT_FLOOR_TOKENS: u64 = 512;
 
 /// Whether the parameter is one of the shared parameters, which adapters read by id rather than
 /// through a configuration's parameter references.
@@ -53,6 +54,22 @@ pub fn filled_context_per_request(
     values: &ParameterValues,
     maximum_context_tokens: u32,
 ) -> Option<ParameterValue> {
+    let total_context = total_context_to_fill(schema, values)?;
+    Some(ParameterValue {
+        parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
+        value: Some(Value::UnsignedInteger(
+            total_context.min(u64::from(maximum_context_tokens)),
+        )),
+    })
+}
+
+/// Total context a context per request is filled from, for values that leave the context per
+/// request out. Returns none under the same conditions as the shared fill, so an engine with its
+/// own fill rule fills exactly when the shared rule would.
+pub fn total_context_to_fill(
+    schema: &EngineParameterSchema,
+    values: &ParameterValues,
+) -> Option<u64> {
     let declared = schema
         .parameters
         .iter()
@@ -65,7 +82,7 @@ pub fn filled_context_per_request(
         return None;
     }
 
-    let total_context = values.values.iter().find_map(|value| {
+    values.values.iter().find_map(|value| {
         match (
             value.parameter_id == TOTAL_CONTEXT_PARAMETER_ID,
             &value.value,
@@ -73,12 +90,6 @@ pub fn filled_context_per_request(
             (true, Some(Value::UnsignedInteger(total_context))) => Some(*total_context),
             _ => None,
         }
-    })?;
-    Some(ParameterValue {
-        parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
-        value: Some(Value::UnsignedInteger(
-            total_context.min(u64::from(maximum_context_tokens)),
-        )),
     })
 }
 
@@ -149,8 +160,8 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         parameter_id: TOTAL_CONTEXT_PARAMETER_ID,
         display_name: "Total context",
         unit: "tokens",
-        minimum: MINIMUM_CONTEXT_TOKENS,
         visibility: ParameterVisibility::Basic,
+        minimum_floor: CONTEXT_FLOOR_TOKENS,
         engine_default: true,
         profile_default: false,
     },
@@ -158,8 +169,8 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID,
         display_name: "Context per request",
         unit: "tokens",
-        minimum: MINIMUM_CONTEXT_TOKENS,
         visibility: ParameterVisibility::Basic,
+        minimum_floor: CONTEXT_FLOOR_TOKENS,
         engine_default: false,
         profile_default: false,
     },
@@ -167,8 +178,9 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         parameter_id: PARALLEL_REQUESTS_PARAMETER_ID,
         display_name: "Parallel requests",
         unit: "requests",
-        minimum: 1,
         visibility: ParameterVisibility::Advanced,
+        // Zero is never a usable count.
+        minimum_floor: 1,
         engine_default: true,
         profile_default: true,
     },
@@ -180,8 +192,11 @@ struct SharedParameter {
     parameter_id: &'static str,
     display_name: &'static str,
     unit: &'static str,
-    minimum: u64,
     visibility: ParameterVisibility,
+
+    /// Smallest minimum a release may declare; each release declares its engine's own minimum at
+    /// or above it.
+    minimum_floor: u64,
 
     /// Whether every release must declare an engine default; otherwise none may.
     engine_default: bool,
@@ -205,8 +220,11 @@ impl SharedParameter {
         if range.unit != self.unit {
             return Some(format!("must be in {:?}", self.unit));
         }
-        if range.minimum != self.minimum {
-            return Some(format!("must have a minimum of {}", self.minimum));
+        if range.minimum < self.minimum_floor {
+            return Some(format!(
+                "must have a minimum of at least {}",
+                self.minimum_floor
+            ));
         }
         match (self.engine_default, range.default_value.is_some()) {
             (true, false) => Some("requires an engine default".to_owned()),
@@ -238,6 +256,18 @@ mod tests {
     }
 
     #[test]
+    fn each_release_may_declare_its_own_context_minimum_above_the_floor() {
+        let mut schema = shared_schema();
+        for definition in &mut schema.parameters {
+            if definition.parameter_id != PARALLEL_REQUESTS_PARAMETER_ID {
+                range(definition).minimum = 1024;
+            }
+        }
+
+        assert!(validate_shared_parameters(&schema).is_empty());
+    }
+
+    #[test]
     fn a_schema_missing_a_shared_parameter_is_rejected() {
         let mut schema = shared_schema();
         schema
@@ -254,7 +284,7 @@ mod tests {
 
     #[test]
     fn a_shared_parameter_in_the_wrong_shape_is_rejected() {
-        let cases: [(&str, ShapeChange, &str); 9] = [
+        let cases: [(&str, ShapeChange, &str); 11] = [
             (
                 TOTAL_CONTEXT_PARAMETER_ID,
                 |definition| {
@@ -288,9 +318,19 @@ mod tests {
                 "must be in \"requests\"",
             ),
             (
+                TOTAL_CONTEXT_PARAMETER_ID,
+                |definition| range(definition).minimum = 511,
+                "must have a minimum of at least 512",
+            ),
+            (
                 CONTEXT_PER_REQUEST_PARAMETER_ID,
-                |definition| range(definition).minimum = 1,
-                "must have a minimum of 1024",
+                |definition| range(definition).minimum = 256,
+                "must have a minimum of at least 512",
+            ),
+            (
+                PARALLEL_REQUESTS_PARAMETER_ID,
+                |definition| range(definition).minimum = 0,
+                "must have a minimum of at least 1",
             ),
             (
                 TOTAL_CONTEXT_PARAMETER_ID,
@@ -461,14 +501,14 @@ mod tests {
                     TOTAL_CONTEXT_PARAMETER_ID,
                     "Total context",
                     "tokens",
-                    1024,
+                    512,
                     Some(32_768),
                 ),
                 definition(
                     CONTEXT_PER_REQUEST_PARAMETER_ID,
                     "Context per request",
                     "tokens",
-                    1024,
+                    512,
                     None,
                 ),
                 definition(
@@ -495,7 +535,7 @@ mod tests {
             parameter_type: Some(ParameterType::UnsignedInteger(
                 UnsignedIntegerParameterSchema {
                     minimum,
-                    maximum: 16_777_216,
+                    maximum: Some(16_777_216),
                     unit: unit.to_owned(),
                     default_value,
                 },

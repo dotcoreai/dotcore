@@ -1,8 +1,7 @@
 //! Engine declaration validation dispatch.
 
 use dotcore_catalog::{
-    EngineDeclarationValidator,
-    shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, MINIMUM_CONTEXT_TOKENS},
+    EngineDeclarationValidator, shared_parameters::CONTEXT_PER_REQUEST_PARAMETER_ID,
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::catalog::v1::{
@@ -10,7 +9,7 @@ use dotcore_proto::dotcore::catalog::v1::{
     ParameterValues, model_option,
 };
 
-use super::definition::{definition, unsigned_parameter_maximum};
+use super::definition::{definition, unsigned_parameter_range};
 
 /// Static inference-owned dispatcher for engine declaration semantics.
 #[derive(Debug, Default)]
@@ -141,9 +140,8 @@ pub(crate) fn kv_cache_precision_option_ids<'a>(
         .collect()
 }
 
-/// Rejects a configuration maximum context below the minimum context, above the model's maximum
-/// context, which a configuration may only lower, or above the context per request its engine
-/// release accepts. Catalog validation reports a model without a maximum on its own.
+/// Rejects a configuration maximum context outside the context per request its engine release
+/// accepts, or above the model's maximum context, which a configuration may only lower. Catalog validation reports a model without a maximum on its own.
 fn configuration_maximum_context_problems(
     model: &Model,
     configuration: &ModelEngineConfiguration,
@@ -152,9 +150,15 @@ fn configuration_maximum_context_problems(
     let Some(maximum) = configuration.maximum_context_tokens else {
         return Vec::new();
     };
-    if u64::from(maximum) < MINIMUM_CONTEXT_TOKENS {
+    let release_range = engine
+        .parameter_schema
+        .as_ref()
+        .and_then(|schema| unsigned_parameter_range(schema, CONTEXT_PER_REQUEST_PARAMETER_ID));
+    if let Some(release_minimum) = release_range.map(|range| range.minimum)
+        && u64::from(maximum) < release_minimum
+    {
         return vec![anyhow::anyhow!(
-            "configuration {:?} maximum context of {maximum} tokens is below the minimum context of {MINIMUM_CONTEXT_TOKENS} tokens",
+            "configuration {:?} maximum context of {maximum} tokens is below the context per request of at least {release_minimum} tokens its engine release accepts",
             configuration.configuration_id
         )];
     }
@@ -165,8 +169,7 @@ fn configuration_maximum_context_problems(
             model.maximum_context_tokens
         )];
     }
-    if let Some(release_maximum) =
-        unsigned_parameter_maximum(engine, CONTEXT_PER_REQUEST_PARAMETER_ID)
+    if let Some(release_maximum) = release_range.and_then(|range| range.maximum)
         && u64::from(maximum) > release_maximum
     {
         return vec![anyhow::anyhow!(
@@ -195,7 +198,7 @@ mod tests {
     use super::{EngineFacade, configuration_maximum_context_problems, unsupported_request_kinds};
 
     #[test]
-    fn a_configuration_maximum_context_stays_within_the_minimum_the_model_and_the_release() {
+    fn a_configuration_maximum_context_stays_within_the_release_range_and_the_model() {
         let model = Model {
             maximum_context_tokens: 262_144,
             ..Default::default()
@@ -206,8 +209,8 @@ mod tests {
                     parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
                     parameter_type: Some(ParameterType::UnsignedInteger(
                         UnsignedIntegerParameterSchema {
-                            minimum: 1024,
-                            maximum: 131_072,
+                            minimum: 256,
+                            maximum: Some(131_072),
                             unit: "tokens".to_owned(),
                             default_value: None,
                         },
@@ -230,17 +233,17 @@ mod tests {
                 .collect::<Vec<_>>()
         };
 
-        for accepted in [None, Some(1024), Some(65_536), Some(131_072)] {
+        for accepted in [None, Some(256), Some(65_536), Some(131_072)] {
             assert_eq!(problems(accepted), Vec::<String>::new(), "{accepted:?}");
         }
         for (maximum, expected) in [
             (
                 0,
-                "configuration \"local\" maximum context of 0 tokens is below the minimum context of 1024 tokens",
+                "configuration \"local\" maximum context of 0 tokens is below the context per request of at least 256 tokens its engine release accepts",
             ),
             (
-                1023,
-                "configuration \"local\" maximum context of 1023 tokens is below the minimum context of 1024 tokens",
+                255,
+                "configuration \"local\" maximum context of 255 tokens is below the context per request of at least 256 tokens its engine release accepts",
             ),
             (
                 131_073,

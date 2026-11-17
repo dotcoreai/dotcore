@@ -294,7 +294,7 @@ pub fn write_sizing_engine(root: &std::path::Path) {
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
-        minimum: "1024"
+        minimum: "512"
         maximum: "16777216"
         unit: "tokens"
         defaultValue: "32768"
@@ -302,7 +302,7 @@ pub fn write_sizing_engine(root: &std::path::Path) {
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
-        minimum: "1024"
+        minimum: "512"
         maximum: "16777216"
         unit: "tokens"
     - parameterId: "parallel-requests"

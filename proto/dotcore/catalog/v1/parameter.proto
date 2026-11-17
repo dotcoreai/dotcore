@@ -47,8 +47,8 @@ message UnsignedIntegerParameterSchema {
   // Inclusive minimum accepted value.
   uint64 minimum = 1;
 
-  // Inclusive maximum accepted value.
-  uint64 maximum = 2;
+  // Inclusive maximum accepted value, at least the minimum; none when unbounded.
+  optional uint64 maximum = 2;
 
   // Optional human-readable unit label for this value.
   string unit = 3;

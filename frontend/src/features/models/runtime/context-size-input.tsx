@@ -28,7 +28,9 @@ interface ContextSizeInputProps {
   largestFit?: ContextSizeLargestFit;
   /** The accessible name of the slider and, with "presets", of the preset group. */
   label: string;
+  /** The largest value the slider and size chips write; the number input takes any. */
   maximum: number;
+  /** The smallest value the slider and size chips write. */
   minimum: number;
   onBlur: () => void;
   /**
@@ -207,7 +209,7 @@ function UnreachableStretch({ from, to }: { from: number; to: number }) {
 }
 
 interface SliderScale {
-  /** The slider's leftmost value: the minimum, raised to a practical floor. */
+  /** The slider's leftmost value: the minimum, or 1 for a minimum of 0, off any log scale. */
   low: number;
   max: number;
   min: number;
@@ -219,12 +221,8 @@ const SLIDER_STEPS = 1000;
 // Half the native range thumb's width: the track's travel starts and ends this far in.
 const SLIDER_THUMB_HALF = 8;
 
-// Contexts under a few hundred tokens are not practical, so the log scale starts there instead of
-// spending most of its travel below it; the number input still accepts the full range.
-const SLIDER_FLOOR = 512;
-
 function sliderScale(min: number, max: number): SliderScale {
-  return { low: Math.min(Math.max(min, SLIDER_FLOOR), max), max, min };
+  return { low: Math.min(Math.max(min, 1), max), max, min };
 }
 
 function sliderPosition({ low, max }: SliderScale, value: number): number {

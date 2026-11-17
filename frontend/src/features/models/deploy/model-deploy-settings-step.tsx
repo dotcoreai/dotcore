@@ -10,8 +10,10 @@ import type {
   ContextSizeLargestFit,
   ContextSizeRange,
 } from "@/features/models/runtime/context-size-input";
+import { contextSliderEnds, requestCount } from "@/features/models/runtime/context-slider-ends";
 import {
   maximumContext,
+  PARALLEL_REQUESTS_PARAMETER_ID,
   runtimeParameterGroups,
 } from "@/features/models/runtime/engine-parameter-values";
 import { EngineParametersForm } from "@/features/models/runtime/engine-parameters";
@@ -73,10 +75,20 @@ export function ModelDeploySettingsStep({
     configuration,
   ).context;
   const maximum = maximumContext(model, configuration);
+  const ends = contextSliderEnds({
+    contextPerRequest,
+    maximumContext: maximum,
+    parallelRequests: requestCount(inputs.get(PARALLEL_REQUESTS_PARAMETER_ID)),
+    totalContext,
+  });
   // Total context and context per request follow each other, so their sliders share one scale.
-  const sliderRange = contextSliderRange([totalContext, contextPerRequest]);
+  const sliderRange = ends && {
+    maximum: Math.max(ends.perRequest, ends.total),
+    minimum: ends.minimum,
+  };
   const contextField = (
     parameter: ParameterDefinition,
+    end: number | undefined,
     field: {
       actions?: ReactNode;
       emptyValue?: number;
@@ -93,6 +105,7 @@ export function ModelDeploySettingsStep({
       onBlur={onParameterBlur}
       onChange={onParameterChange}
       parameter={parameter}
+      range={fieldRange(parameter, end)}
       sliderRange={sliderRange}
       {...field}
     />
@@ -107,14 +120,14 @@ export function ModelDeploySettingsStep({
         </p>
       )}
       {totalContext
-        ? contextField(totalContext, {
+        ? contextField(totalContext, ends?.total, {
             facts: contextHint ? [contextHint] : undefined,
             help: totalContext.description,
             largestFit,
           })
         : null}
       {contextPerRequest
-        ? contextField(contextPerRequest, {
+        ? contextField(contextPerRequest, ends?.perRequest, {
             actions: inputs.get(contextPerRequest.parameterId) ? (
               <Button
                 className="h-auto p-0 text-xs"
@@ -152,24 +165,12 @@ export function ModelDeploySettingsStep({
   );
 }
 
-/** The range spanning every given context size parameter's schema range, if any is present. */
-function contextSliderRange(
-  parameters: readonly (ParameterDefinition | undefined)[],
+/** The values a context field's slider spans: from its own minimum up to its derived end. */
+function fieldRange(
+  parameter: ParameterDefinition,
+  end: number | undefined,
 ): ContextSizeRange | undefined {
-  const ranges = parameters.flatMap((parameter) =>
-    parameter?.parameterType.case === "unsignedInteger"
-      ? [
-          {
-            maximum: Number(parameter.parameterType.value.maximum),
-            minimum: Number(parameter.parameterType.value.minimum),
-          },
-        ]
-      : [],
-  );
-  if (!ranges.length) return undefined;
+  if (end === undefined || parameter.parameterType.case !== "unsignedInteger") return undefined;
 
-  return {
-    maximum: Math.max(...ranges.map((range) => range.maximum)),
-    minimum: Math.min(...ranges.map((range) => range.minimum)),
-  };
+  return { maximum: end, minimum: Number(parameter.parameterType.value.minimum) };
 }

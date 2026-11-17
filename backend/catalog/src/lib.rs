@@ -1095,11 +1095,11 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
@@ -2748,16 +2748,16 @@ useCases:
                 format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets context per request 262145 tokens, above its configuration's maximum context of 262144 tokens"),
             ),
             (
-                "context per request below the minimum context",
+                "context per request below the engine release minimum",
                 nvidia_support,
                 vec![(
                     "nvidia",
                     file("nvidia", &[assistant(&balanced)]).replace(
                         "profileId: \"balanced\"\n",
-                        "profileId: \"balanced\"\n        contextTokensPerRequest: 1023\n",
+                        "profileId: \"balanced\"\n        contextTokensPerRequest: 511\n",
                     ),
                 )],
-                format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets context per request 1023 tokens, below the minimum context of 1024 tokens"),
+                format!("recommendations/nvidia.yaml: model recommendations for hardware class \"nvidia\" {entry} sets context per request 511 tokens, below the minimum of 512 tokens its engine release accepts"),
             ),
             (
                 "repeated entry",
@@ -3344,11 +3344,11 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "1024", maximum: "131072", unit: "tokens" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"

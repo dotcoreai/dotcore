@@ -233,11 +233,11 @@ message ListModelProfileCompatibilityRequest {
 // An operator use case that sizing evaluates on each profile: a total context its requests share,
 // optionally with a cap on each request's context. Parallel requests keep each profile's defaults.
 message SizingScenario {
-  // Context every request shares, in tokens; at least 1024.
-  uint32 total_context_tokens = 1;
+  // Context every request shares, in tokens; a profile whose engine range excludes it doesn't support the scenario.
+  uint64 total_context_tokens = 1;
 
-  // Context one request may use, in tokens, at least 1024 and at most the total context; absent fills it from the maximum context.
-  optional uint32 context_tokens_per_request = 2;
+  // Context one request may use, in tokens, at most the total context; absent fills it from the maximum context.
+  optional uint64 context_tokens_per_request = 2;
 }
 
 // Returns point-in-time compatibility for each evaluated target and, for targets that pass
@@ -373,11 +373,11 @@ message ModelProfileCompatibility {
   // Why the profile can't serve the scenario on the target's hardware class; unspecified when it can.
   SizingScenarioUnsupportedReason unsupported_reason = 9;
 
-  // Largest total context in tokens whose estimate fits the target's observed free memory less a headroom, at the scenario's or the filled context per request; absent when free memory is unknown or nothing fits.
-  optional uint32 largest_total_context_tokens = 10;
+  // Largest total context in tokens whose estimate fits the target's observed free memory less a headroom, at the scenario's or the filled context per request; absent when free memory is unknown, nothing fits, or neither memory nor the engine bounds it.
+  optional uint64 largest_total_context_tokens = 10;
 
-  // Total context in tokens a deployment of the profile starts from on the target: the largest fit rounded down to whole 1024-token blocks, or the profile's default without a largest fit of at least one block; absent when neither exists.
-  optional uint32 starting_total_context_tokens = 12;
+  // Total context in tokens a deployment of the profile starts from on the target: the largest fit, or the profile's default without one; absent when neither exists.
+  optional uint64 starting_total_context_tokens = 12;
 
   // Where the starting total context comes from; unspecified when it is absent.
   StartingTotalContextSource starting_total_context_source = 13;
@@ -507,10 +507,10 @@ enum StartingTotalContextSource {
   // No starting total context exists.
   STARTING_TOTAL_CONTEXT_SOURCE_UNSPECIFIED = 0;
 
-  // The largest total context that fits the target's free memory, rounded down to whole blocks.
+  // The largest total context that fits the target's free memory.
   STARTING_TOTAL_CONTEXT_SOURCE_LARGEST_FIT = 1;
 
-  // The profile's default, without a largest fit of at least one block.
+  // The profile's default, without a largest fit.
   STARTING_TOTAL_CONTEXT_SOURCE_PROFILE_DEFAULT = 2;
 }
 

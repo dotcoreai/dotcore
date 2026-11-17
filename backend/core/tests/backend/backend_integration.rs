@@ -4967,18 +4967,11 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
         );
     }
 
-    for (total_context, context_per_request, message) in [
-        (
-            1023,
-            None,
-            "Sizing scenario requires a total context of at least 1024 tokens",
-        ),
-        (
-            8192,
-            Some(8193),
-            "Sizing scenario context per request must not be above its total context",
-        ),
-    ] {
+    for (total_context, context_per_request, message) in [(
+        8192,
+        Some(8193),
+        "Sizing scenario context per request must not be above its total context",
+    )] {
         let invalid = read(total_context, context_per_request)
             .await
             .expect_err("invalid scenario");
@@ -5148,7 +5141,6 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
     };
     let starting_total_context_tokens = compatible
         .starting_total_context_tokens
-        .map(u64::from)
         .expect("a starting total context");
     let expected = [UseCaseModelRecommendations {
         use_case: UseCase::Coding as i32,

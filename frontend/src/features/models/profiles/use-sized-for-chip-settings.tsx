@@ -2,7 +2,9 @@ import { useMemo } from "react";
 
 import type { DataTableChipSetting } from "@/components/data-table/data-table-toolbar";
 import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { widestContextSliderEnds } from "@/features/models/runtime/context-slider-ends";
 
+import type { ProfileRow } from "./model-row";
 import { defaultMemoryBasis, type MemoryBasis } from "./profile-compatibility";
 import { CatalogMemoryBasis, CatalogSizedFor } from "./sized-for";
 import { formatSizingScenario, sameSizingScenario, type SizingScenario } from "./sizing-scenario";
@@ -18,13 +20,20 @@ export interface ChipSettingState<T> {
  * The Runs on chip's settings for any table with the chip: the "Sized for" and memory basis menu
  * sections, the scenario and a Total basis as the chip's summary, a reset to the values the table
  * starts with while either differs, and a clear back to profile defaults and free memory for when
- * the chip is removed. Undefined without setters, such as when no Runs on filter is offered to
- * carry them.
+ * the chip is removed. The scenario's sliders cover the given profiles. Undefined without setters,
+ * such as when no Runs on filter is offered to carry them, or without a profile to size.
  */
 export function useSizedForChipSettings(
   sizedFor: ChipSettingState<SizingScenario | undefined> | undefined,
   basis: ChipSettingState<MemoryBasis> | undefined,
+  profiles: readonly ProfileRow[],
 ): { runsOn: DataTableChipSetting } | undefined {
+  const ends = widestContextSliderEnds(
+    profiles.flatMap((profile) => profile.contextSliderEnds ?? []),
+  );
+  const endsMinimum = ends?.minimum;
+  const endsPerRequest = ends?.perRequest;
+  const endsTotal = ends?.total;
   const scenario = sizedFor?.value;
   const onScenarioChange = sizedFor?.onChange;
   const startScenario = sizedFor?.start;
@@ -32,7 +41,15 @@ export function useSizedForChipSettings(
   const onBasisChange = basis?.onChange;
   const startBasis = basis?.start;
   return useMemo(() => {
-    if (!onScenarioChange || !onBasisChange || !memoryBasis) return undefined;
+    if (
+      !onScenarioChange ||
+      !onBasisChange ||
+      !memoryBasis ||
+      endsMinimum === undefined ||
+      endsPerRequest === undefined ||
+      endsTotal === undefined
+    )
+      return undefined;
 
     const scenarioChanged = !sameSizingScenario(scenario, startScenario);
     const basisChanged = memoryBasis !== startBasis;
@@ -51,7 +68,11 @@ export function useSizedForChipSettings(
             : undefined,
         menu: (
           <>
-            <CatalogSizedFor onChange={onScenarioChange} scenario={scenario} />
+            <CatalogSizedFor
+              ends={{ minimum: endsMinimum, perRequest: endsPerRequest, total: endsTotal }}
+              onChange={onScenarioChange}
+              scenario={scenario}
+            />
             <DropdownMenuSeparator />
             <CatalogMemoryBasis basis={memoryBasis} onChange={onBasisChange} />
           </>
@@ -66,5 +87,15 @@ export function useSizedForChipSettings(
         summary: summary.length ? summary.join(" · ") : undefined,
       },
     };
-  }, [memoryBasis, onBasisChange, onScenarioChange, scenario, startBasis, startScenario]);
+  }, [
+    endsMinimum,
+    endsPerRequest,
+    endsTotal,
+    memoryBasis,
+    onBasisChange,
+    onScenarioChange,
+    scenario,
+    startBasis,
+    startScenario,
+  ]);
 }

@@ -862,7 +862,7 @@ fn deployment_with_parameters() -> ApplicationDeployment {
                 "Memory limit",
                 ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
                     minimum: 512,
-                    maximum: 8192,
+                    maximum: Some(8192),
                     unit: "MB".to_owned(),
                     default_value: Some(1024),
                 }),

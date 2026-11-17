@@ -15,7 +15,7 @@ export type ParameterViewType =
   | { kind: "secret"; maximumLength?: number; minimumLength: number }
   | { kind: "stringEnum"; values: readonly string[] }
   | { kind: "text"; maximumLength?: number; minimumLength: number }
-  | { kind: "unsignedInteger"; maximum: bigint; minimum: bigint; unit: string };
+  | { kind: "unsignedInteger"; maximum?: bigint; minimum: bigint; unit: string };
 
 /** A typed parameter value, matched to its view by type. */
 export type ParameterViewValue = bigint | boolean | string;
@@ -63,7 +63,11 @@ export function parameterInputError(view: ParameterView, input: string): string 
     }
     case "unsignedInteger": {
       const { maximum, minimum, unit } = view.type;
-      return `${view.label} must be an integer from ${minimum} to ${maximum}${unit ? ` ${unit}` : ""}.`;
+      const bounds =
+        maximum === undefined
+          ? `of ${formatQuantity(minimum, "")} or more`
+          : `from ${formatQuantity(minimum, "")} to ${formatQuantity(maximum, "")}`;
+      return `${view.label} must be an integer ${bounds}${unit ? ` ${unit}` : ""}.`;
     }
   }
 }
@@ -94,9 +98,24 @@ export function parameterInputValue(
     case "unsignedInteger": {
       if (!/^\d+$/.test(input.trim())) return undefined;
       const value = BigInt(input.trim());
-      return value >= view.type.minimum && value <= view.type.maximum ? value : undefined;
+      const { maximum, minimum } = view.type;
+      return value >= minimum && (maximum === undefined || value <= maximum) ? value : undefined;
     }
   }
+}
+
+/**
+ * The accepted values of an unsigned integer with digit separators, such as "1–2,048", or
+ * "256 or more" when it has no maximum.
+ */
+export function integerBounds(type: {
+  maximum?: bigint | number;
+  minimum: bigint | number;
+}): string {
+  const minimum = formatQuantity(type.minimum, "");
+  return type.maximum === undefined
+    ? `${minimum} or more`
+    : `${minimum}–${formatQuantity(type.maximum, "")}`;
 }
 
 /**

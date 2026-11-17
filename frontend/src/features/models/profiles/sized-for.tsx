@@ -8,13 +8,13 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FieldError } from "@/components/ui/field-error";
 import { ContextSizeInput } from "@/features/models/runtime/context-size-input";
+import type { ContextSliderEnds } from "@/features/models/runtime/context-slider-ends";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
 import { timing } from "@/lib/timing";
 
 import type { MemoryBasis } from "./profile-compatibility";
 import {
   followContextInputs,
-  minimumScenarioContextTokens,
   sameSizingScenario,
   scenarioFromInputs,
   type ScenarioInput,
@@ -26,14 +26,17 @@ import {
 
 /**
  * The Runs on chip's "Sized for" menu section: defaults, or a custom sizing scenario with the shared
- * context size input for the total context and the optional context per request. A custom scenario
- * applies once its inputs hold valid values and typing pauses, and at once when an input loses
- * focus; defaults apply at once.
+ * context size input for the total context and the optional context per request. Their sliders span
+ * the given ends, which cover every profile the scenario sizes. A custom scenario applies once its
+ * inputs hold valid values and typing pauses, and at once when an input loses focus; defaults apply
+ * at once.
  */
 export function CatalogSizedFor({
+  ends,
   onChange,
   scenario,
 }: {
+  ends: ContextSliderEnds;
   onChange: (scenario: SizingScenario | undefined) => void;
   scenario: SizingScenario | undefined;
 }) {
@@ -110,6 +113,8 @@ export function CatalogSizedFor({
   const totalId = `${id}-total`;
   const perRequestId = `${id}-per-request`;
   const total = /^\d+$/.test(inputs.total.trim()) ? Number(inputs.total.trim()) : undefined;
+  // Both sliders share one scale, so the context per request lines up under the total context.
+  const sliderRange = { maximum: Math.max(ends.perRequest, ends.total), minimum: ends.minimum };
 
   return (
     <DropdownMenuGroup>
@@ -131,11 +136,12 @@ export function CatalogSizedFor({
             id={totalId}
             invalid={Boolean(errors.total)}
             label="Total context"
-            maximum={sliderMaximum}
-            minimum={minimumScenarioContextTokens}
+            maximum={ends.total}
+            minimum={ends.minimum}
             onBlur={() => blur("total")}
             onChange={(value, settled) => change("total", value, settled)}
             onKeyDown={keepKeys}
+            sliderRange={sliderRange}
             unit="tokens"
             value={inputs.total}
           />
@@ -149,11 +155,12 @@ export function CatalogSizedFor({
             id={perRequestId}
             invalid={Boolean(errors.perRequest)}
             label="Context per request"
-            maximum={sliderMaximum}
-            minimum={minimumScenarioContextTokens}
+            maximum={ends.perRequest}
+            minimum={ends.minimum}
             onBlur={() => blur("perRequest")}
             onChange={(value, settled) => change("perRequest", value, settled)}
             onKeyDown={keepKeys}
+            sliderRange={sliderRange}
             unit="tokens"
             value={inputs.perRequest}
           />
@@ -196,9 +203,6 @@ const customChoice = "custom";
 
 // The scenario Custom starts from when none is set.
 const initialCustomScenario: SizingScenario = { totalContextTokens: 131072 };
-
-// The slider's right end; the number input accepts larger contexts.
-const sliderMaximum = 1_048_576;
 
 // The inputs take their own keys, so typing and arrow keys don't move the menu's highlight; Escape
 // still closes the menu.

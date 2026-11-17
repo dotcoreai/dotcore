@@ -408,7 +408,7 @@ mod tests {
                 parameter_type: Some(ParameterType::UnsignedInteger(
                     dotcore_proto::dotcore::catalog::v1::UnsignedIntegerParameterSchema {
                         minimum: 1024,
-                        maximum: 65_536,
+                        maximum: Some(65_536),
                         unit: unit.to_owned(),
                         default_value,
                     },
@@ -455,7 +455,7 @@ mod tests {
             ParameterType::UnsignedInteger(
                 dotcore_proto::dotcore::catalog::v1::UnsignedIntegerParameterSchema {
                     minimum: 0,
-                    maximum: 8,
+                    maximum: Some(8),
                     unit: unit.to_owned(),
                     default_value: Some(4),
                 },

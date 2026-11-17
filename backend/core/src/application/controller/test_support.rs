@@ -2991,7 +2991,7 @@ pub(super) fn application_with_parameters() -> Application {
             parameter_type: Some(ParameterType::UnsignedInteger(
                 UnsignedIntegerParameterSchema {
                     minimum: 1,
-                    maximum: 8,
+                    maximum: Some(8),
                     unit: String::new(),
                     default_value: Some(2),
                 },

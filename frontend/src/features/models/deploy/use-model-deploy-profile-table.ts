@@ -84,6 +84,7 @@ export function useModelDeployProfileTable({
       ? { onChange: onSizedForChange, start: startScenario, value: scenario }
       : undefined,
     runsOnFilter ? { onChange: onBasisChange, start: startBasis, value: basis } : undefined,
+    profileRows,
   );
   const [landedStart, setLandedStart] = useState<DataTablePredicate<ProfileTableField>[]>();
   if (runsOnFilter && !landedStart)

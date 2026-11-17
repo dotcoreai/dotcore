@@ -63,7 +63,7 @@ describe("sizing-derived parameters", () => {
 
     expect(typed?.value).toEqual({ case: "unsignedInteger", value: 512n });
     expect(engineParameterError(expert, new Map([["expert-vram-mib", ""]]))).toBe(
-      "expert-vram-mib must be an integer from 1 to 1000 MiB.",
+      "expert-vram-mib must be an integer from 1 to 1,000 MiB.",
     );
     expect(
       engineParameterValues(undefined, parameters, new Map([["parallel-requests", "1"]])),

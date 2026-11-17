@@ -12,24 +12,30 @@ parameterSchema:
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Memory the model holds for all requests at once. Each parallel request gets its own share as large as the context per request, so it is always the parallel requests times the context per request; change those two instead."
+      # At least Dotcore's context floor. No Strata argument: the adapter keeps it the parallel
+      # requests times the context per request.
       unsignedInteger:
-        minimum: "1024"
-        maximum: "2097152"
+        minimum: "512"
         unit: "tokens"
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use. The server sets this much aside for every parallel request from the start, used or not, so keep it as small as your longest request needs."
+      # At least Dotcore's context floor, above the 256 that Strata's Qwen3.6 (`qwen35moe`) path
+      # refuses below (`src/qwen35/q36_engine.cu`). The wrapper passes it as `--max-context` to the
+      # `strata` engine; every other model stays on the main path, which refuses 2^31 - 8 or more,
+      # for its int32 positions (`src/program/generate.cpp`).
       unsignedInteger:
-        minimum: "1024"
-        maximum: "262144"
+        minimum: "512"
+        maximum: "2147483639"
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
-      # Strata's wrapper accepts 1 to 8 parallel requests (`MAX_PARALLEL` in `engines/strata/start.py`).
+      # 1 to 8, as Strata's own launcher allows (`check_parallel`, `strata_cli/launch/settings.py`) and
+      # Dotcore's wrapper enforces (`MAX_PARALLEL`, `engines/strata/start.py`).
       unsignedInteger:
         minimum: "1"
         maximum: "8"
@@ -39,19 +45,19 @@ parameterSchema:
       displayName: "Expert accelerator memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Accelerator memory for the model's most used experts; the others run from host memory or disk, which is slower. The model's sizing sets it; raise it to speed up generation if memory allows, or lower it to free accelerator memory. Where the model offers expert host memory, lowering this one leaves the extra experts on disk unless you raise that one too."
+      # The wrapper requires a positive count (`engines/strata/start.py`); Strata caps nothing above,
+      # since the expert cache never holds more than one slot per expert.
       unsignedInteger:
         minimum: "1"
-        maximum: "1048576"
         unit: "MiB"
     - parameterId: "expert-host-memory-mib"
       displayName: "Expert host memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Host memory kept for the most used experts that don't fit in expert accelerator memory; the rest are read from disk when needed, which is slower. 0 reads all of them from disk. Room beyond those experts keeps long prompts from reading experts from disk. The model's sizing sets it; lower it to free host memory, or raise it to speed up generation when you lower expert accelerator memory."
       # Strata takes any budget and trims one above the free host memory (`--resident-budget-gib`
-      # in upstream's `src/program/generate.cpp`); the maximum matches expert accelerator memory.
+      # in upstream's `src/program/generate.cpp`), so no maximum.
       unsignedInteger:
         minimum: "0"
-        maximum: "1048576"
         unit: "MiB"
 # The deployment's own folder for the tokenizer extracted from the model, Strata's run configuration
 # and its engine log; the wrapper rebuilds whatever is missing.

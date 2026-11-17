@@ -343,8 +343,6 @@ fn entry_scenario(
     let context_tokens = entry
         .context_tokens_per_request
         .or_else(|| default_context_per_request(catalog, model, profile))?;
-    // Catalog validation keeps an entry's context within the configuration's maximum context.
-    let context_tokens = u32::try_from(context_tokens).ok()?;
     SizingScenario::new(context_tokens, Some(context_tokens)).ok()
 }
 

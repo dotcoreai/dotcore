@@ -8,10 +8,7 @@
 
 use std::collections::BTreeSet;
 
-use dotcore_catalog::shared_parameters::{
-    CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID,
-    is_shared_parameter,
-};
+use dotcore_catalog::shared_parameters::is_shared_parameter;
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -33,19 +30,11 @@ use dotcore_proto::dotcore::{
 
 use crate::model::engine::{
     declaration::{classes_outside_vendors, kv_cache_precision_option_ids},
-    definition::unsigned_parameter_maximum,
     speculative_draft::{self, SpeculativeDraft},
 };
 
-/// Largest total context a vLLM release may declare, in tokens.
-const MAXIMUM_TOTAL_CONTEXT_TOKENS: u64 = 16_777_216;
-/// Largest context per request a vLLM release may declare, in tokens.
-const MAXIMUM_CONTEXT_PER_REQUEST_TOKENS: u64 = 1_048_576;
-/// Largest parallel request count a vLLM release may declare.
-const MAXIMUM_PARALLEL_REQUESTS: u64 = 1024;
-
-/// Accepts a release of non-empty unsigned-integer or boolean parameters that declares the shared
-/// context parameters within vLLM's limits. The catalog checks the shared parameters' fixed shape.
+/// Accepts a release of non-empty unsigned-integer or boolean parameters. The catalog checks the
+/// shared parameters' fixed shape, and each release declares vLLM's own bounds.
 pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Error> {
     let mut errors = Vec::new();
     if engine.engine_kind != dotcore_proto::dotcore::engine::v1::EngineKind::Vllm as i32 {
@@ -58,9 +47,7 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
             && schema.parameters.iter().all(|definition| {
                 !definition.parameter_id.is_empty()
                     && match definition.parameter_type.as_ref() {
-                        Some(ParameterType::UnsignedInteger(range)) => {
-                            range.maximum >= range.minimum && !range.unit.is_empty()
-                        }
+                        Some(ParameterType::UnsignedInteger(range)) => !range.unit.is_empty(),
                         Some(ParameterType::Boolean(_)) => true,
                         Some(
                             ParameterType::StringEnum(_)
@@ -74,26 +61,6 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
     if !valid {
         errors.push(anyhow::anyhow!(
             "vLLM engine release requires non-empty supported parameter definitions"
-        ));
-    }
-    let within_limits = [
-        (TOTAL_CONTEXT_PARAMETER_ID, MAXIMUM_TOTAL_CONTEXT_TOKENS),
-        (
-            CONTEXT_PER_REQUEST_PARAMETER_ID,
-            MAXIMUM_CONTEXT_PER_REQUEST_TOKENS,
-        ),
-        (PARALLEL_REQUESTS_PARAMETER_ID, MAXIMUM_PARALLEL_REQUESTS),
-    ]
-    .into_iter()
-    .all(|(parameter_id, limit)| {
-        unsigned_parameter_maximum(engine, parameter_id).is_some_and(|maximum| maximum <= limit)
-    });
-    if !within_limits {
-        errors.push(anyhow::anyhow!(
-            "vLLM engine release must declare {TOTAL_CONTEXT_PARAMETER_ID} up to \
-             {MAXIMUM_TOTAL_CONTEXT_TOKENS} tokens, {CONTEXT_PER_REQUEST_PARAMETER_ID} up to \
-             {MAXIMUM_CONTEXT_PER_REQUEST_TOKENS} tokens and {PARALLEL_REQUESTS_PARAMETER_ID} up \
-             to {MAXIMUM_PARALLEL_REQUESTS}"
         ));
     }
     errors
@@ -431,7 +398,14 @@ fn parameter_has_type(
 
 #[cfg(test)]
 mod tests {
-    use dotcore_catalog::{CatalogModelId, test_support::vendor_hardware_class};
+    use dotcore_catalog::{
+        CatalogModelId,
+        shared_parameters::{
+            CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
+            TOTAL_CONTEXT_PARAMETER_ID,
+        },
+        test_support::vendor_hardware_class,
+    };
     use dotcore_domain::ExecutionPlatform;
 
     use dotcore_proto::dotcore::{
@@ -466,7 +440,7 @@ mod tests {
     };
 
     fn release(kind: EngineKind) -> EngineRelease {
-        let unsigned = |parameter_id: &str, maximum: u64, unit: &str| ParameterDefinition {
+        let unsigned = |parameter_id: &str, maximum: Option<u64>, unit: &str| ParameterDefinition {
             parameter_id: parameter_id.to_owned(),
             parameter_type: Some(ParameterType::UnsignedInteger(
                 UnsignedIntegerParameterSchema {
@@ -483,10 +457,10 @@ mod tests {
             parameter_schema: Some(EngineParameterSchema {
                 schema_id: "synthetic-schema".to_owned(),
                 parameters: vec![
-                    unsigned("memory", 10, "bytes"),
-                    unsigned(TOTAL_CONTEXT_PARAMETER_ID, 16_777_216, "tokens"),
-                    unsigned(CONTEXT_PER_REQUEST_PARAMETER_ID, 1_048_576, "tokens"),
-                    unsigned(PARALLEL_REQUESTS_PARAMETER_ID, 1024, "requests"),
+                    unsigned("memory", Some(10), "bytes"),
+                    unsigned(TOTAL_CONTEXT_PARAMETER_ID, None, "tokens"),
+                    unsigned(CONTEXT_PER_REQUEST_PARAMETER_ID, None, "tokens"),
+                    unsigned(PARALLEL_REQUESTS_PARAMETER_ID, None, "requests"),
                 ],
             }),
             ..Default::default()
@@ -526,46 +500,6 @@ mod tests {
                 .iter()
                 .any(|error| error.to_string().contains("non-empty supported"))
         );
-    }
-
-    #[test]
-    fn rejects_shared_parameters_missing_or_above_vllm_limits() {
-        for (parameter_id, maximum) in [
-            (TOTAL_CONTEXT_PARAMETER_ID, Some(16_777_217)),
-            (CONTEXT_PER_REQUEST_PARAMETER_ID, Some(1_048_577)),
-            (PARALLEL_REQUESTS_PARAMETER_ID, Some(1025)),
-            (PARALLEL_REQUESTS_PARAMETER_ID, None),
-        ] {
-            let mut release = release(EngineKind::Vllm);
-            let parameters = &mut release
-                .parameter_schema
-                .as_mut()
-                .expect("schema")
-                .parameters;
-            match maximum {
-                Some(maximum) => {
-                    if let Some(ParameterType::UnsignedInteger(range)) = parameters
-                        .iter_mut()
-                        .find(|definition| definition.parameter_id == parameter_id)
-                        .and_then(|definition| definition.parameter_type.as_mut())
-                    {
-                        range.maximum = maximum;
-                    }
-                }
-                None => parameters.retain(|definition| definition.parameter_id != parameter_id),
-            }
-
-            assert_eq!(
-                validate_engine_release(&release)
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>(),
-                [
-                    "vLLM engine release must declare total-context up to 16777216 tokens, context-per-request up to 1048576 tokens and parallel-requests up to 1024"
-                ],
-                "{parameter_id} {maximum:?}"
-            );
-        }
     }
 
     #[test]
@@ -1047,8 +981,8 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-vllm-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "1048576", unit: "tokens" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "1048576", unit: "tokens" } }
     - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
     - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
     - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }

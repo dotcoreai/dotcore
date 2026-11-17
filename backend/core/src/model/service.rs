@@ -12,7 +12,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use dotcore_catalog::{CatalogModelId, shared_parameters::MINIMUM_CONTEXT_TOKENS};
+use dotcore_catalog::CatalogModelId;
 use dotcore_domain::deployment::metadata::{DeploymentMetadataPatch, DeploymentMetadataPatchError};
 use dotcore_domain::diagnostic::truncate_utf8_with_ellipsis;
 use dotcore_domain::inference_route::is_valid_route_name;
@@ -907,16 +907,6 @@ fn parse_profile_compatibility_request(
         })
         .transpose()
         .map_err(|error| match error {
-            InvalidSizingScenario::TotalContextBelowMinimum { .. } => {
-                Status::invalid_argument(format!(
-                    "Sizing scenario requires a total context of at least {MINIMUM_CONTEXT_TOKENS} tokens"
-                ))
-            }
-            InvalidSizingScenario::ContextPerRequestBelowMinimum { .. } => {
-                Status::invalid_argument(format!(
-                    "Sizing scenario requires a context per request of at least {MINIMUM_CONTEXT_TOKENS} tokens"
-                ))
-            }
             InvalidSizingScenario::ContextPerRequestAboveTotal { .. } => Status::invalid_argument(
                 "Sizing scenario context per request must not be above its total context",
             ),
@@ -1411,15 +1401,15 @@ mod tests {
                 model_id: Some("model".to_owned()),
                 target: Some(placement("node", "target")),
                 scenario: Some(dotcore_proto::dotcore::model::v1::SizingScenario {
-                    total_context_tokens: 1024,
-                    context_tokens_per_request: Some(1024),
+                    total_context_tokens: 1,
+                    context_tokens_per_request: Some(1),
                 }),
             })
             .expect("valid request"),
             (
                 Some("model".to_owned()),
                 Some(placement("node", "target")),
-                Some(SizingScenario::new(1024, Some(1024)).expect("minimum scenario"))
+                Some(SizingScenario::new(1, Some(1)).expect("smallest scenario"))
             )
         );
         assert_eq!(
@@ -1443,28 +1433,6 @@ mod tests {
                     scenario: None,
                 },
                 "Model profile compatibility requires valid target placement IDs",
-            ),
-            (
-                ListModelProfileCompatibilityRequest {
-                    model_id: None,
-                    target: None,
-                    scenario: Some(dotcore_proto::dotcore::model::v1::SizingScenario {
-                        total_context_tokens: 1023,
-                        context_tokens_per_request: None,
-                    }),
-                },
-                "Sizing scenario requires a total context of at least 1024 tokens",
-            ),
-            (
-                ListModelProfileCompatibilityRequest {
-                    model_id: None,
-                    target: None,
-                    scenario: Some(dotcore_proto::dotcore::model::v1::SizingScenario {
-                        total_context_tokens: 4096,
-                        context_tokens_per_request: Some(1023),
-                    }),
-                },
-                "Sizing scenario requires a context per request of at least 1024 tokens",
             ),
             (
                 ListModelProfileCompatibilityRequest {

@@ -42,11 +42,9 @@ describe("sizing scenario", () => {
   it.each([
     ["no parameters", ""],
     ["only a context per request", "?req=32768"],
-    ["a total context below 1024 tokens", "?ctx=1023"],
     ["a context per request above the total context", "?ctx=32768&req=65536"],
-    ["a context per request below 1024 tokens", "?ctx=32768&req=512"],
     ["a fraction", "?ctx=32768.5"],
-    ["a value above the 32-bit range", "?ctx=4294967296"],
+    ["a value no number holds exactly", "?ctx=9007199254740992"],
   ])("reads defaults from %s", (_, search) => {
     expect(parseSizingScenario(search)).toBeUndefined();
   });
@@ -54,9 +52,9 @@ describe("sizing scenario", () => {
   it("requests the total context, and the context per request only when chosen", () => {
     expect(
       sizingScenarioRequest({ contextTokensPerRequest: 32768, totalContextTokens: 131072 }),
-    ).toEqual({ contextTokensPerRequest: 32768, totalContextTokens: 131072 });
+    ).toEqual({ contextTokensPerRequest: 32768n, totalContextTokens: 131072n });
     expect(sizingScenarioRequest({ totalContextTokens: 131072 })).toEqual({
-      totalContextTokens: 131072,
+      totalContextTokens: 131072n,
     });
   });
 
@@ -67,14 +65,17 @@ describe("sizing scenario", () => {
     ).toBe("1M · 64k per request");
   });
 
-  it("explains each input's range", () => {
-    expect(scenarioInputErrors({ perRequest: "", total: "1024" })).toEqual({});
+  it("explains each input's range, leaving engine ranges to each profile", () => {
+    expect(scenarioInputErrors({ perRequest: "", total: "1" })).toEqual({});
     expect(scenarioInputErrors({ perRequest: " 4096 ", total: " 8192 " })).toEqual({});
-    expect(scenarioInputErrors({ perRequest: "", total: "512" })).toEqual({
-      total: "Total context must be a whole number of at least 1024 tokens.",
+    expect(scenarioInputErrors({ perRequest: "", total: "8k" })).toEqual({
+      total: "Total context must be a whole number of tokens.",
     });
-    expect(scenarioInputErrors({ perRequest: "10", total: "8192" })).toEqual({
-      perRequest: "Context per request must be a whole number of at least 1024 tokens.",
+    expect(scenarioInputErrors({ perRequest: "", total: "9007199254740992" })).toEqual({
+      total: "Total context must be a whole number of tokens.",
+    });
+    expect(scenarioInputErrors({ perRequest: "1.5", total: "8192" })).toEqual({
+      perRequest: "Context per request must be a whole number of tokens.",
     });
     expect(scenarioInputErrors({ perRequest: "16384", total: "8192" })).toEqual({
       perRequest: "Context per request must be at most the total context.",
@@ -118,14 +119,17 @@ describe("followContextInputs", () => {
       perRequest: "8192",
       total: "8192",
     });
+    expect(followContextInputs({ perRequest: "65536", total: "512" }, "total")).toEqual({
+      perRequest: "512",
+      total: "512",
+    });
   });
 
-  it("leaves inputs that already fit, an empty or invalid one, and an edit below 1024 tokens", () => {
+  it("leaves inputs that already fit, and an empty or invalid one", () => {
     for (const [inputs, edited] of [
       [{ perRequest: "8192", total: "32768" }, "perRequest"],
       [{ perRequest: "", total: "8192" }, "total"],
       [{ perRequest: "65536", total: "8k" }, "total"],
-      [{ perRequest: "65536", total: "512" }, "total"],
     ] as const) {
       expect(followContextInputs(inputs, edited)).toBe(inputs);
     }

@@ -1124,13 +1124,13 @@ async fn wait_for_node_memory(
 /// bound by accelerator memory, and of the host probe, bound by host memory, on the same target
 /// at each step: idle before the deploy, then held before it loads, held while it loads, and
 /// ready. The deployment's accelerator estimate counts once at every step, and its host estimate
-/// stays claimed until it is ready. At each step, each probe starts from its largest fit in whole
-/// 1024-token blocks, and the placement preview there and one block above draws the deployment
-/// and judges as the compatibility read does.
+/// stays claimed until it is ready. At each step, each probe starts from its exact largest fit, and the
+/// placement preview there and one token above draws the deployment and judges as the
+/// compatibility read does.
 async fn claims_count_a_starting_deployment_once(
     machine: &str,
-    probe: [u32; 4],
-    host_probe: [u32; 4],
+    probe: [u64; 4],
+    host_probe: [u64; 4],
 ) {
     let root = support::temporary_fast_fixture();
     let description = support::declare_fixture_machine(&root, &[machine]);
@@ -1247,15 +1247,14 @@ async fn claims_count_a_starting_deployment_once(
 }
 
 /// Reads the largest fits of the probe and of the host probe on the fixture target, checking that
-/// each starts from its largest fit in whole 1024-token blocks and previews as
-/// [`check_previews`] expects at `step`.
+/// each starts from its exact largest fit and previews as [`check_previews`] expects at `step`.
 async fn read_largest_fits(
     backend: &support::RunningBackend,
     machine: &str,
     idle: &HardwareSnapshot,
     gpu: &str,
     step: Option<(usize, &str)>,
-) -> [Option<u32>; 2] {
+) -> [Option<u64>; 2] {
     let response = backend
         .model_client()
         .list_model_profile_compatibility(ListModelProfileCompatibilityRequest {
@@ -1284,10 +1283,7 @@ async fn read_largest_fits(
                 entry.starting_total_context_tokens,
                 entry.starting_total_context_source(),
             ),
-            (
-                Some(largest / 1024 * 1024),
-                StartingTotalContextSource::LargestFit
-            ),
+            (Some(largest), StartingTotalContextSource::LargestFit),
             "{machine} {}",
             entry.profile_id
         );
@@ -1296,10 +1292,10 @@ async fn read_largest_fits(
     largest
 }
 
-/// Previews the compatibility `entry`'s profile at its starting total context and one 1024-token
-/// block above it, and checks each preview against the compatibility read's free memory verdict
-/// for the same total and against the pools `machine` draws from `idle` plus the probe deployment
-/// at `step` (1 before loading, 2 loading, 3 ready), when it is deployed.
+/// Previews the compatibility `entry`'s profile at its starting total context and one token above
+/// it, and checks each preview against the compatibility read's free memory verdict for the same
+/// total and against the pools `machine` draws from `idle` plus the probe deployment at `step`
+/// (1 before loading, 2 loading, 3 ready), when it is deployed.
 async fn check_previews(
     backend: &support::RunningBackend,
     machine: &str,
@@ -1308,14 +1304,12 @@ async fn check_previews(
     entry: &ModelProfileCompatibility,
     step: Option<(usize, &str)>,
 ) {
-    let starting = u64::from(
-        entry
-            .starting_total_context_tokens
-            .expect("a starting value"),
-    );
+    let starting = entry
+        .starting_total_context_tokens
+        .expect("a starting value");
     for (total_context, expected_fit) in [
         (starting, MemoryFit::Fits),
-        (starting + 1024, MemoryFit::Exceeds),
+        (starting + 1, MemoryFit::Exceeds),
     ] {
         let label = format!("{machine} {} at {total_context}", entry.profile_id);
         let preview = backend
@@ -1340,7 +1334,7 @@ async fn check_previews(
                 model_id: Some("probe-model".to_owned()),
                 target: Some(support::exact_placement("fixture-node", "fixture-target")),
                 scenario: Some(SizingScenario {
-                    total_context_tokens: u32::try_from(total_context).expect("total context"),
+                    total_context_tokens: total_context,
                     context_tokens_per_request: None,
                 }),
             })

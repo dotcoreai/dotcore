@@ -31,7 +31,9 @@ use crate::{
     },
     selector::{SelectorRelation, selector_relation},
     shared_parameters::{is_shared_parameter, profile_may_default, profile_visibility_problem},
-    typed_parameters::{check_value, default_value, is_secret},
+    typed_parameters::{
+        check_value, default_value, is_secret, unsigned_range_contains, unsigned_range_text,
+    },
     validation::{
         EngineDeclarationValidator, configuration_engine_release, release_for_configuration,
     },
@@ -1035,11 +1037,10 @@ pub fn validate_supplied_parameter_values(
                 Some(EngineParameterType::UnsignedInteger(range)),
                 Some(EngineParameterValueKind::UnsignedInteger(value)),
             ) => {
-                if !(range.minimum..=range.maximum).contains(value) {
+                if !unsigned_range_contains(range, *value) {
                     errors.push(anyhow::anyhow!(
-                        "profile {profile_id:?} engine parameter {parameter_id:?} value {value} is outside its range {}..={}",
-                        range.minimum,
-                        range.maximum
+                        "profile {profile_id:?} engine parameter {parameter_id:?} value {value} is outside its range {}",
+                        unsigned_range_text(range)
                     ));
                 }
             }
@@ -1295,7 +1296,7 @@ mod tests {
         let unsigned = |default_value| {
             Type::UnsignedInteger(UnsignedIntegerParameterSchema {
                 minimum: 0,
-                maximum: 64,
+                maximum: Some(64),
                 unit: "requests".to_owned(),
                 default_value,
             })

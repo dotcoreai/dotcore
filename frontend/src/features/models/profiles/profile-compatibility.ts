@@ -11,6 +11,7 @@ import {
   SizingScenarioUnsupportedReason,
   StartingTotalContextSource as ProtoStartingTotalContextSource,
 } from "@/gen/dotcore/model/v1/service_pb";
+import { safeNumber } from "@/lib/safe-integer";
 
 import { type HardwareClassEstimate, profileEstimateKey, type ProfileEstimates } from "./model-row";
 
@@ -58,8 +59,8 @@ export interface CompatibilityVerdict {
   /** The advisory memory fit of a profile that runs, against the target's total memory. */
   memoryFit?: MemoryFit;
   /**
-   * The total context a deployment starts from on the target: the largest fit in whole 1024-token
-   * blocks, or the profile's default without one.
+   * The total context a deployment starts from on the target: the largest fit, or the profile's
+   * default without one.
    */
   startingTotalContextTokens?: number;
   /** Whether the starting total context comes from the largest fit or the profile's default. */
@@ -368,7 +369,7 @@ function verdict(
     memoryFit?: ProtoMemoryFit;
     reason?: ModelCompatibilityReason;
     startingTotalContextSource?: ProtoStartingTotalContextSource;
-    startingTotalContextTokens?: number;
+    startingTotalContextTokens?: bigint;
     status: ModelCompatibilityStatus;
     unsupportedReason?: SizingScenarioUnsupportedReason;
   },
@@ -394,7 +395,10 @@ function verdict(
       entry.startingTotalContextSource === undefined
         ? undefined
         : startingSources[entry.startingTotalContextSource],
-    startingTotalContextTokens: entry.startingTotalContextTokens,
+    startingTotalContextTokens:
+      entry.startingTotalContextTokens === undefined
+        ? undefined
+        : safeNumber(entry.startingTotalContextTokens),
     status: compatibilityStatus(entry.status),
     target: identity(target),
     unsupportedReason,

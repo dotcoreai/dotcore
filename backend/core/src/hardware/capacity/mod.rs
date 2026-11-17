@@ -19,8 +19,9 @@ use evaluation::device_share;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use evaluation::host_reserve_bytes;
 pub(crate) use evaluation::{
-    Estimate, Policy, PoolPreview, StartingTotalContext, below_device_minimum, combined_minimums,
-    demand, fit, largest_total_context, preview, starting_total_context,
+    Estimate, LargestTotalContext, Policy, PoolPreview, StartingTotalContext, below_device_minimum,
+    combined_minimums, demand, fit, largest_total_context, preview, starting_total_context,
+    steps_within,
 };
 pub(crate) use node::NodeCapacity;
 

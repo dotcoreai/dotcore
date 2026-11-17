@@ -186,8 +186,8 @@ pub(crate) fn parameter_values<const N: usize>(values: [(&str, u64); N]) -> Para
     }
 }
 
-/// Returns a Strata engine release with the shared context parameters at the wrapper's limits and
-/// engine defaults, the expert cap, and the deployment's data folder.
+/// Returns a Strata engine release with the shared context parameters, their engine defaults and
+/// Strata's own bounds, the expert cap, and the deployment's data folder.
 pub(crate) fn release() -> EngineRelease {
     EngineRelease {
         engine_release_id: "fixture-strata".to_owned(),
@@ -198,16 +198,16 @@ pub(crate) fn release() -> EngineRelease {
                 (
                     TOTAL_CONTEXT_PARAMETER_ID,
                     "Total context",
-                    1024,
-                    2_097_152,
+                    512,
+                    None,
                     "tokens",
                     Some(32_768),
                 ),
                 (
                     CONTEXT_PER_REQUEST_PARAMETER_ID,
                     "Context per request",
-                    1024,
-                    262_144,
+                    512,
+                    Some(2_147_483_639),
                     "tokens",
                     None,
                 ),
@@ -215,7 +215,7 @@ pub(crate) fn release() -> EngineRelease {
                     PARALLEL_REQUESTS_PARAMETER_ID,
                     "Parallel requests",
                     1,
-                    8,
+                    Some(8),
                     "requests",
                     Some(1),
                 ),
@@ -223,7 +223,7 @@ pub(crate) fn release() -> EngineRelease {
                     EXPERT_VRAM_MIB_PARAMETER_ID,
                     "Expert accelerator memory",
                     1,
-                    1_048_576,
+                    None,
                     "MiB",
                     None,
                 ),
@@ -231,7 +231,7 @@ pub(crate) fn release() -> EngineRelease {
                     EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
                     "Expert host memory",
                     0,
-                    1_048_576,
+                    None,
                     "MiB",
                     None,
                 ),
@@ -512,11 +512,11 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-strata-v1"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "2147483639", unit: "tokens" } }
     - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "1" } }
-    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "MiB" } }
-    - { parameterId: "expert-host-memory-mib", displayName: "Expert host memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-host-memory-mib", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
+    - { parameterId: "expert-vram-mib", displayName: "Expert accelerator memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-vram-mib", unsignedInteger: { minimum: "1", unit: "MiB" } }
+    - { parameterId: "expert-host-memory-mib", displayName: "Expert host memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "expert-host-memory-mib", unsignedInteger: { minimum: "0", unit: "MiB" } }
 storageBindings:
   - { bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_CACHE", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }
 artifacts:

@@ -469,7 +469,7 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                             parameter_definition::ParameterType::UnsignedInteger(
                                 UnsignedIntegerParameterSchema {
                                     minimum: 1,
-                                    maximum: 131_072,
+                                    maximum: Some(131_072),
                                     unit: "tokens".to_owned(),
                                     default_value: None,
                                 },

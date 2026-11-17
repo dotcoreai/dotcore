@@ -101,7 +101,10 @@ export function compatibilityResponse(
                 hardwareClassId,
                 memoryFit,
                 startingTotalContextSource,
-                startingTotalContextTokens,
+                startingTotalContextTokens:
+                  startingTotalContextTokens === undefined
+                    ? undefined
+                    : BigInt(startingTotalContextTokens),
                 unsupportedReason,
               }),
         }),

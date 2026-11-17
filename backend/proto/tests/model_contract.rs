@@ -343,7 +343,7 @@ fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_a
                 parameter_type: Some(EngineParameterType::UnsignedInteger(
                     UnsignedIntegerParameterSchema {
                         minimum: 1,
-                        maximum: 131_072,
+                        maximum: Some(131_072),
                         unit: "tokens".to_owned(),
                         default_value: None,
                     },
@@ -534,20 +534,36 @@ fn generated_bindings_preserve_minimal_generic_resource_estimates() {
 fn generated_bindings_round_trip_model_configurations_and_typed_context_schema() {
     let schema = EngineParameterSchema {
         schema_id: "llama-cpp-b10156-v1".to_owned(),
-        parameters: vec![ParameterDefinition {
-            parameter_id: "total-context".to_owned(),
-            display_name: "Total context".to_owned(),
-            parameter_type: Some(EngineParameterType::UnsignedInteger(
-                UnsignedIntegerParameterSchema {
-                    minimum: 512,
-                    maximum: 131_072,
-                    unit: "tokens".to_owned(),
-                    default_value: None,
-                },
-            )),
-            visibility: ParameterVisibility::Basic as i32,
-            description: "Maximum prompt and generation context.".to_owned(),
-        }],
+        parameters: vec![
+            ParameterDefinition {
+                parameter_id: "total-context".to_owned(),
+                display_name: "Total context".to_owned(),
+                parameter_type: Some(EngineParameterType::UnsignedInteger(
+                    UnsignedIntegerParameterSchema {
+                        minimum: 512,
+                        maximum: None,
+                        unit: "tokens".to_owned(),
+                        default_value: None,
+                    },
+                )),
+                visibility: ParameterVisibility::Basic as i32,
+                description: "Context every request shares, without an upper bound.".to_owned(),
+            },
+            ParameterDefinition {
+                parameter_id: "context-per-request".to_owned(),
+                display_name: "Context per request".to_owned(),
+                parameter_type: Some(EngineParameterType::UnsignedInteger(
+                    UnsignedIntegerParameterSchema {
+                        minimum: 512,
+                        maximum: Some(0),
+                        unit: "tokens".to_owned(),
+                        default_value: None,
+                    },
+                )),
+                visibility: ParameterVisibility::Basic as i32,
+                description: "A present zero maximum stays distinct from an absent one.".to_owned(),
+            },
+        ],
     };
     assert_eq!(
         EngineParameterSchema::decode(schema.encode_to_vec().as_slice())

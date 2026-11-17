@@ -226,11 +226,14 @@ export function useCatalogView({
       predicates: view.state.predicates.filter((predicate) => predicate.field !== "runsOn"),
     });
   const hiddenNote = hiddenByFitNote(catalogTable.hiddenByFit);
+  // One scenario sizes every profile in the catalog, so its sliders cover them all.
+  const catalogProfiles = useMemo(() => modelRows.flatMap((row) => row.profiles), [modelRows]);
   const chipSettings = useSizedForChipSettings(
     catalogRunsOnFilter ? { onChange: setScenario, start: undefined, value: scenario } : undefined,
     catalogRunsOnFilter
       ? { onChange: setBasis, start: defaultMemoryBasis, value: basis }
       : undefined,
+    catalogProfiles,
   );
   // The view, the scenario and the memory basis share the URL, so Reset writes them in one
   // navigation; several would each start from the same location and the later would undo the

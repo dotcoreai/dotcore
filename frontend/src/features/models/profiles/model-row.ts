@@ -1,6 +1,10 @@
 import { type ValueRange, valueRange } from "@/components/data-table/data-table-model";
 import { localModelSnapshot, projectCatalogModelStatus } from "@/domain/model-projection";
 import { mergeRequestKinds } from "@/domain/request-kinds";
+import {
+  type ContextSliderEnds,
+  profileContextSliderEnds,
+} from "@/features/models/runtime/context-slider-ends";
 import { maximumContext as configurationMaximumContext } from "@/features/models/runtime/engine-parameter-values";
 import type { EngineRelease } from "@/gen/dotcore/catalog/v1/engine_release_pb";
 import type { HardwareClass } from "@/gen/dotcore/catalog/v1/hardware_class_pb";
@@ -50,6 +54,8 @@ export interface ModelRow {
 export interface ProfileRow {
   acceleratorRequirements: ProfileAcceleratorRequirement[];
   configurationId: string;
+  /** Where a sizing scenario's context sliders start and end for the profile; absent when unknown. */
+  contextSliderEnds?: ContextSliderEnds;
   description?: string;
   displayName: string;
   /** Engine kind keys such as "vllm" (see `engineKindLabel`). */
@@ -112,7 +118,8 @@ export interface SpeculativeOption {
   defaultCount: number;
   /** The option's display name, which names its draft method, such as "MTP". */
   displayName: string;
-  maximum: number;
+  /** The largest count; absent when the option has none. */
+  maximum?: number;
   minimum: number;
   optionId: string;
 }
@@ -244,7 +251,7 @@ export function configurationSpeculativeOptions(
           tokenCount(profileDefaults) ?? tokenCount(declared.defaultValues) ?? 0n,
         ),
         displayName: option.displayName,
-        maximum: Number(range.value.maximum),
+        maximum: range.value.maximum === undefined ? undefined : Number(range.value.maximum),
         minimum: Number(range.value.minimum),
         optionId: option.optionId,
       },
@@ -272,9 +279,11 @@ export function speculativeDefaultMethod(options: readonly SpeculativeOption[]):
   return [options.find((option) => option.defaultCount > 0)?.displayName ?? "Off"];
 }
 
-/** The count range of a speculative option, such as "0–8 tokens". */
+/** The count range of a speculative option, such as "0–8 tokens" or "0 or more tokens". */
 export function formatSpeculativeRange(option: SpeculativeOption): string {
-  return `${option.minimum}–${formatTokens(option.maximum)}`;
+  return option.maximum === undefined
+    ? `${option.minimum} or more tokens`
+    : `${option.minimum}–${formatTokens(option.maximum)}`;
 }
 
 export function profileEstimateKey(modelId: string, profileId: string): string {
@@ -390,6 +399,7 @@ function projectProfileRow(
   return {
     acceleratorRequirements,
     configurationId: profile.configurationId,
+    contextSliderEnds: profileContextSliderEnds(model, profile, input.engineReleases),
     description: profile.description || undefined,
     displayName: profile.displayName || profile.profileId,
     engineKinds,

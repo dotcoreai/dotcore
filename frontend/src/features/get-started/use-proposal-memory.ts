@@ -105,8 +105,8 @@ export function proposalMemoryKey(proposal: ModelProposal): string {
 /** One compatibility read: a catalog model sized at one context. */
 interface SizingRead {
   modelId: string;
-  perRequest: number;
-  total: number;
+  perRequest: bigint;
+  total: bigint;
 }
 
 function distinctReads(proposals: readonly ModelProposal[]): SizingRead[] {
@@ -124,11 +124,10 @@ function sizingRead(proposal: ModelProposal): SizingRead {
 }
 
 // A proposal without its own total context holds one request at its context per request.
-function proposalContext(proposal: ModelProposal): { perRequest: number; total: number } {
-  const perRequest = Number(proposal.contextTokensPerRequest);
+function proposalContext(proposal: ModelProposal): { perRequest: bigint; total: bigint } {
   return {
-    perRequest,
-    total: Number(proposal.totalContextTokens ?? proposal.contextTokensPerRequest),
+    perRequest: proposal.contextTokensPerRequest,
+    total: proposal.totalContextTokens ?? proposal.contextTokensPerRequest,
   };
 }
 
@@ -138,7 +137,7 @@ function readKey({ modelId, perRequest, total }: SizingRead): string {
 
 function parseReadKey(key: string): SizingRead {
   const [modelId, perRequest, total] = key.split("\0");
-  return { modelId, perRequest: Number(perRequest), total: Number(total) };
+  return { modelId, perRequest: BigInt(perRequest), total: BigInt(total) };
 }
 
 function proposalMemory(

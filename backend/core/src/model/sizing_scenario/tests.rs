@@ -26,30 +26,18 @@ use crate::{
 const MIB: u64 = 1024 * 1024;
 
 #[test]
-fn scenarios_need_the_minimum_context_and_a_context_per_request_within_the_total() {
-    let capped = SizingScenario::new(1024, Some(1024)).expect("minimum scenario");
+fn scenarios_need_a_context_per_request_within_the_total() {
+    let capped = SizingScenario::new(1, Some(1)).expect("smallest scenario");
     assert_eq!(
         (
             capped.total_context_tokens(),
             capped.context_tokens_per_request()
         ),
-        (1024, Some(1024))
+        (1, Some(1))
     );
     assert_eq!(
-        SizingScenario::new(u32::MAX, None).map(|scenario| scenario.context_tokens_per_request()),
+        SizingScenario::new(u64::MAX, None).map(|scenario| scenario.context_tokens_per_request()),
         Ok(None)
-    );
-    assert_eq!(
-        SizingScenario::new(1023, None),
-        Err(InvalidSizingScenario::TotalContextBelowMinimum {
-            total_context_tokens: 1023
-        })
-    );
-    assert_eq!(
-        SizingScenario::new(4096, Some(1023)),
-        Err(InvalidSizingScenario::ContextPerRequestBelowMinimum {
-            context_tokens_per_request: 1023
-        })
     );
     assert_eq!(
         SizingScenario::new(4096, Some(4097)),
@@ -186,10 +174,7 @@ fn each_engine_sets_the_scenario_on_its_profile_values() {
             profiles(
                 &catalog,
                 NINFER_MODEL,
-                Some(scenario(
-                    131_072,
-                    context_per_request.map(|value| value as u32)
-                ))
+                Some(scenario(131_072, context_per_request))
             ),
             [
                 supported(NINFER_MODEL, "mtp", values, estimate(1_574_764)),
@@ -214,6 +199,10 @@ fn unsupported_scenarios_report_the_first_reason_on_profiles_and_running_targets
         // 16777216-token range.
         (LLAMA_MODEL, 16_777_217, Some(524_289), ContextAboveMaximum),
         (LLAMA_MODEL, 16_777_217, None, ParameterOutOfRange),
+        // Below the engine's declared minimum: llama.cpp's 512 tokens, ninfer's 1024-token context per
+        // request.
+        (LLAMA_MODEL, 0, None, ParameterOutOfRange),
+        (NINFER_MODEL, 4096, Some(1023), ParameterOutOfRange),
         // Above the configuration's 65536-token maximum, below the model's 262144.
         (
             VLLM_CAPPED_MODEL,
@@ -460,6 +449,54 @@ fn memory_fit_compares_the_class_estimate_with_the_target_total_memory() {
 }
 
 #[test]
+fn a_largest_fit_below_ninfer_s_default_chunk_steps_down_to_a_total_it_accepts() {
+    let catalog = scenario_catalog();
+    let now = SystemTime::now();
+    let target = target("dedicated", "node-a");
+    // 40404 bytes leave 40000 usable after the 1% headroom: room for 3175 tokens with MTP
+    // (1900 + 12 × T) and 3860 without (1400 + 10 × T). Below its default chunk ninfer takes only
+    // multiples of 128 as the context per request, which floats with the total here.
+    let inventory = observed(&target, MemoryArchitecture::Dedicated, Some(40_404), now);
+
+    for scenario in [None, Some(scenario(16_384, None))] {
+        let response = evaluate(&catalog, NINFER_MODEL, scenario, &[&target], &inventory);
+
+        assert_eq!(largest(&response), [Some(3072), Some(3840)]);
+        assert_eq!(
+            response
+                .entries
+                .iter()
+                .map(|entry| entry.starting_total_context_tokens)
+                .collect::<Vec<_>>(),
+            [Some(3072), Some(3840)]
+        );
+    }
+    // A scenario at either starting value is one the engine accepts, one token more is not.
+    for (total_context, expected) in [
+        (3072, SizingScenarioUnsupportedReason::Unspecified),
+        (3840, SizingScenarioUnsupportedReason::Unspecified),
+        (3073, SizingScenarioUnsupportedReason::ParameterOutOfRange),
+    ] {
+        let response = evaluate(
+            &catalog,
+            NINFER_MODEL,
+            Some(scenario(total_context, None)),
+            &[&target],
+            &inventory,
+        );
+        assert_eq!(
+            response
+                .profiles
+                .iter()
+                .map(|profile| profile.unsupported_reason())
+                .collect::<Vec<_>>(),
+            [expected, expected],
+            "{total_context}"
+        );
+    }
+}
+
+#[test]
 fn the_largest_fitting_total_context_matches_the_largest_total_whose_read_fits() {
     let catalog = scenario_catalog();
     let now = SystemTime::now();
@@ -471,7 +508,7 @@ fn the_largest_fitting_total_context_matches_the_largest_total_whose_read_fits()
     // smallest whose free memory less its headroom is a round 2000000000, 3000000000,
     // 20000000000, 40000000000 or 300000 bytes, or 20 GiB + 300000 for ninfer on unified memory.
     // A device pool's headroom is 1% of its total and a unified pool's is an eighth of it, below 64 GiB.
-    let cases: [(&str, MemoryArchitecture, u64, &[u32]); 6] = [
+    let cases: [(&str, MemoryArchitecture, u64, &[u64]); 6] = [
         (LLAMA_MODEL, Dedicated, 2_020_202_020, &[800_000]),
         (LLAMA_MODEL, Unified, 3_428_571_428, &[726_258]),
         (VLLM_MODEL, Dedicated, 20_202_020_202, &[236_511]),
@@ -582,6 +619,44 @@ fn the_largest_fitting_total_context_is_clamped_to_engine_and_derived_bounds() {
 }
 
 #[test]
+fn without_an_engine_maximum_a_flat_estimate_has_no_largest_fit_and_starts_from_the_default() {
+    let catalog = scenario_catalog();
+    let target = target("dedicated", "node-a");
+    let inventory = observed(
+        &target,
+        MemoryArchitecture::Dedicated,
+        Some(2_000_000_000),
+        SystemTime::now(),
+    );
+    let response = evaluate(
+        &catalog,
+        LLAMA_OPEN_FLAT_MODEL,
+        None,
+        &[&target],
+        &inventory,
+    );
+
+    assert_eq!(
+        response
+            .entries
+            .iter()
+            .map(|entry| (
+                entry.free_memory_fit(),
+                entry.largest_total_context_tokens,
+                entry.starting_total_context_tokens,
+                entry.starting_total_context_source(),
+            ))
+            .collect::<Vec<_>>(),
+        [(
+            MemoryFit::Fits,
+            None,
+            Some(32_768),
+            StartingTotalContextSource::ProfileDefault
+        )]
+    );
+}
+
+#[test]
 fn the_largest_fitting_total_context_is_absent_when_unknown_or_nothing_fits() {
     let catalog = scenario_catalog();
     let now = SystemTime::now();
@@ -600,16 +675,16 @@ fn the_largest_fitting_total_context_is_absent_when_unknown_or_nothing_fits() {
 
     // An unknown memory total has no fit.
     assert_eq!(read(None, None), (vec![MemoryFit::Unknown], vec![None]));
-    // 1201024000 bytes at the smallest 1024-token total are one byte above what the idle
-    // 1213155554-byte pool leaves usable after its 1% headroom, and exactly what one more byte
+    // 1200512000 bytes at the smallest 512-token total are one byte above what the idle
+    // 1212638382-byte pool leaves usable after its 1% headroom, and exactly what one more byte
     // leaves; the defaults' larger total context exceeds both.
     assert_eq!(
-        read(Some(1_213_155_554), None),
+        read(Some(1_212_638_382), None),
         (vec![MemoryFit::Exceeds], vec![None])
     );
     assert_eq!(
-        read(Some(1_213_155_555), None),
-        (vec![MemoryFit::Exceeds], vec![Some(1024)])
+        read(Some(1_212_638_383), None),
+        (vec![MemoryFit::Exceeds], vec![Some(512)])
     );
     // 300000 tokens fit with a floating context per request, below a supplied 400000, in the
     // pool leaving 1500000000 usable bytes.
@@ -652,7 +727,7 @@ fn the_largest_fitting_total_context_uses_free_memory_less_a_headroom() {
         )
     };
 
-    let expected = u32::try_from(fit_for(free - headroom)).expect("tokens");
+    let expected = fit_for(free - headroom);
     assert_eq!(read(Some(free), None).1, [Some(expected)]);
 
     // Unknown free memory has no largest fit, never one from the total.
@@ -662,7 +737,7 @@ fn the_largest_fitting_total_context_uses_free_memory_less_a_headroom() {
     assert_eq!(read(Some(4_500_000_000), None).1, [None]);
 
     // The memory fit keeps comparing with the total: a scenario above the largest fit still fits.
-    let on_total = u32::try_from(fit_for(total)).expect("tokens");
+    let on_total = fit_for(total);
     assert!(on_total > expected);
     assert_eq!(
         read(Some(free), Some(scenario(on_total, None))).0,
@@ -746,7 +821,7 @@ fn a_stale_target_is_unknown_with_no_largest_fit() {
             .collect::<Vec<_>>(),
         [ModelCompatibilityStatus::Unknown]
     );
-    assert_eq!(largest(&response), Vec::<Option<u32>>::new());
+    assert_eq!(largest(&response), Vec::<Option<u64>>::new());
 }
 
 #[test]
@@ -1086,6 +1161,7 @@ fn scenarios_without_a_shared_context_definition_leave_the_profile_unsized() {
 }
 
 const LLAMA_FLAT_MODEL: &str = "llama-flat-model";
+const LLAMA_OPEN_FLAT_MODEL: &str = "llama-open-flat-model";
 const LLAMA_MODEL: &str = "llama-model";
 const LLAMA_MICRO_BATCH_MODEL: &str = "llama-micro-batch-model";
 const UNSIZED_MODEL: &str = "unsized-model";
@@ -1096,7 +1172,7 @@ const VLLM_MODEL: &str = "vllm-model";
 const NINFER_MODEL: &str = "ninfer-model";
 const NINFER_UNIFIED_MODEL: &str = "ninfer-unified-model";
 
-fn scenario(total_context_tokens: u32, context_tokens_per_request: Option<u32>) -> SizingScenario {
+fn scenario(total_context_tokens: u64, context_tokens_per_request: Option<u64>) -> SizingScenario {
     SizingScenario::new(total_context_tokens, context_tokens_per_request).expect("scenario")
 }
 
@@ -1167,7 +1243,7 @@ fn fits(
 }
 
 /// Largest fitting total context of every entry.
-fn largest(response: &ListModelProfileCompatibilityResponse) -> Vec<Option<u32>> {
+fn largest(response: &ListModelProfileCompatibilityResponse) -> Vec<Option<u64>> {
     response
         .entries
         .iter()
@@ -1183,9 +1259,9 @@ fn brute_force_largest(
     model_id: &str,
     target: &ExecutionTarget,
     inventory: &TargetCapabilityInventory,
-    context_per_request: Option<u32>,
-) -> Vec<Option<u32>> {
-    let fit_per_profile = |total_context: u32| {
+    context_per_request: Option<u64>,
+) -> Vec<Option<u64>> {
+    let fit_per_profile = |total_context: u64| {
         evaluate(
             catalog,
             model_id,
@@ -1198,6 +1274,7 @@ fn brute_force_largest(
         .map(|entry| entry.free_memory_fit() == MemoryFit::Fits)
         .collect::<Vec<_>>()
     };
+    // Bisects between totals every fixture engine accepts and none fits.
     let lowest = context_per_request.unwrap_or(1024).max(1024);
     let highest = 16_777_216;
     let profiles = fit_per_profile(lowest).len();
@@ -1391,10 +1468,39 @@ fn scenario_catalog() -> Catalog {
     let variant = |model_id: &str, from: &str, to: &str| {
         variant_of(VLLM_MODEL_DECLARATION, VLLM_MODEL, model_id, from, to)
     };
-    // A llama.cpp variant whose estimate doesn't grow with the total context, one that processes
-    // prompts in a single micro-batch below a 16384-token configuration maximum, and a ninfer
-    // variant that also supports the unified class.
+    // A llama.cpp variant whose estimate doesn't grow with the total context, the same on a release
+    // declaring no total context maximum, one that processes prompts in a single micro-batch below
+    // a 16384-token configuration maximum, and a ninfer variant that also supports the unified
+    // class.
+    let flat = variant_of(
+        LLAMA_MODEL_DECLARATION,
+        LLAMA_MODEL,
+        LLAMA_FLAT_MODEL,
+        "bytesPerContextToken: 1000",
+        "bytesPerContextToken: 0",
+    );
     for (path, content) in [
+        (
+            "engines/llama-open.yaml",
+            variant_of(
+                LLAMA_ENGINE,
+                "engineReleaseId: \"llama\"",
+                "engineReleaseId: \"llama-open\"",
+                "minimum: \"512\", maximum: \"16777216\", unit: \"tokens\", defaultValue",
+                "minimum: \"512\", unit: \"tokens\", defaultValue",
+            )
+            .replace("schemaId: \"llama-v2\"", "schemaId: \"llama-open-v2\""),
+        ),
+        (
+            "models/llama-open-flat.yaml",
+            variant_of(
+                &flat,
+                LLAMA_FLAT_MODEL,
+                LLAMA_OPEN_FLAT_MODEL,
+                "engineReleaseId: \"llama\"",
+                "engineReleaseId: \"llama-open\"",
+            ),
+        ),
         (
             "models/llama-micro-batch.yaml",
             variant_of(
@@ -1409,16 +1515,7 @@ fn scenario_catalog() -> Catalog {
                 "fixedSettings: { gpuLayers: 0, singleMicroBatch: true }",
             ),
         ),
-        (
-            "models/llama-flat.yaml",
-            variant_of(
-                LLAMA_MODEL_DECLARATION,
-                LLAMA_MODEL,
-                LLAMA_FLAT_MODEL,
-                "bytesPerContextToken: 1000",
-                "bytesPerContextToken: 0",
-            ),
-        ),
+        ("models/llama-flat.yaml", flat.clone()),
         (
             "models/ninfer-unified.yaml",
             variant_of(
@@ -1491,8 +1588,8 @@ version: "1"
 parameterSchema:
   schemaId: "llama-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
     - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" } }
     - { parameterId: "prompt-cache-memory-mib", displayName: "Prompt cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" } }
 artifacts:
@@ -1601,9 +1698,9 @@ version: "1"
 parameterSchema:
   schemaId: "vllm-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "1048576", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "1024", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", unit: "tokens" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", unit: "requests", defaultValue: "4" } }
     - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
     - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
     - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "68719476736", unit: "bytes" } }
