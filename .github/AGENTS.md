@@ -15,6 +15,15 @@
   blocks every PR until the branch rule is updated.
 - The cross-platform task list is in both `ci.yml` and `ci-macos.yml`. Keep them in step with each
   other and with `just ci::check`.
-- Pin third-party actions to a commit, with the version as a comment.
+- Reference actions by full version tag (`actions/checkout@v7.0.1`). `.github/workflows/actions.lock`
+  records the commit behind each tag, so a moved tag changes nothing until someone relocks.
+- Never edit the lockfile by hand. After changing a `uses:` line, in a workflow or a local action, or
+  adding a workflow, run `just ci::lock` and commit the lockfile with the change.
+- Reference the local action as `$/.github/actions/ci-task`, not `./`, so the lockfile covers the actions
+  it uses. `.github/actionlint.yaml` silences actionlint's complaint about that syntax; delete it once a
+  release accepts `$/`.
+- The `lockfile` job in `CI` does what `just ci::lock-verify` does. A stale lockfile otherwise makes a
+  workflow fail to start, with no check on the PR. Its extension version is a manual bump point: raise it
+  when you relock.
 - Don't add label events to `CI`: each label starts a run, and a skipped run hides the real result
   on the PR. The `ci:macos` label belongs to `CI macOS`.
