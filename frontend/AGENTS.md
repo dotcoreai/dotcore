@@ -156,6 +156,9 @@ frontend/src/
 
 ## Form validation
 
+Parameter ranges, defaults and accepted values come from the catalog declaration, never from
+console constants.
+
 Forms that validate before submit follow this timing, so tabbing through a field never flags it:
 
 - Track the operator's changes with `useDirtyFields` (`src/hooks/use-dirty-fields.ts`). A field

@@ -20,10 +20,9 @@ Sizing is owned by the `model-sizing` skill. Catalog loading and validation live
 2. Choose artifacts by what fits the target hardware with some KV cache. Among builds of similar size, prefer the higher-quality quantization method, and leave out tiers that cannot load.
    * Pin every file to a full repository revision and a SHA-256 digest. HF reports digests only for LFS files, so hash the small files yourself; launches verify downloads against them.
 
-3. Write the model file from the closest existing one by engine, weight format and features (vision, MTP, mixture of experts).
+3. Write the model file from the closest existing one by engine, weight format and features (vision, MTP, mixture of experts), following `catalog/AGENTS.md`.
    * Prefer the engine-embedded chat template; add a template artifact only when the smoke test shows the embedded one fails.
    * Size each configuration with the `model-sizing` skill.
-   * Leave out optional fields you cannot support.
 
 4. Decide whether the model belongs in any hardware class's lists in `catalog/recommendations/`, for each use case, and place it by priority. An entry may set `contextTokensPerRequest`: coding entries carry the largest context per request that starts on an idle machine at the entry's minimum; the catalog test checks every entry fits. Lists stay short and best first; add a memory minimum only where the model fits but leaves too little room for context.
 

@@ -10,8 +10,8 @@ rejects configurations the engine can't run.
 - Image and package rules: [`apps/AGENTS.md`](../apps/AGENTS.md). Engine bumps: the `bump-engines`
   skill.
 - Shared parameter ids and their shape: `backend/catalog/src/shared_parameters.rs`.
-- Defaults, minimums, maximums and the descriptions people see: each release's parameters in
-  `catalog/engines/*.yaml`.
+- Defaults, minimums, maximums, groups and the descriptions people see: each release's parameters
+  in `catalog/engines/*.yaml`, declared per [`catalog/AGENTS.md`](../catalog/AGENTS.md).
 - Flag mapping: the adapter's `plan.rs`. Engine rules and limits: its `declaration.rs`.
 - Release parameters a configuration can't use: excluded in the model YAML; the adapter's
   `declaration.rs` says which ones an engine path requires.

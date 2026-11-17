@@ -26,12 +26,11 @@ Each image has a folder under `apps/` (or `engines/` for an engine image) with a
    * Upstream image: `just image-lock <repository>:<tag> linux/amd64 linux/arm64`. Every image package fails to evaluate until this lock exists.
    * Dockerfile image: `just image-store` on a host of each platform (remote hosts follow `dev/AGENTS.md`).
 
-4. Write `catalog/applications/<name>.yaml` from the closest neighbour.
+4. Write `catalog/applications/<name>.yaml` from the closest neighbour, following `catalog/AGENTS.md`.
    * Reference the package `apps.<name>.docker` with `dockerImage: {}`, and list the platforms the image was pinned for.
    * Bind the inference endpoint and published URLs with resolved values rather than literals, and keep `notes` to what the parameters, storage choices and console don't say; never repeat them.
-   * Group parameters that belong together under `parameterGroups`, and set each member's `groupId`; members are contiguous. A plain group needs a display name and description. For an optional group, set `switchParameterId` to its boolean first member: that parameter's name and help title the group, and it enables the other members. For one dependent parameter, set `enabledByParameterId`. A disabled parameter keeps no value and its bindings never apply. `proto/dotcore/catalog/v1/parameter.proto` has the rules.
+   * Group related parameters, and put a parameter that only matters when another is on (a login's email and password) behind it.
    * Declare `useCases` when the app is the master catalog's app for a use case (one app per use case), and `preferredAccelerators` (vendor names) when it runs best on one vendor's GPUs. Both are advisory metadata.
-   * Leave out optional fields you cannot support.
 
 5. Write the folder's `README.md` and `AGENTS.md` from the templates in `apps/AGENTS.md`.
 
