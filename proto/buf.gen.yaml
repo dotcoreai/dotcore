@@ -14,6 +14,7 @@ inputs:
       - dotcore.metrics.v1.MetricsService
       - dotcore.site.v1.Site
       - dotcore.site.v1.SiteService
+      - dotcore.site.v1.SiteJoinService
       - dotcore.site.store.v1.SiteCurrentState
       - dotcore.watch.v1.ResourceWatchService
 

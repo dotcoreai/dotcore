@@ -1,0 +1,263 @@
+syntax = "proto3";
+
+package dotcore.site.v1;
+
+import "dotcore/site/v1/service.proto";
+import "dotcore/site/v1/site.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Management API for adding a machine to the running site, or letting a declared one join again.
+// Joins live in the site manager's memory only: a manager restart ends every join and voids its
+// token. Errors: NOT_FOUND (unknown or ended join), FAILED_PRECONDITION (decision that doesn't
+// match the join's current proposal), RESOURCE_EXHAUSTED (too many active joins).
+service SiteJoinService {
+  // Starts a join and returns the token the joining machine presents.
+  rpc StartJoin(StartJoinRequest) returns (StartJoinResponse);
+
+  // Streams a join's state: its current state on open, then every change, ending after a final
+  // state. The join is cancelled once no watch has been open on it for a short grace period.
+  rpc WatchJoin(WatchJoinRequest) returns (stream WatchJoinResponse);
+
+  // Allows the proposal awaiting approval; the first decision on a proposal wins.
+  rpc ApproveJoin(ApproveJoinRequest) returns (ApproveJoinResponse);
+
+  // Refuses the proposal awaiting approval; the join waits for a corrected attempt with the same
+  // token.
+  rpc RejectJoin(RejectJoinRequest) returns (RejectJoinResponse);
+
+  // Ends a join that has not reached a final state and refuses its token from then on.
+  rpc CancelJoin(CancelJoinRequest) returns (CancelJoinResponse);
+}
+
+// Requests a new join.
+message StartJoinRequest {}
+
+// The started join, waiting for the joining machine.
+message StartJoinResponse {
+  // Identity of the join, used by every other call.
+  string join_id = 1;
+
+  // Encoded join token the joining machine presents; a secret, shown only to the operator.
+  string token = 2;
+
+  // Time after which the join expires and its token is refused.
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+// Requests the state stream of one join.
+message WatchJoinRequest {
+  // Join to watch.
+  string join_id = 1;
+}
+
+// One message of a join watch.
+message WatchJoinResponse {
+  oneof event {
+    // The join's state as of now.
+    JoinState state = 1;
+
+    // Keeps an idle stream alive, sent after 15 s without any other event.
+    google.protobuf.Empty heartbeat = 2;
+  }
+}
+
+// Allows one proposal of a join.
+message ApproveJoinRequest {
+  // Join the proposal belongs to.
+  string join_id = 1;
+
+  // Proposal being allowed, as its awaiting approval state names it.
+  string proposal_id = 2;
+}
+
+// Acknowledges the approval; the watch reports the commit or failure that follows.
+message ApproveJoinResponse {}
+
+// Refuses one proposal of a join.
+message RejectJoinRequest {
+  // Join the proposal belongs to.
+  string join_id = 1;
+
+  // Proposal being refused, as its awaiting approval state names it.
+  string proposal_id = 2;
+}
+
+// Acknowledges the rejection.
+message RejectJoinResponse {}
+
+// Cancels one join.
+message CancelJoinRequest {
+  // Join to cancel.
+  string join_id = 1;
+}
+
+// Acknowledges the cancellation.
+message CancelJoinResponse {}
+
+// State of one join. Committed, cancelled, expired and failed are final; the others can change.
+message JoinState {
+  oneof state {
+    // No proposal is under review; the token waits for the joining machine.
+    JoinWaiting waiting = 1;
+
+    // A joining machine passed the dial-back check and waits for the operator's decision.
+    JoinAwaitingApproval awaiting_approval = 2;
+
+    // The site recorded the machine, or the rejoining machine's new addresses.
+    JoinCommitted committed = 3;
+
+    // The join was cancelled, by a call or because no watch remained open.
+    google.protobuf.Empty cancelled = 4;
+
+    // The join expired before a machine joined.
+    google.protobuf.Empty expired = 5;
+
+    // The join ended without recording anything, such as after too many failed attempts.
+    JoinFailed failed = 6;
+  }
+}
+
+// A join waiting for the joining machine, with how its latest attempt ended, if any.
+message JoinWaiting {
+  // Outcome of the latest attempt that ended without a commit; absent before any attempt.
+  JoinAttemptOutcome last_attempt = 1;
+}
+
+// A proposal that passed the dial-back check, shown to the operator for a decision.
+message JoinAwaitingApproval {
+  // Identity of this proposal, echoed by the decision on it.
+  string proposal_id = 1;
+
+  // What the machine asks for, with the details for the decision.
+  JoinProposal proposal = 2;
+}
+
+// A join whose machine the site recorded.
+message JoinCommitted {
+  // SiteNode identity of the new or rejoined machine.
+  string node_id = 1;
+}
+
+// A join that ended without recording anything.
+message JoinFailed {
+  // Human-readable reason, for example too many failed attempts.
+  string reason = 1;
+}
+
+// How one attempt of a join ended without a commit; the token stays usable.
+message JoinAttemptOutcome {
+  oneof outcome {
+    // The operator refused the proposal.
+    google.protobuf.Empty rejected = 1;
+
+    // Human-readable reason the attempt failed, such as a failed dial-back.
+    string failed = 2;
+  }
+}
+
+// What a joining machine asks for, as the operator reviews it.
+message JoinProposal {
+  // SiteNode identity derived for a new machine, or the declared one of a rejoining machine.
+  string node_id = 1;
+
+  // SiteNode display name, proposed by a new machine or declared for a rejoining one.
+  string display_name = 2;
+
+  // IPv4 address or DNS host name the site will record for reaching the machine.
+  string host = 3;
+
+  // Where the host comes from.
+  JoinHostSource host_source = 4;
+
+  // Address the join connection came from.
+  string peer_address = 5;
+
+  // Whether the host, once resolved on the manager, differs from the connection's address.
+  bool host_differs_from_peer = 6;
+
+  // Port of the machine's private listener.
+  uint32 private_port = 7;
+
+  // Lowercase SHA-256 fingerprint of the machine's key, also shown on the machine.
+  string key_fingerprint = 8;
+
+  // Whether the machine joins as a new node or as a declared one again.
+  oneof kind {
+    // A new machine and the execution targets it proposes.
+    JoinNewNode new_node = 9;
+
+    // A declared machine joining again from its intact node folder.
+    JoinRejoin rejoin = 10;
+  }
+}
+
+// What a new machine proposes beyond its name and host.
+message JoinNewNode {
+  // Execution targets the machine proposes, models first; empty when it runs no workloads.
+  repeated JoinProposedTarget targets = 1;
+}
+
+// What changes when a declared machine joins again; its identity and targets stay.
+message JoinRejoin {
+  // Host the site declares for the machine now, replaced by the proposal's host.
+  string previous_host = 1;
+
+  // Host the machine reaches the manager at now; empty means the manager's declared host.
+  string previous_manager_host = 2;
+
+  // Host the machine will reach the manager at; empty means the manager's declared host.
+  string manager_host = 3;
+
+  // Model and application deployments placed on the machine, which stay on it.
+  uint32 deployments = 4;
+}
+
+// One execution target a new machine proposes.
+message JoinProposedTarget {
+  // Workload kind the target runs.
+  ExecutionTargetWorkloadKind workload_kind = 1;
+
+  // Runtime that runs the target's workloads.
+  JoinTargetRuntime runtime = 2;
+
+  // Platform the workloads run in, such as linux/amd64.
+  string platform_label = 3;
+
+  // Accelerator device identifiers the target holds.
+  repeated string accelerator_device_ids = 4;
+
+  // Whether native workloads outlive the server process; unspecified for other runtimes.
+  NativeWorkloadLifetime native_workload_lifetime = 5;
+}
+
+// Where the host proposed for a joining machine comes from.
+enum JoinHostSource {
+  JOIN_HOST_SOURCE_UNSPECIFIED = 0;
+
+  // The joining machine proposed it.
+  JOIN_HOST_SOURCE_PROPOSED = 1;
+
+  // The manager observed it as the join connection's source address.
+  JOIN_HOST_SOURCE_OBSERVED = 2;
+
+  // A rejoining machine proposed none, so it keeps its declared host.
+  JOIN_HOST_SOURCE_DECLARED = 3;
+}
+
+// Runtime of a proposed execution target.
+enum JoinTargetRuntime {
+  JOIN_TARGET_RUNTIME_UNSPECIFIED = 0;
+
+  // Simulated models or applications.
+  JOIN_TARGET_RUNTIME_SIMULATED = 1;
+
+  // Models on one NVIDIA GPU, run through Docker.
+  JOIN_TARGET_RUNTIME_NVIDIA = 2;
+
+  // Models on the Apple GPU, run natively.
+  JOIN_TARGET_RUNTIME_APPLE = 3;
+
+  // Applications run through Docker.
+  JOIN_TARGET_RUNTIME_DOCKER = 4;
+}

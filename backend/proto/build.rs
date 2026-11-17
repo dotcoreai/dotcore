@@ -50,6 +50,7 @@ const PROTO_FILES: &[&str] = &[
     "dotcore/model/private/v1/controller.proto",
     "dotcore/runtime/store/v1/native.proto",
     "dotcore/site/v1/site.proto",
+    "dotcore/site/v1/join.proto",
     "dotcore/site/v1/service.proto",
     "dotcore/site/private/v1/desired_view.proto",
     "dotcore/site/private/v1/node_control.proto",
