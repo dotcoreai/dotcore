@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,13 +17,14 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 test("join local builds, records the target, hands the token over and records the node id", async (t) => {
   const f = await fixture(t);
   await mkdir(f.site, { recursive: true });
+  await f.setLiveSocket(f.env.PC_SOCKET_PATH);
 
   const joined = f.run("dev::cluster::join", "local", "--", "--name", "Worker one", "--inference", "simulated", "--applications", "docker", "--host", "127.0.0.2");
   assert.equal(joined.status, 0, joined.stderr);
   const tokenFile = `${f.workerDir}.join-token`;
   assert.deepEqual(await f.calls(), [
     "nix build .#dotc --no-link",
-    `dotc node add --site-dir ${f.site} --listen 127.0.0.1:50053 --yes --token-file ${tokenFile}`,
+    `dotc node add --site-dir ${f.site} --yes --token-file ${tokenFile}`,
     `dotc node join --site-dir ${f.workerDir} --token-file ${tokenFile} --name Worker one --inference simulated --applications docker --host 127.0.0.2 --private-port 61053 --yes`,
   ]);
   assert.match(joined.stderr, /cluster join local: prepare\n(.*\n)*cluster join local: token\n(.*\n)*cluster join local: join on local\n(.*\n)*cluster join local: wait for node add/);
@@ -53,36 +55,33 @@ test("a worker join without --host drops a loopback machine host and keeps a rea
   assert.equal(await joinMachineHost("127.0.0.1", "--host", "192.0.2.10"), "127.0.0.1");
 });
 
-test("join refuses while the manager runs without a terminal, before anything is built or recorded", async (t) => {
+test("join refuses a stopped manager before anything is built or recorded", async (t) => {
   const f = await fixture(t);
-  await f.setLiveSocket(f.env.PC_SOCKET_PATH, { stoppable: true });
 
   const refused = f.run("dev::cluster::join", "local", "--", "--name", "w");
   assert.equal(refused.status, 2);
-  assert.match(refused.stderr, /stop the manager first, node add needs the site lock: just dev::down, or rerun with DOTCORE_YES=1 to stop it/);
+  assert.match(refused.stderr, /the manager is not running; start it first: just dev::up-daemon/);
   assert.deepEqual(await f.calls(), []);
   assert.equal(await f.record(), null);
 });
 
-test("join confirmed in advance stops a running manager first, then joins", async (t) => {
+test("join leaves the running manager running", async (t) => {
   const f = await fixture(t);
   await mkdir(f.site, { recursive: true });
   await f.setLiveSocket(f.env.PC_SOCKET_PATH, { stoppable: true });
-  f.env.DOTCORE_YES = "1";
 
   const joined = f.run("dev::cluster::join", "local", "--", "--name", "w");
   assert.equal(joined.status, 0, joined.stderr);
   const calls = await f.calls();
-  assert.deepEqual(calls.slice(0, 2), [
-    `process-compose site=${f.site} args=--use-uds --unix-socket ${f.env.PC_SOCKET_PATH} down`,
-    "nix build .#dotc --no-link",
-  ]);
+  assert.equal(calls.some((call) => call.endsWith(" down")), false);
+  assert.equal(calls[0], "nix build .#dotc --no-link");
   assert.equal(await f.record(), "local node-1\n");
 });
 
 test("join on a remote host resolves it, prepares through run and joins through exec with the token quoted", async (t) => {
   const f = await fixture(t);
   await mkdir(f.site, { recursive: true });
+  await f.setLiveSocket(f.env.PC_SOCKET_PATH);
 
   const joined = f.run("dev::cluster::join", "gb10", "--", "--name", "Spark one", "--note", "it's");
   assert.equal(joined.status, 0, joined.stderr);
@@ -100,6 +99,7 @@ test("join on a remote host resolves it, prepares through run and joins through 
 test("a failed join names the step, stops node add, and leaves no worker recorded so the join can run again", async (t) => {
   const f = await fixture(t);
   await mkdir(f.site, { recursive: true });
+  await f.setLiveSocket(f.env.PC_SOCKET_PATH);
   f.env.TEST_REMOTE_EXEC_STATUS = "1";
 
   const failed = f.run("dev::cluster::join", "apple", "--", "--name", "mac");
@@ -432,6 +432,7 @@ test("cluster clean in a terminal asks once for the remote workers and leaves lo
 
 test("two-node-init joins a local worker, and the local worker stops and leaves with its folder", async (t) => {
   const f = await fixture(t);
+  await f.setLiveSocket(f.env.PC_SOCKET_PATH);
 
   const noSelector = f.run("dev::cluster::two-node-init", "nvidia", "docker");
   assert.equal(noSelector.status, 2);
@@ -443,6 +444,11 @@ test("two-node-init joins a local worker, and the local worker stops and leaves 
   assert.match(initCalls[0], /^dotc site init .*--inference nvidia --applications docker/);
   assert.match(initCalls[2], /--name Spark --host 127\.0\.0\.2 --inference nvidia --applications docker --nvidia-device nvidia\.com\/gpu=0 --private-port 61053 --yes$/);
   assert.equal(await f.record(), "local node-1\n");
+  // The manager starts after the site is initialized and before the worker joins it.
+  const allCalls = await f.calls();
+  const started = allCalls.findIndex((call) => call.startsWith("process-compose") && call.endsWith("--detached"));
+  assert.ok(started > allCalls.findIndex((call) => call.startsWith("dotc site init")), allCalls.join("\n"));
+  assert.ok(started < allCalls.findIndex((call) => call.startsWith("dotc node add")), allCalls.join("\n"));
 
   const again = f.run("dev::cluster::two-node-init", "simulated", "docker");
   assert.equal(again.status, 2);
@@ -478,6 +484,7 @@ test("two-node-init joins a local worker, and the local worker stops and leaves 
   // Apple targets are ephemeral on both nodes, so the development stack leaves no native orphans.
   await rm(f.site, { recursive: true });
   await f.reset();
+  await f.setLiveSocket(f.env.PC_SOCKET_PATH);
   const apple = f.run("dev::cluster::two-node-init", "apple", "simulated", "Mac", "127.0.0.2");
   assert.equal(apple.status, 0, apple.stderr);
   const appleCalls = (await f.calls()).filter((call) => call.startsWith("dotc"));
@@ -487,6 +494,7 @@ test("two-node-init joins a local worker, and the local worker stops and leaves 
 
 test("two-node-init gives the worker its own simulated hardware", async (t) => {
   const f = await fixture(t);
+  await f.setLiveSocket(f.env.PC_SOCKET_PATH);
 
   const initialized = f.run("dev::cluster::two-node-init", "simulated:gb10", "docker", "Mac", "127.0.0.2", "", "simulated:mac-64g");
 
@@ -583,8 +591,14 @@ printf 'process-compose site=%s args=%s\\n' "$DOTCORE_SITE_DIR" "$*" >> "$TEST_C
 `);
   await setLiveSocket(path.join(root, "nothing-live"));
 
+  // The recipe waits for the manager's management port, which this server stands in for.
+  const management = createServer();
+  await new Promise((resolve) => management.listen(0, "127.0.0.1", resolve));
+  t.after(() => management.close());
+
   const env = {
     ...process.env,
+    DOTCORE_MANAGEMENT_ADDR: `127.0.0.1:${management.address().port}`,
     PATH: `${bin}:${process.env.PATH}`,
     DOTCORE_MACHINE_HOST: "127.0.0.1",
     DOTCORE_SITE_DIR: site,
