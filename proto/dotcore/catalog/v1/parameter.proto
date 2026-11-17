@@ -18,6 +18,14 @@ message ParameterDefinition {
   // Where the console shows this parameter.
   ParameterVisibility visibility = 7;
 
+  // Group this parameter belongs to, declared by the same owner; none when ungrouped.
+  optional string group_id = 10;
+
+  // Boolean parameter of the same owner that enables this one: while its value is false this
+  // parameter is disabled and keeps no value. A member of a switched group declares none; the
+  // group's switch enables it. Engines declare none.
+  optional string enabled_by_parameter_id = 11;
+
   oneof parameter_type {
     // Boolean type for this parameter.
     BooleanParameterSchema boolean = 4;
@@ -34,6 +42,25 @@ message ParameterDefinition {
     // Secret constraints for this parameter; its value is generated when none is supplied.
     SecretParameterSchema secret = 9;
   }
+}
+
+// Presents consecutive parameters of one owner together. A plain group has a display name and a
+// description. A switched group has neither: its switch parameter's name and guidance are its
+// title, and its other members are disabled while the switch is false. Engines declare plain
+// groups only.
+message ParameterGroup {
+  // Stable group identity, unique within its declaring owner.
+  string group_id = 1;
+
+  // Human-readable group title; empty for a switched group.
+  string display_name = 2;
+
+  // Optional practical guidance shown with this group; empty for a switched group.
+  string description = 3;
+
+  // Boolean first member of this group that switches the other members on and off; none for a
+  // plain group.
+  optional string switch_parameter_id = 4;
 }
 
 // Defines a boolean parameter.

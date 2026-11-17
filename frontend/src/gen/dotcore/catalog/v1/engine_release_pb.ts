@@ -8,7 +8,7 @@ import type { NixArtifact } from "./nix_pb";
 import { file_dotcore_catalog_v1_nix } from "./nix_pb";
 import type { OciImageReference } from "./oci_pb";
 import { file_dotcore_catalog_v1_oci } from "./oci_pb";
-import type { ParameterDefinition } from "./parameter_pb";
+import type { ParameterDefinition, ParameterGroup } from "./parameter_pb";
 import { file_dotcore_catalog_v1_parameter } from "./parameter_pb";
 import type { Selector } from "./selector_pb";
 import { file_dotcore_catalog_v1_selector } from "./selector_pb";
@@ -22,7 +22,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/engine_release.proto.
  */
 export const file_dotcore_catalog_v1_engine_release: GenFile = /*@__PURE__*/
-  fileDesc("Cidkb3Rjb3JlL2NhdGFsb2cvdjEvZW5naW5lX3JlbGVhc2UucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSKpAgoNRW5naW5lUmVsZWFzZRIZChFlbmdpbmVfcmVsZWFzZV9pZBgBIAEoCRIyCgtlbmdpbmVfa2luZBgCIAEoDjIdLmRvdGNvcmUuZW5naW5lLnYxLkVuZ2luZUtpbmQSDwoHdmVyc2lvbhgDIAEoCRI1CglhcnRpZmFjdHMYBCADKAsyIi5kb3Rjb3JlLmNhdGFsb2cudjEuRW5naW5lQXJ0aWZhY3QSQwoQcGFyYW1ldGVyX3NjaGVtYRgFIAEoCzIpLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVQYXJhbWV0ZXJTY2hlbWESPAoQc3RvcmFnZV9iaW5kaW5ncxgGIAMoCzIiLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlQmluZGluZyLEAQoORW5naW5lQXJ0aWZhY3QSEwoLYXJ0aWZhY3RfaWQYASABKAkSNAoDb2NpGAIgASgLMiUuZG90Y29yZS5jYXRhbG9nLnYxLk9jaUltYWdlUmVmZXJlbmNlSAASLgoDbml4GAQgASgLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk5peEFydGlmYWN0SAASLwoJc2VsZWN0b3JzGAMgAygLMhwuZG90Y29yZS5jYXRhbG9nLnYxLlNlbGVjdG9yQgYKBGtpbmQiUAoXRW5naW5lQXJ0aWZhY3RSZWZlcmVuY2USGQoRZW5naW5lX3JlbGVhc2VfaWQYASABKAkSGgoSZW5naW5lX2FydGlmYWN0X2lkGAIgASgJImcKFUVuZ2luZVBhcmFtZXRlclNjaGVtYRIRCglzY2hlbWFfaWQYASABKAkSOwoKcGFyYW1ldGVycxgCIAMoCzInLmRvdGNvcmUuY2F0YWxvZy52MS5QYXJhbWV0ZXJEZWZpbml0aW9uYgZwcm90bzM", [file_dotcore_catalog_v1_nix, file_dotcore_catalog_v1_oci, file_dotcore_catalog_v1_parameter, file_dotcore_catalog_v1_selector, file_dotcore_catalog_v1_storage, file_dotcore_engine_v1_engine]);
+  fileDesc("Cidkb3Rjb3JlL2NhdGFsb2cvdjEvZW5naW5lX3JlbGVhc2UucHJvdG8SEmRvdGNvcmUuY2F0YWxvZy52MSKpAgoNRW5naW5lUmVsZWFzZRIZChFlbmdpbmVfcmVsZWFzZV9pZBgBIAEoCRIyCgtlbmdpbmVfa2luZBgCIAEoDjIdLmRvdGNvcmUuZW5naW5lLnYxLkVuZ2luZUtpbmQSDwoHdmVyc2lvbhgDIAEoCRI1CglhcnRpZmFjdHMYBCADKAsyIi5kb3Rjb3JlLmNhdGFsb2cudjEuRW5naW5lQXJ0aWZhY3QSQwoQcGFyYW1ldGVyX3NjaGVtYRgFIAEoCzIpLmRvdGNvcmUuY2F0YWxvZy52MS5FbmdpbmVQYXJhbWV0ZXJTY2hlbWESPAoQc3RvcmFnZV9iaW5kaW5ncxgGIAMoCzIiLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlQmluZGluZyLEAQoORW5naW5lQXJ0aWZhY3QSEwoLYXJ0aWZhY3RfaWQYASABKAkSNAoDb2NpGAIgASgLMiUuZG90Y29yZS5jYXRhbG9nLnYxLk9jaUltYWdlUmVmZXJlbmNlSAASLgoDbml4GAQgASgLMh8uZG90Y29yZS5jYXRhbG9nLnYxLk5peEFydGlmYWN0SAASLwoJc2VsZWN0b3JzGAMgAygLMhwuZG90Y29yZS5jYXRhbG9nLnYxLlNlbGVjdG9yQgYKBGtpbmQiUAoXRW5naW5lQXJ0aWZhY3RSZWZlcmVuY2USGQoRZW5naW5lX3JlbGVhc2VfaWQYASABKAkSGgoSZW5naW5lX2FydGlmYWN0X2lkGAIgASgJIqUBChVFbmdpbmVQYXJhbWV0ZXJTY2hlbWESEQoJc2NoZW1hX2lkGAEgASgJEjsKCnBhcmFtZXRlcnMYAiADKAsyJy5kb3Rjb3JlLmNhdGFsb2cudjEuUGFyYW1ldGVyRGVmaW5pdGlvbhI8ChBwYXJhbWV0ZXJfZ3JvdXBzGAMgAygLMiIuZG90Y29yZS5jYXRhbG9nLnYxLlBhcmFtZXRlckdyb3VwYgZwcm90bzM", [file_dotcore_catalog_v1_nix, file_dotcore_catalog_v1_oci, file_dotcore_catalog_v1_parameter, file_dotcore_catalog_v1_selector, file_dotcore_catalog_v1_storage, file_dotcore_engine_v1_engine]);
 
 /**
  * An immutable artifact-manager catalog declaration for reusable engine
@@ -179,6 +179,13 @@ export type EngineParameterSchema = Message<"dotcore.catalog.v1.EngineParameterS
    * @generated from field: repeated dotcore.catalog.v1.ParameterDefinition parameters = 2;
    */
   parameters: ParameterDefinition[];
+
+  /**
+   * Plain groups presenting consecutive parameters together, in display order.
+   *
+   * @generated from field: repeated dotcore.catalog.v1.ParameterGroup parameter_groups = 3;
+   */
+  parameterGroups: ParameterGroup[];
 };
 
 /**
