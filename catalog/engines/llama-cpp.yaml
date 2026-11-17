@@ -12,35 +12,45 @@ parameterSchema:
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Memory the model holds for all requests at once; each active request stores its tokens in it, even when prompts start the same. Raise it to serve longer or more simultaneous conversations; when it fills, idle requests are dropped first, then active ones fail."
+      # At least Dotcore's context floor. `--ctx-size` (`common/arg.cpp`) takes an int, so at most
+      # the int32 maximum; llama.cpp pads it to whole 256-token blocks (`src/llama-context.cpp`).
       unsignedInteger:
-        minimum: "1024"
-        maximum: "16777216"
+        minimum: "512"
+        maximum: "2147483647"
         unit: "tokens"
         defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use. It reserves nothing: requests draw from the total context as they grow. Lower it to stop one long request from filling the total context."
+      # At least Dotcore's context floor; `--kv-unified-per-slot` (`common/arg.cpp`) takes an int,
+      # so at most the int32 maximum.
       unsignedInteger:
-        minimum: "1024"
-        maximum: "16777216"
+        minimum: "512"
+        maximum: "2147483647"
         unit: "tokens"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests generated at once; more wait in a queue. They share the total context, so raising it adds little memory; raise it when several people or agents use the model together."
+      # The server's `-np` refuses 0 (`common/arg.cpp`), and at most `LLAMA_MAX_SEQ` sequences
+      # (`src/llama-cparams.h`); `src/llama-context.cpp` refuses more.
+      # A model with classifier-free guidance doubles its sequences (`common/common.cpp`), so it
+      # could run only half; no catalog model enables it.
       unsignedInteger:
         minimum: "1"
-        maximum: "64"
+        maximum: "256"
         unit: "requests"
         defaultValue: "4"
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Host memory used to reuse repeated prompts, such as agent system prompts, without processing them again. Raise it if the same long prompts come back often; on unified-memory machines it competes with the model, and 0 turns it off."
+      # `--cache-ram` (`common/arg.cpp`) takes an int in MiB, and 0 turns the cache off: 0 to the
+      # int32 maximum. Its negative "no limit" has no unsigned form.
       unsignedInteger:
         minimum: "0"
-        maximum: "65536"
+        maximum: "2147483647"
         unit: "MiB"
 # The image and its digests are pinned by `engines/llama-cpp/docker-image.nix`.
 artifacts:
