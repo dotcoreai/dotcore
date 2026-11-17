@@ -40,10 +40,11 @@ use tonic::{
 };
 
 use super::{
-    JOIN_SECRET_BYTES, JoinAttemptOutcome, JoinConnection, JoinHostIdentity, JoinHostSource,
-    JoinLimits, JoinProposal, JoinRegistry, JoinRegistryError, JoinReview, JoinSecret,
-    JoinSiteError, JoinSiteWriter, JoinStatus, JoinToken, JoinedNode, NodeFolderError,
-    NodeJoinError, NodeKey, NodeRejoin, RejoinProposal, RejoiningNodeFolder, ReviewedJoin,
+    FingerprintColor, FingerprintPattern, JOIN_SECRET_BYTES, JoinAttempt, JoinAttemptOutcome,
+    JoinConnection, JoinHostIdentity, JoinHostSource, JoinLimits, JoinProposal, JoinRegistry,
+    JoinRegistryError, JoinReview, JoinSecret, JoinSiteError, JoinSiteWriter, JoinStatus,
+    JoinToken, JoinedNode, NodeFolderError, NodeJoinError, NodeKey, NodeRejoin, RejoinProposal,
+    RejoiningNodeFolder, ReviewedJoin,
     dial_back_listener::DialBackListener,
     host::JoinDecision,
     test_fixtures::{InitializedSite, initialized_site, initialized_site_with_manager_host},
@@ -710,6 +711,39 @@ async fn rejected_proposals_change_nothing_and_a_corrected_retry_succeeds() {
         .expect("corrected retry with the same token");
     assert_eq!(harness.finish().await.expect("host").display_name, "worker");
     assert_eq!(harness.pins().len(), 1);
+}
+
+#[tokio::test]
+async fn identical_failed_attempts_are_told_apart_by_when_they_ended() {
+    let harness = Harness::start(Options::default()).await;
+    let manager_name = harness.fixture.site.nodes[0].display_name.clone();
+    let duplicate = proposal(&manager_name, WORKER_HOST);
+    let key = NodeKey::generate().expect("key");
+    let node_root = harness.node_root();
+    let mut connection = harness.connect().await;
+
+    connection
+        .join(&duplicate, &key, &node_root)
+        .await
+        .expect_err("a duplicate name");
+    let first = harness.last_attempt_record().expect("first attempt");
+    let advance = Duration::from_secs(1);
+    harness.clock.advance(advance);
+    connection
+        .join(&duplicate, &key, &node_root)
+        .await
+        .expect_err("the same duplicate name");
+    let second = harness.last_attempt_record().expect("second attempt");
+
+    assert!(
+        matches!(&first.outcome, JoinAttemptOutcome::Failed(reason) if reason.contains("a node named")),
+        "{first:?}"
+    );
+    assert_eq!(second.outcome, first.outcome);
+    assert!(
+        second.at >= first.at + advance,
+        "first {first:?}, second {second:?}"
+    );
 }
 
 #[tokio::test]
@@ -2610,6 +2644,7 @@ async fn the_management_api_starts_follows_and_decides_joins() {
 
     // A proposal reaches the watch with what the operator decides on.
     let key = NodeKey::generate().expect("key");
+    let key_fingerprint = key.fingerprint();
     let node_root = harness.node_root();
     let mut connection = harness.connect().await;
     let joining = tokio::spawn(async move {
@@ -2638,7 +2673,8 @@ async fn the_management_api_starts_follows_and_decides_joins() {
             peer_address: review.peer_address.to_string(),
             host_differs_from_peer: false,
             private_port: u32::from(worker_port()),
-            key_fingerprint: review.csr_key_fingerprint.as_str().to_owned(),
+            key_fingerprint: key_fingerprint.as_str().to_owned(),
+            fingerprint_pattern: Some(expected_pattern(&key_fingerprint)),
             kind: Some(proto::join_proposal::Kind::NewNode(proto::JoinNewNode {
                 targets: vec![
                     proto::JoinProposedTarget {
@@ -2696,6 +2732,37 @@ async fn the_management_api_starts_follows_and_decides_joins() {
     assert_eq!(committed.node_id, node_id);
     assert_eq!(next().await, None);
     joining.await.expect("join task").expect("joined");
+}
+
+/// The wire form of the pattern derived from `fingerprint`.
+fn expected_pattern(
+    fingerprint: &CertificateFingerprint,
+) -> dotcore_proto::dotcore::site::v1::FingerprintPattern {
+    use dotcore_proto::dotcore::site::v1::FingerprintPatternColor as Color;
+
+    let pattern = FingerprintPattern::of(fingerprint);
+    dotcore_proto::dotcore::site::v1::FingerprintPattern {
+        colors: pattern
+            .colors
+            .iter()
+            .map(|color| {
+                (match color {
+                    FingerprintColor::Red => Color::Red,
+                    FingerprintColor::Green => Color::Green,
+                    FingerprintColor::Yellow => Color::Yellow,
+                    FingerprintColor::Blue => Color::Blue,
+                    FingerprintColor::Magenta => Color::Magenta,
+                    FingerprintColor::Cyan => Color::Cyan,
+                }) as i32
+            })
+            .collect(),
+        cells: pattern
+            .cells
+            .iter()
+            .flatten()
+            .map(|&slot| u32::from(slot))
+            .collect(),
+    }
 }
 
 /// A registry over an initialized site on `clock`, serving no listener.
@@ -2902,6 +2969,8 @@ impl Default for Options {
 struct Harness {
     fixture: InitializedSite,
     registry: JoinRegistry,
+    /// Clock of the registry: real time plus the test's advances.
+    clock: ManualClock,
     join_id: String,
     token: JoinToken,
     host_address: SocketAddr,
@@ -3038,6 +3107,7 @@ impl Harness {
             Some(resolver) => resolver,
             None => Arc::new(worker_resolver()),
         };
+        let clock = ManualClock::new();
         let registry = JoinRegistry::new(
             JoinHostIdentity::new(
                 &site.site_id,
@@ -3048,7 +3118,7 @@ impl Harness {
             Arc::clone(&site_writer) as Arc<dyn JoinSiteWriter>,
             JoinGate::default(),
             options.timing,
-            Arc::new(SystemClock),
+            Arc::new(clock.clone()),
         )
         .with_host_resolver(Arc::clone(&resolver))
         .with_limits(options.limits);
@@ -3084,6 +3154,7 @@ impl Harness {
         Self {
             fixture,
             registry,
+            clock,
             join_id: started.join_id,
             token: started.token,
             host_address,
@@ -3203,6 +3274,11 @@ impl Harness {
 
     /// Returns how the join's latest attempt ended, failing when it is not waiting for one.
     fn last_attempt(&self) -> Option<JoinAttemptOutcome> {
+        self.last_attempt_record().map(|attempt| attempt.outcome)
+    }
+
+    /// Returns the join's latest attempt, failing when it is not waiting for one.
+    fn last_attempt_record(&self) -> Option<JoinAttempt> {
         match self.status() {
             JoinStatus::Waiting { last_attempt } => last_attempt,
             other => panic!("the join is not waiting: {other:?}"),

@@ -139,6 +139,7 @@ impl JoinRegistry {
                 id: join_id.clone(),
                 token: token.clone(),
                 expires_at: registry.clock.now() + lifetime,
+                clock: Arc::clone(&registry.clock),
                 status: watch::Sender::new(JoinStatus::Waiting { last_attempt: None }),
                 progress: Mutex::new(JoinProgress {
                     gate: Some(registry.gate.open()),
@@ -249,8 +250,8 @@ pub struct StartedJoin {
 pub enum JoinStatus {
     /// No proposal is under review; the token waits for the joining machine.
     Waiting {
-        /// How the latest attempt ended without a commit, if any.
-        last_attempt: Option<JoinAttemptOutcome>,
+        /// The latest attempt that ended without a commit, if any.
+        last_attempt: Option<JoinAttempt>,
     },
 
     /// A joining machine passed the dial-back check and waits for the operator's decision.
@@ -288,7 +289,17 @@ impl JoinStatus {
     }
 }
 
-/// How one attempt of a join ended without a commit; the token stays usable.
+/// One attempt of a join that ended without a commit, and when; the token stays usable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JoinAttempt {
+    /// How the attempt ended.
+    pub outcome: JoinAttemptOutcome,
+
+    /// Wall time the attempt ended, which tells two identical outcomes apart.
+    pub at: SystemTime,
+}
+
+/// How one attempt of a join ended without a commit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum JoinAttemptOutcome {
     /// The operator refused the proposal.
@@ -543,6 +554,7 @@ pub(super) struct ActiveJoin {
     id: String,
     pub(super) token: JoinToken,
     expires_at: Instant,
+    clock: Arc<dyn Clock>,
     status: watch::Sender<JoinStatus>,
     progress: Mutex<JoinProgress>,
     watchers_changed: Notify,
@@ -724,9 +736,7 @@ impl ActiveJoin {
             Some(end) => self.end_locked(&mut progress, end),
             None => {
                 progress.slot = Slot::Free;
-                self.status.send_replace(JoinStatus::Waiting {
-                    last_attempt: Some(JoinAttemptOutcome::Failed(reason.to_owned())),
-                });
+                self.attempt_ended(JoinAttemptOutcome::Failed(reason.to_owned()));
             }
         }
     }
@@ -800,12 +810,21 @@ impl ActiveJoin {
         };
         if owned && !progress.ended {
             release_slot(&mut progress);
-            self.status.send_replace(JoinStatus::Waiting {
-                last_attempt: Some(JoinAttemptOutcome::Failed(
-                    "the joining machine disconnected before the join completed".to_owned(),
-                )),
-            });
+            self.attempt_ended(JoinAttemptOutcome::Failed(
+                "the joining machine disconnected before the join completed".to_owned(),
+            ));
         }
+    }
+
+    /// Reports that the latest attempt ended with `outcome` and the join waits for another; the
+    /// caller holds the progress lock.
+    fn attempt_ended(&self, outcome: JoinAttemptOutcome) {
+        self.status.send_replace(JoinStatus::Waiting {
+            last_attempt: Some(JoinAttempt {
+                outcome,
+                at: self.clock.wall_now(),
+            }),
+        });
     }
 
     fn end_locked(&self, progress: &mut JoinProgress, end: JoinEnd) {
@@ -865,9 +884,7 @@ impl Drop for SlotClaim {
             let outcome = self.outcome.take().unwrap_or_else(|| {
                 JoinAttemptOutcome::Failed("the join attempt ended before an offer".to_owned())
             });
-            self.join.status.send_replace(JoinStatus::Waiting {
-                last_attempt: Some(outcome),
-            });
+            self.join.attempt_ended(outcome);
         }
     }
 }

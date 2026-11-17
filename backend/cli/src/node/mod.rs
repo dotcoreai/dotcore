@@ -19,9 +19,14 @@ use std::io::Write;
 use anyhow::Context;
 use clap::{Args, Subcommand};
 
+use dotcore_site::{
+    membership::join::{FingerprintColor, FingerprintPattern},
+    node::folder::CertificateFingerprint,
+};
+
 use crate::{
     RootPathArgs,
-    terminal::{Message, NextStep, Terminal},
+    terminal::{GridColor, Message, NextStep, Terminal},
 };
 use add::{NodeAddArgs, node_add};
 pub(crate) use join::RejoinNameMismatch;
@@ -167,4 +172,44 @@ pub(crate) fn record_value(value: &str) -> anyhow::Result<&str> {
         "result value must not contain carriage returns or newlines"
     );
     Ok(value)
+}
+
+/// The grouped key fingerprint as two facts, the second line under the first, so the operator
+/// can compare it with the other machine's by eye.
+fn fingerprint_facts(fingerprint: &CertificateFingerprint) -> [(String, String); 2] {
+    let [first, second] = fingerprint.grouped_lines();
+    [
+        ("key fingerprint".to_owned(), first),
+        (String::new(), second),
+    ]
+}
+
+/// The fingerprint pattern of a key as a grid of colored cells, matching the one the other
+/// machine shows for the same key.
+fn fingerprint_grid(fingerprint: &CertificateFingerprint) -> Message {
+    let pattern = FingerprintPattern::of(fingerprint);
+    Message::ColorGrid {
+        colors: pattern
+            .colors
+            .iter()
+            .map(|color| match color {
+                FingerprintColor::Red => GridColor::Red,
+                FingerprintColor::Green => GridColor::Green,
+                FingerprintColor::Yellow => GridColor::Yellow,
+                FingerprintColor::Blue => GridColor::Blue,
+                FingerprintColor::Magenta => GridColor::Magenta,
+                FingerprintColor::Cyan => GridColor::Cyan,
+            })
+            .collect(),
+        // A slot counts colors from 1, and 0 leaves the cell empty.
+        rows: pattern
+            .cells
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|&slot| usize::from(slot).checked_sub(1))
+                    .collect()
+            })
+            .collect(),
+    }
 }

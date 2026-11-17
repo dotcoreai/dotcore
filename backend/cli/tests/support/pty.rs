@@ -103,6 +103,7 @@ pub struct PtyRun {
     transcript: Vec<u8>,
     screen: String,
     session: String,
+    color_session: String,
     cursor_hidden: bool,
     termios_restored: bool,
 }
@@ -132,6 +133,13 @@ impl PtyRun {
     /// `SCROLLBACK_ROWS`, followed by the final screen.
     pub fn session(&self) -> &str {
         &self.session
+    }
+
+    /// The whole rendered session like [`Self::session`], one line per row, with each cell on a
+    /// standard color background shown as that color's initial (`r g y b m c`), so tests can
+    /// check colors by position.
+    pub fn color_session(&self) -> &str {
+        &self.color_session
     }
 
     /// Number of SGR sequences that set a foreground or background color on the terminal.
@@ -286,12 +294,14 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
     let termios_after = termios(keyboard.as_raw_fd());
     let mut terminal = terminal.lock().unwrap();
     let session_text = terminal.session();
+    let color_session = terminal.color_session();
     let final_screen = terminal.parser.screen();
     let transcript = transcript.lock().unwrap().clone();
     Some(PtyRun {
         output,
         screen: final_screen.contents(),
         session: session_text,
+        color_session,
         cursor_hidden: final_screen.hide_cursor(),
         termios_restored: termios_before.c_lflag == termios_after.c_lflag
             && termios_before.c_iflag == termios_after.c_iflag
@@ -504,11 +514,45 @@ impl Terminal {
         session
     }
 
+    /// Renders the scrolled-off rows followed by the current screen, one line per row, showing a
+    /// cell on a standard color background as that color's initial.
+    fn color_session(&mut self) -> String {
+        let screen = self.parser.screen_mut();
+        let mut rows = Vec::new();
+        screen.set_scrollback(usize::MAX);
+        while screen.scrollback() > 0 {
+            rows.push(color_row(screen, 0));
+            let offset = screen.scrollback() - 1;
+            screen.set_scrollback(offset);
+        }
+        rows.extend((0..ROWS).map(|row| color_row(screen, row)));
+        rows.join("\n")
+    }
+
     fn record_screen(&mut self) {
         // Separates screens so text never matches across two of them.
         self.shown.push('\0');
         self.shown.push_str(&self.parser.screen().contents());
     }
+}
+
+/// One screen row with each cell on a standard color background shown as that color's initial,
+/// without trailing spaces.
+fn color_row(screen: &vt100::Screen, row: u16) -> String {
+    let mut line = String::new();
+    for column in 0..COLS {
+        let Some(cell) = screen.cell(row, column) else {
+            continue;
+        };
+        match cell.bgcolor() {
+            vt100::Color::Idx(index @ 1..=6) => {
+                line.push(b"rgybmc"[usize::from(index - 1)] as char)
+            }
+            _ if cell.has_contents() => line.push_str(cell.contents()),
+            _ => line.push(' '),
+        }
+    }
+    line.trim_end().to_owned()
 }
 
 /// Kills the child's process group unless the child already exited, and waits for its waiter

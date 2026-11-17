@@ -379,6 +379,32 @@ pub enum Message {
 
     /// What the operator can do next, as steps that may each carry a command to copy.
     Next(Vec<NextStep>),
+
+    /// A grid of colored cells to compare by eye, such as a pattern shown on two screens.
+    /// Without colors, each cell shows the shade of its color's position in `colors`.
+    ColorGrid {
+        /// The colors cells refer to; at most three, so each keeps its own shade without colors.
+        colors: Vec<GridColor>,
+
+        /// Rows of cells, top first, each empty or the index of its color in `colors`.
+        rows: Vec<Vec<Option<usize>>>,
+    },
+}
+
+/// A standard terminal color for the cells of a [`Message::ColorGrid`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GridColor {
+    Red,
+
+    Green,
+
+    Yellow,
+
+    Blue,
+
+    Magenta,
+
+    Cyan,
 }
 
 /// One suggestion in a [`Message::Next`] block: a sentence and an optional command to copy.

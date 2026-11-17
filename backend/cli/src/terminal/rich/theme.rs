@@ -11,7 +11,10 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::terminal::render::{RenderedLine, Role};
+use crate::terminal::{
+    GridColor,
+    render::{RenderedLine, Role},
+};
 
 /// Semantic styles for prompts and messages; every style is plain when colors are off.
 #[derive(Clone, Copy, Debug)]
@@ -79,11 +82,27 @@ impl Theme {
             Role::Warning => self.warning(),
             Role::Error => self.error(),
             Role::Command => self.command(),
+            Role::Swatch(color) => {
+                let color = swatch_color(color);
+                self.styled(Style::new().fg(color).bg(color))
+            }
         }
     }
 
     fn styled(&self, style: Style) -> Style {
         if self.colors { style } else { Style::new() }
+    }
+}
+
+/// The standard, non-bright terminal color of a grid cell.
+fn swatch_color(color: GridColor) -> Color {
+    match color {
+        GridColor::Red => Color::Red,
+        GridColor::Green => Color::Green,
+        GridColor::Yellow => Color::Yellow,
+        GridColor::Blue => Color::Blue,
+        GridColor::Magenta => Color::Magenta,
+        GridColor::Cyan => Color::Cyan,
     }
 }
 
@@ -95,7 +114,7 @@ mod tests {
     };
 
     use super::Theme;
-    use crate::terminal::{Message, render::Symbols};
+    use crate::terminal::{GridColor, Message, render::Symbols};
 
     #[test]
     fn disabled_colors_leave_every_style_plain() {
@@ -151,6 +170,28 @@ mod tests {
         assert_eq!(
             Theme::new(false).line(&lines[0]),
             Line::from(vec![Span::styled("  dotcore", Style::new())])
+        );
+    }
+
+    #[test]
+    fn grid_cells_fill_with_their_standard_color() {
+        let message = Message::ColorGrid {
+            colors: vec![GridColor::Magenta],
+            rows: vec![vec![None, Some(0)]],
+        };
+        let line = &message.render(Symbols::ASCII).lines[0];
+
+        assert_eq!(
+            Theme::new(true).line(line),
+            Line::from(vec![
+                Span::styled("  ", Style::new()),
+                Span::styled("    ", Style::new()),
+                Span::styled("####", Style::new().fg(Color::Magenta).bg(Color::Magenta)),
+            ])
+        );
+        assert_eq!(
+            Theme::new(false).line(line).spans[2],
+            Span::styled("####", Style::new())
         );
     }
 

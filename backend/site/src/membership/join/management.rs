@@ -10,13 +10,14 @@ use dotcore_domain::clock::Clock;
 use dotcore_proto::{
     dotcore::site::v1::{
         ApproveJoinRequest, ApproveJoinResponse, CancelJoinRequest, CancelJoinResponse,
-        ExecutionTarget, ExecutionTargetWorkloadKind, JoinAttemptOutcome as ProtoAttemptOutcome,
-        JoinAwaitingApproval, JoinCommitted, JoinFailed, JoinHostSource as ProtoHostSource,
-        JoinNewNode, JoinProposal as ProtoProposal, JoinProposedTarget, JoinRejoin, JoinState,
-        JoinTargetRuntime, JoinWaiting, NativeWorkloadLifetime, RejectJoinRequest,
-        RejectJoinResponse, StartJoinRequest, StartJoinResponse, WatchJoinRequest,
-        WatchJoinResponse, application_runtime_binding, execution_target, join_attempt_outcome,
-        join_proposal, join_state, model_runtime_binding,
+        ExecutionTarget, ExecutionTargetWorkloadKind,
+        FingerprintPattern as ProtoFingerprintPattern, FingerprintPatternColor,
+        JoinAttemptOutcome as ProtoAttemptOutcome, JoinAwaitingApproval, JoinCommitted, JoinFailed,
+        JoinHostSource as ProtoHostSource, JoinNewNode, JoinProposal as ProtoProposal,
+        JoinProposedTarget, JoinRejoin, JoinState, JoinTargetRuntime, JoinWaiting,
+        NativeWorkloadLifetime, RejectJoinRequest, RejectJoinResponse, StartJoinRequest,
+        StartJoinResponse, WatchJoinRequest, WatchJoinResponse, application_runtime_binding,
+        execution_target, join_attempt_outcome, join_proposal, join_state, model_runtime_binding,
         site_join_service_server::{SiteJoinService, SiteJoinServiceServer},
         watch_join_response,
     },
@@ -26,8 +27,8 @@ use futures_util::{Stream, stream};
 use tonic::{Request, Response, Status};
 
 use super::{
-    JoinAttemptOutcome, JoinHostSource, JoinRegistry, JoinRegistryError, JoinReview, JoinStatus,
-    JoinWatch, ReviewedJoin,
+    FingerprintColor, FingerprintPattern, JoinAttemptOutcome, JoinHostSource, JoinRegistry,
+    JoinRegistryError, JoinReview, JoinStatus, JoinWatch, ReviewedJoin,
 };
 
 /// The management service over the site manager's join registry.
@@ -160,8 +161,8 @@ fn state_stream(
 fn join_state(status: &JoinStatus) -> JoinState {
     let state = match status {
         JoinStatus::Waiting { last_attempt } => join_state::State::Waiting(JoinWaiting {
-            last_attempt: last_attempt.as_ref().map(|outcome| ProtoAttemptOutcome {
-                outcome: Some(match outcome {
+            last_attempt: last_attempt.as_ref().map(|attempt| ProtoAttemptOutcome {
+                outcome: Some(match &attempt.outcome {
                     JoinAttemptOutcome::Rejected => {
                         join_attempt_outcome::Outcome::Rejected(Empty {})
                     }
@@ -169,6 +170,7 @@ fn join_state(status: &JoinStatus) -> JoinState {
                         join_attempt_outcome::Outcome::Failed(reason.clone())
                     }
                 }),
+                at: Some(timestamp(attempt.at)),
             }),
         }),
         JoinStatus::AwaitingApproval {
@@ -226,7 +228,36 @@ fn proposal(review: &JoinReview) -> ProtoProposal {
         host_differs_from_peer: review.host_differs_from_peer,
         private_port: u32::from(private_port),
         key_fingerprint: review.csr_key_fingerprint.as_str().to_owned(),
+        fingerprint_pattern: Some(fingerprint_pattern(&FingerprintPattern::of(
+            &review.csr_key_fingerprint,
+        ))),
         kind: Some(kind),
+    }
+}
+
+/// Projects a fingerprint pattern, its cells row by row.
+fn fingerprint_pattern(pattern: &FingerprintPattern) -> ProtoFingerprintPattern {
+    ProtoFingerprintPattern {
+        colors: pattern
+            .colors
+            .iter()
+            .map(|color| {
+                (match color {
+                    FingerprintColor::Red => FingerprintPatternColor::Red,
+                    FingerprintColor::Green => FingerprintPatternColor::Green,
+                    FingerprintColor::Yellow => FingerprintPatternColor::Yellow,
+                    FingerprintColor::Blue => FingerprintPatternColor::Blue,
+                    FingerprintColor::Magenta => FingerprintPatternColor::Magenta,
+                    FingerprintColor::Cyan => FingerprintPatternColor::Cyan,
+                }) as i32
+            })
+            .collect(),
+        cells: pattern
+            .cells
+            .iter()
+            .flatten()
+            .map(|&slot| u32::from(slot))
+            .collect(),
     }
 }
 
@@ -307,5 +338,42 @@ fn timestamp(time: std::time::SystemTime) -> Timestamp {
     Timestamp {
         seconds: i64::try_from(since_epoch.as_secs()).unwrap_or(i64::MAX),
         nanos: i32::try_from(since_epoch.subsec_nanos()).unwrap_or(0),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dotcore_proto::dotcore::site::v1::FingerprintPatternColor;
+
+    use super::{FingerprintPattern, fingerprint_pattern};
+    use crate::node::folder::CertificateFingerprint;
+
+    #[test]
+    fn a_fingerprint_pattern_reaches_the_wire_with_its_colors_and_cells_row_by_row() {
+        let fingerprint = CertificateFingerprint::parse(
+            "87524a4a3c1f9e0b5d26e8f1a7c4093b6e2d51f8c0a97b34e1d6f2085ab9c7e3",
+        )
+        .expect("fingerprint");
+
+        let pattern = fingerprint_pattern(&FingerprintPattern::of(&fingerprint));
+
+        assert_eq!(
+            pattern.colors,
+            [
+                FingerprintPatternColor::Blue as i32,
+                FingerprintPatternColor::Yellow as i32,
+                FingerprintPatternColor::Magenta as i32,
+            ]
+        );
+        assert_eq!(
+            pattern.cells,
+            [
+                1, 0, 2, 0, 1, //
+                2, 0, 3, 0, 2, //
+                3, 0, 0, 0, 3, //
+                1, 3, 3, 3, 1, //
+                2, 1, 3, 1, 2,
+            ]
+        );
     }
 }

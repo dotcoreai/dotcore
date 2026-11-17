@@ -14,6 +14,7 @@ mod admission;
 mod client;
 mod dial_back;
 mod dial_back_listener;
+mod fingerprint_pattern;
 mod host;
 mod installation;
 mod management;
@@ -29,6 +30,7 @@ mod verifier;
 
 pub use client::{JoinConnection, JoinedNodeFolder, NodeJoinError};
 pub use dial_back::{DialBack, DialBackError};
+pub use fingerprint_pattern::{FINGERPRINT_PATTERN_SIZE, FingerprintColor, FingerprintPattern};
 pub use host::{
     JoinHostIdentity, JoinHostSource, JoinReview, JoinService, JoinSiteError, JoinSiteWriter,
     JoinedNode, NodeRejoin, ReviewedJoin,
@@ -38,7 +40,7 @@ pub use management::JoinManagementService;
 pub use node_key::{NodeKey, NodeKeyError, csr_key_fingerprint};
 pub use proposal::{JoinProposal, JoinProposalError, RejoinProposal};
 pub use registry::{
-    JoinAttemptOutcome, JoinLimits, JoinRegistry, JoinRegistryError, JoinStatus, JoinWatch,
-    StartedJoin,
+    JoinAttempt, JoinAttemptOutcome, JoinLimits, JoinRegistry, JoinRegistryError, JoinStatus,
+    JoinWatch, StartedJoin,
 };
 pub use token::{JOIN_SECRET_BYTES, JoinSecret, JoinToken, JoinTokenError};

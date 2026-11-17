@@ -253,6 +253,31 @@ impl CertificateFingerprint {
         &self.0
     }
 
+    /// Returns the fingerprint as 16 groups of 4 hexadecimal digits, 8 groups per line, so an
+    /// operator can compare two screens by eye.
+    pub fn grouped_lines(&self) -> [String; 2] {
+        let groups = self
+            .0
+            .as_bytes()
+            .chunks(4)
+            .map(|group| String::from_utf8_lossy(group).into_owned())
+            .collect::<Vec<_>>();
+        let (first, second) = groups.split_at(groups.len().min(8));
+        [first.join(" "), second.join(" ")]
+    }
+
+    /// Returns the 32 digest bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics on a fingerprint that is not 64 hexadecimal digits. Every constructor validates
+    /// it; a deserialized one is validated with the manifest that holds it.
+    pub fn digest(&self) -> [u8; 32] {
+        let mut digest = [0; 32];
+        hex::decode_to_slice(&self.0, &mut digest).expect("a validated SHA-256 fingerprint");
+        digest
+    }
+
     fn validate(&self) -> Result<(), NodeFolderContractError> {
         if self.0.len() != 64
             || !self

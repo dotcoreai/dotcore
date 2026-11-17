@@ -104,6 +104,11 @@ impl RejoiningNodeFolder {
         self.folder.private_bind_address().port()
     }
 
+    /// Fingerprint of the node's key, which the manager shows for the rejoin's request.
+    pub fn fingerprint(&self) -> CertificateFingerprint {
+        self.key.fingerprint()
+    }
+
     pub(super) fn folder(&self) -> &ValidatedNodeFolder {
         &self.folder
     }

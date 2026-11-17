@@ -20,10 +20,10 @@ use dotcore_proto::dotcore::site::v1::{
     join_attempt_outcome, join_proposal, join_state,
     site_join_service_client::SiteJoinServiceClient, watch_join_response,
 };
-use dotcore_site::membership::join::JoinToken;
+use dotcore_site::{membership::join::JoinToken, node::folder::CertificateFingerprint};
 use tonic::{Code, Streaming, transport::Channel};
 
-use super::{Notices, boxed, record_value, write_records};
+use super::{Notices, boxed, fingerprint_facts, fingerprint_grid, record_value, write_records};
 use crate::{
     RootPathArgs,
     management::{ManagementError, ManagerArgs, single_line},
@@ -303,7 +303,8 @@ async fn decide(proposal: &JoinProposal, yes: bool) -> anyhow::Result<bool> {
     .context("ask whether to allow the node")?
 }
 
-/// Shows the proposal, the peer address, and the request key fingerprint, then asks.
+/// Shows the proposal, the peer address, and the request key fingerprint with its pattern, then
+/// asks.
 fn decide_with_terminal(
     proposal: &JoinProposal,
     terminal: &mut dyn Terminal,
@@ -355,13 +356,13 @@ fn decide_with_terminal(
         }
     };
     facts.push(("connected from".to_owned(), proposal.peer_address.clone()));
-    facts.push((
-        "key fingerprint".to_owned(),
-        proposal.key_fingerprint.clone(),
-    ));
+    let fingerprint = CertificateFingerprint::parse(proposal.key_fingerprint.as_str())
+        .context("the manager sent a malformed key fingerprint")?;
+    facts.extend(fingerprint_facts(&fingerprint));
 
     terminal.message(&Message::Heading(heading.to_owned()))?;
     terminal.message(&Message::KeyValues(facts))?;
+    terminal.message(&fingerprint_grid(&fingerprint))?;
     if proposal.host_differs_from_peer {
         terminal.message(&Message::Warning(host_mismatch_notice(proposal)))?;
     }
@@ -572,6 +573,7 @@ mod tests {
     };
 
     use super::*;
+    use crate::terminal::{GridColor, ScriptedAnswer, ScriptedTerminal};
 
     fn target(
         kind: ExecutionTargetWorkloadKind,
@@ -611,6 +613,63 @@ mod tests {
         );
         assert_eq!(targets_summary(&targets, false), "docker (linux/amd64)");
         assert_eq!(targets_summary(&[], true), "none");
+    }
+
+    #[test]
+    fn the_review_shows_the_grouped_key_fingerprint_and_its_pattern() {
+        let proposal = JoinProposal {
+            node_id: "node-7".to_owned(),
+            display_name: "gpu-box".to_owned(),
+            host: "192.0.2.10".to_owned(),
+            host_source: JoinHostSource::Proposed as i32,
+            peer_address: "192.0.2.10:41000".to_owned(),
+            private_port: u32::from(DEFAULT_PRIVATE_PORT),
+            key_fingerprint: "87524a4a3c1f9e0b5d26e8f1a7c4093b6e2d51f8c0a97b34e1d6f2085ab9c7e3"
+                .to_owned(),
+            kind: Some(join_proposal::Kind::NewNode(Default::default())),
+            ..JoinProposal::default()
+        };
+        let mut terminal = ScriptedTerminal::interactive([ScriptedAnswer::Confirm(false)]);
+
+        let allowed = decide_with_terminal(&proposal, &mut terminal).expect("decision");
+
+        assert!(!allowed);
+        assert_eq!(
+            terminal.lines(),
+            [
+                "A node asks to join",
+                "  name             gpu-box",
+                "  host             192.0.2.10 (proposed by the node)",
+                "  models           none",
+                "  applications     none",
+                "  connected from   192.0.2.10:41000",
+                "  key fingerprint  8752 4a4a 3c1f 9e0b 5d26 e8f1 a7c4 093b",
+                "                   6e2d 51f8 c0a9 7b34 e1d6 f208 5ab9 c7e3",
+                "  ████    ▓▓▓▓    ████",
+                "  ████    ▓▓▓▓    ████",
+                "  ▓▓▓▓    ░░░░    ▓▓▓▓",
+                "  ▓▓▓▓    ░░░░    ▓▓▓▓",
+                "  ░░░░            ░░░░",
+                "  ░░░░            ░░░░",
+                "  ████░░░░░░░░░░░░████",
+                "  ████░░░░░░░░░░░░████",
+                "  ▓▓▓▓████░░░░████▓▓▓▓",
+                "  ▓▓▓▓████░░░░████▓▓▓▓",
+            ]
+        );
+        assert_eq!(
+            terminal.messages()[2],
+            Message::ColorGrid {
+                colors: vec![GridColor::Blue, GridColor::Yellow, GridColor::Magenta],
+                rows: vec![
+                    vec![Some(0), None, Some(1), None, Some(0)],
+                    vec![Some(1), None, Some(2), None, Some(1)],
+                    vec![Some(2), None, None, None, Some(2)],
+                    vec![Some(0), Some(2), Some(2), Some(2), Some(0)],
+                    vec![Some(1), Some(0), Some(2), Some(0), Some(1)],
+                ],
+            }
+        );
     }
 
     #[test]

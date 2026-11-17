@@ -21,7 +21,7 @@ use std::{
 mod support;
 
 use dotcore_site::{
-    membership::join::{JoinSecret, JoinToken},
+    membership::join::{FingerprintColor, FingerprintPattern, JoinSecret, JoinToken},
     node::folder::{CertificateFingerprint, WorkerNodeCustody},
     reset::transaction::SiteResetLock,
 };
@@ -3300,37 +3300,114 @@ fn the_operator_reviews_a_rejoin_and_declining_leaves_the_site_and_the_folder_un
         )
     });
     wait_for_file(&token_file);
-    let mut join = rejoin_command(&token_file, &node_dir, &["--host", "127.0.0.4"]);
-    let joined = join.output().expect("run node join again");
+    // The joining machine runs on a terminal, so it shows the fingerprint to match.
+    let mut join = dotc();
+    join.args(["node", "join", "--site-dir"])
+        .arg(&node_dir)
+        .arg("--token-file")
+        .arg(&token_file)
+        .args(["--host", "127.0.0.4", "--name", "Worker two"])
+        .clear_test_environment();
+    let Some(joined) = run_in_pty(join, Session::new([])) else {
+        return;
+    };
     let Some(added) = add_run.join().expect("node add session") else {
         return;
     };
 
-    let screen = added.screen();
+    let screen = added.session();
     let peer = loopback_peer_address_toward(std::net::Ipv4Addr::new(127, 0, 0, 2));
+    let fingerprint = shown_fingerprint(screen);
     let review = format!(
-        "A node asks to join again\n  name             Worker two\n  host             127.0.0.3 -> 127.0.0.4\n  manager host     default (no change)\n  deployments      none placed on this node\n  connected from   {peer}:{}\n  key fingerprint  {}\n! Proposed host 127.0.0.4 differs from where the node connected from ({peer})\nAllow this node to join again? [no]: no",
+        "A node asks to join again\n  name             Worker two\n  host             127.0.0.3 -> 127.0.0.4\n  manager host     default (no change)\n  deployments      none placed on this node\n  connected from   {peer}:{}\n{}\n{}\n! Proposed host 127.0.0.4 differs from where the node connected from ({peer})\nAllow this node to join again? [no]: no",
         review_value(screen, "connected from")
             .rsplit(':')
             .next()
             .unwrap(),
-        review_value(screen, "key fingerprint"),
+        fingerprint_rows(&fingerprint, "  key fingerprint  "),
+        pattern_lines(&fingerprint, ASCII_SHADES),
     );
     assert!(
         screen.contains(&review),
         "expected:\n{review}\nscreen:\n{screen}"
     );
-    assert_eq!(joined.status.code(), Some(1));
+    let sent = format!(
+        "Confirm this fingerprint where you approve Worker two:\n{}\n{}\nWaiting for approval on the manager...",
+        pattern_lines(&fingerprint, ASCII_SHADES),
+        fingerprint_rows(&fingerprint, "  key fingerprint  "),
+    );
     assert!(
-        text(&joined.stderr).contains("the manager refused"),
+        joined.session().contains(&sent),
+        "expected:\n{sent}\nsession:\n{}",
+        joined.session()
+    );
+    assert_eq!(joined.code(), Some(1));
+    assert!(
+        joined.stderr().contains("the manager refused"),
         "{}",
-        text(&joined.stderr)
+        joined.stderr()
     );
     let after = JoinedState::read(fixture.site_path(), &node_dir);
     assert_eq!(after.site, before.site);
     assert_eq!(after.worker, before.worker);
     assert_eq!(after.pins, before.pins);
     assert_eq!(after.certificate, before.certificate);
+}
+
+/// Shades a fingerprint pattern takes without colors on an ASCII terminal, by color position.
+const ASCII_SHADES: [&str; 3] = ["#", "+", "."];
+
+/// Reads the grouped key fingerprint off the screen: its labeled line and the one under it.
+fn shown_fingerprint(screen: &str) -> CertificateFingerprint {
+    let mut lines = screen.lines();
+    let first = lines
+        .find_map(|line| line.trim_start().strip_prefix("key fingerprint"))
+        .unwrap_or_else(|| panic!("no key fingerprint line:\n{screen}"));
+    let second = lines.next().expect("the second fingerprint line");
+    CertificateFingerprint::parse(format!("{first}{second}").replace(' ', ""))
+        .unwrap_or_else(|_| panic!("a grouped fingerprint:\n{screen}"))
+}
+
+/// The two grouped fingerprint lines as a terminal lays out fact rows starting with `label`.
+fn fingerprint_rows(fingerprint: &CertificateFingerprint, label: &str) -> String {
+    let [first, second] = fingerprint.grouped_lines();
+    format!("{label}{first}\n{}{second}", " ".repeat(label.len()))
+}
+
+/// The lines the fingerprint pattern takes on a terminal, each cell drawn four times wide and two
+/// lines tall with the text of its color position in `cells`.
+fn pattern_lines(fingerprint: &CertificateFingerprint, cells: [&str; 3]) -> String {
+    let pattern = FingerprintPattern::of(fingerprint);
+    pattern
+        .cells
+        .iter()
+        .flat_map(|row| {
+            let drawn = row
+                .iter()
+                .map(|&slot| match slot {
+                    0 => "    ".to_owned(),
+                    slot => cells[usize::from(slot) - 1].repeat(4),
+                })
+                .collect::<String>();
+            let line = format!("  {drawn}").trim_end().to_owned();
+            [line.clone(), line]
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Initials of a pattern's colors as a color session shows its cells, by color position.
+fn color_initials(fingerprint: &CertificateFingerprint) -> [&'static str; 3] {
+    FingerprintPattern::of(fingerprint)
+        .colors
+        .map(|color| match color {
+            FingerprintColor::Red => "r",
+            FingerprintColor::Green => "g",
+            FingerprintColor::Yellow => "y",
+            FingerprintColor::Blue => "b",
+            FingerprintColor::Magenta => "m",
+            FingerprintColor::Cyan => "c",
+        })
 }
 
 /// Reads a review fact's value off the screen.
@@ -4518,6 +4595,120 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
     let site = std::fs::read_to_string(fixture.site_path().join("site.yaml")).expect("Site");
     assert!(site.contains("displayName: Interactive node"), "{site}");
     assert!(node_dir.join("trust/node-key.pk8").is_file());
+
+    // Both machines show the same grouped key fingerprint and pattern, in shades on a terminal
+    // without colors.
+    let fingerprint = shown_fingerprint(joined.session());
+    let rows = fingerprint_rows(&fingerprint, "  key fingerprint  ");
+    let pattern = pattern_lines(&fingerprint, ASCII_SHADES);
+    let sent = format!(
+        "Confirm this fingerprint where you approve CLI test node:\n{pattern}\n{rows}\nWaiting for approval on the manager..."
+    );
+    assert!(
+        joined.session().contains(&sent),
+        "expected:\n{sent}\nsession:\n{}",
+        joined.session()
+    );
+    let review = format!("{rows}\n{pattern}\n");
+    assert!(
+        added.session().contains(&review),
+        "expected:\n{review}\nsession:\n{}",
+        added.session()
+    );
+}
+
+#[test]
+fn node_add_and_join_show_the_same_fingerprint_pattern_in_color_or_without() {
+    for no_color in [false, true] {
+        let fixture = TemporarySite::new();
+        let nodes = TemporarySite::empty();
+        let token_file = nodes.root.join("join.token");
+        let manager = LiveManager::start(fixture.site_path());
+        let mut add = node_add_command(&manager, Some(&token_file));
+        add.stdin(Stdio::null())
+            .env("TERM", "xterm-256color")
+            .env("LANG", "C.UTF-8");
+        let mut join = dotc();
+        join.args(["node", "join", "--site-dir"])
+            .arg(nodes.root.join("node"))
+            .arg("--token-file")
+            .arg(&token_file)
+            .args([
+                "--name",
+                "Color node",
+                "--host",
+                "127.0.0.3",
+                "--inference",
+                "simulated",
+                "--applications",
+                "simulated",
+                "--private-port",
+                &node_private_port(),
+            ])
+            .clear_test_environment()
+            .env("TERM", "xterm-256color")
+            .env("LANG", "C.UTF-8");
+        if no_color {
+            add.env("NO_COLOR", "1");
+            join.env("NO_COLOR", "1");
+        }
+
+        let add_run = thread::spawn(move || {
+            run_in_pty(
+                add,
+                Session::new([Step::Wait("Allow this node to join?"), Step::Send(b"y")]),
+            )
+        });
+        wait_for_file(&token_file);
+        let Some(joined) = run_in_pty(
+            join,
+            Session::new([
+                Step::Wait("Send this proposal to the manager?"),
+                Step::Send(b"y"),
+            ]),
+        ) else {
+            return;
+        };
+        let added = add_run
+            .join()
+            .expect("node add session")
+            .expect("pty available");
+
+        assert_eq!(joined.code(), Some(0), "session:\n{}", joined.session());
+        assert_eq!(added.code(), Some(0), "session:\n{}", added.session());
+        let fingerprint = shown_fingerprint(joined.session());
+        assert_eq!(shown_fingerprint(added.session()), fingerprint);
+        let rows = fingerprint_rows(&fingerprint, "  key fingerprint  ");
+        let (pattern, sessions) = if no_color {
+            (
+                pattern_lines(&fingerprint, ASCII_SHADES),
+                [joined.session(), added.session()],
+            )
+        } else {
+            (
+                pattern_lines(&fingerprint, color_initials(&fingerprint)),
+                [joined.color_session(), added.color_session()],
+            )
+        };
+        let sent =
+            format!("Confirm this fingerprint where you approve Color node:\n{pattern}\n{rows}\n");
+        let review = format!("{rows}\n{pattern}\n");
+        for (expected, session) in [(sent, sessions[0]), (review, sessions[1])] {
+            assert!(
+                session.contains(&expected),
+                "NO_COLOR set: {no_color}; expected:\n{expected}\nsession:\n{session}"
+            );
+        }
+        for run in [&joined, &added] {
+            assert_eq!(
+                run.color_sgr_count() > 0,
+                !no_color,
+                "NO_COLOR set: {no_color}; colored SGR count {}",
+                run.color_sgr_count()
+            );
+            assert!(!run.stdout().contains('\x1b'));
+        }
+    }
 }
 
 #[test]

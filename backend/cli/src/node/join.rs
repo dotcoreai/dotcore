@@ -33,10 +33,15 @@ use dotcore_site::{
         JoinConnection, JoinProposal, JoinToken, JoinedNodeFolder, NodeJoinError, NodeKey,
         RejoinProposal, RejoiningNodeFolder,
     },
-    node::{folder::WORKER_MANIFEST_FILE, hostname::local_node_name},
+    node::{
+        folder::{CertificateFingerprint, WORKER_MANIFEST_FILE},
+        hostname::local_node_name,
+    },
 };
 
-use super::{Notices, boxed, lend, record_value, write_records};
+use super::{
+    Notices, boxed, fingerprint_facts, fingerprint_grid, lend, record_value, write_records,
+};
 use crate::{
     RootPathArgs,
     failure::shell_word,
@@ -244,6 +249,7 @@ async fn join_new_site(
         anyhow::bail!("join cancelled; nothing was sent");
     }
     if let Some(terminal) = lend(&mut terminal) {
+        show_fingerprint(terminal, &proposal.display_name, &key.fingerprint())?;
         terminal.message(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
     }
 
@@ -295,6 +301,9 @@ async fn rejoin_site(
             "Joining again from {}",
             folder.root().display()
         )))?;
+        // The folder holds no display name; the manager shows the one the site declares.
+        let name = arguments.name.as_deref().unwrap_or("this node");
+        show_fingerprint(terminal, name, &folder.fingerprint())?;
         terminal.message(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
     }
     let joined = connection
@@ -664,11 +673,8 @@ fn confirm_proposal(
         ("models".to_owned(), proposal.inference_summary()),
         ("applications".to_owned(), proposal.applications_summary()),
         ("node folder".to_owned(), site_dir.display().to_string()),
-        (
-            "key fingerprint".to_owned(),
-            key.fingerprint().as_str().to_owned(),
-        ),
     ];
+    facts.extend(fingerprint_facts(&key.fingerprint()));
     if proposal.private_port != DEFAULT_PRIVATE_PORT {
         facts.insert(
             2,
@@ -681,6 +687,21 @@ fn confirm_proposal(
         "Send this proposal to the manager?",
         true,
     ))?)
+}
+
+/// Asks the operator to match this machine's key fingerprint and its pattern with the ones shown
+/// where the node named `name` is approved.
+fn show_fingerprint(
+    terminal: &mut dyn Terminal,
+    name: &str,
+    fingerprint: &CertificateFingerprint,
+) -> anyhow::Result<()> {
+    terminal.message(&Message::Info(format!(
+        "Confirm this fingerprint where you approve {name}:"
+    )))?;
+    terminal.message(&fingerprint_grid(fingerprint))?;
+    terminal.message(&Message::KeyValues(fingerprint_facts(fingerprint).to_vec()))?;
+    Ok(())
 }
 
 /// Adds the command the operator should run next to a join failure.
@@ -758,7 +779,7 @@ mod tests {
     use dotcore_site::initial::inputs::{ApplicationTargetChoice, ModelTargetChoice};
 
     use super::*;
-    use crate::terminal::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
+    use crate::terminal::{GridColor, ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
 
     #[test]
     fn the_token_is_asked_for_hidden_and_asked_again_when_malformed() {
@@ -1198,6 +1219,7 @@ mod tests {
 
         let sent = confirm_proposal(&proposal, &key, Path::new("/srv/node"), &mut terminal)
             .expect("confirmation");
+        let grouped = key.fingerprint().grouped_lines();
 
         assert!(!sent);
         assert_eq!(
@@ -1210,8 +1232,52 @@ mod tests {
                     .to_owned(),
                 "  applications     docker (linux/arm64)".to_owned(),
                 "  node folder      /srv/node".to_owned(),
-                format!("  key fingerprint  {}", key.fingerprint().as_str()),
+                format!("  key fingerprint  {}", grouped[0]),
+                format!("                   {}", grouped[1]),
             ]
+        );
+    }
+
+    #[test]
+    fn the_sent_proposal_asks_to_match_the_fingerprint_and_its_pattern() {
+        let fingerprint = CertificateFingerprint::parse(
+            "87524a4a3c1f9e0b5d26e8f1a7c4093b6e2d51f8c0a97b34e1d6f2085ab9c7e3",
+        )
+        .expect("fingerprint");
+        let mut terminal = ScriptedTerminal::interactive([]);
+
+        show_fingerprint(&mut terminal, "gpu-box", &fingerprint).expect("fingerprint shown");
+
+        assert_eq!(
+            terminal.lines(),
+            [
+                "Confirm this fingerprint where you approve gpu-box:",
+                "  ████    ▓▓▓▓    ████",
+                "  ████    ▓▓▓▓    ████",
+                "  ▓▓▓▓    ░░░░    ▓▓▓▓",
+                "  ▓▓▓▓    ░░░░    ▓▓▓▓",
+                "  ░░░░            ░░░░",
+                "  ░░░░            ░░░░",
+                "  ████░░░░░░░░░░░░████",
+                "  ████░░░░░░░░░░░░████",
+                "  ▓▓▓▓████░░░░████▓▓▓▓",
+                "  ▓▓▓▓████░░░░████▓▓▓▓",
+                "  key fingerprint  8752 4a4a 3c1f 9e0b 5d26 e8f1 a7c4 093b",
+                "                   6e2d 51f8 c0a9 7b34 e1d6 f208 5ab9 c7e3",
+            ]
+        );
+        assert_eq!(
+            terminal.messages()[1],
+            Message::ColorGrid {
+                colors: vec![GridColor::Blue, GridColor::Yellow, GridColor::Magenta],
+                rows: vec![
+                    vec![Some(0), None, Some(1), None, Some(0)],
+                    vec![Some(1), None, Some(2), None, Some(1)],
+                    vec![Some(2), None, None, None, Some(2)],
+                    vec![Some(0), Some(2), Some(2), Some(2), Some(0)],
+                    vec![Some(1), Some(0), Some(2), Some(0), Some(1)],
+                ],
+            }
         );
     }
 
