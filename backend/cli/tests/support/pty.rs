@@ -100,6 +100,7 @@ impl Session {
 /// What a finished session left behind, on the process streams and on the terminal.
 pub struct PtyRun {
     pub output: Output,
+    pid: u32,
     transcript: Vec<u8>,
     screen: String,
     session: String,
@@ -117,6 +118,11 @@ impl PtyRun {
     /// Process stderr as text.
     pub fn stderr(&self) -> String {
         String::from_utf8_lossy(&self.output.stderr).into_owned()
+    }
+
+    /// The process id of the command, which a program it replaced itself with keeps.
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
 
     /// The exit code, when the process exited normally.
@@ -299,6 +305,7 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
     let transcript = transcript.lock().unwrap().clone();
     Some(PtyRun {
         output,
+        pid,
         screen: final_screen.contents(),
         session: session_text,
         color_session,

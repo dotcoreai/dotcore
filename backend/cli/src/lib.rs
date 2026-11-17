@@ -283,6 +283,8 @@ impl Cli {
         let mut cli = <Self as clap::FromArgMatches>::from_arg_matches(&matches)?;
         cli.paths.site_dir_on_command_line =
             matches.value_source("site_dir") == Some(clap::parser::ValueSource::CommandLine);
+        cli.paths.cache_dir_on_command_line =
+            matches.value_source("cache_dir") == Some(clap::parser::ValueSource::CommandLine);
         if let Some(message) = cli.argument_contract_error() {
             return Err(Self::command().error(clap::error::ErrorKind::ArgumentConflict, message));
         }

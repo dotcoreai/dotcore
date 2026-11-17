@@ -21,7 +21,7 @@ use anyhow::Context;
 use clap::Args;
 use dotcore::composition::INFERENCE_ADDR_ENV;
 
-use crate::{RootPathArgs, terminal::open_terminal};
+use crate::{RootPathArgs, paths::find_executable, terminal::open_terminal};
 use address::InferenceAddress;
 pub(crate) use agent::CodingAgent;
 use agent::LaunchSetup;
@@ -171,17 +171,10 @@ pub(crate) enum CodeError {
 /// an executable that exists but cannot run, such as a script whose interpreter is missing, keeps
 /// the system error.
 fn start_failed(agent: CodingAgent, error: io::Error) -> anyhow::Error {
-    if error.kind() == io::ErrorKind::NotFound && !on_path(agent.name()) {
+    if error.kind() == io::ErrorKind::NotFound && find_executable(agent.name()).is_none() {
         return CodeError::AgentNotInstalled { agent }.into();
     }
     anyhow::Error::new(error).context(format!("cannot start {}", agent.display_name()))
-}
-
-/// Reports whether a file named `executable` exists in a folder of the process search path.
-fn on_path(executable: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|path| {
-        std::env::split_paths(&path).any(|folder| folder.join(executable).is_file())
-    })
 }
 
 #[cfg(test)]

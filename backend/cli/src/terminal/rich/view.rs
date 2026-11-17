@@ -1,6 +1,7 @@
 //! The arrow-key prompt views of guided `dotc site init` and reset: a list
-//! choice, a checklist, a yes/no question, and a text answer, each drawn in a
-//! few inline rows and driven one key press at a time.
+//! choice, a checklist, a yes/no question, a text answer, and a countdown, each
+//! drawn in a few inline rows and driven one key press, or for the countdown one
+//! tick, at a time.
 //!
 //! Views only draw into a frame and react to keys, so they are testable
 //! without a terminal. Ctrl-C and Esc cancel every view, keys held with Ctrl
@@ -8,7 +9,10 @@
 //! a single line such as `✔ Site host · 127.0.0.1` in the scrollback. Text too
 //! long for the line shows its end, where the operator is typing.
 
-use std::collections::BTreeSet;
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
@@ -20,7 +24,9 @@ use ratatui::{
 };
 
 use super::theme::Theme;
-use crate::terminal::{ConfirmPrompt, InputPrompt, MultiSelectPrompt, SelectItem, SelectPrompt};
+use crate::terminal::{
+    ConfirmPrompt, CountdownPrompt, InputPrompt, MultiSelectPrompt, SelectItem, SelectPrompt,
+};
 
 /// Most item rows a choice shows at once; longer lists scroll.
 const MAX_VISIBLE_ITEMS: u16 = 8;
@@ -41,6 +47,16 @@ pub(super) trait View {
 
     /// Applies one key press.
     fn on_key(&mut self, key: KeyEvent) -> Step<Self::Output>;
+
+    /// Returns when the view next changes without a key press; `None` waits for keys only.
+    fn wake_at(&self) -> Option<Instant> {
+        None
+    }
+
+    /// Applies the passing of time up to `now`, once [`View::wake_at`] is reached.
+    fn on_wake(&mut self, _now: Instant) -> Step<Self::Output> {
+        Step::Continue
+    }
 
     /// Returns the text of an answer for the summary line.
     fn answer_text(&self, output: &Self::Output) -> String;
@@ -466,6 +482,86 @@ impl View for InputView<'_> {
     }
 }
 
+/// A countdown before an action: Enter goes ahead right away, Esc cancels, and the action goes
+/// ahead by itself when the time runs out. The remaining whole seconds update once a second.
+pub(super) struct CountdownView<'a> {
+    prompt: &'a CountdownPrompt,
+    deadline: Instant,
+    now: Instant,
+}
+
+impl<'a> CountdownView<'a> {
+    /// Starts the countdown at `now`.
+    pub(super) fn new(prompt: &'a CountdownPrompt, now: Instant) -> Self {
+        Self {
+            prompt,
+            deadline: now + prompt.duration(),
+            now,
+        }
+    }
+
+    /// Returns the time left, which the view shows rounded up to whole seconds.
+    fn remaining(&self) -> Duration {
+        self.deadline.saturating_duration_since(self.now)
+    }
+}
+
+impl View for CountdownView<'_> {
+    type Output = bool;
+
+    fn title(&self) -> &str {
+        self.prompt.title()
+    }
+
+    fn height(&self, _rows: u16) -> u16 {
+        1
+    }
+
+    fn render(&mut self, frame: &mut Frame, theme: &Theme) {
+        let remaining = self.remaining();
+        let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
+        let line = Line::from(vec![
+            Span::styled("? ", theme.accent()),
+            Span::styled(self.prompt.title().to_owned(), theme.heading()),
+            Span::styled(format!(" in {seconds}s"), theme.accent()),
+            Span::styled(" · enter start now · esc skip", theme.hint()),
+        ]);
+        frame.render_widget(line, frame.area());
+    }
+
+    fn on_key(&mut self, key: KeyEvent) -> Step<bool> {
+        match key.code {
+            KeyCode::Enter => Step::Done(true),
+            KeyCode::Esc => Step::Cancel,
+            _ => Step::Continue,
+        }
+    }
+
+    fn wake_at(&self) -> Option<Instant> {
+        // The shown seconds change when the time left crosses a whole second.
+        let fraction = Duration::from_nanos(u64::from(self.remaining().subsec_nanos()));
+        let step = if fraction.is_zero() {
+            Duration::from_secs(1)
+        } else {
+            fraction
+        };
+        Some((self.now + step).min(self.deadline))
+    }
+
+    fn on_wake(&mut self, now: Instant) -> Step<bool> {
+        self.now = now;
+        if self.remaining().is_zero() {
+            Step::Done(true)
+        } else {
+            Step::Continue
+        }
+    }
+
+    fn answer_text(&self, _output: &bool) -> String {
+        "starting".to_owned()
+    }
+}
+
 /// Returns the end of `text` that fits in `width` columns, led by `…` when the start is cut.
 fn tail(text: &str, width: usize) -> String {
     if Span::raw(text).width() <= width {
@@ -492,14 +588,18 @@ mod tests {
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
     use ratatui::{Terminal, backend::TestBackend, layout::Position, style::Color};
 
-    use std::collections::BTreeSet;
+    use std::{
+        collections::BTreeSet,
+        time::{Duration, Instant},
+    };
 
     use super::{
-        ConfirmView, InputView, MultiSelectView, SelectView, Step, View, answer_line,
-        cancelled_line, handle_event,
+        ConfirmView, CountdownView, InputView, MultiSelectView, SelectView, Step, View,
+        answer_line, cancelled_line, handle_event,
     };
     use crate::terminal::{
-        ConfirmPrompt, InputPrompt, MultiSelectPrompt, SelectItem, SelectPrompt, rich::theme::Theme,
+        ConfirmPrompt, CountdownPrompt, InputPrompt, MultiSelectPrompt, SelectItem, SelectPrompt,
+        rich::theme::Theme,
     };
 
     #[test]
@@ -847,6 +947,68 @@ mod tests {
         terminal
             .backend_mut()
             .assert_cursor_position(Position::new(29, 0));
+    }
+
+    #[test]
+    fn a_countdown_shows_whole_seconds_left_and_goes_ahead_when_time_runs_out() {
+        let prompt = CountdownPrompt::new("Start the node", Duration::from_secs(5));
+        let start = Instant::now();
+        let mut view = CountdownView::new(&prompt, start);
+
+        let terminal = draw(&mut view, Theme::new(false), 60, 1);
+        terminal
+            .backend()
+            .assert_buffer_lines(["? Start the node in 5s · enter start now · esc skip         "]);
+        assert_eq!(view.wake_at(), Some(start + Duration::from_secs(1)));
+
+        assert_eq!(
+            view.on_wake(start + Duration::from_millis(1_500)),
+            Step::Continue
+        );
+        let terminal = draw(&mut view, Theme::new(false), 60, 1);
+        terminal
+            .backend()
+            .assert_buffer_lines(["? Start the node in 4s · enter start now · esc skip         "]);
+        // The next change is when 3.5 s left becomes 3 s.
+        assert_eq!(view.wake_at(), Some(start + Duration::from_secs(2)));
+
+        assert_eq!(
+            view.on_wake(start + Duration::from_millis(4_800)),
+            Step::Continue
+        );
+        assert_eq!(view.wake_at(), Some(start + Duration::from_secs(5)));
+        assert_eq!(
+            view.on_wake(start + Duration::from_secs(5)),
+            Step::Done(true)
+        );
+        assert_eq!(view.answer_text(&true), "starting");
+    }
+
+    #[test]
+    fn a_countdown_goes_ahead_on_enter_and_cancels_on_esc_or_ctrl_c() {
+        let prompt = CountdownPrompt::new("Start the node", Duration::from_secs(5));
+        let start = Instant::now();
+        let ctrl_c = Event::Key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
+
+        assert_eq!(
+            handle_event(&mut CountdownView::new(&prompt, start), key(KeyCode::Enter)),
+            Step::Done(true)
+        );
+        assert_eq!(
+            handle_event(&mut CountdownView::new(&prompt, start), key(KeyCode::Esc)),
+            Step::Cancel
+        );
+        assert_eq!(
+            handle_event(&mut CountdownView::new(&prompt, start), ctrl_c),
+            Step::Cancel
+        );
+        assert_eq!(
+            handle_event(
+                &mut CountdownView::new(&prompt, start),
+                key(KeyCode::Char('y'))
+            ),
+            Step::Continue
+        );
     }
 
     #[test]

@@ -104,6 +104,7 @@ impl Timing {
                 token_lifetime: Duration::from_secs(15 * 60),
                 watcher_grace: Duration::from_secs(10),
                 ended_retention: Duration::from_secs(60),
+                start_countdown: Duration::from_secs(5),
             },
             private: PrivateTiming {
                 keepalive_interval: Duration::from_secs(10),
@@ -233,7 +234,12 @@ impl Timing {
                 // Tests assert exact simulated timings.
                 vary_durations: false,
             },
-            join: production.join,
+            // Long enough to show on a test terminal, short enough that a joined node starts
+            // without delaying the test.
+            join: JoinTiming {
+                start_countdown: Duration::from_millis(200),
+                ..production.join
+            },
             // A lost private connection is noticed within moments; a loopback ping answers far
             // sooner even on a loaded host.
             private: PrivateTiming {
@@ -451,6 +457,10 @@ pub struct JoinTiming {
     /// How long an ended join stays readable, so a follower that reconnects still sees how it
     /// ended.
     pub ended_retention: Duration,
+
+    /// How long a joined node waits on its terminal before starting, so the operator can start
+    /// it right away or skip the start.
+    pub start_countdown: Duration,
 }
 
 /// Real-time keepalive of the private connections between the site manager and its workers.

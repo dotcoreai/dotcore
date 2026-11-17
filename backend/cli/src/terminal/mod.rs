@@ -18,7 +18,7 @@ mod render;
 mod rich;
 mod scripted;
 
-use std::{collections::BTreeSet, fs::File, io};
+use std::{collections::BTreeSet, fs::File, io, time::Duration};
 
 use dotcore_domain::timing::Timing;
 use line::LineTerminal;
@@ -45,6 +45,11 @@ pub trait Terminal {
     /// Asks for free text that is not echoed back, such as a credential, and returns the answer
     /// exactly as typed.
     fn secret(&mut self, prompt: &InputPrompt) -> Result<String, PromptError>;
+
+    /// Counts down before an action and returns whether to go ahead: true when the time runs out
+    /// or the operator goes ahead early, false when the operator skips it or the terminal cannot
+    /// read a single key press.
+    fn countdown(&mut self, prompt: &CountdownPrompt) -> Result<bool, PromptError>;
 
     /// Displays one styled, non-prompt message to the operator.
     fn message(&mut self, message: &Message) -> Result<(), PromptError>;
@@ -294,6 +299,33 @@ impl ConfirmPrompt {
     /// Returns the decision taken by an empty answer.
     pub fn default(&self) -> bool {
         self.default
+    }
+}
+
+/// An action that starts by itself once a countdown runs out, unless the operator skips it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CountdownPrompt {
+    title: String,
+    duration: Duration,
+}
+
+impl CountdownPrompt {
+    /// Creates a countdown of `duration` before the action named by `title`.
+    pub fn new(title: impl Into<String>, duration: Duration) -> Self {
+        Self {
+            title: title.into(),
+            duration,
+        }
+    }
+
+    /// Returns the action the countdown leads to.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// Returns how long the countdown lasts.
+    pub fn duration(&self) -> Duration {
+        self.duration
     }
 }
 

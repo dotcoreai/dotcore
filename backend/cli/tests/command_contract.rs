@@ -4618,6 +4618,108 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
 }
 
 #[test]
+fn an_interactive_join_starts_the_node_with_its_packaged_launcher_or_shows_how() {
+    for term in ["xterm-256color", "dumb"] {
+        let rich = term != "dumb";
+        let fixture = TemporarySite::new();
+        let nodes = TemporarySite::empty();
+        let token_file = nodes.root.join("join.token");
+        let node_dir = nodes.root.join("node");
+        let launched = nodes.root.join("launched");
+        let launcher = nodes.root.join("dotcore");
+        std::fs::write(
+            &launcher,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$$\" \"$@\" > '{}'\n",
+                launched.display()
+            ),
+        )
+        .expect("write the launcher stub");
+        std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o755))
+            .expect("make the launcher stub executable");
+
+        let manager = LiveManager::start(fixture.site_path());
+        let mut add = node_add_command(&manager, Some(&token_file));
+        add.stdin(Stdio::null());
+        let add_run = thread::spawn(move || {
+            run_in_pty(
+                add,
+                Session::new([Step::Wait("Allow this node to join?"), Step::Send(b"yes\n")]),
+            )
+        });
+        wait_for_file(&token_file);
+        let mut join = dotc();
+        join.args(["node", "join", "--site-dir"])
+            .arg(&node_dir)
+            .arg("--token-file")
+            .arg(&token_file)
+            .args([
+                "--name",
+                "Started node",
+                "--host",
+                "127.0.0.3",
+                "--inference",
+                "simulated",
+                "--applications",
+                "simulated",
+                "--private-port",
+                &node_private_port(),
+            ])
+            .clear_test_environment()
+            .env("TERM", term)
+            .env("LANG", "C.UTF-8")
+            .env("PATH", &nodes.root);
+        let confirm: &[u8] = if rich { b"y" } else { b"y\n" };
+        let Some(joined) = run_in_pty(
+            join,
+            Session::new([
+                Step::Wait("Send this proposal to the manager?"),
+                Step::Send(confirm),
+            ]),
+        ) else {
+            return;
+        };
+        let added = add_run
+            .join()
+            .expect("node add session")
+            .expect("pty available");
+
+        assert_eq!(added.code(), Some(0), "session:\n{}", added.session());
+        assert_eq!(joined.code(), Some(0), "session:\n{}", joined.session());
+        joined.assert_terminal_restored();
+        if rich {
+            // The launcher on the search path replaced dotc in its process, with the folder the
+            // join was given.
+            assert_eq!(
+                std::fs::read_to_string(&launched).expect("the launcher ran"),
+                format!("{}\n--site-dir\n{}\n", joined.pid(), node_dir.display())
+            );
+            assert!(
+                joined.session().contains("Start the node · starting"),
+                "{}",
+                joined.session()
+            );
+            assert!(
+                !joined.session().contains("Start the node:"),
+                "{}",
+                joined.session()
+            );
+        } else {
+            // Line prompts can't skip with a key, so they show the command instead.
+            assert!(!launched.exists(), "the launcher ran on a dumb terminal");
+            assert!(
+                joined.session().contains(&format!(
+                    "Start the node:\n      dotcore --site-dir {}",
+                    node_dir.display()
+                )),
+                "{}",
+                joined.session()
+            );
+        }
+    }
+}
+
+#[test]
 fn node_add_and_join_show_the_same_fingerprint_pattern_in_color_or_without() {
     for no_color in [false, true] {
         let fixture = TemporarySite::new();
