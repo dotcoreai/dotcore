@@ -320,14 +320,18 @@ impl SiteRepository {
     }
 
     /// Runs a membership mutation: adding a joined node with its execution targets, or replacing a
-    /// declared node's addresses. Nothing is written when the operation changes nothing.
+    /// declared node's addresses. The operation runs under the site lock, so what it checks holds
+    /// until the change is written. Nothing is written when the operation changes nothing.
     ///
-    /// Unlike other owner mutations it is persist-or-reject: the change is accepted in memory and
-    /// controllers are notified only once `site.yaml` holds it, because recording a node hands it
-    /// its identity, which can't be taken back. A storage error means nothing was accepted.
+    /// Unlike other owner mutations it is persist-or-reject: the change is accepted in memory only
+    /// once `site.yaml` holds it, because recording a node hands it its identity, which can't be
+    /// taken back. `persisted` then runs before controllers are notified, so they see what it
+    /// publishes. A storage error means nothing was accepted in memory; when the error is
+    /// uncertain, `site.yaml` may still hold the change.
     pub fn mutate_membership<T, E: std::error::Error + 'static>(
         &self,
         operation: impl FnOnce(&mut MembershipSiteTransaction<'_>) -> Result<T, E>,
+        persisted: impl FnOnce(&T),
     ) -> Result<T, ScopedSiteMutationError<E>> {
         let mut current = lock(&self.state).map_err(ScopedSiteMutationError::Repository)?;
         let mut candidate = current.site.clone();
@@ -343,7 +347,7 @@ impl SiteRepository {
         let contents = yaml::to_string(&candidate)
             .map_err(SiteRepositoryError::SerializeYaml)
             .map_err(ScopedSiteMutationError::Repository)?;
-        self.persist_or_reject(&mut current, candidate, &contents)
+        self.persist_or_reject(&mut current, candidate, &contents, || persisted(&result))
             .map_err(ScopedSiteMutationError::Repository)?;
         Ok(result)
     }
@@ -446,14 +450,17 @@ impl SiteRepository {
         persistence
     }
 
-    /// Writes a validated candidate, then accepts it and notifies controllers; a failed or
-    /// uncertain write accepts nothing. After an uncertain write the accepted site is written
-    /// again, so the file holds what memory holds; the site stays dirty when that fails too.
+    /// Writes a validated candidate, then accepts it, runs `accepted` and notifies controllers; a
+    /// failed or uncertain write accepts nothing. After an uncertain write the accepted site is
+    /// written again, so the file holds what memory holds, and the error is reported as a plain
+    /// storage failure. Only when that write fails too is it reported as uncertain, and the site
+    /// stays dirty.
     fn persist_or_reject(
         &self,
         current: &mut SiteState,
         candidate: Site,
         contents: &str,
+        accepted: impl FnOnce(),
     ) -> Result<(), SiteRepositoryError> {
         reject_node_view_growth(&current.site, &candidate)?;
         if let Err(error) = self.writer.replace(&self.path, contents) {
@@ -470,7 +477,15 @@ impl SiteRepository {
             ) {
                 current.dirty = true;
                 // The rewrite logs its own outcome; the change stays rejected either way.
-                let _ = self.flush(current);
+                if self.flush(current).is_ok() {
+                    return Err(SiteRepositoryError::Storage(
+                        super::persistence::SiteStorageError::Storage(
+                            anyhow::Error::new(error).context(
+                                "the previous site was written back after an unconfirmed write",
+                            ),
+                        ),
+                    ));
+                }
             }
             return Err(SiteRepositoryError::Storage(error));
         }
@@ -482,6 +497,7 @@ impl SiteRepository {
             path = %self.path.display(),
             "Site store wrote site.yaml"
         );
+        accepted();
         self.notify_change(&current.site);
         Ok(())
     }

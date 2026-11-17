@@ -65,8 +65,9 @@ use crate::{
         WORKER_MANIFEST_FILE, WorkerNodeCustody,
     },
     private_transport::{
-        JoinGate, PeerPins, PinnedPeerVerifier, PrivateConnections, PrivateNodeRole,
-        PrivatePeerPolicy, PrivateServerConfiguration, UnpinnedConnectionLimits, pem,
+        JoinGate, PeerPins, PinnedPeerVerifier, PrivateConnectionInfo, PrivateConnections,
+        PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration, UnpinnedConnectionLimits,
+        pem,
     },
     repository::{SiteRepository, SiteWriteFault, SiteWriteFaults},
     validation::load_validated_site,
@@ -531,35 +532,36 @@ async fn an_observed_loopback_host_is_recorded_when_the_manager_reaches_the_node
 }
 
 #[tokio::test]
-async fn wrong_secrets_are_rejected_without_writes_and_stop_the_host_at_the_limit() {
-    let harness = Harness::start(Options {
-        limits: JoinLimits {
-            max_failed_attempts: 2,
-            ..JoinLimits::default()
-        },
-        ..Options::default()
-    })
-    .await;
+async fn wrong_secrets_are_refused_like_a_closed_port_and_never_end_the_join() {
+    let harness = Harness::start(Options::default()).await;
     let site_before = harness.site_bytes();
     let mut wrong = harness.token.clone();
     wrong.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    let mut connection = JoinConnection::connect(wrong, None, Timing::test().join)
-        .await
-        .expect("the host is authentic even with a wrong secret");
     let node_root = harness.node_root();
 
-    let error = connection
-        .join(
-            &proposal("worker", WORKER_HOST),
-            &NodeKey::generate().expect("key"),
-            &node_root,
-        )
-        .await
-        .expect_err("wrong secret");
-    assert!(
-        matches!(&error, NodeJoinError::Join(status) if status.code() == Code::Unauthenticated),
-        "{error:?}"
-    );
+    // Well past any attempt limit: anyone reaching the port can send these.
+    for attempt in 0..12 {
+        let mut connection = JoinConnection::connect(wrong.clone(), None, Timing::test().join)
+            .await
+            .expect("the host is authentic even with a wrong secret");
+        let error = connection
+            .join(
+                &proposal("worker", WORKER_HOST),
+                &NodeKey::generate().expect("key"),
+                &node_root,
+            )
+            .await
+            .expect_err("wrong secret");
+        assert!(
+            matches!(
+                &error,
+                NodeJoinError::Join(status)
+                    if status.code() == Code::Unauthenticated
+                        && status.message() == "private peer authentication failed"
+            ),
+            "attempt {attempt}: {error:?}"
+        );
+    }
     assert!(!node_root.exists());
     assert_eq!(harness.site_bytes(), site_before);
     assert!(harness.pins().is_empty());
@@ -570,24 +572,21 @@ async fn wrong_secrets_are_rejected_without_writes_and_stop_the_host_at_the_limi
         "a wrong secret is no attempt of the join"
     );
 
-    connection
+    let mut connection = JoinConnection::connect(harness.token.clone(), None, Timing::test().join)
+        .await
+        .expect("connect with the right secret");
+    let joined = connection
         .join(
             &proposal("worker", WORKER_HOST),
             &NodeKey::generate().expect("key"),
             &node_root,
         )
         .await
-        .expect_err("second wrong secret");
-    assert_eq!(harness.finish().await, Err(failed(TOO_MANY_WRONG_SECRETS)));
-    let status = harness
-        .raw_client()
-        .await
-        .join(harness.raw_request("worker"))
-        .await
-        .expect_err("the failed join refuses its token");
-    assert_eq!(status.code(), Code::Unauthenticated);
-    assert_eq!(harness.site_bytes(), site_before);
-    assert!(harness.pins().is_empty());
+        .expect("the join still accepts its own secret");
+    assert_eq!(
+        harness.finish().await.expect("committed").node_id,
+        joined.node_id
+    );
 }
 
 #[tokio::test]
@@ -1179,10 +1178,6 @@ async fn idle_connections_close_but_reviews_in_progress_do_not() {
 async fn a_review_is_cancelled_when_its_connection_closes_or_the_host_stops() {
     let harness = Harness::start(Options {
         hold_reviews: true,
-        limits: JoinLimits {
-            max_failed_attempts: 1,
-            ..JoinLimits::default()
-        },
         ..Options::default()
     })
     .await;
@@ -1202,15 +1197,13 @@ async fn a_review_is_cancelled_when_its_connection_closes_or_the_host_stops() {
     let request = harness.raw_request("worker");
     let pending = tokio::spawn(async move { request_offer_result(&mut held, request).await });
     retry_until(|| harness.approval.reviews().len() == 2).await;
-    let mut wrong = harness.raw_client().await;
-    let mut wrong_token = harness.token.clone();
-    wrong_token.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    request_offer_result(&mut wrong, harness.raw_request_with(&wrong_token, "other"))
-        .await
-        .expect_err("wrong secret");
+    harness
+        .registry
+        .cancel(&harness.join_id)
+        .expect("cancel the join");
     harness.approval.wait_cancelled(&harness, 1).await;
 
-    assert_eq!(harness.finish().await, Err(failed(TOO_MANY_WRONG_SECRETS)));
+    assert_eq!(harness.finish().await, Err(Box::new(JoinStatus::Cancelled)));
     pending
         .await
         .expect("join task")
@@ -1226,10 +1219,6 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
     let entered = Mutex::new(entered);
     let released = Mutex::new(released);
     let harness = Harness::start(Options {
-        limits: JoinLimits {
-            max_failed_attempts: 1,
-            ..JoinLimits::default()
-        },
         failing_publish: Some(Box::new(move || {
             let _ = entered
                 .lock()
@@ -1265,12 +1254,10 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
     .await
     .expect("wait for publication");
 
-    let mut wrong = harness.raw_client().await;
-    let mut wrong_token = harness.token.clone();
-    wrong_token.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    request_offer_result(&mut wrong, harness.raw_request_with(&wrong_token, "other"))
-        .await
-        .expect_err("wrong secret during the commit");
+    harness
+        .registry
+        .cancel(&harness.join_id)
+        .expect("cancel during the commit");
     release.send(()).expect("release the publication");
 
     let status = commit
@@ -1278,7 +1265,7 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
         .expect("commit task")
         .expect_err("failed commit");
     assert_eq!(status.code(), Code::Aborted);
-    assert_eq!(harness.finish().await, Err(failed(TOO_MANY_WRONG_SECRETS)));
+    assert_eq!(harness.finish().await, Err(Box::new(JoinStatus::Cancelled)));
     assert!(harness.pins().is_empty());
 }
 
@@ -2444,7 +2431,10 @@ async fn a_cancelled_join_refuses_its_token_and_stays_readable_until_forgotten()
     ));
     let status = registry
         .shared_for_test()
-        .join_for_secret(started.token.secret.as_bytes())
+        .join_for_secret(
+            &PrivateConnectionInfo::unattached("127.0.0.1:50000".parse().expect("peer")),
+            started.token.secret.as_bytes(),
+        )
         .err()
         .expect("the cancelled token is refused");
     assert_eq!(status.code(), Code::Unauthenticated);
@@ -2755,9 +2745,6 @@ async fn retry_until_async<F: std::future::Future<Output = bool>>(
     }
     panic!("condition did not hold");
 }
-
-/// Why a join fails after too many wrong secrets.
-const TOO_MANY_WRONG_SECRETS: &str = "too many join attempts used a wrong secret";
 
 /// Why a join fails after too many failed dial-backs.
 const TOO_MANY_DIAL_BACKS: &str =

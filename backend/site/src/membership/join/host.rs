@@ -10,6 +10,7 @@
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
+    panic::AssertUnwindSafe,
     sync::Arc,
 };
 
@@ -21,6 +22,7 @@ use dotcore_proto::dotcore::{
     },
     site::v1::{ExecutionTarget, Site, SiteNode},
 };
+use futures_util::FutureExt as _;
 use tonic::{Request, Response, Status, metadata::MetadataValue};
 use tracing::{info, warn};
 use url::Url;
@@ -301,9 +303,11 @@ impl JoinService {
 impl NodeJoinService for JoinService {
     async fn join(&self, request: Request<JoinRequest>) -> Result<Response<JoinResponse>, Status> {
         let connection = connection_info(&request)?;
-        let _busy = connection.begin_request();
         let request = request.into_inner();
-        let join = self.registry.join_for_secret(&request.join_secret)?;
+        let join = self
+            .registry
+            .join_for_secret(&connection, &request.join_secret)?;
+        let _busy = connection.begin_request();
         let mut claim = join.claim_slot(&connection)?;
         match self
             .registry
@@ -323,16 +327,27 @@ impl NodeJoinService for JoinService {
         request: Request<CommitRequest>,
     ) -> Result<Response<CommitResponse>, Status> {
         let connection = connection_info(&request)?;
-        let _busy = connection.begin_request();
         let request = request.into_inner();
-        let join = self.registry.join_for_secret(&request.join_secret)?;
+        let join = self
+            .registry
+            .join_for_secret(&connection, &request.join_secret)?;
+        let _busy = connection.begin_request();
         let offer = join.begin_commit(connection.id(), &request.offer_id)?;
-        // The commit runs on its own task so a dropped request cannot leave it half-reported.
-        tokio::spawn(Arc::clone(&self.registry).commit(join, offer))
-            .await
-            .map_err(|_| {
-                Status::unknown("the manager could not confirm that it recorded the node")
-            })??;
+        // The commit runs on its own task so a dropped request cannot leave it half-reported, and
+        // a panic in it still ends the join, which releases its hold on the private listener.
+        let registry = Arc::clone(&self.registry);
+        tokio::spawn(async move {
+            let committed = AssertUnwindSafe(registry.commit(Arc::clone(&join), offer))
+                .catch_unwind()
+                .await;
+            committed.unwrap_or_else(|_| {
+                warn!(join_id = %join.id(), "node join commit stopped unexpectedly");
+                join.commit_uncertain();
+                Err(uncertain_commit_status())
+            })
+        })
+        .await
+        .map_err(|_| uncertain_commit_status())??;
         Ok(Response::new(CommitResponse {}))
     }
 }
@@ -641,9 +656,7 @@ impl Registry {
             Err(error @ JoinSiteError::OutcomeUncertain(_)) => {
                 warn!(join_id = %join.id(), node_id = %joined.node_id, error = %error, "node join outcome is uncertain");
                 join.commit_uncertain();
-                Err(Status::unknown(
-                    "the manager could not confirm that it recorded the node",
-                ))
+                Err(uncertain_commit_status())
             }
             Err(error) => {
                 warn!(join_id = %join.id(), node_id = %joined.node_id, error = %error, "node join recorded nothing");
@@ -811,6 +824,11 @@ fn reservation_status(conflict: ReservationConflict) -> Status {
         }
         ReservationConflict::Abandoned => abandoned_status(),
     }
+}
+
+/// The commit's outcome is unknown; the operator checks the site.
+fn uncertain_commit_status() -> Status {
+    Status::unknown("the manager could not confirm that it recorded the node")
 }
 
 fn too_many_dial_backs() -> String {

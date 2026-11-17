@@ -662,8 +662,10 @@ async fn worker_listener_serves_exact_target_inference_to_the_manager_with_full_
 }
 
 #[tokio::test]
-async fn manager_rejects_stale_worker_pins_and_symlinked_trust_artifacts() {
+async fn manager_deletes_stray_worker_pins_and_rejects_symlinked_trust_artifacts() {
     use std::os::unix::fs::symlink;
+
+    use dotcore_domain::test_support::tracing::{Record, capture_records_async};
 
     let stale_pin_fixture = PrivateFixture::new();
     let site_path = stale_pin_fixture.manager_root.join("site.yaml");
@@ -674,23 +676,38 @@ async fn manager_rejects_stale_worker_pins_and_symlinked_trust_artifacts() {
     site.execution_targets
         .retain(|target| target.site_node_id != support::WORKER_NODE_ID);
     fs::write(&site_path, yaml::to_string(&site).expect("serialize site")).expect("rewrite site");
+    let stray_pin = stale_pin_fixture
+        .manager_root
+        .join(SITE_TRUST_DIRECTORY)
+        .join(format!("worker-pins/{}.sha256", support::WORKER_NODE_ID));
+    assert!(stray_pin.is_file(), "the fixture pins the worker");
 
-    let error = match Backend::prepare(
-        stale_pin_fixture.manager_configuration(),
-        std::future::pending(),
-    )
-    .await
-    {
-        Ok(_) => panic!("stale worker pin must not grant membership"),
-        Err(error) => error,
-    };
-    assert!(
-        error
-            .source()
-            .into_iter()
-            .chain(error.source().and_then(std::error::Error::source))
-            .any(|cause| cause.to_string() == "worker pin does not name a declared worker node")
-    );
+    let (prepared, records, _) = capture_records_async(|| {
+        Backend::prepare(
+            stale_pin_fixture.manager_configuration(),
+            std::future::pending(),
+        )
+    })
+    .await;
+    let manager = prepared.expect("a stray worker pin doesn't stop the manager");
+
+    assert!(!stray_pin.exists(), "the stray pin is deleted");
+    let warnings = records
+        .iter()
+        .filter_map(|record| match record {
+            Record::Event { level, fields } if level == "WARN" => Some(fields),
+            _ => None,
+        })
+        .filter(|fields| {
+            fields.get("message").map(String::as_str)
+                == Some(
+                    "worker pin names no declared worker node; it is not trusted and is deleted",
+                )
+        })
+        .map(|fields| fields.get("pin").cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(warnings, [Some(stray_pin.display().to_string())]);
+    drop(manager);
 
     let symlink_fixture = PrivateFixture::new();
     let trust = symlink_fixture.manager_root.join(SITE_TRUST_DIRECTORY);

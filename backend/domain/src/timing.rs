@@ -436,8 +436,9 @@ pub struct JoinTiming {
     /// Bound on a join's commit round trip; past it the outcome is unknown.
     pub commit_timeout: Duration,
 
-    /// Longest silence of a joining machine's connection with no request in progress, including
-    /// between an offer and its commit.
+    /// Longest time a joining machine's connection stays open without a join request in
+    /// progress: from its handshake to its first one, and between them, including between an
+    /// offer and its commit. Other traffic on the connection doesn't count.
     pub idle_timeout: Duration,
 
     /// How long a started join and its token stay valid without a committed node.

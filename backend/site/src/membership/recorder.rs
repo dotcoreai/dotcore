@@ -1,10 +1,12 @@
 //! Records membership changes on the running site: a joined node with its execution targets and
 //! the pin of its certificate, or a rejoining node's new addresses.
 //!
-//! Each change is persist-or-reject: the pin is written first, then `site.yaml`, and only then is
-//! the change accepted in memory and the pin trusted by the private listener and the worker
-//! channels. Any failure, including an uncertain write, records nothing and removes a new pin, so
-//! a joining node never receives an identity the site does not hold.
+//! Each change is persist-or-reject. Once the site lock confirms the change is valid and a joined
+//! node is new, its pin is written, then `site.yaml`; only then is the change accepted in memory
+//! and the pin trusted by the private listener and the worker channels, before controllers hear of
+//! it. A failure records nothing and removes the pin it wrote, never another node's, so a joining
+//! node's commit is never confirmed unless the site holds it. A write whose outcome stays
+//! uncertain keeps its pin with the site file that may declare the node, and says so.
 
 use std::{
     fs, io,
@@ -18,6 +20,7 @@ use crate::{
     atomic::{StdFileSystem, persist_bytes},
     manager_trust::{ManagerTrust, ManagerTrustError, SITE_TRUST_DIRECTORY, WORKER_PIN_DIRECTORY},
     node::folder::CertificateFingerprint,
+    persistence::SiteStorageError,
     private_transport::{PeerPins, PrivateNodeRole, PrivatePeerPolicy},
     repository::{
         MembershipSiteTransaction, ScopedSiteMutationError, SiteRepository, SiteRepositoryError,
@@ -83,31 +86,35 @@ impl JoinSiteWriter for MembershipRecorder {
     ) -> Result<(), JoinSiteError> {
         let pin = pin_path(&self.site_root, &node.node_id);
         let fingerprint = CertificateFingerprint::for_certificate(certificate_der);
-        // A pin left by an attempt that never reached site.yaml is replaced: the node is new.
-        persist_bytes(
-            &StdFileSystem,
-            &pin,
-            format!("{}\n", fingerprint.as_str()).as_bytes(),
-        )
-        .map_err(|error| {
-            remove_pin(&pin);
-            JoinSiteError::Failed(anyhow::Error::new(error).context("write node pin"))
-        })?;
-        let recorded = self
-            .site
-            .mutate_membership(|site| add_node(site, node, targets));
-        if let Err(error) = recorded {
-            remove_pin(&pin);
-            return Err(membership_error(error));
-        }
-        self.pins.insert(
-            node.node_id.clone(),
-            PrivatePeerPolicy {
-                role: PrivateNodeRole::Worker,
-                certificate_sha256: fingerprint,
+        let mut wrote_pin = false;
+        let recorded = self.site.mutate_membership(
+            |site| {
+                add_node(site, node, targets)?;
+                // The node is new, so a pin under its id is a leftover of an attempt that never
+                // reached site.yaml, which this one replaces.
+                write_pin(&pin, &fingerprint)?;
+                wrote_pin = true;
+                Ok(())
+            },
+            |()| {
+                self.pins.insert(
+                    node.node_id.clone(),
+                    PrivatePeerPolicy {
+                        role: PrivateNodeRole::Worker,
+                        certificate_sha256: fingerprint.clone(),
+                    },
+                );
             },
         );
-        Ok(())
+        let Err(error) = recorded else {
+            return Ok(());
+        };
+        let error = membership_error(error);
+        // After an uncertain write site.yaml may declare the node, so its pin stays with it.
+        if wrote_pin && !matches!(error, JoinSiteError::OutcomeUncertain(_)) {
+            remove_pin(&pin);
+        }
+        Err(error)
     }
 
     fn node_pin(&self, node_id: &str) -> Result<Option<CertificateFingerprint>, JoinSiteError> {
@@ -127,7 +134,7 @@ impl JoinSiteWriter for MembershipRecorder {
             }));
         }
         self.site
-            .mutate_membership(|site| replace_hosts(site.nodes, node))
+            .mutate_membership(|site| replace_hosts(site.nodes, node), |()| {})
             .map_err(membership_error)
     }
 }
@@ -198,6 +205,9 @@ pub(crate) enum MembershipChangeError {
     #[error("a joining node cannot be a site manager")]
     AdditionalSiteManager,
 
+    #[error("node {node_id:?} already exists in this site")]
+    DuplicateNode { node_id: String },
+
     #[error("node host {host:?} already exists in this site")]
     DuplicateHost { host: String },
 
@@ -210,6 +220,9 @@ pub(crate) enum MembershipChangeError {
     #[error("the node pin could not be read: {0}")]
     PinUnreadable(#[source] anyhow::Error),
 
+    #[error("the node pin could not be written: {0}")]
+    PinUnwritable(#[source] anyhow::Error),
+
     #[error("execution target {target_id:?} does not belong to node {node_id:?}")]
     ForeignTarget { target_id: String, node_id: String },
 
@@ -220,8 +233,11 @@ pub(crate) enum MembershipChangeError {
 impl From<MembershipChangeError> for JoinSiteError {
     fn from(error: MembershipChangeError) -> Self {
         match error {
-            MembershipChangeError::PinUnreadable(_) => Self::Failed(anyhow::Error::new(error)),
+            MembershipChangeError::PinUnreadable(_) | MembershipChangeError::PinUnwritable(_) => {
+                Self::Failed(anyhow::Error::new(error))
+            }
             MembershipChangeError::AdditionalSiteManager
+            | MembershipChangeError::DuplicateNode { .. }
             | MembershipChangeError::DuplicateHost { .. }
             | MembershipChangeError::UndeclaredNode { .. }
             | MembershipChangeError::PinMismatch { .. }
@@ -231,8 +247,8 @@ impl From<MembershipChangeError> for JoinSiteError {
     }
 }
 
-/// Adds the node and its targets, after checking that the node is not a site manager, its host
-/// is new, and every target belongs to it.
+/// Adds the node and its targets, after checking that the node is new and not a site manager,
+/// its host is new, and every target belongs to it.
 fn add_node(
     site: &mut MembershipSiteTransaction<'_>,
     node: &SiteNode,
@@ -240,6 +256,15 @@ fn add_node(
 ) -> Result<(), MembershipChangeError> {
     if node.site_manager.is_some() {
         return Err(MembershipChangeError::AdditionalSiteManager);
+    }
+    if site
+        .nodes
+        .iter()
+        .any(|existing| existing.node_id == node.node_id)
+    {
+        return Err(MembershipChangeError::DuplicateNode {
+            node_id: node.node_id.clone(),
+        });
     }
     if site.nodes.iter().any(|existing| existing.host == node.host) {
         return Err(MembershipChangeError::DuplicateHost {
@@ -285,10 +310,14 @@ fn replace_hosts(nodes: &mut [SiteNode], node: &SiteNode) -> Result<(), Membersh
     Ok(())
 }
 
-/// Projects a refused or failed repository change; a storage error means nothing was recorded.
+/// Projects a refused or failed repository change. An uncertain storage error means `site.yaml`
+/// may hold the change; any other means nothing was recorded.
 fn membership_error(error: ScopedSiteMutationError<MembershipChangeError>) -> JoinSiteError {
     match error {
         ScopedSiteMutationError::Owner(error) => JoinSiteError::from(error),
+        ScopedSiteMutationError::Repository(
+            error @ SiteRepositoryError::Storage(SiteStorageError::OutcomeUncertain(_)),
+        ) => JoinSiteError::OutcomeUncertain(anyhow::Error::new(error)),
         ScopedSiteMutationError::Repository(
             error @ (SiteRepositoryError::InvalidSite(_)
             | SiteRepositoryError::NodeViewLimitExceeded { .. }),
@@ -307,6 +336,22 @@ fn pin_path(site_root: &Path, node_id: &str) -> PathBuf {
         .join(format!("{node_id}.sha256"))
 }
 
+/// Writes the pin `fingerprint` at `pin`. A failed write leaves no pin there.
+fn write_pin(
+    pin: &Path,
+    fingerprint: &CertificateFingerprint,
+) -> Result<(), MembershipChangeError> {
+    persist_bytes(
+        &StdFileSystem,
+        pin,
+        format!("{}\n", fingerprint.as_str()).as_bytes(),
+    )
+    .map_err(|error| {
+        remove_pin(pin);
+        MembershipChangeError::PinUnwritable(anyhow::Error::new(error).context("write node pin"))
+    })
+}
+
 /// Removes a pin the site never recorded. A pin that cannot be removed stays as a leftover that
 /// the next join of the same node replaces.
 fn remove_pin(pin: &Path) {
@@ -319,7 +364,10 @@ fn remove_pin(pin: &Path) {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{
+        fs,
+        sync::{Arc, Mutex},
+    };
 
     use futures_util::FutureExt as _;
 
@@ -418,6 +466,116 @@ mod tests {
             );
             fixture.assert_unchanged(label);
         }
+    }
+
+    #[test]
+    fn controllers_are_told_of_a_joined_node_only_once_its_pin_is_trusted() {
+        let fixture = Fixture::new();
+        let trusted_when_told = Arc::new(Mutex::new(Vec::new()));
+        let pins = fixture.pins.clone();
+        let seen = Arc::clone(&trusted_when_told);
+        fixture
+            .repository
+            .register_change_observer(Arc::new(move |_site: &Site| {
+                seen.lock()
+                    .expect("observations")
+                    .push(pins.get("node-worker").is_some());
+            }));
+
+        fixture
+            .recorder
+            .publish_node(
+                &worker_node("node-worker", "worker", "10.0.0.7"),
+                &worker_targets("node-worker"),
+                b"leaf",
+            )
+            .expect("publish");
+
+        assert_eq!(*trusted_when_told.lock().expect("observations"), [true]);
+    }
+
+    #[test]
+    fn a_commit_naming_an_existing_worker_leaves_its_pin_and_trust_intact() {
+        let fixture = Fixture::new();
+        let worker = worker_node("node-worker", "worker", "10.0.0.7");
+        fixture
+            .recorder
+            .publish_node(&worker, &worker_targets("node-worker"), b"worker leaf")
+            .expect("publish the worker");
+        let site_bytes = fixture.site_bytes();
+        let memory = fixture.repository.snapshot().expect("memory");
+        let pins = fixture.pin_files();
+        let trusted = CertificateFingerprint::for_certificate(b"worker leaf");
+
+        let error = fixture
+            .recorder
+            .publish_node(
+                &worker_node("node-worker", "impostor", "10.0.0.8"),
+                &worker_targets("node-worker"),
+                b"impostor leaf",
+            )
+            .expect_err("the node id is taken");
+
+        assert!(
+            matches!(&error, JoinSiteError::Rejected(source)
+                if source.to_string() == "node \"node-worker\" already exists in this site"),
+            "{error:?}"
+        );
+        assert_eq!(fixture.site_bytes(), site_bytes);
+        assert_eq!(fixture.repository.snapshot().expect("memory"), memory);
+        assert_eq!(fixture.pin_files(), pins);
+        assert_eq!(
+            pins,
+            [(
+                "node-worker.sha256".to_owned(),
+                format!("{}\n", trusted.as_str())
+            )]
+        );
+        assert_eq!(
+            fixture
+                .pins
+                .get("node-worker")
+                .map(|pin| pin.certificate_sha256),
+            Some(trusted)
+        );
+    }
+
+    #[test]
+    fn an_uncertain_write_whose_write_back_fails_is_reported_uncertain_and_keeps_the_pin() {
+        let fixture = Fixture::new();
+        fixture.faults.push(SiteWriteFault::Uncertain);
+        fixture.faults.push(SiteWriteFault::Storage);
+        let node = worker_node("node-worker", "worker", "10.0.0.7");
+
+        let error = fixture
+            .recorder
+            .publish_node(&node, &worker_targets("node-worker"), b"leaf")
+            .expect_err("the write is uncertain");
+
+        assert!(
+            matches!(error, JoinSiteError::OutcomeUncertain(_)),
+            "{error:?}"
+        );
+        assert!(
+            fixture.disk_site().nodes.contains(&node),
+            "the file kept it"
+        );
+        assert_eq!(
+            fixture.repository.snapshot().expect("memory"),
+            fixture.site.site
+        );
+        assert!(fixture.repository.is_dirty());
+        assert_eq!(
+            fixture.pin_files(),
+            [(
+                "node-worker.sha256".to_owned(),
+                format!(
+                    "{}\n",
+                    CertificateFingerprint::for_certificate(b"leaf").as_str()
+                )
+            )]
+        );
+        assert!(fixture.pins.get("node-worker").is_none(), "not trusted");
     }
 
     #[test]

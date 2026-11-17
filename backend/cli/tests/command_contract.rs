@@ -2698,23 +2698,26 @@ fn rejected_joins_leave_the_site_unchanged_and_the_token_usable_for_a_corrected_
     let manager = LiveManager::start(fixture.site_path());
     let add = NodeAdd::start(&manager, &token_file);
 
-    // A token with the wrong secret is refused before anything is recorded.
+    // A token with the wrong secret is refused before anything is recorded, as often as it is
+    // tried: more than any attempt limit, and the join's own token still works afterwards.
     let wrong_token_file = nodes.root.join("wrong.token");
     std::fs::write(&wrong_token_file, add.token_with_wrong_secret()).expect("wrong token");
-    let wrong_secret = node_join(
-        &wrong_token_file,
-        &nodes.root.join("wrong"),
-        "Worker",
-        "127.0.0.3",
-    )
-    .output()
-    .expect("join with a wrong secret");
-    assert_eq!(wrong_secret.status.code(), Some(1));
-    assert!(
-        text(&wrong_secret.stderr).contains("node join failed"),
-        "{}",
-        text(&wrong_secret.stderr)
-    );
+    for attempt in 0..6 {
+        let wrong_secret = node_join(
+            &wrong_token_file,
+            &nodes.root.join("wrong"),
+            "Worker",
+            "127.0.0.3",
+        )
+        .output()
+        .expect("join with a wrong secret");
+        assert_eq!(wrong_secret.status.code(), Some(1), "attempt {attempt}");
+        assert!(
+            text(&wrong_secret.stderr).contains("node join failed"),
+            "attempt {attempt}: {}",
+            text(&wrong_secret.stderr)
+        );
+    }
 
     let duplicate_name = node_join(
         &token_file,

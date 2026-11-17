@@ -72,7 +72,7 @@ pub enum Command {
     /// Manage the bare local server process that `dotcore` supervises.
     Server(ServerCommand),
 
-    /// Create, reset, and validate offline site inputs, and add nodes to a stopped site.
+    /// Create, reset, validate, and delete site inputs offline.
     Site(site::SiteCommand),
 
     /// Manage site nodes: `add`, `remove`, and `list` on the manager, `join` and `leave` on the

@@ -264,7 +264,8 @@ mod tests {
     use dotcore_site::{
         node::folder::{CertificateFingerprint, certificate_identity_uri},
         private_transport::{
-            JoinGate, PeerPins, PinnedPeerVerifier, PrivateConnectionInfo, PrivatePeerPolicy, pem,
+            JoinGate, PeerPins, PinnedPeerVerifier, PrivateConnectionInfo, PrivatePeerPolicy,
+            UnpinnedConnectionLimits, pem,
         },
         test_support::private_tls::TestAuthority as SiteAuthority,
         worker_channels::{WorkerChannelError, WorkerChannelPurpose, WorkerChannels},
@@ -288,6 +289,9 @@ mod tests {
     const SITE_ID: &str = "site-one";
     const MANAGER_ID: &str = "manager-node";
     const WORKER_ID: &str = "worker-one";
+
+    /// Deadline for an outcome that arrives at once on loopback.
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
     #[tokio::test]
     async fn certificate_less_requests_reach_only_the_join_service_while_a_join_is_active() {
@@ -322,6 +326,87 @@ mod tests {
         let ended = join(&channel).await.expect_err("the join ended");
         assert_authentication_failure(&ended);
         assert_eq!(joins.connections(), connection);
+    }
+
+    #[tokio::test]
+    async fn certificate_less_http2_clients_with_keepalive_are_idle_closed() {
+        let site = TestSite::new();
+        let joins = FakeJoinHost::default();
+        let gate = JoinGate::default();
+        let _open = gate.open();
+        let idle_timeout = std::time::Duration::from_millis(300);
+        let manager = site
+            .serve_manager_with(gate, joins.clone(), 1, idle_timeout)
+            .await;
+        // Pings far more often than the idle timeout keep bytes flowing both ways.
+        let channel = site
+            .client(manager, MANAGER_ID, &site.manager.0, None)
+            .http2_keep_alive_interval(idle_timeout / 6)
+            .keep_alive_while_idle(true)
+            .connect()
+            .await
+            .expect("manager channel");
+
+        join(&channel)
+            .await
+            .expect("an active join admits the request");
+        let [connection] = joins.infos().try_into().expect("one join connection");
+        tokio::time::timeout(DEADLINE, connection.closed())
+            .await
+            .expect("pings don't keep a connection without a join request open");
+    }
+
+    #[tokio::test]
+    async fn a_new_certificate_less_connection_replaces_one_that_presented_no_secret() {
+        let site = TestSite::new();
+        let joins = FakeJoinHost::default();
+        let gate = JoinGate::default();
+        let _open = gate.open();
+        let manager = site
+            .serve_manager_with(gate, joins.clone(), 1, DEADLINE * 6)
+            .await;
+        let held = site.manager_client(manager, None).await;
+        join(&held).await.expect("the first connection is served");
+        let [first] = joins.infos().try_into().expect("one join connection");
+
+        let joining = site.manager_client(manager, None).await;
+        join(&joining)
+            .await
+            .expect("a new connection is served at the limit");
+        tokio::time::timeout(DEADLINE, first.closed())
+            .await
+            .expect("the held connection gives way");
+        let infos = joins.infos();
+        assert_eq!(infos.len(), 2);
+        assert_ne!(infos[1].id(), first.id());
+    }
+
+    #[tokio::test]
+    async fn a_worker_listener_refuses_connections_without_a_certificate() {
+        let site = TestSite::new();
+        let worker = site.serve_worker().await;
+
+        let without = match site
+            .client(worker, WORKER_ID, &site.worker.0, None)
+            .connect()
+            .await
+        {
+            Ok(channel) => node_control(&channel).await.expect_err("no certificate"),
+            Err(error) => Status::unavailable(error.to_string()),
+        };
+        assert_ne!(without.code(), Code::Unauthenticated, "{without:?}");
+        assert_ne!(without.code(), Code::Unimplemented, "{without:?}");
+
+        let manager = site.identity(&site.manager);
+        let with = site
+            .client(worker, WORKER_ID, &site.worker.0, Some(&manager))
+            .connect()
+            .await
+            .expect("the manager connects");
+        let reached = node_control(&with)
+            .await
+            .expect_err("no node control service on the worker");
+        assert_eq!(reached.code(), Code::Unimplemented, "{reached:?}");
     }
 
     #[tokio::test]
@@ -543,6 +628,30 @@ mod tests {
             serve(listener).await
         }
 
+        /// Serves the manager's private listener with `joins` while `gate` is open, bounding
+        /// connections without a pinned certificate to `max_open` and `idle_timeout`.
+        async fn serve_manager_with(
+            &self,
+            gate: JoinGate,
+            joins: FakeJoinHost,
+            max_open: usize,
+            idle_timeout: std::time::Duration,
+        ) -> SocketAddr {
+            let mut routes = tonic::service::Routes::builder();
+            routes.add_service(NodeJoinServiceServer::new(joins));
+            let mut listener = PrivateListener::new(
+                self.manager_configuration(PeerPins::default()),
+                routes.routes(),
+                &Timing::test(),
+            );
+            listener.join_gate = gate;
+            listener.unpinned = UnpinnedConnectionLimits {
+                max_open,
+                idle_timeout,
+            };
+            serve(listener).await
+        }
+
         /// Serves a worker listener with no services that pins the manager.
         async fn serve_worker(&self) -> SocketAddr {
             serve(PrivateListener::new(
@@ -569,41 +678,64 @@ mod tests {
             address: SocketAddr,
             identity: Option<&(Vec<u8>, Vec<u8>)>,
         ) -> Channel {
-            let verifier = PinnedPeerVerifier::new(
-                self.authority.certificate.der(),
-                SITE_ID,
-                MANAGER_ID,
-                CertificateFingerprint::for_certificate(&self.manager.0),
-            )
-            .expect("manager verifier");
-            let mut tls = ClientTlsConfig::new()
-                .domain_name("127.0.0.1")
-                .assume_http2(true);
-            if let Some((certificate, key)) = identity {
-                tls = tls.identity(Identity::from_pem(
-                    pem("CERTIFICATE", certificate),
-                    pem("PRIVATE KEY", key),
-                ));
-            }
-            Endpoint::from_shared(format!("https://{address}"))
-                .expect("manager endpoint")
-                .tls_config_with_verifier(tls, Arc::new(verifier))
-                .expect("manager client TLS")
+            let identity = identity.map(|identity| self.identity(identity));
+            self.client(address, MANAGER_ID, &self.manager.0, identity.as_ref())
                 .connect()
                 .await
                 .expect("manager channel")
+        }
+
+        /// An endpoint for the listener of `node_id` presenting `certificate`, which presents
+        /// `identity` when given.
+        fn client(
+            &self,
+            address: SocketAddr,
+            node_id: &str,
+            certificate: &[u8],
+            identity: Option<&Identity>,
+        ) -> Endpoint {
+            let verifier = PinnedPeerVerifier::new(
+                self.authority.certificate.der(),
+                SITE_ID,
+                node_id,
+                CertificateFingerprint::for_certificate(certificate),
+            )
+            .expect("peer verifier");
+            let mut tls = ClientTlsConfig::new()
+                .domain_name("127.0.0.1")
+                .assume_http2(true);
+            if let Some(identity) = identity {
+                tls = tls.identity(identity.clone());
+            }
+            Endpoint::from_shared(format!("https://{address}"))
+                .expect("peer endpoint")
+                .tls_config_with_verifier(tls, Arc::new(verifier))
+                .expect("peer client TLS")
+        }
+
+        /// The TLS identity of a leaf and its PKCS#8 key.
+        fn identity(&self, (certificate, key): &(Vec<u8>, Vec<u8>)) -> Identity {
+            Identity::from_pem(pem("CERTIFICATE", certificate), pem("PRIVATE KEY", key))
         }
     }
 
     /// A join service that records the connection each join request arrived on.
     #[derive(Clone, Default)]
     struct FakeJoinHost {
-        connections: Arc<Mutex<Vec<(u64, bool)>>>,
+        connections: Arc<Mutex<Vec<PrivateConnectionInfo>>>,
     }
 
     impl FakeJoinHost {
         /// Each join's connection id and whether that connection presented a certificate.
         fn connections(&self) -> Vec<(u64, bool)> {
+            self.infos()
+                .iter()
+                .map(|info| (info.id(), info.peer_certificate().is_some()))
+                .collect()
+        }
+
+        /// The connection of each join.
+        fn infos(&self) -> Vec<PrivateConnectionInfo> {
             self.connections.lock().expect("join connections").clone()
         }
     }
@@ -621,7 +753,7 @@ mod tests {
             self.connections
                 .lock()
                 .expect("join connections")
-                .push((connection.id(), connection.peer_certificate().is_some()));
+                .push(connection.clone());
             Ok(Response::new(JoinResponse::default()))
         }
 

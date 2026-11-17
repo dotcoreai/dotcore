@@ -1,11 +1,12 @@
 //! Accepts the TLS connections of a node's private listener, gives each one an identity and a
 //! close notice, and bounds the connections whose certificate is not pinned.
 //!
-//! The listener presents the node's certificate with the site CA and asks for a client
-//! certificate without requiring one, so a machine that holds no site certificate yet can reach
-//! the join service. After the handshake, a connection whose certificate is pinned is never capped
-//! or closed for being idle; any other connection counts toward a fixed limit and closes once
-//! idle with no request in progress.
+//! The listener presents the node's certificate with the site CA. The site manager's listener asks
+//! for a client certificate without requiring one, so a machine that holds no site certificate yet
+//! can reach the join service; every other node requires one. After the handshake, a connection
+//! whose certificate is pinned is never capped or closed for being idle. Any other connection
+//! counts toward a fixed limit, closes once it stays too long without a join request in progress,
+//! and gives way to a newer one at the limit unless it ever presented a valid join secret.
 
 use std::{
     io,
@@ -13,9 +14,9 @@ use std::{
     pin::Pin,
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
     },
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
     time::Duration,
 };
 
@@ -38,7 +39,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 use tonic::transport::server::Connected;
 use tracing::debug;
 
-use super::{PeerPins, PrivateServerConfiguration};
+use super::{PeerPins, PrivateNodeRole, PrivateServerConfiguration};
 
 /// Longest TLS handshake one private connection may take; it bounds real network I/O.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -53,12 +54,15 @@ pub struct PrivateConnections {
     pins: PeerPins,
     limits: UnpinnedConnectionLimits,
     next_id: AtomicU64,
-    unpinned_open: Arc<AtomicUsize>,
+
+    /// Unpinned connections open now, oldest first.
+    unpinned: Arc<Mutex<Vec<UnpinnedEntry>>>,
 }
 
 impl PrivateConnections {
     /// Prepares acceptance for the listener described by `configuration`, classifying each
-    /// connection against its live peer pins.
+    /// connection against its live peer pins. Only a site manager's listener accepts a connection
+    /// without a client certificate, since only it hosts joins.
     pub fn new(
         configuration: &PrivateServerConfiguration,
         limits: UnpinnedConnectionLimits,
@@ -70,10 +74,13 @@ impl PrivateConnections {
             .add(trust_anchor.clone())
             .context("add the site trust anchor")?;
         let verifier =
-            WebPkiClientVerifier::builder_with_provider(Arc::new(roots), Arc::clone(&provider))
-                .allow_unauthenticated()
-                .build()
-                .context("build the private client verifier")?;
+            WebPkiClientVerifier::builder_with_provider(Arc::new(roots), Arc::clone(&provider));
+        let verifier = match configuration.local_role {
+            PrivateNodeRole::Manager => verifier.allow_unauthenticated(),
+            PrivateNodeRole::Worker => verifier,
+        }
+        .build()
+        .context("build the private client verifier")?;
         // The site CA follows the leaf so a joining machine, which trusts only the CA fingerprint
         // in its token, can verify the chain.
         let mut tls = ServerConfig::builder_with_provider(provider)
@@ -97,7 +104,7 @@ impl PrivateConnections {
             pins: configuration.peers.clone(),
             limits,
             next_id: AtomicU64::new(0),
-            unpinned_open: Arc::default(),
+            unpinned: Arc::default(),
         }))
     }
 
@@ -146,23 +153,27 @@ impl PrivateConnections {
         let pinned = peer_certificate
             .as_deref()
             .is_some_and(|leaf| self.pins.authenticate(&self.site_id, leaf).is_some());
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let activity = Arc::new(Mutex::new(ConnectionActivity {
+            requests: 0,
+            idle_since: Instant::now(),
+            admitted: false,
+            closing: Closing::Open,
+            reader: None,
+        }));
         let unpinned = if pinned {
             None
         } else {
-            Some(self.claim_unpinned(peer_address)?)
+            Some(self.claim_unpinned(id, &activity, peer_address)?)
         };
         let closed = CancellationToken::new();
-        let now = Instant::now();
         Some(PrivateConnectionIo {
             stream,
             info: PrivateConnectionInfo {
-                id: self.next_id.fetch_add(1, Ordering::Relaxed),
+                id,
                 peer_address,
                 peer_certificate,
-                activity: Arc::new(Mutex::new(ConnectionActivity {
-                    requests: 0,
-                    idle_since: now,
-                })),
+                activity,
                 closed: closed.clone(),
             },
             unpinned,
@@ -170,19 +181,43 @@ impl PrivateConnections {
         })
     }
 
-    /// Counts one more unpinned connection, or refuses it at the limit.
-    fn claim_unpinned(&self, peer_address: SocketAddr) -> Option<UnpinnedSlot> {
-        if self.unpinned_open.fetch_add(1, Ordering::SeqCst) >= self.limits.max_open {
-            self.unpinned_open.fetch_sub(1, Ordering::SeqCst);
-            debug!(peer = %peer_address, "private connection refused: too many unpinned connections");
-            return None;
+    /// Counts one more unpinned connection. At the limit it closes the oldest unpinned connection
+    /// that never presented a valid join secret to make room, or refuses the new one when there
+    /// is none, so connections held in advance can't keep a joining machine out.
+    fn claim_unpinned(
+        &self,
+        id: u64,
+        activity: &Arc<Mutex<ConnectionActivity>>,
+        peer_address: SocketAddr,
+    ) -> Option<UnpinnedSlot> {
+        let mut open = lock(&self.unpinned);
+        if open.len() >= self.limits.max_open {
+            let Some(oldest) = open
+                .iter()
+                .position(|entry| !lock(&entry.activity).admitted)
+            else {
+                debug!(peer = %peer_address, "private connection refused: too many unpinned connections");
+                return None;
+            };
+            let evicted = open.remove(oldest);
+            lock(&evicted.activity).close_now();
+            debug!(
+                peer = %peer_address,
+                evicted_connection = evicted.id,
+                "private connection replaced the oldest unpinned connection that presented no join secret"
+            );
         }
-        let now = Instant::now();
+        open.push(UnpinnedEntry {
+            id,
+            activity: Arc::clone(activity),
+        });
         Some(UnpinnedSlot {
-            open: Arc::clone(&self.unpinned_open),
+            open: Arc::clone(&self.unpinned),
+            id,
             idle_timeout: self.limits.idle_timeout,
-            last_transfer: now,
-            idle: Box::pin(real_time::deadline(now + self.limits.idle_timeout)),
+            idle: Box::pin(real_time::deadline(
+                Instant::now() + self.limits.idle_timeout,
+            )),
         })
     }
 }
@@ -191,10 +226,13 @@ impl PrivateConnections {
 /// machine's.
 #[derive(Clone, Copy, Debug)]
 pub struct UnpinnedConnectionLimits {
-    /// Such connections open at once; a further one is closed after its handshake.
+    /// Such connections open at once. A further one replaces the oldest that never presented a
+    /// valid join secret, or is closed after its handshake when every one did.
     pub max_open: usize,
 
-    /// Longest silence of such a connection with no request in progress.
+    /// Longest time such a connection stays open without a join request in progress: from its
+    /// handshake to its first one, and between them. Traffic that is not a join request, such as
+    /// a keepalive ping, doesn't count.
     pub idle_timeout: Duration,
 }
 
@@ -224,11 +262,23 @@ impl PrivateConnectionInfo {
         self.peer_certificate.as_deref()
     }
 
-    /// Pauses the idle timeout of an unpinned connection until the returned guard drops, for a
-    /// request that waits long, such as an operator review.
+    /// Marks a join request that presented a valid secret. The idle timeout of an unpinned
+    /// connection pauses until the returned guard drops, for a request that waits long, such as
+    /// an operator review, and the connection no longer gives way to a newer one at the limit.
     pub fn begin_request(&self) -> RequestInProgress {
-        self.lock_activity().requests += 1;
+        let mut activity = self.lock_activity();
+        activity.requests += 1;
+        activity.admitted = true;
         RequestInProgress(Arc::clone(&self.activity))
+    }
+
+    /// Closes an unpinned connection once the response in flight has been sent, for a peer that
+    /// presented a wrong join secret. A pinned connection stays open.
+    pub fn close(&self) {
+        let mut activity = self.lock_activity();
+        if activity.closing == Closing::Open {
+            activity.closing = Closing::AfterFlush;
+        }
     }
 
     /// Completes once the connection has closed.
@@ -236,14 +286,27 @@ impl PrivateConnectionInfo {
         self.closed.cancelled().await;
     }
 
-    /// Returns when the connection last became idle, or `None` while a request is running.
-    fn idle_since(&self) -> Option<Instant> {
-        let activity = self.lock_activity();
-        (activity.requests == 0).then_some(activity.idle_since)
+    fn lock_activity(&self) -> MutexGuard<'_, ConnectionActivity> {
+        lock(&self.activity)
     }
 
-    fn lock_activity(&self) -> MutexGuard<'_, ConnectionActivity> {
-        self.activity.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Returns the identity of a connection without a certificate that no listener accepted,
+    /// for checks a test makes without one.
+    #[cfg(test)]
+    pub(crate) fn unattached(peer_address: SocketAddr) -> Self {
+        Self {
+            id: u64::MAX,
+            peer_address,
+            peer_certificate: None,
+            activity: Arc::new(Mutex::new(ConnectionActivity {
+                requests: 0,
+                idle_since: Instant::now(),
+                admitted: false,
+                closing: Closing::Open,
+                reader: None,
+            })),
+            closed: CancellationToken::new(),
+        }
     }
 }
 
@@ -252,7 +315,7 @@ pub struct RequestInProgress(Arc<Mutex<ConnectionActivity>>);
 
 impl Drop for RequestInProgress {
     fn drop(&mut self) {
-        let mut activity = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut activity = lock(&self.0);
         activity.requests -= 1;
         if activity.requests == 0 {
             activity.idle_since = Instant::now();
@@ -271,31 +334,50 @@ pub struct PrivateConnectionIo {
 }
 
 impl PrivateConnectionIo {
-    /// Fails a pending read of an unpinned connection once it stayed idle past its timeout,
-    /// counted from the later of the last transfer and the end of the last request.
-    fn poll_idle(&mut self, context: &mut Context<'_>) -> Poll<io::Result<()>> {
+    /// Fails a pending read of an unpinned connection once it was closed, or once it stayed past
+    /// its idle timeout without a join request in progress.
+    fn poll_closed(&mut self, context: &mut Context<'_>) -> Poll<io::Error> {
         let Some(unpinned) = self.unpinned.as_mut() else {
             return Poll::Pending;
         };
-        let Some(idle_since) = self.info.idle_since() else {
+        let mut activity = lock(&self.info.activity);
+        if activity.closing == Closing::Now {
+            return Poll::Ready(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "unpinned private connection was closed",
+            ));
+        }
+        if !activity
+            .reader
+            .as_ref()
+            .is_some_and(|reader| reader.will_wake(context.waker()))
+        {
+            activity.reader = Some(context.waker().clone());
+        }
+        if activity.requests > 0 {
             return Poll::Pending;
-        };
-        let deadline = idle_since.max(unpinned.last_transfer) + unpinned.idle_timeout;
+        }
+        let deadline = activity.idle_since + unpinned.idle_timeout;
+        drop(activity);
         if unpinned.idle.deadline() != deadline {
             unpinned.idle.as_mut().reset(deadline);
         }
-        match unpinned.idle.as_mut().poll(context) {
-            Poll::Ready(()) => Poll::Ready(Err(io::Error::new(
+        unpinned.idle.as_mut().poll(context).map(|()| {
+            io::Error::new(
                 io::ErrorKind::TimedOut,
                 "unpinned private connection was idle too long",
-            ))),
-            Poll::Pending => Poll::Pending,
-        }
+            )
+        })
     }
 
-    fn record_transfer(&mut self) {
-        if let Some(unpinned) = self.unpinned.as_mut() {
-            unpinned.last_transfer = Instant::now();
+    /// Lets a close requested for after the response in flight take effect once it was sent.
+    fn record_flush(&self) {
+        if self.unpinned.is_none() {
+            return;
+        }
+        let mut activity = lock(&self.info.activity);
+        if activity.closing == Closing::AfterFlush {
+            activity.close_now();
         }
     }
 }
@@ -315,13 +397,10 @@ impl AsyncRead for PrivateConnectionIo {
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        match Pin::new(&mut this.stream).poll_read(context, buffer) {
-            Poll::Ready(result) => {
-                this.record_transfer();
-                Poll::Ready(result)
-            }
-            Poll::Pending => this.poll_idle(context),
+        if let Poll::Ready(error) = this.poll_closed(context) {
+            return Poll::Ready(Err(error));
         }
+        Pin::new(&mut this.stream).poll_read(context, buffer)
     }
 }
 
@@ -331,16 +410,16 @@ impl AsyncWrite for PrivateConnectionIo {
         context: &mut Context<'_>,
         buffer: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        let result = Pin::new(&mut this.stream).poll_write(context, buffer);
-        if result.is_ready() {
-            this.record_transfer();
-        }
-        result
+        Pin::new(&mut self.get_mut().stream).poll_write(context, buffer)
     }
 
     fn poll_flush(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.get_mut().stream).poll_flush(context)
+        let this = self.get_mut();
+        let flushed = Pin::new(&mut this.stream).poll_flush(context);
+        if matches!(flushed, Poll::Ready(Ok(()))) {
+            this.record_flush();
+        }
+        flushed
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -348,32 +427,69 @@ impl AsyncWrite for PrivateConnectionIo {
     }
 }
 
-/// Requests in progress on one connection and when it last became idle.
+/// What one connection is doing: its join requests in progress, when it last became idle,
+/// whether it ever presented a valid join secret, and whether it is closing.
 #[derive(Debug)]
 struct ConnectionActivity {
     requests: usize,
     idle_since: Instant,
+    admitted: bool,
+    closing: Closing,
+
+    /// Wakes the connection's pending read once it must close.
+    reader: Option<Waker>,
+}
+
+impl ConnectionActivity {
+    fn close_now(&mut self) {
+        self.closing = Closing::Now;
+        if let Some(reader) = self.reader.take() {
+            reader.wake();
+        }
+    }
+}
+
+/// How far an unpinned connection is in closing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Closing {
+    Open,
+
+    /// Closes once the response in flight was sent.
+    AfterFlush,
+
+    /// Fails its next read, which ends the connection.
+    Now,
+}
+
+/// One unpinned connection open now, as the limit sees it.
+struct UnpinnedEntry {
+    id: u64,
+    activity: Arc<Mutex<ConnectionActivity>>,
 }
 
 /// The place one unpinned connection holds in the limit, with its idle timeout.
 struct UnpinnedSlot {
-    open: Arc<AtomicUsize>,
+    open: Arc<Mutex<Vec<UnpinnedEntry>>>,
+    id: u64,
     idle_timeout: Duration,
-    last_transfer: Instant,
     idle: Pin<Box<Sleep>>,
 }
 
 impl Drop for UnpinnedSlot {
     fn drop(&mut self) {
-        self.open.fetch_sub(1, Ordering::SeqCst);
+        lock(&self.open).retain(|entry| entry.id != self.id);
     }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
 
-    use tokio::io::AsyncReadExt as _;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     use super::*;
     use crate::{
@@ -424,6 +540,7 @@ mod tests {
         let _unpinned_client = fixture.connect(address, false).await;
         let mut unpinned = next().await;
         assert_eq!(unpinned.connect_info().peer_certificate(), None);
+        drop(unpinned.connect_info().begin_request());
         let mut refused = fixture.connect(address, false).await;
         let mut byte = [0_u8; 1];
         let read = tokio::time::timeout(DEADLINE, refused.read(&mut byte))
@@ -490,6 +607,150 @@ mod tests {
             .expect("the connection idles out once the request ends")
             .expect_err("idle connection");
         assert_eq!(idle.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[tokio::test]
+    async fn at_the_limit_a_new_connection_replaces_the_oldest_that_presented_no_secret() {
+        let fixture = Fixture::new();
+        let (address, mut accepted) = accept_private_connections(
+            &fixture.configuration,
+            UnpinnedConnectionLimits {
+                max_open: 2,
+                idle_timeout: DEADLINE * 6,
+            },
+        )
+        .await;
+        let mut next = async || {
+            let client = fixture.connect(address, false).await;
+            let server = tokio::time::timeout(DEADLINE, accepted.recv())
+                .await
+                .expect("an accepted connection")
+                .expect("acceptance runs");
+            (client, server)
+        };
+        let (_admitted_client, mut admitted) = next().await;
+        drop(admitted.connect_info().begin_request());
+        let (_first_client, mut first) = next().await;
+
+        let (_second_client, mut second) = next().await;
+        let mut byte = [0_u8; 1];
+        let evicted = tokio::time::timeout(DEADLINE, first.read(&mut byte))
+            .await
+            .expect("the oldest connection without a secret is closed")
+            .expect_err("evicted connection");
+        assert_eq!(evicted.kind(), io::ErrorKind::ConnectionAborted);
+
+        let (_third_client, _third) = next().await;
+        let evicted = tokio::time::timeout(DEADLINE, second.read(&mut byte))
+            .await
+            .expect("the next oldest connection without a secret is closed")
+            .expect_err("evicted connection");
+        assert_eq!(evicted.kind(), io::ErrorKind::ConnectionAborted);
+        let admitted_read = tokio::spawn(async move {
+            let mut byte = [0_u8; 1];
+            admitted.read(&mut byte).await
+        });
+
+        // Once every open connection presented a secret, a newcomer is refused instead.
+        drop(_third);
+        let (_fourth_client, fourth) = next().await;
+        drop(fourth.connect_info().begin_request());
+        let mut refused = fixture.connect(address, false).await;
+        let read = tokio::time::timeout(DEADLINE, refused.read(&mut byte))
+            .await
+            .expect("the connection over the limit is closed");
+        assert!(matches!(read, Ok(0) | Err(_)), "{read:?}");
+        assert!(
+            !admitted_read.is_finished(),
+            "a connection that presented a secret stays open"
+        );
+        admitted_read.abort();
+    }
+
+    #[tokio::test]
+    async fn a_closed_connection_sends_its_pending_response_then_ends() {
+        let fixture = Fixture::new();
+        let (address, mut accepted) = accept_private_connections(
+            &fixture.configuration,
+            UnpinnedConnectionLimits {
+                max_open: 1,
+                idle_timeout: DEADLINE * 6,
+            },
+        )
+        .await;
+        let mut client = fixture.connect(address, false).await;
+        let mut server = tokio::time::timeout(DEADLINE, accepted.recv())
+            .await
+            .expect("an accepted connection")
+            .expect("acceptance runs");
+
+        server.connect_info().close();
+        server
+            .write_all(b"refused")
+            .await
+            .expect("write the response");
+        server.flush().await.expect("send the response");
+        let mut byte = [0_u8; 1];
+        let closed = tokio::time::timeout(DEADLINE, server.read(&mut byte))
+            .await
+            .expect("the connection closes after its response")
+            .expect_err("closed connection");
+        assert_eq!(closed.kind(), io::ErrorKind::ConnectionAborted);
+
+        let mut response = [0_u8; 7];
+        client
+            .read_exact(&mut response)
+            .await
+            .expect("the response arrives");
+        assert_eq!(&response, b"refused");
+    }
+
+    #[tokio::test]
+    async fn a_worker_listener_refuses_connections_without_a_certificate() {
+        let fixture = Fixture::new();
+        let worker = fixture.authority.private_configuration(
+            "site-one",
+            "worker-one",
+            PrivateNodeRole::Worker,
+            fixture.worker.clone(),
+            [(
+                "manager-node",
+                PrivateNodeRole::Manager,
+                fixture.manager_certificate.as_slice(),
+            )],
+        );
+        let (address, mut accepted) = accept_private_connections(
+            &worker,
+            UnpinnedConnectionLimits {
+                max_open: 1,
+                idle_timeout: IDLE_TIMEOUT,
+            },
+        )
+        .await;
+        let verifier = PinnedPeerVerifier::new(
+            fixture.authority.certificate.der(),
+            "site-one",
+            "worker-one",
+            CertificateFingerprint::for_certificate(&fixture.worker.0),
+        )
+        .expect("worker verifier");
+
+        // TLS 1.3 reports the server's refusal of a missing certificate on the first read.
+        let refused = match connect_tls(address, Arc::new(verifier), None).await {
+            Ok(mut stream) => {
+                let mut byte = [0_u8; 1];
+                tokio::time::timeout(DEADLINE, stream.read(&mut byte))
+                    .await
+                    .expect("the refusal arrives")
+                    .map(|read| read > 0)
+            }
+            Err(error) => Err(error),
+        };
+        assert!(!matches!(refused, Ok(true)), "{refused:?}");
+        assert!(
+            accepted.try_recv().is_err(),
+            "no connection without a certificate is accepted"
+        );
     }
 
     /// A manager's private configuration pinning one worker.

@@ -22,7 +22,7 @@ use tokio::{
     time::Instant,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{info, warn};
 use url::Url;
 
 use super::{
@@ -32,7 +32,13 @@ use super::{
         JoinedNode, PendingOffer, blocking, random_id,
     },
 };
-use crate::private_transport::{JoinGate, OpenJoinGate};
+use crate::private_transport::{
+    JoinGate, OpenJoinGate, PrivateConnectionInfo, authentication_failure,
+};
+
+/// Largest join or commit message the join service decodes. A join carries a signing request, a
+/// certificate and a short proposal, far below this.
+const MAX_JOIN_MESSAGE_BYTES: usize = 64 * 1024;
 
 /// Joins the site manager hosts, shared by its join service and its management API. Clones
 /// share the same joins.
@@ -192,9 +198,11 @@ impl JoinRegistry {
         Ok(())
     }
 
-    /// Returns the join service the private listener serves to joining machines.
+    /// Returns the join service the private listener serves to joining machines. It decodes
+    /// only messages as small as a join needs, since any machine reaching the port may send one.
     pub fn join_service(&self) -> NodeJoinServiceServer<JoinService> {
         NodeJoinServiceServer::new(JoinService::new(Arc::clone(&self.shared)))
+            .max_decoding_message_size(MAX_JOIN_MESSAGE_BYTES)
     }
 
     /// Replaces the system resolver used to look up a node host name before dialing it back and
@@ -328,10 +336,6 @@ pub struct JoinLimits {
     /// Joins active at once; starting another fails until one ends.
     pub max_active_joins: usize,
 
-    /// Wrong secrets each active join accepts before it fails. A wrong secret matches no join,
-    /// so it counts toward every active one.
-    pub max_failed_attempts: u32,
-
     /// Attempts of one join whose dial-back failed before it fails. It bounds how often a token
     /// holder can make the manager's machine connect somewhere before approval.
     pub max_failed_dial_backs: u32,
@@ -341,7 +345,6 @@ impl Default for JoinLimits {
     fn default() -> Self {
         Self {
             max_active_joins: 8,
-            max_failed_attempts: 5,
             max_failed_dial_backs: 3,
         }
     }
@@ -397,41 +400,29 @@ impl Registry {
         &self.timing
     }
 
-    /// Returns the active join whose token carries `presented`. A secret matching no join counts
-    /// as a wrong attempt on every active join, and fails those that reach the limit.
+    /// Returns the active join whose token carries `presented`. A secret matching no join
+    /// changes no join, since it can't be attributed to one: `connection` is closed instead, and
+    /// the refusal is the one the private listener gives when no join is active, so it reveals
+    /// nothing about the joins.
     pub(super) fn join_for_secret(
         &self,
+        connection: &PrivateConnectionInfo,
         presented: &[u8],
     ) -> Result<Arc<ActiveJoin>, tonic::Status> {
-        let mut exhausted = Vec::new();
+        if let Some(join) = self
+            .lock_joins()
+            .values()
+            .find(|join| !join.is_ended() && join.token.secret.matches(presented))
         {
-            let joins = self.lock_joins();
-            if let Some(join) = joins
-                .values()
-                .find(|join| !join.is_ended() && join.token.secret.matches(presented))
-            {
-                return Ok(Arc::clone(join));
-            }
-            for join in joins.values().filter(|join| !join.is_ended()) {
-                let mut progress = join.lock();
-                progress.failed_attempts += 1;
-                if progress.failed_attempts >= self.limits.max_failed_attempts {
-                    exhausted.push(Arc::clone(join));
-                }
-            }
+            return Ok(Arc::clone(join));
         }
-        tracing::warn!(
-            joins_failed = exhausted.len(),
-            "join attempt used a wrong secret"
+        warn!(
+            connection = connection.id(),
+            peer = %connection.peer_address(),
+            "join request presented a secret matching no active join; closing its connection"
         );
-        for join in exhausted {
-            join.finish(JoinEnd::Failed(
-                "too many join attempts used a wrong secret".to_owned(),
-            ));
-        }
-        Err(tonic::Status::unauthenticated(
-            "the join secret does not match this join token",
-        ))
+        connection.close();
+        Err(authentication_failure())
     }
 
     /// Reserves `node`'s identity, name and host for the attempt holding `ticket` of `join`,
@@ -883,7 +874,6 @@ impl Drop for SlotClaim {
 
 #[derive(Default)]
 struct JoinProgress {
-    failed_attempts: u32,
     failed_dial_backs: u32,
     next_ticket: u64,
     slot: Slot,
