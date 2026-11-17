@@ -190,7 +190,7 @@ function runtimeAvailabilityLabel(
   }
 }
 
-function workloadKindLabel(kind: ExecutionTargetWorkloadKind): string {
+export function workloadKindLabel(kind: ExecutionTargetWorkloadKind): string {
   switch (kind) {
     case ExecutionTargetWorkloadKind.MODEL:
       return "Model";

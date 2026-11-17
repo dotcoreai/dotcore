@@ -37,6 +37,7 @@ export function testClients(clients: Partial<ConsoleClients> = {}): ConsoleClien
     resourceWatchClient: clients.resourceWatchClient ?? unfakedClient("resourceWatchClient"),
     routeClient: clients.routeClient ?? unfakedClient("routeClient"),
     siteClient: clients.siteClient ?? unfakedClient("siteClient"),
+    siteJoinClient: clients.siteJoinClient ?? unfakedClient("siteJoinClient"),
   };
 }
 
