@@ -75,8 +75,10 @@ sequenceDiagram
   that port forwarded while it joins. The token allows a few failed dial-backs, so a corrected
   retry works.
 - The site manager issues the node's identity only after you approve through the management API,
-  from the console or `dotc`, after seeing the node's name, host, targets and key fingerprint. A
-  rejected or failed join records nothing and leaves the token usable for a corrected retry.
+  from the console or `dotc`, after seeing the node's name, host and targets. The approver and
+  the joining machine show the same key fingerprint and fingerprint pattern, so you can match them
+  before approving. A rejected or failed join records nothing and leaves the token usable for a
+  corrected retry.
 - Membership is persist-or-reject: the site manager signs the node's identity into the offer it
   sends after approval, but trusts the node's pin and confirms its commit only once the pin and
   membership are recorded durably. The new node's connections are then accepted without a restart.

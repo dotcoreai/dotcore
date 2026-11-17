@@ -32,7 +32,7 @@ Apps such as Open WebUI and ComfyUI run next to your models. Deploy them from **
 
 A site can span several machines that reach each other directly. The first one is the manager, and the others join it as nodes.
 
-- To add a machine, run `dotc node add` against the running manager. It prints a `dotc node join` command to run on the new machine, then shows the machine for your approval. The manager keeps running.
+- To add a machine, run `dotc node add` against the running manager. It prints a `dotc node join` command to run on the new machine, then shows the machine for your approval. Check that the key fingerprint and pattern match what the new machine printed before you approve. The manager keeps running.
 - The new machine reaches the manager at its private port, and the manager connects back to the new machine at its host and private port. Set up any NAT or firewall forwarding for those ports first, or the join fails.
 - When you deploy a model or an app, you pick the machine that runs it.
 - To remove a machine, first remove its deployments in the console. Then stop Dotcore on the manager, run `dotc node remove` there, and `dotc node leave` on the removed machine.
