@@ -6,17 +6,22 @@ description: "Self-hosted chat interface for the models on this site."
 version: "0.11.4"
 useCases: ["USE_CASE_CHAT_ASSISTANT"]
 graph:
+  parameterGroups:
+    - groupId: "login"
+      switchParameterId: "require-login"
   parameters:
     - parameterId: "require-login"
       displayName: "Require login"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Ask for an email and password to use Open WebUI. The admin email and password below apply only when it is on."
+      groupId: "login"
+      description: "Ask for an email and password to use Open WebUI. Turn it on to set up the admin account."
       boolean:
         defaultValue: false
     - parameterId: "admin-email"
       displayName: "Admin email"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "The email address for logging in to Open WebUI as its admin. Applies only when login is required."
+      groupId: "login"
+      description: "The email address for logging in to Open WebUI as its admin."
       # Email addresses run from `a@b` (3 bytes) to 254 bytes (RFC 5321 path limit).
       text:
         minimumLength: 3
@@ -25,7 +30,8 @@ graph:
     - parameterId: "admin-password"
       displayName: "Admin password"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "The initial password for logging in to Open WebUI as its admin. Leave it empty to generate a random one, which you can read in the deployment's sidebar. Applies only when login is required. If you change the password inside Open WebUI, the one shown here is no longer valid."
+      groupId: "login"
+      description: "The initial password for logging in to Open WebUI as its admin. Leave it empty to generate a random one, which you can read in the deployment's sidebar. If you change the password inside Open WebUI, the one shown here is no longer valid."
       # The least minimum a secret accepts; Open WebUI 0.11.4 hashes with bcrypt and refuses more than
       # 72 bytes (`PASSWORD_BCRYPT_MAX_BYTES`, `open_webui/utils/auth.py:53`).
       secret:
@@ -58,7 +64,6 @@ graph:
         - bindingName: "admin-email"
           environmentVariable: "WEBUI_ADMIN_EMAIL"
           parameterId: "admin-email"
-          enabledByParameterId: "require-login"
         - bindingName: "persistent-config"
           environmentVariable: "ENABLE_PERSISTENT_CONFIG"
           literalValue: "false"
@@ -78,7 +83,6 @@ graph:
         - bindingName: "admin-password"
           environmentVariable: "WEBUI_ADMIN_PASSWORD"
           parameterId: "admin-password"
-          enabledByParameterId: "require-login"
           form: "APPLICATION_SECRET_FORM_PLAIN"
       storageBindings:
         - bindingName: "data"

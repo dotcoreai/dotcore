@@ -7,10 +7,15 @@ version: "0.2.1"
 notes: |-
   Chat with the agent on the dashboard's Chat page.
 graph:
+  parameterGroups:
+    - groupId: "dashboard-login"
+      displayName: "Dashboard login"
+      description: "The username and password for signing in to the Hermes dashboard."
   parameters:
     - parameterId: "dashboard-username"
       displayName: "Dashboard username"
       visibility: "PARAMETER_VISIBILITY_BASIC"
+      groupId: "dashboard-login"
       description: "The username for logging in to the Hermes dashboard."
       # Hermes refuses an empty username and sets no maximum (`plugins/dashboard_auth/basic/__init__.py`).
       text:
@@ -19,6 +24,7 @@ graph:
     - parameterId: "dashboard-password"
       displayName: "Dashboard password"
       visibility: "PARAMETER_VISIBILITY_BASIC"
+      groupId: "dashboard-login"
       description: "The password for logging in to the Hermes dashboard. Leave it empty to generate a random one, which you can read in the deployment's sidebar."
       # Hermes refuses an empty password and sets no maximum (`plugins/dashboard_auth/basic/__init__.py`).
       secret:

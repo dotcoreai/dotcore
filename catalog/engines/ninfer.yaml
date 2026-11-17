@@ -6,6 +6,10 @@ engineKind: "ENGINE_KIND_NINFER"
 version: "13ebb92"
 parameterSchema:
   schemaId: "ninfer-v3"
+  parameterGroups:
+    - groupId: "host-memory"
+      displayName: "Host memory"
+      description: "Host memory the engine uses, in addition to accelerator memory, to keep conversations it can resume."
   parameters:
     # Shared parameters: the engine adapter in backend/core/src/model/engine/ maps them to flags.
     - parameterId: "total-context"
@@ -44,6 +48,7 @@ parameterSchema:
     - parameterId: "host-context-mib"
       displayName: "Host context memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      groupId: "host-memory"
       description: "Host memory that keeps idle conversations and paused requests so they resume without processing their prompt again. Raise it for many long conversations that come back; 0 turns it off."
       # `--host-cache-capacity` takes bytes up to the uint64 maximum, and 0 turns it off; the adapter
       # passes MiB, so up to that maximum in whole MiB (`quantity`, `src/product/config/schema.cpp`).
