@@ -221,8 +221,8 @@ describe("local deployment configuration", () => {
       "Artifact not selected",
     ]);
     // An out-of-range value stays as typed rather than being rounded into a plausible one.
-    expect(customizations([["prompt-cache-memory-mib", "999999"]])).toEqual([
-      "Prompt cache memory 999999",
+    expect(customizations([["prompt-cache-memory-mib", "3000000000"]])).toEqual([
+      "Prompt cache memory 3000000000",
     ]);
     expect(
       customizations([

@@ -88,7 +88,7 @@ describe("ModelDeployDialog Settings step", () => {
     ]);
   });
 
-  it("edits the llama.cpp context with a log slider, an input and presets in the schema range", async () => {
+  it("edits the llama.cpp context with a log slider from the declared minimum, an input and presets", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "q4-xl" });
 
@@ -96,26 +96,35 @@ describe("ModelDeployDialog Settings step", () => {
     const slider = screen.getByRole("slider", { name: "Total context" });
     const input = screen.getByRole("textbox", { name: "Total context" });
     expect(input).toHaveValue("32768");
-    // 32768 tokens sits five fourteenths along the log scale from 1024 to 16777216 tokens.
-    expect(slider).toHaveValue("357");
+    // The total ends at the 256k model maximum for each of the 4 parallel requests, so 32768 tokens
+    // sits six elevenths along the log scale from the declared 512 tokens to 1048576 tokens.
+    expect(slider).toHaveValue("545");
     expect(slider).toHaveAttribute("aria-valuetext", "32,768 tokens");
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
     expect(preset("32k")).toHaveAttribute("aria-pressed", "true");
 
     await user.click(preset("128k"));
     expect(input).toHaveValue("131072");
-    expect(slider).toHaveValue("500");
+    expect(slider).toHaveValue("727");
     expect(preset("128k")).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.change(slider, { target: { value: "1000" } });
-    expect(input).toHaveValue("16777216");
+    expect(input).toHaveValue("1048576");
     fireEvent.change(slider, { target: { value: "0" } });
-    expect(input).toHaveValue("1024");
+    expect(input).toHaveValue("512");
+    expect(await readFieldHelpFacts("Total context")).toContain("Range 512–2,147,483,647 tokens");
 
+    // The number input takes any value the schema accepts, past the slider's end.
     await user.clear(input);
     await user.type(input, "20000000");
     await user.tab();
-    const error = "Total context must be an integer from 1024 to 16777216 tokens.";
+    expect(input).not.toHaveAttribute("aria-invalid");
+    expect(slider).toHaveValue("1000");
+
+    await user.clear(input);
+    await user.type(input, "3000000000");
+    await user.tab();
+    const error = "Total context must be an integer from 512 to 2,147,483,647 tokens.";
     expect(await screen.findByText(error)).toBeVisible();
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(input).toHaveAccessibleDescription(
@@ -143,17 +152,19 @@ describe("ModelDeployDialog Settings step", () => {
     expect(screen.queryByRole("textbox", { name: "Maximum batched tokens" })).toBeNull();
 
     await user.clear(kvOffload);
-    await user.type(kvOffload, "2048");
+    await user.type(kvOffload, "1.5");
     await user.tab();
     expect(
       await within(hostMemory).findByText(
-        "KV offloading size must be an integer from 0 to 1024 GiB.",
+        "KV offloading size must be an integer of 0 or more GiB.",
       ),
     ).toBeVisible();
     expect(kvOffload).toHaveAttribute("aria-invalid", "true");
+    expect(await readFieldHelpFacts("KV offloading size")).toContain("Range 0 or more GiB");
 
+    // Without a declared maximum, any larger size is accepted.
     await user.clear(kvOffload);
-    await user.type(kvOffload, "16");
+    await user.type(kvOffload, "2048");
     expect(within(hostMemory).queryByText(/must be an integer/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -163,7 +174,7 @@ describe("ModelDeployDialog Settings step", () => {
     expect(submittedValues(onSubmit)).toEqual([
       ["maximum-batched-tokens", 4096n],
       ["maximum-cudagraph-capture-size", 32n],
-      ["kv-offloading-size-gib", 16n],
+      ["kv-offloading-size-gib", 2048n],
       ["total-context", 65536n],
       ["parallel-requests", 4n],
     ]);
@@ -265,25 +276,74 @@ describe("ModelDeployDialog Settings step", () => {
     });
   });
 
-  it("draws the ninfer context sliders on one scale, stopping context per request at its maximum", async () => {
+  it("draws the ninfer context sliders on one scale, stopping context per request at the model maximum", async () => {
     const user = setupUser();
     renderDialog({ initialProfileId: "ninfer-nvfp4" });
 
     await openAdvancedSettings(user);
     const totalSlider = screen.getByRole("slider", { name: "Total context" });
     const perRequestSlider = screen.getByRole("slider", { name: "Context per request" });
-    // 32768 tokens sits five elevenths along the log scale from 1024 to 2097152 tokens on both.
-    expect(totalSlider).toHaveValue("455");
-    expect(perRequestSlider).toHaveValue("455");
+    // The scale runs from 512 tokens to the total's end, the 256k model maximum for each of the 4
+    // parallel requests: 32768 tokens sits six elevenths along on both.
+    expect(totalSlider).toHaveValue("545");
+    expect(perRequestSlider).toHaveValue("545");
 
-    // The end of the shared scale clamps context per request to its 262144 maximum, eight
-    // elevenths along, and the total follows it there.
+    // The end of the shared scale clamps context per request to the 262144 model maximum, below
+    // ninfer's own, nine elevenths along, and the total follows it there.
     fireEvent.change(perRequestSlider, { target: { value: "1000" } });
     expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("262144");
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("262144");
-    expect(perRequestSlider).toHaveValue("727");
-    expect(totalSlider).toHaveValue("727");
+    expect(perRequestSlider).toHaveValue("818");
+    expect(totalSlider).toHaveValue("818");
     expect(presetLabels("Context per request")).toEqual(["8k", "32k", "64k", "128k", "256k"]);
+  });
+
+  it("stops context per request at the llama.cpp maximum when the model allows more", async () => {
+    const user = setupUser();
+    const model = clone(ModelSchema, runtimeSchemaModel);
+    model.maximumContextTokens = 4_294_967_295;
+    renderDialog({ initialProfileId: "q4-xl", model });
+
+    await openAdvancedSettings(user);
+    fireEvent.change(screen.getByRole("slider", { name: "Context per request" }), {
+      target: { value: "1000" },
+    });
+    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("2147483647");
+    // The total's end, 4 requests at that context, stops at llama.cpp's total maximum too.
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("2147483647");
+    expect(screen.getByRole("slider", { name: "Total context" })).toHaveValue("1000");
+  });
+
+  it("ends vLLM context per request at the model maximum and the total at it per parallel request", async () => {
+    const user = setupUser();
+    renderDialog({ initialProfileId: "nvfp4-text" });
+
+    await openAdvancedSettings(user);
+    const totalSlider = screen.getByRole("slider", { name: "Total context" });
+    const perRequestSlider = screen.getByRole("slider", { name: "Context per request" });
+    expect(await readFieldHelpFacts("Context per request")).toContain("Range 512 or more tokens");
+    expect(await readFieldHelpFacts("Total context")).toContain("Range 512 or more tokens");
+    // Without an engine maximum, context per request ends at the 256k model maximum and the total
+    // at that for each of the 4 parallel requests.
+    expect(totalSlider).toHaveValue("545");
+    expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
+    expect(presetLabels("Context per request")).toEqual(["8k", "32k", "64k", "128k", "256k"]);
+    fireEvent.change(perRequestSlider, { target: { value: "1000" } });
+    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("262144");
+    await user.click(screen.getByRole("button", { name: "Follow the total" }));
+
+    // One parallel request brings the total's end down to the context per request's.
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
+    await user.clear(parallel);
+    await user.type(parallel, "1");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("slider", { name: "Total context" })).toHaveValue("1000");
+    fireEvent.change(screen.getByRole("slider", { name: "Total context" }), {
+      target: { value: "1000" },
+    });
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("262144");
+    expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k"]);
   });
 
   it("stands an empty context per request for the maximum context when below the total", async () => {
@@ -356,13 +416,13 @@ describe("ModelDeployDialog Advanced step", () => {
     const user = setupUser();
     const onSubmit = vi.fn();
     renderDialog({ initialProfileId: "q4-xl", onSubmit });
-    const error = "Prompt cache memory must be an integer from 0 to 65536 MiB.";
+    const error = "Prompt cache memory must be an integer from 0 to 2,147,483,647 MiB.";
 
     await openAdvancedStep(user);
     await user.click(sectionToggle("Other parameters (1)"));
     const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
     await user.clear(promptCache);
-    await user.type(promptCache, "70000");
+    await user.type(promptCache, "3000000000");
     await user.click(sectionToggle("Other parameters (1)"));
     await waitFor(() =>
       expect(

@@ -5,6 +5,7 @@ import {
   SizingScenarioUnsupportedReason,
 } from "@/gen/dotcore/model/v1/service_pb";
 import { formatCompactCount } from "@/lib/format";
+import { parseSafeInteger } from "@/lib/safe-integer";
 import { panelParameter } from "@/panels/panel-stack";
 
 import { defaultMemoryBasis, type MemoryBasis } from "./profile-compatibility";
@@ -19,9 +20,6 @@ export interface SizingScenario {
   contextTokensPerRequest?: number;
   totalContextTokens: number;
 }
-
-/** The smallest total context, or context per request, a scenario accepts, in tokens. */
-export const minimumScenarioContextTokens = 1024;
 
 /** Reads the scenario of a location search; a missing or invalid value means none. */
 export function parseSizingScenario(search: string | URLSearchParams): SizingScenario | undefined {
@@ -100,8 +98,11 @@ export function sizingScenarioRequest({
   totalContextTokens,
 }: SizingScenario): MessageInitShape<typeof SizingScenarioSchema> {
   return contextTokensPerRequest === undefined
-    ? { totalContextTokens }
-    : { contextTokensPerRequest, totalContextTokens };
+    ? { totalContextTokens: BigInt(totalContextTokens) }
+    : {
+        contextTokensPerRequest: BigInt(contextTokensPerRequest),
+        totalContextTokens: BigInt(totalContextTokens),
+      };
 }
 
 /** A scenario in a few characters, such as "1M" or "1M · 64k per request". */
@@ -142,8 +143,9 @@ export function sizingUnsupportedText(
 export type ScenarioInput = "perRequest" | "total";
 
 /**
- * Why the scenario inputs are invalid, by input. The total context is a whole number of at least
- * 1024 tokens; the context per request is empty, or such a number at most the total context.
+ * Why the scenario inputs are invalid, by input. The total context is a whole number of tokens; the
+ * context per request is empty, or such a number at most the total context. Each profile checks the
+ * values against its own engine's ranges.
  */
 export function scenarioInputErrors(
   inputs: Record<ScenarioInput, string>,
@@ -152,10 +154,9 @@ export function scenarioInputErrors(
   const perRequestInput = inputs.perRequest.trim();
   const perRequest = perRequestInput ? scenarioNumber(perRequestInput) : undefined;
   const errors: Partial<Record<ScenarioInput, string>> = {};
-  if (total === undefined)
-    errors.total = `Total context must be a whole number of at least ${minimumScenarioContextTokens} tokens.`;
+  if (total === undefined) errors.total = "Total context must be a whole number of tokens.";
   if (perRequestInput && perRequest === undefined)
-    errors.perRequest = `Context per request must be a whole number of at least ${minimumScenarioContextTokens} tokens.`;
+    errors.perRequest = "Context per request must be a whole number of tokens.";
   else if (perRequest !== undefined && total !== undefined && perRequest > total)
     errors.perRequest = "Context per request must be at most the total context.";
   return errors;
@@ -190,8 +191,7 @@ export function scenarioFromInputs(
  * The inputs with the one the operator didn't edit following the edited one, so the context per
  * request stays at most the total context: a larger context per request raises the total, and a
  * smaller total lowers the context per request. Unchanged inputs come back as the same object, as
- * do inputs that aren't both whole numbers, an empty context per request, and an edited value below
- * the smallest scenario context, which would carry a mistake over to the other input.
+ * do inputs that aren't both whole numbers and an empty context per request.
  */
 export function followContextInputs(
   inputs: Record<ScenarioInput, string>,
@@ -201,13 +201,9 @@ export function followContextInputs(
   const perRequest = inputs.perRequest.trim();
   if (!/^\d+$/.test(total) || !/^\d+$/.test(perRequest)) return inputs;
   if (BigInt(perRequest) <= BigInt(total)) return inputs;
-  if (Number(edited === "total" ? total : perRequest) < minimumScenarioContextTokens) return inputs;
 
   return edited === "total" ? { ...inputs, perRequest: total } : { ...inputs, total: perRequest };
 }
-
-// The largest value either input accepts: the transport's unsigned 32-bit range.
-const maximumScenarioValue = 4_294_967_295;
 
 // The URL keys of the scenario inputs, beside the catalog table view.
 const scenarioTotalKey = "ctx";
@@ -215,10 +211,7 @@ const scenarioPerRequestKey = "req";
 // The URL key of the memory basis, beside the scenario.
 const memoryBasisKey = "mem";
 
+// A scenario value travels as a 64-bit integer; the console holds the ones a number holds exactly.
 function scenarioNumber(value: string): number | undefined {
-  if (!/^\d+$/.test(value)) return undefined;
-  const number = Number(value);
-  return number >= minimumScenarioContextTokens && number <= maximumScenarioValue
-    ? number
-    : undefined;
+  return parseSafeInteger(value);
 }

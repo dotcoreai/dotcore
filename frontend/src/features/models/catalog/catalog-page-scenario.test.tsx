@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -171,7 +171,7 @@ function heldScenarioRead() {
 
 // The catalog's 128k with 32k per request, as its URL and the read carry it.
 const scenarioSearch = "ctx=131072&req=32768";
-const scenario = { totalContextTokens: 131072, contextTokensPerRequest: 32768 };
+const scenario = { totalContextTokens: 131072n, contextTokensPerRequest: 32768n };
 const sizedFor = "128k · 32k per request";
 
 describe("ModelCatalogPage Runs on sized for", () => {
@@ -231,7 +231,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     await user.keyboard("{Escape}");
     await waitFor(() => expect(currentLocation(router)).toBe("/models/catalog?ctx=131072"));
     await waitFor(() =>
-      expect(compatibility).toHaveBeenLastCalledWith({ scenario: { totalContextTokens: 131072 } }),
+      expect(compatibility).toHaveBeenLastCalledWith({ scenario: { totalContextTokens: 131072n } }),
     );
     // Quality can't serve it, so Alpha shows Fast alone.
     await waitFor(() => expect(footer()).toBe("1 of 2 models · 1 hidden"));
@@ -321,6 +321,31 @@ describe("ModelCatalogPage Runs on sized for", () => {
     ).toBeVisible();
   });
 
+  it("spans the scenario sliders over every profile's declared ends", async () => {
+    const { user } = renderCatalog("/models/catalog?f=runs&runs=node%3Amac");
+    await waitFor(() => expect(modelRows()).toEqual(["Alpha 7B"]));
+
+    const menu = await openRunsOn(user);
+    await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
+    // The vLLM configuration stops at 64k, but the llama.cpp ones reach the 256k model maximum, one
+    // request at a time; the scale starts at the declared 1024 minimum.
+    const total = within(menu).getByRole("slider", { name: "Total context" });
+    const perRequest = within(menu).getByRole("slider", { name: "Context per request" });
+    expect(total).toHaveValue("875");
+    expect(
+      within(within(menu).getByRole("group", { name: "Total context presets" }))
+        .getAllByRole("button")
+        .map((chip) => chip.textContent),
+    ).toEqual(["8k", "32k", "64k", "128k", "256k"]);
+
+    fireEvent.change(perRequest, { target: { value: "1000" } });
+    expect(within(menu).getByRole("textbox", { name: "Context per request" })).toHaveValue(
+      "262144",
+    );
+    fireEvent.change(total, { target: { value: "0" } });
+    expect(within(menu).getByRole("textbox", { name: "Total context" })).toHaveValue("1024");
+  });
+
   it("applies typed values once typing pauses, presets at once, and defaults again", async () => {
     const { compatibility, router, user } = renderCatalog("/models/catalog?f=runs&runs=node%3Amac");
     await waitFor(() => expect(cells("Alpha 7B")[2]).toBe("6 GiB"));
@@ -359,7 +384,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     );
     await waitFor(() =>
       expect(compatibility).toHaveBeenLastCalledWith({
-        scenario: { contextTokensPerRequest: 32768, totalContextTokens: 262144 },
+        scenario: { contextTokensPerRequest: 32768n, totalContextTokens: 262144n },
       }),
     );
     await user.keyboard("{Escape}");
@@ -505,7 +530,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
     );
   });
 
-  it("flags a total below 1024 tokens once left, leaves the context per request, and doesn't apply it", async () => {
+  it("flags a total that isn't a whole number once left, leaves the context per request, and doesn't apply it", async () => {
     const { compatibility, router, user } = renderCatalog("/models/catalog?f=runs&runs=node%3Amac");
     await waitFor(() => expect(modelRows()).toEqual(["Alpha 7B"]));
 
@@ -519,11 +544,9 @@ describe("ModelCatalogPage Runs on sized for", () => {
     await user.type(perRequest, "65536");
     await user.clear(total);
     // The cleared field keeps focus, so typing doesn't click it again.
-    await user.type(total, "512", { skipClick: true });
+    await user.type(total, "512k", { skipClick: true });
     await user.click(perRequest);
-    expect(
-      screen.getByText("Total context must be a whole number of at least 1024 tokens."),
-    ).toBeVisible();
+    expect(screen.getByText("Total context must be a whole number of tokens.")).toBeVisible();
     expect(total).toHaveAttribute("aria-invalid", "true");
     expect(perRequest).toHaveValue("65536");
     // Leaving the context per request applied it; the invalid total never applies.
@@ -536,15 +559,14 @@ describe("ModelCatalogPage Runs on sized for", () => {
       expect(
         new Set(
           compatibility.mock.calls.flatMap(([request]) =>
-            request.scenario ? [JSON.stringify(request.scenario)] : [],
+            request.scenario
+              ? [
+                  `${request.scenario.totalContextTokens}/${request.scenario.contextTokensPerRequest ?? ""}`,
+                ]
+              : [],
           ),
         ),
-      ).toEqual(
-        new Set([
-          JSON.stringify({ totalContextTokens: 131072 }),
-          JSON.stringify({ contextTokensPerRequest: 65536, totalContextTokens: 131072 }),
-        ]),
-      ),
+      ).toEqual(new Set(["131072/", "131072/65536"])),
     );
   });
 

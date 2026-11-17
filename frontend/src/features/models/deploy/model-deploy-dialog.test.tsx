@@ -361,7 +361,7 @@ describe("ModelDeployDialog", () => {
       await waitFor(() => expect(revealed).toHaveFocus());
       expect(revealed).toHaveAttribute("aria-invalid", "true");
       expect(
-        screen.getByText("Parallel requests must be an integer from 1 to 64 requests."),
+        screen.getByText("Parallel requests must be an integer from 1 to 256 requests."),
       ).toBeVisible();
       expect(onSubmit).not.toHaveBeenCalled();
     });
@@ -2240,7 +2240,7 @@ describe("ModelDeployDialog", () => {
       await user.tab();
       await waitFor(() => expect(context).toHaveAttribute("aria-invalid", "true"));
       expect(
-        screen.getByText("Total context must be an integer from 1024 to 32768 tokens."),
+        screen.getByText("Total context must be an integer from 1,024 to 32,768 tokens."),
       ).toBeVisible();
     });
 
@@ -2255,11 +2255,11 @@ describe("ModelDeployDialog", () => {
       await user.tab();
 
       expect(
-        await screen.findByText("Total context must be an integer from 1024 to 32768 tokens."),
+        await screen.findByText("Total context must be an integer from 1,024 to 32,768 tokens."),
       ).toBeVisible();
       expect(context).toHaveAttribute("aria-invalid", "true");
       expect(context).toHaveAccessibleDescription(
-        "Total context must be an integer from 1024 to 32768 tokens.",
+        "Total context must be an integer from 1,024 to 32,768 tokens.",
       );
 
       await user.click(screen.getByRole("button", { name: "Next" }));

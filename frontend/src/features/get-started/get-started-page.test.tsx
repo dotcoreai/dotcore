@@ -202,7 +202,7 @@ describe("GetStartedPage", () => {
     expect(compatibilityReads.map((read) => [read.modelId, read.scenario])).toEqual([
       [
         "qwen-27b",
-        expect.objectContaining({ contextTokensPerRequest: 32768, totalContextTokens: 32768 }),
+        expect.objectContaining({ contextTokensPerRequest: 32768n, totalContextTokens: 32768n }),
       ],
     ]);
   });
@@ -1260,7 +1260,11 @@ async function renderPage(site: Site) {
           return Promise.reject(new Error("unavailable"));
         }
         return Promise.resolve(
-          compatibility(request.modelId ?? "", site, request.scenario?.totalContextTokens),
+          compatibility(
+            request.modelId ?? "",
+            site,
+            request.scenario && Number(request.scenario.totalContextTokens),
+          ),
         );
       }),
       listModelRecommendations: vi.fn((request: ListModelRecommendationsRequest) =>

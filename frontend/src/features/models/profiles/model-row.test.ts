@@ -65,6 +65,7 @@ describe("projectModelRows", () => {
         },
       ],
       configurationId: "cuda-llama",
+      contextSliderEnds: { minimum: 1024, perRequest: 262144, total: 262144 },
       description: "Starts quickly.",
       displayName: "Fast",
       engineKinds: ["llama-cpp"],

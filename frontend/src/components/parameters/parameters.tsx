@@ -7,6 +7,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { SecretValue } from "@/components/ui/secret-value";
 import { Switch } from "@/components/ui/switch";
 import {
+  integerBounds,
   lengthBounds,
   parameterDisplayValue,
   type ParameterView,
@@ -120,11 +121,11 @@ export function ParametersForm({
   });
 }
 
-/** The accepted range of a number, with its unit when it has one. */
+/** The accepted range of a number, open-ended without a maximum, with its unit when it has one. */
 export function RangeFact({ maximum, minimum, unit }: RangeBounds) {
   return (
     <p>
-      Range {`${minimum}–${maximum}`}
+      Range {integerBounds({ maximum, minimum })}
       {unit ? ` ${unit}` : ""}
     </p>
   );

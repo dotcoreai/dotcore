@@ -1,4 +1,4 @@
-import { clone, create } from "@bufbuild/protobuf";
+import { create } from "@bufbuild/protobuf";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { UserEvent } from "@testing-library/user-event";
 import { type ComponentProps } from "react";
@@ -28,7 +28,6 @@ import {
   runtimeSchemaReleases,
   unsignedValue,
 } from "@/features/models/runtime/runtime-schema-test-support";
-import { ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { MemoryFit } from "@/gen/dotcore/deployment/v1/memory_fit_pb";
 import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
@@ -852,7 +851,7 @@ describe("ModelDeployDialog largest fit under a new scenario", () => {
 });
 
 describe("ModelDeployDialog shared context", () => {
-  it("starts total context at the largest fit rounded down to 1024 tokens, as the table shows", async () => {
+  it("starts total context at the largest fit, as the table shows", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
@@ -862,7 +861,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
       onSubmit,
     });
 
@@ -914,7 +912,6 @@ describe("ModelDeployDialog shared context", () => {
             },
           }),
         ]),
-        model: longContextModel,
         onSubmit,
       });
 
@@ -940,7 +937,6 @@ describe("ModelDeployDialog shared context", () => {
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: vi.fn(() => Promise.reject(new Error("read failed"))),
-      model: longContextModel,
       onSubmit,
     });
 
@@ -959,7 +955,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
       onSubmit,
     });
 
@@ -1002,7 +997,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
@@ -1055,7 +1049,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: fit },
         }),
       ]),
-      model: longContextModel,
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
@@ -1074,6 +1067,29 @@ describe("ModelDeployDialog shared context", () => {
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue(String(fit));
   });
 
+  it("keeps the thumb at the slider's end for a largest fit above it", async () => {
+    const user = setupUser();
+    renderDialog({
+      initialProfileId: "q4-xl",
+      listProfileCompatibility: scenarioLoader({}, [
+        targetCompatibility(poolPlacement, { "q4-xl": { startingTotalContextTokens: 1_999_872 } }),
+      ]),
+    });
+
+    await screen.findByRole("button", { name: "Runs on filter: this site" });
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("button", { name: /, largest fit$/ });
+
+    // The slider ends at 1M, 4 parallel requests at the 256k model maximum, below the fit.
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("1999872");
+    const slider = screen.getByRole("slider", { name: "Total context" });
+    expect(slider).toHaveValue("1000");
+    expect(slider).toHaveAttribute("aria-valuetext", "1,999,872 tokens");
+    expect(screen.getByRole("textbox", { name: "Total context" })).not.toHaveAttribute(
+      "aria-invalid",
+    );
+  });
+
   it("presses the largest fit chip only while the total's value is the largest fit", async () => {
     const user = setupUser();
     renderDialog({
@@ -1083,7 +1099,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
@@ -1124,14 +1139,13 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
     await user.click(screen.getByRole("button", { name: "Next" }));
     const total = screen.getByRole("textbox", { name: "Total context" });
     await user.clear(total);
-    await user.type(total, "12");
+    await user.type(total, "12k");
     await user.tab();
     expect(await screen.findByText(totalContextError)).toBeVisible();
 
@@ -1151,7 +1165,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
@@ -1168,7 +1181,7 @@ describe("ModelDeployDialog shared context", () => {
     await user.clear(parallel);
     await user.type(parallel, "0");
     await user.tab();
-    const parallelError = "Parallel requests must be an integer from 1 to 64 requests.";
+    const parallelError = "Parallel requests must be an integer from 1 to 256 requests.";
     expect(await screen.findByText(parallelError)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Back" }));
@@ -1190,7 +1203,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
@@ -1207,7 +1219,7 @@ describe("ModelDeployDialog shared context", () => {
     await user.clear(parallel);
     await user.type(parallel, "0");
     await user.tab();
-    const parallelError = "Parallel requests must be an integer from 1 to 64 requests.";
+    const parallelError = "Parallel requests must be an integer from 1 to 256 requests.";
     expect(await screen.findByText(parallelError)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Back" }));
@@ -1236,7 +1248,7 @@ describe("ModelDeployDialog shared context", () => {
         ]),
       ),
     );
-    renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility, model: longContextModel });
+    renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
     await waitFor(() => expect(profileRows()).toEqual(["NVFP4 text", "Q4_K_XL"]));
@@ -1287,7 +1299,6 @@ describe("ModelDeployDialog shared context", () => {
           "nvfp4-text": { startingTotalContextTokens: 409600 },
         }),
       ]),
-      model: longContextModel,
       onSubmit,
     });
 
@@ -1337,7 +1348,6 @@ describe("ModelDeployDialog shared context", () => {
           "q4-xl": { startingTotalContextTokens: 910336 },
         }),
       ]),
-      model: longContextModel,
       onSubmit,
       scenario: catalogScenario,
     });
@@ -1686,12 +1696,9 @@ describe("ModelDeployDialog scenario polling", () => {
   });
 });
 
-const totalContextError = "Total context must be an integer from 1024 to 16777216 tokens.";
+const totalContextError = "Total context must be an integer from 512 to 2,147,483,647 tokens.";
 
 // The fixture model with a 256k maximum context, which caps the default total context.
-const longContextModel = clone(ModelSchema, runtimeSchemaModel);
-longContextModel.maximumContextTokens = 262144;
-
 // NVFP4 ninfer fits up to 96k total context on the pool and 64k on the worker.
 const twoTargetContexts = [
   targetCompatibility(poolPlacement, {

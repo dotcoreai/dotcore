@@ -96,7 +96,10 @@ export function speculativeChoiceError(
   const option = options.find((candidate) => candidate.optionId === choice.optionId);
   if (!option || choiceCount(option, choice) !== undefined) return undefined;
 
-  return `Speculative token count must be an integer from ${speculativeEnabledMinimum(option)} to ${option.maximum} tokens.`;
+  const minimum = speculativeEnabledMinimum(option);
+  const bounds =
+    option.maximum === undefined ? `of ${minimum} or more` : `from ${minimum} to ${option.maximum}`;
+  return `Speculative token count must be an integer ${bounds} tokens.`;
 }
 
 /**
@@ -169,5 +172,8 @@ function choiceCount(option: SpeculativeOption, choice: SpeculativeChoice): numb
   if (!/^\d+$/.test(choice.count)) return undefined;
 
   const count = Number(choice.count);
-  return count >= speculativeEnabledMinimum(option) && count <= option.maximum ? count : undefined;
+  return count >= speculativeEnabledMinimum(option) &&
+    (option.maximum === undefined || count <= option.maximum)
+    ? count
+    : undefined;
 }

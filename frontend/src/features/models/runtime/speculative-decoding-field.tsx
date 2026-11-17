@@ -3,6 +3,7 @@ import type { RefObject } from "react";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { integerBounds } from "@/domain/parameter-view";
 import type { SpeculativeOption } from "@/features/models/profiles/model-row";
 
 import { type SpeculativeChoice, speculativeEnabledMinimum } from "./speculative-choice";
@@ -45,7 +46,9 @@ export function SpeculativeDecodingField({
       facts={
         option ? (
           <p>
-            Range {speculativeEnabledMinimum(option)}–{option.maximum} tokens
+            Range{" "}
+            {integerBounds({ maximum: option.maximum, minimum: speculativeEnabledMinimum(option) })}{" "}
+            tokens
           </p>
         ) : undefined
       }
