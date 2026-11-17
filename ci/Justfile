@@ -6,6 +6,14 @@ help:
 lint:
   cd .. && actionlint
 
+# Update the actions lockfile after changing a `uses:` line or adding a workflow; needs `gh` with the gh-actions-lock extension.
+lock:
+  cd .. && gh actions-lock
+
+# Verify the actions lockfile against the workflows and upstream, without changing files; needs `gh` with the gh-actions-lock extension.
+lock-verify:
+  cd .. && gh actions-lock --verify
+
 # Fail when commits in a range still carry the unreviewed or private prefix, listing each one; defaults to the commits not yet on main.
 check-commit-prefixes range="origin/main..HEAD":
   cd .. && ci/check-commit-prefixes.sh "{{range}}"
@@ -13,6 +21,7 @@ check-commit-prefixes range="origin/main..HEAD":
 # Run every area's CI validations, without changing files; needs `just frontend::bootstrap` first.
 check:
   cd .. && just ci::lint
+  cd .. && just ci::lock-verify
   cd .. && just proto::ci-check
   cd .. && just frontend::ci-check
   cd .. && just backend::ci-check
