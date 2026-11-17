@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/site/v1/join.proto.
  */
 export const file_dotcore_site_v1_join: GenFile = /*@__PURE__*/
-  fileDesc("Chpkb3Rjb3JlL3NpdGUvdjEvam9pbi5wcm90bxIPZG90Y29yZS5zaXRlLnYxIhIKEFN0YXJ0Sm9pblJlcXVlc3QiYwoRU3RhcnRKb2luUmVzcG9uc2USDwoHam9pbl9pZBgBIAEoCRINCgV0b2tlbhgCIAEoCRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIjChBXYXRjaEpvaW5SZXF1ZXN0Eg8KB2pvaW5faWQYASABKAkidgoRV2F0Y2hKb2luUmVzcG9uc2USKwoFc3RhdGUYASABKAsyGi5kb3Rjb3JlLnNpdGUudjEuSm9pblN0YXRlSAASKwoJaGVhcnRiZWF0GAIgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SABCBwoFZXZlbnQiOgoSQXBwcm92ZUpvaW5SZXF1ZXN0Eg8KB2pvaW5faWQYASABKAkSEwoLcHJvcG9zYWxfaWQYAiABKAkiFQoTQXBwcm92ZUpvaW5SZXNwb25zZSI5ChFSZWplY3RKb2luUmVxdWVzdBIPCgdqb2luX2lkGAEgASgJEhMKC3Byb3Bvc2FsX2lkGAIgASgJIhQKElJlamVjdEpvaW5SZXNwb25zZSIkChFDYW5jZWxKb2luUmVxdWVzdBIPCgdqb2luX2lkGAEgASgJIhQKEkNhbmNlbEpvaW5SZXNwb25zZSLFAgoJSm9pblN0YXRlEi8KB3dhaXRpbmcYASABKAsyHC5kb3Rjb3JlLnNpdGUudjEuSm9pbldhaXRpbmdIABJCChFhd2FpdGluZ19hcHByb3ZhbBgCIAEoCzIlLmRvdGNvcmUuc2l0ZS52MS5Kb2luQXdhaXRpbmdBcHByb3ZhbEgAEjMKCWNvbW1pdHRlZBgDIAEoCzIeLmRvdGNvcmUuc2l0ZS52MS5Kb2luQ29tbWl0dGVkSAASKwoJY2FuY2VsbGVkGAQgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASKQoHZXhwaXJlZBgFIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEi0KBmZhaWxlZBgGIAEoCzIbLmRvdGNvcmUuc2l0ZS52MS5Kb2luRmFpbGVkSABCBwoFc3RhdGUiSAoLSm9pbldhaXRpbmcSOQoMbGFzdF9hdHRlbXB0GAEgASgLMiMuZG90Y29yZS5zaXRlLnYxLkpvaW5BdHRlbXB0T3V0Y29tZSJcChRKb2luQXdhaXRpbmdBcHByb3ZhbBITCgtwcm9wb3NhbF9pZBgBIAEoCRIvCghwcm9wb3NhbBgCIAEoCzIdLmRvdGNvcmUuc2l0ZS52MS5Kb2luUHJvcG9zYWwiIAoNSm9pbkNvbW1pdHRlZBIPCgdub2RlX2lkGAEgASgJIhwKCkpvaW5GYWlsZWQSDgoGcmVhc29uGAEgASgJIl0KEkpvaW5BdHRlbXB0T3V0Y29tZRIqCghyZWplY3RlZBgBIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEhAKBmZhaWxlZBgCIAEoCUgAQgkKB291dGNvbWUixwIKDEpvaW5Qcm9wb3NhbBIPCgdub2RlX2lkGAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRIMCgRob3N0GAMgASgJEjQKC2hvc3Rfc291cmNlGAQgASgOMh8uZG90Y29yZS5zaXRlLnYxLkpvaW5Ib3N0U291cmNlEhQKDHBlZXJfYWRkcmVzcxgFIAEoCRIeChZob3N0X2RpZmZlcnNfZnJvbV9wZWVyGAYgASgIEhQKDHByaXZhdGVfcG9ydBgHIAEoDRIXCg9rZXlfZmluZ2VycHJpbnQYCCABKAkSMAoIbmV3X25vZGUYCSABKAsyHC5kb3Rjb3JlLnNpdGUudjEuSm9pbk5ld05vZGVIABItCgZyZWpvaW4YCiABKAsyGy5kb3Rjb3JlLnNpdGUudjEuSm9pblJlam9pbkgAQgYKBGtpbmQiQwoLSm9pbk5ld05vZGUSNAoHdGFyZ2V0cxgBIAMoCzIjLmRvdGNvcmUuc2l0ZS52MS5Kb2luUHJvcG9zZWRUYXJnZXQibQoKSm9pblJlam9pbhIVCg1wcmV2aW91c19ob3N0GAEgASgJEh0KFXByZXZpb3VzX21hbmFnZXJfaG9zdBgCIAEoCRIUCgxtYW5hZ2VyX2hvc3QYAyABKAkSEwoLZGVwbG95bWVudHMYBCABKA0ikQIKEkpvaW5Qcm9wb3NlZFRhcmdldBJDCg13b3JrbG9hZF9raW5kGAEgASgOMiwuZG90Y29yZS5zaXRlLnYxLkV4ZWN1dGlvblRhcmdldFdvcmtsb2FkS2luZBIzCgdydW50aW1lGAIgASgOMiIuZG90Y29yZS5zaXRlLnYxLkpvaW5UYXJnZXRSdW50aW1lEhYKDnBsYXRmb3JtX2xhYmVsGAMgASgJEh4KFmFjY2VsZXJhdG9yX2RldmljZV9pZHMYBCADKAkSSQoYbmF0aXZlX3dvcmtsb2FkX2xpZmV0aW1lGAUgASgOMicuZG90Y29yZS5zaXRlLnYxLk5hdGl2ZVdvcmtsb2FkTGlmZXRpbWUqjwEKDkpvaW5Ib3N0U291cmNlEiAKHEpPSU5fSE9TVF9TT1VSQ0VfVU5TUEVDSUZJRUQQABIdChlKT0lOX0hPU1RfU09VUkNFX1BST1BPU0VEEAESHQoZSk9JTl9IT1NUX1NPVVJDRV9PQlNFUlZFRBACEh0KGUpPSU5fSE9TVF9TT1VSQ0VfREVDTEFSRUQQAyq6AQoRSm9pblRhcmdldFJ1bnRpbWUSIwofSk9JTl9UQVJHRVRfUlVOVElNRV9VTlNQRUNJRklFRBAAEiEKHUpPSU5fVEFSR0VUX1JVTlRJTUVfU0lNVUxBVEVEEAESHgoaSk9JTl9UQVJHRVRfUlVOVElNRV9OVklESUEQAhIdChlKT0lOX1RBUkdFVF9SVU5USU1FX0FQUExFEAMSHgoaSk9JTl9UQVJHRVRfUlVOVElNRV9ET0NLRVIQBDLDAwoPU2l0ZUpvaW5TZXJ2aWNlElIKCVN0YXJ0Sm9pbhIhLmRvdGNvcmUuc2l0ZS52MS5TdGFydEpvaW5SZXF1ZXN0GiIuZG90Y29yZS5zaXRlLnYxLlN0YXJ0Sm9pblJlc3BvbnNlElQKCVdhdGNoSm9pbhIhLmRvdGNvcmUuc2l0ZS52MS5XYXRjaEpvaW5SZXF1ZXN0GiIuZG90Y29yZS5zaXRlLnYxLldhdGNoSm9pblJlc3BvbnNlMAESWAoLQXBwcm92ZUpvaW4SIy5kb3Rjb3JlLnNpdGUudjEuQXBwcm92ZUpvaW5SZXF1ZXN0GiQuZG90Y29yZS5zaXRlLnYxLkFwcHJvdmVKb2luUmVzcG9uc2USVQoKUmVqZWN0Sm9pbhIiLmRvdGNvcmUuc2l0ZS52MS5SZWplY3RKb2luUmVxdWVzdBojLmRvdGNvcmUuc2l0ZS52MS5SZWplY3RKb2luUmVzcG9uc2USVQoKQ2FuY2VsSm9pbhIiLmRvdGNvcmUuc2l0ZS52MS5DYW5jZWxKb2luUmVxdWVzdBojLmRvdGNvcmUuc2l0ZS52MS5DYW5jZWxKb2luUmVzcG9uc2ViBnByb3RvMw", [file_dotcore_site_v1_service, file_dotcore_site_v1_site, file_google_protobuf_empty, file_google_protobuf_timestamp]);
+  fileDesc("Chpkb3Rjb3JlL3NpdGUvdjEvam9pbi5wcm90bxIPZG90Y29yZS5zaXRlLnYxIhIKEFN0YXJ0Sm9pblJlcXVlc3QiYwoRU3RhcnRKb2luUmVzcG9uc2USDwoHam9pbl9pZBgBIAEoCRINCgV0b2tlbhgCIAEoCRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIjChBXYXRjaEpvaW5SZXF1ZXN0Eg8KB2pvaW5faWQYASABKAkidgoRV2F0Y2hKb2luUmVzcG9uc2USKwoFc3RhdGUYASABKAsyGi5kb3Rjb3JlLnNpdGUudjEuSm9pblN0YXRlSAASKwoJaGVhcnRiZWF0GAIgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SABCBwoFZXZlbnQiOgoSQXBwcm92ZUpvaW5SZXF1ZXN0Eg8KB2pvaW5faWQYASABKAkSEwoLcHJvcG9zYWxfaWQYAiABKAkiFQoTQXBwcm92ZUpvaW5SZXNwb25zZSI5ChFSZWplY3RKb2luUmVxdWVzdBIPCgdqb2luX2lkGAEgASgJEhMKC3Byb3Bvc2FsX2lkGAIgASgJIhQKElJlamVjdEpvaW5SZXNwb25zZSIkChFDYW5jZWxKb2luUmVxdWVzdBIPCgdqb2luX2lkGAEgASgJIhQKEkNhbmNlbEpvaW5SZXNwb25zZSLFAgoJSm9pblN0YXRlEi8KB3dhaXRpbmcYASABKAsyHC5kb3Rjb3JlLnNpdGUudjEuSm9pbldhaXRpbmdIABJCChFhd2FpdGluZ19hcHByb3ZhbBgCIAEoCzIlLmRvdGNvcmUuc2l0ZS52MS5Kb2luQXdhaXRpbmdBcHByb3ZhbEgAEjMKCWNvbW1pdHRlZBgDIAEoCzIeLmRvdGNvcmUuc2l0ZS52MS5Kb2luQ29tbWl0dGVkSAASKwoJY2FuY2VsbGVkGAQgASgLMhYuZ29vZ2xlLnByb3RvYnVmLkVtcHR5SAASKQoHZXhwaXJlZBgFIAEoCzIWLmdvb2dsZS5wcm90b2J1Zi5FbXB0eUgAEi0KBmZhaWxlZBgGIAEoCzIbLmRvdGNvcmUuc2l0ZS52MS5Kb2luRmFpbGVkSABCBwoFc3RhdGUiSAoLSm9pbldhaXRpbmcSOQoMbGFzdF9hdHRlbXB0GAEgASgLMiMuZG90Y29yZS5zaXRlLnYxLkpvaW5BdHRlbXB0T3V0Y29tZSJcChRKb2luQXdhaXRpbmdBcHByb3ZhbBITCgtwcm9wb3NhbF9pZBgBIAEoCRIvCghwcm9wb3NhbBgCIAEoCzIdLmRvdGNvcmUuc2l0ZS52MS5Kb2luUHJvcG9zYWwiIAoNSm9pbkNvbW1pdHRlZBIPCgdub2RlX2lkGAEgASgJIhwKCkpvaW5GYWlsZWQSDgoGcmVhc29uGAEgASgJIoUBChJKb2luQXR0ZW1wdE91dGNvbWUSKgoIcmVqZWN0ZWQYASABKAsyFi5nb29nbGUucHJvdG9idWYuRW1wdHlIABIQCgZmYWlsZWQYAiABKAlIABImCgJhdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCQoHb3V0Y29tZSKJAwoMSm9pblByb3Bvc2FsEg8KB25vZGVfaWQYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEgwKBGhvc3QYAyABKAkSNAoLaG9zdF9zb3VyY2UYBCABKA4yHy5kb3Rjb3JlLnNpdGUudjEuSm9pbkhvc3RTb3VyY2USFAoMcGVlcl9hZGRyZXNzGAUgASgJEh4KFmhvc3RfZGlmZmVyc19mcm9tX3BlZXIYBiABKAgSFAoMcHJpdmF0ZV9wb3J0GAcgASgNEhcKD2tleV9maW5nZXJwcmludBgIIAEoCRJAChNmaW5nZXJwcmludF9wYXR0ZXJuGAsgASgLMiMuZG90Y29yZS5zaXRlLnYxLkZpbmdlcnByaW50UGF0dGVybhIwCghuZXdfbm9kZRgJIAEoCzIcLmRvdGNvcmUuc2l0ZS52MS5Kb2luTmV3Tm9kZUgAEi0KBnJlam9pbhgKIAEoCzIbLmRvdGNvcmUuc2l0ZS52MS5Kb2luUmVqb2luSABCBgoEa2luZCJdChJGaW5nZXJwcmludFBhdHRlcm4SOAoGY29sb3JzGAEgAygOMiguZG90Y29yZS5zaXRlLnYxLkZpbmdlcnByaW50UGF0dGVybkNvbG9yEg0KBWNlbGxzGAIgAygNIkMKC0pvaW5OZXdOb2RlEjQKB3RhcmdldHMYASADKAsyIy5kb3Rjb3JlLnNpdGUudjEuSm9pblByb3Bvc2VkVGFyZ2V0Im0KCkpvaW5SZWpvaW4SFQoNcHJldmlvdXNfaG9zdBgBIAEoCRIdChVwcmV2aW91c19tYW5hZ2VyX2hvc3QYAiABKAkSFAoMbWFuYWdlcl9ob3N0GAMgASgJEhMKC2RlcGxveW1lbnRzGAQgASgNIpECChJKb2luUHJvcG9zZWRUYXJnZXQSQwoNd29ya2xvYWRfa2luZBgBIAEoDjIsLmRvdGNvcmUuc2l0ZS52MS5FeGVjdXRpb25UYXJnZXRXb3JrbG9hZEtpbmQSMwoHcnVudGltZRgCIAEoDjIiLmRvdGNvcmUuc2l0ZS52MS5Kb2luVGFyZ2V0UnVudGltZRIWCg5wbGF0Zm9ybV9sYWJlbBgDIAEoCRIeChZhY2NlbGVyYXRvcl9kZXZpY2VfaWRzGAQgAygJEkkKGG5hdGl2ZV93b3JrbG9hZF9saWZldGltZRgFIAEoDjInLmRvdGNvcmUuc2l0ZS52MS5OYXRpdmVXb3JrbG9hZExpZmV0aW1lKqECChdGaW5nZXJwcmludFBhdHRlcm5Db2xvchIpCiVGSU5HRVJQUklOVF9QQVRURVJOX0NPTE9SX1VOU1BFQ0lGSUVEEAASIQodRklOR0VSUFJJTlRfUEFUVEVSTl9DT0xPUl9SRUQQARIjCh9GSU5HRVJQUklOVF9QQVRURVJOX0NPTE9SX0dSRUVOEAISJAogRklOR0VSUFJJTlRfUEFUVEVSTl9DT0xPUl9ZRUxMT1cQAxIiCh5GSU5HRVJQUklOVF9QQVRURVJOX0NPTE9SX0JMVUUQBBIlCiFGSU5HRVJQUklOVF9QQVRURVJOX0NPTE9SX01BR0VOVEEQBRIiCh5GSU5HRVJQUklOVF9QQVRURVJOX0NPTE9SX0NZQU4QBiqPAQoOSm9pbkhvc3RTb3VyY2USIAocSk9JTl9IT1NUX1NPVVJDRV9VTlNQRUNJRklFRBAAEh0KGUpPSU5fSE9TVF9TT1VSQ0VfUFJPUE9TRUQQARIdChlKT0lOX0hPU1RfU09VUkNFX09CU0VSVkVEEAISHQoZSk9JTl9IT1NUX1NPVVJDRV9ERUNMQVJFRBADKroBChFKb2luVGFyZ2V0UnVudGltZRIjCh9KT0lOX1RBUkdFVF9SVU5USU1FX1VOU1BFQ0lGSUVEEAASIQodSk9JTl9UQVJHRVRfUlVOVElNRV9TSU1VTEFURUQQARIeChpKT0lOX1RBUkdFVF9SVU5USU1FX05WSURJQRACEh0KGUpPSU5fVEFSR0VUX1JVTlRJTUVfQVBQTEUQAxIeChpKT0lOX1RBUkdFVF9SVU5USU1FX0RPQ0tFUhAEMsMDCg9TaXRlSm9pblNlcnZpY2USUgoJU3RhcnRKb2luEiEuZG90Y29yZS5zaXRlLnYxLlN0YXJ0Sm9pblJlcXVlc3QaIi5kb3Rjb3JlLnNpdGUudjEuU3RhcnRKb2luUmVzcG9uc2USVAoJV2F0Y2hKb2luEiEuZG90Y29yZS5zaXRlLnYxLldhdGNoSm9pblJlcXVlc3QaIi5kb3Rjb3JlLnNpdGUudjEuV2F0Y2hKb2luUmVzcG9uc2UwARJYCgtBcHByb3ZlSm9pbhIjLmRvdGNvcmUuc2l0ZS52MS5BcHByb3ZlSm9pblJlcXVlc3QaJC5kb3Rjb3JlLnNpdGUudjEuQXBwcm92ZUpvaW5SZXNwb25zZRJVCgpSZWplY3RKb2luEiIuZG90Y29yZS5zaXRlLnYxLlJlamVjdEpvaW5SZXF1ZXN0GiMuZG90Y29yZS5zaXRlLnYxLlJlamVjdEpvaW5SZXNwb25zZRJVCgpDYW5jZWxKb2luEiIuZG90Y29yZS5zaXRlLnYxLkNhbmNlbEpvaW5SZXF1ZXN0GiMuZG90Y29yZS5zaXRlLnYxLkNhbmNlbEpvaW5SZXNwb25zZWIGcHJvdG8z", [file_dotcore_site_v1_service, file_dotcore_site_v1_site, file_google_protobuf_empty, file_google_protobuf_timestamp]);
 
 /**
  * Requests a new join.
@@ -430,6 +430,13 @@ export type JoinAttemptOutcome = Message<"dotcore.site.v1.JoinAttemptOutcome"> &
     value: string;
     case: "failed";
   } | { case: undefined; value?: undefined };
+
+  /**
+   * Wall-clock time the attempt ended, which tells two identical outcomes apart.
+   *
+   * @generated from field: google.protobuf.Timestamp at = 3;
+   */
+  at?: Timestamp;
 };
 
 /**
@@ -495,11 +502,19 @@ export type JoinProposal = Message<"dotcore.site.v1.JoinProposal"> & {
   privatePort: number;
 
   /**
-   * Lowercase SHA-256 fingerprint of the machine's key, also shown on the machine.
+   * Lowercase SHA-256 fingerprint of the machine's key, also shown on the machine next to its
+   * fingerprint pattern.
    *
    * @generated from field: string key_fingerprint = 8;
    */
   keyFingerprint: string;
+
+  /**
+   * Visual pattern derived from the key fingerprint, also shown on the machine.
+   *
+   * @generated from field: dotcore.site.v1.FingerprintPattern fingerprint_pattern = 11;
+   */
+  fingerprintPattern?: FingerprintPattern;
 
   /**
    * Whether the machine joins as a new node or as a declared one again.
@@ -533,6 +548,35 @@ export const JoinProposalSchema: GenMessage<JoinProposal> = /*@__PURE__*/
   messageDesc(file_dotcore_site_v1_join, 16);
 
 /**
+ * A small symmetric grid of colored cells derived from a key fingerprint, for a quick visual
+ * match between two screens; the fingerprint stays the authoritative check.
+ *
+ * @generated from message dotcore.site.v1.FingerprintPattern
+ */
+export type FingerprintPattern = Message<"dotcore.site.v1.FingerprintPattern"> & {
+  /**
+   * The three distinct colors the cells use.
+   *
+   * @generated from field: repeated dotcore.site.v1.FingerprintPatternColor colors = 1;
+   */
+  colors: FingerprintPatternColor[];
+
+  /**
+   * 25 cells of a 5 by 5 grid in row-major order: 0 is empty, 1 to 3 index colors from 1.
+   *
+   * @generated from field: repeated uint32 cells = 2;
+   */
+  cells: number[];
+};
+
+/**
+ * Describes the message dotcore.site.v1.FingerprintPattern.
+ * Use `create(FingerprintPatternSchema)` to create a new message.
+ */
+export const FingerprintPatternSchema: GenMessage<FingerprintPattern> = /*@__PURE__*/
+  messageDesc(file_dotcore_site_v1_join, 17);
+
+/**
  * What a new machine proposes beyond its name and host.
  *
  * @generated from message dotcore.site.v1.JoinNewNode
@@ -551,7 +595,7 @@ export type JoinNewNode = Message<"dotcore.site.v1.JoinNewNode"> & {
  * Use `create(JoinNewNodeSchema)` to create a new message.
  */
 export const JoinNewNodeSchema: GenMessage<JoinNewNode> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_join, 17);
+  messageDesc(file_dotcore_site_v1_join, 18);
 
 /**
  * What changes when a declared machine joins again; its identity and targets stay.
@@ -593,7 +637,7 @@ export type JoinRejoin = Message<"dotcore.site.v1.JoinRejoin"> & {
  * Use `create(JoinRejoinSchema)` to create a new message.
  */
 export const JoinRejoinSchema: GenMessage<JoinRejoin> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_join, 18);
+  messageDesc(file_dotcore_site_v1_join, 19);
 
 /**
  * One execution target a new machine proposes.
@@ -642,7 +686,55 @@ export type JoinProposedTarget = Message<"dotcore.site.v1.JoinProposedTarget"> &
  * Use `create(JoinProposedTargetSchema)` to create a new message.
  */
 export const JoinProposedTargetSchema: GenMessage<JoinProposedTarget> = /*@__PURE__*/
-  messageDesc(file_dotcore_site_v1_join, 19);
+  messageDesc(file_dotcore_site_v1_join, 20);
+
+/**
+ * One of the six standard terminal colors a fingerprint pattern uses.
+ *
+ * @generated from enum dotcore.site.v1.FingerprintPatternColor
+ */
+export enum FingerprintPatternColor {
+  /**
+   * @generated from enum value: FINGERPRINT_PATTERN_COLOR_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: FINGERPRINT_PATTERN_COLOR_RED = 1;
+   */
+  RED = 1,
+
+  /**
+   * @generated from enum value: FINGERPRINT_PATTERN_COLOR_GREEN = 2;
+   */
+  GREEN = 2,
+
+  /**
+   * @generated from enum value: FINGERPRINT_PATTERN_COLOR_YELLOW = 3;
+   */
+  YELLOW = 3,
+
+  /**
+   * @generated from enum value: FINGERPRINT_PATTERN_COLOR_BLUE = 4;
+   */
+  BLUE = 4,
+
+  /**
+   * @generated from enum value: FINGERPRINT_PATTERN_COLOR_MAGENTA = 5;
+   */
+  MAGENTA = 5,
+
+  /**
+   * @generated from enum value: FINGERPRINT_PATTERN_COLOR_CYAN = 6;
+   */
+  CYAN = 6,
+}
+
+/**
+ * Describes the enum dotcore.site.v1.FingerprintPatternColor.
+ */
+export const FingerprintPatternColorSchema: GenEnum<FingerprintPatternColor> = /*@__PURE__*/
+  enumDesc(file_dotcore_site_v1_join, 0);
 
 /**
  * Where the host proposed for a joining machine comes from.
@@ -681,7 +773,7 @@ export enum JoinHostSource {
  * Describes the enum dotcore.site.v1.JoinHostSource.
  */
 export const JoinHostSourceSchema: GenEnum<JoinHostSource> = /*@__PURE__*/
-  enumDesc(file_dotcore_site_v1_join, 0);
+  enumDesc(file_dotcore_site_v1_join, 1);
 
 /**
  * Runtime of a proposed execution target.
@@ -727,7 +819,7 @@ export enum JoinTargetRuntime {
  * Describes the enum dotcore.site.v1.JoinTargetRuntime.
  */
 export const JoinTargetRuntimeSchema: GenEnum<JoinTargetRuntime> = /*@__PURE__*/
-  enumDesc(file_dotcore_site_v1_join, 1);
+  enumDesc(file_dotcore_site_v1_join, 2);
 
 /**
  * Management API for adding a machine to the running site, or letting a declared one join again.

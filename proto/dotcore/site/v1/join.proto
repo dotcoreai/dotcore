@@ -154,6 +154,9 @@ message JoinAttemptOutcome {
     // Human-readable reason the attempt failed, such as a failed dial-back.
     string failed = 2;
   }
+
+  // Wall-clock time the attempt ended, which tells two identical outcomes apart.
+  google.protobuf.Timestamp at = 3;
 }
 
 // What a joining machine asks for, as the operator reviews it.
@@ -179,8 +182,12 @@ message JoinProposal {
   // Port of the machine's private listener.
   uint32 private_port = 7;
 
-  // Lowercase SHA-256 fingerprint of the machine's key, also shown on the machine.
+  // Lowercase SHA-256 fingerprint of the machine's key, also shown on the machine next to its
+  // fingerprint pattern.
   string key_fingerprint = 8;
+
+  // Visual pattern derived from the key fingerprint, also shown on the machine.
+  FingerprintPattern fingerprint_pattern = 11;
 
   // Whether the machine joins as a new node or as a declared one again.
   oneof kind {
@@ -190,6 +197,16 @@ message JoinProposal {
     // A declared machine joining again from its intact node folder.
     JoinRejoin rejoin = 10;
   }
+}
+
+// A small symmetric grid of colored cells derived from a key fingerprint, for a quick visual
+// match between two screens; the fingerprint stays the authoritative check.
+message FingerprintPattern {
+  // The three distinct colors the cells use.
+  repeated FingerprintPatternColor colors = 1;
+
+  // 25 cells of a 5 by 5 grid in row-major order: 0 is empty, 1 to 3 index colors from 1.
+  repeated uint32 cells = 2;
 }
 
 // What a new machine proposes beyond its name and host.
@@ -229,6 +246,23 @@ message JoinProposedTarget {
 
   // Whether native workloads outlive the server process; unspecified for other runtimes.
   NativeWorkloadLifetime native_workload_lifetime = 5;
+}
+
+// One of the six standard terminal colors a fingerprint pattern uses.
+enum FingerprintPatternColor {
+  FINGERPRINT_PATTERN_COLOR_UNSPECIFIED = 0;
+
+  FINGERPRINT_PATTERN_COLOR_RED = 1;
+
+  FINGERPRINT_PATTERN_COLOR_GREEN = 2;
+
+  FINGERPRINT_PATTERN_COLOR_YELLOW = 3;
+
+  FINGERPRINT_PATTERN_COLOR_BLUE = 4;
+
+  FINGERPRINT_PATTERN_COLOR_MAGENTA = 5;
+
+  FINGERPRINT_PATTERN_COLOR_CYAN = 6;
 }
 
 // Where the host proposed for a joining machine comes from.
