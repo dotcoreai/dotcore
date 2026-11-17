@@ -24,6 +24,7 @@ use dotcore_proto::dotcore::catalog::v1::{
 use dotcore_proto::dotcore::model::v1::ResolvedLocalModelDeploymentSnapshot;
 
 pub mod options;
+pub mod parameter_groups;
 mod selector;
 mod sensitive_names;
 pub mod service;
@@ -966,8 +967,9 @@ mod tests {
     use dotcore_domain::test_support::oci::ServiceArtifactOci as _;
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            ApplicationDependencyCondition, ApplicationServiceDependency, EngineRelease,
-            ParameterValue, ParameterValues, UpstreamWireProtocol, UseCase, parameter_value::Value,
+            ApplicationDependencyCondition, ApplicationServiceDependency, EngineParameterSchema,
+            EngineRelease, ParameterGroup, ParameterValue, ParameterValues, UpstreamWireProtocol,
+            UseCase, parameter_value::Value,
         },
         engine::v1::EngineKind,
         model::v1::ResolvedLocalModelDeploymentSnapshot,
@@ -1149,22 +1151,26 @@ artifacts:
         assert_eq!(
             error,
             "Catalog diagnostics: engine release \"second\": engine releases \"first\" and \"second\" \
-             share parameter schema \"fixture-shared\" but define parameter \"cache-mib\" differently"
+             share parameter schema \"fixture-shared\" but define different parameters or groups"
         );
 
         let mut missing = release("second", "ENGINE_KIND_LLAMA_CPP", "65536");
-        missing
-            .parameter_schema
-            .as_mut()
-            .expect("parameter schema")
-            .parameters
-            .pop();
-        assert_eq!(
-            build(missing)
-                .expect_err("missing shared definition")
-                .to_string(),
-            error
-        );
+        schema_mut(&mut missing).parameters.pop();
+        let mut reordered = release("second", "ENGINE_KIND_LLAMA_CPP", "65536");
+        schema_mut(&mut reordered).parameters.swap(2, 3);
+        let mut grouped = release("second", "ENGINE_KIND_LLAMA_CPP", "65536");
+        group_cache(&mut grouped);
+        for (label, second) in [
+            ("missing definition", missing),
+            ("differing order", reordered),
+            ("differing groups", grouped),
+        ] {
+            assert_eq!(
+                build(second).expect_err(label).to_string(),
+                error,
+                "{label}"
+            );
+        }
     }
 
     #[test]
@@ -1214,29 +1220,39 @@ artifacts:
             ]
         );
 
+        // These keep `linux`'s schema id, so the shared schema check reports them too.
+        let mut reordered =
+            approved_release("second", "ENGINE_KIND_LLAMA_CPP", "fixture-shared", "65536");
+        schema_mut(&mut reordered).parameters.swap(2, 3);
+        let mut grouped =
+            approved_release("second", "ENGINE_KIND_LLAMA_CPP", "fixture-shared", "65536");
+        group_cache(&mut grouped);
+        let different_schemas = "model.yaml: configuration \"local\" approves engine releases \"linux\" and \"second\" with different parameter schemas";
+        let shared_and_different_schemas = format!(
+            "engine release \"second\": engine releases \"linux\" and \"second\" share parameter schema \"fixture-shared\" but define different parameters or groups\n{different_schemas}"
+        );
+
         for (label, second, expected) in [
             (
                 "mixed engine kinds",
                 approved_release("second", "ENGINE_KIND_VLLM", "fixture-shared", "65536"),
-                "configuration \"local\" approves engine releases \"linux\" and \"second\" of different engine kinds",
+                "model.yaml: configuration \"local\" approves engine releases \"linux\" and \"second\" of different engine kinds".to_owned(),
             ),
             (
                 "differing definitions",
                 approved_release("second", "ENGINE_KIND_LLAMA_CPP", "fixture-other", "1024"),
-                "configuration \"local\" approves engine releases \"linux\" and \"second\" with different parameter definitions",
+                different_schemas.to_owned(),
             ),
             (
                 "identical definitions under another schema id",
                 approved_release("second", "ENGINE_KIND_LLAMA_CPP", "fixture-other", "65536"),
-                "configuration \"local\" approves engine releases \"linux\" and \"second\" with different parameter definitions",
+                different_schemas.to_owned(),
             ),
+            ("differing order", reordered, shared_and_different_schemas.clone()),
+            ("differing groups", grouped, shared_and_different_schemas),
         ] {
             let error = build(second).expect_err(label).to_string();
-            assert_eq!(
-                error,
-                format!("Catalog diagnostics: model.yaml: {expected}"),
-                "{label}"
-            );
+            assert_eq!(error, format!("Catalog diagnostics: {expected}"), "{label}");
         }
     }
 
@@ -1862,6 +1878,21 @@ artifacts:
                 .collect::<Vec<_>>(),
             vec!["total-context", "context-per-request", "parallel-requests"]
         );
+        assert_eq!(schema.parameter_groups, []);
+        assert_eq!(
+            catalog
+                .list_engine_releases()
+                .iter()
+                .flat_map(|release| &release
+                    .parameter_schema
+                    .as_ref()
+                    .expect("schema")
+                    .parameter_groups)
+                .map(|group| group.group_id.as_str())
+                .collect::<Vec<_>>(),
+            ["prompt-cache"],
+            "the release itself keeps the group"
+        );
 
         let error = load(
             "profile-default",
@@ -2078,8 +2109,8 @@ artifacts:
             std::fs::write(
                 &engine_path,
                 engine.replace(
-                    "artifacts:\n",
-                    "    - parameterId: \"api-key\"\n      displayName: \"API key\"\n      visibility: \"PARAMETER_VISIBILITY_ADVANCED\"\n      secret: { generatedLength: 32, minimumLength: 16 }\nartifacts:\n",
+                    "  parameterGroups:\n",
+                    "    - parameterId: \"api-key\"\n      displayName: \"API key\"\n      visibility: \"PARAMETER_VISIBILITY_ADVANCED\"\n      secret: { generatedLength: 32, minimumLength: 16 }\n  parameterGroups:\n",
                 ),
             )
             .expect("sizing engine with a secret");
@@ -3374,6 +3405,27 @@ artifacts:
 "#
         ))
         .expect("synthetic engine release")
+    }
+
+    fn schema_mut(release: &mut EngineRelease) -> &mut EngineParameterSchema {
+        release.parameter_schema.as_mut().expect("parameter schema")
+    }
+
+    /// Puts the fixture release's cache parameter in a plain group of its own.
+    fn group_cache(release: &mut EngineRelease) {
+        let schema = schema_mut(release);
+        schema
+            .parameters
+            .iter_mut()
+            .find(|parameter| parameter.parameter_id == "cache-mib")
+            .expect("cache parameter")
+            .group_id = Some("cache".to_owned());
+        schema.parameter_groups.push(ParameterGroup {
+            group_id: "cache".to_owned(),
+            display_name: "Cache".to_owned(),
+            description: "Memory the cache uses.".to_owned(),
+            switch_parameter_id: None,
+        });
     }
 
     /// Model whose one configuration approves the artifacts of releases `linux` and `second`.

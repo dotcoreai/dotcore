@@ -23,6 +23,7 @@ use dotcore_proto::dotcore::catalog::v1::{
 };
 
 use super::common::lower_hex;
+use super::same_parameter_schema;
 use crate::{
     options::{
         KV_CACHE_PRECISION_PARAMETER_ID, SPECULATIVE_TOKEN_COUNT_PARAMETER_ID,
@@ -434,10 +435,10 @@ fn validate_approved_engine_releases<'a>(
                     first.engine_release_id,
                     release.engine_release_id
                 ));
-            } else if !same_parameter_definitions(first, release) {
+            } else if !same_parameter_schema(first, release) {
                 consistent = false;
                 errors.push(anyhow::anyhow!(
-                    "configuration {:?} approves engine releases {:?} and {:?} with different parameter definitions",
+                    "configuration {:?} approves engine releases {:?} and {:?} with different parameter schemas",
                     configuration.configuration_id,
                     first.engine_release_id,
                     release.engine_release_id
@@ -477,26 +478,6 @@ fn validate_excluded_engine_parameters(
             "configuration {:?} excludes engine parameter {parameter_id:?} {problem}",
             configuration.configuration_id
         ));
-    }
-}
-
-/// Whether two engine releases declare the same parameter schema id and the same parameter
-/// definitions, in any order.
-fn same_parameter_definitions(left: &EngineRelease, right: &EngineRelease) -> bool {
-    match (
-        left.parameter_schema.as_ref(),
-        right.parameter_schema.as_ref(),
-    ) {
-        (Some(left), Some(right)) => {
-            left.schema_id == right.schema_id
-                && left.parameters.len() == right.parameters.len()
-                && left
-                    .parameters
-                    .iter()
-                    .all(|parameter| right.parameters.contains(parameter))
-        }
-        (None, None) => true,
-        _ => false,
     }
 }
 
@@ -1311,6 +1292,7 @@ mod tests {
                     definition("cache-mib", unsigned(None)),
                     definition("mlock", boolean(None)),
                 ],
+                parameter_groups: Vec::new(),
             }),
             ..Default::default()
         };

@@ -93,6 +93,9 @@ pub enum ParameterRejection {
     #[error("has no value")]
     MissingValue,
 
+    #[error("is disabled while parameter {enabled_by:?} is off, so it takes no value")]
+    Disabled { enabled_by: String },
+
     // The schema reason is the leaf of this message rather than a source, so the API message
     // carries it and full error chains do not repeat it.
     #[error("has an invalid value: {0}")]

@@ -32,7 +32,9 @@ use dotcore_site::{
 };
 
 use super::{
-    binding::binding_enabled, published_port::valid_published_port, secret_form::is_bcrypt_hash,
+    binding::{configuration_binding_enabled, enabled_parameters, secret_binding_enabled},
+    published_port::valid_published_port,
+    secret_form::is_bcrypt_hash,
 };
 
 /// An isolated read view of apps-controller declarations.
@@ -767,6 +769,9 @@ fn validate_storage_attachments(
     Ok(())
 }
 
+/// Checks that the retained parameter values hold exactly one value per enabled parameter and
+/// none for a disabled one, and that every configuration binding reaching its service, except a
+/// projected route name, has exactly one attachment carrying its retained value.
 fn validate_configuration_attachments(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> Result<(), ApplicationRepositoryError> {
@@ -778,17 +783,14 @@ fn validate_configuration_attachments(
         .graph
         .as_ref()
         .expect("Application snapshot was validated");
+    let enabled = enabled_parameters(graph, &snapshot.parameter_values)
+        .ok_or(ApplicationRepositoryError::InvalidState)?;
     let mut expected = BTreeSet::new();
     for service in &graph.services {
         for binding in &service.configuration_bindings {
             let route_projected =
                 deployment.inference_route_id.is_some() && is_inference_route_projection(binding);
-            let enabled = binding_enabled(
-                binding.enabled_by_parameter_id.as_deref(),
-                &snapshot.parameter_values,
-            )
-            .ok_or(ApplicationRepositoryError::InvalidState)?;
-            if enabled && !route_projected {
+            if configuration_binding_enabled(binding, &enabled) && !route_projected {
                 expected.insert((
                     (service.service_name.as_str(), binding.binding_name.as_str()),
                     binding.environment_variable.as_str(),
@@ -865,15 +867,12 @@ fn validate_secret_attachments(
         .graph
         .as_ref()
         .expect("Application snapshot was validated");
+    let enabled = enabled_parameters(graph, &snapshot.parameter_values)
+        .ok_or(ApplicationRepositoryError::InvalidState)?;
     let mut expected = BTreeMap::new();
     for service in &graph.services {
         for binding in &service.secret_bindings {
-            let enabled = binding_enabled(
-                binding.enabled_by_parameter_id.as_deref(),
-                &snapshot.parameter_values,
-            )
-            .ok_or(ApplicationRepositoryError::InvalidState)?;
-            if !enabled {
+            if !secret_binding_enabled(binding, &enabled) {
                 continue;
             }
             let value = canonical_value_text(&snapshot.parameter_values, &binding.parameter_id)
@@ -1138,10 +1137,11 @@ mod tests {
             Application, ApplicationConfigurationBinding, ApplicationEndpointProtocol,
             ApplicationGraph, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
             ApplicationSecretForm, ApplicationService, ApplicationServicePort,
-            BooleanParameterSchema, ParameterDefinition, ParameterValue, ParameterVisibility,
-            SecretParameterSchema, StorageBinding, StorageKind, StoragePlacement,
-            StringEnumParameterSchema, TextParameterSchema, application_configuration_binding,
-            parameter_definition::ParameterType, parameter_value,
+            BooleanParameterSchema, ParameterDefinition, ParameterGroup, ParameterValue,
+            ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind,
+            StoragePlacement, StringEnumParameterSchema, TextParameterSchema,
+            application_configuration_binding, parameter_definition::ParameterType,
+            parameter_value,
         },
         deployment::v1::{ArtifactPreparationPolicy, NodeResolvedLaunchIdentity},
     };
@@ -1329,6 +1329,8 @@ mod tests {
                     default_value: Some("auto".to_owned()),
                 })),
                 visibility: ParameterVisibility::Advanced as i32,
+                enabled_by_parameter_id: None,
+                group_id: None,
             }];
             graph.services[0].configuration_bindings = vec![ApplicationConfigurationBinding {
                 binding_name: "mode".to_owned(),
@@ -1337,7 +1339,6 @@ mod tests {
                     "mode".to_owned(),
                 )),
                 input: None,
-                enabled_by_parameter_id: None,
             }];
             snapshot.parameter_values = vec![ParameterValue {
                 parameter_id: "mode".to_owned(),
@@ -1451,6 +1452,8 @@ mod tests {
                         default_value: Some("admin".to_owned()),
                     })),
                     visibility: ParameterVisibility::Basic as i32,
+                    enabled_by_parameter_id: None,
+                    group_id: None,
                 },
                 ParameterDefinition {
                     parameter_id: "password".to_owned(),
@@ -1462,6 +1465,8 @@ mod tests {
                         maximum_length: Some(72),
                     })),
                     visibility: ParameterVisibility::Basic as i32,
+                    enabled_by_parameter_id: None,
+                    group_id: None,
                 },
             ];
             graph.services[0].configuration_bindings = vec![ApplicationConfigurationBinding {
@@ -1471,14 +1476,12 @@ mod tests {
                     "username".to_owned(),
                 )),
                 input: None,
-                enabled_by_parameter_id: None,
             }];
             graph.services[0].secret_bindings = vec![ApplicationSecretBinding {
                 binding_name: "password".to_owned(),
                 environment_variable: "PASSWORD".to_owned(),
                 parameter_id: "password".to_owned(),
                 form: ApplicationSecretForm::Plain as i32,
-                enabled_by_parameter_id: None,
             }];
             snapshot.parameter_values = vec![
                 ParameterValue {
@@ -1546,48 +1549,112 @@ mod tests {
             ));
         }
 
-        // Bindings switched off by their boolean parameter have no attachment; the secret value
-        // is still retained.
-        let with_switch = |login: Option<bool>, attached: bool| {
+        // A switched group's members keep a value and an attachment exactly while its switch is on.
+        let with_switch = |login: Option<bool>, members_retained: bool, attached: bool| {
             let mut deployment = with_secret("retained-password");
             let snapshot = deployment.snapshot.as_mut().expect("snapshot");
             let graph = snapshot.graph.as_mut().expect("graph");
-            graph.parameters.push(ParameterDefinition {
-                parameter_id: "login".to_owned(),
-                display_name: "Login".to_owned(),
-                description: String::new(),
-                parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema {
-                    default_value: Some(false),
-                })),
-                visibility: ParameterVisibility::Basic as i32,
-            });
-            graph.services[0].configuration_bindings[0].enabled_by_parameter_id =
-                Some("login".to_owned());
-            graph.services[0].secret_bindings[0].enabled_by_parameter_id = Some("login".to_owned());
-            if let Some(login) = login {
-                snapshot.parameter_values.push(ParameterValue {
+            graph.parameters.insert(
+                0,
+                ParameterDefinition {
                     parameter_id: "login".to_owned(),
-                    value: Some(parameter_value::Value::Boolean(login)),
+                    display_name: "Login".to_owned(),
+                    description: String::new(),
+                    parameter_type: Some(ParameterType::Boolean(BooleanParameterSchema {
+                        default_value: Some(false),
+                    })),
+                    visibility: ParameterVisibility::Basic as i32,
+                    group_id: None,
+                    enabled_by_parameter_id: None,
+                },
+            );
+            for parameter in &mut graph.parameters {
+                parameter.group_id = Some("login".to_owned());
+            }
+            graph.parameter_groups = vec![ParameterGroup {
+                group_id: "login".to_owned(),
+                display_name: String::new(),
+                description: String::new(),
+                switch_parameter_id: Some("login".to_owned()),
+            }];
+            graph.services[0]
+                .configuration_bindings
+                .push(ApplicationConfigurationBinding {
+                    binding_name: "login".to_owned(),
+                    environment_variable: "LOGIN".to_owned(),
+                    source: Some(application_configuration_binding::Source::ParameterId(
+                        "login".to_owned(),
+                    )),
+                    input: None,
                 });
+            if !members_retained {
+                snapshot.parameter_values.clear();
             }
             if !attached {
                 deployment.configuration_attachments.clear();
                 deployment.secret_attachments.clear();
             }
+            if let Some(login) = login {
+                snapshot.parameter_values.insert(
+                    0,
+                    ParameterValue {
+                        parameter_id: "login".to_owned(),
+                        value: Some(parameter_value::Value::Boolean(login)),
+                    },
+                );
+                deployment
+                    .configuration_attachments
+                    .push(ApplicationConfigurationAttachment {
+                        service_name: "service".to_owned(),
+                        binding_name: "login".to_owned(),
+                        environment_variable: "LOGIN".to_owned(),
+                        value: login.to_string(),
+                    });
+            }
             deployment
         };
-        assert!(validate_declarations(&[with_switch(Some(true), true)]).is_ok());
-        assert!(validate_declarations(&[with_switch(Some(false), false)]).is_ok());
-        for invalid in [
-            with_switch(Some(true), false),
-            with_switch(Some(false), true),
-            with_switch(None, false),
+        assert!(validate_declarations(&[with_switch(Some(true), true, true)]).is_ok());
+        assert!(validate_declarations(&[with_switch(Some(false), false, false)]).is_ok());
+        for (label, invalid) in [
+            (
+                "disabled members keep values",
+                with_switch(Some(false), true, false),
+            ),
+            (
+                "enabled members lost their values",
+                with_switch(Some(true), false, true),
+            ),
+            (
+                "enabled members lost their attachments",
+                with_switch(Some(true), true, false),
+            ),
+            (
+                "disabled members keep attachments",
+                with_switch(Some(false), false, true),
+            ),
+            ("the switch lost its value", with_switch(None, false, false)),
         ] {
-            assert!(matches!(
-                validate_declarations(&[invalid]),
-                Err(ApplicationRepositoryError::InvalidState)
-            ));
+            assert!(
+                matches!(
+                    validate_declarations(&[invalid]),
+                    Err(ApplicationRepositoryError::InvalidState)
+                ),
+                "{label}"
+            );
         }
+
+        let mut enabled_without_password = with_switch(Some(true), true, true);
+        enabled_without_password
+            .snapshot
+            .as_mut()
+            .expect("snapshot")
+            .parameter_values
+            .retain(|value| value.parameter_id != "password");
+        enabled_without_password.secret_attachments.clear();
+        assert!(matches!(
+            validate_declarations(&[enabled_without_password]),
+            Err(ApplicationRepositoryError::InvalidState)
+        ));
     }
 
     #[test]
@@ -1802,6 +1869,7 @@ mod tests {
                         protocol: ApplicationEndpointProtocol::Http as i32,
                     }),
                     parameters: Vec::new(),
+                    parameter_groups: Vec::new(),
                 }),
             })),
             desired_state: ApplicationDeploymentDesiredState::Present as i32,

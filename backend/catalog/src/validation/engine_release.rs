@@ -17,7 +17,9 @@ use super::common::{valid_selector_memory_architecture, validate_oci_reference};
 use super::nix::{AcceptedProvides, nix_systems, validate_nix_artifact};
 use super::storage::{StorageOwner, validate_storage_bindings};
 use crate::{
-    OciArtifactPolicy, shared_parameters::validate_shared_parameters,
+    OciArtifactPolicy,
+    parameter_groups::validate_parameter_groups,
+    shared_parameters::{is_shared_parameter, validate_shared_parameters},
     typed_parameters::validate_parameter_definition as validate_typed_definition,
 };
 
@@ -230,6 +232,41 @@ fn validate_parameter_schema(
         validate_parameter_definition(definition, &mut ids, errors);
     }
     errors.extend(validate_shared_parameters(schema));
+    errors.extend(validate_parameter_groups(
+        "engine",
+        &schema.parameters,
+        &schema.parameter_groups,
+    ));
+    validate_engine_parameter_groups(schema, errors);
+}
+
+/// Validates the engine owner rules on groups and conditions: plain groups only, no enabling
+/// parameters, and no group for a shared parameter, which the console places itself.
+fn validate_engine_parameter_groups(
+    schema: &EngineParameterSchema,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    for group in &schema.parameter_groups {
+        if group.switch_parameter_id.is_some() {
+            errors.push(anyhow::anyhow!(
+                "engine parameter group {:?} must not have a switch",
+                group.group_id
+            ));
+        }
+    }
+    for definition in &schema.parameters {
+        let id = &definition.parameter_id;
+        if definition.enabled_by_parameter_id.is_some() {
+            errors.push(anyhow::anyhow!(
+                "engine parameter {id:?} must not be enabled by another parameter"
+            ));
+        }
+        if definition.group_id.is_some() && is_shared_parameter(id) {
+            errors.push(anyhow::anyhow!(
+                "engine parameter {id:?} is shared by every engine release, so it takes no group"
+            ));
+        }
+    }
 }
 
 /// Validates one engine parameter definition: the shared definition rules, a unique id, and the
@@ -266,8 +303,8 @@ fn validate_parameter_definition(
 mod tests {
     use dotcore_proto::dotcore::{
         catalog::v1::{
-            NixArtifact, NixDockerImage, ParameterVisibility, StorageBinding, StorageKind,
-            StoragePlacement, nix_artifact::Provides,
+            NixArtifact, NixDockerImage, ParameterGroup, ParameterVisibility, StorageBinding,
+            StorageKind, StoragePlacement, nix_artifact::Provides,
         },
         observation::v1::AcceleratorMemoryArchitecture,
     };
@@ -415,6 +452,8 @@ mod tests {
                 )),
                 visibility: ParameterVisibility::Basic as i32,
                 description: String::new(),
+                enabled_by_parameter_id: None,
+                group_id: None,
             }
         };
         let schema = EngineParameterSchema {
@@ -423,6 +462,7 @@ mod tests {
                 unsigned("total-context", "Total context", "tokens", Some(131_072)),
                 unsigned("context-per-request", "Context per request", "tokens", None),
             ],
+            parameter_groups: Vec::new(),
         };
         let mut errors = Vec::new();
 
@@ -445,6 +485,8 @@ mod tests {
             description: String::new(),
             visibility: ParameterVisibility::Advanced as i32,
             parameter_type: Some(parameter_type),
+            enabled_by_parameter_id: None,
+            group_id: None,
         };
         let errors = |definition: &ParameterDefinition| {
             let mut errors = Vec::new();
@@ -510,6 +552,127 @@ mod tests {
         assert_eq!(
             errors(&unplaced),
             ["parameter \"feature\" requires a basic, advanced or hidden visibility"]
+        );
+    }
+
+    #[test]
+    fn engine_schemas_take_plain_groups_only_and_no_group_for_shared_parameters() {
+        let unsigned =
+            |parameter_id: &str, unit: &str, default_value: Option<u64>| ParameterDefinition {
+                parameter_id: parameter_id.to_owned(),
+                display_name: parameter_id.to_owned(),
+                description: String::new(),
+                visibility: ParameterVisibility::Advanced as i32,
+                group_id: None,
+                enabled_by_parameter_id: None,
+                parameter_type: Some(ParameterType::UnsignedInteger(
+                    dotcore_proto::dotcore::catalog::v1::UnsignedIntegerParameterSchema {
+                        minimum: 512,
+                        maximum: Some(65_536),
+                        unit: unit.to_owned(),
+                        default_value,
+                    },
+                )),
+            };
+        let shared = |parameter_id: &str,
+                      display_name: &str,
+                      visibility: ParameterVisibility,
+                      unit: &str,
+                      default_value: Option<u64>| ParameterDefinition {
+            display_name: display_name.to_owned(),
+            visibility: visibility as i32,
+            ..unsigned(parameter_id, unit, default_value)
+        };
+        let offload = ParameterDefinition {
+            group_id: Some("host-memory".to_owned()),
+            ..unsigned("offload-mib", "MiB", Some(1024))
+        };
+        let schema =
+            |parameters: Vec<ParameterDefinition>, group: ParameterGroup| EngineParameterSchema {
+                schema_id: "fixture".to_owned(),
+                parameters: [
+                    vec![
+                        shared(
+                            "total-context",
+                            "Total context",
+                            ParameterVisibility::Basic,
+                            "tokens",
+                            Some(4096),
+                        ),
+                        shared(
+                            "context-per-request",
+                            "Context per request",
+                            ParameterVisibility::Basic,
+                            "tokens",
+                            None,
+                        ),
+                        shared(
+                            "parallel-requests",
+                            "Parallel requests",
+                            ParameterVisibility::Advanced,
+                            "requests",
+                            Some(512),
+                        ),
+                    ],
+                    parameters,
+                ]
+                .concat(),
+                parameter_groups: vec![group],
+            };
+        let plain = ParameterGroup {
+            group_id: "host-memory".to_owned(),
+            display_name: "Host memory".to_owned(),
+            description: "Memory the engine takes from the host.".to_owned(),
+            switch_parameter_id: None,
+        };
+        let errors = |schema: &EngineParameterSchema| {
+            let mut errors = Vec::new();
+            validate_parameter_schema(Some(schema), &mut errors);
+            errors.iter().map(ToString::to_string).collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            errors(&schema(vec![offload.clone()], plain.clone())),
+            Vec::<String>::new()
+        );
+
+        let mut grouped_shared = schema(vec![offload.clone()], plain.clone());
+        grouped_shared.parameters[2].group_id = Some("host-memory".to_owned());
+        grouped_shared.parameters.swap(2, 3);
+        assert_eq!(
+            errors(&grouped_shared),
+            [
+                "engine parameter \"parallel-requests\" is shared by every engine release, so it takes no group"
+            ]
+        );
+
+        let switch = ParameterDefinition {
+            group_id: Some("host-memory".to_owned()),
+            parameter_type: Some(ParameterType::Boolean(
+                dotcore_proto::dotcore::catalog::v1::BooleanParameterSchema {
+                    default_value: Some(false),
+                },
+            )),
+            ..unsigned("offload", "MiB", None)
+        };
+        let switched = ParameterGroup {
+            display_name: String::new(),
+            description: String::new(),
+            switch_parameter_id: Some("offload".to_owned()),
+            ..plain.clone()
+        };
+        assert_eq!(
+            errors(&schema(vec![switch.clone(), offload.clone()], switched)),
+            ["engine parameter group \"host-memory\" must not have a switch"]
+        );
+
+        let condition = ParameterDefinition {
+            enabled_by_parameter_id: Some("offload".to_owned()),
+            ..offload
+        };
+        assert_eq!(
+            errors(&schema(vec![switch, condition], plain)),
+            ["engine parameter \"offload-mib\" must not be enabled by another parameter"]
         );
     }
 

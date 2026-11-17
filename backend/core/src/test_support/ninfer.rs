@@ -189,10 +189,13 @@ pub(crate) fn release() -> EngineRelease {
                             _ => ParameterVisibility::Advanced,
                         } as i32,
                         description: parameter_id.to_owned(),
+                        enabled_by_parameter_id: None,
+                        group_id: None,
                     }
                 },
             )
             .collect(),
+            parameter_groups: Vec::new(),
         }),
         artifacts: vec![dotcore_domain::test_support::oci::engine_artifact(
             "linux-amd64-cuda",

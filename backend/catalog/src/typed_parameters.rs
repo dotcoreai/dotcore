@@ -497,6 +497,8 @@ mod tests {
             description: String::new(),
             visibility: ParameterVisibility::Basic as i32,
             parameter_type: Some(parameter_type),
+            enabled_by_parameter_id: None,
+            group_id: None,
         }
     }
 }

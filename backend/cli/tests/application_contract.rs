@@ -3,7 +3,7 @@
 use std::process::{Command, Output, Stdio};
 
 use dotcore_proto::dotcore::catalog::v1::{
-    ApplicationGraph, BooleanParameterSchema, ParameterDefinition, ParameterValue,
+    ApplicationGraph, BooleanParameterSchema, ParameterDefinition, ParameterGroup, ParameterValue,
     SecretParameterSchema, StoragePlacement, StringEnumParameterSchema, TextParameterSchema,
     UnsignedIntegerParameterSchema, parameter_definition::ParameterType, parameter_value::Value,
 };
@@ -751,6 +751,59 @@ fn show_prints_parameters_in_catalog_order_with_secrets_masked() {
     assert_eq!(
         support::parameter_lines(&stdout, PARAMETER_PREFIX),
         PARAMETER_LINES_MASKED
+    );
+}
+
+#[test]
+fn show_prints_only_retained_parameters() {
+    let mut deployment = local_application_deployment("app-1", "Chat", Ready, Present);
+    let snapshot = deployment.snapshot.as_mut().expect("seeded snapshot");
+    let member = |id: &str, name: &str, parameter_type| ParameterDefinition {
+        parameter_id: id.to_owned(),
+        display_name: name.to_owned(),
+        group_id: Some("login".to_owned()),
+        parameter_type: Some(parameter_type),
+        ..Default::default()
+    };
+    snapshot.graph = Some(ApplicationGraph {
+        parameters: vec![
+            member(
+                "require-login",
+                "Require login",
+                ParameterType::Boolean(BooleanParameterSchema {
+                    default_value: Some(false),
+                }),
+            ),
+            member(
+                "admin-email",
+                "Admin email",
+                ParameterType::Text(TextParameterSchema {
+                    minimum_length: 3,
+                    maximum_length: Some(254),
+                    default_value: Some("admin@example.com".to_owned()),
+                }),
+            ),
+        ],
+        parameter_groups: vec![ParameterGroup {
+            group_id: "login".to_owned(),
+            switch_parameter_id: Some("require-login".to_owned()),
+            ..Default::default()
+        }],
+        ..Default::default()
+    });
+    // Login off: the switch is the only retained value.
+    snapshot.parameter_values = vec![ParameterValue {
+        parameter_id: "require-login".to_owned(),
+        value: Some(Value::Boolean(false)),
+    }];
+    let manager = FakeManager::start(FakeState::with_applications(vec![deployment]));
+
+    let output = run(&manager, &["show", "Chat"]);
+
+    assert_eq!(output.status.code(), Some(0));
+    assert_eq!(
+        support::parameter_lines(&text(&output.stdout), PARAMETER_PREFIX),
+        ["DOTCORE_APPLICATION_DEPLOYMENT_PARAMETER_REQUIRE_LOGIN=false"]
     );
 }
 

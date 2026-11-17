@@ -255,10 +255,13 @@ pub(crate) fn release() -> EngineRelease {
                             _ => ParameterVisibility::Advanced,
                         } as i32,
                         description: parameter_id.to_owned(),
+                        enabled_by_parameter_id: None,
+                        group_id: None,
                     }
                 },
             )
             .collect(),
+            parameter_groups: Vec::new(),
         }),
         storage_bindings: vec![StorageBinding {
             binding_name: "data".to_owned(),
@@ -300,6 +303,8 @@ pub(crate) fn release_with_api_key() -> EngineRelease {
             )),
             visibility: ParameterVisibility::Advanced as i32,
             description: API_KEY_PARAMETER_ID.to_owned(),
+            enabled_by_parameter_id: None,
+            group_id: None,
         });
     release
 }

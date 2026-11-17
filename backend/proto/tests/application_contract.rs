@@ -210,7 +210,6 @@ fn generated_bindings_preserve_application_graph_and_deployment_state() {
                     ),
                 ),
             }),
-            enabled_by_parameter_id: None,
         }
         .source,
         Some(application_configuration_binding::Source::LiteralValue(
@@ -444,6 +443,15 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
     let deployment = descriptor_file(&descriptor, "dotcore/application/v1/deployment.proto");
     let model_deployment = descriptor_file(&descriptor, "dotcore/model/v1/deployment.proto");
     assert_eq!(
+        field_names(catalog, "ApplicationGraph"),
+        [
+            "services",
+            "primary_endpoint",
+            "parameters",
+            "parameter_groups"
+        ]
+    );
+    assert_eq!(
         field_names(catalog, "ApplicationConfigurationBinding"),
         [
             "binding_name",
@@ -452,7 +460,6 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "resolved_value_name",
             "parameter_id",
             "input",
-            "enabled_by_parameter_id",
         ]
     );
     assert_eq!(
@@ -462,7 +469,6 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
             "environment_variable",
             "parameter_id",
             "form",
-            "enabled_by_parameter_id",
         ]
     );
     assert_eq!(

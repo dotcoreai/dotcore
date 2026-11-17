@@ -368,6 +368,7 @@ mod tests {
         let schema = EngineParameterSchema {
             schema_id: "fixture-other".to_owned(),
             parameters: vec![definition("memory-bytes", "Memory", "bytes", 1, None)],
+            parameter_groups: Vec::new(),
         };
 
         assert_eq!(
@@ -442,6 +443,7 @@ mod tests {
         let undeclared = EngineParameterSchema {
             schema_id: "fixture-other".to_owned(),
             parameters: vec![definition("memory-bytes", "Memory", "bytes", 1, None)],
+            parameter_groups: Vec::new(),
         };
 
         assert_eq!(
@@ -519,6 +521,7 @@ mod tests {
                     Some(4),
                 ),
             ],
+            parameter_groups: Vec::new(),
         }
     }
 
@@ -546,6 +549,8 @@ mod tests {
                 .map_or(ParameterVisibility::Advanced, |shared| shared.visibility)
                 as i32,
             description: String::new(),
+            enabled_by_parameter_id: None,
+            group_id: None,
         }
     }
 

@@ -1596,6 +1596,11 @@ fn master_catalog_comfyui_launch_attaches_deployment_data_and_shared_models() {
         .artifact
         .clone();
     synchronize_service_selections(&mut deployment);
+    deployment
+        .snapshot
+        .as_mut()
+        .expect("snapshot")
+        .parameter_values = vec![string_parameter("vram-mode", "auto")];
     deployment.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "comfyui".to_owned(),
         binding_name: "vram-mode".to_owned(),
@@ -3748,7 +3753,6 @@ fn configuration_attachments_preserve_empty_literals_and_resolve_named_values() 
                 String::new(),
             )),
             input: None,
-            enabled_by_parameter_id: None,
         },
         ApplicationConfigurationBinding {
             binding_name: "inference".to_owned(),
@@ -3759,7 +3763,6 @@ fn configuration_attachments_preserve_empty_literals_and_resolve_named_values() 
                 ),
             ),
             input: None,
-            enabled_by_parameter_id: None,
         },
     ];
     let sources = |name: &str| {
@@ -3921,7 +3924,6 @@ async fn created_deployments_hold_distinct_published_ports_through_teardown_and_
                 ),
             ),
             input: None,
-            enabled_by_parameter_id: None,
         });
     let controller = ApplicationController::new(
         Arc::new(
@@ -4112,7 +4114,6 @@ fn launch_pins_only_site_host_names_from_site_host_sources() {
                     environment_variable: environment_variable.to_owned(),
                     source: Some(source),
                     input: None,
-                    enabled_by_parameter_id: None,
                 });
         }
         deployment.configuration_attachments = vec![
@@ -4161,7 +4162,6 @@ fn secret_bindings_attach_apart_from_configuration() {
             environment_variable: "SECRET_VALUE".to_owned(),
             parameter_id: "password".to_owned(),
             form: ApplicationSecretForm::Plain as i32,
-            enabled_by_parameter_id: None,
         });
     let values = [string_parameter("password", "typed-password")];
 
@@ -4194,7 +4194,6 @@ fn route_name_binding_retains_its_literal_only_without_a_route_link() {
                 ),
             ),
             input: None,
-            enabled_by_parameter_id: None,
         });
     let sources = |name: &str| {
         (name == "configured-inference").then(|| "http://192.0.2.10:6470/v1".to_owned())
@@ -4244,7 +4243,6 @@ fn workload_launch_uses_persisted_configuration_attachments() {
             ),
         ),
         input: None,
-        enabled_by_parameter_id: None,
     }];
     deployment.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -4286,7 +4284,6 @@ fn changed_configuration_attachments_reject_stale_workload_observations() {
             ),
         ),
         input: None,
-        enabled_by_parameter_id: None,
     }];
     persisted.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -4939,7 +4936,6 @@ fn route_link_launches_with_current_name_and_retained_base_url() {
                 ),
             ),
             input: None,
-            enabled_by_parameter_id: None,
         },
     ];
     selected.configuration_attachments = vec![ApplicationConfigurationAttachment {
@@ -5339,7 +5335,6 @@ async fn reconciliation_replaces_changed_completed_non_route_projection() {
             ),
         ),
         input: None,
-        enabled_by_parameter_id: None,
     }];
     original_declaration.configuration_attachments = vec![ApplicationConfigurationAttachment {
         service_name: "web".to_owned(),
@@ -8358,7 +8353,7 @@ async fn typed_values_with_equals_signs_and_72_byte_passwords_reach_the_launch()
 }
 
 #[tokio::test]
-async fn bindings_enabled_by_a_switch_reach_the_service_only_when_it_is_on() {
+async fn a_switched_group_keeps_values_and_reaches_the_service_only_while_its_switch_is_on() {
     let directory = test_directory();
     let (controller, desired) = test_controller_for(
         &directory,
@@ -8386,21 +8381,15 @@ async fn bindings_enabled_by_a_switch_reach_the_service_only_when_it_is_on() {
             .expect("persisted declaration")
     };
 
-    // Off: the switch's own binding is unchanged, the switched bindings get no attachment and no
-    // hash, and the generated secret is still kept.
+    // Off: only the switch keeps a value and reaches the service; no secret is generated.
     let off = controller
         .create_deployment(parameter_request(Vec::new()))
         .await
         .expect("deployment with login off");
     let off = declaration(&off.application_deployment_id);
-    let off_password = sequential_secret(1, 32);
     assert_eq!(
         off.snapshot.as_ref().expect("snapshot").parameter_values,
-        [
-            string_parameter("username", "admin"),
-            string_parameter("password", &off_password),
-            boolean_parameter("login", false),
-        ]
+        [boolean_parameter("login", false)]
     );
     assert_eq!(
         off.configuration_attachments
@@ -8418,13 +8407,54 @@ async fn bindings_enabled_by_a_switch_reach_the_service_only_when_it_is_on() {
         BTreeMap::from([("LOGIN".to_owned(), "false".to_owned())])
     );
 
+    // Off: a value for a member of the switched group is rejected, and nothing is created.
+    let deployments_before = desired
+        .snapshot()
+        .expect("persisted declarations")
+        .deployments
+        .len();
+    let error = controller
+        .create_deployment(parameter_request(vec![string_parameter(
+            "username", "operator",
+        )]))
+        .await
+        .expect_err("a disabled parameter takes no value");
+    assert!(matches!(
+        error,
+        ApplicationLifecycleError::InvalidParameter {
+            reason: ParameterRejection::Disabled { .. },
+            ..
+        }
+    ));
+    assert_eq!(
+        error.to_string(),
+        "Application parameter \"username\" is disabled while parameter \"login\" is off, so it takes no value"
+    );
+    assert_eq!(
+        desired
+            .snapshot()
+            .expect("persisted declarations")
+            .deployments
+            .len(),
+        deployments_before
+    );
+
     // On: every binding reaches the service, the secret in each of its forms.
     let on = controller
         .create_deployment(parameter_request(vec![boolean_parameter("login", true)]))
         .await
         .expect("deployment with login on");
     let on = declaration(&on.application_deployment_id);
-    let on_password = sequential_secret(2, 32);
+    // The generator's first secret: the login-off deployment drew none.
+    let on_password = sequential_secret(1, 32);
+    assert_eq!(
+        on.snapshot.as_ref().expect("snapshot").parameter_values,
+        [
+            boolean_parameter("login", true),
+            string_parameter("username", "admin"),
+            string_parameter("password", &on_password),
+        ]
+    );
     let password_hash = on
         .secret_attachments
         .iter()

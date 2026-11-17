@@ -14,8 +14,7 @@ use std::{
 
 use dotcore_proto::dotcore::catalog::v1::{
     Application, EngineRelease, HardwareClass, HardwareClassRecommendations, Model,
-    ModelEngineConfiguration, ParameterDefinition, ParameterValues, ParameterVisibility,
-    UpstreamModelTemplate,
+    ModelEngineConfiguration, ParameterValues, ParameterVisibility, UpstreamModelTemplate,
 };
 
 use super::{
@@ -264,9 +263,9 @@ impl std::fmt::Display for CatalogDiagnostic {
     }
 }
 
-/// Checks that engine releases of one engine kind sharing a parameter schema id define identical
-/// parameters. The schema id is the identity profiles and deployments rely on, so every release
-/// carrying it must mean the same parameters.
+/// Checks that engine releases of one engine kind sharing a parameter schema id define the same
+/// schema. The schema id is the identity profiles and deployments rely on, so every release
+/// carrying it must mean the same parameters, presented in the same order and groups.
 fn validate_shared_parameter_schemas(
     engines: &BTreeMap<String, EngineRelease>,
     diagnostics: &mut Vec<CatalogDiagnostic>,
@@ -283,32 +282,24 @@ fn validate_shared_parameter_schemas(
             first_releases.insert((engine.engine_kind, schema.schema_id.as_str()), engine);
             continue;
         };
-        let first_parameters = first
-            .parameter_schema
-            .as_ref()
-            .map(|schema| schema.parameters.as_slice())
-            .unwrap_or_default();
-        let parameter_ids = first_parameters
-            .iter()
-            .chain(&schema.parameters)
-            .map(|parameter| parameter.parameter_id.as_str())
-            .collect::<BTreeSet<_>>();
-        for parameter_id in parameter_ids {
-            if parameter_definition(first_parameters, parameter_id)
-                != parameter_definition(&schema.parameters, parameter_id)
-            {
-                diagnostics.push(CatalogDiagnostic::new(
-                    format!("engine release {:?}", engine.engine_release_id),
-                    anyhow::anyhow!(
-                        "engine releases {:?} and {:?} share parameter schema {:?} but define parameter {parameter_id:?} differently",
-                        first.engine_release_id,
-                        engine.engine_release_id,
-                        schema.schema_id
-                    ),
-                ));
-            }
+        if !same_parameter_schema(first, engine) {
+            diagnostics.push(CatalogDiagnostic::new(
+                format!("engine release {:?}", engine.engine_release_id),
+                anyhow::anyhow!(
+                    "engine releases {:?} and {:?} share parameter schema {:?} but define different parameters or groups",
+                    first.engine_release_id,
+                    engine.engine_release_id,
+                    schema.schema_id
+                ),
+            ));
         }
     }
+}
+
+/// Whether two engine releases define the same whole parameter schema: its id, its parameters in
+/// order and its groups.
+pub(super) fn same_parameter_schema(left: &EngineRelease, right: &EngineRelease) -> bool {
+    left.parameter_schema == right.parameter_schema
 }
 
 /// Merges each configuration's sizing layers per hardware class and binding and compiles the
@@ -518,15 +509,6 @@ fn validate_sizing_coverage(
     }
 }
 
-fn parameter_definition<'a>(
-    parameters: &'a [ParameterDefinition],
-    parameter_id: &str,
-) -> Option<&'a ParameterDefinition> {
-    parameters
-        .iter()
-        .find(|parameter| parameter.parameter_id == parameter_id)
-}
-
 /// Returns the engine parameter defaults of every configuration whose engine release is known: the
 /// engine's configuration defaults, then the release default of each parameter they leave out.
 fn configuration_engine_defaults(
@@ -580,7 +562,8 @@ pub(super) fn configuration_engine_release<'a>(
 }
 
 /// Returns `release` with only the engine parameters `configuration` keeps: its parameter schema
-/// without the parameters the configuration excludes. Borrows the release when it excludes none.
+/// without the parameters the configuration excludes, nor the groups left with no member. Borrows
+/// the release when it excludes none.
 pub(crate) fn release_for_configuration<'a>(
     release: &'a EngineRelease,
     configuration: &ModelEngineConfiguration,
@@ -595,6 +578,12 @@ pub(crate) fn release_for_configuration<'a>(
             !configuration
                 .excluded_engine_parameter_ids
                 .contains(&parameter.parameter_id)
+        });
+        let parameters = &schema.parameters;
+        schema.parameter_groups.retain(|group| {
+            parameters
+                .iter()
+                .any(|parameter| parameter.group_id.as_ref() == Some(&group.group_id))
         });
     }
     Cow::Owned(narrowed)

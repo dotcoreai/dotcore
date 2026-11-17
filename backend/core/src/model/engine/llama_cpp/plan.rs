@@ -957,6 +957,8 @@ mod tests {
                 parameter_type: None,
                 visibility: ParameterVisibility::Advanced as i32,
                 description: String::new(),
+                enabled_by_parameter_id: None,
+                group_id: None,
             });
         for token in tokens {
             local.custom_argument_tokens = vec![token.to_owned()];

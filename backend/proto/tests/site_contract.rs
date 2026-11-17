@@ -476,8 +476,8 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                             ),
                         ),
                         visibility: ParameterVisibility::Basic as i32,
-                        description: "Maximum prompt and generation context.".to_owned(),
-                    }],
+                        description: "Maximum prompt and generation context.".to_owned(),enabled_by_parameter_id: None,group_id: None,
+                    }],parameter_groups: Vec::new(),
                 }),
                 profile_engine_parameter_defaults: None,
                 profile_engine_parameter_visibility_overrides: Vec::new(),
@@ -649,7 +649,6 @@ fn complete_application() -> Application {
                             "inference-openai-url".to_owned(),
                         )),
                         input: None,
-                        enabled_by_parameter_id: None,
                     }],
                     storage_bindings: vec![StorageBinding {
                         binding_name: "data".to_owned(),
@@ -678,7 +677,7 @@ fn complete_application() -> Application {
                 port_name: "http".to_owned(),
                 protocol: ApplicationEndpointProtocol::Http as i32,
             }),
-            parameters: Vec::new(),
+            parameters: Vec::new(),parameter_groups: Vec::new(),
         }),
     }
 }

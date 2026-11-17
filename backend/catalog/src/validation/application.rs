@@ -130,8 +130,8 @@ mod tests {
         ApplicationInferenceRouteProjection, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
         ApplicationSecretForm, ApplicationService, ApplicationServiceDependency,
         ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact,
-        NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition, ParameterVisibility,
-        SecretParameterSchema, StorageBinding, StorageKind, StoragePlacement,
+        NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition, ParameterGroup,
+        ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind, StoragePlacement,
         StringEnumParameterSchema, TextParameterSchema, UnsignedIntegerParameterSchema, UseCase,
         application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
@@ -190,7 +190,6 @@ mod tests {
                                 "postgres://database".to_owned(),
                             )),
                             input: None,
-                            enabled_by_parameter_id: None,
                         }],
                         storage_bindings: vec![StorageBinding {
                             binding_name: "data".to_owned(),
@@ -213,6 +212,7 @@ mod tests {
                     protocol: ApplicationEndpointProtocol::Http as i32,
                 }),
                 parameters: Vec::new(),
+                parameter_groups: Vec::new(),
             }),
         }
     }
@@ -541,7 +541,6 @@ mod tests {
                     "not\nsafe".to_owned(),
                 )),
                 input: None,
-                enabled_by_parameter_id: None,
             });
         web.configuration_bindings
             .push(ApplicationConfigurationBinding {
@@ -553,14 +552,12 @@ mod tests {
                     ),
                 ),
                 input: None,
-                enabled_by_parameter_id: None,
             });
         web.secret_bindings.push(ApplicationSecretBinding {
             binding_name: "secret".to_owned(),
             environment_variable: "DATABASE_URL".to_owned(),
             parameter_id: "password".to_owned(),
             form: ApplicationSecretForm::Plain as i32,
-            enabled_by_parameter_id: None,
         });
 
         let errors = validate_application(&application)
@@ -995,7 +992,6 @@ services:
                 environment_variable: "PASSWORD".to_owned(),
                 parameter_id: "password".to_owned(),
                 form: ApplicationSecretForm::Plain as i32,
-                enabled_by_parameter_id: None,
             }]
         );
         dotcore_proto::yaml::from_str::<ApplicationGraph>(
@@ -1044,30 +1040,37 @@ services:
     }
 
     #[test]
-    fn application_validation_checks_the_parameter_enabling_a_binding() {
-        let enabled_by = |parameter_id: &str| {
-            let mut application = parameterized_application(
-                vec![
-                    parameter("login", boolean(Some(false))),
-                    parameter("mode", string_enum(&["auto"], Some("auto"))),
-                    parameter("password", secret(32, 1, None)),
-                ],
-                &["login", "mode"],
-            );
-            bind_secret(
-                &mut application,
-                "password",
-                "password",
-                ApplicationSecretForm::Plain,
-            );
-            let web = &mut application.graph.as_mut().expect("graph").services[1];
-            web.configuration_bindings
-                .last_mut()
-                .expect("mode binding")
-                .enabled_by_parameter_id = Some(parameter_id.to_owned());
-            web.secret_bindings[0].enabled_by_parameter_id = Some(parameter_id.to_owned());
-            application
+    fn application_validation_checks_parameter_groups_and_conditions() {
+        let login_group = |switch: &str| ParameterGroup {
+            group_id: "login".to_owned(),
+            display_name: String::new(),
+            description: String::new(),
+            switch_parameter_id: Some(switch.to_owned()),
         };
+        let grouped = |id: &str, parameter_type| ParameterDefinition {
+            group_id: Some("login".to_owned()),
+            ..parameter(id, parameter_type)
+        };
+        let mut application = parameterized_application(
+            vec![
+                grouped("login", boolean(Some(false))),
+                grouped("email", text(0, None, Some(""))),
+                grouped("password", secret(32, 1, None)),
+                parameter("signup", boolean(Some(true))),
+                ParameterDefinition {
+                    enabled_by_parameter_id: Some("signup".to_owned()),
+                    ..parameter("mode", string_enum(&["auto"], Some("auto")))
+                },
+            ],
+            &["login", "email", "signup", "mode"],
+        );
+        bind_secret(
+            &mut application,
+            "password",
+            "password",
+            ApplicationSecretForm::Plain,
+        );
+        application.graph.as_mut().expect("graph").parameter_groups = vec![login_group("login")];
         let errors = |application: &Application| {
             validate_application(application)
                 .into_iter()
@@ -1075,40 +1078,26 @@ services:
                 .collect::<Vec<_>>()
         };
 
-        assert!(errors(&enabled_by("login")).is_empty());
+        assert_eq!(errors(&application), Vec::<String>::new());
+
+        let mut unbound_switch = application.clone();
+        unbound_switch.graph.as_mut().expect("graph").services[1]
+            .configuration_bindings
+            .retain(|binding| binding.binding_name != "login");
         assert_eq!(
-            errors(&enabled_by("missing")),
-            [
-                "application configuration binding \"mode\" on service \"web\" is enabled by missing parameter \"missing\"",
-                "application secret binding \"password\" on service \"web\" is enabled by missing parameter \"missing\"",
-            ]
-        );
-        assert_eq!(
-            errors(&enabled_by("mode")),
-            [
-                "application configuration binding \"mode\" on service \"web\" is enabled by parameter \"mode\", which is not a boolean",
-                "application secret binding \"password\" on service \"web\" is enabled by parameter \"mode\", which is not a boolean",
-            ]
+            errors(&unbound_switch),
+            ["application parameter \"login\" is not used by any binding"]
         );
 
-        let mut with_route_input = enabled_by("login");
-        let binding = &mut with_route_input.graph.as_mut().expect("graph").services[1]
-            .configuration_bindings[0];
-        binding.enabled_by_parameter_id = Some("login".to_owned());
-        binding.input = Some(ApplicationDeploymentInput {
-            kind: Some(
-                dotcore_proto::dotcore::catalog::v1::application_deployment_input::Kind::InferenceRoute(
-                    ApplicationInferenceRouteInput {
-                        projection: ApplicationInferenceRouteProjection::RouteName as i32,
-                    },
-                ),
-            ),
-        });
+        let mut misplaced_switch = application.clone();
+        misplaced_switch
+            .graph
+            .as_mut()
+            .expect("graph")
+            .parameter_groups = vec![login_group("email")];
         assert_eq!(
-            errors(&with_route_input),
-            [
-                "application configuration binding \"database-url\" on service \"web\" takes a route input, so it cannot be enabled by a parameter"
-            ]
+            errors(&misplaced_switch),
+            ["application parameter group \"login\" switch \"email\" must be its first member"]
         );
     }
 
@@ -1196,7 +1185,6 @@ services:
                         (*id).to_owned(),
                     )),
                     input: None,
-                    enabled_by_parameter_id: None,
                 });
         }
         application
@@ -1215,7 +1203,6 @@ services:
                 environment_variable: binding_name.to_uppercase().replace('-', "_"),
                 parameter_id: parameter_id.to_owned(),
                 form: form as i32,
-                enabled_by_parameter_id: None,
             });
     }
 
@@ -1234,6 +1221,8 @@ services:
             description: String::new(),
             visibility: visibility as i32,
             parameter_type: Some(parameter_type),
+            enabled_by_parameter_id: None,
+            group_id: None,
         }
     }
 

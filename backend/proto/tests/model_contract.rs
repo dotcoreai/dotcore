@@ -350,7 +350,10 @@ fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_a
                 )),
                 visibility: ParameterVisibility::Basic as i32,
                 description: "Maximum prompt and generation context.".to_owned(),
+                enabled_by_parameter_id: None,
+                group_id: None,
             }],
+            parameter_groups: Vec::new(),
         }),
         profile_engine_parameter_defaults: None,
         profile_engine_parameter_visibility_overrides: Vec::new(),
@@ -548,6 +551,8 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
                 )),
                 visibility: ParameterVisibility::Basic as i32,
                 description: "Context every request shares, without an upper bound.".to_owned(),
+                enabled_by_parameter_id: None,
+                group_id: None,
             },
             ParameterDefinition {
                 parameter_id: "context-per-request".to_owned(),
@@ -562,8 +567,11 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
                 )),
                 visibility: ParameterVisibility::Basic as i32,
                 description: "A present zero maximum stays distinct from an absent one.".to_owned(),
+                enabled_by_parameter_id: None,
+                group_id: None,
             },
         ],
+        parameter_groups: Vec::new(),
     };
     assert_eq!(
         EngineParameterSchema::decode(schema.encode_to_vec().as_slice())
@@ -1020,6 +1028,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         [
             ("schema_id", 1, "TYPE_STRING"),
             ("parameters", 2, ".dotcore.catalog.v1.ParameterDefinition"),
+            ("parameter_groups", 3, ".dotcore.catalog.v1.ParameterGroup"),
         ]
     );
     assert_eq!(
@@ -1029,6 +1038,8 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("display_name", 2, "TYPE_STRING"),
             ("description", 3, "TYPE_STRING"),
             ("visibility", 7, ".dotcore.catalog.v1.ParameterVisibility"),
+            ("group_id", 10, "TYPE_STRING"),
+            ("enabled_by_parameter_id", 11, "TYPE_STRING"),
             ("boolean", 4, ".dotcore.catalog.v1.BooleanParameterSchema"),
             (
                 "unsigned_integer",
@@ -1042,6 +1053,15 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ),
             ("text", 8, ".dotcore.catalog.v1.TextParameterSchema"),
             ("secret", 9, ".dotcore.catalog.v1.SecretParameterSchema"),
+        ]
+    );
+    assert_eq!(
+        field_layout(parameter, "ParameterGroup"),
+        [
+            ("group_id", 1, "TYPE_STRING"),
+            ("display_name", 2, "TYPE_STRING"),
+            ("description", 3, "TYPE_STRING"),
+            ("switch_parameter_id", 4, "TYPE_STRING"),
         ]
     );
     assert_eq!(

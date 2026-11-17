@@ -316,10 +316,15 @@ pub fn write_sizing_engine(root: &std::path::Path) {
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
+      groupId: "prompt-cache"
       unsignedInteger:
         minimum: "0"
         maximum: "65536"
         unit: "MiB"
+  parameterGroups:
+    - groupId: "prompt-cache"
+      displayName: "Prompt cache"
+      description: "Memory that keeps recent prompts for reuse."
 "#,
     );
 }

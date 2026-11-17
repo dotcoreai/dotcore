@@ -157,7 +157,7 @@ pub fn local_model_snapshot(model_id: &str) -> ModelDeploymentSnapshot {
                             65_536,
                             "MiB",
                         ),
-                    ],
+                    ],parameter_groups: Vec::new(),
                 }),
                 profile_engine_parameter_defaults: None,
                 profile_engine_parameter_visibility_overrides: Vec::new(),
@@ -274,5 +274,7 @@ fn unsigned_parameter(
             _ => ParameterVisibility::Advanced,
         } as i32,
         description: String::new(),
+        enabled_by_parameter_id: None,
+        group_id: None,
     }
 }
