@@ -1,11 +1,11 @@
 //! ninfer-specific validation of catalog engine releases and model engine configurations.
 //!
-//! A release must declare well-formed unsigned-integer parameters, the shared context parameters
-//! within ninfer's limits (for example 1 to 8 parallel requests), and only linux/amd64 artifacts,
+//! A release must declare well-formed unsigned-integer parameters and only linux/amd64 artifacts,
 //! the one platform ninfer builds for. A configuration must bind single pre-converted `.ninfer`
 //! weight files, run on exactly one NVIDIA accelerator, reference every other release parameter,
 //! and realize every model option exactly once, with MTP speculative-token counts ninfer accepts.
-//! Launch values must also give ninfer a total context its parallel requests can fill.
+//! Launch values must also give ninfer a total context its parallel requests can fill, and a
+//! context per request it can split prompts into chunks for.
 
 use std::collections::BTreeSet;
 
@@ -38,21 +38,29 @@ use dotcore_proto::dotcore::{
 use super::MAXIMUM_MTP_TOKEN_COUNT;
 use crate::model::engine::{
     declaration::{classes_outside_vendors, kv_cache_precision_option_ids},
-    definition::{unsigned_parameter_maximum, unsigned_parameter_value},
+    definition::unsigned_parameter_value,
 };
 
-/// Largest parallel request count ninfer admits.
-const MAXIMUM_PARALLEL_REQUESTS: u64 = 8;
-/// Largest context one ninfer request can attend to, in tokens.
-const MAXIMUM_CONTEXT_PER_REQUEST_TOKENS: u64 = 262_144;
-/// Largest total context ninfer admits: every parallel request at its largest context.
-const MAXIMUM_TOTAL_CONTEXT_TOKENS: u64 =
-    MAXIMUM_PARALLEL_REQUESTS * MAXIMUM_CONTEXT_PER_REQUEST_TOKENS;
 const MODEL_FILE_EXTENSION: &str = ".ninfer";
 
-/// Rejects a total context ninfer refuses at startup: above what the parallel requests use at
-/// their full context per request, so part of it could never hold a request.
+/// Largest prompt chunk, in tokens, ninfer picks on its own: the one it uses with a model's
+/// experts in host memory, a placement it chooses at startup from free memory.
+const DEFAULT_PREFILL_CHUNK_TOKENS: u64 = 4096;
+
+/// Tokens a prompt chunk ninfer runs must be a whole number of.
+const PREFILL_CHUNK_ALIGNMENT_TOKENS: u64 = 128;
+
+/// Rejects launch values ninfer can't start with: a context per request whose prompt chunks ninfer
+/// can't align, or a total context above what the parallel requests use at their full context per
+/// request. ninfer takes no total context, only the pool it sizes, so the excess would hold memory
+/// no request could ever use.
 pub(crate) fn validate_parameter_values(values: &ParameterValues) -> anyhow::Result<()> {
+    if let Some(context_per_request) =
+        unsigned_parameter_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID)
+    {
+        validate_context_per_request(context_per_request)?;
+    }
+
     let (Some(total_context), Some(context_per_request), Some(parallel_requests)) = (
         unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID),
         unsigned_parameter_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID),
@@ -69,9 +77,29 @@ pub(crate) fn validate_parameter_values(values: &ParameterValues) -> anyhow::Res
     Ok(())
 }
 
-/// Accepts a release of non-empty unsigned-integer parameters that declares the shared context
-/// parameters within ninfer's limits and ships only linux/amd64 artifacts. The catalog checks the
-/// shared parameters' fixed shape.
+/// Rejects a context per request that would cut prompts into chunks ninfer refuses.
+fn validate_context_per_request(context_per_request: u64) -> anyhow::Result<()> {
+    // The adapter leaves `--prefill-chunk` unset, so ninfer chunks prompts by
+    // `min(default chunk, max_context)` and refuses one that isn't a multiple of 128
+    // (`validate_target_options`, `src/models/qwen3_5/program/planning/startup.cpp`). The default is
+    // 1024, or 4096 with host experts (`src/models/qwen3_5/startup.cpp`), a placement chosen only at
+    // startup, so the larger default holds for every launch.
+    if context_per_request >= DEFAULT_PREFILL_CHUNK_TOKENS
+        || context_per_request.is_multiple_of(PREFILL_CHUNK_ALIGNMENT_TOKENS)
+    {
+        return Ok(());
+    }
+    let lower =
+        context_per_request / PREFILL_CHUNK_ALIGNMENT_TOKENS * PREFILL_CHUNK_ALIGNMENT_TOKENS;
+    anyhow::bail!(
+        "context per request of {context_per_request} tokens must be a multiple of {PREFILL_CHUNK_ALIGNMENT_TOKENS} tokens when below {DEFAULT_PREFILL_CHUNK_TOKENS}, so ninfer can split prompts into whole chunks; use {lower} or {} tokens",
+        lower + PREFILL_CHUNK_ALIGNMENT_TOKENS
+    )
+}
+
+/// Accepts a release of non-empty unsigned-integer parameters that ships only linux/amd64
+/// artifacts. The catalog checks the shared parameters' fixed shape, and each release declares
+/// ninfer's own bounds.
 pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Error> {
     let mut errors = Vec::new();
     if engine.engine_kind != EngineKind::Ninfer as i32 {
@@ -86,33 +114,13 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
                     && matches!(
                         definition.parameter_type.as_ref(),
                         Some(ParameterType::UnsignedInteger(range))
-                            if range.maximum >= range.minimum && !range.unit.is_empty()
+                            if !range.unit.is_empty()
                     )
             })
     });
     if !valid {
         errors.push(anyhow::anyhow!(
             "ninfer engine release requires non-empty unsigned-integer parameter definitions"
-        ));
-    }
-    let within_limits = [
-        (TOTAL_CONTEXT_PARAMETER_ID, MAXIMUM_TOTAL_CONTEXT_TOKENS),
-        (
-            CONTEXT_PER_REQUEST_PARAMETER_ID,
-            MAXIMUM_CONTEXT_PER_REQUEST_TOKENS,
-        ),
-        (PARALLEL_REQUESTS_PARAMETER_ID, MAXIMUM_PARALLEL_REQUESTS),
-    ]
-    .into_iter()
-    .all(|(parameter_id, limit)| {
-        unsigned_parameter_maximum(engine, parameter_id).is_some_and(|maximum| maximum <= limit)
-    });
-    if !within_limits {
-        errors.push(anyhow::anyhow!(
-            "ninfer engine release must declare {TOTAL_CONTEXT_PARAMETER_ID} up to \
-             {MAXIMUM_TOTAL_CONTEXT_TOKENS} tokens, {CONTEXT_PER_REQUEST_PARAMETER_ID} up to \
-             {MAXIMUM_CONTEXT_PER_REQUEST_TOKENS} tokens and {PARALLEL_REQUESTS_PARAMETER_ID} up \
-             to {MAXIMUM_PARALLEL_REQUESTS}"
         ));
     }
     let linux_amd64 = engine.artifacts.iter().all(|artifact| {
@@ -514,42 +522,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_shared_parameters_missing_or_above_ninfer_limits() {
-        let expected = [
-            "ninfer engine release must declare total-context up to 2097152 tokens, context-per-request up to 262144 tokens and parallel-requests up to 8",
-        ];
-        for (parameter_id, maximum) in [
-            (TOTAL_CONTEXT_PARAMETER_ID, Some(2_097_153)),
-            (CONTEXT_PER_REQUEST_PARAMETER_ID, Some(262_145)),
-            (PARALLEL_REQUESTS_PARAMETER_ID, Some(9)),
-            (PARALLEL_REQUESTS_PARAMETER_ID, None),
-        ] {
-            let mut release = release();
-            let parameters = &mut release
-                .parameter_schema
-                .as_mut()
-                .expect("schema")
-                .parameters;
-            match maximum {
-                Some(maximum) => {
-                    let definition = parameters
-                        .iter_mut()
-                        .find(|definition| definition.parameter_id == parameter_id)
-                        .expect("parameter");
-                    definition.parameter_type = Some(unsigned(1, maximum, "units"));
-                }
-                None => parameters.retain(|definition| definition.parameter_id != parameter_id),
-            }
-
-            assert_eq!(
-                messages(validate_engine_release(&release)),
-                expected,
-                "{parameter_id} {maximum:?}"
-            );
-        }
-    }
-
-    #[test]
     fn rejects_extra_parameter_references_that_are_missing_or_shared() {
         for reference in ["missing", TOTAL_CONTEXT_PARAMETER_ID] {
             let mut configuration = configuration();
@@ -580,7 +552,7 @@ mod tests {
             .parameters
             .push(ParameterDefinition {
                 parameter_id: "prefill-chunk".to_owned(),
-                parameter_type: Some(unsigned(128, 8192, "tokens")),
+                parameter_type: Some(unsigned(128, Some(8192), "tokens")),
                 ..Default::default()
             });
 
@@ -989,6 +961,53 @@ mod tests {
         );
     }
 
+    #[test]
+    fn accepts_a_context_per_request_ninfer_can_chunk() {
+        let catalog = profile_shaped_catalog();
+
+        for context_per_request in [512, 640, 1024, 3968, 4096, 4097, 32_769] {
+            let launch = launch(
+                &catalog,
+                &[
+                    (TOTAL_CONTEXT_PARAMETER_ID, context_per_request),
+                    (PARALLEL_REQUESTS_PARAMETER_ID, 1),
+                    (CONTEXT_PER_REQUEST_PARAMETER_ID, context_per_request),
+                ],
+            )
+            .expect("context per request ninfer can chunk");
+            assert_eq!(
+                launch_flags(&launch)[0],
+                ("--max-context", context_per_request.to_string()),
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_context_per_request_below_the_default_chunk_off_its_alignment() {
+        let catalog = profile_shaped_catalog();
+        let refused = |context_per_request: u64| {
+            launch(
+                &catalog,
+                &[
+                    (TOTAL_CONTEXT_PARAMETER_ID, context_per_request),
+                    (PARALLEL_REQUESTS_PARAMETER_ID, 1),
+                    (CONTEXT_PER_REQUEST_PARAMETER_ID, context_per_request),
+                ],
+            )
+            .expect_err("context per request off the chunk alignment")
+            .to_string()
+        };
+
+        assert_eq!(
+            refused(1000),
+            "invalid engine parameter values: context per request of 1000 tokens must be a multiple of 128 tokens when below 4096, so ninfer can split prompts into whole chunks; use 896 or 1024 tokens"
+        );
+        assert_eq!(
+            refused(4095),
+            "invalid engine parameter values: context per request of 4095 tokens must be a multiple of 128 tokens when below 4096, so ninfer can split prompts into whole chunks; use 3968 or 4096 tokens"
+        );
+    }
+
     const CATALOG_ENGINE: &str = r#"
 engineReleaseId: "fixture-ninfer"
 engineKind: "ENGINE_KIND_NINFER"
@@ -996,10 +1015,10 @@ version: "1"
 parameterSchema:
   schemaId: "fixture-ninfer-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", description: "total-context", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", description: "context-per-request", unsignedInteger: { minimum: "512", maximum: "4294967295", unit: "tokens" } }
     - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "parallel-requests", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
-    - { parameterId: "host-context-mib", displayName: "Host context memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
+    - { parameterId: "host-context-mib", displayName: "Host context memory", visibility: "PARAMETER_VISIBILITY_ADVANCED", description: "host-context-mib", unsignedInteger: { minimum: "0", maximum: "17592186044415", unit: "MiB" } }
 artifacts:
   - artifactId: "linux-amd64-cuda"
     oci:
@@ -1192,7 +1211,7 @@ profiles:
         errors.into_iter().map(|error| error.to_string()).collect()
     }
 
-    fn unsigned(minimum: u64, maximum: u64, unit: &str) -> ParameterType {
+    fn unsigned(minimum: u64, maximum: Option<u64>, unit: &str) -> ParameterType {
         ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
             minimum,
             maximum,

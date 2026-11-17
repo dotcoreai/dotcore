@@ -916,7 +916,7 @@ fn deployment_with_parameters() -> ModelDeployment {
     let integer = |default_value| {
         ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
             minimum: 1,
-            maximum: 100_000,
+            maximum: Some(100_000),
             unit: String::new(),
             default_value,
         })

@@ -184,7 +184,12 @@ pub(super) fn validate_catalog(
         recommendations,
         |value| value.hardware_class_id.clone(),
         |value| {
-            recommendation::validate_recommendations(value, &model_index, &hardware_class_index)
+            recommendation::validate_recommendations(
+                value,
+                &model_index,
+                &engine_index,
+                &hardware_class_index,
+            )
         },
         &duplicate_recommendations,
         diagnostics,

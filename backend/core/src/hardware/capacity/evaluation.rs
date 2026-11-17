@@ -7,7 +7,6 @@
 //! total exceeds it whatever the estimate, since it describes the hardware. A missing estimate or
 //! pool fact reads as unknown rather than a guess.
 
-use dotcore_catalog::shared_parameters::MINIMUM_CONTEXT_TOKENS;
 use dotcore_proto::dotcore::{catalog::v1::HardwareRequirements, deployment::v1::MemoryFit};
 
 use super::{Pool, PoolKind, PoolView, TargetCapacity};
@@ -176,20 +175,20 @@ pub(crate) fn fit(
     })
 }
 
-/// Returns the largest total context in `lowest..=highest` whose demand fits every pool under the
-/// policy, given the demands at `lowest` and at the next total. Every sizing equation is linear in
-/// the total context, so the two demands give each pool's slope. Absent when a pool fact is
-/// unknown, a declared minimum is above a pool's total so no total context fits, the demand at
-/// `lowest` doesn't fit, or a demand shrinks as the total grows.
+/// Returns the largest total context from the `lowest` total up to `highest`, when there is one,
+/// whose demand fits every pool under the policy, given the demands at the `lowest` total and at
+/// a `next` larger one, each paired with its total. Every sizing equation is linear in the total
+/// context, so the two demands give each pool's slope. Absent when a pool fact is unknown, a
+/// declared minimum is above a pool's total so no total context fits, the demand at the lowest
+/// total doesn't fit, or a demand shrinks as the total grows.
 pub(crate) fn largest_total_context(
     target: &TargetCapacity,
     minimums: Option<&HardwareRequirements>,
     policy: Policy,
-    lowest: u64,
-    highest: u64,
-    at_lowest: &Demand,
-    at_next: &Demand,
-) -> Option<u64> {
+    highest: Option<u64>,
+    (lowest, at_lowest): (u64, &Demand),
+    (next, at_next): (u64, &Demand),
+) -> Option<LargestTotalContext> {
     if target.pools.is_empty() {
         return None;
     }
@@ -206,25 +205,40 @@ pub(crate) fn largest_total_context(
     for (index, pool) in target.pools.iter().enumerate() {
         let first = at_lowest.bytes[index];
         let room = policy.usable_bytes(pool)?.checked_sub(first)?;
-        // A zero slope leaves the bound to the other pools.
-        let slope = at_next.bytes[index].checked_sub(first)?;
-        if let Some(steps) = room.checked_div(slope) {
-            largest = largest.min(lowest + steps);
+        // A zero growth leaves the bound to the other pools.
+        let growth = at_next.bytes[index].checked_sub(first)?;
+        if let Some(steps) = steps_within(room, next.checked_sub(lowest)?, growth) {
+            let bound = lowest.saturating_add(steps);
+            largest = Some(largest.map_or(bound, |largest| largest.min(bound)));
         }
     }
-    Some(largest)
+    Some(largest.map_or(LargestTotalContext::Unbounded, LargestTotalContext::Bounded))
 }
 
-/// Returns the total context a deployment starts from: the largest total context that fits,
-/// rounded down to whole blocks of the smallest context a deployment accepts, or the profile's
-/// `default` when there is no largest fit of at least one block.
+/// Returns how many tokens past a sample a value growing by `growth` every `span` tokens may grow
+/// before it uses more than `room`, saturating at the largest integer, or none when it doesn't grow.
+pub(crate) fn steps_within(room: u64, span: u64, growth: u64) -> Option<u64> {
+    let steps = (u128::from(room) * u128::from(span)).checked_div(u128::from(growth))?;
+    Some(u64::try_from(steps).unwrap_or(u64::MAX))
+}
+
+/// How far the total context may grow on a target under a policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LargestTotalContext {
+    /// The largest total context in tokens that fits.
+    Bounded(u64),
+
+    /// Nothing bounds it: no pool's demand grows with the total context and no ceiling applies.
+    Unbounded,
+}
+
+/// Returns the total context a deployment starts from: the largest total context that fits, or the
+/// profile's `default` when there is no largest fit.
 pub(crate) fn starting_total_context(
     largest: Option<u64>,
     default: Option<u64>,
 ) -> Option<StartingTotalContext> {
     largest
-        .map(|tokens| tokens / MINIMUM_CONTEXT_TOKENS * MINIMUM_CONTEXT_TOKENS)
-        .filter(|tokens| *tokens >= MINIMUM_CONTEXT_TOKENS)
         .map(StartingTotalContext::LargestFit)
         .or(default.map(StartingTotalContext::ProfileDefault))
 }
@@ -232,10 +246,10 @@ pub(crate) fn starting_total_context(
 /// The total context in tokens a deployment starts from, by where it comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StartingTotalContext {
-    /// The largest total context that fits, in whole blocks.
+    /// The largest total context that fits.
     LargestFit(u64),
 
-    /// The profile's default, without a largest fit of at least one block.
+    /// The profile's default, without a largest fit.
     ProfileDefault(u64),
 }
 

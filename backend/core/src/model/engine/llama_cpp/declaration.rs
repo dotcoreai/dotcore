@@ -8,6 +8,7 @@ use dotcore_catalog::{
         CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
         TOTAL_CONTEXT_PARAMETER_ID, maximum_context_tokens,
     },
+    typed_parameters::{unsigned_range_contains, unsigned_range_text},
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
@@ -40,16 +41,9 @@ use crate::model::engine::{
     unsigned_parameter_range, unsigned_parameter_value,
 };
 
-/// Largest total context and context per request a llama.cpp release may declare, in tokens. A
-/// release may declare lower maxima.
-const MAXIMUM_CONTEXT_TOKENS: u64 = 16_777_216;
-/// Largest parallel request count a llama.cpp release may declare, within llama.cpp's own sequence
-/// limit. Sizing counts each request's own state, so estimates follow the count.
-const MAXIMUM_PARALLEL_REQUESTS: u64 = 64;
-
 /// Accepts a release whose schema declares exactly the shared total context, context per request
-/// and parallel requests, then the prompt cache memory bound, in that order, within llama.cpp's
-/// limits. The catalog checks the shared parameters' fixed shape.
+/// and parallel requests, then the prompt cache memory bound, in that order. The catalog checks the
+/// shared parameters' fixed shape, and each release declares llama.cpp's own bounds.
 pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Error> {
     let mut errors = Vec::new();
     let valid =
@@ -58,17 +52,9 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
             .as_ref()
             .is_some_and(|schema| match schema.parameters.as_slice() {
                 [total, per_request, parallel, cache] => {
-                    is_bounded(total, TOTAL_CONTEXT_PARAMETER_ID, MAXIMUM_CONTEXT_TOKENS)
-                        && is_bounded(
-                            per_request,
-                            CONTEXT_PER_REQUEST_PARAMETER_ID,
-                            MAXIMUM_CONTEXT_TOKENS,
-                        )
-                        && is_bounded(
-                            parallel,
-                            PARALLEL_REQUESTS_PARAMETER_ID,
-                            MAXIMUM_PARALLEL_REQUESTS,
-                        )
+                    total.parameter_id == TOTAL_CONTEXT_PARAMETER_ID
+                        && per_request.parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID
+                        && parallel.parameter_id == PARALLEL_REQUESTS_PARAMETER_ID
                         && is_prompt_cache_memory(cache)
                 }
                 _ => false,
@@ -76,9 +62,8 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
     if !valid {
         errors.push(anyhow::anyhow!(
             "llama.cpp engine release requires the approved parameter schema: \
-             {TOTAL_CONTEXT_PARAMETER_ID} and {CONTEXT_PER_REQUEST_PARAMETER_ID} up to \
-             {MAXIMUM_CONTEXT_TOKENS} tokens, {PARALLEL_REQUESTS_PARAMETER_ID} up to \
-             {MAXIMUM_PARALLEL_REQUESTS}, and {PROMPT_CACHE_MEMORY_PARAMETER_ID}, in that order"
+             {TOTAL_CONTEXT_PARAMETER_ID}, {CONTEXT_PER_REQUEST_PARAMETER_ID}, \
+             {PARALLEL_REQUESTS_PARAMETER_ID}, and {PROMPT_CACHE_MEMORY_PARAMETER_ID} in MiB, in that order"
         ));
     }
     errors
@@ -159,12 +144,11 @@ pub(crate) fn validate_total_context_default(
         .as_ref()
         .and_then(|schema| unsigned_parameter_range(schema, TOTAL_CONTEXT_PARAMETER_ID))?;
     let maximum = maximum_context_tokens(model, configuration);
-    (!range.contains(&u64::from(maximum))).then(|| {
+    (!unsigned_range_contains(range, u64::from(maximum))).then(|| {
         anyhow::anyhow!(
-            "configuration {:?} processes prompts in a single llama.cpp micro-batch, so its total context defaults to its maximum context of {maximum} tokens, outside the {} to {} tokens its engine release accepts; declare a maximum context within that range",
+            "configuration {:?} processes prompts in a single llama.cpp micro-batch, so its total context defaults to its maximum context of {maximum} tokens, outside the {} tokens its engine release accepts; declare a maximum context within that range",
             configuration.configuration_id,
-            range.start(),
-            range.end()
+            unsigned_range_text(range)
         )
     })
 }
@@ -660,21 +644,13 @@ pub(crate) enum LlamaCppSamplingError {
 
 /// Accepts a shared parameter bounded by llama.cpp's own limit. The bound on the total context is
 /// high enough that a large pool exceeds memory before it exceeds the bound.
-fn is_bounded(definition: &ParameterDefinition, parameter_id: &str, maximum: u64) -> bool {
-    definition.parameter_id == parameter_id
-        && matches!(
-            definition.parameter_type.as_ref(),
-            Some(ParameterType::UnsignedInteger(range)) if range.maximum <= maximum
-        )
-}
-
 fn is_prompt_cache_memory(definition: &ParameterDefinition) -> bool {
     definition.parameter_id == PROMPT_CACHE_MEMORY_PARAMETER_ID
         && definition.display_name == "Prompt cache memory"
         && matches!(
             definition.parameter_type.as_ref(),
             Some(ParameterType::UnsignedInteger(range))
-                if range.minimum == 0 && range.maximum == 65_536 && range.unit == "MiB"
+                if range.unit == "MiB"
         )
 }
 
@@ -829,7 +805,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_only_the_shared_parameters_then_the_prompt_cache_within_llama_cpp_limits() {
+    fn accepts_only_the_shared_parameters_then_the_prompt_cache_with_any_declared_bounds() {
         let release = development_catalog()
             .list_engine_releases()
             .into_iter()
@@ -850,17 +826,17 @@ mod tests {
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
         };
-        let maximum = |parameters: &mut Vec<ParameterDefinition>, index: usize, value| {
+        let range = |parameters: &mut Vec<ParameterDefinition>, index: usize, maximum| {
             if let Some(ParameterType::UnsignedInteger(range)) =
                 parameters[index].parameter_type.as_mut()
             {
-                range.maximum = value;
+                range.maximum = maximum;
             }
         };
         let expected = [
-            "llama.cpp engine release requires the approved parameter schema: total-context and \
-             context-per-request up to 16777216 tokens, parallel-requests up to 64, and \
-             prompt-cache-memory-mib, in that order"
+            "llama.cpp engine release requires the approved parameter schema: total-context, \
+             context-per-request, parallel-requests, and prompt-cache-memory-mib in MiB, in that \
+             order"
                 .to_owned(),
         ];
 
@@ -870,24 +846,28 @@ mod tests {
             rejection(&|parameters| parameters[0].parameter_id = "other".to_owned()),
             expected
         );
-        assert_eq!(
-            rejection(&|parameters| maximum(parameters, 0, 131_072)),
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            rejection(&|parameters| maximum(parameters, 0, 16_777_217)),
-            expected
-        );
-        assert_eq!(
-            rejection(&|parameters| maximum(parameters, 1, 16_777_217)),
-            expected
-        );
-        assert_eq!(
-            rejection(&|parameters| maximum(parameters, 2, 65)),
-            expected
-        );
+        for index in 0..4 {
+            assert_eq!(
+                rejection(&|parameters| range(parameters, index, Some(u64::MAX))),
+                Vec::<String>::new()
+            );
+            assert_eq!(
+                rejection(&|parameters| range(parameters, index, None)),
+                Vec::<String>::new()
+            );
+        }
         assert_eq!(
             rejection(&|parameters| parameters[3].display_name = "Cache RAM".to_owned()),
+            expected
+        );
+        assert_eq!(
+            rejection(&|parameters| {
+                if let Some(ParameterType::UnsignedInteger(range)) =
+                    parameters[3].parameter_type.as_mut()
+                {
+                    range.unit = "GiB".to_owned();
+                }
+            }),
             expected
         );
         assert_eq!(
@@ -1269,7 +1249,7 @@ mod tests {
                     parameter_type: Some(ParameterType::UnsignedInteger(
                         UnsignedIntegerParameterSchema {
                             minimum: 1024,
-                            maximum: 8192,
+                            maximum: Some(8192),
                             ..Default::default()
                         },
                     )),
@@ -1300,7 +1280,7 @@ mod tests {
         };
         let outside = |maximum: u32| {
             Some(format!(
-                "configuration \"local\" processes prompts in a single llama.cpp micro-batch, so its total context defaults to its maximum context of {maximum} tokens, outside the 1024 to 8192 tokens its engine release accepts; declare a maximum context within that range"
+                "configuration \"local\" processes prompts in a single llama.cpp micro-batch, so its total context defaults to its maximum context of {maximum} tokens, outside the 1024..=8192 tokens its engine release accepts; declare a maximum context within that range"
             ))
         };
 

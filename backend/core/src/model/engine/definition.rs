@@ -6,7 +6,7 @@
 //! realization, and the engine integration registry all look engines up here by kind, so adding
 //! an engine means adding its package and one entry to the list.
 
-use std::{collections::BTreeSet, ops::RangeInclusive, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
 use dotcore_artifact::PreparedModelArtifacts;
 use dotcore_catalog::shared_parameters;
@@ -15,7 +15,7 @@ use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
         ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
-        ParameterValues, parameter_definition, parameter_value,
+        ParameterValues, UnsignedIntegerParameterSchema, parameter_definition, parameter_value,
     },
     engine::v1::{EngineKind, ResolvedEngineModelState},
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
@@ -208,30 +208,18 @@ pub(crate) fn unsigned_parameter_value(
         })
 }
 
-/// Returns the largest value an unsigned engine parameter of the release accepts, or none when the
-/// release doesn't declare it as unsigned.
-pub(crate) fn unsigned_parameter_maximum(
-    engine: &EngineRelease,
-    parameter_id: &str,
-) -> Option<u64> {
-    unsigned_parameter_range(engine.parameter_schema.as_ref()?, parameter_id)
-        .map(|range| *range.end())
-}
-
-/// Returns the values an unsigned engine parameter of the schema accepts, or none when the schema
+/// Returns the range an unsigned engine parameter of the schema accepts, or none when the schema
 /// doesn't declare it as unsigned.
-pub(crate) fn unsigned_parameter_range(
-    schema: &EngineParameterSchema,
+pub(crate) fn unsigned_parameter_range<'a>(
+    schema: &'a EngineParameterSchema,
     parameter_id: &str,
-) -> Option<RangeInclusive<u64>> {
+) -> Option<&'a UnsignedIntegerParameterSchema> {
     schema
         .parameters
         .iter()
         .find(|definition| definition.parameter_id == parameter_id)
         .and_then(|definition| match definition.parameter_type.as_ref() {
-            Some(parameter_definition::ParameterType::UnsignedInteger(range)) => {
-                Some(range.minimum..=range.maximum)
-            }
+            Some(parameter_definition::ParameterType::UnsignedInteger(range)) => Some(range),
             _ => None,
         })
 }

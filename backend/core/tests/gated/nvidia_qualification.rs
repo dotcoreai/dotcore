@@ -839,9 +839,9 @@ pub async fn host_safe_load(
     case: &LargestFitCase<'_>,
     placement: &ExactPlacement,
     idle: &GpuMemory,
-    largest_fit: u32,
+    largest_fit: u64,
 ) -> anyhow::Result<(
-    u32,
+    u64,
     LocalModelDeploymentConfiguration,
     EstimateLocalModelResourcesResponse,
     u64,
@@ -890,7 +890,7 @@ pub async fn wait_for_largest_fit(
     service: &mut ModelClient,
     case: &LargestFitCase<'_>,
     placement: &ExactPlacement,
-) -> anyhow::Result<(u32, u32)> {
+) -> anyhow::Result<(u64, u64)> {
     let mut last = None;
     let found = tokio::time::timeout(Duration::from_secs(120), async {
         loop {
@@ -938,7 +938,7 @@ pub async fn wait_for_largest_fit(
 fn configuration_at(
     catalog: &Catalog,
     case: &LargestFitCase<'_>,
-    total_context: u32,
+    total_context: u64,
 ) -> anyhow::Result<LocalModelDeploymentConfiguration> {
     let records = catalog.protobuf_records_without_sizing();
     let profile = records
@@ -961,9 +961,7 @@ fn configuration_at(
         .retain(|value| value.parameter_id != "total-context");
     values.values.push(ParameterValue {
         parameter_id: "total-context".to_owned(),
-        value: Some(parameter_value::Value::UnsignedInteger(u64::from(
-            total_context,
-        ))),
+        value: Some(parameter_value::Value::UnsignedInteger(total_context)),
     });
     Ok(LocalModelDeploymentConfiguration {
         model_artifact_binding_id: profile.default_model_artifact_binding_id.clone(),

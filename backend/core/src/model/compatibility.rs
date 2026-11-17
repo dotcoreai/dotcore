@@ -456,15 +456,9 @@ fn profile_compatibility(
             entry.set_memory_fit(fit.memory_fit);
             entry.set_free_memory_fit(fit.free_memory_fit);
             entry.set_unsupported_reason(fit.unsupported_reason);
-            // Totals stay within the engine's 32-bit-range maxima.
-            entry.largest_total_context_tokens = fit
-                .largest_total_context_tokens
-                .and_then(|tokens| u32::try_from(tokens).ok());
-            let starting = running
-                .starting_total_context
-                .and_then(|starting| Some((starting, u32::try_from(starting.tokens()).ok()?)));
-            if let Some((starting, tokens)) = starting {
-                entry.starting_total_context_tokens = Some(tokens);
+            entry.largest_total_context_tokens = fit.largest_total_context_tokens;
+            if let Some(starting) = running.starting_total_context {
+                entry.starting_total_context_tokens = Some(starting.tokens());
                 entry.set_starting_total_context_source(match starting {
                     StartingTotalContext::LargestFit(_) => StartingTotalContextSource::LargestFit,
                     StartingTotalContext::ProfileDefault(_) => {

@@ -322,7 +322,7 @@ fn repository_largest_fits_fill_free_memory_on_every_simulated_choice() {
         model::v1::{ModelCompatibilityStatus, SizingScenarioUnsupportedReason},
     };
 
-    const STEP_TOKENS: u32 = 1024;
+    const STEP_TOKENS: u64 = 1024;
     let catalog = repository_catalog();
     let mut checked = 0;
     let mut clamped = Vec::new();
@@ -352,7 +352,7 @@ fn repository_largest_fits_fill_free_memory_on_every_simulated_choice() {
                 }
                 let (lowest, context_per_request) =
                     lowest_total_context(&catalog, &models[0], &entry.profile_id);
-                let verdict = |total_context: u32| {
+                let verdict = |total_context: u64| {
                     let scenario = SizingScenario::new(total_context, context_per_request)
                         .unwrap_or_else(|error| panic!("{label}: scenario: {error}"));
                     let response = read(Some(&scenario));
@@ -1054,7 +1054,7 @@ fn catalog_rejects_a_configuration_maximum_context_above_the_model_maximum() {
     let error = load(0).expect_err("zero configuration maximum").to_string();
     assert!(
         error.contains(
-            "configuration \"local\" maximum context of 0 tokens is below the minimum context of 1024 tokens"
+            "configuration \"local\" maximum context of 0 tokens is below the context per request of at least 512 tokens its engine release accepts"
         ),
         "unexpected validation error: {error}"
     );
@@ -2220,7 +2220,7 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
         )
         .expect_err("out-of-range parameter")
         .to_string(),
-        "invalid engine parameter values: profile \"balanced\" engine parameter \"total-context\" value 16777217 is outside its range 1024..=16777216"
+        "invalid engine parameter values: profile \"balanced\" engine parameter \"total-context\" value 16777217 is outside its range 512..=16777216"
     );
     assert_eq!(
         dotcore::model::resolution::resolve_local_launch(
@@ -2637,7 +2637,7 @@ fn target_capabilities(
 /// Returns the lowest total context a profile's largest fit considers, with the context per
 /// request its defaults supply: the engine's smallest total context, raised to that context per
 /// request.
-fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (u32, Option<u32>) {
+fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (u64, Option<u64>) {
     use dotcore_catalog::shared_parameters::{
         CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID,
     };
@@ -2681,10 +2681,7 @@ fn lowest_total_context(catalog: &Catalog, model: &Model, profile_id: &str) -> (
             _ => None,
         });
     let lowest = context_per_request.map_or(smallest_total, |tokens| tokens.max(smallest_total));
-    (
-        u32::try_from(lowest).expect("a total context in tokens"),
-        context_per_request.map(|tokens| u32::try_from(tokens).expect("a context in tokens")),
-    )
+    (lowest, context_per_request)
 }
 
 /// Returns the targets of `platform` a profile may resolve on: the fixture target, then each GPU
@@ -3343,7 +3340,7 @@ parameterSchema:
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
-        minimum: "1024"
+        minimum: "512"
         maximum: "16777216"
         unit: "tokens"
         defaultValue: "32768"
@@ -3351,7 +3348,7 @@ parameterSchema:
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
-        minimum: "1024"
+        minimum: "512"
         maximum: "16777216"
         unit: "tokens"
     - parameterId: "parallel-requests"

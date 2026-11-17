@@ -1244,7 +1244,7 @@ services:
     fn unsigned(minimum: u64, maximum: u64, default_value: Option<u64>) -> ParameterType {
         ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
             minimum,
-            maximum,
+            maximum: Some(maximum),
             unit: String::new(),
             default_value,
         })

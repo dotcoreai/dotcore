@@ -17,8 +17,10 @@ use dotcore_site::node::target_inventory::{
 
 use super::evaluation::{Preview, host_reserve_bytes};
 use super::{
-    DeviceMemory, Estimate, HostMemory, NodeHardware, Occupancy, Policy, Pool, PoolDevice,
-    PoolKind, PoolPreview, PoolView, Segment, SegmentSource,
+    DeviceMemory, Estimate, HostMemory,
+    LargestTotalContext::{Bounded, Unbounded},
+    NodeHardware, Occupancy, Policy, Pool, PoolDevice, PoolKind, PoolPreview, PoolView, Segment,
+    SegmentSource,
     StartingTotalContext::{LargestFit, ProfileDefault},
     TargetCapacity, Workload, WorkloadKey, WorkloadPhase, combined_minimums, demand, fit,
     largest_total_context, preview, starting_total_context,
@@ -284,11 +286,14 @@ fn named_machines_give_exact_pools_verdicts_and_largest_fits_under_each_occupanc
                 &target,
                 None,
                 policy,
-                1024,
-                1_048_576,
-                &demand_of(at(1024)),
-                &demand_of(at(1025)),
+                Some(1_048_576),
+                (1024, &demand_of(at(1024))),
+                (1025, &demand_of(at(1025))),
             )
+            .map(|largest| match largest {
+                Bounded(tokens) => tokens,
+                Unbounded => panic!("{label}: the highest total bounds the largest fit"),
+            })
         };
         assert_eq!(
             (judge(Policy::FREE_NOW), judge(Policy::TOTAL)),
@@ -1171,13 +1176,10 @@ fn an_application_named_in_a_preview_splits_other_use_without_changing_its_verdi
 }
 
 #[test]
-fn a_deployment_starts_from_the_largest_fit_in_whole_blocks_or_the_default() {
+fn a_deployment_starts_from_the_exact_largest_fit_or_the_default() {
     for (largest, default, expected) in [
-        (Some(222_527), Some(32_768), Some(LargestFit(222_208))),
-        (Some(2_048), Some(32_768), Some(LargestFit(2_048))),
-        (Some(1_024), None, Some(LargestFit(1_024))),
-        (Some(1_023), Some(32_768), Some(ProfileDefault(32_768))),
-        (Some(1_023), None, None),
+        (Some(222_527), Some(32_768), Some(LargestFit(222_527))),
+        (Some(1), None, Some(LargestFit(1))),
         (None, Some(32_768), Some(ProfileDefault(32_768))),
         (None, None, None),
     ] {
@@ -1203,16 +1205,26 @@ fn the_largest_total_context_stays_within_the_highest_total_and_needs_a_growing_
         .expect("demand")
     };
     let largest = |first, next| {
-        largest_total_context(&target, None, Policy::TOTAL, 1024, 4096, &first, &next)
+        largest_total_context(
+            &target,
+            None,
+            Policy::TOTAL,
+            Some(4096),
+            (1024, &first),
+            (1025, &next),
+        )
     };
 
     assert_eq!(
         largest(demand_of(0), demand_of(0)),
-        Some(4096),
+        Some(Bounded(4096)),
         "zero slope"
     );
-    assert_eq!(largest(demand_of(0), demand_of(10)), Some(3424));
-    assert_eq!(largest(demand_of(POOL), demand_of(POOL + 1)), Some(1024));
+    assert_eq!(largest(demand_of(0), demand_of(10)), Some(Bounded(3424)));
+    assert_eq!(
+        largest(demand_of(POOL), demand_of(POOL + 1)),
+        Some(Bounded(1024))
+    );
     assert_eq!(largest(demand_of(POOL + 1), demand_of(POOL + 2)), None);
     assert_eq!(
         largest(demand_of(10), demand_of(9)),
@@ -1224,13 +1236,61 @@ fn the_largest_total_context_stays_within_the_highest_total_and_needs_a_growing_
             &TargetCapacity::default(),
             None,
             Policy::TOTAL,
-            1024,
-            4096,
-            &demand_of(0),
-            &demand_of(0)
+            Some(4096),
+            (1024, &demand_of(0)),
+            (1025, &demand_of(0))
         ),
         None,
         "no pools"
+    );
+    assert_eq!(
+        largest_total_context(
+            &target,
+            None,
+            Policy::TOTAL,
+            Some(4096),
+            (1024, &demand_of(0)),
+            (1152, &demand_of(1280))
+        ),
+        Some(Bounded(3424)),
+        "a slope sampled across 128 tokens"
+    );
+}
+
+#[test]
+fn without_a_highest_total_memory_bounds_the_largest_total_context_or_nothing_does() {
+    let target = capacity(Dedicated, Some(POOL), Some(POOL));
+    let demand_of = |bytes| {
+        demand(
+            &Estimate {
+                accelerator_bytes: Some(bytes),
+                host_bytes: None,
+            },
+            &target,
+        )
+        .expect("demand")
+    };
+    let largest = |lowest, first, next| {
+        largest_total_context(
+            &target,
+            None,
+            Policy::TOTAL,
+            None,
+            (lowest, &first),
+            (lowest + 1, &next),
+        )
+    };
+
+    assert_eq!(largest(1, demand_of(0), demand_of(10)), Some(Bounded(2401)));
+    assert_eq!(
+        largest(1, demand_of(0), demand_of(0)),
+        Some(Unbounded),
+        "zero slope"
+    );
+    assert_eq!(
+        largest(u64::MAX - 1, demand_of(0), demand_of(1)),
+        Some(Bounded(u64::MAX)),
+        "saturates at the largest integer"
     );
 }
 
@@ -1257,10 +1317,9 @@ fn no_total_context_fits_a_target_below_a_catalog_minimum() {
                 &target,
                 Some(&minimums),
                 policy,
-                1024,
-                4096,
-                &demand_of(0),
-                &demand_of(1),
+                Some(4096),
+                (1024, &demand_of(0)),
+                (1025, &demand_of(1)),
             )
         })
     };
@@ -1268,13 +1327,13 @@ fn no_total_context_fits_a_target_below_a_catalog_minimum() {
     // The estimates alone would fit every total; the minimums decide.
     assert_eq!(
         largest(Dedicated, minimums(POOL, HOST)),
-        [Some(4096), Some(4096)]
+        [Some(Bounded(4096)), Some(Bounded(4096))]
     );
     assert_eq!(largest(Dedicated, minimums(POOL + 1, 0)), [None, None]);
     assert_eq!(largest(Dedicated, minimums(0, HOST + 1)), [None, None]);
     assert_eq!(
         largest(Unified, minimums(UNIFIED_POOL, UNIFIED_POOL)),
-        [Some(4096), Some(4096)]
+        [Some(Bounded(4096)), Some(Bounded(4096))]
     );
     assert_eq!(
         largest(Unified, minimums(UNIFIED_POOL + 1, 0)),

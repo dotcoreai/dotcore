@@ -2917,11 +2917,11 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens", defaultValue: "32768" }
+      unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" }
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: { minimum: "1024", maximum: "16777216", unit: "tokens" }
+      unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" }
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"

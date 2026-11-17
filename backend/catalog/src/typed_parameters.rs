@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use anyhow::anyhow;
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
-    ParameterDefinition, ParameterValue, ParameterVisibility, parameter_definition::ParameterType,
-    parameter_value::Value,
+    ParameterDefinition, ParameterValue, ParameterVisibility, UnsignedIntegerParameterSchema,
+    parameter_definition::ParameterType, parameter_value::Value,
 };
 
 /// Validates one definition's identity, label, visibility and type constraints, including any
@@ -36,7 +36,9 @@ pub(crate) fn validate_parameter_definition(
     }
     match definition.parameter_type.as_ref() {
         Some(ParameterType::Boolean(_)) => {}
-        Some(ParameterType::UnsignedInteger(range)) if range.minimum > range.maximum => {
+        Some(ParameterType::UnsignedInteger(range))
+            if range.maximum.is_some_and(|maximum| range.minimum > maximum) =>
+        {
             errors.push(anyhow!(
                 "parameter {id:?} minimum must not exceed its maximum"
             ));
@@ -140,14 +142,10 @@ pub fn check_value(definition: &ParameterDefinition, value: &Value) -> anyhow::R
     match (definition.parameter_type.as_ref(), value) {
         (Some(ParameterType::Boolean(_)), Value::Boolean(_)) => Ok(()),
         (Some(ParameterType::UnsignedInteger(range)), Value::UnsignedInteger(value)) => {
-            if (range.minimum..=range.maximum).contains(value) {
+            if unsigned_range_contains(range, *value) {
                 Ok(())
             } else {
-                Err(anyhow!(
-                    "{value} is outside {}..={}",
-                    range.minimum,
-                    range.maximum
-                ))
+                Err(anyhow!("{value} is outside {}", unsigned_range_text(range)))
             }
         }
         (Some(ParameterType::StringEnum(schema)), Value::String(value)) => {
@@ -164,6 +162,21 @@ pub fn check_value(definition: &ParameterDefinition, value: &Value) -> anyhow::R
             check_free_text(value, schema.minimum_length, schema.maximum_length)
         }
         _ => Err(anyhow!("value type does not match the parameter type")),
+    }
+}
+
+/// Whether an unsigned-integer range holds the value. A range without a maximum holds every value
+/// from its minimum up.
+pub fn unsigned_range_contains(range: &UnsignedIntegerParameterSchema, value: u64) -> bool {
+    value >= range.minimum && range.maximum.is_none_or(|maximum| value <= maximum)
+}
+
+/// Renders an unsigned-integer range for messages: `minimum..=maximum`, or `minimum..` without a
+/// maximum.
+pub fn unsigned_range_text(range: &UnsignedIntegerParameterSchema) -> String {
+    match range.maximum {
+        Some(maximum) => format!("{}..={maximum}", range.minimum),
+        None => format!("{}..", range.minimum),
     }
 }
 
@@ -212,7 +225,7 @@ fn check_free_text(value: &str, minimum: u32, maximum: Option<u32>) -> anyhow::R
 mod tests {
     use dotcore_proto::dotcore::catalog::v1::{
         BooleanParameterSchema, SecretParameterSchema, StringEnumParameterSchema,
-        TextParameterSchema, UnsignedIntegerParameterSchema,
+        TextParameterSchema,
     };
 
     use super::*;
@@ -233,7 +246,7 @@ mod tests {
         let integer = definition(ParameterType::UnsignedInteger(
             UnsignedIntegerParameterSchema {
                 minimum: 1,
-                maximum: 8,
+                maximum: Some(8),
                 unit: "workers".into(),
                 default_value: Some(2),
             },
@@ -244,6 +257,21 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "9 is outside 1..=8"
+        );
+        let unbounded = definition(ParameterType::UnsignedInteger(
+            UnsignedIntegerParameterSchema {
+                minimum: 1,
+                maximum: None,
+                unit: "tokens".into(),
+                default_value: None,
+            },
+        ));
+        assert!(check_value(&unbounded, &Value::UnsignedInteger(u64::MAX)).is_ok());
+        assert_eq!(
+            check_value(&unbounded, &Value::UnsignedInteger(0))
+                .unwrap_err()
+                .to_string(),
+            "0 is outside 1.."
         );
         assert_eq!(
             check_value(&integer, &Value::Boolean(true))
@@ -414,7 +442,7 @@ mod tests {
             &definition(ParameterType::UnsignedInteger(
                 UnsignedIntegerParameterSchema {
                     minimum: 5,
-                    maximum: 1,
+                    maximum: Some(1),
                     unit: String::new(),
                     default_value: None,
                 },

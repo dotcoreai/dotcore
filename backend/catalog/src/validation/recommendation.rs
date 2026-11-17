@@ -10,19 +10,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use dotcore_proto::dotcore::catalog::v1::{
-    HardwareClass, HardwareClassRecommendations, HardwareRequirements, HardwareSupport,
-    InferenceRequestKind, Model, ModelEngineConfiguration, ModelRecommendation, UseCase,
+    EngineRelease, HardwareClass, HardwareClassRecommendations, HardwareRequirements,
+    HardwareSupport, InferenceRequestKind, Model, ModelEngineConfiguration, ModelRecommendation,
+    UseCase, parameter_definition::ParameterType,
 };
 
-use super::{CatalogDiagnostic, model::non_nested_classes};
+use super::{CatalogDiagnostic, configuration_engine_release, model::non_nested_classes};
 use crate::{
     selector::{SelectorRelation, selector_relation},
-    shared_parameters::{MINIMUM_CONTEXT_TOKENS, maximum_context_tokens},
+    shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, maximum_context_tokens},
 };
 
 pub(super) fn validate_recommendations(
     recommendations: &HardwareClassRecommendations,
     models: &BTreeMap<String, Model>,
+    engines: &BTreeMap<String, EngineRelease>,
     hardware_classes: &BTreeMap<String, HardwareClass>,
 ) -> Vec<anyhow::Error> {
     let mut errors = Vec::new();
@@ -67,6 +69,7 @@ pub(super) fn validate_recommendations(
                 entry,
                 hardware_class,
                 models,
+                engines,
                 hardware_classes,
                 &label,
                 &mut errors,
@@ -108,6 +111,7 @@ fn validate_entry(
     entry: &ModelRecommendation,
     hardware_class: &HardwareClass,
     models: &BTreeMap<String, Model>,
+    engines: &BTreeMap<String, EngineRelease>,
     hardware_classes: &BTreeMap<String, HardwareClass>,
     label: &str,
     errors: &mut Vec<anyhow::Error>,
@@ -150,9 +154,11 @@ fn validate_entry(
 
     if let Some(context_tokens) = entry.context_tokens_per_request {
         let maximum = maximum_context_tokens(model, configuration);
-        if context_tokens < MINIMUM_CONTEXT_TOKENS {
+        if let Some(minimum) = context_per_request_minimum(configuration, engines)
+            && context_tokens < minimum
+        {
             errors.push(anyhow::anyhow!(
-                "{label} sets context per request {context_tokens} tokens, below the minimum context of {MINIMUM_CONTEXT_TOKENS} tokens"
+                "{label} sets context per request {context_tokens} tokens, below the minimum of {minimum} tokens its engine release accepts"
             ));
         } else if context_tokens > u64::from(maximum) {
             errors.push(anyhow::anyhow!(
@@ -166,6 +172,25 @@ fn validate_entry(
     {
         validate_entry_minimums(requirements, &related_support, label, errors);
     }
+}
+
+/// Smallest context per request the configuration's engine release accepts, in tokens; none when
+/// the release is unknown or declares no unsigned context per request, which its own validation
+/// reports.
+fn context_per_request_minimum(
+    configuration: &ModelEngineConfiguration,
+    engines: &BTreeMap<String, EngineRelease>,
+) -> Option<u64> {
+    configuration_engine_release(configuration, engines)?
+        .parameter_schema
+        .as_ref()?
+        .parameters
+        .iter()
+        .find(|definition| definition.parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID)
+        .and_then(|definition| match definition.parameter_type.as_ref() {
+            Some(ParameterType::UnsignedInteger(range)) => Some(range.minimum),
+            _ => None,
+        })
 }
 
 /// Returns the configuration's hardware support entries on classes equal to, containing, or

@@ -1,11 +1,11 @@
 //! Strata-specific validation of catalog engine releases and model engine configurations.
 //!
-//! A release must declare well-formed unsigned-integer or secret parameters, at most the parallel
-//! requests Strata's start wrapper accepts, Linux artifacts only, and the deployment's data folder
-//! the wrapper writes to. A configuration must bind model artifacts shaped as its fixed settings
-//! say, with the draft layer they name, run text-only on exactly one NVIDIA accelerator, declare no
-//! options, and reference every other unsigned-integer release parameter. Launch values must give
-//! Strata a total context that is exactly what its parallel requests hold.
+//! A release must declare well-formed unsigned-integer or secret parameters, Linux artifacts only,
+//! and the deployment's data folder Strata's start wrapper writes to. A configuration must bind
+//! model artifacts shaped as its fixed settings say, with the draft layer they name, run text-only
+//! on exactly one NVIDIA accelerator, declare no options, and reference every other
+//! unsigned-integer release parameter. Launch values must give Strata a total context that is
+//! exactly what its parallel requests hold.
 
 use std::collections::BTreeSet;
 
@@ -37,13 +37,10 @@ use dotcore_proto::dotcore::{
 use dotcore_proto::dotcore::observation::v1::AcceleratorMemoryArchitecture;
 
 use crate::model::engine::{
-    declaration::classes_outside_vendors,
-    definition::{unsigned_parameter_maximum, unsigned_parameter_value},
+    declaration::classes_outside_vendors, definition::unsigned_parameter_value,
     split_gguf::split_gguf_entry,
 };
 
-/// Largest parallel request count Strata's start wrapper accepts.
-const MAXIMUM_PARALLEL_REQUESTS: u64 = 8;
 /// Container folder where Strata's start wrapper keeps the deployment's tokenizer, run
 /// configuration and engine log.
 const DATA_MOUNT_PATH: &str = "/data";
@@ -61,12 +58,7 @@ pub(crate) fn filled_context_per_request(
     values: &ParameterValues,
     maximum_context_tokens: u32,
 ) -> Option<ParameterValue> {
-    // The shared rule with no maximum yields the total context, or none when it fills nothing.
-    let total_context = shared_parameters::filled_context_per_request(schema, values, u32::MAX)
-        .and_then(|filled| match filled.value {
-            Some(EngineParameterValueKind::UnsignedInteger(total_context)) => Some(total_context),
-            _ => None,
-        })?;
+    let total_context = shared_parameters::total_context_to_fill(schema, values)?;
     let parallel_requests = unsigned_parameter_value(values, PARALLEL_REQUESTS_PARAMETER_ID)
         .unwrap_or(1)
         .max(1);
@@ -112,10 +104,9 @@ pub(crate) fn validate_parameter_values(
     Ok(())
 }
 
-/// Accepts a release of non-empty unsigned-integer or secret parameters that declares at most the
-/// parallel requests the start wrapper accepts, ships only Linux artifacts, and declares a
-/// deployment-scoped storage at the wrapper's data folder. The catalog checks the shared
-/// parameters' fixed shape.
+/// Accepts a release of non-empty unsigned-integer or secret parameters that ships only Linux
+/// artifacts and declares a deployment-scoped storage at the wrapper's data folder. The catalog
+/// checks the shared parameters' fixed shape, and each release declares Strata's own bounds.
 pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Error> {
     let mut errors = Vec::new();
     if engine.engine_kind != EngineKind::Strata as i32 {
@@ -128,9 +119,7 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
             && schema.parameters.iter().all(|definition| {
                 !definition.parameter_id.is_empty()
                     && match definition.parameter_type.as_ref() {
-                        Some(ParameterType::UnsignedInteger(range)) => {
-                            range.maximum >= range.minimum && !range.unit.is_empty()
-                        }
+                        Some(ParameterType::UnsignedInteger(range)) => !range.unit.is_empty(),
                         Some(ParameterType::Secret(_)) => true,
                         _ => false,
                     }
@@ -139,14 +128,6 @@ pub(crate) fn validate_engine_release(engine: &EngineRelease) -> Vec<anyhow::Err
     if !valid {
         errors.push(anyhow::anyhow!(
             "Strata engine release requires non-empty unsigned-integer or secret parameter definitions"
-        ));
-    }
-    if unsigned_parameter_maximum(engine, PARALLEL_REQUESTS_PARAMETER_ID)
-        .is_none_or(|maximum| maximum > MAXIMUM_PARALLEL_REQUESTS)
-    {
-        errors.push(anyhow::anyhow!(
-            "Strata engine release must declare {PARALLEL_REQUESTS_PARAMETER_ID} up to \
-             {MAXIMUM_PARALLEL_REQUESTS}"
         ));
     }
     let linux = engine.artifacts.iter().all(|artifact| {
@@ -593,27 +574,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_parallel_requests_missing_or_above_the_wrapper_limit() {
-        let mut above = release();
-        parameter(&mut above, PARALLEL_REQUESTS_PARAMETER_ID).parameter_type =
-            Some(unsigned(1, 9, "requests"));
-        let mut missing = release();
-        missing
-            .parameter_schema
-            .as_mut()
-            .expect("schema")
-            .parameters
-            .retain(|definition| definition.parameter_id != PARALLEL_REQUESTS_PARAMETER_ID);
-
-        for release in [above, missing] {
-            assert_eq!(
-                messages(validate_engine_release(&release)),
-                ["Strata engine release must declare parallel-requests up to 8"]
-            );
-        }
-    }
-
-    #[test]
     fn rejects_release_artifacts_other_than_linux() {
         let mut release = release();
         release
@@ -717,7 +677,7 @@ mod tests {
             .parameters
             .push(ParameterDefinition {
                 parameter_id: "kv-bits".to_owned(),
-                parameter_type: Some(unsigned(4, 16, "bits")),
+                parameter_type: Some(unsigned(4, Some(16), "bits")),
                 ..Default::default()
             });
 
@@ -1254,7 +1214,7 @@ mod tests {
             .expect("parameter")
     }
 
-    fn unsigned(minimum: u64, maximum: u64, unit: &str) -> ParameterType {
+    fn unsigned(minimum: u64, maximum: Option<u64>, unit: &str) -> ParameterType {
         ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
             minimum,
             maximum,

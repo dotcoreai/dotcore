@@ -216,13 +216,13 @@ mod tests {
             ),
             [
                 vec![
-                    "big/q4 on Fixture Apple GPU: FitsNow from 355328",
-                    "mid/q4 on Fixture Apple GPU: FitsNow from 454656",
-                    "small/q4 on Fixture Apple GPU: FitsNow from 494592",
+                    "big/q4 on Fixture Apple GPU: FitsNow from 355396",
+                    "mid/q4 on Fixture Apple GPU: FitsNow from 455396",
+                    "small/q4 on Fixture Apple GPU: FitsNow from 495396",
                 ],
                 vec![
-                    "mid/q4 on Fixture Apple GPU: FitsNow from 454656",
-                    "small/q4 on Fixture Apple GPU: FitsNow from 494592",
+                    "mid/q4 on Fixture Apple GPU: FitsNow from 455396",
+                    "small/q4 on Fixture Apple GPU: FitsNow from 495396",
                 ],
             ]
         );
@@ -244,14 +244,14 @@ mod tests {
             ),
             [
                 vec![
-                    "x-only/x on Fixture GPU X: FitsNow from 293888",
-                    "big/q4 on Fixture GPU X: FitsNow from 174080",
-                    "mid/q4 on Fixture GPU X: FitsNow from 274432",
-                    "small/q4 on Fixture GPU X: FitsNow from 314368",
+                    "x-only/x on Fixture GPU X: FitsNow from 294792",
+                    "big/q4 on Fixture GPU X: FitsNow from 174792",
+                    "mid/q4 on Fixture GPU X: FitsNow from 274792",
+                    "small/q4 on Fixture GPU X: FitsNow from 314792",
                 ],
                 vec![
-                    "mid/q4 on Fixture GPU X: FitsNow from 274432",
-                    "small/q4 on Fixture GPU X: FitsNow from 314368",
+                    "mid/q4 on Fixture GPU X: FitsNow from 274792",
+                    "small/q4 on Fixture GPU X: FitsNow from 314792",
                 ],
             ]
         );

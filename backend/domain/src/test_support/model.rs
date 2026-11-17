@@ -264,7 +264,7 @@ fn unsigned_parameter(
         parameter_type: Some(parameter_definition::ParameterType::UnsignedInteger(
             UnsignedIntegerParameterSchema {
                 minimum,
-                maximum,
+                maximum: Some(maximum),
                 unit: unit.to_owned(),
                 default_value: None,
             },

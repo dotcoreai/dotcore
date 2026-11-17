@@ -938,7 +938,7 @@ mod tests {
                 parameter_type: Some(ParameterType::UnsignedInteger(
                     UnsignedIntegerParameterSchema {
                         minimum: 1,
-                        maximum: 131_072,
+                        maximum: Some(131_072),
                         unit: "tokens".to_owned(),
                         default_value: None,
                     },
@@ -1578,7 +1578,7 @@ mod tests {
             parameter_type: Some(ParameterType::UnsignedInteger(
                 UnsignedIntegerParameterSchema {
                     minimum: 1,
-                    maximum: u64::MAX,
+                    maximum: None,
                     unit: "bytes".to_owned(),
                     default_value: None,
                 },

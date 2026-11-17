@@ -128,8 +128,8 @@ pub(crate) fn parameter_values<const N: usize>(values: [(&str, u64); N]) -> Para
     }
 }
 
-/// Returns a ninfer engine release with the shared context parameters at ninfer's limits and
-/// engine defaults, then the host context.
+/// Returns a ninfer engine release with the shared context parameters, their engine defaults and
+/// ninfer's own bounds, then the host context.
 pub(crate) fn release() -> EngineRelease {
     EngineRelease {
         engine_release_id: "fixture-ninfer".to_owned(),
@@ -140,16 +140,16 @@ pub(crate) fn release() -> EngineRelease {
                 (
                     TOTAL_CONTEXT_PARAMETER_ID,
                     "Total context",
-                    1024,
-                    2_097_152,
+                    512,
+                    None,
                     "tokens",
                     Some(32_768),
                 ),
                 (
                     CONTEXT_PER_REQUEST_PARAMETER_ID,
                     "Context per request",
-                    1024,
-                    262_144,
+                    512,
+                    Some(u64::from(u32::MAX)),
                     "tokens",
                     None,
                 ),
@@ -157,7 +157,7 @@ pub(crate) fn release() -> EngineRelease {
                     PARALLEL_REQUESTS_PARAMETER_ID,
                     "Parallel requests",
                     1,
-                    8,
+                    Some(8),
                     "requests",
                     Some(4),
                 ),
@@ -165,7 +165,7 @@ pub(crate) fn release() -> EngineRelease {
                     "host-context-mib",
                     "Host context memory",
                     0,
-                    1_048_576,
+                    Some(17_592_186_044_415),
                     "MiB",
                     None,
                 ),

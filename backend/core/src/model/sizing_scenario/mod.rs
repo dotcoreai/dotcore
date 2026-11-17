@@ -13,9 +13,10 @@ use dotcore_catalog::{
     ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogLocalModelDeclarations, CatalogModelId,
     HOST_MEMORY_RESOURCE,
     shared_parameters::{
-        CONTEXT_PER_REQUEST_PARAMETER_ID, MINIMUM_CONTEXT_TOKENS, TOTAL_CONTEXT_PARAMETER_ID,
-        is_shared_parameter, maximum_context_tokens,
+        CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID, is_shared_parameter,
+        maximum_context_tokens,
     },
+    typed_parameters::unsigned_range_contains,
 };
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -32,7 +33,10 @@ use tracing::debug;
 
 use crate::{
     hardware::{
-        capacity::{Estimate, Policy, combined_minimums, demand, fit, largest_total_context},
+        capacity::{
+            Estimate, LargestTotalContext, Policy, combined_minimums, demand, fit,
+            largest_total_context, steps_within,
+        },
         selection::SelectedTargetCapabilities,
     },
     model::{
@@ -48,29 +52,18 @@ use crate::{
 /// request's context. Parallel requests keep each profile's defaults.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SizingScenario {
-    total_context_tokens: u32,
-    context_tokens_per_request: Option<u32>,
+    total_context_tokens: u64,
+    context_tokens_per_request: Option<u64>,
 }
 
 impl SizingScenario {
-    /// Validates a requested scenario: a total context and a context per request of at least the
-    /// minimum context, and a context per request no larger than the total context.
+    /// Validates a requested scenario: a context per request no larger than the total context. Each
+    /// profile checks the values against its engine's ranges, so a value one engine refuses stays a
+    /// valid scenario for the others.
     pub fn new(
-        total_context_tokens: u32,
-        context_tokens_per_request: Option<u32>,
+        total_context_tokens: u64,
+        context_tokens_per_request: Option<u64>,
     ) -> Result<Self, InvalidSizingScenario> {
-        if u64::from(total_context_tokens) < MINIMUM_CONTEXT_TOKENS {
-            return Err(InvalidSizingScenario::TotalContextBelowMinimum {
-                total_context_tokens,
-            });
-        }
-        if let Some(context_tokens_per_request) = context_tokens_per_request
-            && u64::from(context_tokens_per_request) < MINIMUM_CONTEXT_TOKENS
-        {
-            return Err(InvalidSizingScenario::ContextPerRequestBelowMinimum {
-                context_tokens_per_request,
-            });
-        }
         if let Some(context_tokens_per_request) = context_tokens_per_request
             && context_tokens_per_request > total_context_tokens
         {
@@ -87,34 +80,24 @@ impl SizingScenario {
 
     /// Context every request shares, in tokens.
     pub fn total_context_tokens(&self) -> u64 {
-        u64::from(self.total_context_tokens)
+        self.total_context_tokens
     }
 
     /// Context one request may use, in tokens; none leaves it to resolution to fill.
     pub fn context_tokens_per_request(&self) -> Option<u64> {
-        self.context_tokens_per_request.map(u64::from)
+        self.context_tokens_per_request
     }
 }
 
-/// A requested sizing scenario outside the accepted input range.
+/// A requested sizing scenario whose values contradict each other.
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidSizingScenario {
-    #[error(
-        "sizing scenario total context of {total_context_tokens} tokens is below the minimum of {MINIMUM_CONTEXT_TOKENS} tokens"
-    )]
-    TotalContextBelowMinimum { total_context_tokens: u32 },
-
-    #[error(
-        "sizing scenario context per request of {context_tokens_per_request} tokens is below the minimum of {MINIMUM_CONTEXT_TOKENS} tokens"
-    )]
-    ContextPerRequestBelowMinimum { context_tokens_per_request: u32 },
-
     #[error(
         "sizing scenario context per request of {context_tokens_per_request} tokens is above its total context of {total_context_tokens} tokens"
     )]
     ContextPerRequestAboveTotal {
-        total_context_tokens: u32,
-        context_tokens_per_request: u32,
+        total_context_tokens: u64,
+        context_tokens_per_request: u64,
     },
 }
 
@@ -396,9 +379,11 @@ fn scenario_memory_fit(
 /// at the scenario's context per request, or with the context per request filled from the maximum
 /// context as the total context grows, and the profile's other values. The capacity component
 /// finds the memory bound from the estimates at the two smallest valid totals, and the result is
-/// clamped to the totals the engine accepts and that keep derived values in range. Returns none
+/// clamped to the totals the engine accepts and that keep derived values in range, then stepped
+/// down to the nearest total the engine accepts with the other values. Returns none
 /// when the declarations or the target's free memory are unknown, the target is below one of the
-/// declared `minimums`, or nothing fits.
+/// declared `minimums`, nothing fits, or nothing bounds it: memory never binds and neither the
+/// engine nor a derived value declares a maximum.
 fn largest_fitting_total_context(
     catalog: &Catalog,
     profile_sizing: &ProfileSizing,
@@ -438,13 +423,13 @@ fn largest_fitting_total_context(
             &with_filled_context_per_request(declarations, values),
         ) == Some(true)
     };
-    let lowest = supplied_context_per_request.map_or(*total_range.start(), |context_tokens| {
-        context_tokens.max(*total_range.start())
+    let lowest = supplied_context_per_request.map_or(total_range.minimum, |context_tokens| {
+        context_tokens.max(total_range.minimum)
     });
     if !accepts(lowest) {
         return None;
     }
-    let highest = highest_accepted(lowest, *total_range.end(), accepts);
+    let highest = highest_accepted(lowest, total_range.maximum, accepts);
 
     let model_id = CatalogModelId(profile_sizing.sizing.model_id.clone());
     let evaluate = |total_context| {
@@ -472,10 +457,16 @@ fn largest_fitting_total_context(
     if fit(Some(&first), capacity, minimums, Policy::FREE_NOW) != MemoryFit::Fits {
         return None;
     }
-    if highest == lowest {
+    if highest == Some(lowest) {
         return Some(lowest);
     }
-    let second_total = lowest + 1;
+    // An engine may refuse some totals just above the smallest, so the second estimate is at the
+    // next total it accepts; the largest accepted total ends the search.
+    let Some(second_total) =
+        (lowest.saturating_add(1)..=highest.unwrap_or(u64::MAX)).find(|total| accepts(*total))
+    else {
+        return Some(lowest);
+    };
     let (second, second_derived) = match evaluate(second_total) {
         Ok((Some(second), derived)) => (second, derived),
         // The next total pushes a derived value out of range, so the smallest is the largest.
@@ -485,34 +476,49 @@ fn largest_fitting_total_context(
         _ => return None,
     };
 
-    let mut largest = largest_total_context(
+    // Without a memory or engine bound, only a derived value's maximum can still bound the total.
+    let mut largest = match largest_total_context(
         capacity,
         minimums,
         Policy::FREE_NOW,
-        lowest,
         highest,
-        &first,
-        &second,
-    )?;
+        (lowest, &first),
+        (second_total, &second),
+    )? {
+        LargestTotalContext::Bounded(largest) => Some(largest),
+        LargestTotalContext::Unbounded => None,
+    };
     // Derived values only add non-negative terms, so no slope is negative; a zero slope leaves the
     // bound to the others.
     for value in &first_derived.values {
         if is_shared_parameter(&value.parameter_id) {
             continue;
         }
-        let (Some(first_value), Some(second_value), Some(range)) = (
+        let (Some(first_value), Some(second_value), Some(maximum)) = (
             unsigned_parameter_value(&first_derived, &value.parameter_id),
             unsigned_parameter_value(&second_derived, &value.parameter_id),
-            unsigned_parameter_range(schema, &value.parameter_id),
+            unsigned_parameter_range(schema, &value.parameter_id).and_then(|range| range.maximum),
         ) else {
             continue;
         };
-        let derived_slope = second_value.checked_sub(first_value)?;
-        if let Some(steps) = (range.end() - first_value).checked_div(derived_slope) {
-            largest = largest.min(lowest + steps);
+        let derived_growth = second_value.checked_sub(first_value)?;
+        if let Some(steps) = steps_within(
+            maximum.saturating_sub(first_value),
+            second_total - lowest,
+            derived_growth,
+        ) {
+            let bound = lowest.saturating_add(steps);
+            largest = Some(largest.map_or(bound, |largest| largest.min(bound)));
         }
     }
-    Some(largest)
+    // An engine may refuse some totals below the memory bound, so the largest fit steps down to
+    // the nearest total it accepts, and a deployment starting from it always resolves.
+    largest.map(|largest| {
+        (lowest..=largest)
+            .rev()
+            .find(|total| accepts(*total))
+            .unwrap_or(lowest)
+    })
 }
 
 /// Completes the profile's default configuration with its profile and engine defaults, and reads
@@ -629,7 +635,7 @@ fn accepts_context_values(
         let Some(EngineParameterValueKind::UnsignedInteger(value)) = value.value else {
             return None;
         };
-        in_range &= unsigned_parameter_range(schema, parameter_id)?.contains(&value);
+        in_range &= unsigned_range_contains(unsigned_parameter_range(schema, parameter_id)?, value);
     }
     Some(
         in_range
@@ -644,12 +650,18 @@ fn accepts_context_values(
 }
 
 /// Returns the largest total between `lowest`, which `accepts` holds for, and `highest` that it
-/// holds for. Engine ranges and rules accept an interval of totals, so a bisection finds its end.
-fn highest_accepted(lowest: u64, highest: u64, accepts: impl Fn(u64) -> bool) -> u64 {
-    if accepts(highest) {
+/// holds for, or none when no `highest` bounds the totals and it holds up to the largest integer.
+/// Engine ranges and rules accept an interval of totals, so a bisection finds its end.
+fn highest_accepted(
+    lowest: u64,
+    highest: Option<u64>,
+    accepts: impl Fn(u64) -> bool,
+) -> Option<u64> {
+    let end = highest.unwrap_or(u64::MAX);
+    if accepts(end) {
         return highest;
     }
-    let (mut accepted, mut rejected) = (lowest, highest);
+    let (mut accepted, mut rejected) = (lowest, end);
     while rejected - accepted > 1 {
         let middle = accepted + (rejected - accepted) / 2;
         if accepts(middle) {
@@ -658,7 +670,7 @@ fn highest_accepted(lowest: u64, highest: u64, accepts: impl Fn(u64) -> bool) ->
             rejected = middle;
         }
     }
-    accepted
+    Some(accepted)
 }
 
 /// Parameter schema of the selection's engine, which every approved release shares.

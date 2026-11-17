@@ -6157,15 +6157,15 @@ fn hardware_recommend_prints_exact_tables_for_a_described_machine() {
     // Chat's app prefers Apple, so no target on this NVIDIA machine matches it; image generation's matches.
     assert_eq!(
         recommend(&roomy, &[]),
-        "Coding\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Big    Fixture Q4  Fixture GPU X  fits now  32768                174080\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                314368\n\nChat assistant\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                314368\nApp: Fixture Chat (no target matches its preferred accelerators: apple)\n\nImage generation\nApp: Fixture Art\n"
+        "Coding\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Big    Fixture Q4  Fixture GPU X  fits now  32768                174792\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                314792\n\nChat assistant\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                314792\nApp: Fixture Chat (no target matches its preferred accelerators: apple)\n\nImage generation\nApp: Fixture Art\n"
     );
     assert_eq!(
         recommend(&tight, &["--use-case", "coding"]),
-        "Coding\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                59392\n"
+        "Coding\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                59671\n"
     );
     assert_eq!(
         recommend(&tight, &["--use-case", "chat"]),
-        "Chat assistant\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                59392\nApp: Fixture Chat (no target matches its preferred accelerators: apple)\n"
+        "Chat assistant\n  MODEL          PROFILE     TARGET         STATUS    CONTEXT PER REQUEST  TOTAL CONTEXT\n  Fixture Small  Fixture Q4  Fixture GPU X  fits now  32768                59671\nApp: Fixture Chat (no target matches its preferred accelerators: apple)\n"
     );
     assert_eq!(
         recommend(&tight, &["--use-case", "image"]),
