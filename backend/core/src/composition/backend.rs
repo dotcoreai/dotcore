@@ -251,15 +251,16 @@ impl Backend {
             ManagerPrivateListener::Configured(_) => "Configured",
             ManagerPrivateListener::SiteDefault { .. } => "SiteDefault",
         };
-        let private_configuration = match &private_bind_address {
-            Some(address) => Some(super::private::manager_configuration(
-                &configuration.site_paths.root,
-                &site,
-                resolve_manager_private_address(address, &server.private_listener, &resolver)
-                    .await?,
-            )?),
-            None => None,
-        };
+        let private_configuration = super::private::manager_configuration(
+            &configuration.site_paths.root,
+            &site,
+            resolve_manager_private_address(
+                &private_bind_address,
+                &server.private_listener,
+                &resolver,
+            )
+            .await?,
+        )?;
         let transports = crate::server::bind(
             resolve_bind_address(&server.management_bind_address, "management", &resolver).await?,
             resolve_bind_address(&server.inference_bind_address, "inference", &resolver).await?,
@@ -275,10 +276,9 @@ impl Backend {
                 )
             })?;
         let timing = super::checked_timing(&test_support)?;
-        // One holder of worker pins and channels serves both forwarded inference and logs.
-        let worker_channels = private_configuration
-            .as_ref()
-            .map(|configuration| WorkerChannels::new(configuration, timing.private));
+        // One holder of worker channels serves both forwarded inference and logs; it shares the
+        // listener's live worker pins.
+        let worker_channels = WorkerChannels::new(&private_configuration, timing.private);
         let capabilities = compose_capabilities_with_current(
             &configuration.site_paths,
             super::ManagerProcessInputs {
@@ -293,7 +293,7 @@ impl Backend {
             test_support,
             collector,
             Some(current),
-            worker_channels,
+            Some(worker_channels),
         )
         .await?;
         let (routes, router, observers, manager_private_services, lifecycle, resource_watch) =
@@ -304,31 +304,26 @@ impl Backend {
             resource_watch.shutdown();
         };
         let private_services = private_services.combine(manager_private_services);
-        let private_listener = private_configuration.map(|configuration| PrivateListener {
-            routes: private_services
-                .assemble(configuration.local_role, &configuration.local_node_id),
-            configuration,
-            timing: timing.private,
-        });
+        let private_routes = private_services.assemble(
+            private_configuration.local_role,
+            &private_configuration.local_node_id,
+        );
+        let private_listener = PrivateListener::new(private_configuration, private_routes, &timing);
         let server = crate::server::Server::prepare(
             transports,
             server.allowed_origins,
             routes,
             Some(router),
-            private_listener,
+            Some(private_listener),
             shutdown,
         )
         .await
         .map_err(|error| {
-            manager_private_bind_failure(
-                error,
-                private_bind_address.as_ref(),
-                &server.private_listener,
-            )
+            manager_private_bind_failure(error, &private_bind_address, &server.private_listener)
         })?;
         addresses.private = server.private_address();
-        if let (Some(address), Some(requested)) = (addresses.private, &private_bind_address) {
-            info!(event_kind = "manager_private_listener_bound", address = %address, requested = %requested, source = private_source, "manager private listener bound");
+        if let Some(address) = addresses.private {
+            info!(event_kind = "manager_private_listener_bound", address = %address, requested = %private_bind_address, source = private_source, "manager private listener bound");
         }
         info!(event_kind = "backend_preparation_completed", management_address = ?addresses.management, inference_address = ?addresses.inference, "backend preparation completed");
         Ok(Self {
@@ -515,11 +510,11 @@ where
         Vec::new(),
         tonic::service::Routes::default(),
         None,
-        Some(PrivateListener {
-            configuration: private_configuration,
-            routes: private_routes,
-            timing: timing.private,
-        }),
+        Some(PrivateListener::new(
+            private_configuration,
+            private_routes,
+            &timing,
+        )),
         shutdown,
     )
     .await?;
@@ -764,20 +759,19 @@ async fn resolve_manager_private_address(
 /// manager host, so a host the machine does not own (for example behind NAT) fails here.
 fn manager_private_bind_failure(
     error: crate::server::ServerError,
-    private_bind_address: Option<&BindAddress>,
+    private_bind_address: &BindAddress,
     listener: &ManagerPrivateListener,
 ) -> super::CompositionError {
-    let default_address = private_bind_address
-        .filter(|_| matches!(listener, ManagerPrivateListener::SiteDefault { .. }));
-    match (default_address, &error) {
+    match (listener, &error) {
         (
-            Some(address),
+            ManagerPrivateListener::SiteDefault { .. },
             crate::server::ServerError::Listener(crate::server::ListenerError::Private { .. }),
         ) => super::CompositionError::Composition(anyhow::Error::new(error).context(format!(
-            "bind the manager private listener at its default {address}, the site manager host \
-             that joined nodes dial; set {} to a local or wildcard address, for example 0.0.0.0:{}",
+            "bind the manager private listener at its default {private_bind_address}, the site \
+             manager host that joined nodes dial; set {} to a local or wildcard address, for \
+             example 0.0.0.0:{}",
             super::PRIVATE_ADDR_ENV,
-            address.port(),
+            private_bind_address.port(),
         ))),
         _ => error.into(),
     }
@@ -957,7 +951,7 @@ mod tests {
 
         let error = manager_private_bind_failure(
             error,
-            Some(&address),
+            &address,
             &ManagerPrivateListener::SiteDefault { port: 50053 },
         );
 
@@ -982,7 +976,7 @@ mod tests {
 
         let error = manager_private_bind_failure(
             error,
-            Some(&address),
+            &address,
             &ManagerPrivateListener::Configured(address.clone()),
         );
 

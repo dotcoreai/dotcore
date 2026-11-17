@@ -21,7 +21,7 @@ use dotcore_proto::dotcore::site::v1::Site;
 use tonic::transport::{Channel, ClientTlsConfig, Endpoint, Identity};
 
 use crate::private_transport::{
-    PinnedPeerVerifier, PrivateNodeRole, PrivateServerConfiguration, pem,
+    PeerPins, PinnedPeerVerifier, PrivateNodeRole, PrivateServerConfiguration, pem,
 };
 use crate::{
     node::{
@@ -35,10 +35,11 @@ use crate::{
 /// Longest wait for a worker to accept the connection, and again to complete the TLS handshake.
 const WORKER_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The manager's single holder of worker certificate pins and per-worker private channels.
+/// The manager's per-worker private channels, built from the live worker pins.
 ///
-/// Channels connect lazily, so handing one out never waits on the network. Clones share the
-/// same channels.
+/// Channels connect lazily, so handing one out never waits on the network. A channel is built
+/// with the worker's pin at that moment and rebuilt when the pin changes. Clones share the same
+/// channels.
 #[derive(Clone)]
 pub struct WorkerChannels {
     identity: Arc<ManagerClientIdentity>,
@@ -50,7 +51,7 @@ pub struct WorkerChannels {
 }
 
 impl WorkerChannels {
-    /// Projects the manager's private listener identity and its worker pins.
+    /// Projects the manager's private listener identity and shares its live peer pins.
     pub fn new(configuration: &PrivateServerConfiguration, timing: PrivateTiming) -> Self {
         Self {
             identity: Arc::new(ManagerClientIdentity {
@@ -58,12 +59,7 @@ impl WorkerChannels {
                 trust_anchor_der: configuration.trust_anchor_der.clone(),
                 certificate_der: configuration.certificate_der.clone(),
                 private_key_pkcs8: configuration.private_key_pkcs8.clone(),
-                worker_pins: configuration
-                    .peers
-                    .iter()
-                    .filter(|(_, policy)| policy.role == PrivateNodeRole::Worker)
-                    .map(|(node_id, policy)| (node_id.clone(), policy.certificate_sha256.clone()))
-                    .collect(),
+                pins: configuration.peers.clone(),
             }),
             channels: Arc::default(),
             timing,
@@ -107,23 +103,27 @@ impl WorkerChannels {
     }
 
     /// Returns the reused channel of one purpose to one worker at `address`, replacing it when
-    /// the address changed.
+    /// the address or the worker's pin changed.
     pub fn channel(
         &self,
         node_id: &str,
         purpose: WorkerChannelPurpose,
         address: WorkerAddress,
     ) -> Result<Channel, WorkerChannelError> {
+        let pin = self.worker_pin(node_id)?;
         let mut channels = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
         let key = (node_id.to_owned(), purpose);
         match channels.get(&key) {
-            Some(existing) if existing.address == address => Ok(existing.channel.clone()),
+            Some(existing) if existing.address == address && existing.pin == pin => {
+                Ok(existing.channel.clone())
+            }
             _ => {
-                let channel = self.endpoint(node_id, &address)?.connect_lazy();
+                let channel = self.endpoint(node_id, &pin, &address)?.connect_lazy();
                 channels.insert(
                     key,
                     WorkerChannel {
                         address,
+                        pin,
                         channel: channel.clone(),
                     },
                 );
@@ -149,13 +149,10 @@ impl WorkerChannels {
     fn endpoint(
         &self,
         node_id: &str,
+        pin: &CertificateFingerprint,
         address: &WorkerAddress,
     ) -> Result<Endpoint, WorkerChannelError> {
         let identity = &self.identity;
-        let pin = identity
-            .worker_pins
-            .get(node_id)
-            .ok_or(WorkerChannelError::MissingPin)?;
         let verifier = Arc::new(
             PinnedPeerVerifier::new(
                 &identity.trust_anchor_der,
@@ -188,6 +185,16 @@ impl WorkerChannels {
             )
             .context("configure worker TLS")
             .map_err(WorkerChannelError::Endpoint)
+    }
+
+    /// Reads the worker's current pin; a pin of another role never authenticates a worker.
+    fn worker_pin(&self, node_id: &str) -> Result<CertificateFingerprint, WorkerChannelError> {
+        self.identity
+            .pins
+            .get(node_id)
+            .filter(|policy| policy.role == PrivateNodeRole::Worker)
+            .map(|policy| policy.certificate_sha256)
+            .ok_or(WorkerChannelError::MissingPin)
     }
 }
 
@@ -269,18 +276,19 @@ pub fn declared_worker_host(site: &Site, node_id: &str) -> Option<SiteNodeHost> 
         .and_then(|declared| SiteNodeHost::parse(&declared.host).ok())
 }
 
-/// The manager credentials and worker pins every worker channel is built from.
+/// The manager credentials and live peer pins every worker channel is built from.
 struct ManagerClientIdentity {
     site_id: String,
     trust_anchor_der: Vec<u8>,
     certificate_der: Vec<u8>,
     private_key_pkcs8: Vec<u8>,
-    worker_pins: BTreeMap<String, CertificateFingerprint>,
+    pins: PeerPins,
 }
 
-/// One worker's channel and the address it dials.
+/// One worker's channel with the address it dials and the pin it accepts.
 struct WorkerChannel {
     address: WorkerAddress,
+    pin: CertificateFingerprint,
     channel: Channel,
 }
 

@@ -140,3 +140,59 @@ impl ServerCertVerifier for JoinHostVerifier {
             .supported_schemes()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+    use crate::{
+        private_transport::{PinnedPeerVerifier, PrivateNodeRole, UnpinnedConnectionLimits},
+        test_support::private_tls::{TestAuthority, accept_private_connections, connect_tls},
+    };
+
+    #[tokio::test]
+    async fn the_join_and_pinned_peer_verifiers_accept_the_private_listener_chain() {
+        let authority = TestAuthority::new();
+        let manager = authority.issue("site-one", "manager-node", true);
+        let worker = authority.issue("site-one", "worker-one", false);
+        let manager_pin = CertificateFingerprint::for_certificate(&manager.0);
+        let site_ca = authority.certificate.der().to_vec();
+        let (address, _accepted) = accept_private_connections(
+            &authority.private_configuration(
+                "site-one",
+                "manager-node",
+                PrivateNodeRole::Manager,
+                manager.clone(),
+                [("worker-one", PrivateNodeRole::Worker, worker.0.as_slice())],
+            ),
+            UnpinnedConnectionLimits {
+                max_open: 1,
+                idle_timeout: Duration::from_secs(60),
+            },
+        )
+        .await;
+        let token = JoinToken::generate(
+            format!("https://{address}").parse().expect("join endpoint"),
+            "site-one",
+            "manager-node",
+            manager_pin.clone(),
+            CertificateFingerprint::for_certificate(&site_ca),
+        )
+        .expect("join token");
+
+        let join_verifier = Arc::new(JoinHostVerifier::new(&token));
+        connect_tls(address, join_verifier.clone(), None)
+            .await
+            .expect("the joining machine verifies the listener");
+        let verified = join_verifier.verified().expect("verified host");
+        assert_eq!(verified.manager_certificate_der, manager.0);
+        assert_eq!(verified.site_ca_der, site_ca);
+
+        let pinned = PinnedPeerVerifier::new(&site_ca, "site-one", "manager-node", manager_pin)
+            .expect("pinned verifier");
+        connect_tls(address, Arc::new(pinned), Some(worker))
+            .await
+            .expect("a worker verifies the listener by its pin");
+    }
+}

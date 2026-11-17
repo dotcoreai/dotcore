@@ -1213,21 +1213,23 @@ mod tests {
             let (manager_certificate, manager_key) =
                 authority.issue(SITE_ID, MANAGER_NODE_ID, false);
             let server = crate::server::private::prepare(
-                authority.private_configuration(
-                    SITE_ID,
-                    WORKER_NODE_ID,
-                    PrivateNodeRole::Worker,
-                    (worker_certificate.clone(), worker_key),
-                    [(
-                        MANAGER_NODE_ID,
-                        PrivateNodeRole::Manager,
-                        manager_certificate.as_slice(),
-                    )],
+                crate::server::private::PrivateListener::new(
+                    authority.private_configuration(
+                        SITE_ID,
+                        WORKER_NODE_ID,
+                        PrivateNodeRole::Worker,
+                        (worker_certificate.clone(), worker_key),
+                        [(
+                            MANAGER_NODE_ID,
+                            PrivateNodeRole::Manager,
+                            manager_certificate.as_slice(),
+                        )],
+                    ),
+                    worker
+                        .private_services()
+                        .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
+                    &Timing::test(),
                 ),
-                worker
-                    .private_services()
-                    .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
-                Timing::test().private,
                 std::future::pending(),
             )
             .await

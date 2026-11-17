@@ -26,8 +26,6 @@ use crate::support;
 
 /// Refusal the manager's private listener returns to a peer it cannot authenticate.
 const AUTHENTICATION_REFUSAL: &str = "private peer authentication failed";
-/// Failure a worker reports when the manager opens no private listener to connect to.
-const CONNECTION_FAILURE: &str = "tcp connect error";
 const WORKER_ROUTE: &str = "worker-model";
 const MANAGER_ROUTE: &str = "manager-model";
 const MANAGER_NODE_ID: &str = "fixture-node";
@@ -132,13 +130,16 @@ async fn a_removed_worker_is_forgotten_by_the_restarted_manager_and_can_rejoin()
         reqwest::StatusCode::NOT_FOUND
     );
 
-    // The old worker folder starts but cannot connect: a manager whose site has no other node
-    // opens no private listener. The missing-pin scenario proves the pin check refusing it.
+    // The old worker folder starts but is refused: the manager no longer pins its certificate.
     let worker_root = harness.worker().site_root().to_owned();
-    let refused_before = support::refused_stream_opens(&worker_root, CONNECTION_FAILURE);
+    let refused_before = support::refused_stream_opens(&worker_root, AUTHENTICATION_REFUSAL);
     harness.worker_mut().restart();
-    support::wait_for_refused_stream_opens(&worker_root, CONNECTION_FAILURE, refused_before + 1)
-        .await;
+    support::wait_for_refused_stream_opens(
+        &worker_root,
+        AUTHENTICATION_REFUSAL,
+        refused_before + 1,
+    )
+    .await;
     assert_eq!(machine_ids(manager_address).await, [MANAGER_NODE_ID]);
     assert_eq!(
         listed_deployments(manager_address).await,

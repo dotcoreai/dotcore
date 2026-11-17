@@ -2355,7 +2355,6 @@ fn local_snapshot() -> HardwareSnapshot {
 }
 
 fn assign_fixture_target_to_worker(root: &std::path::Path) {
-    support::install_manager_trust(root);
     let site_path = root.join("site.yaml");
     let mut site: Site = dotcore_proto::yaml::from_file(&site_path).expect("Site fixture");
     site.nodes.push(SiteNode {
@@ -2417,7 +2416,6 @@ fn local_accelerator_facts() -> Vec<AcceleratorFacts> {
 }
 
 fn configure_remote_node(root: &std::path::Path) {
-    support::install_manager_trust(root);
     let site_path = root.join("site.yaml");
     let mut site: Site = dotcore_proto::yaml::from_file(&site_path).expect("Site fixture");
     site.nodes.push(SiteNode {

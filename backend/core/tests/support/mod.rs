@@ -58,18 +58,11 @@ use dotcore_proto::{
 use dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport;
 use dotcore_site::{
     initial::{
-        input_store::InitialSiteInputWriter,
-        inputs::{
-            ApplicationTargetChoice, InitialSiteInputs, ModelTargetChoice, NodeTargetChoices,
-        },
-        probe::InitialSiteProbeReport,
-        request::{
-            InitialApplicationRuntime, InitialInferenceRuntime, InitialSiteRequest,
-            RandomInitialSiteIdentityGenerator, derive_model_execution_target_id,
-        },
+        inputs::{ApplicationTargetChoice, ModelTargetChoice, NodeTargetChoices},
+        request::{InitialApplicationRuntime, derive_model_execution_target_id},
         validation::SiteInputBundleValidator,
     },
-    manager_trust::SITE_TRUST_DIRECTORY,
+    manager_trust::{ManagerTrust, SITE_TRUST_DIRECTORY},
     membership::{
         OfflineSite,
         join::{
@@ -1523,6 +1516,11 @@ impl ExternalBackendProcess {
         }
         let mut manager_private_port = None;
         match private_listener {
+            // A manager always serves its private listener; an ephemeral port keeps concurrent
+            // tests apart.
+            ProcessPrivateListener::Unset if !is_joined_node_folder(&site_root) => {
+                manager_private_port = Some(0);
+            }
             ProcessPrivateListener::Unset => {}
             ProcessPrivateListener::ManagerSiteDefault(port) => manager_private_port = Some(port),
             ProcessPrivateListener::Address(address) => {
@@ -1624,8 +1622,7 @@ impl ExternalBackendProcess {
                 .recv_timeout(Duration::from_millis(25))
             {
                 output.push(line);
-                if let Some(addresses) = startup_addresses(&output, self.expects_private_listener())
-                {
+                if let Some(addresses) = startup_addresses(&output) {
                     self.addresses = Some(addresses);
                     return Ok(());
                 }
@@ -1634,21 +1631,6 @@ impl ExternalBackendProcess {
         Err(format!(
             "external backend did not start within {timeout:?}; stdout: {output:?}"
         ))
-    }
-}
-
-impl ExternalBackendProcess {
-    /// Reports whether this process announces a private listener at startup: a joined node
-    /// always does, a manager with an explicit address too, and a manager on its site default only
-    /// while its site declares other nodes.
-    fn expects_private_listener(&self) -> bool {
-        match self.private_listener {
-            ProcessPrivateListener::Address(_) => true,
-            ProcessPrivateListener::ManagerSiteDefault(_) => {
-                site_declares_other_nodes(&self.site_root)
-            }
-            ProcessPrivateListener::Unset => is_joined_node_folder(&self.site_root),
-        }
     }
 }
 
@@ -1661,8 +1643,8 @@ impl Drop for ExternalBackendProcess {
 /// Private listener setting the harness gives one external backend process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProcessPrivateListener {
-    /// No setting: a joined node binds the address its folder recorded, a manager the site
-    /// default port.
+    /// No setting: a joined node binds the address its folder recorded, a manager its site default
+    /// on an ephemeral port.
     Unset,
 
     /// A manager's site default on this reserved port, carried in the process settings.
@@ -1780,10 +1762,7 @@ fn profile_launcher_binary() -> PathBuf {
     launcher
 }
 
-fn startup_addresses(
-    output: &[String],
-    expects_private: bool,
-) -> Option<dotcore::server::ServerAddresses> {
+fn startup_addresses(output: &[String]) -> Option<dotcore::server::ServerAddresses> {
     let heading = output
         .iter()
         .position(|line| line == "Dotcore server starting")?;
@@ -1799,34 +1778,20 @@ fn startup_addresses(
             private: Some(private),
         });
     }
-    let width = if expects_private { 3 } else { 2 };
-    if lines.len() < width {
+    // A manager reports its public listeners, then its private one.
+    if lines.len() < 3 {
         return None;
     }
     Some(dotcore::server::ServerAddresses {
         management: Some(marker_address(&lines[0], "DOTCORE_MANAGEMENT_ADDRESS=")?),
         inference: Some(marker_address(&lines[1], "DOTCORE_INFERENCE_ADDRESS=")?),
-        private: if expects_private {
-            Some(marker_address(&lines[2], "DOTCORE_PRIVATE_ADDRESS=")?)
-        } else {
-            None
-        },
+        private: Some(marker_address(&lines[2], "DOTCORE_PRIVATE_ADDRESS=")?),
     })
 }
 
 /// Reports whether `root` holds a joined node's folder rather than a manager's site.
 fn is_joined_node_folder(root: &Path) -> bool {
     dotcore::composition::node_role(root) == dotcore::composition::NodeRole::JoinedNode
-}
-
-/// Reports whether the manager site at `root` declares a SiteNode besides the manager, the
-/// condition for its site-default private listener.
-fn site_declares_other_nodes(root: &Path) -> bool {
-    dotcore_proto::yaml::from_file::<Site>(&root.join("site.yaml"))
-        .expect("manager site")
-        .nodes
-        .iter()
-        .any(|node| node.site_manager.is_none())
 }
 
 fn marker_address(line: &str, marker: &str) -> Option<SocketAddr> {
@@ -2034,7 +1999,6 @@ fn temporary_observation_fixtures(
 ) -> (TemporaryFixture, TemporaryFixture) {
     let manager = temporary_fast_fixture();
     configure_observation_interval(&manager, 1);
-    install_manager_trust(&manager);
     let worker = temporary_uncreated_fixture("dotcore-observation-worker");
     let (host, manager_host) = match network {
         WorkerNetwork::Split(_) => (SPLIT_WORKER_HOST.to_string(), Some(SPLIT_MANAGER_HOST)),
@@ -2310,35 +2274,11 @@ pub fn configure_observation_interval(root: &Path, interval_seconds: u32) {
     .expect("write observation site");
 }
 
-/// Installs site trust for the fixture's `fixture-node` manager, as site initialization does, so
-/// the manager can serve its private listener.
-pub fn install_manager_trust(root: &Path) {
-    let request = InitialSiteRequest::new(
-        [InitialInferenceRuntime::Simulated],
-        [InitialApplicationRuntime::Simulated],
-    )
-    .with_site_id_override("fixture-site")
-    .with_node_id_override("fixture-node");
-    let identities = request
-        .resolve_identities(&mut RandomInitialSiteIdentityGenerator)
-        .expect("manager fixture identities");
-    let inputs =
-        InitialSiteInputs::compose(&request, identities, &InitialSiteProbeReport::default())
-            .expect("manager fixture inputs");
-    let initialized = TemporaryFixture {
-        path: root.join("initialized-manager"),
-    };
-    InitialSiteInputWriter::new(SiteInputBundleValidator::new(
-        declaration_validator(),
-        dotcore::model::site_declaration_rules(),
-    ))
-    .create(&initialized.path, &inputs)
-    .expect("initialize manager fixture trust");
-    fs::rename(
-        initialized.path.join(SITE_TRUST_DIRECTORY),
-        root.join(SITE_TRUST_DIRECTORY),
-    )
-    .expect("install manager fixture trust");
+/// Installs site trust for the manager the fixture's site declares, as site initialization does,
+/// so the manager can serve its private listener.
+fn install_manager_trust(root: &Path) {
+    let site: Site = dotcore_proto::yaml::from_file(&root.join("site.yaml")).expect("Site fixture");
+    ManagerTrust::create(root, &site).expect("install manager fixture trust");
 }
 
 fn temporary_uncreated_fixture(prefix: &str) -> TemporaryFixture {
@@ -2375,6 +2315,23 @@ pub fn private_tls_endpoint(address: SocketAddr, root: &Path) -> Endpoint {
                     ),
                 ))
                 .domain_name(address.ip().to_string()),
+            verifier,
+        )
+        .expect("private TLS configuration")
+}
+
+/// Builds a client endpoint to a private listener of the site under `root` that presents no
+/// certificate, as a machine that has not joined yet does.
+pub fn certificate_less_endpoint(address: SocketAddr, root: &Path) -> Endpoint {
+    let trust = root.join(SITE_TRUST_DIRECTORY);
+    let verifier = Arc::new(SiteChainVerifier::new(
+        &fs::read(trust.join(TRUST_ANCHOR_FILE)).expect("node trust anchor"),
+    ));
+    Endpoint::from_shared(format!("https://{address}"))
+        .expect("private endpoint")
+        .timeout(Duration::from_secs(2))
+        .tls_config_with_verifier(
+            ClientTlsConfig::new().domain_name(address.ip().to_string()),
             verifier,
         )
         .expect("private TLS configuration")
@@ -2884,6 +2841,7 @@ pub fn temporary_fixture() -> TemporaryFixture {
         root.join("catalog/engines/fixture.yaml"),
     )
     .expect("Engine fixture");
+    install_manager_trust(&root);
     TemporaryFixture { path: root }
 }
 
@@ -3125,6 +3083,7 @@ pub fn temporary_simulated_docker_fixture() -> TemporaryFixture {
         "simulated-docker site identity placeholder"
     );
     fs::write(site_path, configured).expect("simulated-docker site identity");
+    install_manager_trust(&root);
     TemporaryFixture { path: root }
 }
 

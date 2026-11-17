@@ -26,6 +26,7 @@ use dotcore_proto::dotcore::{
 };
 use dotcore_site::{
     NODE_FILE,
+    manager_trust::ManagerTrust,
     node::{
         binding::{BoundSiteNode, NodeBindingError},
         folder::WORKER_MANIFEST_FILE,
@@ -1511,6 +1512,8 @@ fn complete_backend_test_configuration() -> (PathBuf, BackendConfiguration) {
     ] {
         fs::copy(source.join(file), root.join(file)).expect("Backend fixture file");
     }
+    let site: Site = dotcore_proto::yaml::from_file(&root.join("site.yaml")).expect("Site fixture");
+    ManagerTrust::create(&root, &site).expect("manager fixture trust");
     let configuration = BackendConfiguration {
         site_paths: backend_test_site_paths(&root),
         telemetry_directory: None,
@@ -1518,9 +1521,8 @@ fn complete_backend_test_configuration() -> (PathBuf, BackendConfiguration) {
         role: BackendRole::Manager(ServerConfiguration {
             management_bind_address: "127.0.0.1:0".parse().expect("management address"),
             inference_bind_address: "127.0.0.1:0".parse().expect("inference address"),
-            private_listener: ManagerPrivateListener::SiteDefault {
-                port: DEFAULT_PRIVATE_PORT,
-            },
+            // An ephemeral port, so concurrent tests never share the default private port.
+            private_listener: ManagerPrivateListener::SiteDefault { port: 0 },
             allowed_origins: vec!["http://127.0.0.1:5173".parse().expect("origin")],
         }),
     };

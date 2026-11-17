@@ -65,7 +65,8 @@ use crate::{
         WORKER_MANIFEST_FILE, WorkerNodeCustody,
     },
     private_transport::{
-        PinnedPeerVerifier, PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration, pem,
+        PeerPins, PinnedPeerVerifier, PrivateNodeRole, PrivatePeerPolicy,
+        PrivateServerConfiguration, pem,
     },
     validation::load_validated_site,
 };
@@ -2972,14 +2973,17 @@ async fn authenticate_to_manager(
         certificate_der: identity.certificate.clone(),
         private_key_pkcs8: identity.private_key,
         trust_anchor_der: identity.trust_anchor.clone(),
-        peers: [(
-            folder.worker_node_id().to_owned(),
-            PrivatePeerPolicy {
-                role: PrivateNodeRole::Worker,
-                certificate_sha256: CertificateFingerprint::parse(pin.trim()).expect("pin value"),
-            },
-        )]
-        .into(),
+        peers: PeerPins::new(
+            [(
+                folder.worker_node_id().to_owned(),
+                PrivatePeerPolicy {
+                    role: PrivateNodeRole::Worker,
+                    certificate_sha256: CertificateFingerprint::parse(pin.trim())
+                        .expect("pin value"),
+                },
+            )]
+            .into(),
+        ),
     };
     assert_eq!(
         CertificateFingerprint::parse(pin.trim()).expect("pin value"),

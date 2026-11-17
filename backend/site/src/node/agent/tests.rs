@@ -56,7 +56,7 @@ use crate::{
         folder::CertificateFingerprint,
         observation_configuration::NodeObservationConfigurationDigest,
     },
-    private_transport::{PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration},
+    private_transport::{PeerPins, PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration},
     test_support::private_tls::{MutualTlsListener, TestAuthority},
 };
 
@@ -1355,7 +1355,7 @@ impl TransportFixture {
             certificate_der: self.manager_certificate.clone(),
             private_key_pkcs8: self.manager_key.clone(),
             trust_anchor_der: self.trust_anchor.clone(),
-            peers: BTreeMap::from([(
+            peers: PeerPins::new(BTreeMap::from([(
                 "worker-one".to_owned(),
                 PrivatePeerPolicy {
                     role: PrivateNodeRole::Worker,
@@ -1363,7 +1363,7 @@ impl TransportFixture {
                         &self.worker_certificate,
                     ),
                 },
-            )]),
+            )])),
         }
     }
 

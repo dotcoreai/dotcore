@@ -15,7 +15,7 @@ use time::{Duration as TimeDuration, OffsetDateTime};
 use crate::private_transport::pem;
 use crate::{
     node::folder::{CertificateFingerprint, certificate_identity_uri},
-    private_transport::{PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration},
+    private_transport::{PeerPins, PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration},
 };
 
 /// A test site certificate authority that signs node leaves.
@@ -100,20 +100,22 @@ impl TestAuthority {
             certificate_der,
             private_key_pkcs8,
             trust_anchor_der: self.certificate.der().to_vec(),
-            peers: peers
-                .into_iter()
-                .map(|(node_id, role, certificate_der)| {
-                    (
-                        node_id.to_owned(),
-                        PrivatePeerPolicy {
-                            role,
-                            certificate_sha256: CertificateFingerprint::for_certificate(
-                                certificate_der,
-                            ),
-                        },
-                    )
-                })
-                .collect(),
+            peers: PeerPins::new(
+                peers
+                    .into_iter()
+                    .map(|(node_id, role, certificate_der)| {
+                        (
+                            node_id.to_owned(),
+                            PrivatePeerPolicy {
+                                role,
+                                certificate_sha256: CertificateFingerprint::for_certificate(
+                                    certificate_der,
+                                ),
+                            },
+                        )
+                    })
+                    .collect(),
+            ),
         }
     }
 }
@@ -165,4 +167,72 @@ impl Drop for MutualTlsListener {
     fn drop(&mut self) {
         self.task.abort();
     }
+}
+
+/// Accepts connections on a loopback port through the private listener's real acceptance, and
+/// hands each admitted connection to the test.
+#[cfg(test)]
+pub async fn accept_private_connections(
+    configuration: &PrivateServerConfiguration,
+    limits: crate::private_transport::UnpinnedConnectionLimits,
+) -> (
+    std::net::SocketAddr,
+    tokio::sync::mpsc::UnboundedReceiver<crate::private_transport::PrivateConnectionIo>,
+) {
+    use futures_util::StreamExt as _;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("loopback listener");
+    let address = listener.local_addr().expect("listener address");
+    let mut incoming = Box::pin(
+        crate::private_transport::PrivateConnections::new(configuration, limits)
+            .expect("private connections")
+            .incoming(listener),
+    );
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    // The stream runs handshakes only while polled, as the server does continuously.
+    tokio::spawn(async move {
+        while let Some(accepted) = incoming.next().await {
+            if sender.send(accepted.expect("accepted connection")).is_err() {
+                break;
+            }
+        }
+    });
+    (address, receiver)
+}
+
+/// Completes a TLS handshake with `address` that verifies the server with `verifier` and
+/// presents `identity`, a leaf and its PKCS#8 key, when given.
+#[cfg(test)]
+pub async fn connect_tls(
+    address: std::net::SocketAddr,
+    verifier: std::sync::Arc<dyn rustls::client::danger::ServerCertVerifier>,
+    identity: Option<(Vec<u8>, Vec<u8>)>,
+) -> std::io::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+
+    let builder = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("TLS versions")
+    .dangerous()
+    .with_custom_certificate_verifier(verifier);
+    let config = match identity {
+        Some((certificate, key)) => builder
+            .with_client_auth_cert(
+                vec![CertificateDer::from(certificate)],
+                PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key)),
+            )
+            .expect("client identity"),
+        None => builder.with_no_client_auth(),
+    };
+    let stream = tokio::net::TcpStream::connect(address).await?;
+    tokio_rustls::TlsConnector::from(std::sync::Arc::new(config))
+        .connect(
+            ServerName::try_from("127.0.0.1").expect("server name"),
+            stream,
+        )
+        .await
 }

@@ -9,7 +9,6 @@ use std::{
 
 use dotcore::{
     composition::{Backend, BackendConfiguration, BackendRole, ServerConfiguration},
-    model::engine::declaration_validator,
     server::private::PrivateServiceAssembly,
 };
 use dotcore_proto::{
@@ -23,7 +22,9 @@ use dotcore_proto::{
             },
             v1::{ChatMessage, ChatMessageRole, ChatRequest, chat_message},
         },
-        node::v1::node_execution_target,
+        node::v1::{
+            JoinRequest, node_execution_target, node_join_service_client::NodeJoinServiceClient,
+        },
         observation::v1::{
             ObservationUnavailable, RuntimeKind, RuntimeObservation, runtime_observation,
         },
@@ -31,8 +32,9 @@ use dotcore_proto::{
             private::v1::{
                 DesiredViewSectionKind, NodeControlOpen, NodeHardwareObservation, NodeObservation,
                 NodeObservationSnapshot, NodeViewAcknowledgement, NodeViewReference,
-                SupportedDesiredViewSection, node_hardware_observation, node_view_acknowledgement,
-                stream_node_control_request, stream_node_control_response,
+                SupportedDesiredViewSection, node_control_service_client::NodeControlServiceClient,
+                node_hardware_observation, node_view_acknowledgement, stream_node_control_request,
+                stream_node_control_response,
             },
             v1::{
                 ListHardwareSnapshotsRequest, ListMachinesRequest, NodeObservationState, Site,
@@ -45,16 +47,6 @@ use dotcore_proto::{
     yaml,
 };
 use dotcore_site::{
-    initial::{
-        input_store::InitialSiteInputWriter,
-        inputs::InitialSiteInputs,
-        probe::InitialSiteProbeReport,
-        request::{
-            InitialApplicationRuntime, InitialInferenceRuntime, InitialSiteRequest,
-            RandomInitialSiteIdentityGenerator,
-        },
-        validation::SiteInputBundleValidator,
-    },
     manager_trust::{SITE_CA_PRIVATE_KEY_FILE, SITE_TRUST_DIRECTORY},
     node::{
         folder::{
@@ -256,6 +248,41 @@ async fn ingress_rejects_a_pinned_leaf_with_the_wrong_site_claim_before_handler_
     assert_eq!(counts.worker_calls(), 0);
     assert_eq!(counts.manager_calls(), 0);
 
+    manager_task.abort();
+}
+
+#[tokio::test]
+async fn a_solo_manager_serves_its_private_listener_and_refuses_certificate_less_requests() {
+    let manager_root = support::temporary_fast_fixture();
+    let manager = Backend::prepare(
+        manager_role_configuration(support::configuration(&manager_root)),
+        std::future::pending(),
+    )
+    .await
+    .expect("solo manager");
+    let address = manager
+        .addresses()
+        .private
+        .expect("a solo manager binds its private listener");
+    let manager_task = tokio::spawn(manager.serve());
+    let channel = support::certificate_less_endpoint(address, &manager_root)
+        .connect()
+        .await
+        .expect("a machine without a certificate completes the handshake");
+
+    let control = NodeControlServiceClient::new(channel.clone())
+        .stream_node_control(futures_util::stream::pending())
+        .await
+        .expect_err("node control needs a pinned certificate");
+    let join = NodeJoinServiceClient::new(channel)
+        .join(JoinRequest::default())
+        .await
+        .expect_err("no join is active");
+
+    for status in [control, join] {
+        assert_eq!(status.code(), tonic::Code::Unauthenticated, "{status:?}");
+        assert_eq!(status.message(), "private peer authentication failed");
+    }
     manager_task.abort();
 }
 
@@ -938,30 +965,6 @@ impl PrivateFixture {
         let manager_root = support::temporary_fast_fixture();
         let node_parent = crate::support::canonical_tempdir().expect("folder parent");
         let node_root = node_parent.path().join(support::WORKER_NODE_ID);
-        let request = InitialSiteRequest::new(
-            [InitialInferenceRuntime::Simulated],
-            [InitialApplicationRuntime::Simulated],
-        )
-        .with_site_id_override("fixture-site")
-        .with_node_id_override("fixture-node");
-        let identities = request
-            .resolve_identities(&mut RandomInitialSiteIdentityGenerator)
-            .expect("manager fixture identities");
-        let inputs =
-            InitialSiteInputs::compose(&request, identities, &InitialSiteProbeReport::default())
-                .expect("manager fixture inputs");
-        let initialized_site = node_parent.path().join("initialized-manager");
-        InitialSiteInputWriter::new(SiteInputBundleValidator::new(
-            declaration_validator(),
-            dotcore::model::site_declaration_rules(),
-        ))
-        .create(&initialized_site, &inputs)
-        .expect("initialize manager fixture trust");
-        fs::rename(
-            initialized_site.join(SITE_TRUST_DIRECTORY),
-            manager_root.join(SITE_TRUST_DIRECTORY),
-        )
-        .expect("install initialized manager trust in fixture");
         let node_id = add_worker(
             &manager_root,
             &node_root,
