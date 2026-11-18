@@ -84,7 +84,7 @@ pub(super) fn prepare_group(
                     environment: unit
                         .environment
                         .iter()
-                        .map(|(key, value)| format!("{key}={value}"))
+                        .map(|(key, value)| format!("{key}={}", value.expose()))
                         .collect(),
                     network_name: network_name.clone(),
                     aliases: vec![name.0.clone()],

@@ -13,9 +13,9 @@ use dotcore_domain::{SiteNodeId, test_support::host_resolver::FakeHostResolver};
 use dotcore_runtime::{
     AssignedWorkloadEndpoint, ExecutionTarget, RuntimeBackendId, RuntimeGroupLogFollowQuery,
     RuntimeLogQuery, RuntimeLogSource, RuntimeLogSourceSelection, WorkloadCorrelation,
-    WorkloadDependencyCondition, WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupStaleReason,
-    WorkloadPort, WorkloadPublicationRequest, WorkloadStorageAttachment, WorkloadStorageKind,
-    WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitObservation,
+    WorkloadDependencyCondition, WorkloadEnvironmentValue, WorkloadGroupBackend, WorkloadGroupId,
+    WorkloadGroupStaleReason, WorkloadPort, WorkloadPublicationRequest, WorkloadStorageAttachment,
+    WorkloadStorageKind, WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitObservation,
     WorkloadUnitResourceObservation, WorkloadUnitResources, WorkloadUnitResourcesUnavailable,
     WorkloadUnitState,
 };
@@ -923,12 +923,7 @@ async fn group_logs_read_a_unit_not_created_yet_as_not_created() {
 
     assert_eq!(histories[0].source.name, "cache");
     assert_eq!(
-        histories[0]
-            .result
-            .as_ref()
-            .expect("cache history")
-            .entries[0]
-            .content,
+        histories[0].result.as_ref().expect("cache history").entries[0].content,
         b"healthy"
     );
     assert_eq!(histories[1].source.name, "web");
@@ -1609,7 +1604,10 @@ async fn restart_reconstructs_a_stale_group_for_observed_removal() {
         .get_mut(&WorkloadUnitName("web".to_owned()))
         .expect("web unit")
         .environment
-        .insert("ROUTE_NAME".to_owned(), "initial-route".to_owned());
+        .insert(
+            "ROUTE_NAME".to_owned(),
+            WorkloadEnvironmentValue::Plain("initial-route".to_owned()),
+        );
     initial
         .units
         .get_mut(&WorkloadUnitName("web".to_owned()))
@@ -1628,7 +1626,10 @@ async fn restart_reconstructs_a_stale_group_for_observed_removal() {
         .get_mut(&WorkloadUnitName("web".to_owned()))
         .expect("web unit")
         .environment
-        .insert("ROUTE_NAME".to_owned(), "renamed-route".to_owned());
+        .insert(
+            "ROUTE_NAME".to_owned(),
+            WorkloadEnvironmentValue::Plain("renamed-route".to_owned()),
+        );
     let recovered = test_adapter(client, root.clone());
     let WorkloadGroupObservation::Observed(observed) = recovered
         .inspect_workload_group(&renamed)
@@ -1661,7 +1662,10 @@ async fn restart_reconstructs_same_generation_reconfigurable_environment() {
         .get_mut(&unit_name)
         .expect("web unit")
         .environment
-        .insert("ROUTE_NAME".to_owned(), "initial-route".to_owned());
+        .insert(
+            "ROUTE_NAME".to_owned(),
+            WorkloadEnvironmentValue::Plain("initial-route".to_owned()),
+        );
     initial
         .units
         .get_mut(&unit_name)
@@ -1679,7 +1683,10 @@ async fn restart_reconstructs_same_generation_reconfigurable_environment() {
         .get_mut(&unit_name)
         .expect("web unit")
         .environment
-        .insert("ROUTE_NAME".to_owned(), "restarted-route".to_owned());
+        .insert(
+            "ROUTE_NAME".to_owned(),
+            WorkloadEnvironmentValue::Plain("restarted-route".to_owned()),
+        );
     let restarted = test_adapter(client, root.clone());
     let recovered = restarted
         .inspect_workload_group(&restarted_launch)
@@ -2622,7 +2629,10 @@ async fn invalid_group_input_does_not_mutate_docker_or_application_storage() {
         .get_mut(&WorkloadUnitName("web".to_owned()))
         .expect("web")
         .environment
-        .insert("invalid-name".to_owned(), "value=not-allowed".to_owned());
+        .insert(
+            "invalid-name".to_owned(),
+            WorkloadEnvironmentValue::Plain("value=not-allowed".to_owned()),
+        );
 
     assert!(adapter.create_workload_group(&invalid).await.is_err());
     assert!(calls.lock().expect("calls").is_empty());

@@ -8,7 +8,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-use dotcore_domain::real_time;
+use dotcore_domain::{deployment::secret::SecretValue, real_time};
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -256,7 +256,7 @@ pub struct WorkloadUnitLaunch {
     pub command: Vec<String>,
     /// Exec-form arguments that replace the image's default arguments. Empty keeps them.
     pub arguments: Vec<String>,
-    pub environment: BTreeMap<String, String>,
+    pub environment: BTreeMap<String, WorkloadEnvironmentValue>,
     /// Environment variables whose values may be recomputed while recovering retained infrastructure.
     pub reconfigurable_environment: BTreeSet<String>,
     pub storage: Vec<WorkloadStorageAttachment>,
@@ -283,6 +283,25 @@ impl fmt::Debug for WorkloadUnitLaunch {
             .field("dependencies", &self.dependencies)
             .field("ready_launch_gate", &self.ready_launch_gate)
             .finish()
+    }
+}
+
+/// One environment variable value of a workload unit: plain text, or a deployment secret that
+/// prints redacted until a runtime hands it to the unit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WorkloadEnvironmentValue {
+    Plain(String),
+
+    Secret(SecretValue),
+}
+
+impl WorkloadEnvironmentValue {
+    /// Returns the value the unit receives, for the runtime that hands it over.
+    pub fn expose(&self) -> &str {
+        match self {
+            Self::Plain(value) => value,
+            Self::Secret(secret) => secret.expose(),
+        }
     }
 }
 
@@ -580,6 +599,47 @@ mod tests {
     }
 
     #[test]
+    fn unit_debug_names_environment_variables_without_their_values() {
+        let unit = WorkloadUnitLaunch {
+            image: "registry.example/web@sha256:def".to_owned(),
+            command: Vec::new(),
+            arguments: Vec::new(),
+            environment: BTreeMap::from([
+                (
+                    "ADMIN_PASSWORD".to_owned(),
+                    WorkloadEnvironmentValue::Secret(SecretValue::new("hunter2-plaintext")),
+                ),
+                (
+                    "MODE".to_owned(),
+                    WorkloadEnvironmentValue::Plain("plain-mode".to_owned()),
+                ),
+            ]),
+            reconfigurable_environment: BTreeSet::new(),
+            storage: Vec::new(),
+            ports: Vec::new(),
+            dependencies: Vec::new(),
+            ready_launch_gate: None,
+        };
+
+        let debug = format!("{unit:?}");
+
+        assert!(
+            debug.contains(r#"environment: ["ADMIN_PASSWORD", "MODE"]"#),
+            "{debug}"
+        );
+        assert!(!debug.contains("hunter2-plaintext"), "{debug}");
+        assert!(!debug.contains("plain-mode"), "{debug}");
+        assert_eq!(
+            format!("{:?}", unit.environment["ADMIN_PASSWORD"]),
+            "Secret(SecretValue(<redacted>))"
+        );
+        assert_eq!(
+            unit.environment["ADMIN_PASSWORD"].expose(),
+            "hunter2-plaintext"
+        );
+    }
+
+    #[test]
     fn workload_group_launch_preserves_portable_graph_and_controller_correlation() {
         let gate = ReadyLaunchGate::http_get(
             "http",
@@ -634,7 +694,10 @@ mod tests {
                     image: "registry.example/web@sha256:def".to_owned(),
                     command: vec!["web".to_owned()],
                     arguments: vec!["--listen=8080".to_owned()],
-                    environment: BTreeMap::from([("MODE".to_owned(), "poc".to_owned())]),
+                    environment: BTreeMap::from([(
+                        "MODE".to_owned(),
+                        WorkloadEnvironmentValue::Plain("poc".to_owned()),
+                    )]),
                     reconfigurable_environment: BTreeSet::new(),
                     storage: Vec::new(),
                     ports: vec![WorkloadPort {

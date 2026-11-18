@@ -2259,7 +2259,7 @@ mod tests {
                 .unwrap()
                 .environment
                 .get("ROUTE_NAME")
-                .map(String::as_str),
+                .map(|value| value.expose()),
             Some("chat-default")
         );
         assert_eq!(
@@ -2396,7 +2396,11 @@ mod tests {
             .launch("linked-1")
             .units
             .values()
-            .flat_map(|unit| unit.environment.values().cloned())
+            .flat_map(|unit| {
+                unit.environment
+                    .values()
+                    .map(|value| value.expose().to_owned())
+            })
             .collect::<Vec<_>>();
         assert!(launched_values.contains(&"chat-default".to_owned()));
         assert_eq!(protected, ProtectedLogValues::new(launched_values));
@@ -2654,7 +2658,7 @@ mod tests {
             fixture.launch("app-1").units[&WorkloadUnitName("web".to_owned())]
                 .environment
                 .values()
-                .any(|value| value == "secret-route"),
+                .any(|value| value.expose() == "secret-route"),
             "the route name is a value of the web container's environment"
         );
         assert_eq!(

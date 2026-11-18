@@ -54,7 +54,7 @@ use dotcore_proto::dotcore::{
 };
 use dotcore_runtime::{
     ObservedWorkloadGroup, RuntimeBackendError, WorkloadGroupId, WorkloadGroupObservation,
-    WorkloadUnitName, WorkloadUnitState,
+    WorkloadUnitName, WorkloadUnitState, test_support::exposed_environment,
 };
 use dotcore_site::{
     node::target_inventory::{
@@ -1541,7 +1541,9 @@ fn launch_keys_each_storage_attachment_by_its_retained_placement() {
         ]
     );
     assert_eq!(
-        web.environment.get("MODELS_DIR").map(String::as_str),
+        exposed_environment(web)
+            .get("MODELS_DIR")
+            .map(String::as_str),
         Some("/data/models/checkpoints")
     );
     // Teardown removes exactly the deployment-placed storage the launch attached.
@@ -4259,7 +4261,7 @@ fn workload_launch_uses_persisted_configuration_attachments() {
     .expect("workload launch");
 
     assert_eq!(
-        launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([("API_URL".to_owned(), "http://192.0.2.10:6470/v1".to_owned(),)])
     );
 }
@@ -4530,7 +4532,7 @@ async fn route_input_uses_its_literal_without_a_route_link() {
     )
     .expect("launch from optional default");
     assert_eq!(
-        launch.units[&WorkloadUnitName("web".to_owned())].environment["ROUTE_NAME"],
+        exposed_environment(&launch.units[&WorkloadUnitName("web".to_owned())])["ROUTE_NAME"],
         "default-route"
     );
     drop(controller);
@@ -4808,14 +4810,14 @@ fn launch_resolves_all_route_projections_once_from_one_current_result() {
 
     assert_eq!(calls.load(Ordering::Relaxed), 1);
     assert_eq!(
-        launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([
             ("FIXED_VALUE".to_owned(), "fixed-value".to_owned()),
             ("ROUTE_NAME".to_owned(), "route-1".to_owned()),
         ])
     );
     assert_eq!(
-        launch.units[&WorkloadUnitName("node".to_owned())].environment,
+        exposed_environment(&launch.units[&WorkloadUnitName("node".to_owned())]),
         BTreeMap::from([("MODEL".to_owned(), "route-1".to_owned())])
     );
     assert_eq!(
@@ -4862,7 +4864,7 @@ fn launch_resolves_all_route_projections_once_from_one_current_result() {
     .expect("ordinary launch");
     assert_eq!(ordinary_calls.load(Ordering::Relaxed), 0);
     assert_eq!(
-        ordinary_launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&ordinary_launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([("FIXED_VALUE".to_owned(), "fixed-value".to_owned())])
     );
     assert!(
@@ -4900,7 +4902,7 @@ fn launch_resolves_all_route_projections_once_from_one_current_result() {
     .expect("optional launch");
     assert_eq!(optional_calls.load(Ordering::Relaxed), 0);
     assert_eq!(
-        optional_launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&optional_launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([("ROUTE_NAME".to_owned(), "attachment-fallback".to_owned())])
     );
     assert!(
@@ -4960,7 +4962,7 @@ fn route_link_launches_with_current_name_and_retained_base_url() {
     .expect("renamed-route workload launch");
 
     assert_eq!(
-        first.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&first.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([
             (
                 "INFERENCE_URL".to_owned(),
@@ -4970,7 +4972,7 @@ fn route_link_launches_with_current_name_and_retained_base_url() {
         ])
     );
     assert_eq!(
-        renamed.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&renamed.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([
             (
                 "INFERENCE_URL".to_owned(),
@@ -5282,7 +5284,7 @@ async fn reconciliation_relaunches_only_when_the_linked_route_name_changes() {
             "listener reprojection must not mutate retained deployment intent"
         );
         assert_eq!(
-            current_launch.units[&WorkloadUnitName("web".to_owned())].environment["ROUTE_NAME"],
+            exposed_environment(&current_launch.units[&WorkloadUnitName("web".to_owned())])["ROUTE_NAME"],
             route_name
         );
         assert_eq!(current_launch.group_id, original_launch.group_id);
@@ -7965,7 +7967,7 @@ async fn deployment_creation_resolves_parameter_overrides_over_defaults() {
     )
     .expect("workload launch");
     assert_eq!(
-        launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([
             ("MODE".to_owned(), "highvram".to_owned()),
             ("WORKERS".to_owned(), "2".to_owned()),
@@ -8255,7 +8257,7 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
     };
     let first_launch = launch(&declaration);
     assert_eq!(
-        first_launch.units[&WorkloadUnitName("web".to_owned())].environment,
+        exposed_environment(&first_launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([
             ("PASSWORD".to_owned(), generated_password.clone()),
             ("PASSWORD_HASH".to_owned(), password_hash.clone()),
@@ -8267,6 +8269,28 @@ async fn deployment_creation_generates_missing_secrets_once_and_keeps_typed_ones
     let launch_debug = format!("{first_launch:?}");
     assert!(!launch_debug.contains(&generated_password));
     assert!(!launch_debug.contains(&password_hash));
+    // The generation is published in container names and labels, so secret values never shape
+    // it; the variables receiving them still do.
+    let generation = |declaration: &ApplicationDeploymentDeclaration| {
+        launch(declaration).correlation.reconcile_generation
+    };
+    let mut other_secrets = declaration.clone();
+    other_secrets.secret_attachments[0].value = "other-password".to_owned();
+    other_secrets.secret_attachments[1].value =
+        bcrypt::hash("other-password", 4).expect("other hash");
+    assert_eq!(generation(&other_secrets), generation(&declaration));
+    let mut renamed_variable = declaration.clone();
+    renamed_variable
+        .snapshot
+        .as_mut()
+        .expect("snapshot")
+        .graph
+        .as_mut()
+        .expect("graph")
+        .services[0]
+        .secret_bindings[0]
+        .environment_variable = "RENAMED_PASSWORD".to_owned();
+    assert_ne!(generation(&renamed_variable), generation(&declaration));
     drop(controller);
 
     // A restarted control plane reads the retained value and hash back, and never generates or
@@ -8333,14 +8357,15 @@ async fn typed_values_with_equals_signs_and_72_byte_passwords_reach_the_launch()
         let password_hash = declaration.secret_attachments[1].value.clone();
         assert!(bcrypt::verify(password, &password_hash).expect("verifiable hash"));
         assert_eq!(
-            workload_group_launch(
-                &declaration,
-                Ipv4Addr::LOCALHOST,
-                test_inference_route_resolver().as_ref(),
-            )
-            .expect("workload launch")
-            .units[&WorkloadUnitName("web".to_owned())]
-                .environment,
+            exposed_environment(
+                &workload_group_launch(
+                    &declaration,
+                    Ipv4Addr::LOCALHOST,
+                    test_inference_route_resolver().as_ref(),
+                )
+                .expect("workload launch")
+                .units[&WorkloadUnitName("web".to_owned())]
+            ),
             BTreeMap::from([
                 ("PASSWORD".to_owned(), password.to_owned()),
                 ("PASSWORD_HASH".to_owned(), password_hash),
@@ -8361,15 +8386,15 @@ async fn a_switched_group_keeps_values_and_reaches_the_service_only_while_its_sw
         test_secret_generator(),
     );
     let environment = |declaration: &ApplicationDeploymentDeclaration| {
-        workload_group_launch(
-            declaration,
-            Ipv4Addr::LOCALHOST,
-            test_inference_route_resolver().as_ref(),
+        exposed_environment(
+            &workload_group_launch(
+                declaration,
+                Ipv4Addr::LOCALHOST,
+                test_inference_route_resolver().as_ref(),
+            )
+            .expect("workload launch")
+            .units[&WorkloadUnitName("web".to_owned())],
         )
-        .expect("workload launch")
-        .units[&WorkloadUnitName("web".to_owned())]
-            .environment
-            .clone()
     };
     let declaration = |deployment_id: &str| {
         desired

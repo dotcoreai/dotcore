@@ -493,7 +493,8 @@ fn local_group(
         group
             .units
             .values()
-            .flat_map(|unit| unit.environment.values().cloned()),
+            .flat_map(|unit| unit.environment.values())
+            .map(|value| value.expose().to_owned()),
     );
     Ok(LocalGroup {
         execution_target_id,

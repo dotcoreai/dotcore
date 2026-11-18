@@ -7,6 +7,7 @@
 use std::{
     collections::BTreeMap,
     error::Error,
+    fmt,
     sync::{Arc, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -171,7 +172,8 @@ impl DeploymentLogFollowQuery {
 ///
 /// Values are distinct and kept longest first, so a value that contains a shorter one, such as a
 /// password containing the username, is replaced whole before the shorter one could split it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// The values are secrets, so its `Debug` form prints only how many it holds.
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct ProtectedLogValues(Vec<Vec<u8>>);
 
 impl ProtectedLogValues {
@@ -207,6 +209,12 @@ impl ProtectedLogValues {
             .iter()
             .filter_map(|value| std::str::from_utf8(value).ok())
             .fold(text.to_owned(), |text, value| text.replace(value, &marker))
+    }
+}
+
+impl fmt::Debug for ProtectedLogValues {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "ProtectedLogValues({} redacted)", self.0.len())
     }
 }
 
@@ -1309,6 +1317,14 @@ mod tests {
             ) <= MAX_LOG_RESPONSE_BYTES
         );
         assert_eq!(history.entries.last().unwrap().source, entry_source);
+    }
+
+    #[test]
+    fn protected_values_debug_prints_only_their_count() {
+        let protected =
+            ProtectedLogValues::new(["hunter2-plaintext".to_owned(), "admin".to_owned()]);
+
+        assert_eq!(format!("{protected:?}"), "ProtectedLogValues(2 redacted)");
     }
 
     #[test]

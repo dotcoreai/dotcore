@@ -11,6 +11,7 @@ use dotcore_catalog::typed_parameters::canonical_value_text;
 use dotcore_catalog::valid_configuration_value;
 use dotcore_domain::ExecutionPlatform;
 use dotcore_domain::deployment::launch_pin::RetainedArtifact;
+use dotcore_domain::deployment::secret::SecretValue;
 use dotcore_domain::valid_id;
 use dotcore_domain::{SiteNodeHost, SiteNodeId};
 use dotcore_proto::dotcore::{
@@ -26,9 +27,10 @@ use dotcore_proto::dotcore::{
     },
 };
 use dotcore_runtime::{
-    ExecutionTarget, ReadyLaunchGate, WorkloadDependencyCondition, WorkloadGroupId,
-    WorkloadGroupLaunch, WorkloadPublicationRequest, WorkloadStorageAttachment, WorkloadStorageKey,
-    WorkloadStorageKind, WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitName,
+    ExecutionTarget, ReadyLaunchGate, WorkloadDependencyCondition, WorkloadEnvironmentValue,
+    WorkloadGroupId, WorkloadGroupLaunch, WorkloadPublicationRequest, WorkloadStorageAttachment,
+    WorkloadStorageKey, WorkloadStorageKind, WorkloadUnitDependency, WorkloadUnitLaunch,
+    WorkloadUnitName,
 };
 use tracing::debug;
 
@@ -336,12 +338,11 @@ struct LaunchPrimaryEndpoint {
     port_name: String,
 }
 
-/// Retained attachment values keyed by service and binding name. It holds secret values, so it
-/// has no `Debug` form.
+/// Retained attachment values keyed by service and binding name.
 struct AttachmentIndexes {
     storage: BTreeMap<(String, String), (String, StoragePlacement)>,
     configuration: BTreeMap<(String, String), String>,
-    secret: BTreeMap<(String, String), String>,
+    secret: BTreeMap<(String, String), SecretValue>,
 }
 
 impl AttachmentIndexes {
@@ -385,7 +386,7 @@ impl AttachmentIndexes {
                         attachment.service_name.clone(),
                         attachment.binding_name.clone(),
                     ),
-                    attachment.value.clone(),
+                    SecretValue::new(attachment.value.clone()),
                 )
             })
             .collect::<BTreeMap<_, _>>();
@@ -456,7 +457,7 @@ impl WorkloadUnitPlan {
                 .ok_or_else(|| configuration("Application secret attachment is missing"))?;
             environment.push((
                 binding.environment_variable.clone(),
-                LaunchEnvironmentValue::Fixed(value),
+                LaunchEnvironmentValue::Secret(value),
             ));
         }
         let host_aliases = service
@@ -590,17 +591,22 @@ impl WorkloadUnitPlan {
 enum LaunchEnvironmentValue {
     Fixed(String),
 
+    Secret(SecretValue),
+
     RouteName,
 }
 
 impl LaunchEnvironmentValue {
-    fn materialize(self, route: Option<&ResolvedInferenceRoute>) -> String {
+    fn materialize(self, route: Option<&ResolvedInferenceRoute>) -> WorkloadEnvironmentValue {
         match self {
-            Self::Fixed(value) => value,
-            Self::RouteName => route
-                .expect("route projection plans resolve exactly one route")
-                .route_name
-                .clone(),
+            Self::Fixed(value) => WorkloadEnvironmentValue::Plain(value),
+            Self::Secret(secret) => WorkloadEnvironmentValue::Secret(secret),
+            Self::RouteName => WorkloadEnvironmentValue::Plain(
+                route
+                    .expect("route projection plans resolve exactly one route")
+                    .route_name
+                    .clone(),
+            ),
         }
     }
 }
@@ -613,11 +619,16 @@ fn canonical_launch_generation(
     publication: &WorkloadPublicationRequest,
 ) -> u64 {
     let mut value = 0xcbf29ce484222325_u64;
-    // A unit's `Debug` form leaves out environment values, so they are hashed explicitly.
+    // A unit's `Debug` form leaves out environment values, so plain ones are hashed explicitly.
+    // A secret adds only a marker: its value is fixed at creation, and the generation is
+    // published in container names and labels.
     let environment = units
         .values()
         .flat_map(|unit| &unit.environment)
-        .map(|(name, value)| format!("{name}={value}\n"))
+        .map(|(name, value)| match value {
+            WorkloadEnvironmentValue::Plain(value) => format!("{name}={value}\n"),
+            WorkloadEnvironmentValue::Secret(_) => format!("{name}=<secret>\n"),
+        })
         .collect::<String>();
     for byte in format!(
         "{execution_target:?}:{execution_target_id}:{required_platform:?}:{units:?}:{publication:?}:{environment}"

@@ -1,5 +1,5 @@
-//! Source checks shared by the unit tests of the runtime contracts and backends, compiled only for
-//! tests and the `test-support` feature.
+//! Source checks and assertion helpers shared by the unit tests of the runtime contracts and
+//! backends, compiled only for tests and the `test-support` feature.
 //!
 //! They keep runtime owner-neutral: a runtime source must not name an engine, a model owner, an
 //! engine protocol path, controller dispatch, or site lifecycle fencing.
@@ -29,4 +29,14 @@ pub fn assert_owner_neutral(name: &str, source: &str) {
             "{name} contains {forbidden}"
         );
     }
+}
+
+/// Returns a unit's environment as the plaintext values it receives, for tests asserting them.
+pub fn exposed_environment(
+    unit: &crate::WorkloadUnitLaunch,
+) -> std::collections::BTreeMap<String, String> {
+    unit.environment
+        .iter()
+        .map(|(name, value)| (name.clone(), value.expose().to_owned()))
+        .collect()
 }
