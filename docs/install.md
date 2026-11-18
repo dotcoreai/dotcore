@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- [Nix](https://nixos.org/download/). It builds Dotcore, its engines and its apps the same way on every platform, which is what lets one site mix machines. The [Determinate installer](https://determinate.systems/install/) is one way to get it.
+- [Nix](https://nixos.org/download/). It builds Dotcore, its engines and its apps. The installer offers to install Nix if it's missing.
 - Linux (x86_64 or arm64):
   - [Docker Engine](https://docs.docker.com/engine/install/).
   - For NVIDIA GPUs, the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
@@ -13,16 +13,13 @@
 
 ## Install
 
-The installer checks Docker and Nix, offers to install Nix when it's missing, and adds Dotcore to your Nix profile. While the repository is private, run it from a clone:
+In an interactive terminal, run the installer from GitHub. It checks Docker and Nix, then adds Dotcore to your Nix profile:
 
 ```sh
-git clone https://github.com/dotcoreai/dotcore.git
-/path/to/dotcore/installer/install.sh
+curl -fsSL https://raw.githubusercontent.com/dotcoreai/dotcore/HEAD/installer/install.sh | sh
 ```
 
-- Run it by its path from outside the clone, such as from your home folder. Inside the clone, the development environment is loaded, and the installer stops.
-- The first install takes longer, since Dotcore is built on your machine. Binary caching is planned.
-- `install.sh --help` lists its options.
+The first install takes longer because Nix builds Dotcore on your machine.
 
 This installs two commands:
 
@@ -55,7 +52,7 @@ Dotcore has no login yet. Anyone who can reach the address you chose during setu
 > [!WARNING]
 > Dotcore is in alpha. Expect breaking changes in updates, including to saved sites, until the first stable release.
 
-Pull the clone, then run the installer again and choose to update. Your site's files are kept. A running `dotcore` keeps its old version until you restart it.
+Run the [install command](#install) again and choose to update. The update keeps your site's files. If `dotcore` is running, restart it to use the new version.
 
 To start over instead, choose to reinstall: the installer removes Dotcore as the uninstaller does, then installs it again.
 
@@ -70,7 +67,7 @@ To start over instead, choose to reinstall: the installer removes Dotcore as the
 Stop `dotcore`, then run:
 
 ```sh
-/path/to/dotcore/installer/install.sh uninstall
+curl -fsSL https://raw.githubusercontent.com/dotcoreai/dotcore/HEAD/installer/install.sh | sh -s -- uninstall
 ```
 
 It asks before deleting your site or your downloads, and prints how to remove what it leaves, such as Nix and Docker images.

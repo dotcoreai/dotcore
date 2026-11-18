@@ -15,14 +15,12 @@ Dotcore runs AI on hardware you own. It loads models, fits them to your machines
 
 ## Quick start
 
-It runs on Linux (x86_64, arm64) and macOS (Apple Silicon). You need:
+Dotcore runs on Linux (x86_64, arm64) and macOS (Apple Silicon). You'll need `curl` and [Docker Engine](https://docs.docker.com/engine/install/) on Linux or [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) on macOS.
 
-- [Nix](https://nixos.org/download/). It builds Dotcore and every engine the same way on each system, which is what lets one site mix machines and engines.
-- [Docker Engine](https://docs.docker.com/engine/install/) on Linux, or [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) on macOS.
+Run this in a terminal. If you don't have Nix, the installer offers to install it.
 
 ```sh
-git clone https://github.com/dotcoreai/dotcore.git
-/path/to/dotcore/installer/install.sh
+curl -fsSL https://raw.githubusercontent.com/dotcoreai/dotcore/HEAD/installer/install.sh | sh
 ```
 
 Follow the installer's instructions. See [docs/install.md](docs/install.md) for the full steps.

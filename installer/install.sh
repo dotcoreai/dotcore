@@ -3,7 +3,7 @@
 # Docker and Nix, adds Dotcore to the user's Nix profile, then tells you how to start it. Its
 # `uninstall` command removes Dotcore again, asking before it deletes any data.
 #
-# Run it by path from a Dotcore checkout, or piped from curl once the repository is public.
+# Run it piped from curl, or by path to install from a Dotcore checkout.
 # `install.sh --help` lists the commands and options.
 
 set -eu
@@ -135,8 +135,7 @@ check_development_environment() {
   hint "To run it from a clean shell:"
   hint "  1. Leave the Dotcore checkout folder (for example 'cd ~') so direnv unloads it, or exit"
   hint "     the Nix development shell."
-  hint "  2. Run the installer by its path, for example '<checkout>/installer/install.sh'. It still"
-  hint "     installs from that checkout."
+  hint "  2. Run the same installer command again. For a local checkout, use its absolute path."
   exit 1
 }
 
@@ -245,12 +244,9 @@ select_source() {
   fi
 
   if ! nix flake metadata "$flake_ref" >/dev/null 2>&1; then
-    error "Can't read $flake_ref."
-    cat >&2 <<EOF
-If it's the Dotcore repository, it may be private. Clone it with an account that has access, then
-run the installer from the checkout:
-  <checkout>/installer/install.sh
-EOF
+    error "Can't read the install source: $flake_ref."
+    hint "Check the connection and flake reference, then run the installer again."
+    hint "For details, run 'nix flake metadata' with the same reference."
     exit 1
   fi
 }
