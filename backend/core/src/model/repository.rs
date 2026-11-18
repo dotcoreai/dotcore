@@ -42,8 +42,7 @@ use super::{
     sizing_scenario::SizingScenario,
 };
 use crate::{
-    RandomSecretGenerator, SecretGenerator,
-    model::resolution::EngineSecrets,
+    SecretGenerator,
     route_manager::{RouteDeclarationRepository, RouteRepositoryError},
 };
 
@@ -62,6 +61,7 @@ impl ModelDeclarationRepository {
         site: SiteRepository,
         catalog: Arc<Catalog>,
         target_capabilities: TargetCapabilityInventory,
+        secret_generator: Arc<dyn SecretGenerator>,
     ) -> Self {
         Self {
             routes: RouteDeclarationRepository::new(site.clone()),
@@ -69,7 +69,7 @@ impl ModelDeclarationRepository {
             catalog,
             target_capabilities: Arc::new(RwLock::new(target_capabilities)),
             lifecycle: None,
-            secret_generator: Arc::new(RandomSecretGenerator),
+            secret_generator,
         }
     }
 
@@ -78,8 +78,9 @@ impl ModelDeclarationRepository {
         catalog: Arc<Catalog>,
         target_capabilities: TargetCapabilityInventory,
         lifecycle: FileCurrentState,
+        secret_generator: Arc<dyn SecretGenerator>,
     ) -> Self {
-        let mut repository = Self::new(site, catalog, target_capabilities);
+        let mut repository = Self::new(site, catalog, target_capabilities, secret_generator);
         repository.lifecycle = Some(lifecycle);
         repository
     }
@@ -198,7 +199,7 @@ impl ModelDeclarationRepository {
             profile_id,
             placement,
             configuration,
-            EngineSecrets::Generate(self.secret_generator.as_ref()),
+            Some(self.secret_generator.as_ref()),
         )?;
         deployment.model_deployment_id = deployment_id;
         deployment.lifecycle_generation =
@@ -236,10 +237,13 @@ impl ModelDeclarationRepository {
             profile_id,
             placement,
             configuration,
-            EngineSecrets::Withhold,
+            None,
         )?;
         match deployment.snapshot.and_then(|snapshot| snapshot.source) {
-            Some(ModelDeploymentSnapshotSource::Local(local)) => Ok(local),
+            Some(ModelDeploymentSnapshotSource::Local(mut local)) => {
+                crate::model::resolved::strip_secret_engine_parameter_values(&mut local);
+                Ok(local)
+            }
             Some(ModelDeploymentSnapshotSource::Upstream(_)) | None => {
                 Err(ModelDeclarationRepositoryError::InvalidState(
                     "local preview resolved a non-local snapshot",
@@ -615,6 +619,9 @@ impl ModelDeclarationRepository {
         }
     }
 
+    /// Resolves one local deployment declaration on its exact placement. A deployment that launches
+    /// completes its missing secret engine parameter values with `secret_generator`; a preview
+    /// passes none and leaves them out.
     fn resolve_model_deployment(
         &self,
         site: &ModelSiteSnapshot,
@@ -622,7 +629,7 @@ impl ModelDeclarationRepository {
         profile_id: &str,
         placement: &ExactPlacement,
         configuration: &LocalModelDeploymentConfiguration,
-        secrets: EngineSecrets<'_>,
+        secret_generator: Option<&dyn SecretGenerator>,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
         let catalog_model_id = CatalogModelId(model_id.to_owned());
         validate_model_profile(
@@ -650,8 +657,12 @@ impl ModelDeclarationRepository {
                 .unwrap_or_else(|value| value.into_inner()),
             // The SiteNode named by the exact placement pins a local-development engine itself.
             None,
-            secrets,
         )
+        .and_then(|resolution| match secret_generator {
+            Some(generator) => resolution.generate_missing_secrets(generator),
+            None => Ok(resolution),
+        })
+        .and_then(|resolution| resolution.into_snapshot())
         .map_err(launch_resolution_error)?;
         if local.model_id != model_id || local.profile_id != profile_id {
             return Err(ModelDeclarationRepositoryError::InvalidState(
@@ -674,13 +685,6 @@ impl ModelDeclarationRepository {
             lifecycle_recovery_required: false,
             node_resolved_launch_identities: Vec::new(),
         })
-    }
-
-    /// Replaces the generator of the secret values new deployments retain.
-    #[cfg(test)]
-    pub(crate) fn with_secret_generator(mut self, generator: Arc<dyn SecretGenerator>) -> Self {
-        self.secret_generator = generator;
-        self
     }
 }
 
@@ -1201,8 +1205,12 @@ mod tests {
         let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
             .expect("validated simulated site");
         let catalog = Arc::new(crate::test_support::upstream_template_catalog());
-        let repository =
-            ModelDeclarationRepository::new(site.clone(), catalog, fixture_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site.clone(),
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
         let created = repository
             .load_upstream_model(
                 &upstream_request("endpoint.example"),
@@ -1487,6 +1495,7 @@ mod tests {
             site,
             Arc::new(crate::test_support::tag_only_engine_catalog()),
             fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
         );
         let configuration = crate::test_support::local_model_configuration();
         let placement = dotcore_proto::dotcore::deployment::v1::ExactPlacement {
@@ -1564,6 +1573,7 @@ mod tests {
                 )
                 .with_host_memory(34_190_917_632, 34_190_917_632)],
             ),
+            crate::test_support::test_secret_generator(),
         );
         let configuration = crate::test_support::local_model_configuration();
         let placement = dotcore_proto::dotcore::deployment::v1::ExactPlacement {
@@ -1645,6 +1655,7 @@ mod tests {
             site.clone(),
             catalog.clone(),
             fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
         );
         let mut configuration = crate::test_support::local_model_configuration();
         configuration.custom_argument_tokens = vec![
@@ -1666,8 +1677,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("direct launch resolution");
 
         let preview = repository
@@ -1855,6 +1867,7 @@ mod tests {
                 site.clone(),
                 catalog,
                 fixture_target_capabilities(),
+                crate::test_support::test_secret_generator(),
             );
             let before = site.snapshot().expect("site before");
 
@@ -1917,8 +1930,12 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::empty_now());
+        let repository = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            TargetCapabilityInventory::empty_now(),
+            crate::test_support::test_secret_generator(),
+        );
         let inventory = fixture_target_capabilities();
         let model_target = dotcore_proto::dotcore::deployment::v1::ExactPlacement {
             site_node_id: "fixture-node".to_owned(),
@@ -2006,8 +2023,12 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site, catalog, TargetCapabilityInventory::empty_now());
+        let repository = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            TargetCapabilityInventory::empty_now(),
+            crate::test_support::test_secret_generator(),
+        );
 
         assert_eq!(
             repository
@@ -2049,8 +2070,12 @@ mod tests {
         let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
             .expect("validated two-node site");
         let catalog = Arc::new(fixture_catalog_with_upstream_template());
-        let repository =
-            ModelDeclarationRepository::new(site.clone(), catalog, two_node_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site.clone(),
+            catalog,
+            two_node_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
         let required_secret = "synthetic-required-launch-secret";
         let configuration = dotcore_proto::dotcore::model::v1::LocalModelDeploymentConfiguration {
             model_artifact_binding_id: "fixture-artifact".to_owned(),
@@ -2189,6 +2214,7 @@ mod tests {
             Arc::clone(&catalog),
             two_node_target_capabilities(),
             current.clone(),
+            crate::test_support::test_secret_generator(),
         );
         let created = initial
             .load_model(
@@ -2224,6 +2250,7 @@ mod tests {
             Arc::clone(&catalog),
             two_node_target_capabilities(),
             current.clone(),
+            crate::test_support::test_secret_generator(),
         );
         assert!(failing.pause_model(&created.model_deployment_id).is_err());
         assert!(failing.resume_model(&created.model_deployment_id).is_err());
@@ -2293,6 +2320,7 @@ mod tests {
             Arc::clone(&catalog),
             fixture_target_capabilities(),
             current.clone(),
+            crate::test_support::test_secret_generator(),
         )
         .load_upstream_model(
             &upstream_request("endpoint.example"),
@@ -2310,6 +2338,7 @@ mod tests {
                 Arc::clone(&catalog),
                 fixture_target_capabilities(),
                 current.clone(),
+                crate::test_support::test_secret_generator()
             )
             .pause_model(&created.model_deployment_id),
             Err(ModelDeclarationRepositoryError::Site(
@@ -2341,6 +2370,7 @@ mod tests {
             catalog,
             fixture_target_capabilities(),
             reopened,
+            crate::test_support::test_secret_generator(),
         );
         let teardown = restarted
             .unload_model(&created.model_deployment_id)
@@ -2391,6 +2421,7 @@ mod tests {
                 catalog,
                 fixture_target_capabilities(),
                 current.clone(),
+                crate::test_support::test_secret_generator(),
             );
             let created = repository
                 .load_upstream_model(
@@ -2460,6 +2491,7 @@ mod tests {
             Arc::clone(&catalog),
             fixture_target_capabilities(),
             current.clone(),
+            crate::test_support::test_secret_generator(),
         );
         let created = repository
             .load_upstream_model(
@@ -2572,8 +2604,12 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site.clone(), catalog, fixture_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site.clone(),
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
 
         assert!(matches!(
             repository.load_model(
@@ -2626,8 +2662,12 @@ mod tests {
             )
             .expect("sizing catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site.clone(), catalog, fixture_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site.clone(),
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
         let before = site.snapshot().expect("Site before estimate");
         let mut configuration = crate::test_support::local_model_configuration();
         configuration.engine_parameter_values = Some(engine_values(4096));
@@ -2756,6 +2796,7 @@ mod tests {
             site.clone(),
             catalog_without_sizing,
             fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
         );
         assert_eq!(
             repository_without_sizing
@@ -2806,8 +2847,12 @@ mod tests {
             )
             .expect("derived sizing catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site, catalog, fixture_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
         let mut configuration = crate::test_support::local_model_configuration();
         configuration.engine_parameter_values = Some(unsigned_values(&[
             ("total-context", 4096),
@@ -2925,24 +2970,29 @@ mod tests {
                 dotcore_domain::ExecutionPlatform::linux_amd64(),
                 memory_architecture,
             );
-            ModelDeclarationRepository::new(site.clone(), catalog.clone(), inventory.clone())
-                .estimate_local_model_resources(
-                    "fixture-model",
-                    "fixture-profile",
-                    &configuration,
-                    Some(super::EstimateTarget {
-                        placement: &placement,
-                        inventory: &inventory,
-                        workloads: &Default::default(),
-                    }),
-                )
-                .map(|response| {
-                    only_class(response)
-                        .estimates
-                        .into_iter()
-                        .map(|estimate| (estimate.resource, estimate.value))
-                        .collect::<Vec<_>>()
-                })
+            ModelDeclarationRepository::new(
+                site.clone(),
+                catalog.clone(),
+                inventory.clone(),
+                crate::test_support::test_secret_generator(),
+            )
+            .estimate_local_model_resources(
+                "fixture-model",
+                "fixture-profile",
+                &configuration,
+                Some(super::EstimateTarget {
+                    placement: &placement,
+                    inventory: &inventory,
+                    workloads: &Default::default(),
+                }),
+            )
+            .map(|response| {
+                only_class(response)
+                    .estimates
+                    .into_iter()
+                    .map(|estimate| (estimate.resource, estimate.value))
+                    .collect::<Vec<_>>()
+            })
         };
         let bytes = |resource: &str, value| (resource.to_owned(), value);
 
@@ -2957,28 +3007,27 @@ mod tests {
             vec![bytes("acceleratorMemory", 12_388), bytes("hostMemory", 50)]
         );
         // Without a target, every supported class is estimated, in declaration order.
-        let per_class =
-            ModelDeclarationRepository::new(site, catalog, fixture_target_capabilities())
-                .estimate_local_model_resources(
-                    "fixture-model",
-                    "fixture-profile",
-                    &configuration,
-                    None,
-                )
-                .expect("estimates per class")
-                .hardware_class_estimates
-                .into_iter()
-                .map(|class| {
-                    (
-                        class.hardware_class_id,
-                        class
-                            .estimates
-                            .into_iter()
-                            .map(|estimate| (estimate.resource, estimate.value))
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .collect::<Vec<_>>();
+        let per_class = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        )
+        .estimate_local_model_resources("fixture-model", "fixture-profile", &configuration, None)
+        .expect("estimates per class")
+        .hardware_class_estimates
+        .into_iter()
+        .map(|class| {
+            (
+                class.hardware_class_id,
+                class
+                    .estimates
+                    .into_iter()
+                    .map(|estimate| (estimate.resource, estimate.value))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<Vec<_>>();
         assert_eq!(
             per_class,
             vec![
@@ -3010,8 +3059,12 @@ mod tests {
             )
             .expect("sizing catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site, catalog, fixture_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
 
         let estimate = repository
             .estimate_local_model_resources(
@@ -3076,6 +3129,7 @@ mod tests {
             site.clone(),
             load_catalog(),
             fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
         );
         let placement = ExactPlacement {
             site_node_id: "fixture-node".to_owned(),
@@ -3167,6 +3221,7 @@ mod tests {
             site.clone(),
             load_catalog(),
             fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
         );
         assert_eq!(
             edited_repository
@@ -3208,8 +3263,12 @@ mod tests {
             )
             .expect("fixture catalog"),
         );
-        let repository =
-            ModelDeclarationRepository::new(site, catalog, fixture_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site,
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
 
         let error = repository
             .estimate_local_model_resources(
@@ -3249,8 +3308,12 @@ mod tests {
         let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
             .expect("validated simulated site");
         let catalog = Arc::new(crate::test_support::upstream_template_catalog());
-        let repository =
-            ModelDeclarationRepository::new(site.clone(), catalog, fixture_target_capabilities());
+        let repository = ModelDeclarationRepository::new(
+            site.clone(),
+            catalog,
+            fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
+        );
         let first = repository
             .load_upstream_model(
                 &upstream_request("endpoint-one.example"),
@@ -3481,8 +3544,8 @@ mod tests {
                 .expect("validated simulated site"),
             Arc::new(catalog),
             fixture_target_capabilities(),
+            crate::test_support::test_secret_generator(),
         )
-        .with_secret_generator(crate::test_support::test_secret_generator())
     }
 
     fn fixture_placement() -> ExactPlacement {

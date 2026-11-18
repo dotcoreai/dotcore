@@ -126,16 +126,17 @@ impl<C: DockerClient> DockerAdapter<C> {
                 super::super::logs::HISTORY_CANDIDATE_BYTES / sources.sources().len().max(1);
             let mut histories = Vec::with_capacity(sources.sources().len());
             for source in sources.sources() {
-                let unit = known
-                    .units
-                    .get(&WorkloadUnitName(source.name.clone()))
-                    .expect("validated selected group unit");
-                let result = match self.exact_group_log_container(unit).await {
-                    Ok(container_id) => {
-                        self.read_exact_logs(container_id, source, query, candidate_bytes)
-                            .await
-                    }
-                    Err(error) => Err(error),
+                // The registry entry fills one unit at a time while the group is created, replaced or
+                // recovered, so a declared unit may not exist yet.
+                let result = match known.units.get(&WorkloadUnitName(source.name.clone())) {
+                    None => Err(RuntimeBackendError::workload_not_created()),
+                    Some(unit) => match self.exact_group_log_container(unit).await {
+                        Ok(container_id) => {
+                            self.read_exact_logs(container_id, source, query, candidate_bytes)
+                                .await
+                        }
+                        Err(error) => Err(error),
+                    },
                 };
                 histories.push(RuntimeLogSourceHistory {
                     source: source.clone(),
@@ -174,10 +175,13 @@ impl<C: DockerClient> DockerAdapter<C> {
         };
         let mut streams = Vec::with_capacity(sources.sources().len());
         for source in sources.sources() {
-            let unit = known
-                .units
-                .get(&WorkloadUnitName(source.name.clone()))
-                .expect("validated selected group unit");
+            let Some(unit) = known.units.get(&WorkloadUnitName(source.name.clone())) else {
+                streams.push(RuntimeLogSourceStream {
+                    source: source.clone(),
+                    result: Err(RuntimeBackendError::workload_not_created()),
+                });
+                continue;
+            };
             let container = tokio::select! {
                 _ = query.cancellation().cancelled() => return Err(RuntimeBackendError::LogCancelled),
                 result = self.exact_group_log_container(unit) => result,
@@ -203,7 +207,7 @@ impl<C: DockerClient> DockerAdapter<C> {
     }
 
     /// Returns the known group whose logs are read, or `None` while this runtime has not created
-    /// it yet, as while its images are prepared.
+    /// it yet, as while its images are prepared. The group may still lack some of its units.
     fn exact_log_group(
         &self,
         group: &WorkloadGroupLaunch,

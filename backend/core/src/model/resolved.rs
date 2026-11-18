@@ -7,7 +7,6 @@ use dotcore_artifact::{
 };
 use dotcore_catalog::{
     CatalogError, CatalogModelId, typed_parameters::is_secret, validate_parameter_values,
-    validate_parameter_values_before_secrets,
 };
 use dotcore_domain::{
     MemoryArchitecture,
@@ -467,22 +466,32 @@ pub(crate) fn validate_local_snapshot(
     validate_local_snapshot_with(local, LaunchIdentityResolution::Retained)
 }
 
-/// Validates one complete local snapshot; with node resolution, a development engine leaves its
-/// launch identity empty for the hosting SiteNode.
+/// Validates one complete local snapshot, which a launch reads: it is valid as resolution builds it
+/// and holds a value for every secret engine parameter. With node resolution, a development engine
+/// leaves its launch identity empty for the hosting SiteNode.
 pub(crate) fn validate_local_snapshot_with(
     local: &ResolvedLocalModelDeploymentSnapshot,
     resolution: LaunchIdentityResolution,
 ) -> Result<(), CatalogError> {
-    validate_local_snapshot_values(local, resolution, SecretValues::Retained)
-}
-
-/// Validates an advisory local snapshot like [`validate_local_snapshot_with`], but one that
-/// withholds every secret engine parameter value, since it never launches.
-pub(crate) fn validate_advisory_local_snapshot(
-    local: &ResolvedLocalModelDeploymentSnapshot,
-    resolution: LaunchIdentityResolution,
-) -> Result<(), CatalogError> {
-    validate_local_snapshot_values(local, resolution, SecretValues::Withheld)
+    validate_resolved_local_snapshot(local, resolution)?;
+    let missing_secret = local
+        .engine_parameter_schema
+        .iter()
+        .flat_map(|schema| &schema.parameters)
+        .filter(|definition| is_secret(definition))
+        .any(|definition| {
+            !local
+                .engine_parameter_values
+                .iter()
+                .flat_map(|values| &values.values)
+                .any(|value| value.parameter_id == definition.parameter_id)
+        });
+    if missing_secret {
+        return Err(invalid(
+            "local deployment snapshot is missing a secret engine parameter value",
+        ));
+    }
+    Ok(())
 }
 
 /// The secret engine parameter values a local deployment retains, which logs, failure text and
@@ -509,17 +518,29 @@ pub(crate) fn secret_engine_parameter_values(
         .collect()
 }
 
-/// Whether a snapshot's secret engine parameter values are retained or withheld.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SecretValues {
-    Retained,
-    Withheld,
+/// Removes the secret engine parameter values from a snapshot a client reads but never launches.
+pub(crate) fn strip_secret_engine_parameter_values(
+    local: &mut ResolvedLocalModelDeploymentSnapshot,
+) {
+    let secret_ids = local
+        .engine_parameter_schema
+        .iter()
+        .flat_map(|schema| &schema.parameters)
+        .filter(|definition| is_secret(definition))
+        .map(|definition| definition.parameter_id.clone())
+        .collect::<Vec<_>>();
+    if let Some(values) = local.engine_parameter_values.as_mut() {
+        values
+            .values
+            .retain(|value| !secret_ids.contains(&value.parameter_id));
+    }
 }
 
-fn validate_local_snapshot_values(
+/// Validates a local snapshot as launch resolution builds it: every part is present and consistent,
+/// and every value it holds is valid, though secret engine parameter values may still be missing.
+pub(crate) fn validate_resolved_local_snapshot(
     local: &ResolvedLocalModelDeploymentSnapshot,
     resolution: LaunchIdentityResolution,
-    secrets: SecretValues,
 ) -> Result<(), CatalogError> {
     if local.model_id.is_empty()
         || local.configuration_id.is_empty()
@@ -555,26 +576,13 @@ fn validate_local_snapshot_values(
         parameter_schema: Some(schema.clone()),
         ..Default::default()
     };
-    match secrets {
-        SecretValues::Retained => validate_parameter_values(
-            values,
-            &engine_release,
-            &local.profile_id,
-            &mut parameter_errors,
-        ),
-        SecretValues::Withheld => validate_parameter_values_before_secrets(
-            values,
-            &engine_release,
-            &local.profile_id,
-            &mut parameter_errors,
-        ),
-    }
-    let withheld_secret = secrets == SecretValues::Withheld
-        && values
-            .values
-            .iter()
-            .any(|value| is_secret_value(local, &value.parameter_id));
-    if parameter_errors.into_iter().next().is_some() || withheld_secret {
+    validate_parameter_values(
+        values,
+        &engine_release,
+        &local.profile_id,
+        &mut parameter_errors,
+    );
+    if parameter_errors.into_iter().next().is_some() {
         return Err(invalid(
             "local deployment snapshot has invalid engine parameter values",
         ));
@@ -866,6 +874,43 @@ mod tests {
 
     use super::{ResolvedEngineSource, ResolvedModelLaunch};
     use crate::test_support::local_model_snapshot;
+
+    #[test]
+    fn a_launched_snapshot_holds_every_secret_value_and_a_resolved_one_may_not_yet() {
+        let mut snapshot = crate::test_support::strata::local_model_snapshot_with_api_key(
+            "fixture-strata-model",
+            "fixture-api-key-value",
+        );
+        let Some(Source::Local(local)) = snapshot.source.as_mut() else {
+            panic!("local fixture snapshot");
+        };
+        let resolution = dotcore_domain::deployment::artifact::LaunchIdentityResolution::Retained;
+        super::validate_local_snapshot(local).expect("snapshot with its secret");
+
+        super::strip_secret_engine_parameter_values(local);
+
+        assert!(
+            !local
+                .engine_parameter_values
+                .iter()
+                .flat_map(|values| &values.values)
+                .any(
+                    |value| value.parameter_id == crate::test_support::strata::API_KEY_PARAMETER_ID
+                )
+        );
+        super::validate_resolved_local_snapshot(local, resolution)
+            .expect("a resolved snapshot may miss a secret");
+        let error = super::validate_local_snapshot(local).expect_err("launched without its secret");
+        assert!(
+            matches!(
+                &error,
+                CatalogError::Invalid(source)
+                    if source.to_string()
+                        == "local deployment snapshot is missing a secret engine parameter value"
+            ),
+            "{error}"
+        );
+    }
 
     #[test]
     fn engine_preparation_carries_the_platform_policy_and_identity_of_the_artifact() {

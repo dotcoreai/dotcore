@@ -54,6 +54,7 @@ use dotcore_proto::dotcore::{
     site::v1::Site,
 };
 use dotcore_proto::google::protobuf::FieldMask;
+use dotcore_runtime::test_support::exposed_environment;
 use dotcore_runtime_backends::simulated::{
     SimulatedRuntimeCallCounts, SimulatedRuntimeGroupCall, SimulatedRuntimeGroupDrift,
     SimulatedRuntimeTestSupport,
@@ -548,7 +549,9 @@ async fn application_retains_its_creation_base_url_across_inference_listener_cha
     assert_eq!(site.nodes[0].node_id, "fixture-node");
     assert_eq!(first_launch.group_id.0, created.application_deployment_id);
     assert_eq!(
-        first_launch.units[&dotcore_runtime::WorkloadUnitName("web".to_owned())].environment["OPENAI_API_BASE_URL"],
+        exposed_environment(
+            &first_launch.units[&dotcore_runtime::WorkloadUnitName("web".to_owned())]
+        )["OPENAI_API_BASE_URL"],
         creation_base_url,
     );
 
@@ -586,7 +589,9 @@ async fn application_retains_its_creation_base_url_across_inference_listener_cha
     assert_eq!(second_ready.snapshot, first_ready.snapshot);
     assert_eq!(second_launch.group_id, first_launch.group_id);
     assert_eq!(
-        second_launch.units[&dotcore_runtime::WorkloadUnitName("web".to_owned())].environment["OPENAI_API_BASE_URL"],
+        exposed_environment(
+            &second_launch.units[&dotcore_runtime::WorkloadUnitName("web".to_owned())]
+        )["OPENAI_API_BASE_URL"],
         creation_base_url,
     );
     restarted.stop().await;
@@ -1971,8 +1976,9 @@ async fn route_input_application_without_a_link_reaches_ready_with_its_literal_f
         dotcore_proto::yaml::from_file(&root.join("site.yaml")).expect("retained desired site");
     let launches = runtime.group_launches();
     assert_eq!(launches.len(), 1);
-    let environment =
-        &launches[0].units[&dotcore_runtime::WorkloadUnitName("web".to_owned())].environment;
+    let environment = exposed_environment(
+        &launches[0].units[&dotcore_runtime::WorkloadUnitName("web".to_owned())],
+    );
     assert_eq!(environment["ROUTE_NAME"], "");
     assert_eq!(
         environment["OPENAI_API_BASE_URL"],
@@ -2205,7 +2211,7 @@ fn launched_route_name(
         .rev()
         .find(|launch| launch.group_id.0 == deployment_id)
         .map(|launch| {
-            launch.units[&dotcore_runtime::WorkloadUnitName("web".to_owned())].environment
+            exposed_environment(&launch.units[&dotcore_runtime::WorkloadUnitName("web".to_owned())])
                 ["ROUTE_NAME"]
                 .clone()
         })

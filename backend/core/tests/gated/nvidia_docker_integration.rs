@@ -491,8 +491,9 @@ fn qualification_case(
         &target,
         &inventory,
         None,
-        dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
-    )?;
+    )
+    .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+    .and_then(|resolution| resolution.into_snapshot())?;
     let snapshot = ModelDeploymentSnapshot {
         source: Some(
             dotcore_proto::dotcore::model::v1::model_deployment_snapshot::Source::Local(

@@ -10,7 +10,7 @@ use dotcore_catalog::{
     options::resolve_model_option_values,
     overlay_parameter_defaults, shared_parameters,
     typed_parameters::{unsigned_range_contains, unsigned_range_text},
-    validate_parameter_values_before_secrets, validate_supplied_parameter_values,
+    validate_parameter_values, validate_supplied_parameter_values,
 };
 use dotcore_domain::deployment::artifact::immutable_remote_launch_identity;
 use dotcore_proto::dotcore::{
@@ -152,26 +152,21 @@ pub(crate) struct LocalModelSelection {
     pub(crate) model_artifact: ModelArtifact,
 }
 
-/// Resolves one local catalog selection into its immutable portable launch snapshot.
+/// Resolves one local catalog selection up to its engine parameter values, the first step of its
+/// immutable portable launch snapshot.
 ///
 /// `engine_identity` is the local image ID a caller resolved for a selected tag-only image, which
 /// may instead be left to the hosting SiteNode. It must name the selected image and is rejected
-/// for a digest-pinned image or a Nix artifact. `secrets` says whether the snapshot completes its
-/// secret engine parameter values to launch, or withholds them as an advisory snapshot.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each input names one independent part of the selection"
-)]
-pub fn resolve_local_launch(
-    catalog: &Catalog,
-    model_id: &CatalogModelId,
-    profile_id: &str,
-    configuration: &LocalModelDeploymentConfiguration,
-    target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
+/// for a digest-pinned image or a Nix artifact.
+pub fn resolve_local_launch<'a>(
+    catalog: &'a Catalog,
+    model_id: &'a CatalogModelId,
+    profile_id: &'a str,
+    configuration: &'a LocalModelDeploymentConfiguration,
+    target: &'a dotcore_proto::dotcore::site::v1::ExecutionTarget,
     target_inventory: &TargetCapabilityInventory,
-    engine_identity: Option<&EngineLaunchIdentity>,
-    secrets: EngineSecrets<'_>,
-) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelLaunchResolutionError> {
+    engine_identity: Option<&'a EngineLaunchIdentity>,
+) -> Result<LocalLaunchResolution<'a>, ModelLaunchResolutionError> {
     let selected_target = select_target_capabilities(target, target_inventory)
         .map_err(ModelLaunchResolutionError::TargetCapability)?;
     resolve_local_launch_on_selected_target(
@@ -182,47 +177,69 @@ pub fn resolve_local_launch(
         target,
         &selected_target,
         engine_identity,
-        secrets,
     )
 }
 
-/// What launch resolution does with secret engine parameter values, which sizing never reads.
-#[derive(Clone, Copy)]
-pub enum EngineSecrets<'a> {
-    /// Keeps each supplied secret value and generates each missing one, for a snapshot that
-    /// launches.
-    Generate(&'a dyn SecretGenerator),
-
-    /// Leaves every secret value out, for an advisory snapshot that never launches.
-    Withhold,
+/// Resolves one local catalog selection like [`resolve_local_launch`], on target capabilities the
+/// caller already selected.
+pub(crate) fn resolve_local_launch_on_selected_target<'a>(
+    catalog: &'a Catalog,
+    model_id: &'a CatalogModelId,
+    profile_id: &'a str,
+    configuration: &'a LocalModelDeploymentConfiguration,
+    target: &'a dotcore_proto::dotcore::site::v1::ExecutionTarget,
+    selected_target: &SelectedTargetCapabilities,
+    engine_identity: Option<&'a EngineLaunchIdentity>,
+) -> Result<LocalLaunchResolution<'a>, ModelLaunchResolutionError> {
+    let values = resolve_local_values_for_target(
+        catalog,
+        model_id,
+        profile_id,
+        configuration,
+        selected_target,
+    )?;
+    Ok(LocalLaunchResolution {
+        catalog,
+        model_id,
+        profile_id,
+        configuration,
+        target,
+        selected_target: selected_target.clone(),
+        engine_identity,
+        values,
+    })
 }
 
-impl EngineSecrets<'_> {
-    /// Completes or strips the secret values among resolved `values`.
-    fn apply(
-        self,
-        values: &mut ParameterValues,
-        schema: &EngineParameterSchema,
-    ) -> Result<(), ModelLaunchResolutionError> {
-        let secrets = schema.parameters.iter().filter_map(|definition| {
-            match definition.parameter_type.as_ref() {
-                Some(EngineParameterType::Secret(secret)) => Some((definition, secret)),
-                _ => None,
-            }
-        });
-        let generator = match self {
-            Self::Generate(generator) => generator,
-            Self::Withhold => {
-                let secret_ids = secrets
-                    .map(|(definition, _)| definition.parameter_id.as_str())
-                    .collect::<Vec<_>>();
-                values
-                    .values
-                    .retain(|value| !secret_ids.contains(&value.parameter_id.as_str()));
-                return Ok(());
-            }
-        };
-        for (definition, secret) in secrets {
+/// One local catalog selection resolved up to its engine parameter values: sizing is done and
+/// supplied values are valid, but the launch plan is not built yet.
+///
+/// Secret engine parameters are generated only for a deployment that launches, so a creation
+/// completes them with [`Self::generate_missing_secrets`] before [`Self::into_snapshot`] builds
+/// the launch plan from the values. A preview builds the snapshot without them.
+pub struct LocalLaunchResolution<'a> {
+    catalog: &'a Catalog,
+    model_id: &'a CatalogModelId,
+    profile_id: &'a str,
+    configuration: &'a LocalModelDeploymentConfiguration,
+    target: &'a dotcore_proto::dotcore::site::v1::ExecutionTarget,
+    selected_target: SelectedTargetCapabilities,
+    engine_identity: Option<&'a EngineLaunchIdentity>,
+    values: ResolvedLocalModelValues,
+}
+
+impl LocalLaunchResolution<'_> {
+    /// Generates a value for each secret engine parameter the operator did not supply, keeping
+    /// each supplied one.
+    pub fn generate_missing_secrets(
+        mut self,
+        generator: &dyn SecretGenerator,
+    ) -> Result<Self, ModelLaunchResolutionError> {
+        let values = &mut self.values.engine_parameter_values;
+        for definition in &self.values.engine_parameter_schema.parameters {
+            let Some(EngineParameterType::Secret(secret)) = definition.parameter_type.as_ref()
+            else {
+                continue;
+            };
             let parameter_id = &definition.parameter_id;
             if values
                 .values
@@ -242,152 +259,139 @@ impl EngineSecrets<'_> {
                 value: Some(EngineParameterValueKind::String(secret_value)),
             });
         }
-        Ok(())
+        Ok(self)
     }
-}
 
-/// Resolves one local catalog selection into its launch snapshot like [`resolve_local_launch`],
-/// on target capabilities the caller already selected. Secret values are completed after sizing,
-/// which never reads them.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "each input names one independent part of the selection"
-)]
-pub(crate) fn resolve_local_launch_on_selected_target(
-    catalog: &Catalog,
-    model_id: &CatalogModelId,
-    profile_id: &str,
-    configuration: &LocalModelDeploymentConfiguration,
-    target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
-    selected_target: &SelectedTargetCapabilities,
-    engine_identity: Option<&EngineLaunchIdentity>,
-    secrets: EngineSecrets<'_>,
-) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelLaunchResolutionError> {
-    let resolved = resolve_local_values_for_target(
-        catalog,
-        model_id,
-        profile_id,
-        configuration,
-        selected_target,
-    )?;
-    let sizing = resolved.resolved_sizing();
-    let selection = resolved.selection;
-    let mut parameter_values = resolved.engine_parameter_values;
-    let engine_parameter_schema_id = resolved.engine_parameter_schema_id;
-    let engine_parameter_schema = resolved.engine_parameter_schema;
-    let option_values = resolved.option_values;
-    secrets.apply(&mut parameter_values, &engine_parameter_schema)?;
-    let (_, profile_engine_parameter_defaults) =
-        catalog
+    /// Builds the launch snapshot from the resolved values: engine realization, the launch plan
+    /// and validation of the result.
+    pub fn into_snapshot(
+        self,
+    ) -> Result<ResolvedLocalModelDeploymentSnapshot, ModelLaunchResolutionError> {
+        let Self {
+            catalog,
+            model_id,
+            profile_id,
+            configuration,
+            target,
+            selected_target,
+            engine_identity,
+            values: resolved,
+        } = self;
+        let sizing = resolved.resolved_sizing();
+        let selection = resolved.selection;
+        let parameter_values = resolved.engine_parameter_values;
+        let engine_parameter_schema_id = resolved.engine_parameter_schema_id;
+        let engine_parameter_schema = resolved.engine_parameter_schema;
+        let option_values = resolved.option_values;
+        let (_, profile_engine_parameter_defaults) = catalog
             .local_defaults_for(model_id, profile_id)
             .ok_or_else(|| ModelLaunchResolutionError::ProfileDefaultsUnavailable {
                 model_id: model_id.0.clone(),
                 profile_id: profile_id.to_owned(),
             })?;
-    let engine_target =
-        selection
-            .engine_target
-            .ok_or(ModelLaunchResolutionError::InvalidConfiguration(
-                "selected engine artifact matched no target",
-            ))?;
-    validate_target_accelerator_devices(
-        target,
-        &ResolvedHardwareRequirementsValue::single_device(
-            engine_target.accelerator.catalog_name(),
-            selection.hardware_support.hardware_requirements.as_ref(),
-        ),
-    )?;
-    let (engine_preparation_policy, engine_launch_identity, engine_artifact) =
-        engine_launch_identity(selection.engine_artifact, engine_identity)?;
-    let realized = crate::model::engine::realize_model(
-        &selection.engine_release,
-        &selection.model,
-        &selection.configuration,
-        &selection.binding,
-        &option_values,
-    )
-    .map_err(ModelLaunchResolutionError::EngineRealization)?;
-    let auxiliary_artifacts = realized
-        .auxiliary_artifact_ids
-        .iter()
-        .map(|id| {
+        let engine_target =
             selection
-                .model
-                .auxiliary_artifacts
-                .iter()
-                .find(|artifact| &artifact.auxiliary_artifact_id == id)
-                .cloned()
-                .ok_or_else(|| anyhow::anyhow!("selected auxiliary artifact is stale"))
-        })
-        .collect::<Result<Vec<_>, _>>()
+                .engine_target
+                .ok_or(ModelLaunchResolutionError::InvalidConfiguration(
+                    "selected engine artifact matched no target",
+                ))?;
+        validate_target_accelerator_devices(
+            target,
+            &ResolvedHardwareRequirementsValue::single_device(
+                engine_target.accelerator.catalog_name(),
+                selection.hardware_support.hardware_requirements.as_ref(),
+            ),
+        )?;
+        let (engine_preparation_policy, engine_launch_identity, engine_artifact) =
+            engine_launch_identity(selection.engine_artifact, engine_identity)?;
+        let realized = crate::model::engine::realize_model(
+            &selection.engine_release,
+            &selection.model,
+            &selection.configuration,
+            &selection.binding,
+            &option_values,
+        )
         .map_err(ModelLaunchResolutionError::EngineRealization)?;
-
-    let mut local = ResolvedLocalModelDeploymentSnapshot {
-        model_id: selection.model.model_id,
-        model_display_name: selection.model.display_name,
-        model_version: selection.model.version,
-        configuration_id: selection.configuration.configuration_id,
-        profile_id: selection.profile.profile_id,
-        engine_artifact: Some(ResolvedEngineArtifact {
-            engine_release_id: selection.engine_release.engine_release_id,
-            engine_kind: selection.engine_release.engine_kind,
-            engine_version: selection.engine_release.version,
-            artifact: Some(engine_artifact),
-            platform: Some(engine_target.platform.to_oci_platform()),
-            accelerator: engine_target.accelerator.catalog_name().to_owned(),
-            minimum_nvidia_driver_major_version: engine_target.minimum_nvidia_driver_major_version,
-            preparation_policy: engine_preparation_policy as i32,
-            launch_identity: engine_launch_identity,
-            storage_bindings: selection.engine_release.storage_bindings,
-        }),
-        model_artifact: Some(selection.model_artifact),
-        auxiliary_artifacts,
-        hardware_support: Some(ResolvedHardwareSupport {
-            hardware_class_id: selection.hardware_support.hardware_class.hardware_class_id,
-            selector: selection.hardware_support.hardware_class.selector,
-            hardware_requirements: selection.hardware_support.hardware_requirements,
-        }),
-        resolved_engine_state: Some(realized.state),
-        execution_capabilities: selection.configuration.execution_capabilities,
-        input_capabilities: Some(realized.input_capabilities),
-        engine_parameter_values: Some(parameter_values),
-        engine_parameter_schema_id,
-        engine_parameter_schema: Some(engine_parameter_schema),
-        profile_engine_parameter_defaults: Some(profile_engine_parameter_defaults),
-        profile_engine_parameter_visibility_overrides: selection
-            .profile
-            .engine_parameter_visibility_overrides,
-        desired_launch_plan: None,
-        custom_argument_tokens: configuration.custom_argument_tokens.clone(),
-        resolved_options: option_values
-            .into_iter()
-            .map(|values| ResolvedModelOption {
-                values: Some(values),
+        let auxiliary_artifacts = realized
+            .auxiliary_artifact_ids
+            .iter()
+            .map(|id| {
+                selection
+                    .model
+                    .auxiliary_artifacts
+                    .iter()
+                    .find(|artifact| &artifact.auxiliary_artifact_id == id)
+                    .cloned()
+                    .ok_or_else(|| anyhow::anyhow!("selected auxiliary artifact is stale"))
             })
-            .collect(),
-        selected_target: Some(ResolvedSelectedTarget {
-            accelerator_memory_architecture: selected_target.memory_architecture.to_proto() as i32,
-            accelerator_memory_pool_total_bytes: selected_target.memory_pool_total_bytes(),
-        }),
-        sizing,
-        request_kinds: selection.configuration.request_kinds,
-    };
-    local.desired_launch_plan = Some(
-        EngineIntegrationRegistry::production()
-            .translate(&local)
-            .map_err(|error| ModelLaunchResolutionError::LaunchPlan(anyhow::Error::new(error)))?,
-    );
-    let resolution = dotcore_domain::deployment::artifact::LaunchIdentityResolution::NodeResolved;
-    match secrets {
-        EngineSecrets::Generate(_) => {
-            crate::model::resolved::validate_local_snapshot_with(&local, resolution)
-        }
-        EngineSecrets::Withhold => {
-            crate::model::resolved::validate_advisory_local_snapshot(&local, resolution)
-        }
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(ModelLaunchResolutionError::EngineRealization)?;
+
+        let mut local = ResolvedLocalModelDeploymentSnapshot {
+            model_id: selection.model.model_id,
+            model_display_name: selection.model.display_name,
+            model_version: selection.model.version,
+            configuration_id: selection.configuration.configuration_id,
+            profile_id: selection.profile.profile_id,
+            engine_artifact: Some(ResolvedEngineArtifact {
+                engine_release_id: selection.engine_release.engine_release_id,
+                engine_kind: selection.engine_release.engine_kind,
+                engine_version: selection.engine_release.version,
+                artifact: Some(engine_artifact),
+                platform: Some(engine_target.platform.to_oci_platform()),
+                accelerator: engine_target.accelerator.catalog_name().to_owned(),
+                minimum_nvidia_driver_major_version: engine_target
+                    .minimum_nvidia_driver_major_version,
+                preparation_policy: engine_preparation_policy as i32,
+                launch_identity: engine_launch_identity,
+                storage_bindings: selection.engine_release.storage_bindings,
+            }),
+            model_artifact: Some(selection.model_artifact),
+            auxiliary_artifacts,
+            hardware_support: Some(ResolvedHardwareSupport {
+                hardware_class_id: selection.hardware_support.hardware_class.hardware_class_id,
+                selector: selection.hardware_support.hardware_class.selector,
+                hardware_requirements: selection.hardware_support.hardware_requirements,
+            }),
+            resolved_engine_state: Some(realized.state),
+            execution_capabilities: selection.configuration.execution_capabilities,
+            input_capabilities: Some(realized.input_capabilities),
+            engine_parameter_values: Some(parameter_values),
+            engine_parameter_schema_id,
+            engine_parameter_schema: Some(engine_parameter_schema),
+            profile_engine_parameter_defaults: Some(profile_engine_parameter_defaults),
+            profile_engine_parameter_visibility_overrides: selection
+                .profile
+                .engine_parameter_visibility_overrides,
+            desired_launch_plan: None,
+            custom_argument_tokens: configuration.custom_argument_tokens.clone(),
+            resolved_options: option_values
+                .into_iter()
+                .map(|values| ResolvedModelOption {
+                    values: Some(values),
+                })
+                .collect(),
+            selected_target: Some(ResolvedSelectedTarget {
+                accelerator_memory_architecture: selected_target.memory_architecture.to_proto()
+                    as i32,
+                accelerator_memory_pool_total_bytes: selected_target.memory_pool_total_bytes(),
+            }),
+            sizing,
+            request_kinds: selection.configuration.request_kinds,
+        };
+        local.desired_launch_plan = Some(
+            EngineIntegrationRegistry::production()
+                .translate(&local)
+                .map_err(|error| {
+                    ModelLaunchResolutionError::LaunchPlan(anyhow::Error::new(error))
+                })?,
+        );
+        let resolution =
+            dotcore_domain::deployment::artifact::LaunchIdentityResolution::NodeResolved;
+        crate::model::resolved::validate_resolved_local_snapshot(&local, resolution)
+            .map_err(ModelLaunchResolutionError::CatalogResolution)?;
+        Ok(local)
     }
-    .map_err(ModelLaunchResolutionError::CatalogResolution)?;
-    Ok(local)
 }
 
 /// Rejects a target whose accelerator devices don't number exactly the devices the launch's
@@ -863,7 +867,7 @@ fn evaluate_selected_values(
         .extend(derived_engine_parameter_values.values.iter().cloned());
     let mut parameter_errors = Vec::new();
     // Only creation completes secrets, after sizing, so previews and placement never need one.
-    validate_parameter_values_before_secrets(
+    validate_parameter_values(
         &complete_values,
         &selection.engine_release,
         profile_id,
@@ -1309,8 +1313,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("unified snapshot");
 
         assert_eq!(
@@ -1372,10 +1377,11 @@ mod tests {
                     &target,
                     &inventory,
                     None,
-                    crate::model::resolution::EngineSecrets::Generate(
-                        &crate::RandomSecretGenerator,
-                    ),
                 )
+                .and_then(|resolution| {
+                    resolution.generate_missing_secrets(&crate::RandomSecretGenerator)
+                })
+                .and_then(|resolution| resolution.into_snapshot())
                 .expect("snapshot")
             };
 
@@ -1412,8 +1418,11 @@ mod tests {
                 &target,
                 &inventory,
                 None,
-                crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
             )
+            .and_then(|resolution| {
+                resolution.generate_missing_secrets(&crate::RandomSecretGenerator)
+            })
+            .and_then(|resolution| resolution.into_snapshot())
             .expect("manager admission");
 
             crate::model::resolved::validate_local_snapshot(&snapshot)
@@ -1479,8 +1488,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("snapshot artifact admission");
 
         let encoded = snapshot.encode_to_vec();
@@ -1541,8 +1551,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("derived snapshot");
         let values =
             resolve_local_values(&catalog, &derived_model_id(), "balanced", &configuration)
@@ -1606,8 +1617,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("snapshot on the nvidia class");
         let launch = ResolvedHardwareRequirementsValue::single_device(
             "nvidia",
@@ -1679,8 +1691,11 @@ mod tests {
                 &target,
                 &inventory,
                 None,
-                crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
             )
+            .and_then(|resolution| {
+                resolution.generate_missing_secrets(&crate::RandomSecretGenerator)
+            })
+            .and_then(|resolution| resolution.into_snapshot())
         };
 
         resolve(&catalog).expect("the nvidia class matches");
@@ -1838,8 +1853,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("supplied snapshot");
 
         assert_eq!(
@@ -2315,8 +2331,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("disabled vision snapshot");
 
         assert_eq!(
@@ -2388,8 +2405,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("digest-pinned snapshot");
 
         let engine = snapshot.engine_artifact.expect("engine artifact");
@@ -2727,8 +2745,11 @@ mod tests {
                 target,
                 &inventory,
                 None,
-                crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
             )
+            .and_then(|resolution| {
+                resolution.generate_missing_secrets(&crate::RandomSecretGenerator)
+            })
+            .and_then(|resolution| resolution.into_snapshot())
         };
 
         for (devices, device_count) in [(vec!["0", "1"], 2), (Vec::new(), 0)] {
@@ -2828,8 +2849,9 @@ mod tests {
             &target,
             &inventory,
             engine_identity,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     }
 
     const ENGINE_DIGEST_REFERENCE: &str = "registry.dotcore.test/fixture@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

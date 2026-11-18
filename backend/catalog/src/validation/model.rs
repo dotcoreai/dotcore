@@ -941,37 +941,27 @@ fn validate_profile_option_defaults(
     }
 }
 
-/// Validates a complete set of engine parameter values against the engine schema.
+/// Validates engine parameter values against the engine schema: every parameter has a valid
+/// value, except that secrets may be missing, since their values exist only once a deployment is
+/// created.
 pub fn validate_parameter_values(
     values: &ParameterValues,
     engine: &EngineRelease,
     profile_id: &str,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    validate_values(
-        values,
-        engine,
-        profile_id,
-        SecretCompleteness::Required,
-        errors,
-    );
-}
-
-/// Validates engine parameter values that are complete except, possibly, for secrets, whose
-/// values exist only once a deployment is created.
-pub fn validate_parameter_values_before_secrets(
-    values: &ParameterValues,
-    engine: &EngineRelease,
-    profile_id: &str,
-    errors: &mut Vec<anyhow::Error>,
-) {
-    validate_values(
-        values,
-        engine,
-        profile_id,
-        SecretCompleteness::Optional,
-        errors,
-    );
+    let missing = missing_parameter_ids(values, engine)
+        .into_iter()
+        .filter(|parameter_id| !is_secret_parameter(engine, parameter_id))
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        errors.push(anyhow::anyhow!(
+            "profile {profile_id:?} engine parameter values are incomplete; missing {}",
+            missing.join(", ")
+        ));
+        return;
+    }
+    validate_supplied_parameter_values(values, engine, profile_id, errors);
 }
 
 /// Whether the engine release declares `parameter_id` as a secret.
@@ -1104,36 +1094,6 @@ pub fn missing_parameter_ids(values: &ParameterValues, engine: &EngineRelease) -
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// Whether value completeness covers secret parameters.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SecretCompleteness {
-    Required,
-    Optional,
-}
-
-fn validate_values(
-    values: &ParameterValues,
-    engine: &EngineRelease,
-    profile_id: &str,
-    secrets: SecretCompleteness,
-    errors: &mut Vec<anyhow::Error>,
-) {
-    let missing = missing_parameter_ids(values, engine)
-        .into_iter()
-        .filter(|parameter_id| {
-            secrets == SecretCompleteness::Required || !is_secret_parameter(engine, parameter_id)
-        })
-        .collect::<Vec<_>>();
-    if !missing.is_empty() {
-        errors.push(anyhow::anyhow!(
-            "profile {profile_id:?} engine parameter values are incomplete; missing {}",
-            missing.join(", ")
-        ));
-        return;
-    }
-    validate_supplied_parameter_values(values, engine, profile_id, errors);
 }
 
 fn valid_weight_quantization(value: &str) -> bool {

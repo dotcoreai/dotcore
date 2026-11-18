@@ -49,11 +49,11 @@ pub use workload_group::{
     MAX_WORKLOAD_GROUP_STALE_REASON_BYTES, ObservedWorkloadGroup, ReadyLaunchGate,
     ReadyLaunchGateError, ReadyLaunchGateFailure, ReadyLaunchGateOutcome,
     RuntimeGroupLogFollowQuery, RuntimeLogSourceHistory, RuntimeLogSourceStream,
-    WorkloadDependencyCondition, WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupLaunch,
-    WorkloadGroupObservation, WorkloadGroupStaleReason, WorkloadPublicationRequest,
-    WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitName, WorkloadUnitObservation,
-    WorkloadUnitResourceObservation, WorkloadUnitResources, WorkloadUnitResourcesUnavailable,
-    WorkloadUnitState,
+    WorkloadDependencyCondition, WorkloadEnvironmentValue, WorkloadGroupBackend, WorkloadGroupId,
+    WorkloadGroupLaunch, WorkloadGroupObservation, WorkloadGroupStaleReason,
+    WorkloadPublicationRequest, WorkloadUnitDependency, WorkloadUnitLaunch, WorkloadUnitName,
+    WorkloadUnitObservation, WorkloadUnitResourceObservation, WorkloadUnitResources,
+    WorkloadUnitResourcesUnavailable, WorkloadUnitState,
 };
 pub use workload_spec::{
     ResolvedWorkloadCommand, WorkloadArtifactBinding, WorkloadExecutable,

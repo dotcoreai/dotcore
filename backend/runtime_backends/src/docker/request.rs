@@ -7,7 +7,7 @@
 //! ownership labels are stamped on creation. The same module provides the
 //! workload-group request equivalents for networks and group containers.
 
-use std::{collections::BTreeMap, net::SocketAddrV4, path::PathBuf};
+use std::{collections::BTreeMap, fmt, net::SocketAddrV4, path::PathBuf};
 
 use dotcore_domain::SiteNodeId;
 use dotcore_runtime::{
@@ -33,7 +33,9 @@ pub(super) struct PreparedWorkload {
     pub(super) managed_node_id: SiteNodeId,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One container to create for a workload. Its environment may carry secrets, so its `Debug` form
+/// names the environment variables without their values.
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct DockerCreateRequest {
     pub(super) name: String,
     pub(super) image: String,
@@ -45,6 +47,24 @@ pub(super) struct DockerCreateRequest {
     pub(super) device_requests: Vec<DockerDeviceRequest>,
     pub(super) environment: Vec<String>,
     pub(super) ipc_mode: DockerIpcMode,
+}
+
+impl fmt::Debug for DockerCreateRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DockerCreateRequest")
+            .field("name", &self.name)
+            .field("image", &self.image)
+            .field("entrypoint", &self.entrypoint)
+            .field("argv", &self.argv)
+            .field("labels", &self.labels)
+            .field("ports", &self.ports)
+            .field("mounts", &self.mounts)
+            .field("device_requests", &self.device_requests)
+            .field("environment", &environment_names(&self.environment))
+            .field("ipc_mode", &self.ipc_mode)
+            .finish()
+    }
 }
 
 /// Docker Engine IPC value derived from owner-neutral workload intent.
@@ -114,7 +134,9 @@ pub(super) struct DockerGroupNetworkRequest {
     pub(super) labels: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// One container to create for a workload group unit. Its environment may carry secrets, so its
+/// `Debug` form names the environment variables without their values.
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct DockerGroupContainerRequest {
     pub(super) name: String,
     pub(super) image: String,
@@ -130,6 +152,26 @@ pub(super) struct DockerGroupContainerRequest {
     /// Host entries as `name:address`, resolved by the hosting node when the container is
     /// created.
     pub(super) extra_hosts: Vec<String>,
+}
+
+impl fmt::Debug for DockerGroupContainerRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("DockerGroupContainerRequest")
+            .field("name", &self.name)
+            .field("image", &self.image)
+            .field("entrypoint", &self.entrypoint)
+            .field("argv", &self.argv)
+            .field("labels", &self.labels)
+            .field("ports", &self.ports)
+            .field("mounts", &self.mounts)
+            .field("device_requests", &self.device_requests)
+            .field("environment", &environment_names(&self.environment))
+            .field("network_name", &self.network_name)
+            .field("aliases", &self.aliases)
+            .field("extra_hosts", &self.extra_hosts)
+            .finish()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,6 +318,18 @@ impl WorkloadTokenResolver for ContainerTokens {
     fn service_port(&self, port: &WorkloadPort) -> u16 {
         port.container_port
     }
+}
+
+/// Returns the names of `NAME=value` environment entries.
+fn environment_names(environment: &[String]) -> Vec<&str> {
+    environment
+        .iter()
+        .map(|entry| {
+            entry
+                .split_once('=')
+                .map_or(entry.as_str(), |(name, _)| name)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -834,5 +888,47 @@ mod tests {
             request.labels.get(LABEL_SCHEMA),
             Some(&OWNERSHIP_SCHEMA.to_owned())
         );
+    }
+
+    #[test]
+    fn request_debug_names_environment_variables_without_their_values() {
+        let environment = vec![
+            "ADMIN_PASSWORD=hunter2-plaintext".to_owned(),
+            "MODE=poc".to_owned(),
+        ];
+        let create = DockerCreateRequest {
+            name: "workload".to_owned(),
+            image: "registry.example/web@sha256:def".to_owned(),
+            entrypoint: Vec::new(),
+            argv: Vec::new(),
+            labels: BTreeMap::new(),
+            ports: Vec::new(),
+            mounts: Vec::new(),
+            device_requests: Vec::new(),
+            environment: environment.clone(),
+            ipc_mode: DockerIpcMode::Private,
+        };
+        let group = DockerGroupContainerRequest {
+            name: "unit".to_owned(),
+            image: "registry.example/web@sha256:def".to_owned(),
+            entrypoint: Vec::new(),
+            argv: Vec::new(),
+            labels: BTreeMap::new(),
+            ports: Vec::new(),
+            mounts: Vec::new(),
+            device_requests: Vec::new(),
+            environment,
+            network_name: "network".to_owned(),
+            aliases: Vec::new(),
+            extra_hosts: Vec::new(),
+        };
+
+        for debug in [format!("{create:?}"), format!("{group:?}")] {
+            assert!(
+                debug.contains(r#"environment: ["ADMIN_PASSWORD", "MODE"]"#),
+                "{debug}"
+            );
+            assert!(!debug.contains("hunter2-plaintext"), "{debug}");
+        }
     }
 }

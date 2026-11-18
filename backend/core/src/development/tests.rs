@@ -1508,8 +1508,9 @@ async fn facade_pins_a_tag_only_engine_image_and_prepares_and_launches_by_its_im
             reference: reference.to_owned(),
             image_id: IMAGE_ID.to_owned(),
         }),
-        crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
     )
+    .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+    .and_then(|resolution| resolution.into_snapshot())
     .expect("pinned launch");
     let resolved = ResolvedModelLaunch::from_local_snapshot(&pinned).expect("resolved model");
     for path in artifacts
@@ -1614,8 +1615,9 @@ async fn facade_pins_prepares_and_launches_a_docker_delivered_engine_of_its_own_
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("resolved launch");
         pinned
             .engine_artifact
@@ -1723,8 +1725,9 @@ fn seed_selected_artifacts(
         &target,
         &inventory,
         None,
-        crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
     )
+    .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+    .and_then(|resolution| resolution.into_snapshot())
     .expect("resolved launch");
     let resolved = ResolvedModelLaunch::from_snapshot(&ModelDeploymentSnapshot {
         source: Some(model_deployment_snapshot::Source::Local(local)),

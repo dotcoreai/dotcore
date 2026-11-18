@@ -1127,10 +1127,11 @@ fn launched_route_names(runtime: &SimulatedRuntimeTestSupport, deployment_id: &s
         .iter()
         .filter(|launch| launch.correlation.owner_id == deployment_id)
         .filter_map(|launch| {
-            launch
-                .units
-                .values()
-                .find_map(|unit| unit.environment.get("ROUTE_NAME").cloned())
+            launch.units.values().find_map(|unit| {
+                unit.environment
+                    .get("ROUTE_NAME")
+                    .map(|value| value.expose().to_owned())
+            })
         })
         .collect()
 }
