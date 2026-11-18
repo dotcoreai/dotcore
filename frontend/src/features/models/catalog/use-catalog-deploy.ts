@@ -17,6 +17,7 @@ import {
 import type { CatalogChips } from "@/features/models/profiles/profile-table-seed";
 import type { SizingScenario } from "@/features/models/profiles/sizing-scenario";
 import { CONTEXT_PER_REQUEST_PARAMETER_ID } from "@/features/models/runtime/engine-parameter-values";
+import { memoryParameterSizes } from "@/features/models/runtime/memory-parameter-sizes";
 import {
   toUpstreamConfiguration,
   type UpstreamFormValues,
@@ -318,6 +319,10 @@ export function modelDeployRequests(
         filledContextPerRequest:
           filled?.case === "unsignedInteger" ? Number(filled.value) : undefined,
         launchRejection: estimate?.launchRejection,
+        memoryParameterSizes: memoryParameterSizes(
+          response.memoryParameterFits,
+          estimate?.derivedEngineParameterValues?.values,
+        ),
         placementPreview: response.placementPreview,
       };
     },

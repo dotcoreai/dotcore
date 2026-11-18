@@ -221,6 +221,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           filledContextPerRequest={memory.estimate.filledContextPerRequest}
           inputs={form.engineParameterInputs}
           largestFit={form.largestFit}
+          memoryParameterSizes={memory.estimate.memoryParameterSizes}
           model={model}
           onParameterBlur={form.blurContext}
           onParameterChange={form.changeContext}
@@ -257,6 +258,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           fieldErrors={fieldErrors}
           hostKvOffloadSharesMemory={memory.hostKvOffloadSharesMemory}
           inputs={form.engineParameterInputs}
+          memoryParameterSizes={memory.estimate.memoryParameterSizes}
           model={model}
           onArtifactBlur={() => {
             if (!dirtyFields.isDirty("artifact")) return;

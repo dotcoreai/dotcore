@@ -846,7 +846,7 @@ describe("ModelDeployDialog largest fit under a new scenario", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
 
     expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("98304");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("96k");
   });
 });
 
@@ -867,7 +867,7 @@ describe("ModelDeployDialog shared context", () => {
     await screen.findByRole("button", { name: "Runs on filter: this site" });
     await waitFor(() => expect(totalContextCell("Q4_K_XL")).toBe("889k"));
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(summaryContext()).toBe("889k total · 256k per request");
     await user.click(screen.getByRole("button", { name: "Deploy" }));
@@ -942,7 +942,7 @@ describe("ModelDeployDialog shared context", () => {
 
     await screen.findByText("Couldn't check which profiles can run on this site.");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
   });
 
   it("keeps the default total context when parallel requests change on the Advanced step", async () => {
@@ -964,7 +964,7 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
     await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336"),
+      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k"),
     );
     expect(screen.queryByRole("textbox", { name: "Parallel requests" })).not.toBeInTheDocument();
 
@@ -974,8 +974,7 @@ describe("ModelDeployDialog shared context", () => {
     await user.clear(parallel);
     await user.type(parallel, "1");
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
-    expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
 
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1003,8 +1002,10 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     const total = screen.getByRole("textbox", { name: "Total context" });
     const presets = within(screen.getByRole("group", { name: "Total context presets" }));
-    // The sizes stop below the fit, and the fit comes last.
-    await waitFor(() => expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true"));
+    // The total starts at the fit, whose chip is pressed only once clicked. The sizes stop below
+    // the fit, and the fit comes last.
+    await waitFor(() => expect(total).toHaveValue("889k"));
+    expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "false");
     expect(presets.getAllByRole("button").map((chip) => chip.textContent)).toEqual([
       "8k",
       "32k",
@@ -1015,14 +1016,14 @@ describe("ModelDeployDialog shared context", () => {
     ]);
 
     await user.click(presets.getByRole("button", { name: "64k" }));
-    expect(total).toHaveValue("65536");
+    expect(total).toHaveValue("64k");
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "false");
     await user.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByRole("button", { name: "Runs on filter: this site, 64k" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(largestFitChip("889k"));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true");
     expect(await readFieldHelpFacts("Total context")).toContain(
       "Up to 889k on node / NVIDIA GeForce RTX 5090",
@@ -1032,40 +1033,49 @@ describe("ModelDeployDialog shared context", () => {
   });
 
   it.each([
-    { case: "a fit equal to a size", chips: ["8k", "32k", "64k", "128k", "256k"], fit: 262144 },
-    { case: "a fit below most sizes", chips: ["8k", "12k"], fit: 12288 },
-    { case: "a fit below every size", chips: ["4k"], fit: 4096 },
     {
+      box: "256k",
+      case: "a fit equal to a size",
+      chips: ["8k", "32k", "64k", "128k", "256k"],
+      fit: 262144,
+    },
+    { box: "12k", case: "a fit below most sizes", chips: ["8k", "12k"], fit: 12288 },
+    { box: "4k", case: "a fit below every size", chips: ["4k"], fit: 4096 },
+    {
+      box: "1953k",
       case: "a fit above the largest size",
       chips: ["8k", "32k", "64k", "128k", "256k", "1M", "1.9M"],
       fit: 1_999_872,
     },
-  ])("offers sizes below the largest fit, then the fit, with $case", async ({ chips, fit }) => {
-    const user = setupUser();
-    renderDialog({
-      initialProfileId: "q4-xl",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: fit },
-        }),
-      ]),
-    });
+  ])(
+    "offers sizes below the largest fit, then the fit, with $case",
+    async ({ box, chips, fit }) => {
+      const user = setupUser();
+      renderDialog({
+        initialProfileId: "q4-xl",
+        listProfileCompatibility: scenarioLoader({}, [
+          targetCompatibility(poolPlacement, {
+            "q4-xl": { startingTotalContextTokens: fit },
+          }),
+        ]),
+      });
 
-    await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByRole("button", { name: /, largest fit$/ });
+      await screen.findByRole("button", { name: "Runs on filter: this site" });
+      await user.click(screen.getByRole("button", { name: "Next" }));
+      await screen.findByRole("button", { name: /, largest fit$/ });
 
-    expect(
-      within(screen.getByRole("group", { name: "Total context presets" }))
-        .getAllByRole("button")
-        .map((chip) => chip.textContent),
-    ).toEqual(chips);
-    expect(screen.getByRole("button", { name: /, largest fit$/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue(String(fit));
-  });
+      expect(
+        within(screen.getByRole("group", { name: "Total context presets" }))
+          .getAllByRole("button")
+          .map((chip) => chip.textContent),
+      ).toEqual(chips);
+      expect(screen.getByRole("button", { name: /, largest fit$/ })).toHaveAttribute(
+        "aria-pressed",
+        "false",
+      );
+      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue(box);
+    },
+  );
 
   it("keeps the thumb at the slider's end for a largest fit above it", async () => {
     const user = setupUser();
@@ -1081,7 +1091,7 @@ describe("ModelDeployDialog shared context", () => {
     await screen.findByRole("button", { name: /, largest fit$/ });
 
     // The slider ends at 1M, 4 parallel requests at the 256k model maximum, below the fit.
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("1999872");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("1953k");
     const slider = screen.getByRole("slider", { name: "Total context" });
     expect(slider).toHaveValue("1000");
     expect(slider).toHaveAttribute("aria-valuetext", "1,999,872 tokens");
@@ -1090,7 +1100,7 @@ describe("ModelDeployDialog shared context", () => {
     );
   });
 
-  it("presses the largest fit chip only while the total's value is the largest fit", async () => {
+  it("presses the largest fit chip after a click, and releases it on typing the same value", async () => {
     const user = setupUser();
     renderDialog({
       initialProfileId: "q4-xl",
@@ -1105,29 +1115,23 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     const total = screen.getByRole("textbox", { name: "Total context" });
     const perRequest = screen.getByRole("textbox", { name: "Context per request" });
-    await waitFor(() => expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true"));
-
-    // Per request only: the total keeps the largest fit's value and the chip stays pressed.
-    await user.clear(perRequest);
-    await user.type(perRequest, "32768");
-    await user.tab();
-    expect(total).toHaveValue("910336");
-    expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true");
-
-    // Clicking the pressed chip changes nothing, the chosen per request value included.
-    await user.click(largestFitChip("889k"));
-    expect(total).toHaveValue("910336");
-    expect(perRequest).toHaveValue("32768");
-
-    await user.clear(total);
-    await user.type(total, "65536");
-    await user.tab();
+    await waitFor(() => expect(total).toHaveValue("889k"));
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "false");
 
-    await user.clear(total);
-    await user.type(total, "910336");
+    // Clicking the chip at its own value presses it and changes nothing, the chosen per request
+    // value included.
+    await user.type(perRequest, "32k");
     await user.tab();
+    await user.click(largestFitChip("889k"));
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true");
+    expect(total).toHaveValue("889k");
+    expect(perRequest).toHaveValue("32k");
+
+    await user.clear(total);
+    await user.type(total, "889k");
+    await user.tab();
+    expect(total).toHaveValue("889k");
+    expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "false");
   });
 
   it('drops a stale total context error when "Sized for" chooses the context', async () => {
@@ -1145,14 +1149,14 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     const total = screen.getByRole("textbox", { name: "Total context" });
     await user.clear(total);
-    await user.type(total, "12k");
+    await user.type(total, "1.3k");
     await user.tab();
     expect(await screen.findByText(totalContextError)).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: /Profile/ }));
     await chooseSizedFor(user, "Runs on filter: this site", "Custom");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("131072");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
     expect(screen.queryByText(totalContextError)).not.toBeInTheDocument();
   });
 
@@ -1186,7 +1190,7 @@ describe("ModelDeployDialog shared context", () => {
 
     await user.click(screen.getByRole("button", { name: "Back" }));
     await user.click(largestFitChip("889k"));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("0");
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1228,7 +1232,7 @@ describe("ModelDeployDialog shared context", () => {
     await chooseSizedFor(user, "Runs on filter: this site, 64k", "Defaults");
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("0");
     await user.click(screen.getByRole("button", { name: "Next" }));
@@ -1273,13 +1277,13 @@ describe("ModelDeployDialog shared context", () => {
     // "Sized for" back to defaults returns the Settings step to its default.
     await chooseSizedFor(user, "Runs on filter: this site, 64k", "Defaults");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("910336");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
 
     // A custom "Sized for" shows on the Settings step.
     await user.click(screen.getByRole("button", { name: "Back" }));
     await chooseSizedFor(user, "Runs on filter: this site", "Custom");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("131072");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
   });
 
   it("keeps an edited total context across profile and target changes", async () => {
@@ -1320,7 +1324,7 @@ describe("ModelDeployDialog shared context", () => {
     expect(await readFieldHelpFacts("Total context")).toContain(
       "Up to 400k on Worker / NVIDIA GB10",
     );
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("65536");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("64k");
 
     await user.click(screen.getByRole("button", { name: /Profile/ }));
     await user.click(screen.getByRole("radio", { name: "NVFP4 text" }));
@@ -1354,7 +1358,7 @@ describe("ModelDeployDialog shared context", () => {
 
     await screen.findByRole("button", { name: "Runs on filter: this site, 128k" });
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("131072");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -1495,9 +1499,9 @@ describe("ModelDeployDialog scenario polling", () => {
     await advance();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     const expectFirstFit = async () => {
-      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("126976");
+      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("124k");
       expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 124k on /m);
-      expect(largestFitChip("124k")).toHaveAttribute("aria-pressed", "true");
+      expect(largestFitChip("124k")).toBeVisible();
     };
     await expectFirstFit();
 
@@ -1533,7 +1537,7 @@ describe("ModelDeployDialog scenario polling", () => {
     expect(totalContextCell("NVFP4 ninfer")).toBe("124k");
     expect(totalContextCell("NVFP4 text")).toBe("32k");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("126976");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("124k");
   });
 
   it("applies the live starting total context on choosing the largest fit chip, and keeps it from then on", async () => {
@@ -1554,14 +1558,14 @@ describe("ModelDeployDialog scenario polling", () => {
     await advance();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     const total = () => screen.getByRole("textbox", { name: "Total context" });
-    expect(total()).toHaveValue("126976");
+    expect(total()).toHaveValue("124k");
 
     // A later read lowers the starting value; the unedited default stays frozen.
     live = 98304;
     const reads = listProfileCompatibility.mock.calls.length;
     await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility.mock.calls.length).toBeGreaterThan(reads);
-    expect(total()).toHaveValue("126976");
+    expect(total()).toHaveValue("124k");
 
     fireEvent.click(
       within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
@@ -1569,19 +1573,19 @@ describe("ModelDeployDialog scenario polling", () => {
       }),
     );
     await advance();
-    expect(total()).toHaveValue("65536");
+    expect(total()).toHaveValue("64k");
     // Choosing a size reads the new scenario, whose fit the chip then offers.
     expect(largestFitChip("96k")).toHaveAttribute("aria-pressed", "false");
     fireEvent.click(largestFitChip("96k"));
     await advance();
-    expect(total()).toHaveValue("98304");
+    expect(total()).toHaveValue("96k");
     expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
     expect(largestFitChip("96k")).toHaveAttribute("aria-pressed", "true");
 
     // The corrected value is frozen in turn.
     live = 65536;
     await advance(productionTiming.profileCompatibilityRefreshMs);
-    expect(total()).toHaveValue("98304");
+    expect(total()).toHaveValue("96k");
     expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
   });
 
@@ -1608,12 +1612,12 @@ describe("ModelDeployDialog scenario polling", () => {
     renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility });
     await advance();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
 
     await advance(productionTiming.profileCompatibilityRefreshMs);
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
     expect((await readFieldHelpFacts("Total context")).join("\n")).not.toMatch(/Up to /);
   });
 

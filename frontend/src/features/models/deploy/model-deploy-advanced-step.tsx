@@ -17,6 +17,7 @@ import { runtimeParameterGroups } from "@/features/models/runtime/engine-paramet
 import { EngineParametersForm } from "@/features/models/runtime/engine-parameters";
 import type { KvCachePrecisionOption } from "@/features/models/runtime/kv-cache-precision";
 import { KvCachePrecisionField } from "@/features/models/runtime/kv-cache-precision-field";
+import type { MemoryParameterSizes } from "@/features/models/runtime/memory-parameter-sizes";
 import type { SpeculativeChoice } from "@/features/models/runtime/speculative-choice";
 import { SpeculativeDecodingField } from "@/features/models/runtime/speculative-decoding-field";
 import type {
@@ -48,6 +49,8 @@ interface ModelDeployAdvancedStepProps {
   inputs: ReadonlyMap<string, string>;
   /** Warns that host KV offload shares the accelerator's memory pool on this target. */
   hostKvOffloadSharesMemory: boolean;
+  /** The latest estimate's memory parameter sizes, for the memory parameters' sliders. */
+  memoryParameterSizes?: MemoryParameterSizes;
   kvCachePrecision: {
     onChange: (precision: string) => void;
     /** The configuration's KV cache precision option; the field shows only when there is one. */
@@ -102,6 +105,7 @@ export function ModelDeployAdvancedStep({
   hostKvOffloadSharesMemory,
   inputs,
   kvCachePrecision,
+  memoryParameterSizes,
   model,
   onArtifactBlur,
   onArtifactChange,
@@ -133,6 +137,7 @@ export function ModelDeployAdvancedStep({
       groups={parameterGroups}
       inputRefs={engineParameterRefs}
       inputs={inputs}
+      memoryParameterSizes={memoryParameterSizes}
       onBlur={onParameterBlur}
       onChange={onParameterChange}
       parameters={parameters}

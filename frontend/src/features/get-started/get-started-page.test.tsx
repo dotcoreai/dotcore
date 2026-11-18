@@ -414,9 +414,9 @@ describe("GetStartedPage", () => {
         expect(within(dialog).getByRole("radio", { name: /NVFP4 ninfer/ })).toBeChecked(),
       );
       await user.click(within(dialog).getByRole("button", { name: "Next" }));
-      expect(within(dialog).getByRole("textbox", { name: "Total context" })).toHaveValue("32768");
+      expect(within(dialog).getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
       const perRequest = within(dialog).getByRole("textbox", { name: "Context per request" });
-      expect(perRequest).toHaveValue("32768");
+      expect(perRequest).toHaveValue("32k");
 
       await user.clear(perRequest);
       await user.type(perRequest, "65536");
@@ -475,7 +475,7 @@ describe("GetStartedPage", () => {
       };
       const first = await openAdvanced();
       expect(first.parallel).toHaveValue("4");
-      expect(first.hostContext).toHaveValue("20480");
+      expect(first.hostContext).toHaveValue("20 GiB");
       await user.clear(first.parallel);
       await user.type(first.parallel, "2");
       await user.clear(first.hostContext);
@@ -493,7 +493,7 @@ describe("GetStartedPage", () => {
 
       const second = await openAdvanced();
       expect(second.parallel).toHaveValue("2");
-      expect(second.hostContext).toHaveValue("1024");
+      expect(second.hostContext).toHaveValue("1 GiB");
       await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
       expect(within(second.dialog).getByRole("textbox", { name: "Deployment name" })).toHaveValue(
         "Team model",
@@ -543,10 +543,10 @@ describe("GetStartedPage", () => {
       await user.click(await within(dialog).findByRole("button", { name: "Next" }));
       const total = within(dialog).getByRole("textbox", { name: "Total context" });
       await user.clear(total);
-      await user.type(total, "131072");
+      await user.type(total, "128k");
       await user.tab();
       expect(within(dialog).getByRole("textbox", { name: "Context per request" })).toHaveValue(
-        "32768",
+        "32k",
       );
       await user.click(within(dialog).getByRole("button", { name: "Next" }));
       await user.click(within(dialog).getByRole("button", { name: "Apply" }));

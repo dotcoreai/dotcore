@@ -126,6 +126,7 @@ describe("separate catalog and model read contracts", () => {
       "EstimateLocalModelResourcesResponse",
       "HardwareClassResourceEstimate",
       "ScalarResourceEstimate",
+      "MemoryParameterFit",
       "ListModelProfileCompatibilityRequest",
       "SizingScenario",
       "ListModelProfileCompatibilityResponse",

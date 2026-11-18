@@ -5,11 +5,6 @@ import {
   DeploymentForm,
   DeploymentStepHeading,
 } from "@/features/deployments/deployment-form-layout";
-import { ContextSizeField } from "@/features/models/runtime/context-size-field";
-import type {
-  ContextSizeLargestFit,
-  ContextSizeRange,
-} from "@/features/models/runtime/context-size-input";
 import { contextSliderEnds, requestCount } from "@/features/models/runtime/context-slider-ends";
 import {
   maximumContext,
@@ -17,6 +12,9 @@ import {
   runtimeParameterGroups,
 } from "@/features/models/runtime/engine-parameter-values";
 import { EngineParametersForm } from "@/features/models/runtime/engine-parameters";
+import type { MemoryParameterSizes } from "@/features/models/runtime/memory-parameter-sizes";
+import { SizeField } from "@/features/models/runtime/size-field";
+import type { SizeLargestFit, SizeRange } from "@/features/models/runtime/size-input";
 import type { Model, ModelProfile } from "@/gen/dotcore/catalog/v1/model_pb";
 import type { ParameterDefinition, ParameterGroup } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { FieldErrors } from "@/lib/form-validation";
@@ -33,7 +31,9 @@ interface ModelDeploySettingsStepProps {
   filledContextPerRequest?: number;
   inputs: ReadonlyMap<string, string>;
   /** The largest total context that fits the selected target, offered as the total's last chip. */
-  largestFit?: ContextSizeLargestFit;
+  largestFit?: SizeLargestFit;
+  /** The latest estimate's memory parameter sizes, for the memory parameters' sliders. */
+  memoryParameterSizes?: MemoryParameterSizes;
   model: Model;
   onParameterBlur: (parameter: ParameterDefinition) => void;
   /** Receives each change, and whether it is settled, as a slider or preset is, or typed. */
@@ -65,6 +65,7 @@ export function ModelDeploySettingsStep({
   filledContextPerRequest,
   inputs,
   largestFit,
+  memoryParameterSizes,
   model,
   onParameterBlur,
   onParameterChange,
@@ -95,10 +96,10 @@ export function ModelDeploySettingsStep({
       emptyValue?: number;
       facts?: readonly string[];
       help?: string;
-      largestFit?: ContextSizeLargestFit;
+      largestFit?: SizeLargestFit;
     } = {},
   ) => (
-    <ContextSizeField
+    <SizeField
       disabled={disabled}
       error={fieldErrors.get(parameter.parameterId)}
       input={inputs.get(parameter.parameterId) ?? ""}
@@ -158,6 +159,7 @@ export function ModelDeploySettingsStep({
           groups={parameters.groups}
           inputRefs={engineParameterRefs}
           inputs={inputs}
+          memoryParameterSizes={memoryParameterSizes}
           onBlur={parameters.onBlur}
           onChange={parameters.onChange}
           parameters={parameters.shown}
@@ -172,7 +174,7 @@ export function ModelDeploySettingsStep({
 function fieldRange(
   parameter: ParameterDefinition,
   end: number | undefined,
-): ContextSizeRange | undefined {
+): SizeRange | undefined {
   if (end === undefined || parameter.parameterType.case !== "unsignedInteger") return undefined;
 
   return { maximum: end, minimum: Number(parameter.parameterType.value.minimum) };
