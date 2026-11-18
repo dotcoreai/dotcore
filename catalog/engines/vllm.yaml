@@ -79,6 +79,7 @@ parameterSchema:
       unsignedInteger:
         minimum: "0"
         unit: "GiB"
+        memoryPool: "MEMORY_POOL_HOST"
 # Engine compile and tuning caches, shared by every deployment on the same engine build: vLLM's
 # torch.compile cache and FlashInfer autotune results (under its cache root), Triton kernels and
 # FlashInfer JIT kernels. The variables point each at the mount whatever the image's user and home

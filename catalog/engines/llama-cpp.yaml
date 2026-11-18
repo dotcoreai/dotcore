@@ -52,6 +52,7 @@ parameterSchema:
         minimum: "0"
         maximum: "2147483647"
         unit: "MiB"
+        memoryPool: "MEMORY_POOL_HOST"
 # The image and its digests are pinned by `engines/llama-cpp/docker-image.nix`.
 artifacts:
   - artifactId: "cuda13"

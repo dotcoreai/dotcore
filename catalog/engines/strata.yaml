@@ -55,6 +55,7 @@ parameterSchema:
       unsignedInteger:
         minimum: "1"
         unit: "MiB"
+        memoryPool: "MEMORY_POOL_ACCELERATOR"
     - parameterId: "expert-host-memory-mib"
       displayName: "Expert host memory"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
@@ -65,6 +66,7 @@ parameterSchema:
       unsignedInteger:
         minimum: "0"
         unit: "MiB"
+        memoryPool: "MEMORY_POOL_HOST"
 # The deployment's own folder for the tokenizer extracted from the model, Strata's run configuration
 # and its engine log; the wrapper rebuilds whatever is missing.
 storageBindings:
