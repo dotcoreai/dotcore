@@ -4,7 +4,7 @@ import { Check, LoaderCircle, Plus, RefreshCw } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { useClients } from "@/api/clients";
-import type { SiteJoinClient } from "@/api/site-join-client";
+import type { SiteMembershipClient } from "@/api/site-membership-client";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -51,8 +51,8 @@ export function AddMachineDialog({
 
 // Mounted only while the dialog is open, so each opening starts its own join.
 function JoinFlow({ onClose }: { onClose: () => void }) {
-  const { siteJoinClient } = useClients();
-  const { restart, session } = useJoinSession(siteJoinClient);
+  const { siteMembershipClient } = useClients();
+  const { restart, session } = useJoinSession(siteMembershipClient);
   const { started, state } = session;
 
   if (state?.state.case === "awaitingApproval" && !session.error) {
@@ -61,7 +61,7 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
         // A new proposal starts a fresh decision.
         key={state.state.value.proposalId}
         awaiting={state.state.value}
-        client={siteJoinClient}
+        client={siteMembershipClient}
         joinId={started?.joinId ?? ""}
         session={session}
       />
@@ -213,7 +213,7 @@ function ReviewPhase({
   session,
 }: {
   awaiting: JoinAwaitingApproval;
-  client: SiteJoinClient;
+  client: SiteMembershipClient;
   joinId: string;
   session: JoinSession;
 }) {

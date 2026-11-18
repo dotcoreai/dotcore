@@ -1,7 +1,7 @@
 import { ConnectError } from "@connectrpc/connect";
 import { useCallback, useEffect, useState } from "react";
 
-import type { SiteJoinClient } from "@/api/site-join-client";
+import type { SiteMembershipClient } from "@/api/site-membership-client";
 import type {
   JoinAttemptOutcome,
   JoinProposal,
@@ -30,7 +30,7 @@ export interface JoinSession {
  * cancels the join, so closing the dialog never leaves a token usable. `restart` replaces the join
  * with a new one.
  */
-export function useJoinSession(client: SiteJoinClient): {
+export function useJoinSession(client: SiteMembershipClient): {
   restart: () => void;
   session: JoinSession;
 } {

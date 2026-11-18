@@ -2,7 +2,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { vi } from "vitest";
 
-import type { SiteJoinClient } from "@/api/site-join-client";
+import type { SiteMembershipClient } from "@/api/site-membership-client";
 import {
   ApproveJoinResponseSchema,
   CancelJoinResponseSchema,
@@ -10,6 +10,7 @@ import {
   type JoinState,
   JoinStateSchema,
   RejectJoinResponseSchema,
+  RemoveMachineResponseSchema,
   StartJoinResponseSchema,
   WatchJoinResponseSchema,
 } from "@/gen/dotcore/site/v1/membership_pb";
@@ -49,13 +50,16 @@ export function joinState(init: MessageInitShape<typeof JoinStateSchema>): JoinS
  * A fake join management API. Each started join numbers its token and watch from 1; a test reports
  * states with `report` and every call is a spy.
  */
-export function fakeSiteJoinClient() {
+export function fakeSiteMembershipClient() {
   const watches: Watch[] = [];
 
   const client = {
     approveJoin: vi.fn(() => Promise.resolve(create(ApproveJoinResponseSchema))),
     cancelJoin: vi.fn(() => Promise.resolve(create(CancelJoinResponseSchema))),
     rejectJoin: vi.fn(() => Promise.resolve(create(RejectJoinResponseSchema))),
+    removeMachine: vi.fn<SiteMembershipClient["removeMachine"]>(() =>
+      Promise.resolve(create(RemoveMachineResponseSchema)),
+    ),
     startJoin: vi.fn(() =>
       Promise.resolve(
         create(StartJoinResponseSchema, {
@@ -70,10 +74,10 @@ export function fakeSiteJoinClient() {
       watches.push(watch);
       return watch;
     }),
-  } satisfies Record<keyof SiteJoinClient, unknown>;
+  } satisfies Record<keyof SiteMembershipClient, unknown>;
 
   return {
-    client: client as unknown as SiteJoinClient,
+    client: client as unknown as SiteMembershipClient,
     spies: client,
     /** Sends a state on the latest watch. */
     report: (init: MessageInitShape<typeof JoinStateSchema>) =>
