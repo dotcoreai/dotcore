@@ -610,6 +610,7 @@ async fn model_owner_for(
         Arc::clone(&inputs.catalog),
         inventory,
         inputs.current.clone(),
+        Arc::new(crate::RandomSecretGenerator),
     );
     let controller = InferenceController::new(
         desired,

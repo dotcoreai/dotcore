@@ -810,8 +810,11 @@ mod tests {
                 &target,
                 &inventory,
                 None,
-                crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
             )
+            .and_then(|resolution| {
+                resolution.generate_missing_secrets(&crate::RandomSecretGenerator)
+            })
+            .and_then(|resolution| resolution.into_snapshot())
             .expect("vLLM launch on a GPU of a mixed machine");
             let total = launch
                 .selected_target
@@ -1147,8 +1150,9 @@ profiles:
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     }
 
     /// Literal arguments of the launch plan, without the artifact bindings.

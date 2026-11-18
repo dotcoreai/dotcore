@@ -1161,8 +1161,9 @@ mod tests {
             &target,
             &inventory,
             None,
-            crate::model::resolution::EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     }
 
     /// Literal arguments of the launch plan, without the model binding.

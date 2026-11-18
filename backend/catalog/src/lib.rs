@@ -49,8 +49,8 @@ pub use validation::EngineDeclarationValidator;
 pub use validation::{
     overlay_parameter_defaults, valid_configuration_value, valid_environment_variable,
     valid_pinned_hugging_face_artifact, validate_application_with_policy,
-    validate_parameter_values, validate_parameter_values_before_secrets,
-    validate_supplied_parameter_values, validate_upstream_model_template,
+    validate_parameter_values, validate_supplied_parameter_values,
+    validate_upstream_model_template,
 };
 
 /// A complete, immutable catalog validated before it is exposed.

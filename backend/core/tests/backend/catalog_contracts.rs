@@ -833,8 +833,9 @@ fn llama_cpp_request_state_scales_the_estimate_with_the_parallel_requests() {
             &target,
             &inventory,
             None,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect("resolved parallel requests")
         .sizing
         .expect("resolved sizing")
@@ -1739,8 +1740,9 @@ fn locked_nix_deployment_retains_its_catalog_store_paths_for_the_hosting_node_ac
             &darwin,
             &inventory,
             identity,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     };
 
     let catalog = precomputed(LOCKED_FLAKE, PLACEHOLDER_STORE_PATH);
@@ -1853,8 +1855,9 @@ fn development_source_nix_deployment_leaves_its_store_path_for_the_hosting_node(
             &darwin,
             &inventory,
             identity,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     };
 
     let local = resolve(None).expect("development-source snapshot");
@@ -2037,8 +2040,9 @@ fn catalog_resolves_file_artifacts_in_repository_subdirectories() {
         &target,
         &inventory,
         None,
-        dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
     )
+    .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+    .and_then(|resolution| resolution.into_snapshot())
     .expect("resolved nested file artifacts");
 
     let file_path =
@@ -2216,8 +2220,9 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
             &target,
             &inventory,
             None,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator)
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect_err("out-of-range parameter")
         .to_string(),
         "invalid engine parameter values: profile \"balanced\" engine parameter \"total-context\" value 16777217 is outside its range 512..=16777216"
@@ -2235,8 +2240,9 @@ fn catalog_rejects_invalid_parameters_and_unsupported_bindings() {
             &target,
             &inventory,
             None,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator)
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
         .expect_err("unsupported binding")
         .to_string(),
         "could not resolve catalog model: Invalid catalog: selected model artifact binding is not supported by the profile configuration"
@@ -2265,8 +2271,9 @@ fn llama_cpp_launch_rejects_a_context_per_request_above_the_model_maximum() {
             &target,
             &inventory,
             None,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     };
 
     let filled = launch(&[
@@ -2374,8 +2381,9 @@ fn llama_cpp_launch_rejects_a_context_per_request_above_the_configuration_maximu
             &target,
             &inventory,
             None,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     };
 
     let error =
@@ -2447,8 +2455,9 @@ fn vllm_launch_rejects_a_context_per_request_above_the_model_maximum() {
             &target,
             &inventory,
             None,
-            dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+        .and_then(|resolution| resolution.into_snapshot())
     };
 
     assert_eq!(
@@ -2481,8 +2490,9 @@ fn catalog_retains_boolean_engine_parameters_and_their_schema() {
         &target,
         &inventory,
         None,
-        dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
     )
+    .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+    .and_then(|resolution| resolution.into_snapshot())
     .expect("boolean parameter resolves");
 
     assert_eq!(
@@ -3205,8 +3215,9 @@ fn resolve_local_launch_with_placeholder_identity(
         target,
         inventory,
         identity.as_ref(),
-        dotcore::model::resolution::EngineSecrets::Generate(&dotcore::RandomSecretGenerator),
     )
+    .and_then(|resolution| resolution.generate_missing_secrets(&dotcore::RandomSecretGenerator))
+    .and_then(|resolution| resolution.into_snapshot())
 }
 
 /// Stands in for the local image ID a tag-only engine image `reference` resolves to on a node.

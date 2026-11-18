@@ -27,7 +27,7 @@ pub use application::{
 };
 pub use model::{
     overlay_parameter_defaults, valid_pinned_hugging_face_artifact, validate_parameter_values,
-    validate_parameter_values_before_secrets, validate_supplied_parameter_values,
+    validate_supplied_parameter_values,
 };
 pub(super) use sensitive_literal::validate_sensitive_literals;
 pub use upstream_model_template::validate_upstream_model_template;

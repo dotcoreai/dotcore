@@ -63,11 +63,12 @@ use futures_util::StreamExt;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
+use crate::SecretGenerator;
 use crate::model::{
     engine::{self, EngineIntegrationRegistry},
     resolution::{
-        EngineSecrets, apply_profile_defaults, resolve_local_launch,
-        resolve_local_values_on_target, select_engine_artifact,
+        apply_profile_defaults, resolve_local_launch, resolve_local_values_on_target,
+        select_engine_artifact,
     },
     resolved::ResolvedModelLaunch,
 };
@@ -87,6 +88,7 @@ pub struct DirectWorkloadFacade {
     artifacts: ArtifactManager,
     runtime: Arc<dyn DevelopmentRuntime>,
     namespace: DevelopmentRuntimeNamespace,
+    secret_generator: Arc<dyn SecretGenerator>,
 
     /// Timing of this process, read once when the facade connects.
     timing: Timing,
@@ -177,6 +179,7 @@ impl DirectWorkloadFacade {
             artifacts,
             runtime,
             namespace,
+            secret_generator: Arc::new(crate::RandomSecretGenerator),
             timing,
             #[cfg(test)]
             test_target_capabilities: None,
@@ -195,6 +198,7 @@ impl DirectWorkloadFacade {
             artifacts,
             runtime,
             namespace,
+            secret_generator: crate::test_support::test_secret_generator(),
             timing: Timing::test(),
             test_target_capabilities: Some((
                 dotcore_domain::ExecutionPlatform::linux_amd64(),
@@ -373,8 +377,9 @@ impl DirectWorkloadFacade {
             &configured_target,
             &target_inventory,
             engine_identity.as_ref(),
-            EngineSecrets::Generate(&crate::RandomSecretGenerator),
         )
+        .and_then(|resolution| resolution.generate_missing_secrets(self.secret_generator.as_ref()))
+        .and_then(|resolution| resolution.into_snapshot())
         .map_err(DirectWorkloadLaunchError::resolution)?;
         self.pin_nix_engine(&mut snapshot, &cancellation).await?;
         let resolved = ResolvedModelLaunch::from_local_snapshot(&snapshot)
