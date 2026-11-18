@@ -13,10 +13,10 @@
 
 ## Install
 
-In an interactive terminal, run the installer from GitHub. It checks Docker and Nix, then adds Dotcore to your Nix profile:
+In an interactive terminal, run the installer from the Dotcore site. It checks Docker and Nix, then adds Dotcore to your Nix profile:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dotcoreai/dotcore/HEAD/installer/install.sh | sh
+curl -fsSL https://dotcore.ai/install.sh | sh
 ```
 
 The first install takes longer because Nix builds Dotcore on your machine.
@@ -67,7 +67,7 @@ To start over instead, choose to reinstall: the installer removes Dotcore as the
 Stop `dotcore`, then run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dotcoreai/dotcore/HEAD/installer/install.sh | sh -s -- uninstall
+curl -fsSL https://dotcore.ai/install.sh | sh -s -- uninstall
 ```
 
 It asks before deleting your site or your downloads, and prints how to remove what it leaves, such as Nix and Docker images.
