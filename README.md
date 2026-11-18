@@ -20,7 +20,7 @@ Dotcore runs on Linux (x86_64, arm64) and macOS (Apple Silicon). You'll need `cu
 Run this in a terminal. If you don't have Nix, the installer offers to install it.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/dotcoreai/dotcore/refs/heads/main/installer/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/dotcoreai/dotcore/HEAD/installer/install.sh | sh
 ```
 
 Follow the installer's instructions. See [docs/install.md](docs/install.md) for the full steps.
