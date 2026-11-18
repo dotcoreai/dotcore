@@ -1,8 +1,9 @@
 //! The commands that change and inspect a site's membership without copying files between
 //! machines: `dotc node add` starts a join on the running manager, `dotc node join` on the new
 //! machine reaches it with the one-time token and installs the node's folder,
-//! `dotc node remove` takes a worker out of the stopped site, `dotc node leave` cleans up the
-//! removed machine, and `dotc node list` shows the nodes.
+//! `dotc node remove` takes a worker out of the site, through the running manager or from the
+//! stopped site, `dotc node leave` cleans up the removed machine, and `dotc node list` shows the
+//! nodes.
 //!
 //! The token travels through `--token`, a file, or a hidden prompt; it is spent by one join and
 //! is cancelled when `node add` exits. Operator prompts and notices use the controlling terminal; result records
@@ -35,8 +36,8 @@ use leave::{NodeLeaveArgs, node_leave};
 use list::{NodeListArgs, node_list};
 use remove::{NodeRemoveArgs, node_remove};
 
-/// Commands that manage site membership: `add` on the running manager, `remove` on the stopped
-/// manager, `join` and `leave` on the node's machine, and `list` on the manager.
+/// Commands that manage site membership: `add` and `remove` on the running manager (`remove` also
+/// on a stopped one), `join` and `leave` on the node's machine, and `list` on the manager.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct NodeCommand {
@@ -54,8 +55,8 @@ enum NodeSubcommand {
     /// Join this machine to a site using the token printed by `dotc node add`.
     Join(NodeJoinArgs),
 
-    /// Remove a worker node from this stopped site; runs on the stopped manager. Run
-    /// `dotc node leave` on the removed machine afterwards.
+    /// Remove a worker node from the site, through the running manager or from this stopped
+    /// site. Run `dotc node leave` on the removed machine afterwards.
     Remove(NodeRemoveArgs),
 
     /// Stop this node's workloads and delete its node folder; runs on the removed machine with
@@ -72,7 +73,7 @@ impl NodeCommand {
         match self.command {
             Some(NodeSubcommand::Add(arguments)) => node_add(paths, arguments).await,
             Some(NodeSubcommand::Join(arguments)) => node_join(paths, arguments).await,
-            Some(NodeSubcommand::Remove(arguments)) => node_remove(paths, arguments),
+            Some(NodeSubcommand::Remove(arguments)) => node_remove(paths, arguments).await,
             Some(NodeSubcommand::Leave(arguments)) => node_leave(paths, arguments).await,
             Some(NodeSubcommand::List(arguments)) => node_list(paths, arguments),
             None => anyhow::bail!("node command requires an action"),

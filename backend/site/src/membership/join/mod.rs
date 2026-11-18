@@ -1,7 +1,7 @@
 //! Node join: the one-time token an operator hands to a new machine, the joining node's side
 //! that authenticates the manager and installs its node folder, and the site manager's join
 //! registry that hosts each join on the private listener, waits for the operator's decision,
-//! signs, and records the node, with the management API that drives it.
+//! signs, and records the node.
 //!
 //! The joining node keeps its private key and sends only a signing request, and listens on its
 //! private port while it joins. The manager side dials it back there and proves it holds that
@@ -17,7 +17,6 @@ mod dial_back_listener;
 mod fingerprint_pattern;
 mod host;
 mod installation;
-mod management;
 mod node_key;
 mod proposal;
 mod registry;
@@ -36,7 +35,6 @@ pub use host::{
     JoinedNode, NodeRejoin, ReviewedJoin,
 };
 pub use installation::{NodeFolderError, RejoiningNodeFolder};
-pub use management::JoinManagementService;
 pub use node_key::{NodeKey, NodeKeyError, csr_key_fingerprint};
 pub use proposal::{JoinProposal, JoinProposalError, RejoinProposal};
 pub use registry::{

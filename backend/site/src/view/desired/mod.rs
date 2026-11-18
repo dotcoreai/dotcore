@@ -165,12 +165,17 @@ impl ManagerNodeViewPublisher {
     }
 
     /// Projects the complete view of `node_id` from current site intent: model intent and
-    /// targets directly, application intent through the apps-controller owner.
+    /// targets directly, application intent through the apps-controller owner. A node the site no
+    /// longer declares gets no view, never an empty one, so it never reads its removal as an
+    /// absence of work.
     fn view_input(
         &self,
         node_id: &str,
     ) -> Result<PublishedViewInput, DesiredViewDistributionError> {
         let site = self.site.snapshot()?;
+        if !site.nodes.iter().any(|node| node.node_id == node_id) {
+            return Err(DesiredViewDistributionError::UndeclaredNode);
+        }
         let assignments = self
             .application
             .assignments(&application_declarations(&site, node_id));
@@ -874,7 +879,7 @@ impl From<DesiredViewDistributionError> for Status {
                 Status::unavailable("controller status could not be recorded; retry the report")
             }
             DesiredViewDistributionError::UndeclaredNode => {
-                Status::permission_denied("node is not declared in this site")
+                crate::private_transport::not_a_member()
             }
             DesiredViewDistributionError::FirstViewUnavailable(_) => {
                 Status::unavailable("the node's view cannot be built now; reopen the stream later")

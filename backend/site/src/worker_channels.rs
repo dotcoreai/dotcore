@@ -119,6 +119,15 @@ impl WorkerChannels {
         })
     }
 
+    /// Drops the cached channels of workers `site` no longer declares, such as a removed node.
+    /// Their pins are gone, so no new channel to them opens.
+    pub fn forget_undeclared(&self, site: &Site) {
+        self.channels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(node_id, _), _| site.nodes.iter().any(|node| &node.node_id == node_id));
+    }
+
     /// Returns the reused channel of one purpose to one worker at `address`, replacing it when
     /// the address or the worker's pin changed.
     pub fn channel(

@@ -47,11 +47,17 @@ use dotcore_proto::dotcore::{
         model_deployment_snapshot,
     },
     site::v1::{
+        ApproveJoinRequest, ApproveJoinResponse, CancelJoinRequest, CancelJoinResponse,
         ConfiguredExecutionTarget, ExecutionTargetWorkloadKind, GetConsoleSettingsRequest,
         GetConsoleSettingsResponse, ListConfiguredExecutionTargetsRequest,
         ListConfiguredExecutionTargetsResponse, ListHardwareSnapshotsRequest,
-        ListHardwareSnapshotsResponse, ListMachinesRequest, ListMachinesResponse,
-        UpdateConsoleSettingsRequest, UpdateConsoleSettingsResponse,
+        ListHardwareSnapshotsResponse, ListMachinesRequest, ListMachinesResponse, Machine,
+        MachineRemovalDeployment, MachineRemovalDeploymentKind, MachineRemovalPlan,
+        MachineRemovalRefusal, MachineRemovalRefusalReason, RejectJoinRequest, RejectJoinResponse,
+        RemoveMachineRequest, RemoveMachineResponse, StartJoinRequest, StartJoinResponse,
+        UpdateConsoleSettingsRequest, UpdateConsoleSettingsResponse, WatchJoinRequest,
+        WatchJoinResponse, remove_machine_response,
+        site_membership_service_server::{SiteMembershipService, SiteMembershipServiceServer},
         site_service_server::{SiteService, SiteServiceServer},
     },
 };
@@ -115,7 +121,12 @@ impl FakeManager {
                     .add_service(ApplicationDeploymentServiceServer::new(FakeApplications {
                         state: Arc::clone(&served),
                     }))
-                    .add_service(SiteServiceServer::new(FakeSite { state: served }))
+                    .add_service(SiteServiceServer::new(FakeSite {
+                        state: Arc::clone(&served),
+                    }))
+                    .add_service(SiteMembershipServiceServer::new(FakeMembership {
+                        state: served,
+                    }))
                     .serve_with_incoming_shutdown(incoming, async {
                         let _ = stop.await;
                     })
@@ -200,6 +211,9 @@ pub struct FakeState {
     /// Logs every application deployment serves, and the logs requests received.
     pub application_logs: FakeApplicationLogs,
 
+    /// Machines of the site, which the membership service removes.
+    pub machines: Vec<FakeMachine>,
+
     /// Scripted answers that replace the normal behavior of one call.
     pub scripted: HashMap<Rpc, Scripted>,
 
@@ -261,6 +275,46 @@ pub enum Rpc {
     ReadApplicationLogs,
 
     FollowApplicationLogs,
+
+    ListMachines,
+
+    /// A removal preview, which changes nothing.
+    PreviewMachineRemoval,
+
+    RemoveMachine,
+}
+
+/// One machine of the fake site and the deployments placed on it.
+#[derive(Clone, Debug)]
+pub struct FakeMachine {
+    pub node_id: String,
+    pub display_name: String,
+    pub site_manager: bool,
+    pub connected: bool,
+
+    /// Model deployment ids placed on the machine.
+    pub deployments: Vec<String>,
+}
+
+impl FakeMachine {
+    /// A connected worker without deployments.
+    pub fn worker(node_id: &str, display_name: &str) -> Self {
+        Self {
+            node_id: node_id.to_owned(),
+            display_name: display_name.to_owned(),
+            site_manager: false,
+            connected: true,
+            deployments: Vec::new(),
+        }
+    }
+
+    /// The site manager's machine.
+    pub fn manager(node_id: &str, display_name: &str) -> Self {
+        Self {
+            site_manager: true,
+            ..Self::worker(node_id, display_name)
+        }
+    }
 }
 
 /// The logs the model deployment service answers with: one read page, then the events of a
@@ -763,7 +817,20 @@ impl SiteService for FakeSite {
         &self,
         _request: Request<ListMachinesRequest>,
     ) -> Result<Response<ListMachinesResponse>, Status> {
-        Err(not_faked())
+        let mut state = self.state.lock().expect("fake manager state");
+        record(&mut state, Rpc::ListMachines, None)?;
+        Ok(Response::new(ListMachinesResponse {
+            machines: state
+                .machines
+                .iter()
+                .map(|machine| Machine {
+                    machine_id: machine.node_id.clone(),
+                    display_name: machine.display_name.clone(),
+                    site_manager: machine.site_manager,
+                    ..Machine::default()
+                })
+                .collect(),
+        }))
     }
 
     async fn list_hardware_snapshots(
@@ -799,6 +866,141 @@ fn record(state: &mut FakeState, rpc: Rpc, id: Option<&str>) -> Result<Option<Sc
         Some(Scripted::Fail(status)) => Err(status),
         scripted => Ok(scripted),
     }
+}
+
+/// The membership service over the shared machines; only removal is faked, with the manager's
+/// refusal rules.
+struct FakeMembership {
+    state: Arc<Mutex<FakeState>>,
+}
+
+#[tonic::async_trait]
+impl SiteMembershipService for FakeMembership {
+    type WatchJoinStream = std::pin::Pin<
+        Box<dyn futures_util::Stream<Item = Result<WatchJoinResponse, Status>> + Send>,
+    >;
+
+    async fn start_join(
+        &self,
+        _request: Request<StartJoinRequest>,
+    ) -> Result<Response<StartJoinResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn watch_join(
+        &self,
+        _request: Request<WatchJoinRequest>,
+    ) -> Result<Response<Self::WatchJoinStream>, Status> {
+        Err(not_faked())
+    }
+
+    async fn approve_join(
+        &self,
+        _request: Request<ApproveJoinRequest>,
+    ) -> Result<Response<ApproveJoinResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn reject_join(
+        &self,
+        _request: Request<RejectJoinRequest>,
+    ) -> Result<Response<RejectJoinResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn cancel_join(
+        &self,
+        _request: Request<CancelJoinRequest>,
+    ) -> Result<Response<CancelJoinResponse>, Status> {
+        Err(not_faked())
+    }
+
+    async fn remove_machine(
+        &self,
+        request: Request<RemoveMachineRequest>,
+    ) -> Result<Response<RemoveMachineResponse>, Status> {
+        let request = request.into_inner();
+        let mut state = self.state.lock().expect("fake manager state");
+        let rpc = if request.validate_only {
+            Rpc::PreviewMachineRemoval
+        } else {
+            Rpc::RemoveMachine
+        };
+        record(&mut state, rpc, Some(&request.node_id))?;
+        let Some(index) = state
+            .machines
+            .iter()
+            .position(|machine| machine.node_id == request.node_id)
+        else {
+            return Ok(removal(remove_machine_response::Outcome::AlreadyRemoved(
+                Default::default(),
+            )));
+        };
+        let machine = state.machines[index].clone();
+        let deployments = machine
+            .deployments
+            .iter()
+            .map(|id| MachineRemovalDeployment {
+                kind: MachineRemovalDeploymentKind::Model as i32,
+                deployment_id: id.clone(),
+                name: id.clone(),
+                tearing_down: false,
+            })
+            .collect::<Vec<_>>();
+        let refused = |reason: MachineRemovalRefusalReason, message: String| {
+            removal(remove_machine_response::Outcome::Refused(
+                MachineRemovalRefusal {
+                    reason: reason as i32,
+                    message,
+                    deployments: deployments.clone(),
+                    ..MachineRemovalRefusal::default()
+                },
+            ))
+        };
+        if machine.site_manager {
+            return Ok(refused(
+                MachineRemovalRefusalReason::Manager,
+                format!(
+                    "node {:?} is the site manager and cannot be removed",
+                    machine.display_name
+                ),
+            ));
+        }
+        if !deployments.is_empty() && !request.forget_deployments {
+            return Ok(refused(
+                MachineRemovalRefusalReason::DeploymentsPlaced,
+                format!(
+                    "node {:?} still has {} deployment(s) placed on it: {}",
+                    machine.display_name,
+                    deployments.len(),
+                    machine.deployments.join(", ")
+                ),
+            ));
+        }
+        if !deployments.is_empty() && machine.connected {
+            return Ok(refused(
+                MachineRemovalRefusalReason::Connected,
+                format!("node {:?} is connected", machine.display_name),
+            ));
+        }
+        let plan = MachineRemovalPlan {
+            node_id: machine.node_id.clone(),
+            display_name: machine.display_name.clone(),
+            forgotten_deployments: deployments.clone(),
+            ..MachineRemovalPlan::default()
+        };
+        if request.validate_only {
+            return Ok(removal(remove_machine_response::Outcome::WouldRemove(plan)));
+        }
+        state.machines.remove(index);
+        Ok(removal(remove_machine_response::Outcome::Removed(plan)))
+    }
+}
+
+fn removal(outcome: remove_machine_response::Outcome) -> Response<RemoveMachineResponse> {
+    Response::new(RemoveMachineResponse {
+        outcome: Some(outcome),
+    })
 }
 
 fn not_faked() -> Status {

@@ -18,7 +18,8 @@ use dotcore_proto::dotcore::{
     model::v1::model_deployment_service_client::ModelDeploymentServiceClient,
     site::v1::{
         ConfiguredExecutionTarget, ListConfiguredExecutionTargetsRequest,
-        site_join_service_client::SiteJoinServiceClient, site_service_client::SiteServiceClient,
+        site_membership_service_client::SiteMembershipServiceClient,
+        site_service_client::SiteServiceClient,
     },
 };
 use tonic::{
@@ -138,9 +139,15 @@ impl Manager {
         Ok(Self { channel })
     }
 
-    /// Returns a client of the join service, which adds machines to the running site.
-    pub(crate) fn joins(&self) -> SiteJoinServiceClient<Channel> {
-        SiteJoinServiceClient::new(self.channel.clone())
+    /// Returns a client of the membership service, which adds machines to the running site and
+    /// removes them.
+    pub(crate) fn membership(&self) -> SiteMembershipServiceClient<Channel> {
+        SiteMembershipServiceClient::new(self.channel.clone())
+    }
+
+    /// Returns a client of the site service, which lists the site's machines.
+    pub(crate) fn site(&self) -> SiteServiceClient<Channel> {
+        SiteServiceClient::new(self.channel.clone())
     }
 
     /// Returns a client of the model deployment service.

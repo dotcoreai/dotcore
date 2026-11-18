@@ -2547,7 +2547,7 @@ async fn at_most_the_active_join_limit_runs_at_once() {
 #[tokio::test]
 async fn the_management_api_starts_follows_and_decides_joins() {
     use dotcore_proto::dotcore::site::v1::{
-        self as proto, site_join_service_server::SiteJoinService as _,
+        self as proto, site_membership_service_server::SiteMembershipService as _,
     };
     use futures_util::StreamExt as _;
 
@@ -2558,8 +2558,14 @@ async fn the_management_api_starts_follows_and_decides_joins() {
     .await;
     let clock = ManualClock::new();
     let heartbeat = Duration::from_secs(15);
-    let service = super::JoinManagementService::new(
+    let service = crate::membership::MembershipManagementService::new(
         harness.registry.clone(),
+        crate::membership::MachineRemoval::new(
+            harness.repository.clone(),
+            &harness.fixture.root,
+            harness.live_pins.clone(),
+            Arc::new(crate::membership::test_support::Disconnected),
+        ),
         Arc::new(clock.clone()),
         heartbeat,
     );

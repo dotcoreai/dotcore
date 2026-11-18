@@ -352,6 +352,29 @@ impl SiteRepository {
         Ok(result)
     }
 
+    /// Runs a node removal: `plan` reads the current site under the site lock and returns the
+    /// site without the node, and without any deployments and routes the removal withdraws with
+    /// it. It is the one membership change that may withdraw other owners' declarations.
+    ///
+    /// It is persist-or-reject like [`Self::mutate_membership`]: the site is accepted in memory
+    /// only once `site.yaml` holds it, and `persisted` then runs before controllers are notified,
+    /// so trust is withdrawn only from a removal that is durable.
+    pub fn remove_node<T, E: std::error::Error + 'static>(
+        &self,
+        plan: impl FnOnce(&Site) -> Result<(Site, T), E>,
+        persisted: impl FnOnce(&T),
+    ) -> Result<T, ScopedSiteMutationError<E>> {
+        let mut current = lock(&self.state).map_err(ScopedSiteMutationError::Repository)?;
+        let (candidate, result) = plan(&current.site).map_err(ScopedSiteMutationError::Owner)?;
+        validate_site(&candidate, &self.rules).map_err(ScopedSiteMutationError::Repository)?;
+        let contents = yaml::to_string(&candidate)
+            .map_err(SiteRepositoryError::SerializeYaml)
+            .map_err(ScopedSiteMutationError::Repository)?;
+        self.persist_or_reject(&mut current, candidate, &contents, || persisted(&result))
+            .map_err(ScopedSiteMutationError::Repository)?;
+        Ok(result)
+    }
+
     /// Returns the owner rules every accepted site satisfies.
     pub fn declaration_rules(&self) -> SiteDeclarationRules {
         self.rules

@@ -1,8 +1,8 @@
-//! Takes one worker node out of a stopped site: a plan the operator reviews, then
-//! an apply step that removes the node's pin and its membership from `site.yaml`.
+//! Takes one worker node out of a site: a plan the operator reviews, computed from the site alone
+//! and shared by the running manager's removal, then a stopped site's apply step that writes
+//! `site.yaml` without the node, then deletes its pin.
 //!
-//! The plan is computed from the site alone, so the command can show what changes before it asks
-//! for confirmation while the exclusive site lock stays held. A node that still has deployments
+//! The plan comes first, so the operator sees what changes before confirming. A node that still has deployments
 //! is refused, unless the operator chose to forget them, in which case they and the routes only
 //! they serve are withdrawn without cleanup evidence from the node.
 
@@ -22,6 +22,7 @@ use dotcore_proto::{
     },
     yaml,
 };
+use tracing::warn;
 
 use crate::{
     SITE_FILE,
@@ -263,9 +264,10 @@ pub(super) fn placed_deployment_count(site: &Site, node_id: &str) -> usize {
 impl OfflineSite {
     /// Plans a removal against the site on disk, under the lock this value holds.
     ///
-    /// A node id that is neither declared nor pinned reports [`NodeRemoval::AlreadyRemoved`], so
-    /// a retry after a removal that landed with an uncertain outcome succeeds. A display name
-    /// that is not declared is an error, because it cannot be told from a typo.
+    /// A node id that is not declared reports [`NodeRemoval::AlreadyRemoved`], so a retry after
+    /// a removal that landed with an uncertain outcome succeeds; a pin it may have left behind is
+    /// never trusted and is deleted when the manager starts. A display name that is not declared
+    /// is an error, because it cannot be told from a typo.
     pub fn plan_node_removal(
         &self,
         selector: &str,
@@ -274,9 +276,7 @@ impl OfflineSite {
         let site = self.load_site().map_err(NodeRemovalError::SiteUnreadable)?;
         match plan_node_removal(&site, &self.rules, selector, forget_deployments) {
             Ok(plan) => Ok(NodeRemoval::Planned(Box::new(plan))),
-            Err(NodeRemovalError::UnknownNode { .. })
-                if looks_like_node_id(selector) && !self.pin_exists(selector)? =>
-            {
+            Err(NodeRemovalError::UnknownNode { .. }) if looks_like_node_id(selector) => {
                 Ok(NodeRemoval::AlreadyRemoved {
                     node_id: selector.to_owned(),
                 })
@@ -285,73 +285,60 @@ impl OfflineSite {
         }
     }
 
-    /// Applies a plan made under this lock: removes the node's pin, then replaces `site.yaml`.
+    /// Applies a plan made under this lock: replaces `site.yaml`, then removes the node's pin.
     pub fn remove_node(&self, plan: &NodeRemovalPlan) -> Result<(), NodeRemovalError> {
         unpublish_node(&self.site_root, &self.lock, plan)
     }
-
-    fn pin_exists(&self, node_id: &str) -> Result<bool, NodeRemovalError> {
-        let pin = self.pin_path(node_id);
-        pin.try_exists().map_err(|source| {
-            NodeRemovalError::Storage(
-                anyhow::Error::new(source)
-                    .context(format!("inspect the node pin {}", pin.display())),
-            )
-        })
-    }
-
-    fn pin_path(&self, node_id: &str) -> PathBuf {
-        self.site_root
-            .join(SITE_TRUST_DIRECTORY)
-            .join(WORKER_PIN_DIRECTORY)
-            .join(format!("{node_id}.sha256"))
-    }
 }
 
-/// Removes the node's pin and syncs the pin directory, then replaces `site.yaml` with the
-/// planned site, under the exclusive lock that `_lock` proves is held.
+/// Replaces `site.yaml` with the planned site, then removes the node's pin and syncs the pin
+/// directory, under the exclusive lock that `_lock` proves is held.
 ///
-/// The pin goes first: a node that is still declared without a pin cannot authenticate and does
-/// not block the manager from starting, and a retry finishes the removal, whereas a pin without
-/// its node would fail the manager's startup. A missing pin is fine. A failure before the
-/// replacement leaves the site declaring the node; a failure after it is reported as
-/// [`NodeRemovalError::OutcomeUncertain`].
+/// The site goes first, so a node the site still declares always keeps its pin. Removing the pin
+/// is best effort: a pin left behind belongs to a node the site no longer declares, which is never
+/// trusted and is deleted when the manager starts.
 pub(super) fn unpublish_node(
     site_root: &Path,
     _lock: &SiteInputLock,
     plan: &NodeRemovalPlan,
 ) -> Result<(), NodeRemovalError> {
     let site_yaml = yaml::to_string(&plan.updated_site).map_err(NodeRemovalError::SerializeSite)?;
-    let pin = plan.pin_path(site_root);
-    match fs::remove_file(&pin) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(NodeRemovalError::Storage(
-                anyhow::Error::new(error).context(format!("remove node pin {}", pin.display())),
-            ));
-        }
-    }
-    if let Some(pins) = pin.parent() {
-        dotcore_domain::fs_sync::sync_directory(pins).map_err(|error| {
-            NodeRemovalError::Storage(
-                anyhow::Error::new(error).context(format!("sync pin directory {}", pins.display())),
-            )
-        })?;
-    }
-
     match persist_bytes(
         &StdFileSystem,
         &site_root.join(SITE_FILE),
         site_yaml.as_bytes(),
     ) {
-        Ok(()) => Ok(()),
-        Err(error @ AtomicError::Storage(_)) => Err(NodeRemovalError::Storage(
-            anyhow::Error::new(error).context("replace site.yaml"),
-        )),
-        Err(error @ AtomicError::OutcomeUncertain(_)) => Err(NodeRemovalError::OutcomeUncertain(
-            anyhow::Error::new(error).context("replace site.yaml"),
-        )),
+        Ok(()) => {}
+        Err(error @ AtomicError::Storage(_)) => {
+            return Err(NodeRemovalError::Storage(
+                anyhow::Error::new(error).context("replace site.yaml"),
+            ));
+        }
+        Err(error @ AtomicError::OutcomeUncertain(_)) => {
+            return Err(NodeRemovalError::OutcomeUncertain(
+                anyhow::Error::new(error).context("replace site.yaml"),
+            ));
+        }
+    }
+
+    remove_pin(&plan.pin_path(site_root));
+    Ok(())
+}
+
+/// Deletes the pin of a node the site no longer declares, best effort.
+pub(super) fn remove_pin(pin: &Path) {
+    match fs::remove_file(pin) {
+        Ok(()) => {
+            if let Some(pins) = pin.parent()
+                && let Err(error) = dotcore_domain::fs_sync::sync_directory(pins)
+            {
+                warn!(event_kind = "site_node_pin_removal", outcome = "unsynced", path = %pins.display(), error = %error, "Removed node's pin was deleted but its folder could not be synced");
+            }
+        }
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            warn!(event_kind = "site_node_pin_removal", outcome = "failed", path = %pin.display(), error = %error, "Removed node's pin could not be deleted; the manager deletes it when it starts");
+        }
     }
 }
 
@@ -489,7 +476,8 @@ fn placed_application(deployment: &ApplicationDeploymentDeclaration) -> PlacedDe
 }
 
 /// Node ids derived when a node joins look like `node-6c62272e07`.
-fn looks_like_node_id(selector: &str) -> bool {
+/// Reports whether `selector` has the shape of a node id rather than a display name.
+pub fn looks_like_node_id(selector: &str) -> bool {
     selector
         .strip_prefix("node-")
         .is_some_and(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -524,7 +512,7 @@ fn linked_application_lines(applications: &[ApplicationRouteReference]) -> Strin
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::collections::BTreeMap;
 
     use dotcore_proto::dotcore::{
@@ -548,7 +536,7 @@ mod tests {
         validation::load_validated_site,
     };
 
-    const WORKER: &str = "node-00000000aa";
+    pub(in crate::membership) const WORKER: &str = "node-00000000aa";
 
     #[test]
     fn removing_an_empty_worker_drops_exactly_the_node_its_targets_and_its_pin() {
@@ -995,34 +983,39 @@ mod tests {
     }
 
     #[test]
-    fn an_unreadable_pin_location_is_an_error_not_an_already_removed_node() {
+    fn a_pin_left_after_the_site_was_written_still_reports_already_removed() {
         let fixture = installed_worker();
         let site =
             OfflineSite::open(&fixture.root, &SiteInputBundleValidator::for_test()).expect("open");
-        let pins = pin_dir(&fixture.root);
-        fs::remove_dir_all(&pins).expect("remove pins");
-        fs::write(&pins, "not a directory").expect("block the pin directory");
-
-        let result = site.plan_node_removal("node-0123456789abcdef", false);
-
-        let Err(NodeRemovalError::Storage(error)) = result else {
-            panic!("expected a storage error, got {result:?}");
+        let NodeRemoval::Planned(plan) = site.plan_node_removal(WORKER, false).expect("plan")
+        else {
+            panic!("declared");
         };
-        assert!(
-            format!("{error:#}").starts_with("inspect the node pin "),
-            "{error:#}"
+        let pin = plan.pin_path(&fixture.root);
+        let pin_contents = fs::read(&pin).expect("read the pin");
+        site.remove_node(&plan).expect("remove");
+        assert!(!pin.exists(), "the removal deletes the pin");
+        // A pin whose deletion failed stays behind; the manager discards it when it starts.
+        fs::write(&pin, pin_contents).expect("leave the pin behind");
+
+        assert_eq!(
+            site.plan_node_removal(WORKER, false).expect("by id"),
+            NodeRemoval::AlreadyRemoved {
+                node_id: WORKER.to_owned()
+            }
         );
+        assert_eq!(site.load_site().expect("site"), fixture.base.site);
     }
 
     /// An initialized site with one worker, declared in `site.yaml` and pinned on disk.
-    struct WorkerFixture {
-        base: InitializedSite,
-        root: PathBuf,
-        site_with_worker: Site,
+    pub(in crate::membership) struct WorkerFixture {
+        pub(in crate::membership) base: InitializedSite,
+        pub(in crate::membership) root: PathBuf,
+        pub(in crate::membership) site_with_worker: Site,
     }
 
     impl WorkerFixture {
-        fn place_on_worker(&mut self) {
+        pub(in crate::membership) fn place_on_worker(&mut self) {
             let target = worker_model_target();
             let site = &mut self.site_with_worker;
             site.model_deployments = vec![
@@ -1072,7 +1065,7 @@ mod tests {
         }
     }
 
-    fn installed_worker() -> WorkerFixture {
+    pub(in crate::membership) fn installed_worker() -> WorkerFixture {
         let base = initialized_site();
         let root = base.root.clone();
         let mut site = base.site.clone();
@@ -1102,7 +1095,7 @@ mod tests {
             .expect("lock is free")
     }
 
-    fn pin_dir(root: &Path) -> PathBuf {
+    pub(in crate::membership) fn pin_dir(root: &Path) -> PathBuf {
         root.join(SITE_TRUST_DIRECTORY).join(WORKER_PIN_DIRECTORY)
     }
 

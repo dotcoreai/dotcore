@@ -2880,7 +2880,7 @@ fn node_remove_leave_and_list_help_describe_their_arguments() {
 
     assert_eq!(
         help("remove"),
-        "Remove a worker node from this stopped site; runs on the stopped manager. Run `dotc node leave` on the removed machine afterwards\n\nUsage: dotc node remove [OPTIONS] <NODE>\n\nArguments:\n  <NODE>  Display name or node id of the worker node to remove\n\nOptions:\n      --forget-deployments  Drop the declarations of deployments placed on the node, and the routes only they serve, without cleanup evidence from the node. Without it, a node with deployments is refused\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --yes                 Remove the node without asking for confirmation\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help\n"
+        "Remove a worker node from the site, through the running manager or from this stopped site. Run `dotc node leave` on the removed machine afterwards\n\nUsage: dotc node remove [OPTIONS] <NODE>\n\nArguments:\n  <NODE>  Display name or node id of the worker node to remove\n\nOptions:\n      --manager <ADDRESS>   Management address of the running site manager, as host:port or http://host:port [env: DOTCORE_MANAGEMENT_ADDR=] [default: 127.0.0.1:50051]\n      --verbose             Show the complete cause chain of a failure on a terminal\n      --forget-deployments  Drop the declarations of deployments placed on the node, and the routes only they serve, without cleanup evidence from the node. Without it, a node with deployments is refused. A running site accepts it only while the node is not connected\n      --site-dir <PATH>     Absolute site or node folder; defaults to $XDG_STATE_HOME/dotcore/site, else ~/.local/state/dotcore/site [env: DOTCORE_SITE_DIR]\n      --catalog-dir <PATH>  Absolute master catalog folder [env: DOTCORE_CATALOG_DIR]\n      --yes                 Remove the node without asking for confirmation\n      --cache-dir <PATH>    Absolute root of the recreatable caches; defaults to $XDG_CACHE_HOME/dotcore, else ~/.cache/dotcore [env: DOTCORE_CACHE_DIR]\n  -h, --help                Print help\n"
     );
     assert_eq!(
         help("leave"),
@@ -2893,7 +2893,7 @@ fn node_remove_leave_and_list_help_describe_their_arguments() {
 }
 
 #[test]
-fn node_remove_refuses_a_locked_site_with_the_exact_diagnostic() {
+fn node_remove_of_a_locked_site_without_a_reachable_manager_says_what_it_needs() {
     let fixture = TemporarySite::new();
     let lock = File::options()
         .read(true)
@@ -2905,18 +2905,20 @@ fn node_remove_refuses_a_locked_site_with_the_exact_diagnostic() {
     // SAFETY: flock is called with a valid owned file descriptor and released when the file closes.
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_SH) }, 0);
 
+    // A site locked by its running manager is removed from through that manager.
     let output = node_remove_command(fixture.site_path(), "Worker two")
+        .env("DOTCORE_MANAGEMENT_ADDR", "127.0.0.1:1")
         .output()
         .expect("run locked node remove");
 
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
-    assert_eq!(
-        text(&output.stderr),
-        format!(
-            "cannot remove a node from the site at {site}: site at {site} is running or locked; stop the manager and retry\n",
-            site = fixture.site_path().display()
-        )
+    assert!(
+        text(&output.stderr).starts_with(
+            "removing a node needs the site manager running, or its stopped site on this machine: "
+        ),
+        "{}",
+        text(&output.stderr)
     );
 }
 
@@ -3074,6 +3076,95 @@ fn node_remove_of_an_already_removed_node_id_succeeds_and_an_unknown_name_fails(
     assert_eq!(
         text(&manager.stderr),
         "cannot remove node \"CLI test node\": node \"CLI test node\" is the site manager and cannot be removed; only worker nodes can leave the site\n"
+    );
+}
+
+#[test]
+fn node_remove_goes_through_the_running_manager_and_reports_its_outcomes() {
+    use support::fake_manager::{Call, FakeMachine, FakeManager, FakeState, Rpc};
+
+    let fake = FakeManager::start(FakeState {
+        machines: vec![
+            FakeMachine::manager("node-00000000000000aa", "Manager"),
+            FakeMachine::worker("node-00000000000000bb", "Worker two"),
+            FakeMachine {
+                deployments: vec!["model-1".to_owned()],
+                ..FakeMachine::worker("node-00000000000000cc", "Worker three")
+            },
+        ],
+        ..FakeState::default()
+    });
+    let no_site = TemporarySite::empty();
+    let remove = |node: &str, forget: bool| {
+        let mut command = node_remove_command(&no_site.root.join("site"), node);
+        command.env("DOTCORE_MANAGEMENT_ADDR", fake.address().to_string());
+        if forget {
+            command.arg("--forget-deployments");
+        }
+        command.output().expect("run node remove")
+    };
+
+    // A worker without deployments is previewed, then removed.
+    let removed = remove("Worker two", false);
+    assert_eq!(removed.status.code(), Some(0), "{}", text(&removed.stderr));
+    assert_eq!(
+        text(&removed.stdout),
+        "Node removed\nDOTCORE_NODE_ID=node-00000000000000bb\nDOTCORE_NODE_NAME=Worker two\n"
+    );
+    assert_eq!(
+        fake.calls()
+            .into_iter()
+            .map(|Call { rpc, id }| (rpc, id))
+            .collect::<Vec<_>>(),
+        [
+            (Rpc::ListMachines, None),
+            (
+                Rpc::PreviewMachineRemoval,
+                Some("node-00000000000000bb".to_owned())
+            ),
+            (Rpc::RemoveMachine, Some("node-00000000000000bb".to_owned())),
+        ]
+    );
+    assert_eq!(
+        fake.state()
+            .machines
+            .iter()
+            .map(|machine| machine.node_id.as_str())
+            .collect::<Vec<_>>(),
+        ["node-00000000000000aa", "node-00000000000000cc"]
+    );
+
+    // Its id again reports it already removed.
+    let retry = remove("node-00000000000000bb", false);
+    assert_eq!(retry.status.code(), Some(0), "{}", text(&retry.stderr));
+    assert_eq!(
+        text(&retry.stdout),
+        "Node already removed\nDOTCORE_NODE_ID=node-00000000000000bb\n"
+    );
+
+    // Placed deployments refuse it, and a connected worker can't forget them.
+    let refused = remove("Worker three", false);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(refused.stdout.is_empty());
+    assert_eq!(
+        text(&refused.stderr),
+        "cannot remove node \"Worker three\": node \"Worker three\" still has 1 deployment(s) placed on it: model-1\n"
+    );
+    let connected = remove("Worker three", true);
+    assert_eq!(connected.status.code(), Some(1));
+    assert_eq!(
+        text(&connected.stderr),
+        "cannot remove node \"Worker three\": node \"Worker three\" is connected\n"
+    );
+    assert_eq!(fake.state().machines.len(), 2, "nothing removed");
+
+    // An unknown name is an error, never an already removed node.
+    let unknown = remove("Worker four", false);
+    assert_eq!(unknown.status.code(), Some(1));
+    assert!(
+        text(&unknown.stderr).starts_with("no node \"Worker four\" in this site; declared nodes: "),
+        "{}",
+        text(&unknown.stderr)
     );
 }
 

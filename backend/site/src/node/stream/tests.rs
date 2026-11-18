@@ -514,6 +514,48 @@ async fn a_published_view_reaches_the_open_stream_without_a_poll() {
 }
 
 #[tokio::test]
+async fn a_node_removed_from_the_site_gets_no_empty_view_and_is_told_it_is_not_a_member() {
+    let fixture = Fixture::new();
+    let mut node = fixture.open("worker-one");
+    node.opened(&incarnation('1')).await;
+
+    fixture
+        .site
+        .remove_node(
+            |site| {
+                let mut without = site.clone();
+                without.nodes.retain(|node| node.node_id != "worker-one");
+                without
+                    .execution_targets
+                    .retain(|target| target.site_node_id != "worker-one");
+                Ok::<_, std::convert::Infallible>((without, ()))
+            },
+            |()| {},
+        )
+        .expect("accepted removal");
+
+    // A publication would be the empty view; the stream ends without one.
+    let ended = match node.next().await {
+        Some(Err(status)) => status,
+        other => panic!("expected the stream to end with no view, got {other:?}"),
+    };
+    assert!(
+        crate::private_transport::is_not_a_member(&ended),
+        "{ended:?}"
+    );
+    assert!(node.next().await.is_none(), "nothing follows the end");
+
+    // Opening again is answered the same way.
+    let mut again = fixture.open("worker-one");
+    again.send(Message::Open(open(&incarnation('2'))));
+    let refused = again.ended().await;
+    assert!(
+        crate::private_transport::is_not_a_member(&refused),
+        "{refused:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_view_that_cannot_be_built_at_open_answers_with_the_last_published_view() {
     let fixture = Fixture::new();
     let mut first = fixture.open("worker-one");
