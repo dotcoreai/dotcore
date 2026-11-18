@@ -168,9 +168,9 @@ auxiliaryArtifacts:
 configurations:
   - configurationId: "vllm-nvidia-cuda-fp8"
     engineArtifacts:
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-amd64-cuda"
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "fp8"
@@ -189,23 +189,24 @@ configurations:
         mtpBytes: 2901782544
         visionBytes: 1188129047
         marginBytes: 800000000
-        kvBlockBytes: 21463040
+        kvBlockBytes: 21626880
         kvBytesPerToken: 13167
-        kvMtpBlockBytes: 25051136
+        kvMtpBlockBytes: 25231360
         kvMtpBytesPerToken: 14191
       derivedParameters:
-        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 2
-        # recurrent-state blocks per recurrent layer group (3 groups), one more per group for each MTP
-        # draft token, and one for rounding the request's context up; one more block is held back. With
+        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 3
+        # recurrent-state blocks per recurrent layer group (3 groups; the third is a prefill checkpoint
+        # with prefix caching), one more per group for each MTP draft token, and one for rounding the
+        # request's context up; one more block is held back. With
         # one request this is vLLM's start check at a context per request equal to the total context.
         # Block bytes are those of the largest MTP draft count; per-token bytes are the larger of vLLM's
         # block layout and the measurement.
         kv-cache-memory-bytes: >-
           if(${options.mtp.token-count} > 0, 1, 0)
-          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (7 + 3 * ${options.mtp.token-count}))
+          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (10 + 3 * ${options.mtp.token-count}))
           + ${kvMtpBytesPerToken} * ${total-context})
           + if(${options.mtp.token-count} == 0, 1, 0)
-          * (${kvBlockBytes} * (1 + ${parallel-requests} * 7)
+          * (${kvBlockBytes} * (1 + ${parallel-requests} * 10)
           + ${kvBytesPerToken} * ${total-context})
       estimates:
         acceleratorMemory:
@@ -295,9 +296,9 @@ configurations:
               unsignedInteger: "2"
   - configurationId: "vllm-nvidia-cuda-nvfp4"
     engineArtifacts:
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-amd64-cuda"
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"
@@ -315,23 +316,24 @@ configurations:
         mtpBytes: 2447415018
         visionBytes: 1188129047
         marginBytes: 800000000
-        kvBlockBytes: 21463040
+        kvBlockBytes: 21626880
         kvBytesPerToken: 13167
-        kvMtpBlockBytes: 25051136
+        kvMtpBlockBytes: 25231360
         kvMtpBytesPerToken: 14191
       derivedParameters:
-        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 2
-        # recurrent-state blocks per recurrent layer group (3 groups), one more per group for each MTP
-        # draft token, and one for rounding the request's context up; one more block is held back. With
+        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 3
+        # recurrent-state blocks per recurrent layer group (3 groups; the third is a prefill checkpoint
+        # with prefix caching), one more per group for each MTP draft token, and one for rounding the
+        # request's context up; one more block is held back. With
         # one request this is vLLM's start check at a context per request equal to the total context.
         # Block bytes are those of the largest MTP draft count; per-token bytes are the larger of vLLM's
         # block layout and the measurement.
         kv-cache-memory-bytes: >-
           if(${options.mtp.token-count} > 0, 1, 0)
-          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (7 + 3 * ${options.mtp.token-count}))
+          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (10 + 3 * ${options.mtp.token-count}))
           + ${kvMtpBytesPerToken} * ${total-context})
           + if(${options.mtp.token-count} == 0, 1, 0)
-          * (${kvBlockBytes} * (1 + ${parallel-requests} * 7)
+          * (${kvBlockBytes} * (1 + ${parallel-requests} * 10)
           + ${kvBytesPerToken} * ${total-context})
       estimates:
         acceleratorMemory:

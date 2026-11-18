@@ -36,7 +36,10 @@ pub(super) const TEMPLATE_BINDING_ID: &str = "chat-template";
 pub(super) const SPECULATIVE_DRAFT_BINDING_ID: &str = "speculative-draft";
 /// Memory utilization is rendered in ten-thousandths, the precision vLLM's startup check needs.
 const UTILIZATION_SCALE: u128 = 10_000;
-const ADAPTER_OWNED_FLAGS: [&str; 26] = [
+/// Tokens per KV cache block. Model sizing counts the blocks each request holds in this unit, so it
+/// is fixed rather than left to the engine default.
+const KV_BLOCK_SIZE_TOKENS: &str = "64";
+const ADAPTER_OWNED_FLAGS: [&str; 27] = [
     "--host",
     "--port",
     "--served-model-name",
@@ -49,6 +52,7 @@ const ADAPTER_OWNED_FLAGS: [&str; 26] = [
     "--max-num-seqs",
     "--max-num-batched-tokens",
     "--max-cudagraph-capture-size",
+    "--block-size",
     "--kv-cache-dtype",
     "--kv-cache-memory-bytes",
     "--gpu-memory-utilization",
@@ -230,6 +234,7 @@ pub(crate) fn translate(
             return Err(VllmPlanError::InvalidResolvedState);
         }
     }
+    arguments.extend(literals(["--block-size", KV_BLOCK_SIZE_TOKENS]));
     arguments.extend(parameter_arguments(
         snapshot,
         "--kv-cache-memory-bytes",
@@ -770,6 +775,8 @@ mod tests {
                 "--enable-log-requests",
                 "--kv-cache-dtype",
                 "fp8",
+                "--block-size",
+                "64",
                 "--kv-cache-memory-bytes",
                 "7000",
                 "--gpu-memory-utilization",
@@ -892,6 +899,7 @@ mod tests {
             "--served-model-name=other",
             "--kv-cache-memory-bytes",
             "--gpu-memory-utilization=0.5",
+            "--block-size=16",
             "--language-model-only",
             "--speculative-config",
         ] {
@@ -1065,6 +1073,8 @@ mod tests {
             ArgumentValue::Literal("--enable-log-requests".to_owned()),
             ArgumentValue::Literal("--kv-cache-dtype".to_owned()),
             ArgumentValue::Literal("fp8".to_owned()),
+            ArgumentValue::Literal("--block-size".to_owned()),
+            ArgumentValue::Literal("64".to_owned()),
             ArgumentValue::Literal("--kv-cache-memory-bytes".to_owned()),
             ArgumentValue::Literal("7000".to_owned()),
             ArgumentValue::Literal("--gpu-memory-utilization".to_owned()),

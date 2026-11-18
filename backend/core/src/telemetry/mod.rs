@@ -336,7 +336,7 @@ mod tests {
                 profile_id: "nvfp4-text".to_owned(),
                 model_artifact_id: "nvfp4".to_owned(),
                 auxiliary_artifact_ids: vec!["chat-template".to_owned()],
-                engine_release_id: "vllm-v0-32-0".to_owned(),
+                engine_release_id: "vllm-v0-34-0".to_owned(),
                 engine_artifact_id: "linux-amd64-cuda".to_owned(),
                 engine_artifact_reference: "docker.io/vllm/vllm-openai@sha256:d392".to_owned(),
                 engine_parameter_values: Some(ParameterValues {
