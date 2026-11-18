@@ -36,7 +36,7 @@ A site can span several machines that reach each other directly. The first one i
 - Once it joins, the new machine starts Dotcore by itself. If you skip that, start it later with `dotcore`.
 - The new machine reaches the manager at its private port, and the manager connects back to the new machine at its host and private port. Set up any NAT or firewall forwarding for those ports first, or the join fails.
 - When you deploy a model or an app, you pick the machine that runs it.
-- To remove a machine, first remove its deployments in the console. Then stop Dotcore on the manager, run `dotc node remove` there, and `dotc node leave` on the removed machine.
+- To remove a machine, first remove its deployments, then remove the machine from the console or with `dotc node remove`. The manager keeps running, and the removed machine stops Dotcore by itself. Run `dotc node leave` on it to clean it up. A machine that is off can be removed with its deployments forgotten; they may still run on it until you clean it.
 
 ## Free disk space
 

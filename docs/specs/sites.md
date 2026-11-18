@@ -118,6 +118,9 @@ and typed controller status flow up. View publications and acknowledgements flow
   incarnation replaced it.
 - A new incarnation is admitted only after the previous incarnation's stream has closed or fallen
   silent.
+- A node that is no longer a member of the site is told so, and its stream ends. It never receives
+  an empty view, so it never reads its removal as an absence of work. It stops and keeps its
+  workloads until the operator cleans the machine.
 - The site manager republishes each node's current view periodically. That keeps the node's action
   fencing current and serves as the site manager's heartbeat. A node reopens its stream when the
   site manager stays silent.
@@ -166,7 +169,8 @@ starts.
 - Offline initialization writes these inputs. It never changes a running site or bypasses deployment
   owners, except through node removal.
 - On a running site, the site manager records membership changes by accepting approved joins
-  ([access](access.md#joining-a-node)). Removal stays stopped-site work.
+  ([access](access.md#joining-a-node)) and node removals. Removal also works on a stopped site, to
+  recover a site whose manager can't start.
 
 ### Server-local node binding
 
@@ -266,17 +270,21 @@ The node that hosts the site manager process.
 - A persistence failure is reported without rolling back the accepted in-memory change. Such a
   change stays authoritative but can't justify irreversible effects on other nodes until it's
   persisted. Membership is the exception: it is persist-or-reject, because accepting a join hands
-  the node its identity, an irreversible effect on another node. A failed or uncertain write fails
-  the join with nothing accepted.
+  the node its identity, and removing a node takes it away, each an irreversible effect on another
+  node. A failed or uncertain write fails the join or the removal with nothing accepted, and a
+  removal cuts the node's trust only once it's persisted.
 - Desired configuration stays apart from observations, progress and history.
 - Operations spanning owners go through each owner's acceptance boundary. Creating a deployment with
   its direct-exposure route, and tearing down a deployment with the routes only it serves, are each
-  all-or-nothing in site authority.
+  all-or-nothing in site authority. A forced node removal is the exception: it withdraws the node's
+  deployments and the routes they alone serve without their owners' teardown.
 - Resource identities are portable and independent of runtime-native identities.
 - The accepting owner keeps the audit of accepted changes and the status of operations.
-- Removing a node is an exclusive administrative action on a stopped site. In one revision, it
-  withdraws the deployments placed on that node and the routes they alone serve, using the owners'
-  teardown rules.
+- Removing a node is an exclusive membership action, through the site manager on a running site or
+  as an administrative action on a stopped site. It refuses while deployments are placed on the
+  node, tearing down included. When the operator forces it for a node that isn't connected, it
+  withdraws those deployments and the routes they alone serve in the same revision, without cleanup
+  evidence.
 - Resetting a site is an exclusive administrative action on a stopped site, not reconciliation or a
   console capability. It rotates the site's trust, so its workers are provisioned again
   ([access](access.md#connecting-nodes)), and it removes the site's caches on the machine it runs on

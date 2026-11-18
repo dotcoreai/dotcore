@@ -86,7 +86,12 @@ sequenceDiagram
   trusted.
 - Join tokens never authorize runtime traffic.
 - Removing a node withdraws its membership and pin together. A removed node's identity no longer
-  authenticates, even while its certificate is valid under the site's certificate authority.
+  authenticates, even while its certificate is valid under the site's certificate authority. On a
+  running site, the site manager trusts the node's pin until the removal is recorded durably, then
+  closes the node's open connections at once and tells the node, when it connects again, that it
+  is no longer a member.
+- A removed node can't join again with its folder. You clean the machine, then join it with a new
+  token.
 - A node with an intact folder joins a running site again by proving its pinned identity. Only its addresses change, and the dial-back checks the new ones the same way.
 
 ### Connecting nodes
