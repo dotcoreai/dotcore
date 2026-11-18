@@ -541,6 +541,7 @@ mod tests {
                     maximum: Some(16_777_216),
                     unit: unit.to_owned(),
                     default_value,
+                    memory_pool: None,
                 },
             )),
             visibility: SHARED_PARAMETERS

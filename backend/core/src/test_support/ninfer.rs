@@ -182,6 +182,7 @@ pub(crate) fn release() -> EngineRelease {
                                 maximum,
                                 unit: unit.to_owned(),
                                 default_value,
+                                memory_pool: None,
                             },
                         )),
                         visibility: match parameter_id {

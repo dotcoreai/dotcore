@@ -1,6 +1,6 @@
 //! Judges a memory estimate against one target's pools: the demand it puts on each pool, whether
-//! that demand fits, the largest total context that fits and the one a deployment starts from, and
-//! the preview a view draws of it.
+//! that demand fits, the largest total context that fits and the one a deployment starts from, the
+//! largest value of a memory parameter that fits, and the preview a view draws of it.
 //!
 //! Dedicated devices hold the accelerator estimate in their own memory, while unified devices
 //! take it from the host pool along with the host estimate. A declared minimum above a pool's
@@ -98,6 +98,16 @@ pub(crate) struct Estimate {
 
     /// Host memory outside the accelerator; absent when sizing declares no host footprint.
     pub(crate) host_bytes: Option<u64>,
+}
+
+impl Estimate {
+    /// Bytes of one of the estimate's figures, absent when sizing gives none.
+    fn bytes_of(&self, part: EstimatePart) -> Option<u64> {
+        match part {
+            EstimatePart::Accelerator => self.accelerator_bytes,
+            EstimatePart::Host => self.host_bytes,
+        }
+    }
 }
 
 /// Bytes an estimate needs from each pool of one target, in the target's pool order.
@@ -230,6 +240,199 @@ pub(crate) enum LargestTotalContext {
 
     /// Nothing bounds it: no pool's demand grows with the total context and no ceiling applies.
     Unbounded,
+}
+
+/// Returns the largest value of a memory parameter at which the configuration still fits every
+/// pool of the target under the policy, given `probe`, the estimate with the parameter at a value
+/// (none when it can't be evaluated there, such as on overflow, which counts as not fitting).
+///
+/// Past the plateau, the smallest value beyond which neither estimate changes, more of the value
+/// changes nothing, so the fit stops there, though never below the value sizing picks. The
+/// plateau is probed first, since demand may step down there; below it, demand grows with the
+/// value. The fit stays within the parameter's range and is its minimum when nothing fits. Absent
+/// when the target has no pools, a pool fact is unknown, the estimate can't be evaluated at the
+/// minimum, or it never changes with the value.
+pub(crate) fn largest_fitting_value(
+    target: &TargetCapacity,
+    minimums: Option<&HardwareRequirements>,
+    policy: Policy,
+    range: MemoryParameterRange,
+    mut probe: impl FnMut(u64) -> Option<Estimate>,
+) -> Option<u64> {
+    if target.pools.is_empty() {
+        return None;
+    }
+    let room = target
+        .pools
+        .iter()
+        .map(|pool| policy.usable_bytes(pool))
+        .sum::<Option<u64>>()?;
+    let ceiling = range.maximum.unwrap_or(u64::MAX).max(range.minimum);
+    let mut sample = |value: u64| {
+        let estimate = probe(value);
+        let fits = estimate
+            .and_then(|estimate| demand(&estimate, target))
+            .is_some_and(|demand| fit(Some(&demand), target, minimums, policy) == MemoryFit::Fits);
+        Sample {
+            value,
+            estimate,
+            fits,
+        }
+    };
+
+    let first = sample(range.minimum);
+    first.estimate?;
+    if ceiling == range.minimum {
+        return None;
+    }
+    let mut samples = vec![first];
+    let mut step = 1_u64;
+    let growth = loop {
+        let last = samples[samples.len() - 1];
+        if last.value == ceiling {
+            break Growth::Limit {
+                edge: samples.len() - 1,
+                top: ceiling,
+            };
+        }
+        let next = sample(last.value.saturating_add(step).min(ceiling));
+        samples.push(next);
+        let Some(estimate) = next.estimate else {
+            break Growth::Limit {
+                edge: samples.len() - 2,
+                top: next.value,
+            };
+        };
+        if next.estimate == last.estimate {
+            if samples.len() == 2 {
+                return None;
+            }
+            // The estimate last changed between the two samples before this one.
+            break Growth::Plateau {
+                changed: samples[samples.len() - 3].value,
+                flat: last,
+            };
+        }
+        // The declared estimate never shrinks as the value grows, so once it alone takes more
+        // than every pool's room, no larger value fits.
+        if estimate
+            .bytes_of(range.declared)
+            .is_some_and(|bytes| bytes > room)
+        {
+            break Growth::Beyond(next.value);
+        }
+        step = step.saturating_mul(2);
+    };
+
+    // At a limit, the estimate may have stopped changing within the last step: the value just
+    // below the last evaluated one tells.
+    let plateau = match growth {
+        Growth::Plateau { changed, flat } => Some((changed, flat)),
+        Growth::Limit { edge, .. } => {
+            let flat = samples[edge];
+            let changed = edge.checked_sub(1).map(|before| samples[before].value)?;
+            if flat.value - changed > 1 {
+                let below = sample(flat.value - 1);
+                samples.push(below);
+                (below.estimate == flat.estimate).then_some((changed, flat))
+            } else {
+                None
+            }
+        }
+        Growth::Beyond(_) => None,
+    };
+    let top = match (plateau, growth) {
+        (Some((mut changed, flat)), _) => {
+            let mut plateau = flat.value;
+            while plateau - changed > 1 {
+                let middle = sample(changed + (plateau - changed) / 2);
+                samples.push(middle);
+                if middle.estimate == flat.estimate {
+                    plateau = middle.value;
+                } else {
+                    changed = middle.value;
+                }
+            }
+            let sized = range.sized.unwrap_or(range.minimum);
+            plateau.max(sized).min(ceiling)
+        }
+        (None, Growth::Limit { top, .. } | Growth::Beyond(top)) => top,
+        (None, Growth::Plateau { flat, .. }) => flat.value,
+    };
+
+    let at_top = match samples.iter().find(|sample| sample.value == top) {
+        Some(at_top) => *at_top,
+        None => {
+            let at_top = sample(top);
+            samples.push(at_top);
+            at_top
+        }
+    };
+    if at_top.fits {
+        return Some(top);
+    }
+    samples.retain(|sample| sample.value <= top);
+    samples.sort_by_key(|sample| sample.value);
+    // The top is one of them, so one exceeds.
+    let exceeds = samples.iter().position(|sample| !sample.fits)?;
+    let Some(fitting) = exceeds.checked_sub(1) else {
+        return Some(range.minimum);
+    };
+    let (mut fitting, mut exceeding) = (samples[fitting].value, samples[exceeds].value);
+    while exceeding - fitting > 1 {
+        let middle = sample(fitting + (exceeding - fitting) / 2);
+        if middle.fits {
+            fitting = middle.value;
+        } else {
+            exceeding = middle.value;
+        }
+    }
+    Some(fitting)
+}
+
+/// The values a memory parameter may take, the one sizing picks, and the estimate it feeds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct MemoryParameterRange {
+    /// Inclusive minimum value.
+    pub(crate) minimum: u64,
+
+    /// Inclusive maximum value, none when unbounded.
+    pub(crate) maximum: Option<u64>,
+
+    /// Value sizing picks when the parameter is left empty, none when it picks none.
+    pub(crate) sized: Option<u64>,
+
+    /// Estimate the value feeds, which never shrinks as the value grows where it is available.
+    pub(crate) declared: EstimatePart,
+}
+
+/// One of the two memory figures of an estimate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EstimatePart {
+    Accelerator,
+    Host,
+}
+
+/// A probed value with its estimate and whether that fits.
+#[derive(Clone, Copy, Debug)]
+struct Sample {
+    value: u64,
+    estimate: Option<Estimate>,
+    fits: bool,
+}
+
+/// Where the growing search of a memory parameter stopped.
+#[derive(Clone, Copy, Debug)]
+enum Growth {
+    /// The estimate stopped changing: it last changed past `changed` and holds from `flat` on.
+    Plateau { changed: u64, flat: Sample },
+
+    /// The maximum was reached at `top`, or `top` couldn't be evaluated; the sample at `edge` is
+    /// the last one evaluated.
+    Limit { edge: usize, top: u64 },
+
+    /// The declared estimate alone takes more than every pool's room from this value on.
+    Beyond(u64),
 }
 
 /// Returns the total context a deployment starts from: the largest total context that fits, or the

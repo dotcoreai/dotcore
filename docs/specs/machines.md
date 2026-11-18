@@ -180,7 +180,13 @@ The description a node reports instead of its real hardware.
 #### Responsibilities
 
 - Evaluate memory pools, occupancy, demands, fit, the largest fitting total context, the starting
-  total context, target ranking and placement previews.
+  total context, the largest fitting value of a memory parameter, target ranking and placement
+  previews.
+- Find a memory parameter's largest fit by probing estimates the caller computes at chosen values,
+  judged on every pool under the same room as the total context's largest fit. The fit stops where
+  more of the value no longer changes the estimate, but never below the value sizing picks, stays
+  within the parameter's range, and is the minimum when nothing fits. A parameter whose value never
+  changes the estimate has none.
 - Judge fit per pool against free memory (total less occupancy) less a headroom per pool, or against
   the total on request. The host pool's headroom is larger, because unified GPU memory competes with
   the operating system and can't be paged out.

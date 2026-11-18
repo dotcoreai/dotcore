@@ -919,6 +919,7 @@ fn deployment_with_parameters() -> ModelDeployment {
             maximum: Some(100_000),
             unit: String::new(),
             default_value,
+            memory_pool: None,
         })
     };
     let flag = |default_value| ParameterType::Boolean(BooleanParameterSchema { default_value });

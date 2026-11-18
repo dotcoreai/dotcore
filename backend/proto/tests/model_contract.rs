@@ -46,16 +46,16 @@ use dotcore_proto::{
         model::v1::{
             CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest,
             EstimateLocalModelResourcesRequest, EstimateLocalModelResourcesResponse,
-            HardwareClassResourceEstimate, ListModelDeploymentsResponse, ModelDeployment,
-            ModelDeploymentDeclaration, ModelDeploymentDesiredState, ModelDeploymentMetadata,
-            ModelDeploymentProgress, ModelDeploymentProgressUnit, ModelDeploymentSnapshot,
-            ModelDeploymentState, ModelDeploymentStatus, PauseModelRequest, PauseModelResponse,
-            PortableModelArtifactBinding, PortableModelLaunchArgumentToken,
-            PortableModelLaunchPlan, PreviewLocalModelDeploymentRequest,
-            PreviewLocalModelDeploymentResponse, ResolvedEngineArtifact, ResolvedHardwareSupport,
-            ResolvedLocalModelDeploymentSnapshot, ResolvedModelOption, ResumeModelRequest,
-            ResumeModelResponse, ScalarResourceEstimate, UpdateModelDeploymentMetadataRequest,
-            UpdateModelDeploymentMetadataResponse,
+            HardwareClassResourceEstimate, ListModelDeploymentsResponse, MemoryParameterFit,
+            ModelDeployment, ModelDeploymentDeclaration, ModelDeploymentDesiredState,
+            ModelDeploymentMetadata, ModelDeploymentProgress, ModelDeploymentProgressUnit,
+            ModelDeploymentSnapshot, ModelDeploymentState, ModelDeploymentStatus,
+            PauseModelRequest, PauseModelResponse, PortableModelArtifactBinding,
+            PortableModelLaunchArgumentToken, PortableModelLaunchPlan,
+            PreviewLocalModelDeploymentRequest, PreviewLocalModelDeploymentResponse,
+            ResolvedEngineArtifact, ResolvedHardwareSupport, ResolvedLocalModelDeploymentSnapshot,
+            ResolvedModelOption, ResumeModelRequest, ResumeModelResponse, ScalarResourceEstimate,
+            UpdateModelDeploymentMetadataRequest, UpdateModelDeploymentMetadataResponse,
             model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
             portable_model_artifact_binding::Artifact as PortableModelArtifact,
             portable_model_launch_argument_token::Value as PortableArgumentValue,
@@ -346,6 +346,7 @@ fn generated_bindings_preserve_exact_ordered_custom_argument_tokens_in_preview_a
                         maximum: Some(131_072),
                         unit: "tokens".to_owned(),
                         default_value: None,
+                        memory_pool: None,
                     },
                 )),
                 visibility: ParameterVisibility::Basic as i32,
@@ -525,6 +526,10 @@ fn generated_bindings_preserve_minimal_generic_resource_estimates() {
                 nanos: 0,
             }),
         }),
+        memory_parameter_fits: vec![MemoryParameterFit {
+            parameter_id: "kv-offloading-size-gib".to_owned(),
+            largest_fit: 48,
+        }],
     };
     assert_eq!(
         EstimateLocalModelResourcesResponse::decode(response.encode_to_vec().as_slice())
@@ -547,6 +552,7 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
                         maximum: None,
                         unit: "tokens".to_owned(),
                         default_value: None,
+                        memory_pool: None,
                     },
                 )),
                 visibility: ParameterVisibility::Basic as i32,
@@ -563,6 +569,7 @@ fn generated_bindings_round_trip_model_configurations_and_typed_context_schema()
                         maximum: Some(0),
                         unit: "tokens".to_owned(),
                         default_value: None,
+                        memory_pool: None,
                     },
                 )),
                 visibility: ParameterVisibility::Basic as i32,
@@ -1074,12 +1081,21 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         ]
     );
     assert_eq!(
+        enum_values(parameter, "MemoryPool"),
+        [
+            ("MEMORY_POOL_UNSPECIFIED", 0),
+            ("MEMORY_POOL_ACCELERATOR", 1),
+            ("MEMORY_POOL_HOST", 2),
+        ]
+    );
+    assert_eq!(
         field_numbers(parameter, "UnsignedIntegerParameterSchema"),
         [
             ("minimum", 1),
             ("maximum", 2),
             ("unit", 3),
-            ("default_value", 4)
+            ("default_value", 4),
+            ("memory_pool", 5)
         ]
     );
     assert_eq!(
@@ -1312,7 +1328,16 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
                 2,
                 ".dotcore.capacity.v1.PlacementPreview"
             ),
+            (
+                "memory_parameter_fits",
+                3,
+                ".dotcore.model.v1.MemoryParameterFit"
+            ),
         ]
+    );
+    assert_eq!(
+        field_numbers(service, "MemoryParameterFit"),
+        [("parameter_id", 1), ("largest_fit", 2)]
     );
     let preview = descriptor_file(&descriptor, "dotcore/capacity/v1/placement_preview.proto");
     assert_eq!(

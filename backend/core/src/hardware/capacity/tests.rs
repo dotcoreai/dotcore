@@ -17,13 +17,13 @@ use dotcore_site::node::target_inventory::{
 
 use super::evaluation::{Preview, host_reserve_bytes};
 use super::{
-    DeviceMemory, Estimate, HostMemory,
+    DeviceMemory, Estimate, EstimatePart, HostMemory,
     LargestTotalContext::{Bounded, Unbounded},
-    NodeHardware, Occupancy, Policy, Pool, PoolDevice, PoolKind, PoolPreview, PoolView, Segment,
-    SegmentSource,
+    MemoryParameterRange, NodeHardware, Occupancy, Policy, Pool, PoolDevice, PoolKind, PoolPreview,
+    PoolView, Segment, SegmentSource,
     StartingTotalContext::{LargestFit, ProfileDefault},
     TargetCapacity, Workload, WorkloadKey, WorkloadPhase, combined_minimums, demand, fit,
-    largest_total_context, preview, starting_total_context,
+    largest_fitting_value, largest_total_context, preview, starting_total_context,
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -1346,6 +1346,198 @@ fn no_total_context_fits_a_target_below_a_catalog_minimum() {
 }
 
 #[test]
+fn a_memory_parameter_growing_linearly_fills_exactly_the_room_left() {
+    let target = capacity(Dedicated, Some(GIB), Some(GIB));
+    let usable = usable_free_bytes(GIB, GIB);
+    let base = 100 * MIB + 5;
+    let mut probes = 0;
+    let largest = largest_fitting_value(
+        &target,
+        None,
+        Policy::FREE_NOW,
+        memory_range(0, None, None),
+        |value| {
+            probes += 1;
+            accelerator(base + value * MIB)
+        },
+    );
+
+    assert_eq!(largest, Some((usable - base) / MIB));
+    assert!(probes <= 32, "{probes} probes");
+}
+
+#[test]
+fn a_memory_parameter_stops_at_its_plateau_but_never_below_its_sized_value() {
+    let target = capacity(Dedicated, Some(GIB), Some(GIB));
+    let plateau = 300;
+    let probe = |value: u64| accelerator(100 * MIB + value.min(plateau) * MIB);
+    let largest = |sized| {
+        largest_fitting_value(
+            &target,
+            None,
+            Policy::FREE_NOW,
+            memory_range(1, None, sized),
+            probe,
+        )
+    };
+
+    assert_eq!(largest(None), Some(plateau), "a plateau that fits");
+    assert_eq!(largest(Some(200)), Some(plateau), "sized below the plateau");
+    assert_eq!(
+        largest(Some(4096)),
+        Some(4096),
+        "sized above the plateau, where demand stays the same"
+    );
+}
+
+#[test]
+fn a_unified_step_down_at_the_plateau_makes_the_plateau_fit() {
+    // Like expert memory on unified memory: below the expert bytes, the experts held on the
+    // accelerator are pinned in host memory too; at the expert bytes, only once.
+    const EXPERTS: u64 = 4096;
+    let target = capacity(Unified, Some(UNIFIED_POOL), Some(UNIFIED_POOL));
+    let usable = UNIFIED_POOL - host_reserve_bytes(UNIFIED_POOL);
+    let base = usable - EXPERTS * MIB - 500 * MIB;
+    let probe = |value: u64| {
+        Some(Estimate {
+            accelerator_bytes: Some(base + value.min(EXPERTS) * MIB),
+            host_bytes: Some(if value < EXPERTS { EXPERTS * MIB } else { 0 }),
+        })
+    };
+    assert!(
+        base + 2 * EXPERTS * MIB > usable,
+        "doesn't fit below the step"
+    );
+
+    assert_eq!(
+        largest_fitting_value(
+            &target,
+            None,
+            Policy::FREE_NOW,
+            memory_range(1, None, None),
+            probe,
+        ),
+        Some(EXPERTS)
+    );
+}
+
+#[test]
+fn a_plateau_within_the_last_step_before_a_limit_still_stops_the_fit() {
+    let target = capacity(Dedicated, Some(16 * GIB), Some(16 * GIB));
+    let plateau = 5120;
+    let probe = |value: u64| accelerator(value.min(plateau) * MIB);
+
+    assert_eq!(
+        largest_fitting_value(
+            &target,
+            None,
+            Policy::FREE_NOW,
+            memory_range(0, Some(8192), None),
+            probe,
+        ),
+        Some(plateau),
+        "before the declared maximum"
+    );
+    assert_eq!(
+        largest_fitting_value(
+            &target,
+            None,
+            Policy::FREE_NOW,
+            memory_range(0, None, None),
+            |value| (value <= 8191).then(|| probe(value)).flatten(),
+        ),
+        Some(plateau),
+        "before an estimate that can't be evaluated"
+    );
+}
+
+#[test]
+fn a_memory_parameter_whose_estimate_overflows_stops_below_the_overflow() {
+    let target = capacity(Dedicated, Some(GIB), Some(GIB));
+    let largest = largest_fitting_value(
+        &target,
+        None,
+        Policy::FREE_NOW,
+        memory_range(0, None, None),
+        |value| (value <= 77).then(|| accelerator(value * MIB)).flatten(),
+    );
+
+    assert_eq!(largest, Some(77));
+}
+
+#[test]
+fn a_memory_parameter_stays_within_its_range() {
+    let target = capacity(Dedicated, Some(GIB), Some(GIB));
+    let largest = |minimum, maximum, base| {
+        largest_fitting_value(
+            &target,
+            None,
+            Policy::FREE_NOW,
+            memory_range(minimum, maximum, None),
+            |value| accelerator(base + value * MIB),
+        )
+    };
+
+    assert_eq!(largest(0, Some(100), 0), Some(100), "the declared maximum");
+    assert_eq!(
+        largest(10, None, GIB),
+        Some(10),
+        "the minimum when nothing fits"
+    );
+    assert_eq!(
+        largest_fitting_value(
+            &target,
+            Some(&minimums(GIB + 1, 0)),
+            Policy::FREE_NOW,
+            memory_range(10, None, None),
+            |value| accelerator(value * MIB),
+        ),
+        Some(10),
+        "the minimum below a catalog minimum"
+    );
+}
+
+#[test]
+fn a_memory_parameter_has_no_fit_without_a_change_or_known_room() {
+    let largest = |target: &TargetCapacity, probe: fn(u64) -> Option<Estimate>| {
+        largest_fitting_value(
+            target,
+            None,
+            Policy::FREE_NOW,
+            memory_range(0, None, None),
+            probe,
+        )
+    };
+    let known = capacity(Dedicated, Some(GIB), Some(GIB));
+
+    assert_eq!(largest(&known, |_| accelerator(MIB)), None, "never changes");
+    assert_eq!(largest(&known, |_| None), None, "never evaluates");
+    assert_eq!(
+        largest_fitting_value(
+            &known,
+            None,
+            Policy::FREE_NOW,
+            memory_range(4, Some(4), None),
+            |_| accelerator(MIB),
+        ),
+        None,
+        "a single value"
+    );
+    assert_eq!(
+        largest(&capacity(Dedicated, Some(GIB), None), |value| {
+            accelerator(value * MIB)
+        }),
+        None,
+        "unknown free memory"
+    );
+    assert_eq!(
+        largest(&TargetCapacity::default(), |value| accelerator(value * MIB)),
+        None,
+        "no pools"
+    );
+}
+
+#[test]
 fn dedicated_memory_compares_the_accelerator_estimate_with_the_per_device_total() {
     assert_eq!(
         on_total(Dedicated, Some(POOL), Some(POOL), None, None),
@@ -2143,4 +2335,22 @@ fn memory_snapshot(
 fn described(spec: &str) -> MachineDescription {
     let choices: Vec<_> = spec.split('+').map(str::to_owned).collect();
     MachineDescription::simulated(&choices, "amd64").expect("simulated machine")
+}
+
+/// An estimate of `bytes` of accelerator memory and no host memory.
+fn accelerator(bytes: u64) -> Option<Estimate> {
+    Some(Estimate {
+        accelerator_bytes: Some(bytes),
+        host_bytes: None,
+    })
+}
+
+/// The range of an accelerator memory parameter.
+fn memory_range(minimum: u64, maximum: Option<u64>, sized: Option<u64>) -> MemoryParameterRange {
+    MemoryParameterRange {
+        minimum,
+        maximum,
+        sized,
+        declared: EstimatePart::Accelerator,
+    }
 }

@@ -9,8 +9,8 @@ use std::collections::BTreeSet;
 
 use dotcore_domain::{Accelerator, valid_id};
 use dotcore_proto::dotcore::catalog::v1::{
-    EngineArtifact, EngineParameterSchema, EngineRelease, ParameterDefinition, Selector,
-    engine_artifact::Kind as EngineArtifactKind, parameter_definition::ParameterType,
+    EngineArtifact, EngineParameterSchema, EngineRelease, MemoryPool, ParameterDefinition,
+    Selector, engine_artifact::Kind as EngineArtifactKind, parameter_definition::ParameterType,
 };
 
 use super::common::{valid_selector_memory_architecture, validate_oci_reference};
@@ -269,6 +269,9 @@ fn validate_engine_parameter_groups(
     }
 }
 
+/// Units a parameter may use when it declares a memory pool.
+const MEMORY_UNITS: [&str; 3] = ["bytes", "MiB", "GiB"];
+
 /// Validates one engine parameter definition: the shared definition rules, a unique id, and the
 /// engine owner rule that parameters are booleans, unsigned integers with a unit, or secrets.
 fn validate_parameter_definition(
@@ -284,6 +287,25 @@ fn validate_parameter_definition(
     match definition.parameter_type.as_ref() {
         Some(ParameterType::UnsignedInteger(schema)) if schema.unit.trim().is_empty() => {
             errors.push(anyhow::anyhow!("engine parameter {id:?} requires a unit"));
+        }
+        Some(ParameterType::UnsignedInteger(schema))
+            if schema.memory_pool.is_some_and(|pool| {
+                !matches!(
+                    MemoryPool::try_from(pool),
+                    Ok(MemoryPool::Accelerator | MemoryPool::Host)
+                )
+            }) =>
+        {
+            errors.push(anyhow::anyhow!(
+                "engine parameter {id:?} memory pool must be accelerator or host"
+            ));
+        }
+        Some(ParameterType::UnsignedInteger(schema))
+            if schema.memory_pool.is_some() && !MEMORY_UNITS.contains(&schema.unit.as_str()) =>
+        {
+            errors.push(anyhow::anyhow!(
+                "engine parameter {id:?} declares a memory pool, so its unit must be bytes, MiB or GiB"
+            ));
         }
         Some(ParameterType::StringEnum(_) | ParameterType::Text(_)) => {
             errors.push(anyhow::anyhow!(
@@ -448,6 +470,7 @@ mod tests {
                         maximum: Some(65_536),
                         unit: unit.to_owned(),
                         default_value,
+                        memory_pool: None,
                     },
                 )),
                 visibility: ParameterVisibility::Basic as i32,
@@ -500,6 +523,7 @@ mod tests {
                     maximum: Some(8),
                     unit: unit.to_owned(),
                     default_value: Some(4),
+                    memory_pool: None,
                 },
             )
         };
@@ -514,6 +538,24 @@ mod tests {
         assert_eq!(
             errors(&definition(unsigned(" "))),
             ["engine parameter \"feature\" requires a unit"]
+        );
+        let pooled = |unit: &str| {
+            ParameterType::UnsignedInteger(
+                dotcore_proto::dotcore::catalog::v1::UnsignedIntegerParameterSchema {
+                    minimum: 0,
+                    maximum: Some(8),
+                    unit: unit.to_owned(),
+                    default_value: Some(4),
+                    memory_pool: Some(dotcore_proto::dotcore::catalog::v1::MemoryPool::Host as i32),
+                },
+            )
+        };
+        assert_eq!(errors(&definition(pooled("MiB"))), Vec::<String>::new());
+        assert_eq!(
+            errors(&definition(pooled("tokens"))),
+            [
+                "engine parameter \"feature\" declares a memory pool, so its unit must be bytes, MiB or GiB"
+            ]
         );
         assert_eq!(
             errors(&definition(ParameterType::StringEnum(
@@ -571,6 +613,7 @@ mod tests {
                         maximum: Some(65_536),
                         unit: unit.to_owned(),
                         default_value,
+                        memory_pool: None,
                     },
                 )),
             };

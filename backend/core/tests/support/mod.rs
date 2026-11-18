@@ -3143,7 +3143,7 @@ parameterSchema:
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"
       visibility: "PARAMETER_VISIBILITY_HIDDEN"
-      unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" }
+      unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB", memoryPool: "MEMORY_POOL_HOST" }
 artifacts:
   - artifactId: "fixture-metal"
     nix: { flake: "self", package: "engines.llama-cpp.native", executable: "llama-server" }

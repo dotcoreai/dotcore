@@ -8,12 +8,11 @@
 
 use std::time::SystemTime;
 
-use dotcore_catalog::{ACCELERATOR_MEMORY_RESOURCE, HOST_MEMORY_RESOURCE};
 use dotcore_proto::dotcore::capacity::v1::{MemoryPoolPreview, PlacementPreview};
 
 use crate::{
     hardware::{
-        capacity::{Estimate, PoolPreview, demand, preview},
+        capacity::{PoolPreview, demand, preview},
         selection::SelectedTargetCapabilities,
     },
     model::resolution::ResolvedLocalModelValues,
@@ -29,23 +28,8 @@ pub(crate) fn placement_preview(
     include_demand: bool,
     observed_at: Option<SystemTime>,
 ) -> PlacementPreview {
-    let estimate = |resource: &str| {
-        resolved
-            .estimates
-            .iter()
-            .find(|estimate| estimate.resource == resource)
-            .map(|estimate| estimate.value)
-    };
     let demand = include_demand
-        .then(|| {
-            demand(
-                &Estimate {
-                    accelerator_bytes: estimate(ACCELERATOR_MEMORY_RESOURCE),
-                    host_bytes: estimate(HOST_MEMORY_RESOURCE),
-                },
-                &selected.capacity,
-            )
-        })
+        .then(|| demand(&resolved.estimate(), &selected.capacity))
         .flatten();
     let preview = preview(
         demand.as_ref(),

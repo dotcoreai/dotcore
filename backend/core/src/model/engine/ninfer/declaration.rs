@@ -1218,6 +1218,7 @@ profiles:
             maximum,
             unit: unit.to_owned(),
             default_value: None,
+            memory_pool: None,
         })
     }
 

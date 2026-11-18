@@ -2,10 +2,11 @@
 //! against them, as plain data and pure functions.
 //!
 //! It builds the pools an execution target draws from, and every pool of a node, out of a node's
-//! reconciled memory facts and what each workload holds there, turns an estimate into a demand on those pools, and judges
-//! whether the demand fits, how large a total context fits, and what a view draws for it. Every
-//! answer is advice: nothing here reserves, admits, or places a workload, and unknown or stale
-//! facts give an unknown answer rather than a guess.
+//! reconciled memory facts and what each workload holds there, turns an estimate into a demand on
+//! those pools, and judges whether the demand fits, how large a total context or a memory
+//! parameter's value fits, and what a view draws for it. Every answer is advice: nothing here
+//! reserves, admits, or places a workload, and unknown or stale facts give an unknown answer
+//! rather than a guess.
 
 mod evaluation;
 mod node;
@@ -19,9 +20,9 @@ use evaluation::device_share;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use evaluation::host_reserve_bytes;
 pub(crate) use evaluation::{
-    Estimate, LargestTotalContext, Policy, PoolPreview, StartingTotalContext, below_device_minimum,
-    combined_minimums, demand, fit, largest_total_context, preview, starting_total_context,
-    steps_within,
+    Estimate, EstimatePart, LargestTotalContext, MemoryParameterRange, Policy, PoolPreview,
+    StartingTotalContext, below_device_minimum, combined_minimums, demand, fit,
+    largest_fitting_value, largest_total_context, preview, starting_total_context, steps_within,
 };
 pub(crate) use node::NodeCapacity;
 
