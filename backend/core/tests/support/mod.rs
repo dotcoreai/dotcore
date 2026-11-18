@@ -2532,7 +2532,7 @@ pub fn configure_observation_interval(root: &Path, interval_seconds: u32) {
 
 /// Installs site trust for the manager the fixture's site declares, as site initialization does,
 /// so the manager can serve its private listener.
-fn install_manager_trust(root: &Path) {
+pub(crate) fn install_manager_trust(root: &Path) {
     let site: Site = dotcore_proto::yaml::from_file(&root.join("site.yaml")).expect("Site fixture");
     ManagerTrust::create(root, &site).expect("install manager fixture trust");
 }
