@@ -159,7 +159,7 @@ test("up and down act on the manager and every recorded worker, or on one target
   ]);
 });
 
-test("clean with a target makes that worker leave and removes its node, refusing first what it cannot finish", async (t) => {
+test("clean with a target makes that worker leave and removes its node while the manager runs", async (t) => {
   const f = await fixture(t);
   await mkdir(f.site, { recursive: true });
   await f.writeRecord("local node-1\ngb10:spark node-2\n");
@@ -171,21 +171,13 @@ test("clean with a target makes that worker leave and removes its node, refusing
   assert.deepEqual(await f.calls(), ["remote resolve gb10"]);
   await f.reset();
 
-  // A manager still running after its stop request keeps the worker from leaving.
+  // The manager keeps running: the node is removed through it once the worker stopped.
   f.env.DOTCORE_YES = "1";
   await f.setLiveSocket(f.env.PC_SOCKET_PATH);
-  const managerStuck = f.run("dev::cluster::clean", "gb10");
-  assert.equal(managerStuck.status, 1);
-  assert.match(managerStuck.stderr, /the manager still runs after the stop; stop the manager first, node remove needs the site lock: just dev::down/);
-  assert.deepEqual(await f.calls(), ["remote resolve gb10", `process-compose site=${f.site} args=--use-uds --unix-socket ${f.env.PC_SOCKET_PATH} down`]);
-
-  await f.setLiveSocket(f.env.PC_SOCKET_PATH, { stoppable: true });
-  await f.reset();
   const cleaned = f.run("dev::cluster::clean", "gb10");
   assert.equal(cleaned.status, 0, cleaned.stderr);
   assert.deepEqual(await f.calls(), [
     "remote resolve gb10",
-    `process-compose site=${f.site} args=--use-uds --unix-socket ${f.env.PC_SOCKET_PATH} down`,
     "remote exec gb10:spark just dev::cluster::_worker-down",
     "remote exec gb10:spark DOTCORE_YES=1 just dev::cluster::_worker-leave",
     `dotc node list --site-dir ${f.site}`,

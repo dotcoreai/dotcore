@@ -165,11 +165,7 @@ clean target="":
     target="$(normalize_target "{{target}}")"
     node_id="$(recorded_node_id "$target")"
     confirm_remote_leaves "$target"
-    # node remove needs the site lock, so the manager stops before the worker leaves rather than after.
-    if test -n "$node_id" && test -e "$DOTCORE_SITE_DIR"; then
-      test -n "${PC_SOCKET_PATH:-}" || { echo 'PC_SOCKET_PATH is unset; enter the workspace direnv shell first' >&2; exit 2; }
-      pc_stop_running_or_exit "cleaning $target" "$PC_SOCKET_PATH" manager 'stop the manager first, node remove needs the site lock: just dev::down'
-    fi
+    # The worker stops first, so a running manager accepts forgetting its deployments.
     stop_worker "$target"
     leave_worker "$target" || { echo "cluster clean: the worker on $target did not leave" >&2; exit 1; }
     if test -n "$node_id" && test -e "$DOTCORE_SITE_DIR" && dotc node list --site-dir "$DOTCORE_SITE_DIR" | grep -qx "DOTCORE_NODE_ID=$node_id"; then

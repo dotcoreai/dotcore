@@ -35,7 +35,7 @@ A remote worker runs the code last sent to its host. After a backend or protocol
 ## Stop and clean up
 
 - `just dev::cluster::down` stops every worker, then the manager.
-- `just dev::cluster::clean` stops the cluster, makes every worker leave, then deletes the manager site. `clean <worker>` removes one worker only.
+- `just dev::cluster::clean` stops the cluster, makes every worker leave, then deletes the manager site. `clean <worker>` removes one worker only, while the manager keeps running.
 - Afterwards, check each remote host for leftover containers: `just dev::remote::exec <host> 'docker ps -a'`.
 
 A worker can fail to leave when an app's data holds files it can't delete, such as Open WebUI's model cache. Deploy apps on a development cluster only when you need them.
