@@ -101,7 +101,10 @@ impl Timing {
                 connect_timeout: Duration::from_secs(10),
                 commit_timeout: Duration::from_secs(30),
                 idle_timeout: Duration::from_secs(60),
-                shutdown_timeout: Duration::from_secs(5),
+                token_lifetime: Duration::from_secs(15 * 60),
+                watcher_grace: Duration::from_secs(10),
+                ended_retention: Duration::from_secs(60),
+                start_countdown: Duration::from_secs(5),
             },
             private: PrivateTiming {
                 keepalive_interval: Duration::from_secs(10),
@@ -231,7 +234,12 @@ impl Timing {
                 // Tests assert exact simulated timings.
                 vary_durations: false,
             },
-            join: production.join,
+            // Long enough to show on a test terminal, short enough that a joined node starts
+            // without delaying the test.
+            join: JoinTiming {
+                start_countdown: Duration::from_millis(200),
+                ..production.join
+            },
             // A lost private connection is noticed within moments; a loopback ping answers far
             // sooner even on a loaded host.
             private: PrivateTiming {
@@ -424,23 +432,35 @@ pub struct SimulatedTiming {
     pub vary_durations: bool,
 }
 
-/// Real-time bounds of joining a node to a site.
+/// Bounds and lifetimes of joining a node to a site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct JoinTiming {
-    /// Bound on reaching a join listener and completing its handshake, and on the manager's
-    /// dial-back to the joining node across all of its addresses.
+    /// Bound on reaching the manager to join and completing the TLS handshake, and on the
+    /// manager's dial-back to the joining node across all of its addresses.
     pub connect_timeout: Duration,
 
     /// Bound on a join's commit round trip; past it the outcome is unknown.
     pub commit_timeout: Duration,
 
-    /// Longest silence of a join listener's connection with no request in progress, including
-    /// between an offer and its commit.
+    /// Longest time a joining machine's connection stays open without a join request in
+    /// progress: from its handshake to its first one, and between them, including between an
+    /// offer and its commit. Other traffic on the connection doesn't count.
     pub idle_timeout: Duration,
 
-    /// Longest a join listener waits for its open connections to close once the join has
-    /// finished.
-    pub shutdown_timeout: Duration,
+    /// How long a started join and its token stay valid without a committed node.
+    pub token_lifetime: Duration,
+
+    /// How long a join stays open with nobody following it, so an operator who left doesn't
+    /// keep it open until it expires.
+    pub watcher_grace: Duration,
+
+    /// How long an ended join stays readable, so a follower that reconnects still sees how it
+    /// ended.
+    pub ended_retention: Duration,
+
+    /// How long a joined node waits on its terminal before starting, so the operator can start
+    /// it right away or skip the start.
+    pub start_countdown: Duration,
 }
 
 /// Real-time keepalive of the private connections between the site manager and its workers.

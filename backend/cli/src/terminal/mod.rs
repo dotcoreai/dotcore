@@ -18,7 +18,7 @@ mod render;
 mod rich;
 mod scripted;
 
-use std::{collections::BTreeSet, fs::File, io};
+use std::{collections::BTreeSet, fs::File, io, time::Duration};
 
 use dotcore_domain::timing::Timing;
 use line::LineTerminal;
@@ -45,6 +45,11 @@ pub trait Terminal {
     /// Asks for free text that is not echoed back, such as a credential, and returns the answer
     /// exactly as typed.
     fn secret(&mut self, prompt: &InputPrompt) -> Result<String, PromptError>;
+
+    /// Counts down before an action and returns whether to go ahead: true when the time runs out
+    /// or the operator goes ahead early, false when the operator skips it or the terminal cannot
+    /// read a single key press.
+    fn countdown(&mut self, prompt: &CountdownPrompt) -> Result<bool, PromptError>;
 
     /// Displays one styled, non-prompt message to the operator.
     fn message(&mut self, message: &Message) -> Result<(), PromptError>;
@@ -297,6 +302,33 @@ impl ConfirmPrompt {
     }
 }
 
+/// An action that starts by itself once a countdown runs out, unless the operator skips it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CountdownPrompt {
+    title: String,
+    duration: Duration,
+}
+
+impl CountdownPrompt {
+    /// Creates a countdown of `duration` before the action named by `title`.
+    pub fn new(title: impl Into<String>, duration: Duration) -> Self {
+        Self {
+            title: title.into(),
+            duration,
+        }
+    }
+
+    /// Returns the action the countdown leads to.
+    pub fn title(&self) -> &str {
+        &self.title
+    }
+
+    /// Returns how long the countdown lasts.
+    pub fn duration(&self) -> Duration {
+        self.duration
+    }
+}
+
 /// A free-text question with an optional value accepted by an empty answer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InputPrompt {
@@ -379,6 +411,32 @@ pub enum Message {
 
     /// What the operator can do next, as steps that may each carry a command to copy.
     Next(Vec<NextStep>),
+
+    /// A grid of colored cells to compare by eye, such as a pattern shown on two screens.
+    /// Without colors, each cell shows the shade of its color's position in `colors`.
+    ColorGrid {
+        /// The colors cells refer to; at most three, so each keeps its own shade without colors.
+        colors: Vec<GridColor>,
+
+        /// Rows of cells, top first, each empty or the index of its color in `colors`.
+        rows: Vec<Vec<Option<usize>>>,
+    },
+}
+
+/// A standard terminal color for the cells of a [`Message::ColorGrid`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GridColor {
+    Red,
+
+    Green,
+
+    Yellow,
+
+    Blue,
+
+    Magenta,
+
+    Cyan,
 }
 
 /// One suggestion in a [`Message::Next`] block: a sentence and an optional command to copy.

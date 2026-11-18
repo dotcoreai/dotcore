@@ -6,16 +6,19 @@ A development cluster spreads your workspace's development site over several mac
 
 ## Start a cluster
 
-Workers join while the manager is stopped:
+Workers join while the manager runs:
 
 ```sh
 just dev::down
 just dev::site-reset simulated docker
+just dev::cluster::up
 just dev::cluster::join gpu:gpu1 -- --name gpu1 --inference nvidia --applications docker --nvidia-device nvidia.com/gpu=0
 just dev::cluster::join mac:mac1 -- --name mac1 --inference apple --applications docker --native-workload-lifetime ephemeral
-just dev::cluster::up
+just dev::cluster::up gpu:gpu1
+just dev::cluster::up mac:mac1
 ```
 
+- `dotc node add` approves each join with `--yes`, so the manager needs no restart.
 - The arguments after `--` go to `dotc node join`.
 - On a Mac, pass `--native-workload-lifetime ephemeral`, so its models stop with the worker.
 - Any worker can join with `--inference simulated` to test placement and routing without loading a model. `--inference simulated:<name>` picks the hardware it simulates, as for the site.

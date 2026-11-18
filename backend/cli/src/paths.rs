@@ -4,9 +4,12 @@
 //! Each folder comes from its option, else from its environment variable, else from the default
 //! the site path resolver derives from the XDG state and cache directories or the home directory.
 //! Values are validated only when a command asks for them, so an invalid variable cannot break a
-//! command that never uses it.
+//! command that never uses it. Executables a command starts are found on the process search path.
 
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::{
@@ -67,6 +70,11 @@ pub struct RootPathArgs {
         hide_env_values = true
     )]
     pub cache_dir: Option<PathBuf>,
+
+    /// Set by the parser when `--cache-dir` was typed on the command line, as opposed to read
+    /// from the environment.
+    #[arg(skip)]
+    pub(crate) cache_dir_on_command_line: bool,
 }
 
 impl RootPathArgs {
@@ -81,6 +89,14 @@ impl RootPathArgs {
         self.site_dir
             .as_deref()
             .filter(|_| self.site_dir_on_command_line)
+    }
+
+    /// Returns the cache root only when `--cache-dir` was typed on the command line, for a command
+    /// handed to another process that inherits the environment's.
+    pub(crate) fn command_line_cache_dir(&self) -> Option<&Path> {
+        self.cache_dir
+            .as_deref()
+            .filter(|_| self.cache_dir_on_command_line)
     }
 
     /// Returns the master catalog folder, if one was given.
@@ -182,6 +198,18 @@ impl RootPathArgs {
 
 /// Takes any text as a path, empty included, so the resolver reports an invalid one only to the
 /// commands that use it.
+/// Returns the path of the first file named `executable` in a folder of the process search path.
+pub(crate) fn find_executable(executable: &str) -> Option<PathBuf> {
+    find_executable_in(std::env::var_os("PATH").as_deref(), executable)
+}
+
+/// Returns the path of the first file named `executable` in a folder of `search_path`.
+fn find_executable_in(search_path: Option<&OsStr>, executable: &str) -> Option<PathBuf> {
+    std::env::split_paths(search_path?)
+        .map(|folder| folder.join(executable))
+        .find(|candidate| candidate.is_file())
+}
+
 fn raw_path() -> impl TypedValueParser<Value = PathBuf> {
     OsStringValueParser::new().map(PathBuf::from)
 }
@@ -334,6 +362,42 @@ mod tests {
         assert_eq!(typed.paths.command_line_site_dir(), Some(Path::new("/a")));
         assert_eq!(untyped.command_line_site_dir(), None);
         assert_eq!(RootPathArgs::default().command_line_site_dir(), None);
+    }
+
+    #[test]
+    fn command_line_cache_dir_is_named_only_when_typed() {
+        let typed =
+            Cli::try_parse_from(["dotc", "node", "list", "--cache-dir", "/c"]).expect("typed");
+        let untyped = RootPathArgs {
+            cache_dir: Some(PathBuf::from("/c")),
+            ..RootPathArgs::default()
+        };
+
+        assert_eq!(typed.paths.command_line_cache_dir(), Some(Path::new("/c")));
+        assert_eq!(untyped.command_line_cache_dir(), None);
+    }
+
+    #[test]
+    fn an_executable_is_found_in_the_first_search_folder_holding_it() {
+        let root = tempfile::tempdir().expect("temporary folder");
+        let (empty, first, second) = (
+            root.path().join("empty"),
+            root.path().join("first"),
+            root.path().join("second"),
+        );
+        for folder in [&empty, &first, &second] {
+            std::fs::create_dir(folder).expect("search folder");
+        }
+        std::fs::write(first.join("dotcore"), "").expect("first executable");
+        std::fs::write(second.join("dotcore"), "").expect("second executable");
+        let search_path = std::env::join_paths([&empty, &first, &second]).expect("search path");
+
+        assert_eq!(
+            find_executable_in(Some(&search_path), "dotcore"),
+            Some(first.join("dotcore"))
+        );
+        assert_eq!(find_executable_in(Some(&search_path), "dotc"), None);
+        assert_eq!(find_executable_in(None, "dotcore"), None);
     }
 
     #[test]

@@ -351,8 +351,8 @@ print_next_steps() {
     info "To start this machine as the manager of a new site, run:"
     command_line "dotcore"
     info "To add this machine to an existing site instead:"
-    info "  1. On the manager, stop Dotcore, then run: $(style 1 '1;36' 'dotc node add')"
-    info "  2. Run the 'dotc node join' command it prints, here."
+    info "  1. On the manager, run: $(style 1 '1;36' 'dotc node add')"
+    info "  2. Run the 'dotc node join' command it prints, here. It starts Dotcore once joined."
   fi
 }
 

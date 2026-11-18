@@ -1,5 +1,6 @@
-//! End-to-end node join tests: the join host and the joining node talk over loopback TLS with
-//! real site certificates, against an initialized offline site on disk.
+//! End-to-end node join tests: the join registry, served on the manager's private connections,
+//! and the joining node talk over loopback TLS with real site certificates, recording into an
+//! initialized site through its repository.
 
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -13,6 +14,7 @@ use std::{
 
 use dotcore_domain::{
     ExecutionPlatform, HostResolver, SiteNodeHost,
+    clock::{ManualClock, SystemClock},
     test_support::{
         host_resolver::FakeHostResolver,
         ports::{ReservedPort, reserve_port},
@@ -31,20 +33,20 @@ use dotcore_proto::dotcore::{
         execution_target,
     },
 };
-use futures_util::future::BoxFuture;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
-use tokio_util::sync::CancellationToken;
 use tonic::{
     Code,
     transport::{Channel, ClientTlsConfig, Endpoint, Identity, ServerTlsConfig},
 };
 
 use super::{
-    DialBack, JOIN_SECRET_BYTES, JoinApproval, JoinConnection, JoinDecision, JoinHost,
-    JoinHostError, JoinHostLimits, JoinHostSettings, JoinHostSource, JoinProposal, JoinReview,
-    JoinSecret, JoinSiteError, JoinSiteWriter, JoinToken, JoinedNode, NodeFolderError,
-    NodeJoinError, NodeKey, NodeRejoin, RejoinProposal, RejoiningNodeFolder, ReviewedJoin,
+    FingerprintColor, FingerprintPattern, JOIN_SECRET_BYTES, JoinAttempt, JoinAttemptOutcome,
+    JoinConnection, JoinHostIdentity, JoinHostSource, JoinLimits, JoinProposal, JoinRegistry,
+    JoinRegistryError, JoinReview, JoinSecret, JoinSiteError, JoinSiteWriter, JoinStatus,
+    JoinToken, JoinedNode, NodeFolderError, NodeJoinError, NodeKey, NodeRejoin, RejoinProposal,
+    RejoiningNodeFolder, ReviewedJoin,
     dial_back_listener::DialBackListener,
+    host::JoinDecision,
     test_fixtures::{InitializedSite, initialized_site, initialized_site_with_manager_host},
     verifier::JoinHostVerifier,
 };
@@ -54,25 +56,28 @@ use crate::{
     initial::{
         inputs::{ApplicationTargetChoice, ModelTargetChoice, NodeTargetChoices},
         request::{InitialApplicationRuntime, derive_site_node_id},
-        validation::SiteInputBundleValidator,
     },
     manager_trust::{
         ManagerTrust, SITE_TRUST_DIRECTORY, WORKER_PIN_DIRECTORY, validate_for_private_startup,
     },
-    membership::OfflineSite,
+    membership::MembershipRecorder,
     node::folder::{
         CertificateFingerprint, NODE_CERTIFICATE_FILE, NODE_PRIVATE_KEY_FILE, NodeFolderValidator,
         WORKER_MANIFEST_FILE, WorkerNodeCustody,
     },
     private_transport::{
-        PinnedPeerVerifier, PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration, pem,
+        JoinGate, PeerPins, PinnedPeerVerifier, PrivateConnectionInfo, PrivateConnections,
+        PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration, UnpinnedConnectionLimits,
+        pem,
     },
+    repository::{SiteRepository, SiteWriteFault, SiteWriteFaults},
     validation::load_validated_site,
 };
 
 #[tokio::test]
 async fn successful_join_installs_a_startable_folder_and_records_exactly_one_node() {
     let harness = Harness::start(Options::default()).await;
+    let changed = harness.repository.register_change_listener();
     let key = NodeKey::generate().expect("key");
     let node_root = harness.node_root();
     let mut connection = harness.connect().await;
@@ -107,7 +112,7 @@ async fn successful_join_installs_a_startable_folder_and_records_exactly_one_nod
     );
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://127.0.0.1:7443/"
+        format!("https://127.0.0.1:{}/", harness.host_address.port())
     );
     assert!(key.certifies(folder.worker_certificate_der()));
     assert_eq!(
@@ -134,6 +139,23 @@ async fn successful_join_installs_a_startable_folder_and_records_exactly_one_nod
         .execution_targets
         .extend(expected_targets(&expected_node_id));
     assert_eq!(harness.site(), expected_site);
+    assert_eq!(
+        harness.repository.snapshot().expect("memory"),
+        expected_site
+    );
+    tokio::time::timeout(Duration::from_secs(10), changed.notified())
+        .await
+        .expect("controllers are told about the new node");
+    assert_eq!(
+        harness
+            .live_pins
+            .get(&expected_node_id)
+            .map(|pin| (pin.role, pin.certificate_sha256)),
+        Some((
+            PrivateNodeRole::Worker,
+            folder.worker_certificate_sha256().clone()
+        ))
+    );
     assert_eq!(
         folder.realization_targets(),
         expected_targets(&expected_node_id)
@@ -310,7 +332,7 @@ async fn a_split_network_join_records_both_addresses() {
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("valid node folder");
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://127.0.0.2:7443/"
+        format!("https://127.0.0.2:{}/", harness.host_address.port())
     );
     assert_eq!(folder.private_bind_address(), &joined.private_bind_address);
 
@@ -390,7 +412,7 @@ async fn a_token_naming_the_declared_manager_host_name_records_no_manager_host()
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("valid node folder");
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://localhost:7443/"
+        format!("https://localhost:{}/", harness.host_address.port())
     );
     assert_eq!(
         harness.approval.reviews()[0].manager_host,
@@ -429,7 +451,7 @@ async fn a_manager_host_name_other_than_the_declared_address_is_recorded() {
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("valid node folder");
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://localhost:7443/"
+        format!("https://localhost:{}/", harness.host_address.port())
     );
 }
 
@@ -503,14 +525,7 @@ async fn an_observed_loopback_host_is_recorded_when_the_manager_reaches_the_node
         joined.private_bind_address.to_string(),
         format!("127.0.0.1:{}", worker_port())
     );
-    assert_eq!(
-        harness.approval.dials(),
-        [format!(
-            "127.0.0.1:{} reached at 127.0.0.1:{}",
-            worker_port(),
-            worker_port()
-        )]
-    );
+    assert_eq!(harness.approval.reviews()[0].host, SiteNodeHost::LOOPBACK);
     assert_eq!(
         harness.approval.reviews()[0].host_source,
         JoinHostSource::Observed
@@ -518,54 +533,61 @@ async fn an_observed_loopback_host_is_recorded_when_the_manager_reaches_the_node
 }
 
 #[tokio::test]
-async fn wrong_secrets_are_rejected_without_writes_and_stop_the_host_at_the_limit() {
-    let harness = Harness::start(Options {
-        limits: JoinHostLimits {
-            max_failed_attempts: 2,
-            ..JoinHostLimits::default()
-        },
-        ..Options::default()
-    })
-    .await;
+async fn wrong_secrets_are_refused_like_a_closed_port_and_never_end_the_join() {
+    let harness = Harness::start(Options::default()).await;
     let site_before = harness.site_bytes();
     let mut wrong = harness.token.clone();
     wrong.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    let mut connection = JoinConnection::connect(wrong, None, Timing::test().join)
-        .await
-        .expect("the host is authentic even with a wrong secret");
     let node_root = harness.node_root();
 
-    let error = connection
-        .join(
-            &proposal("worker", WORKER_HOST),
-            &NodeKey::generate().expect("key"),
-            &node_root,
-        )
-        .await
-        .expect_err("wrong secret");
-    assert!(
-        matches!(&error, NodeJoinError::Join(status) if status.code() == Code::Unauthenticated),
-        "{error:?}"
-    );
+    // Well past any attempt limit: anyone reaching the port can send these.
+    for attempt in 0..12 {
+        let mut connection = JoinConnection::connect(wrong.clone(), None, Timing::test().join)
+            .await
+            .expect("the host is authentic even with a wrong secret");
+        let error = connection
+            .join(
+                &proposal("worker", WORKER_HOST),
+                &NodeKey::generate().expect("key"),
+                &node_root,
+            )
+            .await
+            .expect_err("wrong secret");
+        assert!(
+            matches!(
+                &error,
+                NodeJoinError::Join(status)
+                    if status.code() == Code::Unauthenticated
+                        && status.message() == "private peer authentication failed"
+            ),
+            "attempt {attempt}: {error:?}"
+        );
+    }
     assert!(!node_root.exists());
     assert_eq!(harness.site_bytes(), site_before);
     assert!(harness.pins().is_empty());
     assert!(harness.approval.reviews().is_empty());
+    assert_eq!(
+        harness.last_attempt(),
+        None,
+        "a wrong secret is no attempt of the join"
+    );
 
-    connection
+    let mut connection = JoinConnection::connect(harness.token.clone(), None, Timing::test().join)
+        .await
+        .expect("connect with the right secret");
+    let joined = connection
         .join(
             &proposal("worker", WORKER_HOST),
             &NodeKey::generate().expect("key"),
             &node_root,
         )
         .await
-        .expect_err("second wrong secret");
-    assert!(matches!(
-        harness.finish().await,
-        Err(JoinHostError::TooManyFailedAttempts)
-    ));
-    assert_eq!(harness.site_bytes(), site_before);
-    assert!(harness.pins().is_empty());
+        .expect("the join still accepts its own secret");
+    assert_eq!(
+        harness.finish().await.expect("committed").node_id,
+        joined.node_id
+    );
 }
 
 #[tokio::test]
@@ -673,10 +695,15 @@ async fn rejected_proposals_change_nothing_and_a_corrected_retry_succeeds() {
         );
         assert_eq!(harness.site_bytes(), site_before, "{label}");
         assert!(harness.pins().is_empty(), "{label}");
+        let expected_attempt = match expected {
+            Rejection::Join => JoinAttemptOutcome::Rejected,
+            _ => JoinAttemptOutcome::Failed(status.message().to_owned()),
+        };
+        assert_eq!(harness.last_attempt(), Some(expected_attempt), "{label}");
     }
-    // Only the proposal the operator rejected was dialed back; the duplicate name and host were
+    // Only the proposal the operator rejected reached a review; the duplicate name and host were
     // refused before any dial.
-    assert_eq!(harness.approval.dials().len(), 1);
+    assert_eq!(harness.approval.reviews().len(), 1);
 
     connection
         .join(&proposal("worker", WORKER_HOST), &key, &node_root)
@@ -687,15 +714,48 @@ async fn rejected_proposals_change_nothing_and_a_corrected_retry_succeeds() {
 }
 
 #[tokio::test]
+async fn identical_failed_attempts_are_told_apart_by_when_they_ended() {
+    let harness = Harness::start(Options::default()).await;
+    let manager_name = harness.fixture.site.nodes[0].display_name.clone();
+    let duplicate = proposal(&manager_name, WORKER_HOST);
+    let key = NodeKey::generate().expect("key");
+    let node_root = harness.node_root();
+    let mut connection = harness.connect().await;
+
+    connection
+        .join(&duplicate, &key, &node_root)
+        .await
+        .expect_err("a duplicate name");
+    let first = harness.last_attempt_record().expect("first attempt");
+    let advance = Duration::from_secs(1);
+    harness.clock.advance(advance);
+    connection
+        .join(&duplicate, &key, &node_root)
+        .await
+        .expect_err("the same duplicate name");
+    let second = harness.last_attempt_record().expect("second attempt");
+
+    assert!(
+        matches!(&first.outcome, JoinAttemptOutcome::Failed(reason) if reason.contains("a node named")),
+        "{first:?}"
+    );
+    assert_eq!(second.outcome, first.outcome);
+    assert!(
+        second.at >= first.at + advance,
+        "first {first:?}, second {second:?}"
+    );
+}
+
+#[tokio::test]
 async fn a_node_the_manager_cannot_reach_by_its_key_is_refused_and_a_reachable_retry_joins() {
     let harness = Harness::start(Options {
         timing: JoinTiming {
             connect_timeout: Duration::from_millis(300),
             ..test_timing()
         },
-        limits: JoinHostLimits {
+        limits: JoinLimits {
             max_failed_dial_backs: 10,
-            ..JoinHostLimits::default()
+            ..JoinLimits::default()
         },
         ..Options::default()
     })
@@ -711,7 +771,7 @@ async fn a_node_the_manager_cannot_reach_by_its_key_is_refused_and_a_reachable_r
     for (label, port, cause) in [
         ("nothing listens", closed.port(), "connection refused"),
         ("no answer", silent_port.port(), "timed out"),
-        // The manager's own join listener answers there with the manager's key.
+        // The manager's own private listener answers there with the manager's key.
         ("another key", join_port, "another key answered"),
     ] {
         let status = client
@@ -730,6 +790,11 @@ async fn a_node_the_manager_cannot_reach_by_its_key_is_refused_and_a_reachable_r
                 .get(super::proposal::REJECTION_METADATA_KEY)
                 .and_then(|value| value.to_str().ok()),
             Some("unreachable-node"),
+            "{label}"
+        );
+        assert_eq!(
+            harness.last_attempt(),
+            Some(JoinAttemptOutcome::Failed(status.message().to_owned())),
             "{label}"
         );
     }
@@ -772,19 +837,7 @@ async fn a_node_the_manager_cannot_reach_by_its_key_is_refused_and_a_reachable_r
         harness.finish().await.expect("host").host,
         host(WORKER_HOST)
     );
-    assert_eq!(
-        harness.approval.dials(),
-        [
-            format!("{WORKER_HOST}:{} failed: connection refused", closed.port()),
-            format!("{WORKER_HOST}:{} failed: timed out", silent_port.port()),
-            format!("{WORKER_HOST}:{join_port} failed: another key answered"),
-            format!("unknown.example:{} failed: {UNRESOLVED}", worker_port()),
-            format!(
-                "{WORKER_HOST}:{port} reached at 127.0.0.1:{port}",
-                port = worker_port()
-            ),
-        ]
-    );
+    assert_eq!(harness.approval.reviews().len(), 1);
 }
 
 #[tokio::test]
@@ -794,25 +847,26 @@ async fn a_join_abandoned_during_its_dial_back_still_counts_toward_the_limit() {
             connect_timeout: Duration::from_secs(30),
             ..test_timing()
         },
-        limits: JoinHostLimits {
+        limits: JoinLimits {
             max_failed_dial_backs: 1,
-            ..JoinHostLimits::default()
+            ..JoinLimits::default()
         },
         ..Options::default()
     })
     .await;
     let site_before = harness.site_bytes();
     let silent_port = reserve_port();
-    let _silent = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, silent_port.port()))
+    let silent = TcpListener::bind((Ipv4Addr::LOCALHOST, silent_port.port()))
+        .await
         .expect("a listener that never answers");
     let mut client = harness.raw_client().await;
     let request = harness.raw_request_to(WORKER_HOST, silent_port.port());
     let pending = tokio::spawn(async move { client.join(request).await });
-    retry_until(|| !harness.approval.dials_started().is_empty()).await;
-    assert_eq!(
-        harness.approval.dials_started(),
-        [format!("{WORKER_HOST}:{}", silent_port.port())]
-    );
+    // The dial-back reaches the silent listener, which accepts and never answers.
+    let _dialed = tokio::time::timeout(Duration::from_secs(30), silent.accept())
+        .await
+        .expect("the manager dials the node back")
+        .expect("accept the dial-back");
 
     // The joining side gives up mid-dial, closing its connection.
     pending.abort();
@@ -826,7 +880,7 @@ async fn a_join_abandoned_during_its_dial_back_still_counts_toward_the_limit() {
             .expect_err("the token is spent once the abandoned dial counted");
         if !status
             .message()
-            .contains("another node join is in progress")
+            .contains("another machine is joining with this token")
         {
             assert_eq!(status.message(), "this join token is no longer accepted");
             break;
@@ -834,13 +888,8 @@ async fn a_join_abandoned_during_its_dial_back_still_counts_toward_the_limit() {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
 
-    assert!(matches!(
-        harness.finish().await,
-        Err(JoinHostError::TooManyFailedDialBacks)
-    ));
-    // The abandoned dial never reported an outcome, and the refused join was never dialed.
-    assert!(harness.approval.dials().is_empty());
-    assert_eq!(harness.approval.dials_started().len(), 1);
+    assert_eq!(harness.finish().await, Err(failed(TOO_MANY_DIAL_BACKS)));
+    assert!(harness.approval.reviews().is_empty());
     assert_eq!(harness.site_bytes(), site_before);
 }
 
@@ -875,16 +924,19 @@ async fn a_signing_request_not_signed_by_its_key_is_refused_before_any_dial() {
         status.message(),
         "the certificate signing request is not signed by its own key"
     );
-    assert!(harness.approval.dials_started().is_empty());
     assert!(harness.approval.reviews().is_empty());
+    assert_eq!(
+        harness.last_attempt(),
+        Some(JoinAttemptOutcome::Failed(status.message().to_owned()))
+    );
 }
 
 #[tokio::test]
 async fn failed_dial_backs_stop_the_host_at_the_limit() {
     let harness = Harness::start(Options {
-        limits: JoinHostLimits {
+        limits: JoinLimits {
             max_failed_dial_backs: 2,
-            ..JoinHostLimits::default()
+            ..JoinLimits::default()
         },
         ..Options::default()
     })
@@ -903,10 +955,7 @@ async fn failed_dial_backs_stop_the_host_at_the_limit() {
         .await
         .expect_err("second unreachable node");
 
-    assert!(matches!(
-        harness.finish().await,
-        Err(JoinHostError::TooManyFailedDialBacks)
-    ));
+    assert_eq!(harness.finish().await, Err(failed(TOO_MANY_DIAL_BACKS)));
     assert_eq!(harness.site_bytes(), site_before);
     assert!(harness.pins().is_empty());
 }
@@ -942,13 +991,7 @@ async fn a_host_name_joins_when_any_of_its_addresses_reaches_the_node() {
     harness.finish().await.expect("host result");
 
     assert_eq!(joined.host, host("multi.example"));
-    assert_eq!(
-        harness.approval.dials(),
-        [format!(
-            "multi.example:{port} reached at 127.0.0.1:{port}",
-            port = worker_port()
-        )]
-    );
+    assert_eq!(harness.approval.reviews()[0].host, host("multi.example"));
 }
 
 #[tokio::test]
@@ -1002,7 +1045,10 @@ async fn an_abandoned_offer_leaves_the_site_unchanged_and_frees_the_join() {
     let offer = request_offer(&mut abandoned, harness.raw_request("worker")).await;
     assert!(!offer.offer_id.is_empty());
     assert_eq!(offer.node_host, WORKER_HOST);
-    assert_eq!(offer.manager_private_endpoint, "https://127.0.0.1:7443/");
+    assert_eq!(
+        offer.manager_private_endpoint,
+        format!("https://127.0.0.1:{}/", harness.host_address.port())
+    );
     drop(abandoned);
 
     assert_eq!(harness.site_bytes(), site_before);
@@ -1166,10 +1212,6 @@ async fn idle_connections_close_but_reviews_in_progress_do_not() {
 async fn a_review_is_cancelled_when_its_connection_closes_or_the_host_stops() {
     let harness = Harness::start(Options {
         hold_reviews: true,
-        limits: JoinHostLimits {
-            max_failed_attempts: 1,
-            ..JoinHostLimits::default()
-        },
         ..Options::default()
     })
     .await;
@@ -1183,24 +1225,19 @@ async fn a_review_is_cancelled_when_its_connection_closes_or_the_host_stops() {
     retry_until(|| !harness.approval.reviews().is_empty()).await;
     pending.abort();
     let _ = pending.await;
-    harness.approval.wait_cancelled(0).await;
+    harness.approval.wait_cancelled(&harness, 0).await;
 
     let mut held = harness.raw_client().await;
     let request = harness.raw_request("worker");
     let pending = tokio::spawn(async move { request_offer_result(&mut held, request).await });
     retry_until(|| harness.approval.reviews().len() == 2).await;
-    let mut wrong = harness.raw_client().await;
-    let mut wrong_token = harness.token.clone();
-    wrong_token.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    request_offer_result(&mut wrong, harness.raw_request_with(&wrong_token, "other"))
-        .await
-        .expect_err("wrong secret");
-    harness.approval.wait_cancelled(1).await;
+    harness
+        .registry
+        .cancel(&harness.join_id)
+        .expect("cancel the join");
+    harness.approval.wait_cancelled(&harness, 1).await;
 
-    assert!(matches!(
-        harness.finish().await,
-        Err(JoinHostError::TooManyFailedAttempts)
-    ));
+    assert_eq!(harness.finish().await, Err(Box::new(JoinStatus::Cancelled)));
     pending
         .await
         .expect("join task")
@@ -1216,10 +1253,6 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
     let entered = Mutex::new(entered);
     let released = Mutex::new(released);
     let harness = Harness::start(Options {
-        limits: JoinHostLimits {
-            max_failed_attempts: 1,
-            ..JoinHostLimits::default()
-        },
         failing_publish: Some(Box::new(move || {
             let _ = entered
                 .lock()
@@ -1255,12 +1288,10 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
     .await
     .expect("wait for publication");
 
-    let mut wrong = harness.raw_client().await;
-    let mut wrong_token = harness.token.clone();
-    wrong_token.secret = JoinSecret::from_bytes([9; JOIN_SECRET_BYTES]);
-    request_offer_result(&mut wrong, harness.raw_request_with(&wrong_token, "other"))
-        .await
-        .expect_err("wrong secret during the commit");
+    harness
+        .registry
+        .cancel(&harness.join_id)
+        .expect("cancel during the commit");
     release.send(()).expect("release the publication");
 
     let status = commit
@@ -1268,51 +1299,51 @@ async fn a_stop_during_a_commit_that_records_nothing_finishes_the_host() {
         .expect("commit task")
         .expect_err("failed commit");
     assert_eq!(status.code(), Code::Aborted);
-    assert!(matches!(
-        harness.finish().await,
-        Err(JoinHostError::TooManyFailedAttempts)
-    ));
+    assert_eq!(harness.finish().await, Err(Box::new(JoinStatus::Cancelled)));
     assert!(harness.pins().is_empty());
 }
 
 #[tokio::test]
-async fn connections_beyond_the_limit_are_refused_until_one_closes() {
+async fn connections_beyond_the_limit_reach_no_join_until_one_closes() {
     let harness = Harness::start(Options {
-        limits: JoinHostLimits {
-            max_connections: 1,
-            ..JoinHostLimits::default()
-        },
+        max_connections: 1,
         ..Options::default()
     })
     .await;
-    let held = harness.raw_client().await;
-
-    let error = JoinConnection::connect(harness.token.clone(), None, Timing::test().join)
+    let mut held = harness.raw_client().await;
+    held.join(harness.raw_request_to(WORKER_HOST, reserve_port().port()))
         .await
-        .err()
-        .expect("a second connection is refused");
-    assert!(matches!(error, NodeJoinError::Connect(_)), "{error:?}");
+        .expect_err("the held connection is open and served");
+    let node_root = harness.node_root();
+    let key = NodeKey::generate().expect("key");
+
+    // The connection over the limit is closed after its handshake, before any request.
+    let refused =
+        match JoinConnection::connect(harness.token.clone(), None, Timing::test().join).await {
+            Ok(mut connection) => connection
+                .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+                .await
+                .map(|_| ()),
+            Err(error) => Err(error),
+        };
+    assert!(refused.is_err(), "a second connection is refused");
+    assert!(harness.approval.reviews().is_empty());
 
     drop(held);
-    let mut connected = None;
+    let mut joined = None;
     for _ in 0..200 {
-        if let Ok(connection) =
+        if let Ok(mut connection) =
             JoinConnection::connect(harness.token.clone(), None, Timing::test().join).await
+            && let Ok(node) = connection
+                .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+                .await
         {
-            connected = Some(connection);
+            joined = Some(node);
             break;
         }
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
-    connected
-        .expect("a connection is accepted once the first closed")
-        .join(
-            &proposal("worker", WORKER_HOST),
-            &NodeKey::generate().expect("key"),
-            &harness.node_root(),
-        )
-        .await
-        .expect("join");
+    joined.expect("a join succeeds once the first connection closed");
     harness.finish().await.expect("host result");
 }
 
@@ -1355,21 +1386,29 @@ async fn a_commit_reply_that_does_not_arrive_in_time_keeps_the_folder() {
 }
 
 #[tokio::test]
-async fn the_host_stops_when_the_token_expires() {
+async fn an_expired_join_ends_and_refuses_its_token() {
     let harness = Harness::start(Options {
-        limits: JoinHostLimits {
-            overall_timeout: Duration::ZERO,
-            ..JoinHostLimits::default()
+        timing: JoinTiming {
+            token_lifetime: Duration::ZERO,
+            ..test_timing()
         },
         ..Options::default()
     })
     .await;
 
-    assert!(matches!(
-        harness.finish().await,
-        Err(JoinHostError::Expired)
-    ));
+    assert_eq!(harness.finish().await, Err(Box::new(JoinStatus::Expired)));
     assert!(harness.pins().is_empty());
+    let status = harness
+        .raw_client()
+        .await
+        .join(harness.raw_request("worker"))
+        .await
+        .expect_err("the expired join refuses its token");
+    assert_eq!(status.code(), Code::Unauthenticated);
+    assert!(matches!(
+        harness.registry.approve(&harness.join_id, "any"),
+        Err(JoinRegistryError::NotFound)
+    ));
 }
 
 #[tokio::test]
@@ -1455,7 +1494,7 @@ async fn a_rejoin_with_a_new_host_keeps_the_node_and_changes_only_its_addresses(
     assert_eq!(folder.stored_declared_machine(), None);
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://localhost:7443/"
+        format!("https://localhost:{}/", harness.host_address.port())
     );
     assert_eq!(
         folder.realization_targets(),
@@ -1688,7 +1727,10 @@ async fn a_rejoin_the_manager_cannot_reach_is_refused_and_keeps_the_recorded_hos
     assert_eq!(harness.site_bytes(), site_bytes);
     assert_eq!(harness.pins(), pins);
     assert!(harness.approval.reviews().is_empty());
-    assert_eq!(harness.approval.dials().len(), 2);
+    assert_eq!(
+        harness.last_attempt(),
+        Some(JoinAttemptOutcome::Failed(status.message().to_owned()))
+    );
 }
 
 #[tokio::test]
@@ -1702,11 +1744,10 @@ async fn a_rejoin_refreshes_an_observation_configuration_that_drifted_from_the_s
     site.hardware_observation = Some(HardwareObservationConfiguration {
         refresh_interval_seconds: Some(refresh),
     });
-    fs::write(
-        harness.fixture.root.join(SITE_FILE),
-        dotcore_proto::yaml::to_string(&site).expect("site yaml"),
-    )
-    .expect("change the site observation policy");
+    harness
+        .repository
+        .replace(site)
+        .expect("change the site observation policy");
     let site_bytes = harness.site_bytes();
 
     let folder = RejoiningNodeFolder::open(&node_root, &harness.token).expect("open folder");
@@ -2007,7 +2048,7 @@ async fn a_failed_folder_rewrite_after_the_commit_is_completed_by_rejoining_agai
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("rejoined folder");
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://localhost:7443/"
+        format!("https://localhost:{}/", harness.host_address.port())
     );
 }
 
@@ -2078,7 +2119,7 @@ async fn an_unknown_rejoin_commit_outcome_keeps_the_folder_and_rejoining_again_c
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("rejoined folder");
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://localhost:7443/"
+        format!("https://localhost:{}/", harness.host_address.port())
     );
 }
 
@@ -2112,7 +2153,7 @@ async fn a_rewrite_that_may_not_be_durable_is_reported_as_uncertain() {
     let folder = NodeFolderValidator::validate_declared(&node_root).expect("rewritten folder");
     assert_eq!(
         folder.manager_endpoint().as_str(),
-        "https://localhost:7443/"
+        format!("https://localhost:{}/", harness.host_address.port())
     );
 }
 
@@ -2209,6 +2250,580 @@ async fn a_folder_that_cannot_rejoin_is_refused_before_anything_is_sent() {
     assert!(harness.approval.reviews().is_empty());
 }
 
+#[tokio::test]
+async fn a_failed_or_uncertain_site_write_fails_the_commit_and_records_nothing() {
+    for fault in [SiteWriteFault::Storage, SiteWriteFault::Uncertain] {
+        let harness = Harness::start(Options {
+            write_faults: vec![fault],
+            ..Options::default()
+        })
+        .await;
+        let site_bytes = harness.site_bytes();
+        let memory = harness.repository.snapshot().expect("memory");
+        let site_trust = harness.site_trust();
+        let changed = harness.repository.register_change_listener();
+        let node_root = harness.node_root();
+        let key = NodeKey::generate().expect("key");
+
+        let error = harness
+            .connect()
+            .await
+            .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+            .await
+            .expect_err("the commit fails");
+
+        assert!(
+            matches!(&error, NodeJoinError::CommitRejected(status)
+                if status.code() == Code::Aborted
+                    && status.message() == "the manager could not record the node and recorded nothing"),
+            "{fault:?}: {error:?}"
+        );
+        assert!(!node_root.exists(), "{fault:?}");
+        assert_eq!(harness.site_bytes(), site_bytes, "{fault:?}");
+        assert_eq!(
+            harness.site_trust(),
+            site_trust,
+            "{fault:?}: no pin is left"
+        );
+        assert_eq!(
+            harness.repository.snapshot().expect("memory"),
+            memory,
+            "{fault:?}"
+        );
+        assert!(!harness.repository.is_dirty(), "{fault:?}");
+        let node_id = derive_site_node_id(&harness.fixture.site.site_id, "worker");
+        assert!(harness.live_pins.get(&node_id).is_none(), "{fault:?}");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), changed.notified())
+                .await
+                .is_err(),
+            "{fault:?}: controllers hear of no change"
+        );
+        assert!(
+            matches!(harness.last_attempt(), Some(JoinAttemptOutcome::Failed(reason))
+                if reason.contains("recorded nothing")),
+            "{fault:?}"
+        );
+
+        // A manager restarting now loads the site as it was and starts its private listener.
+        let reloaded = SiteRepository::load(
+            &harness.fixture.root.join(SITE_FILE),
+            crate::test_support::site_declaration_rules(),
+        )
+        .expect("the site loads after the failed commit");
+        assert_eq!(reloaded.snapshot().expect("reloaded"), memory, "{fault:?}");
+        validate_for_private_startup(&harness.fixture.root, &memory)
+            .expect("the manager identity still validates");
+
+        // The token stays usable for a retry.
+        harness
+            .connect()
+            .await
+            .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+            .await
+            .expect("a retry joins");
+        assert_eq!(harness.finish().await.expect("host").node_id, node_id);
+    }
+}
+
+#[tokio::test]
+async fn concurrent_joins_with_the_same_name_or_host_sign_only_one_node() {
+    let harness = Harness::start(Options {
+        hold_reviews: true,
+        ..Options::default()
+    })
+    .await;
+    let second = harness.registry.start().await.expect("a second join");
+    let second_request = |display_name: &str, proposed_host: &str| {
+        JoinProposal {
+            private_port: harness.raw_node.port.port(),
+            ..proposal(display_name, proposed_host)
+        }
+        .to_request(
+            &second.token.secret,
+            &SiteNodeHost::LOOPBACK,
+            harness.raw_node.csr_der.clone(),
+        )
+    };
+    // The first join's proposal waits for the operator and reserves its name and host.
+    let mut held = harness.raw_client().await;
+    let request = harness.raw_request("worker");
+    let pending = tokio::spawn(async move { request_offer_result(&mut held, request).await });
+    retry_until(|| !harness.approval.reviews().is_empty()).await;
+
+    let mut client = harness.raw_client().await;
+    for (label, display_name, proposed_host, reason) in [
+        ("same name", "worker", MOVED_WORKER_HOST, "duplicate-name"),
+        ("same host", "other", WORKER_HOST, "duplicate-host"),
+    ] {
+        let status = client
+            .join(second_request(display_name, proposed_host))
+            .await
+            .expect_err(label);
+        assert_eq!(status.code(), Code::AlreadyExists, "{label}: {status:?}");
+        assert_eq!(
+            status
+                .metadata()
+                .get(super::proposal::REJECTION_METADATA_KEY)
+                .and_then(|value| value.to_str().ok()),
+            Some(reason),
+            "{label}"
+        );
+    }
+
+    let proposal_id = match harness.status() {
+        JoinStatus::AwaitingApproval { proposal_id, .. } => proposal_id,
+        other => panic!("{other:?}"),
+    };
+    harness
+        .registry
+        .approve(&harness.join_id, &proposal_id)
+        .expect("approve the first join");
+    let offer = pending.await.expect("join task").expect("offer");
+    assert_eq!(harness.site_writer.signed_requests().len(), 1);
+    assert_eq!(offer.node_display_name, "worker");
+}
+
+#[tokio::test]
+async fn the_first_decision_wins_and_no_proposal_is_decided_before_its_dial_back() {
+    let harness = Harness::start(Options {
+        hold_reviews: true,
+        ..Options::default()
+    })
+    .await;
+    assert!(matches!(
+        harness.registry.approve(&harness.join_id, "guessed"),
+        Err(JoinRegistryError::StaleProposal)
+    ));
+
+    // A proposal whose dial-back fails never awaits a decision.
+    let mut client = harness.raw_client().await;
+    client
+        .join(harness.raw_request_to(WORKER_HOST, reserve_port().port()))
+        .await
+        .expect_err("an unreachable node");
+    assert!(harness.approval.reviews().is_empty());
+    assert!(matches!(
+        harness.last_attempt(),
+        Some(JoinAttemptOutcome::Failed(_))
+    ));
+
+    let request = harness.raw_request("worker");
+    let pending = tokio::spawn(async move { request_offer_result(&mut client, request).await });
+    retry_until(|| !harness.approval.reviews().is_empty()).await;
+    let proposal_id = match harness.status() {
+        JoinStatus::AwaitingApproval { proposal_id, .. } => proposal_id,
+        other => panic!("{other:?}"),
+    };
+    assert!(matches!(
+        harness.registry.approve(&harness.join_id, "stale"),
+        Err(JoinRegistryError::StaleProposal)
+    ));
+    assert!(matches!(
+        harness.registry.approve("unknown-join", &proposal_id),
+        Err(JoinRegistryError::NotFound)
+    ));
+
+    harness
+        .registry
+        .reject(&harness.join_id, &proposal_id)
+        .expect("the first decision");
+    assert!(matches!(
+        harness.registry.approve(&harness.join_id, &proposal_id),
+        Err(JoinRegistryError::AlreadyDecided)
+    ));
+    assert!(matches!(
+        harness.registry.reject(&harness.join_id, &proposal_id),
+        Err(JoinRegistryError::AlreadyDecided)
+    ));
+    let status = pending
+        .await
+        .expect("join task")
+        .expect_err("the rejected proposal");
+    assert_eq!(status.code(), Code::PermissionDenied);
+    assert_eq!(harness.last_attempt(), Some(JoinAttemptOutcome::Rejected));
+    assert!(harness.site_writer.signed_requests().is_empty());
+}
+
+#[tokio::test]
+async fn a_cancelled_join_refuses_its_token_and_stays_readable_until_forgotten() {
+    let clock = ManualClock::new();
+    let (_fixture, registry) = bare_registry(Arc::new(clock.clone()));
+    let started = registry.start().await.expect("start");
+    let mut watch = registry.watch(&started.join_id).expect("watch");
+    assert_eq!(watch.status(), JoinStatus::Waiting { last_attempt: None });
+
+    registry.cancel(&started.join_id).expect("cancel");
+    assert_eq!(watch.status(), JoinStatus::Cancelled);
+    assert!(matches!(
+        registry.cancel(&started.join_id),
+        Err(JoinRegistryError::NotFound)
+    ));
+    assert!(matches!(
+        registry.approve(&started.join_id, "any"),
+        Err(JoinRegistryError::NotFound)
+    ));
+    let status = registry
+        .shared_for_test()
+        .join_for_secret(
+            &PrivateConnectionInfo::unattached("127.0.0.1:50000".parse().expect("peer")),
+            started.token.secret.as_bytes(),
+        )
+        .err()
+        .expect("the cancelled token is refused");
+    assert_eq!(status.code(), Code::Unauthenticated);
+
+    // An ended join stays readable, then is forgotten.
+    assert_eq!(
+        registry
+            .watch(&started.join_id)
+            .expect("ended join")
+            .status(),
+        JoinStatus::Cancelled
+    );
+    drop(watch);
+    let retention = test_timing().ended_retention;
+    retry_until_async(|| {
+        clock.advance(retention);
+        let forgotten = matches!(
+            registry.watch(&started.join_id),
+            Err(JoinRegistryError::NotFound)
+        );
+        async move { forgotten }
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_join_nobody_follows_is_cancelled_after_the_grace_period() {
+    let clock = ManualClock::new();
+    let (_fixture, registry) = bare_registry(Arc::new(clock.clone()));
+    let grace = test_timing().watcher_grace;
+    let followed = registry.start().await.expect("followed join");
+    let unfollowed = registry.start().await.expect("unfollowed join");
+    let mut watch = registry.watch(&followed.join_id).expect("watch");
+
+    // A watch that closes starts the grace period again from its end.
+    let mut left = registry.watch(&unfollowed.join_id).expect("watch");
+    drop(left);
+    retry_until_async(|| {
+        clock.advance(grace);
+        let status = registry
+            .watch(&unfollowed.join_id)
+            .map(|mut watch| watch.status());
+        async move { matches!(status, Ok(JoinStatus::Cancelled)) }
+    })
+    .await;
+    // Reading a join counts as following it only while the watch lives.
+    left = registry.watch(&unfollowed.join_id).expect("ended join");
+    assert_eq!(left.status(), JoinStatus::Cancelled);
+
+    clock.advance(grace * 3);
+    tokio::task::yield_now().await;
+    assert_eq!(watch.status(), JoinStatus::Waiting { last_attempt: None });
+}
+
+#[tokio::test]
+async fn at_most_the_active_join_limit_runs_at_once() {
+    let (_fixture, registry) = bare_registry(Arc::new(SystemClock));
+    let limit = JoinLimits::default().max_active_joins;
+    let mut joins = Vec::new();
+    for _ in 0..limit {
+        joins.push(registry.start().await.expect("a join under the limit"));
+    }
+    let _watches = joins
+        .iter()
+        .map(|join| registry.watch(&join.join_id).expect("watch"))
+        .collect::<Vec<_>>();
+
+    assert!(matches!(
+        registry.start().await,
+        Err(JoinRegistryError::TooManyJoins)
+    ));
+    registry.cancel(&joins[0].join_id).expect("cancel one");
+    registry.start().await.expect("a join once another ended");
+}
+
+#[tokio::test]
+async fn the_management_api_starts_follows_and_decides_joins() {
+    use dotcore_proto::dotcore::site::v1::{
+        self as proto, site_join_service_server::SiteJoinService as _,
+    };
+    use futures_util::StreamExt as _;
+
+    let harness = Harness::start(Options {
+        hold_reviews: true,
+        ..Options::default()
+    })
+    .await;
+    let clock = ManualClock::new();
+    let heartbeat = Duration::from_secs(15);
+    let service = super::JoinManagementService::new(
+        harness.registry.clone(),
+        Arc::new(clock.clone()),
+        heartbeat,
+    );
+
+    // A started join hands out a token naming the manager's private listener.
+    let before = std::time::SystemTime::now();
+    let started = service
+        .start_join(tonic::Request::new(proto::StartJoinRequest {}))
+        .await
+        .expect("start a join")
+        .into_inner();
+    let token = JoinToken::parse(&started.token).expect("token");
+    assert_eq!(
+        token.endpoint.as_str(),
+        format!("https://127.0.0.1:{}/", harness.host_address.port())
+    );
+    let expires = started.expires_at.expect("expiry").seconds;
+    let lifetime = i64::try_from(test_timing().token_lifetime.as_secs()).expect("lifetime");
+    let since_epoch = |time: std::time::SystemTime| {
+        i64::try_from(
+            time.duration_since(std::time::UNIX_EPOCH)
+                .expect("after the epoch")
+                .as_secs(),
+        )
+        .expect("seconds")
+    };
+    assert!(
+        (since_epoch(before) + lifetime..=since_epoch(before) + lifetime + 5).contains(&expires)
+    );
+    service
+        .cancel_join(tonic::Request::new(proto::CancelJoinRequest {
+            join_id: started.join_id.clone(),
+        }))
+        .await
+        .expect("cancel the started join");
+    let status = service
+        .cancel_join(tonic::Request::new(proto::CancelJoinRequest {
+            join_id: started.join_id,
+        }))
+        .await
+        .expect_err("the cancelled join ended");
+    assert_eq!(status.code(), Code::NotFound);
+
+    // The watch opens on the current state and sends a heartbeat when quiet.
+    let mut stream = service
+        .watch_join(tonic::Request::new(proto::WatchJoinRequest {
+            join_id: harness.join_id.clone(),
+        }))
+        .await
+        .expect("watch the join")
+        .into_inner();
+    let mut next = async || {
+        tokio::time::timeout(Duration::from_secs(30), stream.next())
+            .await
+            .expect("a watch message")
+            .map(|message| message.expect("watch message").event.expect("event"))
+    };
+    assert_eq!(
+        next().await,
+        Some(proto::watch_join_response::Event::State(proto::JoinState {
+            state: Some(proto::join_state::State::Waiting(proto::JoinWaiting {
+                last_attempt: None
+            })),
+        }))
+    );
+    let quiet = tokio::spawn({
+        let clock = clock.clone();
+        async move {
+            loop {
+                clock.advance(heartbeat);
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        }
+    });
+    assert_eq!(
+        next().await,
+        Some(proto::watch_join_response::Event::Heartbeat(
+            Default::default()
+        ))
+    );
+    quiet.abort();
+
+    // A proposal reaches the watch with what the operator decides on.
+    let key = NodeKey::generate().expect("key");
+    let key_fingerprint = key.fingerprint();
+    let node_root = harness.node_root();
+    let mut connection = harness.connect().await;
+    let joining = tokio::spawn(async move {
+        connection
+            .join(&proposal("worker", WORKER_HOST), &key, &node_root)
+            .await
+    });
+    let awaiting = loop {
+        match next().await.expect("an event") {
+            proto::watch_join_response::Event::State(proto::JoinState {
+                state: Some(proto::join_state::State::AwaitingApproval(awaiting)),
+            }) => break awaiting,
+            _ => continue,
+        }
+    };
+    let review = harness.approval.reviews()[0].clone();
+    let node_id = derive_site_node_id(&harness.fixture.site.site_id, "worker");
+    let expected_targets = expected_targets(&node_id);
+    assert_eq!(
+        awaiting.proposal,
+        Some(proto::JoinProposal {
+            node_id: node_id.clone(),
+            display_name: "worker".to_owned(),
+            host: WORKER_HOST.to_owned(),
+            host_source: proto::JoinHostSource::Proposed as i32,
+            peer_address: review.peer_address.to_string(),
+            host_differs_from_peer: false,
+            private_port: u32::from(worker_port()),
+            key_fingerprint: key_fingerprint.as_str().to_owned(),
+            fingerprint_pattern: Some(expected_pattern(&key_fingerprint)),
+            kind: Some(proto::join_proposal::Kind::NewNode(proto::JoinNewNode {
+                targets: vec![
+                    proto::JoinProposedTarget {
+                        workload_kind: proto::ExecutionTargetWorkloadKind::Model as i32,
+                        runtime: proto::JoinTargetRuntime::Simulated as i32,
+                        platform_label: "linux/amd64".to_owned(),
+                        accelerator_device_ids: expected_targets[0].accelerator_device_ids.clone(),
+                        native_workload_lifetime: proto::NativeWorkloadLifetime::Unspecified as i32,
+                    },
+                    proto::JoinProposedTarget {
+                        workload_kind: proto::ExecutionTargetWorkloadKind::Application as i32,
+                        runtime: proto::JoinTargetRuntime::Simulated as i32,
+                        platform_label: "linux/arm64".to_owned(),
+                        accelerator_device_ids: Vec::new(),
+                        native_workload_lifetime: proto::NativeWorkloadLifetime::Unspecified as i32,
+                    },
+                ],
+            })),
+        })
+    );
+
+    let decide = |proposal_id: &str| {
+        tonic::Request::new(proto::ApproveJoinRequest {
+            join_id: harness.join_id.clone(),
+            proposal_id: proposal_id.to_owned(),
+        })
+    };
+    let stale = service
+        .approve_join(decide("stale"))
+        .await
+        .expect_err("a stale proposal");
+    assert_eq!(stale.code(), Code::FailedPrecondition);
+    service
+        .approve_join(decide(&awaiting.proposal_id))
+        .await
+        .expect("approve");
+    let again = service
+        .approve_join(decide(&awaiting.proposal_id))
+        .await
+        .expect_err("a second decision");
+    assert!(
+        matches!(again.code(), Code::FailedPrecondition | Code::NotFound),
+        "{again:?}"
+    );
+
+    // The watch ends with the committed node.
+    let committed = loop {
+        match next().await.expect("an event") {
+            proto::watch_join_response::Event::State(proto::JoinState {
+                state: Some(proto::join_state::State::Committed(committed)),
+            }) => break committed,
+            _ => continue,
+        }
+    };
+    assert_eq!(committed.node_id, node_id);
+    assert_eq!(next().await, None);
+    joining.await.expect("join task").expect("joined");
+}
+
+/// The wire form of the pattern derived from `fingerprint`.
+fn expected_pattern(
+    fingerprint: &CertificateFingerprint,
+) -> dotcore_proto::dotcore::site::v1::FingerprintPattern {
+    use dotcore_proto::dotcore::site::v1::FingerprintPatternColor as Color;
+
+    let pattern = FingerprintPattern::of(fingerprint);
+    dotcore_proto::dotcore::site::v1::FingerprintPattern {
+        colors: pattern
+            .colors
+            .iter()
+            .map(|color| {
+                (match color {
+                    FingerprintColor::Red => Color::Red,
+                    FingerprintColor::Green => Color::Green,
+                    FingerprintColor::Yellow => Color::Yellow,
+                    FingerprintColor::Blue => Color::Blue,
+                    FingerprintColor::Magenta => Color::Magenta,
+                    FingerprintColor::Cyan => Color::Cyan,
+                }) as i32
+            })
+            .collect(),
+        cells: pattern
+            .cells
+            .iter()
+            .flatten()
+            .map(|&slot| u32::from(slot))
+            .collect(),
+    }
+}
+
+/// A registry over an initialized site on `clock`, serving no listener.
+fn bare_registry(clock: Arc<dyn dotcore_domain::clock::Clock>) -> (InitializedSite, JoinRegistry) {
+    let fixture = initialized_site();
+    let repository = SiteRepository::load(
+        &fixture.root.join(SITE_FILE),
+        crate::test_support::site_declaration_rules(),
+    )
+    .expect("site repository");
+    let site = repository.snapshot().expect("site");
+    let identity = validate_for_private_startup(&fixture.root, &site).expect("manager identity");
+    let manager = site
+        .nodes
+        .iter()
+        .find(|node| node.site_manager.is_some())
+        .expect("manager");
+    let registry = JoinRegistry::new(
+        JoinHostIdentity::new(
+            &site.site_id,
+            &manager.node_id,
+            identity.trust_anchor,
+            identity.certificate,
+        ),
+        Arc::new(MembershipRecorder::new(
+            repository,
+            &fixture.root,
+            PeerPins::default(),
+        )),
+        JoinGate::default(),
+        test_timing(),
+        clock,
+    );
+    registry.listen_on(7443);
+    (fixture, registry)
+}
+
+/// Waits until `condition` resolves true, polling briefly.
+async fn retry_until_async<F: std::future::Future<Output = bool>>(
+    mut condition: impl FnMut() -> F,
+) {
+    for _ in 0..1200 {
+        if condition().await {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    panic!("condition did not hold");
+}
+
+/// Why a join fails after too many failed dial-backs.
+const TOO_MANY_DIAL_BACKS: &str =
+    "too many joins named a host and port where the manager could not reach the machine";
+
+/// The final state of a join that failed for `reason`.
+fn failed(reason: &str) -> Box<JoinStatus> {
+    Box::new(JoinStatus::Failed {
+        reason: reason.to_owned(),
+    })
+}
+
 /// Which refusal variant a join error is.
 #[derive(Debug, PartialEq, Eq)]
 enum Rejection {
@@ -2303,24 +2918,22 @@ fn simulated_rtx_5090() -> DeclaredMachine {
     }
 }
 
-/// Test join bounds with a short shutdown, so a finished host returns without waiting long for
-/// the connections a test left open.
+/// Test join bounds.
 fn test_timing() -> JoinTiming {
-    JoinTiming {
-        shutdown_timeout: Duration::from_millis(100),
-        ..Timing::test().join
-    }
+    Timing::test().join
 }
 
 struct Options {
-    limits: JoinHostLimits,
+    limits: JoinLimits,
+    /// Connections without a pinned certificate the listener keeps open at once.
+    max_connections: usize,
     timing: JoinTiming,
     /// Host the site declares for the manager and the token names; the listener's loopback
     /// address when `None`.
     manager_host: Option<&'static str>,
     /// Resolver both sides look host names up with; [`worker_resolver`] when `None`.
     resolver: Option<Arc<FakeHostResolver>>,
-    /// Binds the join listener on a reserved port, for tests that bind the same number on
+    /// Binds the private listener on a reserved port, for tests that bind the same number on
     /// another address.
     reserved_listener_port: bool,
     decisions: Vec<JoinDecision>,
@@ -2328,12 +2941,15 @@ struct Options {
     hold_reviews: bool,
     after_publish: Option<PublishHook>,
     failing_publish: Option<FailingPublish>,
+    /// Outcomes of the next `site.yaml` writes.
+    write_faults: Vec<SiteWriteFault>,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
-            limits: JoinHostLimits::default(),
+            limits: JoinLimits::default(),
+            max_connections: 16,
             timing: test_timing(),
             manager_host: None,
             resolver: None,
@@ -2343,23 +2959,32 @@ impl Default for Options {
             hold_reviews: false,
             after_publish: None,
             failing_publish: None,
+            write_faults: Vec::new(),
         }
     }
 }
 
-/// A running join host over an initialized site, with a scripted operator.
+/// A join registry served on a private listener over an initialized site, with one started join
+/// and a scripted operator.
 struct Harness {
     fixture: InitializedSite,
+    registry: JoinRegistry,
+    /// Clock of the registry: real time plus the test's advances.
+    clock: ManualClock,
+    join_id: String,
     token: JoinToken,
     host_address: SocketAddr,
-    /// Keeps the join listener's number from other test processes while the harness lives.
+    /// Keeps the listener's number from other test processes while the harness lives.
     _reserved_port: Option<ReservedPort>,
     approval: Arc<ApprovalScript>,
     site_writer: Arc<RecordingSite>,
+    repository: SiteRepository,
+    live_pins: PeerPins,
     resolver: Arc<dyn HostResolver>,
-    host: Mutex<Option<JoinHandle<Result<JoinedNode, JoinHostError>>>>,
     client_directory: tempfile::TempDir,
     raw_node: RawNode,
+    _server: AbortOnDrop,
+    _operator: AbortOnDrop,
 }
 
 /// The joining node behind raw requests: its signing request, and its dial-back listener on a
@@ -2392,91 +3017,157 @@ impl Harness {
             Some(host) => initialized_site_with_manager_host(host),
             None => initialized_site(),
         };
+        let (repository, faults) =
+            SiteRepository::load_with_write_faults_for_test(&fixture.root.join(SITE_FILE))
+                .expect("site repository");
+        let live_pins = PeerPins::default();
         let site_writer = Arc::new(RecordingSite {
-            inner: OfflineSite::open(&fixture.root, &SiteInputBundleValidator::for_test())
-                .expect("open site"),
+            inner: MembershipRecorder::new(repository.clone(), &fixture.root, live_pins.clone()),
+            faults,
             after_publish: Mutex::default(),
             failing_publish: Mutex::default(),
             signed_requests: Mutex::default(),
         });
         let client_directory =
             dotcore_domain::test_support::canonical_tempdir().expect("client directory");
-        Self::serve(fixture, site_writer, client_directory, options).await
+        Self::serve(
+            fixture,
+            site_writer,
+            repository,
+            live_pins,
+            client_directory,
+            options,
+        )
+        .await
     }
 
-    /// Serves a new host with a fresh token over the same site and joining machine, as a later
-    /// node addition on the same stopped manager would. The previous host must have finished.
+    /// Serves a new registry with a fresh join over the same site and joining machine, as a
+    /// later join on the same manager would. The previous join must have ended.
     async fn restart(self, options: Options) -> Self {
         let Self {
             fixture,
             site_writer,
+            repository,
+            live_pins,
             client_directory,
             ..
         } = self;
-        Self::serve(fixture, site_writer, client_directory, options).await
+        Self::serve(
+            fixture,
+            site_writer,
+            repository,
+            live_pins,
+            client_directory,
+            options,
+        )
+        .await
     }
 
     async fn serve(
         fixture: InitializedSite,
         site_writer: Arc<RecordingSite>,
+        repository: SiteRepository,
+        live_pins: PeerPins,
         client_directory: tempfile::TempDir,
         options: Options,
     ) -> Self {
+        let _ = rustls::crypto::ring::default_provider().install_default();
         site_writer.set_hooks(options.after_publish, options.failing_publish);
-        let identity = site_writer.inner.host_identity().expect("manager identity");
+        for fault in options.write_faults {
+            site_writer.faults.push(fault);
+        }
+        let site = repository.snapshot().expect("site");
+        let identity =
+            validate_for_private_startup(&fixture.root, &site).expect("manager identity");
+        let manager = site
+            .nodes
+            .iter()
+            .find(|node| node.site_manager.is_some())
+            .expect("manager node")
+            .clone();
+        let configuration = PrivateServerConfiguration {
+            bind_address: SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+            site_id: site.site_id.clone(),
+            local_node_id: manager.node_id.clone(),
+            local_role: PrivateNodeRole::Manager,
+            certificate_der: identity.certificate.clone(),
+            private_key_pkcs8: identity.private_key,
+            trust_anchor_der: identity.trust_anchor.clone(),
+            peers: live_pins.clone(),
+        };
         let reserved_port = options.reserved_listener_port.then(reserve_port);
         let listener = TcpListener::bind((
             Ipv4Addr::LOCALHOST,
             reserved_port.as_ref().map_or(0, ReservedPort::port),
         ))
         .await
-        .expect("join listener");
+        .expect("private listener");
         let host_address = listener.local_addr().expect("listener address");
-        let token_host = options
-            .manager_host
-            .map_or_else(|| host_address.ip().to_string(), str::to_owned);
-        let token = identity
-            .token(
-                format!("https://{token_host}:{}", host_address.port())
-                    .parse()
-                    .expect("join endpoint"),
-            )
-            .expect("token");
         let resolver: Arc<dyn HostResolver> = match options.resolver {
             Some(resolver) => resolver,
             None => Arc::new(worker_resolver()),
         };
+        let clock = ManualClock::new();
+        let registry = JoinRegistry::new(
+            JoinHostIdentity::new(
+                &site.site_id,
+                &manager.node_id,
+                identity.trust_anchor,
+                identity.certificate,
+            ),
+            Arc::clone(&site_writer) as Arc<dyn JoinSiteWriter>,
+            JoinGate::default(),
+            options.timing,
+            Arc::new(clock.clone()),
+        )
+        .with_host_resolver(Arc::clone(&resolver))
+        .with_limits(options.limits);
+        registry.listen_on(host_address.port());
+        let incoming = PrivateConnections::new(
+            &configuration,
+            UnpinnedConnectionLimits {
+                max_open: options.max_connections,
+                idle_timeout: options.timing.idle_timeout,
+            },
+        )
+        .expect("private connections")
+        .incoming(listener);
+        let server = tonic::transport::Server::builder()
+            .add_service(registry.join_service())
+            .serve_with_incoming(incoming);
+        let server = AbortOnDrop(tokio::spawn(async move {
+            let _ = server.await;
+        }));
+
+        let started = registry.start().await.expect("start a join");
         let approval = Arc::new(ApprovalScript {
             delay: options.review_delay,
             hold: options.hold_reviews,
             decisions: Mutex::new(options.decisions.into()),
             reviews: Mutex::default(),
-            dials_started: Mutex::default(),
-            dials: Mutex::default(),
         });
-        let host = JoinHost::new(
-            JoinHostSettings {
-                identity,
-                token: token.clone(),
-                manager_private_port: 7443,
-                limits: options.limits,
-            },
-            Arc::clone(&site_writer) as Arc<dyn JoinSiteWriter>,
-            Arc::new(ScriptedApproval(Arc::clone(&approval))) as Arc<dyn JoinApproval>,
-            options.timing,
-        )
-        .with_host_resolver(Arc::clone(&resolver));
+        let operator = AbortOnDrop(tokio::spawn(operate(
+            registry.clone(),
+            started.join_id.clone(),
+            Arc::clone(&approval),
+        )));
         Self {
             fixture,
-            token,
+            registry,
+            clock,
+            join_id: started.join_id,
+            token: started.token,
             host_address,
             _reserved_port: reserved_port,
             approval,
             site_writer,
+            repository,
+            live_pins,
             resolver,
-            host: Mutex::new(Some(tokio::spawn(host.serve(listener)))),
             client_directory,
             raw_node: RawNode::start().await,
+            _server: server,
+            _operator: operator,
         }
     }
 
@@ -2520,7 +3211,7 @@ impl Harness {
     async fn connect_with(&self, timing: JoinTiming) -> JoinConnection {
         JoinConnection::connect(self.token.clone(), None, timing)
             .await
-            .expect("connect to the join host")
+            .expect("connect to the manager")
             .with_host_resolver(Arc::clone(&self.resolver))
     }
 
@@ -2532,7 +3223,7 @@ impl Harness {
             Timing::test().join,
         )
         .await
-        .expect("connect to the join host")
+        .expect("connect to the manager")
         .with_host_resolver(Arc::clone(&self.resolver))
     }
 
@@ -2555,17 +3246,43 @@ impl Harness {
         NodeJoinServiceClient::new(channel)
     }
 
-    async fn finish(&self) -> Result<JoinedNode, JoinHostError> {
-        let host = self
-            .host
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take()
-            .expect("host result is taken once");
-        tokio::time::timeout(Duration::from_secs(60), host)
-            .await
-            .expect("the host finishes")
-            .expect("host task")
+    /// Waits for the join to end and returns the recorded node, or the state it ended in.
+    async fn finish(&self) -> Result<JoinedNode, Box<JoinStatus>> {
+        let mut watch = self.registry.watch(&self.join_id).expect("watch the join");
+        let mut status = watch.status();
+        let ended = tokio::time::timeout(Duration::from_secs(60), async {
+            while !status.is_final() {
+                status = watch.changed().await;
+            }
+            status
+        })
+        .await
+        .expect("the join ends");
+        match ended {
+            JoinStatus::Committed(joined) => Ok(joined),
+            other => Err(Box::new(other)),
+        }
+    }
+
+    /// Returns the join's current state.
+    fn status(&self) -> JoinStatus {
+        self.registry
+            .watch(&self.join_id)
+            .expect("watch the join")
+            .status()
+    }
+
+    /// Returns how the join's latest attempt ended, failing when it is not waiting for one.
+    fn last_attempt(&self) -> Option<JoinAttemptOutcome> {
+        self.last_attempt_record().map(|attempt| attempt.outcome)
+    }
+
+    /// Returns the join's latest attempt, failing when it is not waiting for one.
+    fn last_attempt_record(&self) -> Option<JoinAttempt> {
+        match self.status() {
+            JoinStatus::Waiting { last_attempt } => last_attempt,
+            other => panic!("the join is not waiting: {other:?}"),
+        }
     }
 
     fn node_root(&self) -> PathBuf {
@@ -2611,107 +3328,86 @@ impl Harness {
     }
 }
 
-/// The operator's scripted answers, and the reviews they saw with each review's cancellation.
+/// Aborts a background task when dropped.
+struct AbortOnDrop(JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Follows one join as the operator and decides each proposal from the script.
+async fn operate(registry: JoinRegistry, join_id: String, script: Arc<ApprovalScript>) {
+    let mut watch = registry.watch(&join_id).expect("watch the join");
+    let mut status = watch.status();
+    while !status.is_final() {
+        if let JoinStatus::AwaitingApproval {
+            proposal_id,
+            review,
+        } = &status
+        {
+            script
+                .reviews
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .push((proposal_id.clone(), (**review).clone()));
+            if !script.hold {
+                tokio::time::sleep(script.delay).await;
+                let decision = script
+                    .decisions
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .pop_front()
+                    .unwrap_or(JoinDecision::Allow);
+                let _ = match decision {
+                    JoinDecision::Allow => registry.approve(&join_id, proposal_id),
+                    JoinDecision::Reject => registry.reject(&join_id, proposal_id),
+                };
+            }
+        }
+        status = watch.changed().await;
+    }
+}
+
+/// The operator's scripted answers, and the proposals it saw.
 struct ApprovalScript {
     delay: Duration,
     hold: bool,
     decisions: Mutex<VecDeque<JoinDecision>>,
-    reviews: Mutex<Vec<(JoinReview, CancellationToken)>>,
-    dials_started: Mutex<Vec<String>>,
-    dials: Mutex<Vec<String>>,
+    reviews: Mutex<Vec<(String, JoinReview)>>,
 }
 
 impl ApprovalScript {
-    /// Every dial-back shown to the operator as it started, as `host:port`.
-    fn dials_started(&self) -> Vec<String> {
-        self.dials_started
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-
-    /// Every dial-back shown to the operator, as `host:port` and its outcome.
-    fn dials(&self) -> Vec<String> {
-        self.dials
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-
     fn reviews(&self) -> Vec<JoinReview> {
         self.reviews
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .iter()
-            .map(|(review, _)| review.clone())
+            .map(|(_, review)| review.clone())
             .collect()
     }
 
-    /// Waits until the host cancels the review at `index`.
-    async fn wait_cancelled(&self, index: usize) {
-        let cancel = self.reviews.lock().unwrap_or_else(PoisonError::into_inner)[index]
-            .1
+    /// Waits until the proposal at `index` no longer awaits a decision.
+    async fn wait_cancelled(&self, harness: &Harness, index: usize) {
+        let proposal = self.reviews.lock().unwrap_or_else(PoisonError::into_inner)[index]
+            .0
             .clone();
-        tokio::time::timeout(Duration::from_secs(30), cancel.cancelled())
-            .await
-            .expect("the review is cancelled");
-    }
-}
-
-struct ScriptedApproval(Arc<ApprovalScript>);
-
-impl JoinApproval for ScriptedApproval {
-    fn dialing_back(&self, host: &SiteNodeHost, port: u16) {
-        self.0
-            .dials_started
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(format!("{host}:{port}"));
-    }
-
-    fn dialed_back(&self, dial: &DialBack) {
-        let outcome = match &dial.outcome {
-            Ok(address) => format!("reached at {address}"),
-            Err(error) => format!("failed: {}", error.detailed()),
-        };
-        self.0
-            .dials
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(format!("{}:{} {outcome}", dial.host, dial.port));
-    }
-
-    fn review(
-        &self,
-        review: JoinReview,
-        cancel: CancellationToken,
-    ) -> BoxFuture<'static, JoinDecision> {
-        let script = Arc::clone(&self.0);
-        Box::pin(async move {
-            script
-                .reviews
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push((review, cancel.clone()));
-            if script.hold {
-                cancel.cancelled().await;
-                return JoinDecision::Reject;
-            }
-            tokio::time::sleep(script.delay).await;
-            script
-                .decisions
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .pop_front()
-                .unwrap_or(JoinDecision::Allow)
+        retry_until(|| {
+            !matches!(
+                harness.status(),
+                JoinStatus::AwaitingApproval { proposal_id, .. } if proposal_id == proposal
+            )
         })
+        .await;
     }
 }
 
-/// The offline site, recording every signing request and running a hook after each write of a
-/// node; the hooks are replaced whenever a new host serves the site.
+/// The membership recorder, recording every signing request and running a hook after each write
+/// of a node; the hooks are replaced whenever a new registry serves the site.
 struct RecordingSite {
-    inner: OfflineSite,
+    inner: MembershipRecorder,
+    faults: SiteWriteFaults,
     after_publish: Mutex<Option<PublishHook>>,
     failing_publish: Mutex<Option<FailingPublish>>,
     signed_requests: Mutex<Vec<Vec<u8>>>,
@@ -2972,14 +3668,17 @@ async fn authenticate_to_manager(
         certificate_der: identity.certificate.clone(),
         private_key_pkcs8: identity.private_key,
         trust_anchor_der: identity.trust_anchor.clone(),
-        peers: [(
-            folder.worker_node_id().to_owned(),
-            PrivatePeerPolicy {
-                role: PrivateNodeRole::Worker,
-                certificate_sha256: CertificateFingerprint::parse(pin.trim()).expect("pin value"),
-            },
-        )]
-        .into(),
+        peers: PeerPins::new(
+            [(
+                folder.worker_node_id().to_owned(),
+                PrivatePeerPolicy {
+                    role: PrivateNodeRole::Worker,
+                    certificate_sha256: CertificateFingerprint::parse(pin.trim())
+                        .expect("pin value"),
+                },
+            )]
+            .into(),
+        ),
     };
     assert_eq!(
         CertificateFingerprint::parse(pin.trim()).expect("pin value"),

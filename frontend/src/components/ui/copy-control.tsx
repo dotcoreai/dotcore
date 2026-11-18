@@ -11,6 +11,11 @@ type CopyControlProps = {
   value: string;
 };
 
+type CodeCopyControlProps = CopyControlProps & {
+  /** Restyles the button, such as for a dark code pane. */
+  className?: string;
+};
+
 type InlineCopyControlProps = CopyControlProps & {
   children: ReactNode;
   className?: string;
@@ -49,7 +54,7 @@ function InlineCopyControl({ children, className, label, value }: InlineCopyCont
  * Provides the separate copy action used beside a code example without turning the code itself into
  * a button, preserving code selection and context-menu copy behavior.
  */
-function CodeCopyControl({ label, value }: CopyControlProps) {
+function CodeCopyControl({ className, label, value }: CodeCopyControlProps) {
   const { copy, feedback } = useCopyFeedback(value);
 
   return (
@@ -57,7 +62,7 @@ function CodeCopyControl({ label, value }: CopyControlProps) {
       <Feedback feedback={feedback} />
       <Button
         aria-label={`Copy ${label}`}
-        className="cursor-pointer"
+        className={cn("cursor-pointer", className)}
         onClick={() => void copy()}
         size="sm"
         title={`Copy ${label}`}
@@ -130,4 +135,4 @@ function useCopyFeedback(value: string) {
 }
 
 export { CodeCopyControl, IconCopyControl, InlineCopyControl };
-export type { CopyControlProps, InlineCopyControlProps };
+export type { CodeCopyControlProps, CopyControlProps, InlineCopyControlProps };

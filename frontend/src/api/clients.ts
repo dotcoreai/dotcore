@@ -12,6 +12,7 @@ import { createModelClient, type ModelClient } from "@/api/model-client";
 import { createResourceWatchClient, type ResourceWatchClient } from "@/api/resource-watch-client";
 import { createRouteClient, type RouteClient } from "@/api/route-client";
 import { createSiteClient, type SiteClient } from "@/api/site-client";
+import { createSiteJoinClient, type SiteJoinClient } from "@/api/site-join-client";
 
 /**
  * Every API client the console uses, one per backend service. Pages and providers read them from
@@ -27,6 +28,7 @@ export interface ConsoleClients {
   resourceWatchClient: ResourceWatchClient;
   routeClient: RouteClient;
   siteClient: SiteClient;
+  siteJoinClient: SiteJoinClient;
 }
 
 export const ClientsContext = createContext<ConsoleClients | undefined>(undefined);
@@ -43,6 +45,7 @@ export function createConsoleClients(): ConsoleClients {
     resourceWatchClient: createResourceWatchClient(),
     routeClient: createRouteClient(),
     siteClient: createSiteClient(),
+    siteJoinClient: createSiteJoinClient(),
   };
 }
 

@@ -9,25 +9,23 @@ use dotcore_proto::dotcore::site::v1::Site;
 use dotcore_site::{
     manager_trust::{SITE_TRUST_DIRECTORY, WORKER_PIN_DIRECTORY, validate_for_private_startup},
     node::folder::{CertificateFingerprint, ValidatedNodeFolder},
-    private_transport::{PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration},
+    private_transport::{PeerPins, PrivateNodeRole, PrivatePeerPolicy, PrivateServerConfiguration},
 };
+use tracing::warn;
 
 use super::{CompositionError, ManagerPrivateListener, node_binding::node_configuration_for};
 
 /// Chooses the manager's private listener address: the configured one, else the manager SiteNode
-/// host with the site default port when the site declares another SiteNode, else none, since only
-/// other nodes dial the manager's private listener.
+/// host with the site default port. The manager always serves it, so a machine can join while it
+/// runs.
 pub(super) fn manager_bind_address(
     listener: &ManagerPrivateListener,
     site: &Site,
-) -> Result<Option<BindAddress>, CompositionError> {
+) -> Result<BindAddress, CompositionError> {
     let port = match listener {
-        ManagerPrivateListener::Configured(address) => return Ok(Some(address.clone())),
+        ManagerPrivateListener::Configured(address) => return Ok(address.clone()),
         ManagerPrivateListener::SiteDefault { port } => *port,
     };
-    if site.nodes.iter().all(|node| node.site_manager.is_some()) {
-        return Ok(None);
-    }
     let manager = site
         .nodes
         .iter()
@@ -35,7 +33,7 @@ pub(super) fn manager_bind_address(
         .ok_or_else(|| CompositionError::composition("the site declares no site manager node"))?;
     let host = SiteNodeHost::parse(&manager.host)
         .map_err(|source| private_input("read the site manager host", source))?;
-    Ok(Some(BindAddress::new(host, port)))
+    Ok(BindAddress::new(host, port))
 }
 
 pub(super) fn manager_configuration(
@@ -60,7 +58,6 @@ pub(super) fn manager_configuration(
     {
         let entry =
             entry.map_err(|source| private_input("read worker pin registry entry", source))?;
-        require_owner_file(&entry.path(), "worker pin")?;
         let name = entry.file_name();
         let name = name
             .to_str()
@@ -73,10 +70,10 @@ pub(super) fn manager_configuration(
             .iter()
             .any(|node| node.node_id == name && node.site_manager.is_none())
         {
-            return Err(CompositionError::composition(
-                "worker pin does not name a declared worker node",
-            ));
+            discard_stray_pin(&entry.path());
+            continue;
         }
+        require_owner_file(&entry.path(), "worker pin")?;
         let value = fs::read_to_string(entry.path())
             .map_err(|source| private_input("read worker pin", source))?;
         let fingerprint = CertificateFingerprint::parse(value.trim())
@@ -97,7 +94,7 @@ pub(super) fn manager_configuration(
         certificate_der: identity.certificate,
         private_key_pkcs8: identity.private_key,
         trust_anchor_der: identity.trust_anchor,
-        peers,
+        peers: PeerPins::new(peers),
     })
 }
 
@@ -125,8 +122,25 @@ pub(super) fn worker_configuration_from_node_folder(
         certificate_der: certificate.as_ref().to_vec(),
         private_key_pkcs8: key.secret_der().to_vec(),
         trust_anchor_der,
-        peers,
+        peers: PeerPins::new(peers),
     })
+}
+
+/// Deletes a worker pin that names no declared worker, which a join interrupted between writing
+/// the pin and recording the node leaves behind. It is never trusted, so a failed deletion only
+/// leaves it for the next start.
+fn discard_stray_pin(path: &Path) {
+    warn!(
+        pin = %path.display(),
+        "worker pin names no declared worker node; it is not trusted and is deleted"
+    );
+    let deleted = fs::remove_file(path).and_then(|()| match path.parent() {
+        Some(pins) => dotcore_domain::fs_sync::sync_directory(pins),
+        None => Ok(()),
+    });
+    if let Err(error) = deleted {
+        warn!(pin = %path.display(), %error, "stray worker pin could not be deleted");
+    }
 }
 
 fn require_owner_directory(path: &Path) -> Result<(), CompositionError> {
@@ -172,27 +186,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn manager_with_joined_nodes_defaults_to_its_host_and_the_default_port() {
+    fn manager_defaults_to_its_host_and_the_default_port_with_and_without_joined_nodes() {
         for host in ["10.0.0.5", "manager.example.ts.net"] {
-            let site = site_with(host, &["127.0.0.2"]);
+            for workers in [&[][..], &["127.0.0.2"][..]] {
+                let site = site_with(host, workers);
 
-            let address = manager_bind_address(&site_default(), &site).expect("address");
+                let address = manager_bind_address(&site_default(), &site).expect("address");
 
-            assert_eq!(
-                address,
-                Some(BindAddress::parse(&format!("{host}:50053")).expect("expected address"))
-            );
+                assert_eq!(
+                    address,
+                    BindAddress::parse(&format!("{host}:50053")).expect("expected address")
+                );
+            }
         }
-    }
-
-    #[test]
-    fn manager_without_joined_nodes_has_no_default() {
-        let site = site_with("10.0.0.5", &[]);
-
-        assert_eq!(
-            manager_bind_address(&site_default(), &site).expect("address"),
-            None
-        );
     }
 
     #[test]
@@ -207,7 +213,7 @@ mod tests {
             )
             .expect("address");
 
-            assert_eq!(address, Some(configured.clone()));
+            assert_eq!(address, configured);
         }
     }
 

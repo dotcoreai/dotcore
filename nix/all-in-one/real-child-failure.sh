@@ -38,9 +38,13 @@ scenario() {
   local backend_pid caddy_pid drain_pid management target status diagnostic
   local -a stage
   mkdir -m 700 "$root"
-  mkdir -m 700 "$root/home" "$root/state" "$root/cache" "$root/runtime" "$root/site"
-  cp -R "${DOTCORE_FAILURE_SITE_FIXTURE:?Site fixture is required}"/. "$root/site/"
-  chmod -R u+rwX "$root/site"
+  mkdir -m 700 "$root/home" "$root/state" "$root/cache" "$root/runtime"
+  # A manager always serves its private listener, so the site needs the trust `site init` creates.
+  env -u DOTCORE_PRIVATE_ADDR -u DOTCORE_MANAGEMENT_ADDR -u DOTCORE_INFERENCE_ADDR HOME="$root/home" \
+    XDG_STATE_HOME="$root/state" XDG_CACHE_HOME="$root/cache" \
+    "${DOTCORE_FAILURE_BACKEND_COMMAND:?backend command is required}" site init --non-interactive \
+    --site-dir "$root/site" --host 127.0.0.1 --inference simulated --applications simulated \
+    >"$root/site-init.out" 2>"$root/site-init.err" || fail "site init failed: $(cat "$root/site-init.err")"
 
   for ((retry = 0; retry < 5; retry++)); do
     pid_dir="$root/pids-$retry"

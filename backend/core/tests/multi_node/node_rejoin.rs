@@ -1,14 +1,17 @@
-//! Proves a worker joins the site again from its intact node folder, on the same host or on a
-//! new one, and that after both processes restart it is the same node: the manager lists it
-//! connected, the site differs only in the node's host, and its model deployment is Ready again
-//! with its route serving.
+//! Proves a machine joins a running site manager that has no other node and takes a deployment
+//! right away, and that a worker joins the running manager again from its intact node folder, on
+//! the same host or on a new one, without a manager restart. A rejoined worker is the same node:
+//! the manager lists it connected, the site differs only in the node's host, its pin is kept, its
+//! earlier process is fenced, the manager reaches it at its new host, and its model deployment
+//! is Ready again with its route serving.
 //!
 //! A Docker-gated scenario also rejoins a worker hosting a Docker application at a new address
 //! and proves the application is relaunched there with its data kept.
 //!
-//! The first two scenarios use two real processes with generated worker custody and mutual TLS, and the
-//! simulated model runtime. The deployment part needs a host that observes an NVIDIA driver, and
-//! the changed-host scenario needs the extra loopback addresses of the split-network harness.
+//! The scenarios use two real processes with generated worker custody and mutual TLS, and the
+//! simulated runtimes. The model deployment part needs a host that observes an NVIDIA driver, and
+//! the changed-host scenarios need the extra loopback addresses of the split-network harness
+//! (`just dev::mac-loopback` on macOS).
 
 use std::{process::Command, time::Duration};
 
@@ -19,15 +22,30 @@ use dotcore_proto::dotcore::{
         GetApplicationDeploymentRequest, RemoveApplicationDeploymentRequest,
         application_deployment_service_client::ApplicationDeploymentServiceClient,
     },
-    site::v1::NodeObservationState,
+    diagnostic::v1::{
+        DiagnosticSourceState, ReadBackendDiagnosticsRequest,
+        diagnostic_service_client::DiagnosticServiceClient,
+    },
+    observation::v1::{ObservationUnavailable, RuntimeObservation, runtime_observation},
+    site::{
+        private::v1::{
+            DesiredViewSectionKind, NodeControlOpen, NodeHardwareObservation, NodeObservation,
+            NodeObservationSnapshot, SupportedDesiredViewSection, node_hardware_observation,
+            stream_node_control_request, stream_node_control_response,
+        },
+        v1::NodeObservationState,
+    },
 };
+use dotcore_proto::google::protobuf::Empty;
 use dotcore_site::{
     manager_trust::{SITE_TRUST_DIRECTORY, WORKER_PIN_DIRECTORY},
     membership::list_site_nodes,
+    node::folder::ValidatedNodeFolder,
 };
 use support::{
     ProcessTestControls, SPLIT_WORKER_HOST, TwoProcessObservationHarness, WORKER_DISPLAY_NAME,
     WORKER_DOCKER_APPLICATION_TARGET_ID, WORKER_HOST_NAME, WORKER_LOOPBACK_HOST, WORKER_NODE_ID,
+    node_control::ControlStream,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -74,6 +92,103 @@ graph:
 
 const WORKER_ROUTE: &str = "worker-model";
 const MANAGER_NODE_ID: &str = "fixture-node";
+
+/// Process incarnation a test opens the worker's stream as before the worker rejoins.
+const EARLIER_INCARNATION: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+/// Synthetic site catalog application the simulated runtime runs without any image.
+const SIMULATED_APPLICATION_ID: &str = "join-simulated-fixture";
+const SIMULATED_APPLICATION_CATALOG: &[(&str, &str)] = &[(
+    "applications/join-simulated-fixture.yaml",
+    r#"applicationId: "join-simulated-fixture"
+displayName: "Join simulated fixture"
+version: "1"
+graph:
+  services:
+    - serviceName: "web"
+      artifact:
+        oci:
+          repository:
+            registry: { host: "registry.dotcore.test" }
+            name: "join-simulated-fixture"
+          digest:
+            algorithm: "sha256"
+            encoded: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        supportedPlatforms:
+          - { operatingSystem: "linux", architecture: "amd64" }
+          - { operatingSystem: "linux", architecture: "arm64" }
+      ports: [{ portName: "http", portNumber: 8080 }]
+  primaryEndpoint:
+    serviceName: "web"
+    portName: "http"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"
+"#,
+)];
+
+#[tokio::test]
+async fn a_machine_joins_a_running_solo_manager_and_takes_a_deployment() {
+    let Some(harness) = TwoProcessObservationHarness::start_by_live_join(ProcessTestControls {
+        site_catalog: SIMULATED_APPLICATION_CATALOG,
+        ..ProcessTestControls::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let manager_address = harness
+        .manager()
+        .addresses()
+        .management
+        .expect("management listener");
+    let manager_process = harness.manager().process_id();
+
+    // The joined worker connects and is served at once, by the same manager process.
+    support::wait_for_worker_connection(manager_address).await;
+    support::wait_for_node_realizer_bootstrap(harness.worker().node_state_path()).await;
+    let mut applications = application_client(manager_address).await;
+    let deployment_id = applications
+        .create_application_deployment(CreateApplicationDeploymentRequest {
+            application_id: SIMULATED_APPLICATION_ID.to_owned(),
+            placement: Some(support::exact_placement(
+                WORKER_NODE_ID,
+                support::WORKER_APPLICATION_TARGET_ID,
+            )),
+            inference_route_id: None,
+            expected_inference_route_generation: 0,
+            application_deployment_name: None,
+            parameter_values: Vec::new(),
+            storage_choices: Vec::new(),
+        })
+        .await
+        .expect("manager places an application on the joined worker")
+        .into_inner()
+        .deployment
+        .expect("created application")
+        .application_deployment_id;
+    let ready = wait_for_ready(&mut applications, &deployment_id).await;
+    assert_eq!(
+        ready
+            .state
+            .as_ref()
+            .and_then(|state| state.observed_placement.as_ref()),
+        Some(&support::exact_placement(
+            WORKER_NODE_ID,
+            support::WORKER_APPLICATION_TARGET_ID
+        ))
+    );
+    assert_eq!(harness.manager().process_id(), manager_process);
+    let site = harness.manager_site();
+    assert_eq!(
+        site.nodes
+            .iter()
+            .map(|node| (node.node_id.as_str(), node.host.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            (MANAGER_NODE_ID, "127.0.0.1"),
+            (WORKER_NODE_ID, WORKER_LOOPBACK_HOST.to_string().as_str()),
+        ]
+    );
+}
 
 #[tokio::test]
 async fn a_worker_rejoins_at_its_declared_host_name_and_stays_the_same_node() {
@@ -171,16 +286,9 @@ async fn hw_docker_worker_application_is_relaunched_at_the_new_address_with_its_
         .expect("make the application data directory writable");
     std::fs::write(data.join(DATA_MARKER_FILE), DATA_MARKER_CONTENT).expect("data marker");
 
-    harness.manager_mut().shutdown();
     harness.worker_mut().stop();
     let new_host = SiteNodeHost::from_ipv4(SPLIT_WORKER_HOST).expect("specific worker host");
-    harness.rejoin_worker_in_place(new_host);
-    harness.manager_mut().restart();
-    let manager_address = harness
-        .manager()
-        .addresses()
-        .management
-        .expect("management listener");
+    harness.rejoin_worker_live(new_host).await;
     support::wait_for_worker_connection(manager_address).await;
 
     // Relaunched on the new address: same deployment and node, new container and endpoint host,
@@ -217,14 +325,15 @@ async fn hw_docker_worker_application_is_relaunched_at_the_new_address_with_its_
 }
 
 /// Places a model on the connected worker when the host can run it, rejoins the stopped worker
-/// at `new_host` from its folder, restarts both processes, and checks that everything but the
-/// node's host is as before.
+/// at `new_host` from its folder while the manager runs, restarts the worker, and checks that
+/// everything but the node's host is as before.
 async fn rejoin_and_verify(mut harness: TwoProcessObservationHarness, new_host: SiteNodeHost) {
     let manager_address = harness
         .manager()
         .addresses()
         .management
         .expect("management listener");
+    let manager_process = harness.manager().process_id();
     support::wait_for_worker_connection(manager_address).await;
     support::wait_for_node_realizer_bootstrap(harness.worker().node_state_path()).await;
     let deployment_id = if support::nvidia_driver_observed() {
@@ -254,11 +363,13 @@ async fn rejoin_and_verify(mut harness: TwoProcessObservationHarness, new_host: 
     let certificate_before = folder_before.worker_certificate_der().to_vec();
     let trust_before = trust_files(harness.worker().site_root());
     let bind_before = folder_before.private_bind_address().clone();
-    drop(folder_before);
 
-    harness.manager_mut().shutdown();
+    // Once the stopped worker falls silent, a known incarnation takes the node over, standing for
+    // the process that ran before the rejoin.
     harness.worker_mut().stop();
-    let joined = harness.rejoin_worker_in_place(new_host.clone());
+    register_earlier_incarnation(&harness, &folder_before).await;
+    drop(folder_before);
+    let joined = harness.rejoin_worker_live(new_host.clone()).await;
 
     // Only the node's host changes: site, listing, pin, certificate, trust files (keys included) and private port.
     assert_eq!(joined.node_id, WORKER_NODE_ID);
@@ -294,17 +405,12 @@ async fn rejoin_and_verify(mut harness: TwoProcessObservationHarness, new_host: 
         folder_after.private_bind_address().to_string(),
         format!("{new_host}:{}", bind_before.port())
     );
-    drop(folder_after);
 
-    // Both processes restart: the node connects on its new host and its deployment converges.
-    harness.manager_mut().restart();
-    let manager_address = harness
-        .manager()
-        .addresses()
-        .management
-        .expect("management listener");
+    // The worker connects on its new host without a manager restart, and its earlier process
+    // stays fenced.
     support::wait_for_worker_connection(manager_address).await;
     support::wait_for_node_realizer_bootstrap(harness.worker().node_state_path()).await;
+    assert_eq!(harness.manager().process_id(), manager_process);
     assert_eq!(
         support::machine_states(manager_address).await,
         [
@@ -318,6 +424,25 @@ async fn rejoin_and_verify(mut harness: TwoProcessObservationHarness, new_host: 
             ),
         ]
     );
+    let fenced = ControlStream::open(
+        harness.worker_control_channel().await,
+        stream_open(&folder_after, EARLIER_INCARNATION),
+    )
+    .await
+    .next()
+    .await
+    .expect_err("the earlier incarnation stays fenced");
+    assert_eq!(fenced.code(), tonic::Code::FailedPrecondition, "{fenced:?}");
+    assert!(
+        fenced
+            .message()
+            .contains("node process incarnation was replaced"),
+        "{fenced:?}"
+    );
+    drop(folder_after);
+
+    // The manager's channel to the worker dials its new host, the only one it listens on.
+    assert_worker_diagnostics_available(manager_address).await;
     if let Some(deployment_id) = deployment_id {
         support::wait_for_ready(manager_address, &deployment_id).await;
         assert_eq!(
@@ -332,6 +457,121 @@ async fn rejoin_and_verify(mut harness: TwoProcessObservationHarness, new_host: 
             support::chat_status(&harness, WORKER_ROUTE).await,
             reqwest::StatusCode::OK
         );
+    }
+}
+
+/// Waits until the manager reads the worker's backend diagnostics over its private channel.
+async fn assert_worker_diagnostics_available(manager_address: std::net::SocketAddr) {
+    let mut diagnostics = DiagnosticServiceClient::connect(format!("http://{manager_address}"))
+        .await
+        .expect("manager diagnostic API connection");
+    let mut last = None;
+    let available = tokio::time::timeout(APPLICATION_DEADLINE, async {
+        loop {
+            let page = diagnostics
+                .read_backend_diagnostics(ReadBackendDiagnosticsRequest {
+                    page_size: 20,
+                    before: None,
+                })
+                .await
+                .expect("site diagnostic page")
+                .into_inner();
+            if page.machines.iter().any(|machine| {
+                machine.machine_id == WORKER_NODE_ID
+                    && machine.state == DiagnosticSourceState::Available as i32
+            }) {
+                return;
+            }
+            last = Some(page.machines);
+            tokio::time::sleep(APPLICATION_POLL_INTERVAL).await;
+        }
+    })
+    .await;
+    assert!(
+        available.is_ok(),
+        "the manager never reached the worker's diagnostics; last sources {last:?}"
+    );
+}
+
+/// Makes [`EARLIER_INCARNATION`] the worker's current incarnation once the manager lets a silent
+/// one be replaced, by opening its stream and reporting one observation.
+async fn register_earlier_incarnation(
+    harness: &TwoProcessObservationHarness,
+    folder: &ValidatedNodeFolder,
+) {
+    let registered = tokio::time::timeout(APPLICATION_DEADLINE, async {
+        loop {
+            let mut stream = ControlStream::open(
+                harness.worker_control_channel().await,
+                stream_open(folder, EARLIER_INCARNATION),
+            )
+            .await;
+            stream.send(stream_node_control_request::Message::Observation(
+                observation_report(folder, EARLIER_INCARNATION),
+            ));
+            loop {
+                match stream.next().await {
+                    Ok(stream_node_control_response::Message::ObservationAccepted(_)) => return,
+                    Ok(_) => continue,
+                    Err(_) => break,
+                }
+            }
+            tokio::time::sleep(APPLICATION_POLL_INTERVAL).await;
+        }
+    })
+    .await;
+    assert!(
+        registered.is_ok(),
+        "the earlier incarnation never took the node over"
+    );
+}
+
+/// One observation of the worker from `incarnation_id`, its hardware unavailable.
+fn observation_report(folder: &ValidatedNodeFolder, incarnation_id: &str) -> NodeObservation {
+    NodeObservation {
+        site_id: folder.site_id().to_owned(),
+        node_id: folder.worker_node_id().to_owned(),
+        incarnation_id: incarnation_id.to_owned(),
+        revision: 1,
+        snapshot: Some(NodeObservationSnapshot {
+            hardware: Some(NodeHardwareObservation {
+                result: Some(node_hardware_observation::Result::Unavailable(
+                    ObservationUnavailable {
+                        code: "TEST_EARLIER_PROCESS".to_owned(),
+                        message: "Observation of the process before the rejoin.".to_owned(),
+                    },
+                )),
+            }),
+            runtimes: folder
+                .observation_configuration()
+                .execution_targets
+                .iter()
+                .map(|target| RuntimeObservation {
+                    execution_target_id: target.execution_target_id.clone(),
+                    kind: target.kind,
+                    result: Some(runtime_observation::Result::Available(Empty {})),
+                })
+                .collect(),
+        }),
+        observation_configuration_sha256: folder
+            .observation_configuration_sha256()
+            .as_str()
+            .to_owned(),
+        private_port: None,
+    }
+}
+
+/// Opens the worker's node control stream as the process `incarnation_id`.
+fn stream_open(folder: &ValidatedNodeFolder, incarnation_id: &str) -> NodeControlOpen {
+    NodeControlOpen {
+        site_id: folder.site_id().to_owned(),
+        node_id: folder.worker_node_id().to_owned(),
+        node_incarnation_id: incarnation_id.to_owned(),
+        supported_sections: vec![SupportedDesiredViewSection {
+            kind: DesiredViewSectionKind::Model as i32,
+            minimum_schema_version: 1,
+            maximum_schema_version: 1,
+        }],
     }
 }
 
@@ -355,6 +595,37 @@ async fn application_client(
     ApplicationDeploymentServiceClient::connect(format!("http://{manager_address}"))
         .await
         .expect("manager application API connection")
+}
+
+/// Waits until the manager projects the deployment Ready from current worker status.
+async fn wait_for_ready(
+    applications: &mut ApplicationDeploymentServiceClient<tonic::transport::Channel>,
+    deployment_id: &str,
+) -> ApplicationDeployment {
+    let mut last = None;
+    let result = tokio::time::timeout(APPLICATION_DEADLINE, async {
+        loop {
+            let deployment = applications
+                .get_application_deployment(GetApplicationDeploymentRequest {
+                    application_deployment_id: deployment_id.to_owned(),
+                })
+                .await
+                .expect("manager application status")
+                .into_inner()
+                .deployment
+                .expect("listed application");
+            if deployment.state.as_ref().is_some_and(|state| {
+                state.lifecycle_state == ApplicationLifecycleState::Ready as i32
+                    && !state.observation_stale
+            }) {
+                return deployment;
+            }
+            last = deployment.state;
+            tokio::time::sleep(APPLICATION_POLL_INTERVAL).await;
+        }
+    })
+    .await;
+    result.unwrap_or_else(|_| panic!("application Ready deadline; last projected state {last:?}"))
 }
 
 /// Waits until the manager projects the deployment Ready from current worker status with an

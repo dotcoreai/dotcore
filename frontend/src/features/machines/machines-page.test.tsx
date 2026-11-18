@@ -23,6 +23,7 @@ import type { ApplicationClient } from "@/api/application-client";
 import type { ModelClient } from "@/api/model-client";
 import type { SiteClient } from "@/api/site-client";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
+import { fakeSiteJoinClient } from "@/features/machines/add-machine/join-test-support";
 import { hardwareSnapshot, listedMachine } from "@/features/memory/machine-test-support";
 import {
   devicePool,
@@ -1234,31 +1235,10 @@ describe("MachinesPage add machine", () => {
         applicationClient={applicationClientFor()}
         client={clientFor([availableMachine("one", "Machine one")])}
         modelClient={modelClientFor()}
+        siteJoinClient={fakeSiteJoinClient().client}
       />,
     );
   }
-
-  it("opens the add machine steps and copies the node add command", async () => {
-    const user = setupUser();
-    writeClipboard.mockResolvedValue(undefined);
-    renderPage();
-
-    await user.click(screen.getByRole("button", { name: "Add machine" }));
-
-    const dialog = await screen.findByRole("dialog", { name: "Add a machine" });
-    expect(
-      within(dialog)
-        .getAllByRole("listitem")
-        .map((step) => step.textContent),
-    ).toEqual([
-      "Stop the manager, then run on its machine:dotc node addCopy",
-      "On the new machine, run the dotc node join command it prints.",
-      "Allow the machine on the manager, then start the manager and the new machine.",
-    ]);
-
-    await user.click(within(dialog).getByRole("button", { name: "Copy dotc node add command" }));
-    expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("dotc node add");
-  });
 
   it("closes from Close and Escape and returns focus to Add machine", async () => {
     const user = setupUser();

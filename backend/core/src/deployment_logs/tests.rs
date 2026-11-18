@@ -1526,34 +1526,36 @@ impl Worker {
         let admission = self.admission.clone();
         let removal_grace = self.removal_grace;
         let server = crate::server::private::prepare(
-            authority.private_configuration(
-                SITE_ID,
-                WORKER_NODE_ID,
-                PrivateNodeRole::Worker,
-                (worker_certificate.clone(), worker_key),
-                [(
-                    MANAGER_NODE_ID,
-                    PrivateNodeRole::Manager,
-                    manager.0.as_slice(),
-                )],
+            crate::server::private::PrivateListener::new(
+                authority.private_configuration(
+                    SITE_ID,
+                    WORKER_NODE_ID,
+                    PrivateNodeRole::Worker,
+                    (worker_certificate.clone(), worker_key),
+                    [(
+                        MANAGER_NODE_ID,
+                        PrivateNodeRole::Manager,
+                        manager.0.as_slice(),
+                    )],
+                ),
+                PrivateServiceAssembly::new(move |context, routes| {
+                    routes.add_service(
+                        DeploymentLogService::new(
+                            {
+                                let reader = DeploymentLogReader::new(view, owners, admission);
+                                match removal_grace {
+                                    Some(grace) => reader.with_removal_grace(grace),
+                                    None => reader,
+                                }
+                            },
+                            &context,
+                        )
+                        .into_server(),
+                    );
+                })
+                .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
+                &Timing::test(),
             ),
-            PrivateServiceAssembly::new(move |context, routes| {
-                routes.add_service(
-                    DeploymentLogService::new(
-                        {
-                            let reader = DeploymentLogReader::new(view, owners, admission);
-                            match removal_grace {
-                                Some(grace) => reader.with_removal_grace(grace),
-                                None => reader,
-                            }
-                        },
-                        &context,
-                    )
-                    .into_server(),
-                );
-            })
-            .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
-            Timing::test().private,
             std::future::pending(),
         )
         .await

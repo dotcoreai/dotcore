@@ -63,13 +63,8 @@ impl Server {
         };
         let (private, private_address) = match private {
             Some(listener) => {
-                let prepared = private::prepare(
-                    listener.configuration,
-                    listener.routes,
-                    listener.timing,
-                    lifecycle::wait(receiver.clone()),
-                )
-                .await?;
+                let prepared =
+                    private::prepare(listener, lifecycle::wait(receiver.clone())).await?;
                 let address = prepared.address;
                 (
                     Box::pin(prepared.serve())

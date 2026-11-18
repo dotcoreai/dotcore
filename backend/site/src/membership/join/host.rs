@@ -1,48 +1,35 @@
-//! Hosts the manager side of one node join: a TLS listener presenting the manager's identity,
-//! the join secret check, a dial-back proving the manager reaches the joining node by its key,
-//! operator approval, certificate signing, and the two-step commit that records the approved
-//! node. The offline node addition runs it while the manager is stopped.
+//! The manager side of a node join, served by the join registry on the private listener: the
+//! join secret check, a dial-back proving the manager reaches the joining node by its key,
+//! the operator's decision, certificate signing, and the two-step commit that records the node.
 //! A declared node joining again from its intact folder takes the same steps, except that it
 //! proves its pinned identity, nothing is signed, and the commit records only its new addresses.
 //!
-//! The site it reads and writes, the approval step, and the listener are inputs, so a running
-//! manager can host the same handshake later. Nothing is written before the joining node
-//! commits an offer on the connection that received it, and a rejected or abandoned attempt
-//! leaves the token usable for a corrected retry.
+//! Nothing is written before the joining node commits an offer on the connection that received
+//! it, and a rejected or abandoned attempt leaves the token usable for a corrected retry.
 
 use std::{
     fmt,
     net::{IpAddr, SocketAddr},
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
+    panic::AssertUnwindSafe,
+    sync::Arc,
 };
 
-use dotcore_domain::{
-    HostResolver, SiteNodeHost, SystemHostResolver, real_time, timing::JoinTiming,
-};
+use dotcore_domain::{HostResolver, SiteNodeHost};
 use dotcore_proto::dotcore::{
     node::v1::{
         CommitRequest, CommitResponse, JoinRequest, JoinResponse, NodeObservationConfiguration,
-        node_join_service_server::{NodeJoinService, NodeJoinServiceServer},
+        node_join_service_server::NodeJoinService,
     },
     site::v1::{ExecutionTarget, Site, SiteNode},
 };
-use futures_util::future::BoxFuture;
-use tokio::{net::TcpListener, sync::watch};
-use tokio_stream::{StreamExt as _, wrappers::TcpListenerStream};
-use tokio_util::sync::CancellationToken;
-use tonic::{
-    Request, Response, Status,
-    metadata::MetadataValue,
-    transport::{Identity, ServerTlsConfig, server::TlsConnectInfo},
-};
+use futures_util::FutureExt as _;
+use tonic::{Request, Response, Status, metadata::MetadataValue};
 use tracing::{info, warn};
 use url::Url;
 
 use super::{
     JoinProposal, JoinToken, JoinTokenError,
     admission::{AdmissionError, RejoinProof, admit, admit_rejoin, certified_node_id},
-    connection::{JoinConnectionInfo, JoinConnections},
     csr_key_fingerprint,
     dial_back::{DialBack, dial_back},
     node_key::verified_csr_key,
@@ -52,163 +39,38 @@ use super::{
         NODE_NOT_DECLARED_REJECTION, ProposedJoin, REJECTION_METADATA_KEY,
         UNREACHABLE_NODE_REJECTION, UNUSABLE_HOST_REJECTION,
     },
-    publication::NodePublicationError,
+    registry::{
+        ActiveJoin, JoinAttemptOutcome, JoinEnd, Registry, ReservationConflict, SlotClaim,
+        abandoned_status,
+    },
 };
 use crate::{
-    node::folder::CertificateFingerprint, private_transport::pem, validation::SiteDeclarationRules,
+    node::folder::CertificateFingerprint, private_transport::PrivateConnectionInfo,
+    validation::SiteDeclarationRules,
 };
 
-/// The manager side of one node join, from listening to the committed node.
-///
-/// One host serves one token on its own listener: a commit is bound to the TLS connection that
-/// received its offer, so the host must own its connections. A running manager that hosts joins
-/// runs one host per token next to its other listeners.
-pub struct JoinHost {
-    shared: HostShared,
-}
-
-impl JoinHost {
-    /// Prepares a host that admits at most one node with `settings.token`, reading and recording
-    /// through `site` and asking `approval` before issuing any certificate.
-    pub fn new(
-        settings: JoinHostSettings,
-        site: Arc<dyn JoinSiteWriter>,
-        approval: Arc<dyn JoinApproval>,
-        timing: JoinTiming,
-    ) -> Self {
-        let (finished, _) = watch::channel(false);
-        Self {
-            shared: HostShared {
-                settings,
-                timing,
-                site,
-                approval,
-                resolver: Arc::new(SystemHostResolver),
-                state: Mutex::new(HostState::default()),
-                finished,
-            },
-        }
-    }
-
-    /// Replaces the system resolver used to look up a node host name before dialing it back and
-    /// comparing it with the join connection's address.
-    #[cfg(test)]
-    pub(crate) fn with_host_resolver(mut self, resolver: Arc<dyn HostResolver>) -> Self {
-        self.shared.resolver = resolver;
-        self
-    }
-
-    /// Serves the join on `listener` until one node is committed, the token expires, or too many
-    /// wrong secrets arrive. Returns the recorded node.
-    pub async fn serve(self, listener: TcpListener) -> Result<JoinedNode, JoinHostError> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let shared = Arc::new(self.shared);
-        shared.validate_settings().await?;
-        let limits = shared.settings.limits.clone();
-        let timing = shared.timing;
-        let identity = &shared.settings.identity;
-        let tls = ServerTlsConfig::new()
-            .identity(Identity::from_pem(
-                format!(
-                    "{}{}",
-                    pem("CERTIFICATE", &identity.certificate_der),
-                    pem("CERTIFICATE", &identity.site_ca_der)
-                ),
-                pem("PRIVATE KEY", &identity.private_key_pkcs8),
-            ))
-            .timeout(HANDSHAKE_TIMEOUT);
-        if let Ok(address) = listener.local_addr() {
-            info!(%address, site_id = %identity.site_id, "node join host listening");
-        }
-
-        let closed = Arc::clone(&shared);
-        let connections = Arc::new(JoinConnections::new(
-            limits.max_connections,
-            timing.idle_timeout,
-            move |connection| closed.connection_closed(connection),
-        ));
-        // The server ignores its own TCP options for a supplied stream, so each accepted socket
-        // sets no delay here and small responses aren't held for the peer's acknowledgment.
-        let incoming = TcpListenerStream::new(listener).map(move |accepted| {
-            accepted.and_then(|stream| {
-                stream.set_nodelay(true)?;
-                connections.accept(stream)
-            })
-        });
-        let shutdown_shared = Arc::clone(&shared);
-        let shutdown = async move {
-            let finished = shutdown_shared.wait_finished();
-            if real_time::bound(limits.overall_timeout, finished)
-                .await
-                .is_err()
-            {
-                shutdown_shared.stop(JoinHostError::Expired);
-                shutdown_shared.wait_finished().await;
-            }
-        };
-        let server = tonic::transport::Server::builder()
-            .tls_config(tls)
-            .map_err(JoinHostError::Transport)?
-            .add_service(NodeJoinServiceServer::new(JoinService {
-                shared: Arc::clone(&shared),
-            }))
-            .serve_with_incoming_shutdown(incoming, shutdown);
-
-        // Graceful shutdown waits for every connection; the grace period bounds how long an
-        // unrelated idle client can delay the result once the join has finished.
-        let grace = async {
-            shared.wait_finished().await;
-            real_time::pause(timing.shutdown_timeout).await;
-        };
-        tokio::select! {
-            served = server => served.map_err(JoinHostError::Transport)?,
-            () = grace => {}
-        }
-        shared.take_outcome()
-    }
-}
-
-/// Fixed inputs of one join host.
-#[derive(Debug)]
-pub struct JoinHostSettings {
-    /// Manager identity presented by the listener.
-    pub identity: JoinHostIdentity,
-
-    /// Token handed to the operator; its secret authorizes the join.
-    pub token: JoinToken,
-
-    /// Port of the manager's private listener. The joined node's folder records it with the
-    /// manager address that node dialed.
-    pub manager_private_port: u16,
-
-    /// Token lifetime and attempt limits.
-    pub limits: JoinHostLimits,
-}
-
-/// The manager's node identity the join listener presents, with the site CA sent in the chain.
+/// The manager's node identity a join token pins and an offer names: its leaf certificate and
+/// the site CA.
 pub struct JoinHostIdentity {
     site_id: String,
     manager_node_id: String,
     site_ca_der: Vec<u8>,
     certificate_der: Vec<u8>,
-    private_key_pkcs8: Vec<u8>,
 }
 
 impl JoinHostIdentity {
-    /// Wraps the manager's leaf certificate, its PKCS#8 key, and the site CA certificate.
+    /// Wraps the manager's leaf certificate and the site CA certificate.
     pub fn new(
         site_id: impl Into<String>,
         manager_node_id: impl Into<String>,
         site_ca_der: Vec<u8>,
         certificate_der: Vec<u8>,
-        private_key_pkcs8: Vec<u8>,
     ) -> Self {
         Self {
             site_id: site_id.into(),
             manager_node_id: manager_node_id.into(),
             site_ca_der,
             certificate_der,
-            private_key_pkcs8,
         }
     }
 
@@ -227,6 +89,14 @@ impl JoinHostIdentity {
     pub fn site_ca_sha256(&self) -> CertificateFingerprint {
         CertificateFingerprint::for_certificate(&self.site_ca_der)
     }
+
+    pub(super) fn site_id(&self) -> &str {
+        &self.site_id
+    }
+
+    pub(super) fn manager_node_id(&self) -> &str {
+        &self.manager_node_id
+    }
 }
 
 impl fmt::Debug for JoinHostIdentity {
@@ -237,44 +107,11 @@ impl fmt::Debug for JoinHostIdentity {
             .field("manager_node_id", &self.manager_node_id)
             .field("site_ca_der", &"<DER certificate>")
             .field("certificate_der", &"<DER certificate>")
-            .field("private_key_pkcs8", &"<redacted>")
             .finish()
     }
 }
 
-/// Token lifetime and attempt limits of a join host.
-#[derive(Clone, Debug)]
-pub struct JoinHostLimits {
-    /// Lifetime of the token; the host stops when it ends without a committed node.
-    pub overall_timeout: Duration,
-
-    /// Connections open at once; further connections are refused until one closes.
-    pub max_connections: usize,
-
-    /// Wrong secrets accepted across all connections before the host stops.
-    pub max_failed_attempts: u32,
-
-    /// Joins whose dial-back failed, across all connections, before the host stops. It bounds
-    /// how often a token holder can make the manager's machine connect somewhere before approval.
-    pub max_failed_dial_backs: u32,
-}
-
-impl Default for JoinHostLimits {
-    fn default() -> Self {
-        Self {
-            overall_timeout: Duration::from_secs(15 * 60),
-            max_connections: 16,
-            max_failed_attempts: 5,
-            max_failed_dial_backs: 3,
-        }
-    }
-}
-
-/// Longest TLS handshake one join connection may take.
-const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// The site authority a join host reads, signs with, and records into. The offline
-/// implementation holds the exclusive site lock; a running manager supplies its own.
+/// The site authority a join reads, signs with, and records into.
 ///
 /// Calls block and run on the blocking thread pool.
 pub trait JoinSiteWriter: Send + Sync + 'static {
@@ -328,70 +165,8 @@ pub enum JoinSiteError {
     OutcomeUncertain(#[source] anyhow::Error),
 }
 
-impl From<NodePublicationError> for JoinSiteError {
-    fn from(error: NodePublicationError) -> Self {
-        match error {
-            NodePublicationError::OutcomeUncertain(_) => {
-                Self::OutcomeUncertain(anyhow::Error::new(error))
-            }
-            NodePublicationError::SiteUnreadable(_)
-            | NodePublicationError::SerializeSite(_)
-            | NodePublicationError::PinUnreadable(_)
-            | NodePublicationError::Storage(_) => Self::Failed(anyhow::Error::new(error)),
-            NodePublicationError::AdditionalSiteManager
-            | NodePublicationError::DuplicateHost { .. }
-            | NodePublicationError::UndeclaredNode { .. }
-            | NodePublicationError::PinMismatch { .. }
-            | NodePublicationError::ForeignTarget { .. }
-            | NodePublicationError::InvalidSite(_) => Self::Rejected(anyhow::Error::new(error)),
-        }
-    }
-}
-
-/// The operator's side of a join: each dial-back's outcome and the decision on each proposal;
-/// reviews never run concurrently.
-pub trait JoinApproval: Send + Sync + 'static {
-    /// Shows the operator that the host is about to dial the joining node back at `host` and
-    /// `port`, before it connects anywhere. It must return promptly.
-    fn dialing_back(&self, host: &SiteNodeHost, port: u16);
-
-    /// Shows the operator the outcome of one dial-back, before any review of that join. It must
-    /// return promptly.
-    fn dialed_back(&self, dial: &DialBack);
-
-    /// Shows `review` to the operator and resolves to the decision.
-    ///
-    /// `cancel` fires when the join is abandoned, because its connection closed or the host
-    /// finished; the host then drops the returned future. An implementation that blocks, such as
-    /// a terminal prompt, runs through [`blocking_review`] and must stop once `cancel` fires.
-    fn review(
-        &self,
-        review: JoinReview,
-        cancel: CancellationToken,
-    ) -> BoxFuture<'static, JoinDecision>;
-}
-
-/// Runs a blocking review on the blocking thread pool for a [`JoinApproval`] implementation.
-///
-/// Resolves to [`JoinDecision::Reject`] as soon as `cancel` fires. `decide` receives the same
-/// token and must return promptly once it fires, so no prompt outlives its join.
-pub fn blocking_review(
-    review: JoinReview,
-    cancel: CancellationToken,
-    decide: impl FnOnce(&JoinReview, &CancellationToken) -> JoinDecision + Send + 'static,
-) -> BoxFuture<'static, JoinDecision> {
-    Box::pin(async move {
-        let token = cancel.clone();
-        let decision = tokio::task::spawn_blocking(move || decide(&review, &token));
-        tokio::select! {
-            decided = decision => decided.unwrap_or(JoinDecision::Reject),
-            () = cancel.cancelled() => JoinDecision::Reject,
-        }
-    })
-}
-
 /// Everything the operator sees before allowing a node.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct JoinReview {
     /// What the node asks for: to join as a new node, or to join again as a declared one.
     pub request: ReviewedJoin,
@@ -419,6 +194,10 @@ pub struct JoinReview {
 
     /// Fingerprint of the key in the node's signing request, also shown on the node.
     pub csr_key_fingerprint: CertificateFingerprint,
+
+    /// Execution targets the site records for a new node, or the declared ones of a rejoining
+    /// node.
+    pub targets: Vec<ExecutionTarget>,
 }
 
 /// The kind of join under review.
@@ -477,7 +256,7 @@ pub enum JoinHostSource {
 
 /// Operator decision on a join proposal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum JoinDecision {
+pub(super) enum JoinDecision {
     /// Sign the node's certificate and offer it the site configuration.
     Allow,
 
@@ -485,7 +264,7 @@ pub enum JoinDecision {
     Reject,
 }
 
-/// The node a join host recorded.
+/// The node a join recorded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JoinedNode {
     /// SiteNode identity the manager derived.
@@ -508,80 +287,188 @@ pub struct JoinedNode {
     pub rejoined: bool,
 }
 
-/// Why a join host stopped without a recorded node.
-#[derive(Debug, thiserror::Error)]
-pub enum JoinHostError {
-    #[error("the join host settings are inconsistent: {0}")]
-    InvalidSettings(#[source] anyhow::Error),
-
-    #[error("the join token expired before a node joined")]
-    Expired,
-
-    #[error("too many join attempts used a wrong secret; the join token is revoked")]
-    TooManyFailedAttempts,
-
-    #[error(
-        "too many joins named a host and port where the manager could not reach the node; the \
-         join token is revoked"
-    )]
-    TooManyFailedDialBacks,
-
-    #[error("the node may or may not have been recorded: {0}")]
-    PublicationUncertain(#[source] JoinSiteError),
-
-    #[error("the join listener failed")]
-    Transport(#[source] tonic::transport::Error),
+/// The join service joining machines call on the private listener, for every join the registry
+/// holds.
+pub struct JoinService {
+    registry: Arc<Registry>,
 }
 
-struct HostShared {
-    settings: JoinHostSettings,
-    timing: JoinTiming,
-    site: Arc<dyn JoinSiteWriter>,
-    approval: Arc<dyn JoinApproval>,
-    resolver: Arc<dyn HostResolver>,
-    state: Mutex<HostState>,
-    finished: watch::Sender<bool>,
+impl JoinService {
+    pub(super) fn new(registry: Arc<Registry>) -> Self {
+        Self { registry }
+    }
 }
 
-impl HostShared {
-    async fn validate_settings(&self) -> Result<(), JoinHostError> {
-        let invalid = |message: &str| JoinHostError::InvalidSettings(anyhow::anyhow!("{message}"));
-        let settings = &self.settings;
-        let identity = &settings.identity;
-        if settings.token.site_id != identity.site_id
-            || settings.token.manager_node_id != identity.manager_node_id
-            || settings.token.manager_certificate_sha256
-                != CertificateFingerprint::for_certificate(&identity.certificate_der)
-            || settings.token.site_ca_sha256 != identity.site_ca_sha256()
-        {
-            return Err(invalid("the join token does not pin the host identity"));
-        }
-        if settings.manager_private_port == 0 {
-            return Err(invalid("the manager private port must not be zero"));
-        }
-
-        let site = Arc::clone(&self.site);
-        let site = blocking(move || site.site())
+#[tonic::async_trait]
+impl NodeJoinService for JoinService {
+    async fn join(&self, request: Request<JoinRequest>) -> Result<Response<JoinResponse>, Status> {
+        let connection = connection_info(&request)?;
+        let request = request.into_inner();
+        let join = self
+            .registry
+            .join_for_secret(&connection, &request.join_secret)?;
+        let _busy = connection.begin_request();
+        let mut claim = join.claim_slot(&connection)?;
+        match self
+            .registry
+            .attempt(&join, &mut claim, &connection, request)
             .await
-            .map_err(|_| invalid("the site could not be read"))?
-            .map_err(|source| JoinHostError::InvalidSettings(anyhow::Error::new(source)))?;
-        let manager = site
-            .nodes
-            .iter()
-            .find(|node| node.site_manager.is_some())
-            .ok_or_else(|| invalid("the site declares no manager"))?;
-        if site.site_id != identity.site_id || manager.node_id != identity.manager_node_id {
-            return Err(invalid("the host identity is not this site's manager"));
+        {
+            Ok(response) => Ok(Response::new(response)),
+            Err(failure) => {
+                claim.outcome = Some(failure.outcome);
+                Err(failure.status)
+            }
         }
-        Ok(())
+    }
+
+    async fn commit(
+        &self,
+        request: Request<CommitRequest>,
+    ) -> Result<Response<CommitResponse>, Status> {
+        let connection = connection_info(&request)?;
+        let request = request.into_inner();
+        let join = self
+            .registry
+            .join_for_secret(&connection, &request.join_secret)?;
+        let _busy = connection.begin_request();
+        let offer = join.begin_commit(connection.id(), &request.offer_id)?;
+        // The commit runs on its own task so a dropped request cannot leave it half-reported, and
+        // a panic in it still ends the join, which releases its hold on the private listener.
+        let registry = Arc::clone(&self.registry);
+        tokio::spawn(async move {
+            let committed = AssertUnwindSafe(registry.commit(Arc::clone(&join), offer))
+                .catch_unwind()
+                .await;
+            committed.unwrap_or_else(|_| {
+                warn!(join_id = %join.id(), "node join commit stopped unexpectedly");
+                join.commit_uncertain();
+                Err(uncertain_commit_status())
+            })
+        })
+        .await
+        .map_err(|_| uncertain_commit_status())??;
+        Ok(Response::new(CommitResponse {}))
+    }
+}
+
+impl Registry {
+    /// Runs one join request from its proposal to the offer: admission, dial-back, the
+    /// operator's decision, and signing.
+    async fn attempt(
+        &self,
+        join: &Arc<ActiveJoin>,
+        claim: &mut SlotClaim,
+        connection: &PrivateConnectionInfo,
+        request: JoinRequest,
+    ) -> Result<JoinResponse, AttemptFailure> {
+        let peer_address = connection.peer_address();
+        let csr_key_fingerprint = csr_key_fingerprint(&request.csr_der)
+            .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let proposed = ProposedJoin::from_request(&request)
+            .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let manager_host = SiteNodeHost::normalize(&request.manager_host).map_err(|_| {
+            Status::invalid_argument(
+                "the manager host the node dialed must be a specific IPv4 address or a DNS host name",
+            )
+        })?;
+        let admitted = self
+            .admit(join, claim, &request, proposed, peer_address, &manager_host)
+            .await?;
+        let host = admitted.host.clone();
+        let host_source = admitted.host_source;
+
+        let host_differs_from_peer = host_source != JoinHostSource::Observed
+            && host_differs_from(&host, peer_address, self.resolver.as_ref()).await;
+        let review = JoinReview {
+            request: admitted.review,
+            node_id: admitted.node.node_id.clone(),
+            host: host.clone(),
+            host_source,
+            host_differs_from_peer,
+            manager_host: manager_host.clone(),
+            peer_address,
+            csr_key_fingerprint,
+            targets: admitted.targets.clone(),
+        };
+        let proposal_id =
+            random_id().map_err(|_| Status::internal("could not create a join proposal"))?;
+        let decided = join.await_decision(claim, &proposal_id, review)?;
+        let decision = tokio::select! {
+            decision = decided => decision.unwrap_or(JoinDecision::Reject),
+            () = claim.cancel.cancelled() => return Err(abandoned_status().into()),
+        };
+        if decision == JoinDecision::Reject {
+            info!(join_id = %join.id(), node_id = %admitted.node.node_id, peer = %peer_address, "node join rejected by the operator");
+            return Err(AttemptFailure {
+                status: Status::permission_denied("the manager operator rejected this join"),
+                outcome: JoinAttemptOutcome::Rejected,
+            });
+        }
+
+        let certificate_der = match admitted.kind {
+            OfferKind::NewNode => {
+                let site_writer = Arc::clone(&self.site);
+                let site = admitted.site;
+                let node = admitted.node.clone();
+                let csr = request.csr_der;
+                blocking(move || site_writer.sign_node_certificate(&site, &node, &csr))
+                    .await?
+                    .map_err(|error| site_status(&error))?
+            }
+            OfferKind::Rejoin => request.node_certificate_der,
+        };
+        let offer_id =
+            random_id().map_err(|_| Status::internal("could not create a join offer"))?;
+        let identity = &self.identity;
+        let private_port = self
+            .offered_private_port()
+            .ok_or_else(|| Status::internal("the manager private port is unknown"))?;
+        // The node keeps dialing the manager at the address it reached the join service on.
+        let manager_private_endpoint =
+            Url::parse(&format!("https://{manager_host}:{private_port}"))
+                .map_err(|_| Status::internal("could not compose the manager private endpoint"))?;
+        let response = JoinResponse {
+            offer_id: offer_id.clone(),
+            site_id: identity.site_id.clone(),
+            node_id: admitted.node.node_id.clone(),
+            node_certificate_der: certificate_der.clone(),
+            site_ca_der: identity.site_ca_der.clone(),
+            manager_node_id: identity.manager_node_id.clone(),
+            manager_private_endpoint: manager_private_endpoint.to_string(),
+            manager_certificate_sha256: CertificateFingerprint::for_certificate(
+                &identity.certificate_der,
+            )
+            .as_str()
+            .to_owned(),
+            observation: Some(admitted.observation),
+            realization_targets: admitted.targets.clone(),
+            node_host: host.to_string(),
+            node_display_name: admitted.node.display_name.clone(),
+        };
+        join.store_offer(
+            claim,
+            PendingOffer {
+                offer_id,
+                node: admitted.node,
+                host,
+                targets: admitted.targets,
+                certificate_der,
+                kind: admitted.kind,
+            },
+        )?;
+        info!(join_id = %join.id(), node_id = %response.node_id, peer = %peer_address, "node join offer issued");
+        Ok(response)
     }
 
     /// Checks a decoded request against the current site: a new node's proposal, or a declared
-    /// node's proof that it holds its pinned identity for this join, then dials the node back at
-    /// the host it would record. A new node without a proposed host is recorded at
-    /// `peer_address`; a rejoining one keeps its declared host.
+    /// node's proof that it holds its pinned identity for this join, reserves what it would
+    /// record, then dials the node back at the host it would record. A new node without a
+    /// proposed host is recorded at `peer_address`; a rejoining one keeps its declared host.
     async fn admit(
         &self,
+        join: &ActiveJoin,
+        claim: &SlotClaim,
         request: &JoinRequest,
         proposed: ProposedJoin,
         peer_address: SocketAddr,
@@ -597,7 +484,9 @@ impl HostShared {
                 let rules = self.site.declaration_rules();
                 let admission = admit(&site, &rules, &proposal, &host, manager_host)
                     .map_err(|error| admission_status(&error))?;
-                self.dial_back(&host, proposal.private_port, &request.csr_der)
+                self.reserve(join, claim.ticket, &admission.node)
+                    .map_err(reservation_status)?;
+                self.dial_back(join, &host, proposal.private_port, &request.csr_der)
                     .await?;
                 Ok(Admitted {
                     site,
@@ -621,7 +510,7 @@ impl HostShared {
                 let proof = RejoinProof {
                     certificate_der: &request.node_certificate_der,
                     csr_der: &request.csr_der,
-                    secret: &self.settings.token.secret,
+                    secret: &join.token.secret,
                 };
                 let rules = self.site.declaration_rules();
                 let admission = admit_rejoin(
@@ -634,9 +523,11 @@ impl HostShared {
                     manager_host,
                 )
                 .map_err(|error| admission_status(&error))?;
+                self.reserve(join, claim.ticket, &admission.node)
+                    .map_err(reservation_status)?;
                 let host = SiteNodeHost::parse(&admission.node.host)
                     .map_err(|_| Status::internal("the declared node host is invalid"))?;
-                self.dial_back(&host, proposal.private_port, &request.csr_der)
+                self.dial_back(join, &host, proposal.private_port, &request.csr_der)
                     .await?;
                 let host_source = match proposal.host {
                     Some(_) => JoinHostSource::Proposed,
@@ -664,35 +555,34 @@ impl HostShared {
     }
 
     /// Dials the joining node back at `host` and `port`, which must answer with the key its
-    /// signing request `csr_der` proves. Each dial is shown to the operator as it starts and as it
-    /// ends. It counts as failed from the start and is refunded only once it succeeds, so a join
-    /// abandoned mid-dial still counts; the host stops at the limit.
+    /// signing request `csr_der` proves. It counts as failed from the start and is refunded only
+    /// once it succeeds, so an attempt abandoned mid-dial still counts; the join fails at the
+    /// limit.
     async fn dial_back(
         &self,
+        join: &ActiveJoin,
         host: &SiteNodeHost,
         port: u16,
         csr_der: &[u8],
     ) -> Result<(), Status> {
         let node_key = verified_csr_key(csr_der)
             .map_err(|error| Status::invalid_argument(error.to_string()))?;
-        let limit = self.settings.limits.max_failed_dial_backs;
-        let failed = {
-            let mut state = self.lock_state();
-            if state.failed_dial_backs >= limit {
-                drop(state);
-                self.stop(JoinHostError::TooManyFailedDialBacks);
-                return Err(finished_status());
-            }
-            state.failed_dial_backs += 1;
-            state.failed_dial_backs
-        };
-        self.approval.dialing_back(host, port);
+        let limit = self.limits.max_failed_dial_backs;
+        let failed = join
+            .count_dial_back()
+            .ok_or_else(super::registry::finished_status)?;
+        if failed > limit {
+            join.refund_dial_back();
+            join.finish(JoinEnd::Failed(too_many_dial_backs()));
+            return Err(super::registry::finished_status());
+        }
+        info!(join_id = %join.id(), %host, port, "dialing the joining node back");
         let outcome = dial_back(
             host,
             port,
             &node_key,
             self.resolver.as_ref(),
-            self.timing.connect_timeout,
+            self.timing().connect_timeout,
         )
         .await;
         let dial = DialBack {
@@ -700,18 +590,17 @@ impl HostShared {
             port,
             outcome,
         };
-        self.approval.dialed_back(&dial);
         let error = match dial.outcome {
             Ok(address) => {
-                self.lock_state().failed_dial_backs -= 1;
-                info!(%host, port, %address, "joining node reached by its key");
+                join.refund_dial_back();
+                info!(join_id = %join.id(), %host, port, %address, "joining node reached by its key");
                 return Ok(());
             }
             Err(error) => error.detailed(),
         };
-        warn!(%host, port, %error, failed_dial_backs = failed, "joining node not reached");
+        warn!(join_id = %join.id(), %host, port, %error, failed_dial_backs = failed, "joining node not reached");
         if failed >= limit {
-            self.stop(JoinHostError::TooManyFailedDialBacks);
+            join.finish(JoinEnd::Failed(too_many_dial_backs()));
         }
         Err(rejection_status(
             Status::failed_precondition(format!(
@@ -721,96 +610,13 @@ impl HostShared {
         ))
     }
 
-    /// Counts a wrong secret and stops the host once the limit is reached.
-    fn check_secret(&self, presented: &[u8]) -> Result<(), Status> {
-        if self.settings.token.secret.matches(presented) {
-            return Ok(());
-        }
-        let failed = {
-            let mut state = self.lock_state();
-            state.failed_attempts += 1;
-            state.failed_attempts
-        };
-        warn!(failed_attempts = failed, "join attempt used a wrong secret");
-        if failed >= self.settings.limits.max_failed_attempts {
-            self.stop(JoinHostError::TooManyFailedAttempts);
-        }
-        Err(Status::unauthenticated(
-            "the join secret does not match this join token",
-        ))
-    }
-
-    /// Reserves the single offer slot for one connection while its proposal is reviewed.
-    fn claim_slot(self: &Arc<Self>, connection: u64) -> Result<SlotClaim, Status> {
-        let mut state = self.lock_state();
-        if state.outcome.is_some() {
-            return Err(finished_status());
-        }
-        if !matches!(state.slot, Slot::Free) {
-            return Err(Status::failed_precondition(
-                "another node join is in progress on this manager; retry when it finishes",
-            ));
-        }
-        state.next_ticket += 1;
-        let ticket = state.next_ticket;
-        let cancel = CancellationToken::new();
-        state.slot = Slot::Reviewing {
-            ticket,
-            connection,
-            cancel: cancel.clone(),
-        };
-        Ok(SlotClaim {
-            shared: Arc::clone(self),
-            ticket,
-            cancel,
-            armed: true,
-        })
-    }
-
-    /// Turns a reviewed claim into the outstanding offer, unless the join was abandoned meanwhile.
-    fn store_offer(&self, claim: &mut SlotClaim, offer: PendingOffer) -> Result<(), Status> {
-        let mut state = self.lock_state();
-        match &state.slot {
-            Slot::Reviewing {
-                ticket, connection, ..
-            } if *ticket == claim.ticket => {
-                state.slot = Slot::Offered {
-                    connection: *connection,
-                    offer,
-                };
-                claim.armed = false;
-                Ok(())
-            }
-            _ => Err(abandoned_status()),
-        }
-    }
-
-    /// Moves the outstanding offer into the commit step when this connection owns it.
-    fn begin_commit(&self, connection: u64, offer_id: &str) -> Result<PendingOffer, Status> {
-        let mut state = self.lock_state();
-        if state.outcome.is_some() {
-            return Err(finished_status());
-        }
-        match std::mem::replace(&mut state.slot, Slot::Free) {
-            Slot::Offered {
-                connection: owner,
-                offer,
-            } if owner == connection && offer.offer_id == offer_id => {
-                state.slot = Slot::Committing;
-                Ok(offer)
-            }
-            other => {
-                state.slot = other;
-                Err(Status::failed_precondition(
-                    "no matching join offer is outstanding on this connection",
-                ))
-            }
-        }
-    }
-
-    /// Records the node, or a rejoining node's new addresses, then finishes the host or frees the
-    /// slot for a retry.
-    async fn commit(self: Arc<Self>, offer: PendingOffer) -> Result<(), Status> {
+    /// Records the node, or a rejoining node's new addresses, then ends the join or frees it for
+    /// a retry.
+    async fn commit(
+        self: Arc<Self>,
+        join: Arc<ActiveJoin>,
+        offer: PendingOffer,
+    ) -> Result<(), Status> {
         let site = Arc::clone(&self.site);
         let node = offer.node.clone();
         let targets = offer.targets.clone();
@@ -834,129 +640,63 @@ impl HostShared {
             certificate_sha256: CertificateFingerprint::for_certificate(&offer.certificate_der),
             rejoined: kind == OfferKind::Rejoin,
         };
-        let mut state = self.lock_state();
         match published {
             Ok(()) => {
                 info!(
+                    join_id = %join.id(),
                     node_id = %joined.node_id,
                     display_name = %joined.display_name,
                     host = %joined.host,
                     rejoined = joined.rejoined,
                     "node join committed"
                 );
-                self.finish_locked(&mut state, Ok(joined));
+                join.committed(joined);
                 Ok(())
             }
             Err(error @ JoinSiteError::OutcomeUncertain(_)) => {
-                warn!(node_id = %joined.node_id, error = %error, "node join outcome is uncertain");
-                self.finish_locked(&mut state, Err(JoinHostError::PublicationUncertain(error)));
-                Err(Status::unknown(
-                    "the manager could not confirm that it recorded the node",
-                ))
+                warn!(join_id = %join.id(), node_id = %joined.node_id, error = %error, "node join outcome is uncertain");
+                join.commit_uncertain();
+                Err(uncertain_commit_status())
             }
             Err(error) => {
-                warn!(node_id = %joined.node_id, error = %error, "node join publication failed");
-                // A stop requested during the commit takes effect now that nothing was recorded.
-                match state.stop_after_commit.take() {
-                    Some(reason) => self.finish_locked(&mut state, Err(reason)),
-                    None => state.slot = Slot::Free,
-                }
-                Err(Status::aborted(format!(
-                    "the manager could not record the node and recorded nothing: {error}"
-                )))
+                warn!(join_id = %join.id(), node_id = %joined.node_id, error = %error, "node join recorded nothing");
+                // A refusal says why; a storage failure stays in the manager's log.
+                let status = match &error {
+                    JoinSiteError::Rejected(_) => Status::aborted(format!(
+                        "the manager could not record the node and recorded nothing: {error}"
+                    )),
+                    JoinSiteError::Failed(_) | JoinSiteError::OutcomeUncertain(_) => {
+                        Status::aborted(
+                            "the manager could not record the node and recorded nothing",
+                        )
+                    }
+                };
+                join.commit_failed(status.message());
+                Err(status)
             }
         }
     }
+}
 
-    /// Frees the slot a closed connection held, unless its offer is being committed.
-    fn connection_closed(&self, connection: u64) {
-        let mut state = self.lock_state();
-        let owned = match &state.slot {
-            Slot::Reviewing {
-                connection: owner, ..
-            }
-            | Slot::Offered {
-                connection: owner, ..
-            } => *owner == connection,
-            Slot::Free | Slot::Committing => false,
-        };
-        if owned {
-            release_slot(&mut state);
+/// A join request that ended without an offer, with what the operator is shown.
+struct AttemptFailure {
+    status: Status,
+    outcome: JoinAttemptOutcome,
+}
+
+impl From<Status> for AttemptFailure {
+    fn from(status: Status) -> Self {
+        Self {
+            outcome: JoinAttemptOutcome::Failed(status.message().to_owned()),
+            status,
         }
-    }
-
-    /// Stops the host for `reason`. A running commit reports its own outcome first; the reason
-    /// applies only if that commit records nothing.
-    fn stop(&self, reason: JoinHostError) {
-        let mut state = self.lock_state();
-        if state.outcome.is_some() {
-            return;
-        }
-        if matches!(state.slot, Slot::Committing) {
-            state.stop_after_commit.get_or_insert(reason);
-        } else {
-            self.finish_locked(&mut state, Err(reason));
-        }
-    }
-
-    fn finish_locked(&self, state: &mut HostState, outcome: Result<JoinedNode, JoinHostError>) {
-        if state.outcome.is_none() {
-            state.outcome = Some(outcome);
-            release_slot(state);
-            self.finished.send_replace(true);
-        }
-    }
-
-    async fn wait_finished(&self) {
-        let mut finished = self.finished.subscribe();
-        let _ = finished.wait_for(|finished| *finished).await;
-    }
-
-    fn take_outcome(&self) -> Result<JoinedNode, JoinHostError> {
-        self.lock_state()
-            .outcome
-            .take()
-            .unwrap_or(Err(JoinHostError::Expired))
-    }
-
-    fn lock_state(&self) -> MutexGuard<'_, HostState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
-#[derive(Default)]
-struct HostState {
-    failed_attempts: u32,
-    failed_dial_backs: u32,
-    next_ticket: u64,
-    slot: Slot,
-    stop_after_commit: Option<JoinHostError>,
-    outcome: Option<Result<JoinedNode, JoinHostError>>,
-}
-
-/// The single join a host handles at a time.
-#[derive(Default)]
-enum Slot {
-    #[default]
-    Free,
-
-    Reviewing {
-        ticket: u64,
-        connection: u64,
-        cancel: CancellationToken,
-    },
-
-    Offered {
-        connection: u64,
-        offer: PendingOffer,
-    },
-
-    Committing,
-}
-
-struct PendingOffer {
-    offer_id: String,
-    node: SiteNode,
+/// An offer made to a joining node, recorded once it commits on the connection that received it.
+pub(super) struct PendingOffer {
+    pub(super) offer_id: String,
+    pub(super) node: SiteNode,
     host: SiteNodeHost,
     targets: Vec<ExecutionTarget>,
     certificate_der: Vec<u8>,
@@ -982,158 +722,6 @@ struct Admitted {
     targets: Vec<ExecutionTarget>,
     observation: NodeObservationConfiguration,
     kind: OfferKind,
-}
-
-/// Frees the reviewed slot and cancels its review when the join request ends without an offer.
-struct SlotClaim {
-    shared: Arc<HostShared>,
-    ticket: u64,
-    cancel: CancellationToken,
-    armed: bool,
-}
-
-impl Drop for SlotClaim {
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        let mut state = self.shared.lock_state();
-        if matches!(state.slot, Slot::Reviewing { ticket, .. } if ticket == self.ticket) {
-            release_slot(&mut state);
-        }
-    }
-}
-
-struct JoinService {
-    shared: Arc<HostShared>,
-}
-
-#[tonic::async_trait]
-impl NodeJoinService for JoinService {
-    async fn join(&self, request: Request<JoinRequest>) -> Result<Response<JoinResponse>, Status> {
-        let connection = connection_info(&request)?;
-        let _busy = connection.begin_request();
-        let request = request.into_inner();
-        let shared = &self.shared;
-        shared.check_secret(&request.join_secret)?;
-        let mut claim = shared.claim_slot(connection.id)?;
-
-        let csr_key_fingerprint = csr_key_fingerprint(&request.csr_der)
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
-        let proposed = ProposedJoin::from_request(&request)
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
-        let manager_host = SiteNodeHost::normalize(&request.manager_host).map_err(|_| {
-            Status::invalid_argument(
-                "the manager host the node dialed must be a specific IPv4 address or a DNS host name",
-            )
-        })?;
-        let admitted = shared
-            .admit(&request, proposed, connection.peer_address, &manager_host)
-            .await?;
-        let host = admitted.host.clone();
-        let host_source = admitted.host_source;
-
-        let host_differs_from_peer = host_source != JoinHostSource::Observed
-            && host_differs_from(&host, connection.peer_address, shared.resolver.as_ref()).await;
-        let review = JoinReview {
-            request: admitted.review,
-            node_id: admitted.node.node_id.clone(),
-            host: host.clone(),
-            host_source,
-            host_differs_from_peer,
-            manager_host: manager_host.clone(),
-            peer_address: connection.peer_address,
-            csr_key_fingerprint,
-        };
-        let cancel = claim.cancel.clone();
-        let decision = tokio::select! {
-            decision = shared.approval.review(review, cancel.clone()) => decision,
-            () = cancel.cancelled() => return Err(abandoned_status()),
-        };
-        if decision == JoinDecision::Reject {
-            info!(node_id = %admitted.node.node_id, peer = %connection.peer_address, "node join rejected by the operator");
-            return Err(Status::permission_denied(
-                "the manager operator rejected this join",
-            ));
-        }
-
-        let certificate_der = match admitted.kind {
-            OfferKind::NewNode => {
-                let site_writer = Arc::clone(&shared.site);
-                let site = admitted.site;
-                let node = admitted.node.clone();
-                let csr = request.csr_der;
-                blocking(move || site_writer.sign_node_certificate(&site, &node, &csr))
-                    .await?
-                    .map_err(|error| site_status(&error))?
-            }
-            OfferKind::Rejoin => request.node_certificate_der,
-        };
-        let offer_id = random_offer_id()?;
-        let identity = &shared.settings.identity;
-        // The node keeps dialing the manager at the address it reached the join listener on.
-        let manager_private_endpoint = Url::parse(&format!(
-            "https://{manager_host}:{}",
-            shared.settings.manager_private_port
-        ))
-        .map_err(|_| Status::internal("could not compose the manager private endpoint"))?;
-        let response = JoinResponse {
-            offer_id: offer_id.clone(),
-            site_id: identity.site_id.clone(),
-            node_id: admitted.node.node_id.clone(),
-            node_certificate_der: certificate_der.clone(),
-            site_ca_der: identity.site_ca_der.clone(),
-            manager_node_id: identity.manager_node_id.clone(),
-            manager_private_endpoint: manager_private_endpoint.to_string(),
-            manager_certificate_sha256: CertificateFingerprint::for_certificate(
-                &identity.certificate_der,
-            )
-            .as_str()
-            .to_owned(),
-            observation: Some(admitted.observation),
-            realization_targets: admitted.targets.clone(),
-            node_host: host.to_string(),
-            node_display_name: admitted.node.display_name.clone(),
-        };
-        shared.store_offer(
-            &mut claim,
-            PendingOffer {
-                offer_id,
-                node: admitted.node,
-                host,
-                targets: admitted.targets,
-                certificate_der,
-                kind: admitted.kind,
-            },
-        )?;
-        info!(node_id = %response.node_id, peer = %connection.peer_address, "node join offer issued");
-        Ok(Response::new(response))
-    }
-
-    async fn commit(
-        &self,
-        request: Request<CommitRequest>,
-    ) -> Result<Response<CommitResponse>, Status> {
-        let connection = connection_info(&request)?;
-        let _busy = connection.begin_request();
-        let request = request.into_inner();
-        self.shared.check_secret(&request.join_secret)?;
-        let offer = self.shared.begin_commit(connection.id, &request.offer_id)?;
-        // The commit runs on its own task so a dropped request cannot leave it half-reported.
-        tokio::spawn(Arc::clone(&self.shared).commit(offer))
-            .await
-            .map_err(|_| {
-                Status::unknown("the manager could not confirm that it recorded the node")
-            })??;
-        Ok(Response::new(CommitResponse {}))
-    }
-}
-
-/// Frees the slot, cancelling a review in progress.
-fn release_slot(state: &mut HostState) {
-    if let Slot::Reviewing { cancel, .. } = std::mem::take(&mut state.slot) {
-        cancel.cancel();
-    }
 }
 
 /// Returns the address the site records for the joining node: the proposed host, else the
@@ -1220,37 +808,55 @@ fn site_status(error: &JoinSiteError) -> Status {
     }
 }
 
-/// The host has finished or stopped; nothing more will be recorded with this token.
-fn finished_status() -> Status {
-    Status::failed_precondition("this join token is no longer accepted")
+/// Projects a reservation conflict with another join into a status the joining node acts on.
+fn reservation_status(conflict: ReservationConflict) -> Status {
+    match conflict {
+        ReservationConflict::Name => rejection_status(
+            Status::already_exists("another machine is joining with this node name"),
+            DUPLICATE_NAME_REJECTION,
+        ),
+        ReservationConflict::Host => rejection_status(
+            Status::already_exists("another machine is joining with this node host"),
+            DUPLICATE_HOST_REJECTION,
+        ),
+        ReservationConflict::Node => {
+            Status::failed_precondition("another join of this node is in progress")
+        }
+        ReservationConflict::Abandoned => abandoned_status(),
+    }
 }
 
-fn abandoned_status() -> Status {
-    Status::aborted("the join was abandoned before an offer was made")
+/// The commit's outcome is unknown; the operator checks the site.
+fn uncertain_commit_status() -> Status {
+    Status::unknown("the manager could not confirm that it recorded the node")
 }
 
-fn connection_info<T>(request: &Request<T>) -> Result<JoinConnectionInfo, Status> {
+fn too_many_dial_backs() -> String {
+    "too many joins named a host and port where the manager could not reach the machine".to_owned()
+}
+
+fn connection_info<T>(request: &Request<T>) -> Result<PrivateConnectionInfo, Status> {
     request
         .extensions()
-        .get::<TlsConnectInfo<JoinConnectionInfo>>()
-        .map(|info| info.get_ref().clone())
+        .get::<PrivateConnectionInfo>()
+        .cloned()
         .ok_or_else(|| Status::internal("join connection information is missing"))
 }
 
-fn random_offer_id() -> Result<String, Status> {
+/// Returns a random identity for a join, a proposal or an offer.
+pub(super) fn random_id() -> Result<String, getrandom::Error> {
     let mut bytes = [0_u8; 16];
-    getrandom::fill(&mut bytes).map_err(|_| Status::internal("could not create a join offer"))?;
+    getrandom::fill(&mut bytes)?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, Status> {
     tokio::task::spawn_blocking(work)
         .await
-        .map_err(|_| Status::internal("join host task failed"))
+        .map_err(|_| Status::internal("join task failed"))
 }
-
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;

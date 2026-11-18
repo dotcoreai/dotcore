@@ -8,7 +8,7 @@ Code: `backend/cli/`.
 ## Capabilities
 
 - Initialize and validate a site locally before it starts, then run the server process.
-- Add machines to a site, join a machine from that machine, and remove one.
+- Add machines to a running site, join a machine from that machine, and remove one.
 - Manage model and application deployments through the management API, from scripts.
 - Start coding agents that use the site's routes, and run one-off development workloads.
 - Run exclusive administration on a stopped site: node removal, site reset and destructive
@@ -42,6 +42,10 @@ sequenceDiagram
 
 - Every change goes through the management API to the owning component, which validates and accepts
   it ([README](README.md#managing-the-site)).
+- Adding a machine is one of these changes: `dotc` starts a join on the running site, shows the
+  joining machine for your approval, and ends the join if you stop the command
+  ([access](access.md#joining-a-node)). On the joining machine, `dotc` starts the node once it
+  joins, unless you skip that. Removal is the stopped-site administration below.
 
 ### Before the site starts
 

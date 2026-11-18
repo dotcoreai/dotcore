@@ -476,20 +476,22 @@ mod tests {
             ));
             let manager_certificate = manager.0.clone();
             let server = crate::server::private::prepare(
-                authority.private_configuration(
-                    SITE_ID,
-                    MANAGER_ID,
-                    PrivateNodeRole::Manager,
-                    manager,
-                    [(WORKER_ID, PrivateNodeRole::Worker, worker.0.as_slice())],
+                crate::server::private::PrivateListener::new(
+                    authority.private_configuration(
+                        SITE_ID,
+                        MANAGER_ID,
+                        PrivateNodeRole::Manager,
+                        manager,
+                        [(WORKER_ID, PrivateNodeRole::Worker, worker.0.as_slice())],
+                    ),
+                    PrivateServiceAssembly::new(move |context, routes| {
+                        routes.add_service(
+                            MetricBucketStreamService::new(ingest, &context).into_server(),
+                        );
+                    })
+                    .assemble(PrivateNodeRole::Manager, MANAGER_ID),
+                    &Timing::test(),
                 ),
-                PrivateServiceAssembly::new(move |context, routes| {
-                    routes.add_service(
-                        MetricBucketStreamService::new(ingest, &context).into_server(),
-                    );
-                })
-                .assemble(PrivateNodeRole::Manager, MANAGER_ID),
-                Timing::test().private,
                 std::future::pending(),
             )
             .await

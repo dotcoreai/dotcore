@@ -155,9 +155,11 @@ expect_init_env '127.0.0.1:6003 127.0.0.1:6001 127.0.0.1:6002' "${inherited[@]}"
 expect_init_env '0.0.0.0:50053 unset unset' "${inherited[@]}" "$init_fixture" \
   --private-addr 0.0.0.0:50053 --management-port 6101 --inference-port 6102
 rm -rf -- "$markers"
-mkdir -m 700 "$DOTCORE_SITE_DIR"
-cp -R "${DOTCORE_PACKAGE_SITE_FIXTURE:?Site fixture is required}"/. "$DOTCORE_SITE_DIR/"
-chmod -R u+rwX "$DOTCORE_SITE_DIR"
+# A manager always serves its private listener, so the site needs the trust `site init` creates.
+env -u DOTCORE_PRIVATE_ADDR -u DOTCORE_MANAGEMENT_ADDR -u DOTCORE_INFERENCE_ADDR \
+  "${DOTCORE_PACKAGE_BACKEND_COMMAND:?backend command is required}" site init --non-interactive \
+  --site-dir "$DOTCORE_SITE_DIR" --host 127.0.0.1 --inference simulated --applications simulated \
+  >"$work/site-init.out" 2>"$work/site-init.err" || fail "site init failed: $(cat "$work/site-init.err")"
 site_before=$(sha256sum "$DOTCORE_SITE_DIR/site.yaml" "$DOTCORE_SITE_DIR/node.yaml")
 cp -R "$DOTCORE_SITE_DIR" "$work/site-before"
 
@@ -287,8 +289,8 @@ for host, port in [("0.0.0.0", public), ("0.0.0.0", inference), ("127.0.0.1", ma
         listener.listen()
 PY
 
-# A node added with a private address records its port; the manager binds that port when the
-# launcher gets it as --private-addr or inherits it, and the site default otherwise.
+# A node added through the running manager records the port its private listener binds; the manager
+# binds the port the launcher gets as --private-addr or inherits, and the site default otherwise.
 dotc=${DOTCORE_PACKAGE_BACKEND_COMMAND:?backend command is required}
 port_site="$work/port-site"
 port_node="$work/port-node"
@@ -300,33 +302,14 @@ env -u DOTCORE_PRIVATE_ADDR -u DOTCORE_MANAGEMENT_ADDR -u DOTCORE_INFERENCE_ADDR
   fail "site init failed: $(cat "$work/port-init.err")"
 read -r private_port node_private_port _ < <(ports)
 
-DOTCORE_PRIVATE_ADDR="127.0.0.1:$private_port" "$dotc" node add --site-dir "$port_site" --yes \
-  --token-file "$port_token" --timeout 120s >"$work/port-add.out" 2>"$work/port-add.err" &
-add_pid=$!
-for ((attempt = 0; attempt < 300; attempt++)); do
-  if [[ -s "$port_token" ]] || ! kill -0 "$add_pid" 2>/dev/null; then break; fi
-  sleep .1
-done
-[[ -s "$port_token" ]] || fail "node add published no token: $(cat "$work/port-add.err")"
-# The node listens on its own private port while it joins, at a host every platform resolves to
-# 127.0.0.1, since a Nix build can't add loopback aliases.
-env -u DOTCORE_PRIVATE_ADDR "$dotc" node join --yes --site-dir "$port_node" --name 'Port node' \
-  --host localhost --private-port "$node_private_port" --inference simulated \
-  --applications simulated --token-file "$port_token" \
-  >"$work/port-join.out" 2>"$work/port-join.err" ||
-  fail "node join failed: $(cat "$work/port-join.err")"
-wait "$add_pid" || fail "node add failed: $(cat "$work/port-add.err")"
-add_pid=''
-recorded_port=$(sed -nE 's|^ *privateEndpoint: https://[^:/]+:([0-9]+)/?$|\1|p' "$port_node/worker.yaml")
-[[ "$recorded_port" == "$private_port" ]] ||
-  fail "worker.yaml recorded manager private port ${recorded_port:-<none>}, expected $private_port"
-
 # Starts the manager on the port site in one listener mode and sets bound_port once its private
-# listener accepts connections and the launcher printed its summary. Every listener binds 127.0.0.1,
-# the only loopback address macOS configures by default. A diagnosed bind collision retries.
+# listener accepts connections and the launcher printed its summary, then stops it; with `keep` it
+# keeps running and port_management names its management port. Every listener binds 127.0.0.1, the
+# only loopback address macOS configures by default. A diagnosed bind collision retries.
 bound_port=''
+port_management=''
 start_port_manager() {
-  local mode=$1 log="$work/port-$1.err" public inference management bound='' ready retry
+  local mode=$1 keep=${2:-} log="$work/port-$1.err" public inference management bound='' ready retry
   local -a run
   for ((retry = 0; retry < 5; retry++)); do
     read -r public inference management < <(ports)
@@ -381,15 +364,41 @@ start_port_manager() {
     assert_banner "$log" 127.0.0.1 "$public"
   fi
 
+  bound_port=$bound
+  port_management=$management
+  if [[ "$keep" == keep ]]; then return; fi
   kill -TERM "$launcher_pid"
   wait "$launcher_pid" || fail "$mode manager did not stop normally"
   launcher_pid=''
-  bound_port=$bound
 }
 
-start_port_manager flagged
-[[ "$bound_port" == "$recorded_port" ]] ||
-  fail "manager private listener bound port $bound_port with --private-addr, joined node recorded $recorded_port"
+# The flagged manager keeps running while a node joins it through its management port.
+start_port_manager flagged keep
+[[ "$bound_port" == "$private_port" ]] ||
+  fail "manager private listener bound port $bound_port with --private-addr, expected $private_port"
+"$dotc" node add --manager "127.0.0.1:$port_management" --yes --token-file "$port_token" \
+  >"$work/port-add.out" 2>"$work/port-add.err" &
+add_pid=$!
+for ((attempt = 0; attempt < 300; attempt++)); do
+  if [[ -s "$port_token" ]] || ! kill -0 "$add_pid" 2>/dev/null; then break; fi
+  sleep .1
+done
+[[ -s "$port_token" ]] || fail "node add published no token: $(cat "$work/port-add.err")"
+# The node listens on its own private port while it joins, at a host every platform resolves to
+# 127.0.0.1, since a Nix build can't add loopback aliases.
+env -u DOTCORE_PRIVATE_ADDR "$dotc" node join --yes --site-dir "$port_node" --name 'Port node' \
+  --host localhost --private-port "$node_private_port" --inference simulated \
+  --applications simulated --token-file "$port_token" \
+  >"$work/port-join.out" 2>"$work/port-join.err" ||
+  fail "node join failed: $(cat "$work/port-join.err")"
+wait "$add_pid" || fail "node add failed: $(cat "$work/port-add.err")"
+add_pid=''
+recorded_port=$(sed -nE 's|^ *privateEndpoint: https://[^:/]+:([0-9]+)/?$|\1|p' "$port_node/worker.yaml")
+[[ "$recorded_port" == "$private_port" ]] ||
+  fail "worker.yaml recorded manager private port ${recorded_port:-<none>}, expected $private_port"
+kill -TERM "$launcher_pid"
+wait "$launcher_pid" || fail 'flagged manager did not stop normally'
+launcher_pid=''
 
 # The dev shell case: an inherited DOTCORE_PRIVATE_ADDR alone gives the manager the recorded port.
 start_port_manager inherited

@@ -1,11 +1,25 @@
 //! Management and private route assembly for the capabilities selected by backend composition.
 
-use dotcore_site::view::fencing::AcceptedNodeViewAuthority;
+use std::{sync::Arc, time::Duration};
+
+use dotcore_domain::clock::Clock;
+use dotcore_site::{
+    membership::join::{JoinManagementService, JoinRegistry},
+    view::fencing::AcceptedNodeViewAuthority,
+};
 
 use super::BackendServices;
 
+/// The site manager's join registry and how its management watches send heartbeats.
+pub(super) struct ManagerJoins {
+    pub(super) registry: JoinRegistry,
+    pub(super) clock: Arc<dyn Clock>,
+    pub(super) heartbeat_interval: Duration,
+}
+
 pub(super) fn assemble(
     services: BackendServices,
+    joins: ManagerJoins,
 ) -> (
     tonic::service::Routes,
     crate::router::InferenceRouter,
@@ -34,6 +48,7 @@ pub(super) fn assemble(
         metric_buckets,
         node_control_streams,
         node_targets,
+        site_repository: _,
     } = manager;
     let lifecycle = super::backend::BackendLifecycleHandles::Manager {
         _nodes: node_lifecycle,
@@ -41,8 +56,11 @@ pub(super) fn assemble(
         _node: node,
     };
 
+    let join_service = joins.registry.join_service();
     let private_services =
         crate::server::private::PrivateServiceAssembly::new(move |context, routes| {
+            // Machines without a site certificate reach only this service, while a join is active.
+            routes.add_service(join_service);
             routes.add_service(node_control_streams.private_service(&context).into_server());
             routes.add_service(
                 crate::metric_stream::MetricBucketStreamService::new(metric_buckets, &context)
@@ -82,6 +100,10 @@ pub(super) fn assemble(
     .add_service(capacity_service.into_server())
     .add_service(
         crate::resource_watch::ResourceWatchService::new(resource_watch.clone()).into_server(),
+    )
+    .add_service(
+        JoinManagementService::new(joins.registry, joins.clock, joins.heartbeat_interval)
+            .into_server(),
     );
     (
         routes,

@@ -15,8 +15,8 @@ use std::{
 };
 
 use super::{
-    ConfirmPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError, SelectItem, SelectPrompt,
-    Terminal, TerminalCondition,
+    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
+    SelectItem, SelectPrompt, Terminal, TerminalCondition,
     render::{LastOutput, Symbols, plain_text},
 };
 
@@ -227,6 +227,12 @@ impl Terminal for LineTerminal {
             }
             answer
         })
+    }
+
+    fn countdown(&mut self, _prompt: &CountdownPrompt) -> Result<bool, PromptError> {
+        // A line answer needs Enter, and Ctrl-C without raw mode stops the process instead of
+        // skipping, so line prompts never start an action by themselves.
+        Ok(false)
     }
 
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {

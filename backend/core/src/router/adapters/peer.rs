@@ -52,15 +52,15 @@ const EVENT_BUFFER: usize = 8;
 /// node sharing its process through that node's own exact-target admission.
 #[derive(Clone)]
 pub(crate) struct PeerInferenceClient {
-    /// Channels to other nodes; absent on a manager without a private listener.
-    channels: Option<WorkerChannels>,
+    /// Channels to other nodes.
+    channels: WorkerChannels,
 
     /// Exact-target admission of the node sharing the manager process.
     local: Arc<ExactTargetAdmission>,
 }
 
 impl PeerInferenceClient {
-    pub(crate) fn new(channels: Option<WorkerChannels>, local: ExactTargetAdmission) -> Self {
+    pub(crate) fn new(channels: WorkerChannels, local: ExactTargetAdmission) -> Self {
         Self {
             channels,
             local: Arc::new(local),
@@ -79,14 +79,9 @@ pub(crate) async fn invoke(
         NodeTransport::InProcess => {
             invoke_in_process(&client.local, &target, request, cancellation).await
         }
-        NodeTransport::Remote { address } => match &client.channels {
-            Some(channels) => invoke_remote(channels, address, target, request, cancellation).await,
-            None => refused(
-                &target,
-                "private_transport_unconfigured",
-                anyhow::anyhow!("the manager has no private listener to reach other nodes"),
-            ),
-        },
+        NodeTransport::Remote { address } => {
+            invoke_remote(&client.channels, address, target, request, cancellation).await
+        }
     }
 }
 
@@ -725,7 +720,10 @@ mod tests {
     #[tokio::test]
     async fn the_manager_node_target_is_invoked_in_process_without_a_private_transport() {
         let node = Fixture::serving(Script::Complete);
-        let client = PeerInferenceClient::new(None, node.admission());
+        let client = PeerInferenceClient::new(
+            WorkerChannels::trusting_no_worker(Timing::test().private),
+            node.admission(),
+        );
         let target = in_process_target(&node.binding_token);
 
         let attempt = timeout(
@@ -750,7 +748,10 @@ mod tests {
     #[tokio::test]
     async fn an_in_process_refusal_is_safe_to_fall_back_without_engine_work() {
         let node = Fixture::serving(Script::Complete);
-        let client = PeerInferenceClient::new(None, node.admission());
+        let client = PeerInferenceClient::new(
+            WorkerChannels::trusting_no_worker(Timing::test().private),
+            node.admission(),
+        );
 
         let attempt = invoke(
             &client,
@@ -761,41 +762,6 @@ mod tests {
         .await;
 
         assert_refused_before_dispatch(attempt, "node rejected the exact target before dispatch");
-        assert!(node.invoker.requests().is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_remote_target_without_a_private_transport_is_refused_before_dispatch() {
-        let node = Fixture::serving(Script::Complete);
-        let client = PeerInferenceClient::new(None, node.admission());
-        let mut target = in_process_target(&node.binding_token);
-        target = NodeServingTarget::new(
-            target.deployment_id.clone(),
-            target.lifecycle_generation,
-            target.site_node_id.clone(),
-            target.model_id.clone(),
-            None,
-            std::collections::BTreeSet::from([InferenceRequestKind::Chat]),
-            NodeDispatch {
-                transport: NodeTransport::Remote {
-                    address: "127.0.0.2:47123".parse().expect("worker address"),
-                },
-                ..target.dispatch().clone()
-            },
-        );
-
-        let attempt = invoke(
-            &client,
-            target,
-            InferenceRequest::Chat(canonical_request()),
-            uncancelled(),
-        )
-        .await;
-
-        assert_refused_before_dispatch(
-            attempt,
-            "the manager has no private listener to reach other nodes",
-        );
         assert!(node.invoker.requests().is_empty());
     }
 
@@ -876,7 +842,7 @@ mod tests {
     async fn a_manager_certificate_the_worker_does_not_pin_is_refused_before_dispatch() {
         let peer = PeerFixture::start(Script::Complete).await;
         let unpinned_manager = PeerInferenceClient::new(
-            Some(WorkerChannels::new(
+            WorkerChannels::new(
                 &peer.authority.private_configuration(
                     SITE_ID,
                     MANAGER_NODE_ID,
@@ -889,7 +855,7 @@ mod tests {
                     )],
                 ),
                 Timing::test().private,
-            )),
+            ),
             Fixture::installed(Script::Complete).admission(),
         );
 
@@ -1159,8 +1125,6 @@ mod tests {
         assert_eq!(
             peer.client
                 .channels
-                .as_ref()
-                .expect("private transport")
                 .channel_addresses(WorkerChannelPurpose::Inference),
             [(WORKER_NODE_ID.to_owned(), second.address.into())]
         );
@@ -1213,21 +1177,23 @@ mod tests {
             let (manager_certificate, manager_key) =
                 authority.issue(SITE_ID, MANAGER_NODE_ID, false);
             let server = crate::server::private::prepare(
-                authority.private_configuration(
-                    SITE_ID,
-                    WORKER_NODE_ID,
-                    PrivateNodeRole::Worker,
-                    (worker_certificate.clone(), worker_key),
-                    [(
-                        MANAGER_NODE_ID,
-                        PrivateNodeRole::Manager,
-                        manager_certificate.as_slice(),
-                    )],
+                crate::server::private::PrivateListener::new(
+                    authority.private_configuration(
+                        SITE_ID,
+                        WORKER_NODE_ID,
+                        PrivateNodeRole::Worker,
+                        (worker_certificate.clone(), worker_key),
+                        [(
+                            MANAGER_NODE_ID,
+                            PrivateNodeRole::Manager,
+                            manager_certificate.as_slice(),
+                        )],
+                    ),
+                    worker
+                        .private_services()
+                        .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
+                    &Timing::test(),
                 ),
-                worker
-                    .private_services()
-                    .assemble(PrivateNodeRole::Worker, WORKER_NODE_ID),
-                Timing::test().private,
                 std::future::pending(),
             )
             .await
@@ -1252,7 +1218,7 @@ mod tests {
                     },
                 ),
                 client: PeerInferenceClient::new(
-                    Some(WorkerChannels::new(
+                    WorkerChannels::new(
                         &authority.private_configuration(
                             SITE_ID,
                             MANAGER_NODE_ID,
@@ -1265,7 +1231,7 @@ mod tests {
                             )],
                         ),
                         Timing::test().private,
-                    )),
+                    ),
                     Fixture::installed(Script::Complete).admission(),
                 ),
                 worker,
@@ -1280,7 +1246,7 @@ mod tests {
         /// A manager client that pins `worker_certificate` as the worker's exact certificate.
         fn client_pinning(&self, worker_certificate: &[u8]) -> PeerInferenceClient {
             PeerInferenceClient::new(
-                Some(WorkerChannels::new(
+                WorkerChannels::new(
                     &self.authority.private_configuration(
                         SITE_ID,
                         MANAGER_NODE_ID,
@@ -1289,7 +1255,7 @@ mod tests {
                         [(WORKER_NODE_ID, PrivateNodeRole::Worker, worker_certificate)],
                     ),
                     Timing::test().private,
-                )),
+                ),
                 Fixture::installed(Script::Complete).admission(),
             )
         }

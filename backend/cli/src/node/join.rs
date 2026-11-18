@@ -3,14 +3,19 @@
 //!
 //! The command probes this machine, proposes a name, address, and runtime capabilities, and
 //! asks the operator to confirm before anything is sent. The node's private key is created
-//! here and never leaves; the finished node folder is what `dotcore` runs. A node whose
+//! here and never leaves; the finished node folder is what `dotcore` runs, and on a terminal the
+//! command then starts it, after a countdown the operator can skip. A node whose
 //! intact folder of the same site already exists joins again instead, with no probe or prompt,
 //! keeping its key, identity, and deployments and changing only its addresses.
 
 use std::{
     collections::BTreeSet,
-    os::unix::fs::PermissionsExt,
+    ffi::OsString,
+    fmt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     path::{Path, PathBuf},
+    process::Command,
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -33,10 +38,15 @@ use dotcore_site::{
         JoinConnection, JoinProposal, JoinToken, JoinedNodeFolder, NodeJoinError, NodeKey,
         RejoinProposal, RejoiningNodeFolder,
     },
-    node::{folder::WORKER_MANIFEST_FILE, hostname::local_node_name},
+    node::{
+        folder::{CertificateFingerprint, WORKER_MANIFEST_FILE},
+        hostname::local_node_name,
+    },
 };
 
-use super::{Notices, boxed, lend, record_value, write_records};
+use super::{
+    Notices, boxed, fingerprint_facts, fingerprint_grid, lend, record_value, write_records,
+};
 use crate::{
     RootPathArgs,
     failure::shell_word,
@@ -44,19 +54,23 @@ use crate::{
         CapabilityRecommendations, InferencePick, collect_applications, collect_inference,
         in_dev_env,
     },
+    paths::find_executable,
     site::{
         ApplicationsChoice, InferenceArgument, InferenceChoice, NativeWorkloadLifetimeChoice,
         inference_long_help, loopback_host_warning, parse_absolute_path, parse_display_name,
         parse_host, parse_inference, system_initial_site_prober,
     },
     terminal::{
-        ConfirmPrompt, InputPrompt, Message, NextStep, Terminal, TerminalCondition,
-        controlling_terminal_condition, open_terminal,
+        ConfirmPrompt, CountdownPrompt, InputPrompt, Message, NextStep, Terminal,
+        TerminalCondition, controlling_terminal_condition, open_terminal,
     },
 };
 
 /// Shown after the proposal is sent, while the manager operator decides.
 const APPROVAL_NOTICE: &str = "Waiting for approval on the manager...";
+
+/// The launcher that starts a joined node, as found on the search path and shown to the operator.
+const LAUNCHER: &str = "dotcore";
 
 /// Hint shown when the manager cannot be reached at the address tried.
 const MANAGER_HOST_HINT: &str =
@@ -177,20 +191,41 @@ pub(crate) async fn node_join(paths: &RootPathArgs, arguments: NodeJoinArgs) -> 
     };
     let prober = system_initial_site_prober();
     let timing = Timing::for_process().join;
-    join_site(paths, arguments, boxed(&mut terminal), &prober, timing).await
+    let launcher = find_executable(LAUNCHER);
+    let start = join_site(
+        paths,
+        arguments,
+        boxed(&mut terminal),
+        &prober,
+        timing,
+        launcher.as_deref(),
+    )
+    .await?;
+
+    // The terminal is restored before the node takes it over.
+    drop(terminal);
+    match start {
+        Some(start) => Err(start.exec()),
+        None => Ok(()),
+    }
 }
 
 /// Joins as a new node, or joins again when `--site-dir` holds the intact folder of a node of the
-/// token's site, within the real-time bounds of `timing`.
+/// token's site, within the real-time bounds of `timing`. On a terminal, it then offers to start
+/// the node with `launcher` and returns the start the operator let go ahead.
 async fn join_site(
     paths: &RootPathArgs,
     arguments: NodeJoinArgs,
     mut terminal: Option<&mut dyn Terminal>,
     prober: &InitialSiteProber,
     timing: JoinTiming,
-) -> anyhow::Result<()> {
+    launcher: Option<&Path>,
+) -> anyhow::Result<Option<NodeStart>> {
     let site_dir = paths.site_dir()?;
-    let explicit_folder = paths.command_line_site_dir().is_some();
+    let command = StartCommand::new(
+        paths.command_line_site_dir(),
+        paths.command_line_cache_dir(),
+    );
     anyhow::ensure!(
         std::fs::symlink_metadata(&site_dir).is_err() || holds_node_folder(&site_dir),
         "{} already exists; a joined node needs a new directory, pass --site-dir with a path that does not exist",
@@ -200,25 +235,39 @@ async fn join_site(
     let token = read_token(&arguments, lend(&mut terminal))?;
     if std::fs::symlink_metadata(&site_dir).is_ok() {
         let folder = open_rejoining_folder(&site_dir, &token, arguments.name.as_deref())?;
-        return rejoin_site(arguments, token, folder, explicit_folder, terminal, timing).await;
+        rejoin_site(
+            arguments,
+            token,
+            folder,
+            &command,
+            lend(&mut terminal),
+            timing,
+        )
+        .await?;
+    } else {
+        join_new_site(
+            arguments,
+            token,
+            site_dir,
+            &command,
+            lend(&mut terminal),
+            prober,
+            timing,
+        )
+        .await?;
     }
-    join_new_site(
-        arguments,
-        token,
-        site_dir,
-        explicit_folder,
-        terminal,
-        prober,
-        timing,
-    )
-    .await
+
+    match terminal {
+        Some(terminal) => offer_start(terminal, command, launcher, timing.start_countdown),
+        None => Ok(None),
+    }
 }
 
 async fn join_new_site(
     arguments: NodeJoinArgs,
     token: JoinToken,
     site_dir: PathBuf,
-    explicit_folder: bool,
+    command: &StartCommand,
     mut terminal: Option<&mut dyn Terminal>,
     prober: &InitialSiteProber,
     timing: JoinTiming,
@@ -244,6 +293,7 @@ async fn join_new_site(
         anyhow::bail!("join cancelled; nothing was sent");
     }
     if let Some(terminal) = lend(&mut terminal) {
+        show_fingerprint(terminal, &proposal.display_name, &key.fingerprint())?;
         terminal.message(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
     }
 
@@ -260,9 +310,8 @@ async fn join_new_site(
         }
     };
 
-    let command = start_command(&site_dir, explicit_folder);
     warn_about_addresses(&folder, &connection, lend(&mut terminal)).await?;
-    if let Some(records) = report_joined(lend(&mut terminal), &proposal, &folder, &command)? {
+    if let Some(records) = report_joined(lend(&mut terminal), &proposal, &folder, command)? {
         write_records(&records)?;
     }
     Ok(())
@@ -274,7 +323,7 @@ async fn rejoin_site(
     arguments: NodeJoinArgs,
     token: JoinToken,
     folder: RejoiningNodeFolder,
-    explicit_folder: bool,
+    command: &StartCommand,
     mut terminal: Option<&mut dyn Terminal>,
     timing: JoinTiming,
 ) -> anyhow::Result<()> {
@@ -295,6 +344,9 @@ async fn rejoin_site(
             "Joining again from {}",
             folder.root().display()
         )))?;
+        // The folder holds no display name; the manager shows the one the site declares.
+        let name = arguments.name.as_deref().unwrap_or("this node");
+        show_fingerprint(terminal, name, &folder.fingerprint())?;
         terminal.message(&Message::Info(APPROVAL_NOTICE.to_owned()))?;
     }
     let joined = connection
@@ -303,9 +355,8 @@ async fn rejoin_site(
         .map_err(join_failure)?;
     drop(folder);
 
-    let command = start_command(&joined.root, explicit_folder);
     warn_about_addresses(&joined, &connection, lend(&mut terminal)).await?;
-    if let Some(records) = report_rejoined(lend(&mut terminal), &joined, &command)? {
+    if let Some(records) = report_rejoined(lend(&mut terminal), &joined, command)? {
         write_records(&records)?;
     }
     Ok(())
@@ -393,13 +444,13 @@ async fn warn_about_addresses(
     Ok(())
 }
 
-/// Reports the installed node folder, on the terminal when interactive, else as records.
-/// Returns the records to write when there is no terminal.
+/// Reports the installed node folder, on the terminal when interactive, else as records with the
+/// command that starts it. Returns the records to write when there is no terminal.
 fn report_joined(
     terminal: Option<&mut dyn Terminal>,
     proposal: &JoinProposal,
     folder: &JoinedNodeFolder,
-    command: &str,
+    command: &StartCommand,
 ) -> anyhow::Result<Option<String>> {
     let Some(terminal) = terminal else {
         return Ok(Some(format!(
@@ -409,25 +460,22 @@ fn report_joined(
             record_value(&proposal.display_name)?,
             folder.host,
             folder.private_bind_address,
-            record_value(command)?,
+            record_value(&command.to_string())?,
         )));
     };
     terminal.message(&Message::Success(format!(
         "Joined {} as {} at {}",
         folder.site_id, proposal.display_name, folder.host
     )))?;
-    terminal.message(&Message::Next(vec![
-        NextStep::new("Start the node:").with_command(command),
-    ]))?;
     Ok(None)
 }
 
-/// Reports the rewritten node folder, on the terminal when interactive, else as records.
-/// Returns the records to write when there is no terminal.
+/// Reports the rewritten node folder, on the terminal when interactive, else as records with the
+/// command that starts it. Returns the records to write when there is no terminal.
 fn report_rejoined(
     terminal: Option<&mut dyn Terminal>,
     folder: &JoinedNodeFolder,
-    command: &str,
+    command: &StartCommand,
 ) -> anyhow::Result<Option<String>> {
     let Some(terminal) = terminal else {
         return Ok(Some(format!(
@@ -437,16 +485,35 @@ fn report_rejoined(
             record_value(&folder.display_name)?,
             folder.host,
             folder.private_bind_address,
-            record_value(command)?,
+            record_value(&command.to_string())?,
         )));
     };
     terminal.message(&Message::Success(format!(
         "Rejoined {} at {}",
         folder.display_name, folder.host
     )))?;
+    Ok(None)
+}
+
+/// Starts the joined node with `launcher` once a countdown of `countdown` runs out, unless the
+/// operator skips it; without a launcher, or after a skip, shows the command that starts it.
+/// Returns the start to carry out.
+fn offer_start(
+    terminal: &mut dyn Terminal,
+    command: StartCommand,
+    launcher: Option<&Path>,
+    countdown: Duration,
+) -> anyhow::Result<Option<NodeStart>> {
+    if let Some(launcher) = launcher
+        && terminal.countdown(&CountdownPrompt::new("Start the node", countdown))?
+    {
+        return Ok(Some(NodeStart {
+            launcher: launcher.to_owned(),
+            command,
+        }));
+    }
     terminal.message(&Message::Next(vec![
-        NextStep::new("Start the manager on its machine"),
-        NextStep::new("Start the node here:").with_command(command),
+        NextStep::new("Start the node:").with_command(command.to_string()),
     ]))?;
     Ok(None)
 }
@@ -664,11 +731,8 @@ fn confirm_proposal(
         ("models".to_owned(), proposal.inference_summary()),
         ("applications".to_owned(), proposal.applications_summary()),
         ("node folder".to_owned(), site_dir.display().to_string()),
-        (
-            "key fingerprint".to_owned(),
-            key.fingerprint().as_str().to_owned(),
-        ),
     ];
+    facts.extend(fingerprint_facts(&key.fingerprint()));
     if proposal.private_port != DEFAULT_PRIVATE_PORT {
         facts.insert(
             2,
@@ -681,6 +745,21 @@ fn confirm_proposal(
         "Send this proposal to the manager?",
         true,
     ))?)
+}
+
+/// Asks the operator to match this machine's key fingerprint and its pattern with the ones shown
+/// where the node named `name` is approved.
+fn show_fingerprint(
+    terminal: &mut dyn Terminal,
+    name: &str,
+    fingerprint: &CertificateFingerprint,
+) -> anyhow::Result<()> {
+    terminal.message(&Message::Info(format!(
+        "Confirm this fingerprint where you approve {name}:"
+    )))?;
+    terminal.message(&fingerprint_grid(fingerprint))?;
+    terminal.message(&Message::KeyValues(fingerprint_facts(fingerprint).to_vec()))?;
+    Ok(())
 }
 
 /// Adds the command the operator should run next to a join failure.
@@ -726,14 +805,56 @@ fn replaced_node_hint(name: &str) -> String {
     )
 }
 
-/// Returns the command that starts the joined node from its folder: the plain command when the
-/// folder was not given with `--site-dir` (the default one, or the environment's), else with
-/// `--site-dir`.
-fn start_command(site_dir: &Path, explicit_folder: bool) -> String {
-    if explicit_folder {
-        format!("dotcore --site-dir {}", site_dir.display())
-    } else {
-        "dotcore".to_owned()
+/// The launcher arguments that start a joined node from its folder: `--site-dir` and
+/// `--cache-dir` for the folders typed on the command line, since folders from the environment
+/// reach the launcher through it. It shows as the command an operator would type.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct StartCommand {
+    arguments: Vec<OsString>,
+}
+
+impl StartCommand {
+    fn new(site_dir: Option<&Path>, cache_dir: Option<&Path>) -> Self {
+        let mut arguments = Vec::new();
+        for (flag, folder) in [("--site-dir", site_dir), ("--cache-dir", cache_dir)] {
+            if let Some(folder) = folder {
+                arguments.extend([OsString::from(flag), folder.as_os_str().to_owned()]);
+            }
+        }
+        Self { arguments }
+    }
+}
+
+impl fmt::Display for StartCommand {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(LAUNCHER)?;
+        for argument in &self.arguments {
+            write!(formatter, " {}", shell_word(&argument.to_string_lossy()))?;
+        }
+        Ok(())
+    }
+}
+
+/// A joined node to start: the launcher found on the search path, run with the start command's
+/// arguments in place of this process.
+#[derive(Debug)]
+struct NodeStart {
+    launcher: PathBuf,
+    command: StartCommand,
+}
+
+impl NodeStart {
+    /// Replaces this process with the launcher, so the node keeps its terminal and Ctrl-C stops
+    /// it. Returns only when the launcher could not run, with the command to start it by hand.
+    fn exec(self) -> anyhow::Error {
+        let error = Command::new(&self.launcher)
+            .args(&self.command.arguments)
+            .exec();
+        anyhow::Error::new(error).context(format!(
+            "cannot start the node with {}; start it with: {}",
+            self.launcher.display(),
+            self.command
+        ))
     }
 }
 
@@ -758,7 +879,7 @@ mod tests {
     use dotcore_site::initial::inputs::{ApplicationTargetChoice, ModelTargetChoice};
 
     use super::*;
-    use crate::terminal::{ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
+    use crate::terminal::{GridColor, ScriptedAnswer, ScriptedPrompt, ScriptedTerminal};
 
     #[test]
     fn the_token_is_asked_for_hidden_and_asked_again_when_malformed() {
@@ -893,51 +1014,42 @@ mod tests {
     }
 
     #[test]
-    fn an_interactive_join_report_shows_the_start_command_once_and_writes_no_records() {
+    fn an_interactive_join_report_announces_the_node_and_writes_no_records() {
         let mut terminal = ScriptedTerminal::interactive([]);
 
         let records = report_joined(
             Some(&mut terminal),
             &proposal(),
             &joined_folder(),
-            "dotcore",
+            &StartCommand::new(None, None),
         )
         .expect("report");
 
         assert_eq!(records, None);
-        assert_eq!(
-            terminal.lines(),
-            [
-                "✔ Joined site-1 as gpu-box at 10.0.0.7",
-                "Next",
-                "  › Start the node:",
-                "      dotcore",
-            ]
-        );
+        assert_eq!(terminal.lines(), ["✔ Joined site-1 as gpu-box at 10.0.0.7"]);
     }
 
     #[test]
-    fn a_rejoin_report_names_the_node_and_both_start_steps() {
+    fn a_rejoin_report_names_the_node_or_records_its_start_command() {
         let mut terminal = ScriptedTerminal::interactive([]);
 
-        let records =
-            report_rejoined(Some(&mut terminal), &joined_folder(), "dotcore").expect("report");
+        let records = report_rejoined(
+            Some(&mut terminal),
+            &joined_folder(),
+            &StartCommand::new(None, None),
+        )
+        .expect("report");
 
         assert_eq!(records, None);
+        assert_eq!(terminal.lines(), ["✔ Rejoined gpu-box at 10.0.0.7"]);
         assert_eq!(
-            terminal.lines(),
-            [
-                "✔ Rejoined gpu-box at 10.0.0.7",
-                "Next",
-                "  › Start the manager on its machine",
-                "  › Start the node here:",
-                "      dotcore",
-            ]
-        );
-        assert_eq!(
-            report_rejoined(None, &joined_folder(), "dotcore --site-dir /srv/node")
-                .expect("records")
-                .as_deref(),
+            report_rejoined(
+                None,
+                &joined_folder(),
+                &StartCommand::new(Some(Path::new("/srv/node")), None)
+            )
+            .expect("records")
+            .as_deref(),
             Some(
                 "Node rejoined\nDOTCORE_SITE_ID=site-1\nDOTCORE_NODE_ID=node-7\nDOTCORE_NODE_NAME=gpu-box\nDOTCORE_NODE_HOST=10.0.0.7\nDOTCORE_PRIVATE_ADDR=10.0.0.7:50053\nDOTCORE_START_COMMAND=dotcore --site-dir /srv/node\n"
             )
@@ -963,7 +1075,7 @@ mod tests {
             None,
             &proposal(),
             &joined_folder(),
-            "dotcore --site-dir /srv/node",
+            &StartCommand::new(Some(Path::new("/srv/node")), None),
         )
         .expect("report");
 
@@ -1198,6 +1310,7 @@ mod tests {
 
         let sent = confirm_proposal(&proposal, &key, Path::new("/srv/node"), &mut terminal)
             .expect("confirmation");
+        let grouped = key.fingerprint().grouped_lines();
 
         assert!(!sent);
         assert_eq!(
@@ -1210,8 +1323,52 @@ mod tests {
                     .to_owned(),
                 "  applications     docker (linux/arm64)".to_owned(),
                 "  node folder      /srv/node".to_owned(),
-                format!("  key fingerprint  {}", key.fingerprint().as_str()),
+                format!("  key fingerprint  {}", grouped[0]),
+                format!("                   {}", grouped[1]),
             ]
+        );
+    }
+
+    #[test]
+    fn the_sent_proposal_asks_to_match_the_fingerprint_and_its_pattern() {
+        let fingerprint = CertificateFingerprint::parse(
+            "87524a4a3c1f9e0b5d26e8f1a7c4093b6e2d51f8c0a97b34e1d6f2085ab9c7e3",
+        )
+        .expect("fingerprint");
+        let mut terminal = ScriptedTerminal::interactive([]);
+
+        show_fingerprint(&mut terminal, "gpu-box", &fingerprint).expect("fingerprint shown");
+
+        assert_eq!(
+            terminal.lines(),
+            [
+                "Confirm this fingerprint where you approve gpu-box:",
+                "  ████    ▓▓▓▓    ████",
+                "  ████    ▓▓▓▓    ████",
+                "  ▓▓▓▓    ░░░░    ▓▓▓▓",
+                "  ▓▓▓▓    ░░░░    ▓▓▓▓",
+                "  ░░░░            ░░░░",
+                "  ░░░░            ░░░░",
+                "  ████░░░░░░░░░░░░████",
+                "  ████░░░░░░░░░░░░████",
+                "  ▓▓▓▓████░░░░████▓▓▓▓",
+                "  ▓▓▓▓████░░░░████▓▓▓▓",
+                "  key fingerprint  8752 4a4a 3c1f 9e0b 5d26 e8f1 a7c4 093b",
+                "                   6e2d 51f8 c0a9 7b34 e1d6 f208 5ab9 c7e3",
+            ]
+        );
+        assert_eq!(
+            terminal.messages()[1],
+            Message::ColorGrid {
+                colors: vec![GridColor::Blue, GridColor::Yellow, GridColor::Magenta],
+                rows: vec![
+                    vec![Some(0), None, Some(1), None, Some(0)],
+                    vec![Some(1), None, Some(2), None, Some(1)],
+                    vec![Some(2), None, None, None, Some(2)],
+                    vec![Some(0), Some(2), Some(2), Some(2), Some(0)],
+                    vec![Some(1), Some(0), Some(2), Some(0), Some(1)],
+                ],
+            }
         );
     }
 
@@ -1224,15 +1381,88 @@ mod tests {
     }
 
     #[test]
-    fn the_start_command_names_the_folder_only_when_it_is_not_the_default() {
+    fn the_start_command_passes_only_the_folders_given_and_quotes_them_for_display() {
+        assert_eq!(StartCommand::new(None, None).to_string(), "dotcore");
         assert_eq!(
-            start_command(Path::new("/home/x/.local/state/dotcore"), false),
-            "dotcore"
-        );
-        assert_eq!(
-            start_command(Path::new("/srv/node"), true),
+            StartCommand::new(Some(Path::new("/srv/node")), None).to_string(),
             "dotcore --site-dir /srv/node"
         );
+
+        let command = StartCommand::new(
+            Some(Path::new("/srv/my node")),
+            Some(Path::new("/var/cache/dotcore")),
+        );
+        assert_eq!(
+            command.to_string(),
+            "dotcore --site-dir '/srv/my node' --cache-dir /var/cache/dotcore"
+        );
+        assert_eq!(
+            command.arguments,
+            [
+                "--site-dir",
+                "/srv/my node",
+                "--cache-dir",
+                "/var/cache/dotcore"
+            ]
+            .map(OsString::from)
+        );
+    }
+
+    #[test]
+    fn the_node_starts_with_the_launcher_once_the_countdown_runs_out() {
+        let mut terminal = ScriptedTerminal::interactive([ScriptedAnswer::Countdown(true)]);
+        let command = StartCommand::new(Some(Path::new("/srv/node")), None);
+
+        let start = offer_start(
+            &mut terminal,
+            command.clone(),
+            Some(Path::new("/nix/store/x-dotcore/bin/dotcore")),
+            Duration::from_secs(5),
+        )
+        .expect("offer")
+        .expect("start");
+
+        assert_eq!(
+            start.launcher,
+            Path::new("/nix/store/x-dotcore/bin/dotcore")
+        );
+        assert_eq!(start.command, command);
+        assert_eq!(
+            terminal.prompts(),
+            [ScriptedPrompt::Countdown(CountdownPrompt::new(
+                "Start the node",
+                Duration::from_secs(5)
+            ))]
+        );
+        assert!(terminal.lines().is_empty());
+    }
+
+    #[test]
+    fn a_skipped_start_or_a_dotc_without_launcher_shows_the_start_command() {
+        let command = StartCommand::new(Some(Path::new("/srv/node")), None);
+        let hint = [
+            "Next",
+            "  › Start the node:",
+            "      dotcore --site-dir /srv/node",
+        ];
+
+        let mut skipped = ScriptedTerminal::interactive([ScriptedAnswer::Countdown(false)]);
+        let start = offer_start(
+            &mut skipped,
+            command.clone(),
+            Some(Path::new("/nix/store/x-dotcore/bin/dotcore")),
+            Duration::from_secs(5),
+        )
+        .expect("offer");
+        assert!(start.is_none());
+        assert_eq!(skipped.lines(), hint);
+
+        let mut without_launcher = ScriptedTerminal::interactive([]);
+        let start = offer_start(&mut without_launcher, command, None, Duration::from_secs(5))
+            .expect("offer");
+        assert!(start.is_none());
+        assert!(without_launcher.prompts().is_empty());
+        assert_eq!(without_launcher.lines(), hint);
     }
 
     fn proposal() -> JoinProposal {

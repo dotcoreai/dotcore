@@ -46,6 +46,8 @@ export interface Timing {
    * recommendations again, so a burst of changes reads once.
    */
   recommendationReadMs: number;
+  /** How often the add machine dialog's countdown to the join command's expiry redraws. */
+  joinCountdownTickMs: number;
 }
 
 /** The console's timing in production. */
@@ -62,6 +64,7 @@ export const productionTiming: Timing = Object.freeze({
   resourceWatchReopenMs: 100,
   profileCompatibilityRefreshMs: 5_000,
   recommendationReadMs: 300,
+  joinCountdownTickMs: 1_000,
 });
 
 /** The timing in effect. */

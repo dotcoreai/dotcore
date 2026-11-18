@@ -39,6 +39,14 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-console-subtle: var(--console-subtle);
+  --color-console-terminal: var(--console-terminal);
+  --color-console-terminal-foreground: var(--console-terminal-foreground);
+  --color-console-pattern-red: var(--console-pattern-red);
+  --color-console-pattern-green: var(--console-pattern-green);
+  --color-console-pattern-yellow: var(--console-pattern-yellow);
+  --color-console-pattern-blue: var(--console-pattern-blue);
+  --color-console-pattern-magenta: var(--console-pattern-magenta);
+  --color-console-pattern-cyan: var(--console-pattern-cyan);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -149,6 +157,17 @@
   /* No shadcn token owns the demo's --ink-3; kept scoped for de-emphasized card meta text. */
   --console-subtle: oklch(0.5092 0.0121 261.77); /* demo --ink-3 #62666d */
 
+  /* Terminal look of the join command pane and the fingerprint pattern: dark in both themes and
+     the same six color names the joining machine's terminal shows, so no theme token owns them. */
+  --console-terminal: oklch(0.2 0.01 264);
+  --console-terminal-foreground: oklch(0.93 0.01 250);
+  --console-pattern-red: #e06c75;
+  --console-pattern-green: #98c379;
+  --console-pattern-yellow: #e5c07b;
+  --console-pattern-blue: #61afef;
+  --console-pattern-magenta: #c678dd;
+  --console-pattern-cyan: #56b6c2;
+
   /* Categorical series colours, such as per-model memory segments; equal lightness keeps any one
      series from reading as more important than another. */
   --chart-1: oklch(0.58 0.14 262);
@@ -233,6 +252,17 @@
   --danger: oklch(0.3 0.045 17.5);
 
   --console-subtle: oklch(0.7607 0.0181 256.3); /* demo --ink-3, dark derivation */
+
+  /* Terminal look of the join command pane and the fingerprint pattern: dark in both themes and
+     the same six color names the joining machine's terminal shows, so no theme token owns them. */
+  --console-terminal: oklch(0.17 0.01 264);
+  --console-terminal-foreground: oklch(0.93 0.01 250);
+  --console-pattern-red: #e06c75;
+  --console-pattern-green: #98c379;
+  --console-pattern-yellow: #e5c07b;
+  --console-pattern-blue: #61afef;
+  --console-pattern-magenta: #c678dd;
+  --console-pattern-cyan: #56b6c2;
 
   --chart-1: oklch(0.75 0.12 262);
   --chart-2: oklch(0.78 0.11 180);

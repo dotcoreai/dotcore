@@ -19,11 +19,24 @@ import { contrastRatio } from "@/theme/color-contrast";
 const FRONTEND_ROOT = process.cwd();
 
 // Scoped `--console-*` custom properties with no shadcn-owned equivalent: the demo's `--ink-3`,
-// used for de-emphasized card meta text, and the density scale, which shadcn has no tokens for.
+// used for de-emphasized card meta text, the density scale, which shadcn has no tokens for, and the
+// fixed terminal look (backdrop, text and the six pattern colors) the add machine dialog shares
+// with the joining machine's terminal.
 // Every other console token maps onto its shadcn owner. A scoped token is allowed when it is
 // commented and mapped.
 const DENSITY_TOKENS = DENSITY_SIZE_NAMES.map((name) => `--console-${name}`);
-const RETAINED_CONSOLE_TOKENS = new Set(["--console-subtle", ...DENSITY_TOKENS]);
+const TERMINAL_TOKENS = [
+  "--console-terminal",
+  "--console-terminal-foreground",
+  ...["red", "green", "yellow", "blue", "magenta", "cyan"].map(
+    (color) => `--console-pattern-${color}`,
+  ),
+];
+const RETAINED_CONSOLE_TOKENS = new Set([
+  "--console-subtle",
+  ...DENSITY_TOKENS,
+  ...TERMINAL_TOKENS,
+]);
 
 // Density sizes that must reach the 44px touch floor on touch-primary devices. The compact steps
 // (xs, sm) grow modestly instead.

@@ -4,9 +4,14 @@
 //!
 //! A peer is bound by its exact pinned certificate and the SiteNode identity it claims, after its
 //! certificate chains to the site trust anchor; the dialed address is never checked. The listener
-//! that serves private services lives with the transport servers and uses this core at ingress.
+//! that serves private services lives with the transport servers and uses this core at ingress;
+//! connection acceptance, the live peer pins and the join gate it reads live here.
 
-use std::{collections::BTreeMap, net::SocketAddr, sync::Arc};
+mod connection;
+mod join_gate;
+mod peers;
+
+use std::{net::SocketAddr, sync::Arc};
 
 use base64::Engine as _;
 use rustls::{
@@ -22,6 +27,14 @@ use rustls::{
 use tonic::{Request, Status};
 use x509_parser::{extensions::GeneralName, prelude::FromDer};
 
+pub use self::{
+    connection::{
+        DEFAULT_MAX_UNPINNED_CONNECTIONS, PrivateConnectionInfo, PrivateConnectionIo,
+        PrivateConnections, RequestInProgress, UnpinnedConnectionLimits,
+    },
+    join_gate::{JoinGate, OpenJoinGate},
+    peers::PeerPins,
+};
 use crate::node::folder::{CertificateFingerprint, certificate_identity_uri};
 
 /// Stable authenticated caller information made available to private component services.
@@ -115,7 +128,7 @@ pub struct PrivateServerConfiguration {
     pub certificate_der: Vec<u8>,
     pub private_key_pkcs8: Vec<u8>,
     pub trust_anchor_der: Vec<u8>,
-    pub peers: BTreeMap<String, PrivatePeerPolicy>,
+    pub peers: PeerPins,
 }
 
 impl std::fmt::Debug for PrivateServerConfiguration {

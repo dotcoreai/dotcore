@@ -1,28 +1,29 @@
-//! Serves the mutually authenticated inter-node boundary on its own listener.
-//! Native TLS establishes site trust, while request ingress pins the complete peer leaf and binds its
-//! exact SiteNode identity before any private component service receives a request. The identity
-//! core it authenticates with (roles, caller identities, peer policy and outbound verification) is
-//! owned by the site's private transport.
+//! Serves the authenticated inter-node boundary on its own listener.
+//!
+//! TLS establishes site trust, and request ingress checks the peer's complete leaf against the
+//! live pins and binds its exact SiteNode identity before any private service receives a request.
+//! The one exception is the join service: while a join is active, a machine with no site
+//! certificate yet may call it, and nothing else. The site's private transport owns the identity
+//! core, the pins and connection acceptance this listener uses.
 
-use std::{collections::BTreeMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{
+    future::Future,
+    net::SocketAddr,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
-use dotcore_domain::timing::PrivateTiming;
-use dotcore_site::{
-    node::folder::CertificateFingerprint,
-    private_transport::{
-        AuthenticatedMachineIdentity, PrivateNodeRole, PrivatePeerPolicy,
-        PrivateServerConfiguration, PrivateServiceContext, authentication_failure,
-        exact_node_identity, pem,
-    },
+use dotcore_domain::timing::{PrivateTiming, Timing};
+use dotcore_proto::dotcore::node::v1::node_join_service_server;
+use dotcore_site::private_transport::{
+    DEFAULT_MAX_UNPINNED_CONNECTIONS, JoinGate, PeerPins, PrivateConnectionInfo,
+    PrivateConnections, PrivateNodeRole, PrivateServerConfiguration, PrivateServiceContext,
+    UnpinnedConnectionLimits, authentication_failure,
 };
-use tonic::{
-    Request, Status,
-    service::InterceptorLayer,
-    transport::{
-        Certificate, Identity, ServerTlsConfig,
-        server::{TcpConnectInfo, TlsConnectInfo},
-    },
-};
+use futures_util::future::{self, Either, Ready};
+use tonic::Status;
+use tower::{Layer, Service};
 
 type PrivateServiceAssembler =
     dyn FnOnce(PrivateServiceContext, &mut tonic::service::RoutesBuilder) + Send;
@@ -81,54 +82,69 @@ impl PreparedPrivateServer {
     }
 }
 
-/// What a server's private listener serves: its mTLS identity, its routes, and the timing of
-/// its connections.
+/// What a server's private listener serves: its mTLS identity, its routes, the timing of its
+/// connections, and what it admits from connections without a pinned certificate.
 pub(crate) struct PrivateListener {
     pub(crate) configuration: PrivateServerConfiguration,
     pub(crate) routes: tonic::service::Routes,
     pub(crate) timing: PrivateTiming,
+    pub(crate) unpinned: UnpinnedConnectionLimits,
+    pub(crate) join_gate: JoinGate,
 }
 
-/// Binds and prepares a native-tonic mTLS listener with exact ingress authentication. It pings
-/// every connection at the keepalive interval of `timing`, so a long-lived stream from a peer
-/// that vanished without closing its connection ends.
+impl PrivateListener {
+    /// Describes a listener with no join active and the default bounds on connections without a
+    /// pinned certificate.
+    pub(crate) fn new(
+        configuration: PrivateServerConfiguration,
+        routes: tonic::service::Routes,
+        timing: &Timing,
+    ) -> Self {
+        Self {
+            configuration,
+            routes,
+            timing: timing.private,
+            unpinned: UnpinnedConnectionLimits {
+                max_open: DEFAULT_MAX_UNPINNED_CONNECTIONS,
+                idle_timeout: timing.join.idle_timeout,
+            },
+            join_gate: JoinGate::default(),
+        }
+    }
+}
+
+/// Binds and prepares the private listener with exact ingress authentication. It pings every
+/// connection at the keepalive interval of its timing, so a long-lived stream from a peer that
+/// vanished without closing its connection ends.
 pub(crate) async fn prepare(
-    configuration: PrivateServerConfiguration,
-    routes: tonic::service::Routes,
-    timing: PrivateTiming,
+    listener: PrivateListener,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<PreparedPrivateServer, super::ServerError> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let listener = tokio::net::TcpListener::bind(configuration.bind_address)
+    let PrivateListener {
+        configuration,
+        routes,
+        timing,
+        unpinned,
+        join_gate,
+    } = listener;
+    let tcp = tokio::net::TcpListener::bind(configuration.bind_address)
         .await
         .map_err(|source| super::ListenerError::Private {
             address: configuration.bind_address,
             source,
         })?;
-    let address = listener
+    let address = tcp
         .local_addr()
         .map_err(super::ListenerError::PrivateAddress)?;
-    let tls = ServerTlsConfig::new()
-        .identity(Identity::from_pem(
-            pem("CERTIFICATE", &configuration.certificate_der),
-            pem("PRIVATE KEY", &configuration.private_key_pkcs8),
-        ))
-        .client_ca_root(Certificate::from_pem(pem(
-            "CERTIFICATE",
-            &configuration.trust_anchor_der,
-        )));
-    let ingress = PrivateIngress::new(&configuration);
-    // The server ignores its own TCP options for a supplied listener, so the sockets set no delay
-    // here and small responses aren't held for the peer's acknowledgment.
-    let incoming = tonic::transport::server::TcpIncoming::from(listener).with_nodelay(Some(true));
+    let connections =
+        PrivateConnections::new(&configuration, unpinned).map_err(super::ServerError::Private)?;
+    let ingress = PrivateIngress::new(&configuration, join_gate);
     let future = tonic::transport::Server::builder()
         .http2_keepalive_interval(Some(timing.keepalive_interval))
         .http2_keepalive_timeout(Some(timing.keepalive_timeout))
-        .tls_config(tls)
-        .map_err(|source| super::ServerError::Private(anyhow::Error::new(source)))?
-        .layer(InterceptorLayer::new(ingress))
+        .layer(ingress)
         .add_routes(routes)
-        .serve_with_incoming_shutdown(incoming, shutdown);
+        .serve_with_incoming_shutdown(connections.incoming(tcp), shutdown);
     Ok(PreparedPrivateServer {
         address,
         future: Box::pin(async move {
@@ -139,63 +155,120 @@ pub(crate) async fn prepare(
     })
 }
 
+/// Request ingress of the private listener: a request to the join service passes while a join
+/// is active, and every other request must come from a pinned site certificate, whose exact
+/// identity it then carries to the private services.
 #[derive(Clone)]
 struct PrivateIngress {
     site_id: Arc<str>,
-    peers: Arc<BTreeMap<String, PrivatePeerPolicy>>,
+    pins: PeerPins,
+    join_gate: JoinGate,
 }
 
 impl PrivateIngress {
-    fn new(configuration: &PrivateServerConfiguration) -> Self {
+    fn new(configuration: &PrivateServerConfiguration, join_gate: JoinGate) -> Self {
         Self {
             site_id: Arc::from(configuration.site_id.as_str()),
-            peers: Arc::new(configuration.peers.clone()),
+            pins: configuration.peers.clone(),
+            join_gate,
         }
     }
 
-    fn authenticate_leaf(
-        &self,
-        certificate_der: &[u8],
-    ) -> Result<AuthenticatedMachineIdentity, Status> {
-        let node_id = exact_node_identity(certificate_der, &self.site_id)
-            .ok_or_else(authentication_failure)?;
-        let policy = self
-            .peers
-            .get(&node_id)
-            .ok_or_else(authentication_failure)?;
-        if CertificateFingerprint::for_certificate(certificate_der) != policy.certificate_sha256 {
-            return Err(authentication_failure());
+    /// Admits one request, attaching the authenticated identity of a pinned peer. Every refusal
+    /// is the same authentication failure, so it reveals neither the pins nor whether a join is
+    /// active.
+    fn admit<B>(&self, request: &mut http::Request<B>) -> Result<(), Status> {
+        if is_join_request(request) {
+            return self
+                .join_gate
+                .is_open()
+                .then_some(())
+                .ok_or_else(authentication_failure);
         }
-        Ok(AuthenticatedMachineIdentity {
-            site_id: self.site_id.to_string(),
-            node_id,
-            role: policy.role,
-        })
+        let identity = request
+            .extensions()
+            .get::<PrivateConnectionInfo>()
+            .and_then(PrivateConnectionInfo::peer_certificate)
+            .and_then(|leaf| self.pins.authenticate(&self.site_id, leaf))
+            .ok_or_else(authentication_failure)?;
+        request.extensions_mut().insert(identity);
+        Ok(())
     }
 }
 
-impl tonic::service::Interceptor for PrivateIngress {
-    fn call(&mut self, mut request: Request<()>) -> Result<Request<()>, Status> {
-        let connect = request
-            .extensions()
-            .get::<TlsConnectInfo<TcpConnectInfo>>()
-            .ok_or_else(authentication_failure)?;
-        let certificates = connect.peer_certs().ok_or_else(authentication_failure)?;
-        let leaf = certificates.first().ok_or_else(authentication_failure)?;
-        request
-            .extensions_mut()
-            .insert(self.authenticate_leaf(leaf.as_ref())?);
-        Ok(request)
+impl<S> Layer<S> for PrivateIngress {
+    type Service = PrivateIngressService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        PrivateIngressService {
+            ingress: self.clone(),
+            inner,
+        }
     }
+}
+
+/// The private routes behind [`PrivateIngress`].
+#[derive(Clone)]
+struct PrivateIngressService<S> {
+    ingress: PrivateIngress,
+    inner: S,
+}
+
+impl<S, B> Service<http::Request<B>> for PrivateIngressService<S>
+where
+    S: Service<http::Request<B>, Response = http::Response<tonic::body::Body>>,
+{
+    type Response = S::Response;
+    type Error = S::Error;
+    type Future = Either<Ready<Result<Self::Response, Self::Error>>, S::Future>;
+
+    fn poll_ready(&mut self, context: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(context)
+    }
+
+    fn call(&mut self, mut request: http::Request<B>) -> Self::Future {
+        match self.ingress.admit(&mut request) {
+            Ok(()) => Either::Right(self.inner.call(request)),
+            Err(status) => Either::Left(future::ready(Ok(status.into_http()))),
+        }
+    }
+}
+
+/// Reports whether a request calls the join service, the one service a machine without a site
+/// certificate may reach.
+fn is_join_request<B>(request: &http::Request<B>) -> bool {
+    request
+        .uri()
+        .path()
+        .strip_prefix('/')
+        .and_then(|path| path.split_once('/'))
+        .is_some_and(|(service, _)| service == node_join_service_server::SERVICE_NAME)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, sync::Arc};
+    use std::{
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+    };
 
+    use dotcore_domain::timing::Timing;
+    use dotcore_proto::dotcore::{
+        node::v1::{
+            CommitRequest, CommitResponse, JoinRequest, JoinResponse,
+            node_join_service_client::NodeJoinServiceClient,
+            node_join_service_server::{NodeJoinService, NodeJoinServiceServer},
+        },
+        site::private::v1::node_control_service_client::NodeControlServiceClient,
+    };
     use dotcore_site::{
         node::folder::{CertificateFingerprint, certificate_identity_uri},
-        private_transport::PinnedPeerVerifier,
+        private_transport::{
+            JoinGate, PeerPins, PinnedPeerVerifier, PrivateConnectionInfo, PrivatePeerPolicy,
+            UnpinnedConnectionLimits, pem,
+        },
+        test_support::private_tls::TestAuthority as SiteAuthority,
+        worker_channels::{WorkerChannelError, WorkerChannelPurpose, WorkerChannels},
     };
     use rcgen::{
         BasicConstraints, CertificateParams, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
@@ -206,8 +279,180 @@ mod tests {
         pki_types::{CertificateDer, ServerName, UnixTime},
     };
     use time::{Duration, OffsetDateTime};
+    use tonic::{
+        Code, Request, Response, Status,
+        transport::{Channel, ClientTlsConfig, Endpoint, Identity},
+    };
 
-    use super::{PrivateIngress, PrivateNodeRole, PrivatePeerPolicy};
+    use super::{PrivateListener, PrivateNodeRole, prepare};
+
+    const SITE_ID: &str = "site-one";
+    const MANAGER_ID: &str = "manager-node";
+    const WORKER_ID: &str = "worker-one";
+
+    /// Deadline for an outcome that arrives at once on loopback.
+    const DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+    #[tokio::test]
+    async fn certificate_less_requests_reach_only_the_join_service_while_a_join_is_active() {
+        let site = TestSite::new();
+        let joins = FakeJoinHost::default();
+        let gate = JoinGate::default();
+        let manager = site
+            .serve_manager(PeerPins::default(), gate.clone(), Some(joins.clone()))
+            .await;
+        let channel = site.manager_client(manager, None).await;
+
+        let closed = join(&channel).await.expect_err("no join is active");
+        assert_authentication_failure(&closed);
+        assert_eq!(joins.connections(), Vec::<(u64, bool)>::new());
+
+        let open = gate.open();
+        join(&channel)
+            .await
+            .expect("an active join admits the request");
+        let control = node_control(&channel)
+            .await
+            .expect_err("node control needs a pinned certificate");
+        assert_authentication_failure(&control);
+        let connection = joins.connections();
+        assert_eq!(connection.len(), 1);
+        assert!(
+            !connection[0].1,
+            "the joining machine presented no certificate"
+        );
+
+        drop(open);
+        let ended = join(&channel).await.expect_err("the join ended");
+        assert_authentication_failure(&ended);
+        assert_eq!(joins.connections(), connection);
+    }
+
+    #[tokio::test]
+    async fn certificate_less_http2_clients_with_keepalive_are_idle_closed() {
+        let site = TestSite::new();
+        let joins = FakeJoinHost::default();
+        let gate = JoinGate::default();
+        let _open = gate.open();
+        let idle_timeout = std::time::Duration::from_millis(300);
+        let manager = site
+            .serve_manager_with(gate, joins.clone(), 1, idle_timeout)
+            .await;
+        // Pings far more often than the idle timeout keep bytes flowing both ways.
+        let channel = site
+            .client(manager, MANAGER_ID, &site.manager.0, None)
+            .http2_keep_alive_interval(idle_timeout / 6)
+            .keep_alive_while_idle(true)
+            .connect()
+            .await
+            .expect("manager channel");
+
+        join(&channel)
+            .await
+            .expect("an active join admits the request");
+        let [connection] = joins.infos().try_into().expect("one join connection");
+        tokio::time::timeout(DEADLINE, connection.closed())
+            .await
+            .expect("pings don't keep a connection without a join request open");
+    }
+
+    #[tokio::test]
+    async fn a_new_certificate_less_connection_replaces_one_that_presented_no_secret() {
+        let site = TestSite::new();
+        let joins = FakeJoinHost::default();
+        let gate = JoinGate::default();
+        let _open = gate.open();
+        let manager = site
+            .serve_manager_with(gate, joins.clone(), 1, DEADLINE * 6)
+            .await;
+        let held = site.manager_client(manager, None).await;
+        join(&held).await.expect("the first connection is served");
+        let [first] = joins.infos().try_into().expect("one join connection");
+
+        let joining = site.manager_client(manager, None).await;
+        join(&joining)
+            .await
+            .expect("a new connection is served at the limit");
+        tokio::time::timeout(DEADLINE, first.closed())
+            .await
+            .expect("the held connection gives way");
+        let infos = joins.infos();
+        assert_eq!(infos.len(), 2);
+        assert_ne!(infos[1].id(), first.id());
+    }
+
+    #[tokio::test]
+    async fn a_worker_listener_refuses_connections_without_a_certificate() {
+        let site = TestSite::new();
+        let worker = site.serve_worker().await;
+
+        let without = match site
+            .client(worker, WORKER_ID, &site.worker.0, None)
+            .connect()
+            .await
+        {
+            Ok(channel) => node_control(&channel).await.expect_err("no certificate"),
+            Err(error) => Status::unavailable(error.to_string()),
+        };
+        assert_ne!(without.code(), Code::Unauthenticated, "{without:?}");
+        assert_ne!(without.code(), Code::Unimplemented, "{without:?}");
+
+        let manager = site.identity(&site.manager);
+        let with = site
+            .client(worker, WORKER_ID, &site.worker.0, Some(&manager))
+            .connect()
+            .await
+            .expect("the manager connects");
+        let reached = node_control(&with)
+            .await
+            .expect_err("no node control service on the worker");
+        assert_eq!(reached.code(), Code::Unimplemented, "{reached:?}");
+    }
+
+    #[tokio::test]
+    async fn a_pin_added_at_runtime_authenticates_on_ingress_and_in_worker_channels() {
+        let site = TestSite::new();
+        let pins = PeerPins::default();
+        let manager = site
+            .serve_manager(pins.clone(), JoinGate::default(), None)
+            .await;
+        let worker = site.serve_worker().await;
+        let channels = WorkerChannels::new(
+            &site.manager_configuration(pins.clone()),
+            Timing::test().private,
+        );
+        let from_worker = site.manager_client(manager, Some(&site.worker)).await;
+
+        let refused = node_control(&from_worker)
+            .await
+            .expect_err("the worker is not pinned yet");
+        assert_authentication_failure(&refused);
+        assert!(matches!(
+            channels.channel(WORKER_ID, WorkerChannelPurpose::Inference, worker.into()),
+            Err(WorkerChannelError::MissingPin)
+        ));
+
+        pins.insert(
+            WORKER_ID,
+            PrivatePeerPolicy {
+                role: PrivateNodeRole::Worker,
+                certificate_sha256: CertificateFingerprint::for_certificate(&site.worker.0),
+            },
+        );
+
+        // Past ingress, the manager serves no node control here, so the request is unknown.
+        let admitted = node_control(&from_worker)
+            .await
+            .expect_err("no node control service");
+        assert_eq!(admitted.code(), Code::Unimplemented, "{admitted:?}");
+        let to_worker = channels
+            .channel(WORKER_ID, WorkerChannelPurpose::Inference, worker.into())
+            .expect("the new pin builds a worker channel");
+        let reached = node_control(&to_worker)
+            .await
+            .expect_err("no node control service on the worker");
+        assert_eq!(reached.code(), Code::Unimplemented, "{reached:?}");
+    }
 
     #[test]
     fn pinned_peer_is_verified_at_an_address_absent_from_its_certificate() {
@@ -250,43 +495,6 @@ mod tests {
                 verify_pinned(&authority, presented, expected_node, pinned, "10.0.0.7").is_err(),
                 "{label} must be rejected"
             );
-        }
-    }
-
-    #[test]
-    fn the_same_node_leaf_takes_its_role_from_exact_peer_policy() {
-        let mut parameters = CertificateParams::new(vec!["127.0.0.2".to_owned()])
-            .expect("node certificate parameters");
-        parameters.subject_alt_names.push(SanType::URI(
-            certificate_identity_uri("site-one", "node-one")
-                .expect("node claim")
-                .try_into()
-                .expect("node claim IA5"),
-        ));
-        let leaf = parameters
-            .self_signed(&KeyPair::generate().expect("node key"))
-            .expect("node leaf")
-            .der()
-            .to_vec();
-        let pin = CertificateFingerprint::for_certificate(&leaf);
-
-        for role in [PrivateNodeRole::Worker, PrivateNodeRole::Manager] {
-            let ingress = PrivateIngress {
-                site_id: Arc::from("site-one"),
-                peers: Arc::new(BTreeMap::from([(
-                    "node-one".to_owned(),
-                    PrivatePeerPolicy {
-                        role,
-                        certificate_sha256: pin.clone(),
-                    },
-                )])),
-            };
-            let authenticated = ingress
-                .authenticate_leaf(&leaf)
-                .expect("same pinned node leaf remains authenticated");
-            assert_eq!(authenticated.site_id, "site-one");
-            assert_eq!(authenticated.node_id, "node-one");
-            assert_eq!(authenticated.role, role);
         }
     }
 
@@ -364,5 +572,225 @@ mod tests {
                 .der()
                 .to_vec()
         }
+    }
+
+    /// A test site with one manager and one worker, each with its own site-issued leaf.
+    struct TestSite {
+        authority: SiteAuthority,
+        manager: (Vec<u8>, Vec<u8>),
+        worker: (Vec<u8>, Vec<u8>),
+    }
+
+    impl TestSite {
+        fn new() -> Self {
+            let authority = SiteAuthority::new();
+            Self {
+                manager: authority.issue(SITE_ID, MANAGER_ID, true),
+                worker: authority.issue(SITE_ID, WORKER_ID, true),
+                authority,
+            }
+        }
+
+        /// The manager's private configuration sharing `pins`.
+        fn manager_configuration(
+            &self,
+            pins: PeerPins,
+        ) -> dotcore_site::private_transport::PrivateServerConfiguration {
+            let mut configuration = self.authority.private_configuration(
+                SITE_ID,
+                MANAGER_ID,
+                PrivateNodeRole::Manager,
+                self.manager.clone(),
+                [],
+            );
+            configuration.peers = pins;
+            configuration
+        }
+
+        /// Serves the manager's private listener with `pins` and `gate`, and a join service when
+        /// one is given.
+        async fn serve_manager(
+            &self,
+            pins: PeerPins,
+            gate: JoinGate,
+            joins: Option<FakeJoinHost>,
+        ) -> SocketAddr {
+            let mut routes = tonic::service::Routes::builder();
+            if let Some(joins) = joins {
+                routes.add_service(NodeJoinServiceServer::new(joins));
+            }
+            let mut listener = PrivateListener::new(
+                self.manager_configuration(pins),
+                routes.routes(),
+                &Timing::test(),
+            );
+            listener.join_gate = gate;
+            serve(listener).await
+        }
+
+        /// Serves the manager's private listener with `joins` while `gate` is open, bounding
+        /// connections without a pinned certificate to `max_open` and `idle_timeout`.
+        async fn serve_manager_with(
+            &self,
+            gate: JoinGate,
+            joins: FakeJoinHost,
+            max_open: usize,
+            idle_timeout: std::time::Duration,
+        ) -> SocketAddr {
+            let mut routes = tonic::service::Routes::builder();
+            routes.add_service(NodeJoinServiceServer::new(joins));
+            let mut listener = PrivateListener::new(
+                self.manager_configuration(PeerPins::default()),
+                routes.routes(),
+                &Timing::test(),
+            );
+            listener.join_gate = gate;
+            listener.unpinned = UnpinnedConnectionLimits {
+                max_open,
+                idle_timeout,
+            };
+            serve(listener).await
+        }
+
+        /// Serves a worker listener with no services that pins the manager.
+        async fn serve_worker(&self) -> SocketAddr {
+            serve(PrivateListener::new(
+                self.authority.private_configuration(
+                    SITE_ID,
+                    WORKER_ID,
+                    PrivateNodeRole::Worker,
+                    self.worker.clone(),
+                    [(
+                        MANAGER_ID,
+                        PrivateNodeRole::Manager,
+                        self.manager.0.as_slice(),
+                    )],
+                ),
+                tonic::service::Routes::default(),
+                &Timing::test(),
+            ))
+            .await
+        }
+
+        /// Connects to the manager's listener, presenting `identity` when given.
+        async fn manager_client(
+            &self,
+            address: SocketAddr,
+            identity: Option<&(Vec<u8>, Vec<u8>)>,
+        ) -> Channel {
+            let identity = identity.map(|identity| self.identity(identity));
+            self.client(address, MANAGER_ID, &self.manager.0, identity.as_ref())
+                .connect()
+                .await
+                .expect("manager channel")
+        }
+
+        /// An endpoint for the listener of `node_id` presenting `certificate`, which presents
+        /// `identity` when given.
+        fn client(
+            &self,
+            address: SocketAddr,
+            node_id: &str,
+            certificate: &[u8],
+            identity: Option<&Identity>,
+        ) -> Endpoint {
+            let verifier = PinnedPeerVerifier::new(
+                self.authority.certificate.der(),
+                SITE_ID,
+                node_id,
+                CertificateFingerprint::for_certificate(certificate),
+            )
+            .expect("peer verifier");
+            let mut tls = ClientTlsConfig::new()
+                .domain_name("127.0.0.1")
+                .assume_http2(true);
+            if let Some(identity) = identity {
+                tls = tls.identity(identity.clone());
+            }
+            Endpoint::from_shared(format!("https://{address}"))
+                .expect("peer endpoint")
+                .tls_config_with_verifier(tls, Arc::new(verifier))
+                .expect("peer client TLS")
+        }
+
+        /// The TLS identity of a leaf and its PKCS#8 key.
+        fn identity(&self, (certificate, key): &(Vec<u8>, Vec<u8>)) -> Identity {
+            Identity::from_pem(pem("CERTIFICATE", certificate), pem("PRIVATE KEY", key))
+        }
+    }
+
+    /// A join service that records the connection each join request arrived on.
+    #[derive(Clone, Default)]
+    struct FakeJoinHost {
+        connections: Arc<Mutex<Vec<PrivateConnectionInfo>>>,
+    }
+
+    impl FakeJoinHost {
+        /// Each join's connection id and whether that connection presented a certificate.
+        fn connections(&self) -> Vec<(u64, bool)> {
+            self.infos()
+                .iter()
+                .map(|info| (info.id(), info.peer_certificate().is_some()))
+                .collect()
+        }
+
+        /// The connection of each join.
+        fn infos(&self) -> Vec<PrivateConnectionInfo> {
+            self.connections.lock().expect("join connections").clone()
+        }
+    }
+
+    #[tonic::async_trait]
+    impl NodeJoinService for FakeJoinHost {
+        async fn join(
+            &self,
+            request: Request<JoinRequest>,
+        ) -> Result<Response<JoinResponse>, Status> {
+            let connection = request
+                .extensions()
+                .get::<PrivateConnectionInfo>()
+                .expect("every request carries its connection");
+            self.connections
+                .lock()
+                .expect("join connections")
+                .push(connection.clone());
+            Ok(Response::new(JoinResponse::default()))
+        }
+
+        async fn commit(
+            &self,
+            _request: Request<CommitRequest>,
+        ) -> Result<Response<CommitResponse>, Status> {
+            Err(Status::unimplemented("the fake join host takes no commit"))
+        }
+    }
+
+    async fn serve(listener: PrivateListener) -> SocketAddr {
+        let server = prepare(listener, std::future::pending())
+            .await
+            .expect("private listener");
+        let address = server.address;
+        tokio::spawn(server.serve());
+        address
+    }
+
+    async fn join(channel: &Channel) -> Result<JoinResponse, Status> {
+        NodeJoinServiceClient::new(channel.clone())
+            .join(JoinRequest::default())
+            .await
+            .map(Response::into_inner)
+    }
+
+    /// Opens a node control stream and returns its status; nothing is sent on it.
+    async fn node_control(channel: &Channel) -> Result<(), Status> {
+        NodeControlServiceClient::new(channel.clone())
+            .stream_node_control(futures_util::stream::pending())
+            .await
+            .map(|_| ())
+    }
+
+    fn assert_authentication_failure(status: &Status) {
+        assert_eq!(status.code(), Code::Unauthenticated, "{status:?}");
+        assert_eq!(status.message(), "private peer authentication failed");
     }
 }

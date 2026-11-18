@@ -219,8 +219,8 @@ pub enum ManagerPrivateListener {
     /// behind NAT where the declared manager host is not a local address.
     Configured(BindAddress),
 
-    /// The declared manager SiteNode host with `port`, opened only when the site has joined
-    /// nodes. Port 0 binds an ephemeral port, which only tests use.
+    /// The declared manager SiteNode host with `port`. Port 0 binds an ephemeral port, which only
+    /// tests use.
     SiteDefault { port: u16 },
 }
 

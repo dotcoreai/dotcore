@@ -19,11 +19,13 @@ use dotcore_proto::dotcore::{
 use super::{
     JoinProposal, JoinSecret, JoinSiteError, NodeKeyError,
     node_key::{CertificateTime, certificate_key, certificate_time, rejoin_request_key},
-    publication::{site_with_node, site_with_node_hosts},
 };
 use crate::{
     initial::{inputs::build_execution_targets, request::derive_site_node_id},
-    membership::removal::placed_deployment_count,
+    membership::{
+        recorder::{site_with_node, site_with_node_hosts},
+        removal::placed_deployment_count,
+    },
     node::{
         folder::CertificateFingerprint, observation_configuration::node_observation_configuration,
     },

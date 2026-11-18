@@ -72,7 +72,7 @@ pub enum Command {
     /// Manage the bare local server process that `dotcore` supervises.
     Server(ServerCommand),
 
-    /// Create, reset, and validate offline site inputs, and add nodes to a stopped site.
+    /// Create, reset, validate, and delete site inputs offline.
     Site(site::SiteCommand),
 
     /// Manage site nodes: `add`, `remove`, and `list` on the manager, `join` and `leave` on the
@@ -283,6 +283,8 @@ impl Cli {
         let mut cli = <Self as clap::FromArgMatches>::from_arg_matches(&matches)?;
         cli.paths.site_dir_on_command_line =
             matches.value_source("site_dir") == Some(clap::parser::ValueSource::CommandLine);
+        cli.paths.cache_dir_on_command_line =
+            matches.value_source("cache_dir") == Some(clap::parser::ValueSource::CommandLine);
         if let Some(message) = cli.argument_contract_error() {
             return Err(Self::command().error(clap::error::ErrorKind::ArgumentConflict, message));
         }

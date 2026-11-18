@@ -165,6 +165,8 @@ starts.
 
 - Offline initialization writes these inputs. It never changes a running site or bypasses deployment
   owners, except through node removal.
+- On a running site, the site manager records membership changes by accepting approved joins
+  ([access](access.md#joining-a-node)). Removal stays stopped-site work.
 
 ### Server-local node binding
 
@@ -250,7 +252,8 @@ The node that hosts the site manager process.
   runs the site manager.
 - It uses the same node-local reconciliation, status and cleanup evidence, action fencing,
   diagnostic reads, serving admission and observations as any node. Only its transport differs: it
-  uses in-process adapters, so it needs no private listener.
+  uses in-process adapters for its own node. It always serves its private listener, which
+  hosts the join handshake and the connections of workers that join later.
 - Sharing the site manager's process grants it no extra authority. It reads owner intent only
   through its node view, and owners accept its status, cleanup evidence and readiness through the
   same boundary as any node.
@@ -262,7 +265,9 @@ The node that hosts the site manager process.
   competing authority.
 - A persistence failure is reported without rolling back the accepted in-memory change. Such a
   change stays authoritative but can't justify irreversible effects on other nodes until it's
-  persisted.
+  persisted. Membership is the exception: it is persist-or-reject, because accepting a join hands
+  the node its identity, an irreversible effect on another node. A failed or uncertain write fails
+  the join with nothing accepted.
 - Desired configuration stays apart from observations, progress and history.
 - Operations spanning owners go through each owner's acceptance boundary. Creating a deployment with
   its direct-exposure route, and tearing down a deployment with the routes only it serves, are each

@@ -128,6 +128,9 @@ struct ManagerBackendServices {
 
     /// Projection of node-hosted deployments into serving targets, stopped with this composition.
     node_targets: crate::model::controller::NodeTargetProjectorTask,
+
+    /// The site's in-memory authority, which joins record new nodes into.
+    site_repository: SiteRepository,
 }
 
 /// Builds the active model service from validated catalog, site, and runtime inputs, composed
@@ -157,6 +160,7 @@ pub async fn model_service_with_sources_for(
     let result = async {
         let test_support = BackendTestSupport::test();
         let collector = system_collector(backend_clock(&test_support));
+        let worker_channels = WorkerChannels::trusting_no_worker(test_support.timing.private);
         let services = compose_capabilities_with_current(
             configuration,
             ManagerProcessInputs {
@@ -168,7 +172,7 @@ pub async fn model_service_with_sources_for(
             test_support,
             collector,
             None,
-            None,
+            worker_channels,
         )
         .await?;
         Ok(IsolatedModelService::new(services))
@@ -196,6 +200,7 @@ pub async fn application_service_for(
     let result = async {
         let test_support = BackendTestSupport::test();
         let collector = system_collector(backend_clock(&test_support));
+        let worker_channels = WorkerChannels::trusting_no_worker(test_support.timing.private);
         let services = compose_capabilities_with_current(
             configuration,
             ManagerProcessInputs {
@@ -207,7 +212,7 @@ pub async fn application_service_for(
             test_support,
             collector,
             None,
-            None,
+            worker_channels,
         )
         .await?;
         Ok(IsolatedApplicationService::new(services))
@@ -229,6 +234,7 @@ async fn compose_capabilities<C>(
 where
     C: HardwareSnapshotSource + Send + Sync + 'static,
 {
+    let worker_channels = WorkerChannels::trusting_no_worker(test_support.timing.private);
     compose_capabilities_with_current(
         configuration,
         ManagerProcessInputs {
@@ -240,7 +246,7 @@ where
         test_support,
         collector,
         None,
-        None,
+        worker_channels,
     )
     .await
 }
@@ -263,7 +269,7 @@ async fn compose_capabilities_with_current<C>(
     test_support: BackendTestSupport,
     collector: C,
     current: Option<FileCurrentState>,
-    worker_channels: Option<WorkerChannels>,
+    worker_channels: WorkerChannels,
 ) -> CompositionResult<BackendServices>
 where
     C: HardwareSnapshotSource + Send + Sync + 'static,
@@ -495,6 +501,7 @@ where
             metric_buckets,
             node_control_streams,
             node_targets,
+            site_repository: inputs.site_repository.clone(),
         };
         let (node_starters, node_lifecycle) = manager_node.into_starters(None);
         let observers = capture_observers(&model_service, &manager.route_service, node_starters);

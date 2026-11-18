@@ -11,7 +11,7 @@ use std::io::IsTerminal;
 
 use ratatui::text::Span;
 
-use super::{Message, NextStep, supports_rich_prompts};
+use super::{GridColor, Message, NextStep, supports_rich_prompts};
 
 /// What a piece of a line means, which a terminal maps to a style.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +42,9 @@ pub(super) enum Role {
 
     /// A command to copy.
     Command,
+
+    /// A solid cell of one color.
+    Swatch(GridColor),
 }
 
 /// A run of text with one role.
@@ -147,6 +150,16 @@ impl Symbols {
     fn step(self) -> &'static str {
         if self.unicode { "› " } else { "> " }
     }
+
+    /// The shade of the color at `index` in a grid, told apart without colors.
+    fn shade(self, index: usize) -> &'static str {
+        let shades = if self.unicode {
+            ["█", "▓", "░"]
+        } else {
+            ["#", "+", "."]
+        };
+        shades[index % shades.len()]
+    }
 }
 
 impl Message {
@@ -178,6 +191,7 @@ impl Message {
                 blank_before: true,
                 lines: next_lines(steps, symbols),
             },
+            Self::ColorGrid { colors, rows } => spaced(grid_lines(colors, rows, symbols)),
         }
     }
 
@@ -256,6 +270,15 @@ fn ansi_code(role: Role) -> Option<&'static str> {
         Role::Warning => Some("33"),
         Role::Error => Some("31"),
         Role::Command => Some("1;36"),
+        // The same foreground and background make a solid cell whatever its shade character.
+        Role::Swatch(color) => Some(match color {
+            GridColor::Red => "31;41",
+            GridColor::Green => "32;42",
+            GridColor::Yellow => "33;43",
+            GridColor::Blue => "34;44",
+            GridColor::Magenta => "35;45",
+            GridColor::Cyan => "36;46",
+        }),
     }
 }
 
@@ -338,6 +361,47 @@ fn next_lines(steps: &[NextStep], symbols: Symbols) -> Vec<RenderedLine> {
     lines
 }
 
+/// Lays out a color grid indented like facts, each cell four characters wide and two lines
+/// tall, with no trailing empty cells.
+fn grid_lines(
+    colors: &[GridColor],
+    rows: &[Vec<Option<usize>>],
+    symbols: Symbols,
+) -> Vec<RenderedLine> {
+    const CELL_WIDTH: usize = 4;
+
+    let mut lines = Vec::new();
+    for row in rows {
+        let filled = row
+            .iter()
+            .rposition(Option::is_some)
+            .map_or(0, |last| last + 1);
+        // An empty row stays empty, so no line ends in spaces.
+        let mut line = Vec::new();
+        if filled > 0 {
+            line.push(Piece {
+                role: Role::Plain,
+                text: "  ".to_owned(),
+            });
+        }
+        for cell in &row[..filled] {
+            line.push(match cell {
+                Some(index) => Piece {
+                    role: Role::Swatch(colors[*index]),
+                    text: symbols.shade(*index).repeat(CELL_WIDTH),
+                },
+                None => Piece {
+                    role: Role::Plain,
+                    text: " ".repeat(CELL_WIDTH),
+                },
+            });
+        }
+        lines.push(line.clone());
+        lines.push(line);
+    }
+    lines
+}
+
 fn text_width(text: &str) -> usize {
     Span::raw(text).width()
 }
@@ -347,7 +411,7 @@ mod tests {
     use std::ffi::OsStr;
 
     use super::{Piece, Role, Symbols, ansi_text, colors_enabled};
-    use crate::terminal::{Message, NextStep};
+    use crate::terminal::{GridColor, Message, NextStep};
 
     fn plain(message: &Message, symbols: Symbols) -> Vec<String> {
         message
@@ -519,6 +583,59 @@ mod tests {
         assert_eq!(
             plain(&message, Symbols::ASCII)[1],
             "  > Remove it in the console first, or"
+        );
+    }
+
+    #[test]
+    fn color_grids_draw_two_line_cells_in_shades_without_trailing_empty_cells() {
+        let message = Message::ColorGrid {
+            colors: vec![GridColor::Blue, GridColor::Yellow, GridColor::Magenta],
+            rows: vec![
+                vec![Some(0), None, Some(1), None, Some(0)],
+                vec![Some(2), None, None, None, None],
+                vec![None; 5],
+            ],
+        };
+
+        assert_eq!(
+            plain(&message, Symbols::UNICODE),
+            [
+                "  ████    ▓▓▓▓    ████",
+                "  ████    ▓▓▓▓    ████",
+                "  ░░░░",
+                "  ░░░░",
+                "",
+                "",
+            ]
+        );
+        assert_eq!(
+            plain(&message, Symbols::ASCII),
+            [
+                "  ####    ++++    ####",
+                "  ####    ++++    ####",
+                "  ....",
+                "  ....",
+                "",
+                "",
+            ]
+        );
+        assert!(!message.render(Symbols::UNICODE).blank_before);
+    }
+
+    #[test]
+    fn colored_grid_cells_set_the_same_foreground_and_background() {
+        let message = Message::ColorGrid {
+            colors: vec![GridColor::Red, GridColor::Cyan],
+            rows: vec![vec![Some(1), None, Some(0)]],
+        };
+
+        assert_eq!(
+            ansi_text(std::slice::from_ref(&message), Symbols::ASCII, true),
+            "  \x1b[36;46m++++\x1b[0m    \x1b[31;41m####\x1b[0m\n".repeat(2)
+        );
+        assert_eq!(
+            ansi_text(&[message], Symbols::ASCII, false),
+            "  ++++    ####\n".repeat(2)
         );
     }
 

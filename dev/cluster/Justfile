@@ -5,14 +5,13 @@ set positional-arguments
 help:
   @just --list
 
-# Join a worker on `target` (`local` or a remote `<group>[:<host>]`) to this workspace's manager site, offering to stop a running manager first. Arguments after `--` go to `dotc node join`, such as `--inference simulated:mac-64g` for a worker on simulated hardware.
+# Join a worker on `target` (`local` or a remote `<group>[:<host>]`) to this workspace's running manager, which keeps running. Arguments after `--` go to `dotc node join`, such as `--inference simulated:mac-64g` for a worker on simulated hardware.
 [script]
 join target *args:
   #!/usr/bin/env bash
   set -euo pipefail
   cd ../..
   source dev/pc-endpoint.sh
-  source dev/confirm.sh
   source dev/cluster/targets.sh
   target="$1"
   shift
@@ -22,7 +21,12 @@ join target *args:
   fail() { echo "cluster join $target: $* failed" >&2; exit 1; }
 
   test -n "${PC_SOCKET_PATH:-}" || { echo 'PC_SOCKET_PATH is unset; enter the workspace direnv shell first' >&2; exit 2; }
-  pc_stop_running_or_exit "cluster join $target" "$PC_SOCKET_PATH" manager 'stop the manager first, node add needs the site lock: just dev::down'
+  # node add talks to the running manager, so a stopped one has nobody to approve the join.
+  case "$(pc_endpoint_state "$PC_SOCKET_PATH")" in
+    live) ;;
+    stale) echo 'the manager is not running; start it first: just dev::up-daemon' >&2; exit 2 ;;
+    *) echo "cannot tell whether a development stack is running at $PC_SOCKET_PATH; enter the workspace direnv shell and retry" >&2; exit 2 ;;
+  esac
   target="$(normalize_target "$target")"
   if recorded_targets | grep -qx -- "$target"; then
     echo "$target already holds a worker of this cluster; remove it first: just dev::cluster::clean $target" >&2
@@ -37,14 +41,24 @@ join target *args:
     just dev::remote::run "$target" dev::cluster::_worker-prepare || fail 'prepare (sync and build)'
   fi
 
-  # node add holds the stopped site and prints nothing secret: the token travels through a private file
-  # that exists only once the join listener is bound, so waiting for it replaces polling the port.
+  # node add prints nothing secret: the token travels through a private file that exists once the manager
+  # has started the join, so waiting for it replaces polling the port.
+  # A stack that just started takes a while to build and listen, and the token only starts expiring once the
+  # manager answers.
+  step 'wait for the manager'
+  management_addr="${DOTCORE_MANAGEMENT_ADDR:?DOTCORE_MANAGEMENT_ADDR is unset; enter the workspace direnv shell first}"
+  for _ in $(seq 1 3000); do
+    (exec 3<>"/dev/tcp/${management_addr%:*}/${management_addr##*:}") 2>/dev/null && break
+    sleep 0.2
+  done
+  (exec 3<>"/dev/tcp/${management_addr%:*}/${management_addr##*:}") 2>/dev/null || fail "wait for the manager at $management_addr"
+
   step token
   token_file="$DOTCORE_WORKER_DIR.join-token"
   added="$(mktemp)"
   mkdir -p "$(dirname "$token_file")"
   rm -f "$token_file"
-  dotc node add --site-dir "$DOTCORE_SITE_DIR" --listen "$DOTCORE_PRIVATE_ADDR" --yes --token-file "$token_file" > "$added" &
+  dotc node add --site-dir "$DOTCORE_SITE_DIR" --yes --token-file "$token_file" > "$added" &
   add_pid=$!
   trap 'kill "$add_pid" 2>/dev/null || true; rm -f "$token_file" "$added"' EXIT
   for _ in $(seq 1 600); do
@@ -180,7 +194,7 @@ clean target="":
   done
   just dev::clean
 
-# Initialize a manager site and join a local worker to it: the single-machine cluster. Inference and applications take several choices separated by commas, as for site-init. `nvidia` needs an nvidia_device CDI selector (ex: nvidia.com/gpu=0); `apple` declares ephemeral native targets on both nodes. worker_inference gives the worker its own inference choices, such as a `simulated:gb10` manager with a `simulated:mac-64g` worker.
+# Initialize a manager site, start its manager and join a local worker to it: the single-machine cluster. Inference and applications take several choices separated by commas, as for site-init. `nvidia` needs an nvidia_device CDI selector (ex: nvidia.com/gpu=0); `apple` declares ephemeral native targets on both nodes. worker_inference gives the worker its own inference choices, such as a `simulated:gb10` manager with a `simulated:mac-64g` worker.
 [script]
 two-node-init inference applications display_name="Worker two" worker_host="127.0.0.2" nvidia_device="" worker_inference="":
   #!/usr/bin/env bash
@@ -201,6 +215,7 @@ two-node-init inference applications display_name="Worker two" worker_host="127.
   if [ -n "{{nvidia_device}}" ]; then device_args=(--nvidia-device "{{nvidia_device}}"); fi
   test ! -e "$DOTCORE_WORKER_DIR" || { echo "worker node folder already exists at $DOTCORE_WORKER_DIR; run just dev::cluster::clean first" >&2; exit 2; }
   just dev::site-init "{{inference}}" "{{applications}}"
+  just dev::up-daemon
   just dev::cluster::join local -- --name "{{display_name}}" --host "{{worker_host}}" "${choice_flags[@]}" ${device_args[@]+"${device_args[@]}"} ${native_flags[@]+"${native_flags[@]}"}
 
 # The recipes below run on the worker's own machine; the public recipes dispatch them to the target.

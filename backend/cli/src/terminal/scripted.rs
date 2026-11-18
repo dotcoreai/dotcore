@@ -9,8 +9,8 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use super::{
-    ConfirmPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError, SelectPrompt, Terminal,
-    TerminalCondition,
+    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
+    SelectPrompt, Terminal, TerminalCondition,
 };
 
 /// A terminal that replays scripted answers and records what the flow presented.
@@ -153,6 +153,16 @@ impl Terminal for ScriptedTerminal {
         }
     }
 
+    fn countdown(&mut self, prompt: &CountdownPrompt) -> Result<bool, PromptError> {
+        match self.next_answer(ScriptedPrompt::Countdown(prompt.clone()))? {
+            ScriptedAnswer::Countdown(proceed) => Ok(proceed),
+            answer => panic!(
+                "scripted {answer:?} does not answer countdown {:?}",
+                prompt.title()
+            ),
+        }
+    }
+
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {
         self.lines.extend(message.plain_lines());
         self.messages.push(message.clone());
@@ -177,6 +187,9 @@ pub enum ScriptedPrompt {
 
     /// A free-text question whose answer is not echoed.
     Secret(InputPrompt),
+
+    /// A countdown before an action.
+    Countdown(CountdownPrompt),
 }
 
 /// A replayable answer or interruption for the next prompt.
@@ -202,6 +215,10 @@ pub enum ScriptedAnswer {
 
     /// The submitted text for a secret prompt, returned exactly as given.
     Secret(String),
+
+    /// The outcome of a countdown: true when it runs out or the operator goes ahead early, false
+    /// when the operator skips the action.
+    Countdown(bool),
 
     /// An operator cancellation at any prompt, such as Ctrl-C or Esc.
     Cancelled,

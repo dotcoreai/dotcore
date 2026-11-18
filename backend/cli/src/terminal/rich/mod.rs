@@ -16,6 +16,7 @@ use std::{
     collections::BTreeSet,
     fs::File,
     io::{self, IsTerminal, Write},
+    time::Instant,
 };
 
 use crossterm::{event, style::PrintStyledContent};
@@ -28,16 +29,16 @@ use ratatui::{
 };
 
 use super::{
-    ConfirmPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError, SelectPrompt, Terminal,
-    TerminalCondition,
+    ConfirmPrompt, CountdownPrompt, InputPrompt, Message, MultiSelectPrompt, PromptError,
+    SelectPrompt, Terminal, TerminalCondition,
     line::LineTerminal,
     render::{LastOutput, Symbols, colors_enabled},
 };
 use theme::Theme;
 use tty::{RawModeGuard, TtyBackend, probe_cursor_reports};
 use view::{
-    ConfirmView, InputView, MultiSelectView, SelectView, Step, View, answer_line, cancelled_line,
-    handle_event,
+    ConfirmView, CountdownView, InputView, MultiSelectView, SelectView, Step, View, answer_line,
+    cancelled_line, handle_event,
 };
 
 /// Rich prompts on the controlling terminal.
@@ -128,13 +129,25 @@ impl RichTerminal {
             terminal.draw(|frame| view.render(frame, &theme))?;
             // The completed frame reports a viewport-relative area; the terminal knows the row.
             guard.track_viewport(terminal.get_frame().area().y);
-            match event::read()? {
-                event::Event::Resize(..) => terminal.autoresize()?,
-                event => match handle_event(view, event) {
-                    Step::Continue => {}
-                    Step::Cancel => break Err(PromptError::Cancelled),
-                    Step::Done(output) => break Ok(output),
-                },
+            let event = match view.wake_at() {
+                Some(at) => {
+                    let wait = at.saturating_duration_since(Instant::now());
+                    event::poll(wait)?.then(event::read).transpose()?
+                }
+                None => Some(event::read()?),
+            };
+            let step = match event {
+                None => view.on_wake(Instant::now()),
+                Some(event::Event::Resize(..)) => {
+                    terminal.autoresize()?;
+                    Step::Continue
+                }
+                Some(event) => handle_event(view, event),
+            };
+            match step {
+                Step::Continue => {}
+                Step::Cancel => break Err(PromptError::Cancelled),
+                Step::Done(output) => break Ok(output),
             }
         };
 
@@ -202,6 +215,14 @@ impl Terminal for RichTerminal {
             let tty = terminal.tty.try_clone().map_err(PromptError::Io)?;
             LineTerminal::from_tty(Some(tty)).secret(prompt)
         })
+    }
+
+    fn countdown(&mut self, prompt: &CountdownPrompt) -> Result<bool, PromptError> {
+        // Ctrl-C and Esc skip the action rather than stop the command.
+        match self.run(CountdownView::new(prompt, Instant::now())) {
+            Err(PromptError::Cancelled) => Ok(false),
+            outcome => outcome,
+        }
     }
 
     fn message(&mut self, message: &Message) -> Result<(), PromptError> {

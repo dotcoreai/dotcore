@@ -438,18 +438,20 @@ mod tests {
         let manager = authority.issue(SITE_ID, MANAGER_ID, false);
         let reader = logs.reader();
         let server = crate::server::private::prepare(
-            authority.private_configuration(
-                SITE_ID,
-                NODE_ID,
-                PrivateNodeRole::Worker,
-                (worker_certificate.clone(), worker_key),
-                [(MANAGER_ID, PrivateNodeRole::Manager, manager.0.as_slice())],
+            crate::server::private::PrivateListener::new(
+                authority.private_configuration(
+                    SITE_ID,
+                    NODE_ID,
+                    PrivateNodeRole::Worker,
+                    (worker_certificate.clone(), worker_key),
+                    [(MANAGER_ID, PrivateNodeRole::Manager, manager.0.as_slice())],
+                ),
+                PrivateServiceAssembly::new(move |context, routes| {
+                    routes.add_service(NodeDiagnosticService::new(reader, &context).into_server());
+                })
+                .assemble(PrivateNodeRole::Worker, NODE_ID),
+                &Timing::test(),
             ),
-            PrivateServiceAssembly::new(move |context, routes| {
-                routes.add_service(NodeDiagnosticService::new(reader, &context).into_server());
-            })
-            .assemble(PrivateNodeRole::Worker, NODE_ID),
-            Timing::test().private,
             std::future::pending(),
         )
         .await

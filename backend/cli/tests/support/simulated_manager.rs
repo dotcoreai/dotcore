@@ -74,6 +74,7 @@ impl SimulatedManager {
             .env("DOTCORE_CACHE_DIR", root.join("cache"))
             .env("DOTCORE_MANAGEMENT_ADDR", "127.0.0.1:0")
             .env("DOTCORE_INFERENCE_ADDR", "127.0.0.1:0")
+            .env("DOTCORE_PRIVATE_ADDR", "127.0.0.1:0")
             .env("DOTCORE_FRONTEND_ORIGIN", "http://127.0.0.1:5173")
             .env("RUST_LOG", "warn")
             .stdout(Stdio::piped())

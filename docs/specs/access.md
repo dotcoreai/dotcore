@@ -42,12 +42,17 @@ sequenceDiagram
   participant N as Joining node
   participant SM as Site manager handshake
   participant SA as Site authority
+  participant API as Management API
   actor OP as You
+  OP->>API: Start a join
+  API->>OP: Join token
   N->>N: Generate own key, listen on its private port
-  N->>SM: Handshake with the join token
+  N->>SM: Handshake with the join token, on the private port
   SM->>N: Dial back the host and private port to record
   N-->>SM: Prove its key
-  OP->>SA: Approve
+  SM->>API: Proposal to review
+  OP->>API: Approve
+  API->>SA: Approve
   SA->>N: Node identity
   SA->>SA: Record membership, pin
 ```
@@ -55,19 +60,34 @@ sequenceDiagram
 - Site machine trust is established before a worker enrolls. Each provisioned node, the site manager
   included, holds its own site-issued node identity. The site signing key is separate and held only
   by the site manager.
-- A node joins through a handshake hosted by the site manager. It generates its own key and
-  authenticates the site and its site manager with a short-lived, enrollment-only join token.
+- A node joins a running site through a handshake hosted by the site manager on its private port,
+  with no extra port to open. You start the join from the console or `dotc`, which return the join
+  token. The node generates its own key and authenticates the site and its site manager with that
+  short-lived, enrollment-only join token.
+- The private port accepts connections without a site identity for the join handshake only, since
+  the joining node has none yet. Only the site manager's port accepts them. Their requests reach
+  nothing else and are refused when no join is active. They are limited in number, and closed when
+  they go too long without a join request, whatever else they send. A wrong join secret closes its
+  connection and counts against no join.
 - Before you approve, the site manager dials back the host and private port the join will record
   and requires the answer to prove the joining node's key. If it cannot reach the node there, or
   another key answers, the join fails with nothing issued or recorded. A node behind NAT must have
   that port forwarded while it joins. The token allows a few failed dial-backs, so a corrected
   retry works.
-- The site manager issues the node's identity only after you approve, then records its membership
-  and pin.
+- The site manager issues the node's identity only after you approve through the management API,
+  from the console or `dotc`, after seeing the node's name, host and targets. The approver and
+  the joining machine show the same key fingerprint and fingerprint pattern, so you can match them
+  before approving. A rejected or failed join records nothing and leaves the token usable for a
+  corrected retry.
+- Membership is persist-or-reject: the site manager signs the node's identity into the offer it
+  sends after approval, but trusts the node's pin and confirms its commit only once the pin and
+  membership are recorded durably. The new node's connections are then accepted without a restart.
+  If recording fails, the join fails, nothing is recorded, and the node's identity is never
+  trusted.
 - Join tokens never authorize runtime traffic.
 - Removing a node withdraws its membership and pin together. A removed node's identity no longer
   authenticates, even while its certificate is valid under the site's certificate authority.
-- A node with an intact folder joins again by proving its pinned identity. Only its addresses change, and the dial-back checks the new ones the same way.
+- A node with an intact folder joins a running site again by proving its pinned identity. Only its addresses change, and the dial-back checks the new ones the same way.
 
 ### Connecting nodes
 
@@ -91,7 +111,9 @@ flowchart TB
 
 - Private node connections need a valid site-local node identity, exact peer pins, and directional
   authorization derived from the site's authority and trusted bootstrap policy, not a
-  site-manager-specific certificate type. This holds even when the site has no workers.
+  site-manager-specific certificate type. This holds even when the site has no workers. The one
+  exception is the join handshake, which accepts a node that has no identity yet and checks its join
+  token instead ([joining a node](#joining-a-node)).
 - The node control stream, peer inference dispatch, and deployment and backend diagnostic reads are
   authenticated private interfaces, not public node entry points. No remote caller may present the
   receiving node's identity.
@@ -194,3 +216,4 @@ flowchart TB
 - Identity provider selection, usage synchronization, billing, settlement and export.
 - Cloud connector transport, connectivity policy, disablement and failover.
 - Roles allowed to run disruptive operations, and later administration workflows.
+- Management access has no authentication yet, so whoever reaches it can start and approve joins.
