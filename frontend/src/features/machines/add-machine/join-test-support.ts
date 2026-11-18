@@ -12,7 +12,7 @@ import {
   RejectJoinResponseSchema,
   StartJoinResponseSchema,
   WatchJoinResponseSchema,
-} from "@/gen/dotcore/site/v1/join_pb";
+} from "@/gen/dotcore/site/v1/membership_pb";
 
 /** How long a fake join's command stays valid from the moment it starts. */
 export const joinLifetimeMs = 15 * 60 * 1_000;

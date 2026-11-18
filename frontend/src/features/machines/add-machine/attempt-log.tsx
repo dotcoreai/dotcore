@@ -1,7 +1,7 @@
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { LoaderCircle, X } from "lucide-react";
 
-import type { JoinAttemptOutcome } from "@/gen/dotcore/site/v1/join_pb";
+import type { JoinAttemptOutcome } from "@/gen/dotcore/site/v1/membership_pb";
 
 import { formatTime } from "./join-format";
 

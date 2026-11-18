@@ -14,7 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
-import type { JoinAwaitingApproval } from "@/gen/dotcore/site/v1/join_pb";
+import type { JoinAwaitingApproval } from "@/gen/dotcore/site/v1/membership_pb";
 
 import { ApproveStep } from "./approve-step";
 import { AttemptLog } from "./attempt-log";

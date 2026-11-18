@@ -4,7 +4,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JoinHostSource, JoinTargetRuntime } from "@/gen/dotcore/site/v1/join_pb";
+import { JoinHostSource, JoinTargetRuntime } from "@/gen/dotcore/site/v1/membership_pb";
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
 import * as clipboard from "@/lib/clipboard";
 import { productionTiming, setTiming } from "@/lib/timing";

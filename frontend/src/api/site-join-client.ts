@@ -2,10 +2,10 @@ import { type Client, createClient } from "@connectrpc/connect";
 
 import { createConsoleTransport } from "@/api/console-transport";
 import { resolveManagementOrigin } from "@/api/management-origin";
-import { SiteJoinService } from "@/gen/dotcore/site/v1/join_pb";
+import { SiteMembershipService } from "@/gen/dotcore/site/v1/membership_pb";
 
 export type SiteJoinClient = Pick<
-  Client<typeof SiteJoinService>,
+  Client<typeof SiteMembershipService>,
   "approveJoin" | "cancelJoin" | "rejectJoin" | "startJoin" | "watchJoin"
 >;
 
@@ -15,7 +15,7 @@ const siteJoinServerUrl = resolveManagementOrigin(import.meta.env.VITE_DOTCORE_M
 });
 
 export function createSiteJoinClient(baseUrl = siteJoinServerUrl): SiteJoinClient {
-  const generatedClient = createClient(SiteJoinService, createConsoleTransport(baseUrl));
+  const generatedClient = createClient(SiteMembershipService, createConsoleTransport(baseUrl));
 
   return {
     approveJoin: (request, options) => generatedClient.approveJoin(request, options),

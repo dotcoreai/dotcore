@@ -7,7 +7,7 @@ import type {
   JoinProposal,
   JoinState,
   StartJoinResponse,
-} from "@/gen/dotcore/site/v1/join_pb";
+} from "@/gen/dotcore/site/v1/membership_pb";
 
 /** What the console knows about one join: its token, its latest state and why it can't continue. */
 export interface JoinSession {

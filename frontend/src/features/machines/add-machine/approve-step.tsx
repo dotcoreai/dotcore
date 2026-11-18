@@ -6,7 +6,7 @@ import {
   type JoinProposal,
   type JoinProposedTarget,
   JoinTargetRuntime,
-} from "@/gen/dotcore/site/v1/join_pb";
+} from "@/gen/dotcore/site/v1/membership_pb";
 
 import { FingerprintPatternView, GroupedFingerprint } from "./fingerprint-pattern";
 import { peerHost } from "./join-format";
