@@ -77,9 +77,12 @@ pub(crate) async fn node_add(_paths: &RootPathArgs, arguments: NodeAddArgs) -> a
         .into_inner();
 
     let join_id = started.join_id.clone();
+    // The interrupt handler is installed on its first poll, so it goes first: announcing the join
+    // tells the operator the command is ready, and an interrupt after that must cancel the join.
     let outcome = tokio::select! {
-        added = run_join(&mut joins, started, &arguments) => added,
+        biased;
         _ = tokio::signal::ctrl_c() => Err(anyhow::Error::new(PromptError::Cancelled)),
+        added = run_join(&mut joins, started, &arguments) => added,
     };
     match outcome {
         Ok(joined) => {
