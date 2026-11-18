@@ -189,6 +189,9 @@ message EstimateLocalModelResourcesResponse {
 
   // The placement's target memory with the configuration added, absent without a placement; without a known estimate it holds no demand and its fit is unknown.
   dotcore.capacity.v1.PlacementPreview placement_preview = 2;
+
+  // Largest fit of each memory parameter whose value changes the estimate, with every other value as supplied; absent without a placement or with custom arguments.
+  repeated MemoryParameterFit memory_parameter_fits = 3;
 }
 
 // Carries the estimates and derived engine parameter values of one configuration on one hardware class.
@@ -216,6 +219,16 @@ message ScalarResourceEstimate {
 
   // Flexible catalog-declared unit name.
   string unit = 3;
+}
+
+// The largest value of one engine memory parameter at which the configuration still fits the
+// placement's target on free memory less the headroom; at least the parameter's minimum.
+message MemoryParameterFit {
+  // Engine parameter the fit is for.
+  string parameter_id = 1;
+
+  // Largest fitting value, in the parameter's own unit.
+  uint64 largest_fit = 2;
 }
 
 // Narrows the profile compatibility read to one catalog model, one configured execution target, or both.
