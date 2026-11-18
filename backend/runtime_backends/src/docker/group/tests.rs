@@ -860,6 +860,93 @@ async fn group_logs_before_creation_read_as_not_created() {
 }
 
 #[tokio::test]
+async fn group_logs_read_a_unit_not_created_yet_as_not_created() {
+    let root = test_root("group-logs-missing-unit");
+    let client = GroupClient::default();
+    let adapter = test_adapter(client.clone(), root.clone());
+    let group = group();
+    adapter
+        .create_workload_group(&group)
+        .await
+        .expect("create group");
+    adapter
+        .stop_workload_group(&group)
+        .await
+        .expect("stop group");
+    *client
+        .start_unit_port_in_use
+        .lock()
+        .expect("start port conflict") = Some("web".to_owned());
+    adapter
+        .start_workload_group(&group)
+        .await
+        .expect_err("start with a taken port discards the web unit");
+    let timestamp = std::time::UNIX_EPOCH + std::time::Duration::from_secs(10);
+    client.logs.lock().expect("logs").insert(
+        "container-dotcore_site-one_group_apps-01_unit_cache".to_owned(),
+        vec![Ok(DockerLogOutput::stdout(
+            timestamp,
+            b"healthy\n".to_vec(),
+        ))],
+    );
+    let sources = RuntimeLogSourceSelection::new(vec![
+        RuntimeLogSource {
+            name: "cache".to_owned(),
+            label: "Cache".to_owned(),
+        },
+        RuntimeLogSource {
+            name: "web".to_owned(),
+            label: "Web".to_owned(),
+        },
+    ])
+    .expect("sources");
+    let query = RuntimeLogQuery::new(std::num::NonZeroU16::new(1).expect("non-zero"), None)
+        .expect("history query");
+
+    let histories = adapter
+        .read_workload_group_logs(&group, &sources, &query)
+        .await
+        .expect("history with a missing unit");
+    let streams = adapter
+        .follow_workload_group_logs(
+            &group,
+            &sources,
+            RuntimeGroupLogFollowQuery::new(
+                &sources,
+                std::collections::BTreeMap::new(),
+                tokio_util::sync::CancellationToken::new(),
+            )
+            .expect("follow query"),
+        )
+        .await
+        .expect("follow with a missing unit");
+
+    assert_eq!(histories[0].source.name, "cache");
+    assert_eq!(
+        histories[0]
+            .result
+            .as_ref()
+            .expect("cache history")
+            .entries[0]
+            .content,
+        b"healthy"
+    );
+    assert_eq!(histories[1].source.name, "web");
+    assert!(matches!(
+        histories[1].result,
+        Err(RuntimeBackendError::WorkloadNotCreated)
+    ));
+    assert_eq!(streams[0].source.name, "cache");
+    assert!(streams[0].result.is_ok(), "cache follow opens");
+    assert_eq!(streams[1].source.name, "web");
+    assert!(matches!(
+        streams[1].result,
+        Err(RuntimeBackendError::WorkloadNotCreated)
+    ));
+    std::fs::remove_dir_all(root).expect("remove application site-data root");
+}
+
+#[tokio::test]
 async fn group_history_keeps_one_removed_source_from_denying_a_healthy_source() {
     let root = test_root("group-log-source-isolation");
     let client = GroupClient::default();
