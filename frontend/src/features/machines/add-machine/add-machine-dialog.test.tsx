@@ -85,6 +85,10 @@ function waitingAfter(
   };
 }
 
+function installCommand(token: string): string {
+  return `curl -fsSL https://dotcore.ai/install.sh | sh -s -- --join ${token}`;
+}
+
 function stepStatuses(dialog: HTMLElement): string[] {
   return within(dialog)
     .getAllByRole("listitem")
@@ -93,18 +97,50 @@ function stepStatuses(dialog: HTMLElement): string[] {
 }
 
 describe("AddMachineDialog", () => {
-  it("shows the join command in its pane and copies it", async () => {
+  it("shows the installer join command in its pane and copies it", async () => {
     const { dialog, join, user } = await openDialog();
 
-    expect(within(dialog).getByText("dotc node join --token token-1")).toBeVisible();
+    expect(within(dialog).getByText(installCommand("token-1"))).toBeVisible();
     expect(within(dialog).getByText("on the new machine")).toBeVisible();
-    expect(within(dialog).getByText("Needs dotc on that machine.")).toBeVisible();
+    expect(within(dialog).getByRole("radio", { name: "New machine" })).toBeChecked();
+    expect(
+      within(dialog).getByText(
+        "Installs Dotcore, joins the site and starts it. Keep this open until the machine connects.",
+      ),
+    ).toBeVisible();
     expect(stepStatuses(dialog)).toEqual(["active", "active", "todo"]);
     expect(join.spies.startJoin).toHaveBeenCalledTimes(1);
     expect(join.spies.watchJoin).toHaveBeenCalledWith({ joinId: "join-1" }, expect.anything());
 
     await user.click(within(dialog).getByRole("button", { name: "Copy join command" }));
-    expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("dotc node join --token token-1");
+    expect(writeClipboard).toHaveBeenCalledExactlyOnceWith(installCommand("token-1"));
+  });
+
+  it("switches to the dotc command for a machine with Dotcore and keeps it for a new command", async () => {
+    useFakeTimersWithWaits();
+    vi.setSystemTime(new Date(2030, 0, 1, 14, 6, 0));
+    const join = fakeSiteMembershipClient();
+    renderWithClients(<Harness />, { siteMembershipClient: join.client });
+    const dialog = await screen.findByRole("dialog", { name: "Add a machine" });
+    await within(dialog).findByText(installCommand("token-1"));
+
+    act(() => within(dialog).getByRole("radio", { name: "Has Dotcore" }).click());
+
+    expect(within(dialog).getByText("dotc node join --token token-1")).toBeVisible();
+    expect(within(dialog).queryByText(installCommand("token-1"))).toBeNull();
+    expect(within(dialog).getByText("Joins the site and starts Dotcore.")).toBeVisible();
+    act(() => within(dialog).getByRole("button", { name: "Copy join command" }).click());
+    await waitFor(() =>
+      expect(writeClipboard).toHaveBeenCalledExactlyOnceWith("dotc node join --token token-1"),
+    );
+
+    join.report({ state: { case: "expired", value: {} } });
+    expect(await within(dialog).findByText("Expired")).toBeVisible();
+    expect(within(dialog).getByText("dotc node join --token token-1")).toBeVisible();
+    within(dialog).getByRole("button", { name: "Get a new command" }).click();
+
+    expect(await within(dialog).findByText("dotc node join --token token-2")).toBeVisible();
+    expect(within(dialog).getByRole("radio", { name: "Has Dotcore" })).toBeChecked();
   });
 
   describe("countdown", () => {
@@ -262,7 +298,7 @@ describe("AddMachineDialog", () => {
 
       join.report(waitingAfter({ case: "rejected", value: {} }, new Date(2030, 0, 1, 22, 10, 0)));
       expect(await within(dialog).findByText("You rejected Worker one.")).toBeVisible();
-      expect(within(dialog).getByText("dotc node join --token token-1")).toBeVisible();
+      expect(within(dialog).getByText(installCommand("token-1"))).toBeVisible();
     });
 
     it("shows a rejoin's changes", async () => {
@@ -344,7 +380,7 @@ describe("AddMachineDialog", () => {
       join.report({ state: { case: "committed", value: { nodeId: "worker-one" } } });
       await user.click(await within(dialog).findByRole("button", { name: "Add another" }));
 
-      expect(await within(dialog).findByText("dotc node join --token token-2")).toBeVisible();
+      expect(await within(dialog).findByText(installCommand("token-2"))).toBeVisible();
       expect(join.spies.startJoin).toHaveBeenCalledTimes(2);
       expect(stepStatuses(dialog)).toEqual(["active", "active", "todo"]);
       expect(join.spies.cancelJoin).not.toHaveBeenCalled();
@@ -358,7 +394,7 @@ describe("AddMachineDialog", () => {
       const join = fakeSiteMembershipClient();
       renderWithClients(<Harness />, { siteMembershipClient: join.client });
       const dialog = await screen.findByRole("dialog", { name: "Add a machine" });
-      await within(dialog).findByText("dotc node join --token token-1");
+      await within(dialog).findByText(installCommand("token-1"));
 
       join.report({ state: { case: "expired", value: {} } });
 
@@ -373,7 +409,7 @@ describe("AddMachineDialog", () => {
       expect(within(dialog).getAllByRole("button", { name: "Close" })).toHaveLength(2);
 
       within(dialog).getByRole("button", { name: "Get a new command" }).click();
-      expect(await within(dialog).findByText("dotc node join --token token-2")).toBeVisible();
+      expect(await within(dialog).findByText(installCommand("token-2"))).toBeVisible();
       expect(join.spies.startJoin).toHaveBeenCalledTimes(2);
       expect(join.spies.cancelJoin).not.toHaveBeenCalled();
     });
@@ -393,7 +429,7 @@ describe("AddMachineDialog", () => {
     expect(await within(dialog).findByText(message)).toBeVisible();
 
     await user.click(within(dialog).getByRole("button", { name: "Start again" }));
-    expect(await within(dialog).findByText("dotc node join --token token-2")).toBeVisible();
+    expect(await within(dialog).findByText(installCommand("token-2"))).toBeVisible();
     expect(join.spies.startJoin).toHaveBeenCalledTimes(2);
     // Final states leave nothing to cancel.
     expect(join.spies.cancelJoin).not.toHaveBeenCalled();
@@ -419,7 +455,7 @@ describe("AddMachineDialog", () => {
     expect(await within(dialog).findByText("too many active joins")).toBeVisible();
 
     await setupUser().click(within(dialog).getByRole("button", { name: "Start again" }));
-    expect(await within(dialog).findByText("dotc node join --token token-1")).toBeVisible();
+    expect(await within(dialog).findByText(installCommand("token-1"))).toBeVisible();
   });
 
   it("reports a watch that ends without a final state and tries again", async () => {
@@ -429,6 +465,6 @@ describe("AddMachineDialog", () => {
 
     expect(await within(dialog).findByText("Lost the connection to the manager.")).toBeVisible();
     await user.click(within(dialog).getByRole("button", { name: "Try again" }));
-    expect(await within(dialog).findByText("dotc node join --token token-2")).toBeVisible();
+    expect(await within(dialog).findByText(installCommand("token-2"))).toBeVisible();
   });
 });

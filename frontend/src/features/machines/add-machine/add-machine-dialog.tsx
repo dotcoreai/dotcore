@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
+import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/segmented-control";
 import type { JoinAwaitingApproval } from "@/gen/dotcore/site/v1/membership_pb";
 
 import { ApproveStep } from "./approve-step";
@@ -53,6 +54,8 @@ export function AddMachineDialog({
 function JoinFlow({ onClose }: { onClose: () => void }) {
   const { siteMembershipClient } = useClients();
   const { restart, session } = useJoinSession(siteMembershipClient);
+  // Kept across a new command, so the operator doesn't pick again.
+  const [commandKind, setCommandKind] = useState<CommandKind>("install");
   const { started, state } = session;
 
   if (state?.state.case === "awaitingApproval" && !session.error) {
@@ -132,7 +135,7 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
           status={<ExpiredBadge />}
         >
           <Step number={1} status="warning" title="Run this on the new machine">
-            <CommandTerminal command={joinCommand(session)} dimmed />
+            <CommandTerminal command={joinCommand(session, commandKind)} dimmed />
             <Notice tone="destructive">
               {expiresAt
                 ? `This command expired at ${formatClock(timestampDate(expiresAt))}.`
@@ -148,7 +151,7 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
       return (
         <JoinLayout footer={<Button onClick={restart}>Start again</Button>}>
           <Step number={1} status="warning" title="Run this on the new machine">
-            <CommandTerminal command={joinCommand(session)} dimmed />
+            <CommandTerminal command={joinCommand(session, commandKind)} dimmed />
             <Notice tone="warning">The join was cancelled.</Notice>
           </Step>
           <Step number={2} status="todo" title="The machine connects" />
@@ -177,8 +180,19 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
           <Step number={1} status="active" title="Run this on the new machine">
             {started ? (
               <>
-                <CommandTerminal command={joinCommand(session)} />
-                <p className="text-[12.5px] text-muted-foreground">Needs dotc on that machine.</p>
+                <SegmentedControl
+                  aria-label="The new machine"
+                  className="self-start"
+                  onValueChange={setCommandKind}
+                  options={COMMAND_KINDS}
+                  value={commandKind}
+                />
+                <CommandTerminal command={joinCommand(session, commandKind)} />
+                <p className="text-[12.5px] text-muted-foreground">
+                  {commandKind === "install"
+                    ? "Installs Dotcore, joins the site and starts it. Keep this open until the machine connects."
+                    : "Joins the site and starts Dotcore."}
+                </p>
               </>
             ) : (
               <p className="flex items-center gap-2 text-muted-foreground" role="status">
@@ -294,8 +308,12 @@ function JoinLayout({
   );
 }
 
-function joinCommand(session: JoinSession): string {
-  return `dotc node join --token ${session.started?.token ?? ""}`;
+// The command for a machine without Dotcore installs it first; one with Dotcore runs dotc.
+function joinCommand(session: JoinSession, kind: CommandKind): string {
+  const token = session.started?.token ?? "";
+  return kind === "install"
+    ? `curl -fsSL ${INSTALLER_URL} | sh -s -- --join ${token}`
+    : `dotc node join --token ${token}`;
 }
 
 function connectedTitle(session: JoinSession): string {
@@ -305,3 +323,14 @@ function connectedTitle(session: JoinSession): string {
     ? `${name} connected from ${peerHost(proposal.peerAddress)}`
     : `${name} connected`;
 }
+
+/** Which command the new machine runs: the installer, or dotc when Dotcore is already there. */
+type CommandKind = "install" | "dotc";
+
+const COMMAND_KINDS: readonly SegmentedControlOption<CommandKind>[] = [
+  { label: "New machine", value: "install" },
+  { label: "Has Dotcore", value: "dotc" },
+];
+
+/** Where the Dotcore installer is published. */
+const INSTALLER_URL = "https://dotcore.ai/install.sh";
