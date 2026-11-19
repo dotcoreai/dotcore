@@ -284,7 +284,12 @@ export function useModelDeployForm({
   const binding = configuration?.artifactBindings.find(
     (candidate) => candidate.bindingId === bindingId,
   );
-  const engineRelease = profileEngineRelease(model, profile, engineReleases);
+  // A configuration that excludes parameters gets a new release object per call, and the launch
+  // values and previews built on it must keep their identity across renders.
+  const engineRelease = useMemo(
+    () => profileEngineRelease(model, profile, engineReleases),
+    [model, profile, engineReleases],
+  );
   const exposedParameters = effectiveEngineParameters(engineRelease, profile);
   const parameterGroups = engineRelease?.parameterSchema?.parameterGroups ?? [];
   // The scenario's values for the profile, hidden ones included, replace the profile's defaults.
