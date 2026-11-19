@@ -391,12 +391,10 @@ export function useModelDeployForm({
   const { chipKey, profileAvailability, scopes, tableProfileRows } = profileTable;
   const {
     fitStart,
-    forgetDefaultStart,
     launchesOn,
     pickedTarget,
     placement,
     profileLaunchCandidates,
-    readFitStart,
     selectedExecutionTarget,
   } = useModelDeployTarget({
     basis,
@@ -420,10 +418,6 @@ export function useModelDeployForm({
       : tableProfileRows.map((row) =>
           row.profileId === profileId ? { ...row, totalContext: fitStart } : row,
         );
-  const contextHint =
-    fitStart !== undefined && selectedExecutionTarget
-      ? `Up to ${formatCompactCount(fitStart)} on ${executionTargetName(selectedExecutionTarget)}`
-      : undefined;
   const { declaredValues, engineParameterInputs } = useLaunchEngineValues(
     scenarioValues,
     engineRelease,
@@ -432,24 +426,6 @@ export function useModelDeployForm({
     context,
     fitStart,
   );
-  // The largest fit offered as the total context's last chip. While the total follows it or the
-  // operator's total equals it, the chip reads as chosen. Choosing it otherwise forgets the default's
-  // frozen value, so the next read of the defaults freezes the live one and a value frozen from a
-  // stale read is corrected; without a read to freeze, it sets the value like a size chip.
-  const largestFit =
-    fitStart === undefined
-      ? undefined
-      : {
-          onSelect:
-            readFitStart === undefined
-              ? undefined
-              : () => {
-                  forgetDefaultStart();
-                  resetContext();
-                },
-          value: fitStart,
-        };
-
   const selectedProfileRow = profileRows.find((row) => row.profileId === profileId);
   const selectedAvailability = selectedProfileRow && profileAvailability?.(selectedProfileRow);
   const noProfileRuns = Boolean(
@@ -616,13 +592,6 @@ export function useModelDeployForm({
           shownParameter.parameterId,
           engineParameterError(shownParameter, nextInputs, derivedParameterIds),
         );
-    invalidatePreview();
-  };
-  // Returns the total context and context per request to the default; the operator's parallel
-  // requests stay.
-  const resetContext = () => {
-    setContext((previous) => ({ parallelRequests: previous.parallelRequests }));
-    setFieldErrors(withoutChosenContextErrors);
     invalidatePreview();
   };
   // A typed context settles once left, as a settled change does.
@@ -808,6 +777,22 @@ export function useModelDeployForm({
     targetsLoadingPresentation,
     values,
   });
+  // The total context's largest fit with the dialog's values, from the estimate of the selected
+  // profile on the selected target; the starting value stands in until that estimate lands. An
+  // estimate without a fit, such as with custom arguments, offers none.
+  const estimate = memory.estimate;
+  const estimateMatches =
+    placement !== null &&
+    estimate.profileId === profileId &&
+    estimate.placement?.siteNodeId === placement.siteNodeId &&
+    estimate.placement.executionTargetId === placement.executionTargetId;
+  const largestTotalContext = estimateMatches ? estimate.largestTotalContext : fitStart;
+  const contextHint =
+    largestTotalContext !== undefined && selectedExecutionTarget
+      ? `Up to ${formatCompactCount(largestTotalContext)} on ${executionTargetName(selectedExecutionTarget)}`
+      : undefined;
+  // Offered as the total context's last chip; choosing it sets the shown value like a size chip.
+  const largestFit = largestTotalContext === undefined ? undefined : { value: largestTotalContext };
   const launchRejectionMessage =
     memory.estimate.launchRejection && launchRejectionParameter
       ? operatorSentence(memory.estimate.launchRejection)

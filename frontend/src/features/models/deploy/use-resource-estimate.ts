@@ -22,6 +22,7 @@ export function useResourceEstimate(
           load: async () => ({
             estimate: await onEstimate(request.values),
             placement: request.values.placement,
+            profileId: request.values.profileId,
           }),
           revision: request.revision,
         }
@@ -31,12 +32,14 @@ export function useResourceEstimate(
   return {
     error: read.error,
     filledContextPerRequest: read.value?.estimate.filledContextPerRequest,
+    largestTotalContext: read.value?.estimate.largestTotalContext,
     launchRejection: read.value?.estimate.launchRejection,
     loadingVisible: read.loadingVisible,
     memoryParameterSizes: read.value?.estimate.memoryParameterSizes,
     pending: read.pending,
     placement: read.value?.placement,
     placementPreview: read.value?.estimate.placementPreview,
+    profileId: read.value?.profileId,
     stale: read.refreshFailed,
   };
 }
@@ -50,6 +53,11 @@ export type ResourceEstimateLoader = (
 export interface LocalResourceEstimate {
   /** The context per request resolution fills when the configuration leaves it out. */
   filledContextPerRequest?: number;
+  /**
+   * The largest total context that fits the placement with the configuration's other values;
+   * absent without a placement, with custom arguments, or when none fits.
+   */
+  largestTotalContext?: number;
   /** Why a deploy with this configuration would be rejected, for the operator. */
   launchRejection?: string;
   /** The memory parameters' largest fits on the placement and the values sizing picks. */
@@ -83,6 +91,8 @@ export interface ResourceEstimate {
   error?: string;
   /** The context per request resolution fills when the configuration leaves it out. */
   filledContextPerRequest?: number;
+  /** The largest total context that fits the placement with the configuration's other values. */
+  largestTotalContext?: number;
   launchRejection?: string;
   /** Whether pending feedback should show, after the reveal delay and for its minimum time. */
   loadingVisible: boolean;
@@ -91,6 +101,8 @@ export interface ResourceEstimate {
   /** The placement the shown values were estimated for. */
   placement?: ExactPlacement;
   placementPreview?: PlacementPreview;
+  /** The profile the shown values were estimated for. */
+  profileId?: string;
   /** Whether the latest refresh failed, so the values may be outdated. */
   stale?: boolean;
 }

@@ -74,7 +74,7 @@ import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
-import { sharedContextEstimate } from "./resource-estimate-test-support";
+import { compatibilityFitEstimates } from "./resource-estimate-test-support";
 import { type LocalResourceEstimate } from "./use-resource-estimate";
 
 const unifiedKvOffloadWarning =
@@ -2838,6 +2838,7 @@ describe("ModelDeployDialog", () => {
         ),
         onEstimate: () =>
           Promise.resolve({
+            largestTotalContext: 16_384,
             placementPreview: placementPreview([
               devicePool(
                 32n * gib,
@@ -3120,6 +3121,7 @@ function dialog(
     ),
   }: { watch?: FakeResourceWatch } = {},
 ) {
+  const fits = compatibilityFitEstimates(props.model ?? model, props.listProfileCompatibility);
   return (
     <ExecutionTargetsWatch watch={watch}>
       <ModelDeployDialog
@@ -3127,13 +3129,14 @@ function dialog(
         hardwareClasses={[]}
         listConfiguredExecutionTargets={targetsLoader(poolTarget())}
         model={model}
-        onEstimate={sharedContextEstimate(props.model ?? model)}
+        onEstimate={fits.onEstimate}
         onOpenChange={vi.fn()}
         onPreview={vi.fn()}
         onSubmit={vi.fn()}
         open
         pending={false}
         {...props}
+        listProfileCompatibility={fits.listProfileCompatibility}
       />
     </ExecutionTargetsWatch>
   );
