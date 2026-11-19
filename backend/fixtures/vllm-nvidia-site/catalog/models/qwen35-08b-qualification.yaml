@@ -45,9 +45,9 @@ auxiliaryArtifacts:
 configurations:
   - configurationId: "small-vllm-nvidia"
     engineArtifacts:
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-amd64-cuda"
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "qualification-binding"

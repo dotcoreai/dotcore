@@ -926,9 +926,14 @@ fn assert_generic_docker_realization(
         engine_cache_suffix.display(),
         cache.display()
     );
+    // Qwen3.5 models run breakable CUDA graphs on NVIDIA without torch.compile, so they leave no
+    // compile cache; vLLM still records its model inspection under its cache root.
+    let written = std::fs::read_dir(cache.join("vllm"))
+        .map(|mut entries| entries.next().is_some())
+        .unwrap_or(false);
     anyhow::ensure!(
-        cache.join("vllm/torch_compile_cache").is_dir(),
-        "vLLM did not write its compile cache to {}",
+        written,
+        "vLLM did not write to its cache root under {}",
         cache.display()
     );
     Ok(())

@@ -1,11 +1,16 @@
 //! Environment-gated process and Docker boundary coverage for site reset.
 
 use std::{
+    net::SocketAddr,
     path::PathBuf,
     process::{Command, Output, Stdio},
     sync::Mutex,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+use support::{canonical_temp_dir, manager_server::ManagerServer};
+
+mod support;
 
 const FIXTURE_IMAGE: &str =
     "busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662";
@@ -424,22 +429,16 @@ impl NodeLeaveFixture {
         );
     }
 
-    /// Joins the worker through the real `node add` and `node join` commands.
+    /// Joins the worker through the real `node add` and `node join` commands, against the site's
+    /// manager running for the join and stopped once it is recorded.
     fn join_worker(&self) {
+        let manager = ManagerServer::start(&self.root, SocketAddr::from(([127, 0, 0, 2], 0)));
         let token_file = self.root.join("join.token");
         let mut add = self
             .dotc()
-            .args(["node", "add", "--yes", "--site-dir"])
-            .arg(&self.site_dir)
-            .args([
-                "--listen",
-                "127.0.0.2:0",
-                "--manager-private-port",
-                "9443",
-                "--timeout",
-                "120s",
-                "--token-file",
-            ])
+            .args(["node", "add", "--yes", "--manager"])
+            .arg(manager.address().to_string())
+            .arg("--token-file")
             .arg(&token_file)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -447,13 +446,21 @@ impl NodeLeaveFixture {
             .expect("spawn dotc node add");
         let deadline = Instant::now() + Duration::from_secs(30);
         while !token_file.exists() {
-            assert!(
-                add.try_wait().expect("poll node add").is_none(),
-                "node add exited early"
-            );
+            if add.try_wait().expect("poll node add").is_some() {
+                let output = add.wait_with_output().expect("node add output");
+                panic!(
+                    "{}",
+                    manager.failure(&format!(
+                        "node add exited early with {:?}\nstderr:\n{}",
+                        output.status.code(),
+                        String::from_utf8_lossy(&output.stderr)
+                    ))
+                );
+            }
             assert!(
                 Instant::now() < deadline,
-                "node add never published its token"
+                "{}",
+                manager.failure("node add never published its token")
             );
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -835,10 +842,4 @@ fn assert_success(operation: &str, output: &Output) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-}
-
-/// Returns the system temporary directory with symlinks resolved, because the product rejects
-/// symlinked ancestors and macOS `TMPDIR` lives under the `/var` symlink.
-fn canonical_temp_dir() -> std::path::PathBuf {
-    std::fs::canonicalize(std::env::temp_dir()).expect("canonical temporary directory")
 }

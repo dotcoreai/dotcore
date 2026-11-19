@@ -15,6 +15,8 @@ pub mod fake_inference;
     reason = "only the management command tests run the fake manager"
 )]
 pub mod fake_manager;
+#[allow(dead_code, reason = "only the tests driving a real manager start one")]
+pub mod manager_server;
 #[allow(dead_code, reason = "only the terminal tests drive a pseudo-terminal")]
 pub mod pty;
 #[allow(

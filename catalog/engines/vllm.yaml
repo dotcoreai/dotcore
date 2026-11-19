@@ -1,9 +1,8 @@
-# Official vLLM release image, pinned per architecture by `engines/vllm/docker-image.nix`. The
-# unsuffixed tag is the CUDA 13 build that the R580 driver floor covers; the `-cu129` tag variant is
-# a CUDA 12.9 build.
-engineReleaseId: "vllm-v0-32-0"
+# Official vLLM release image, pinned per architecture by `engines/vllm/docker-image.nix`. It is a
+# CUDA 13 build, which the R580 driver floor covers.
+engineReleaseId: "vllm-v0-34-0"
 engineKind: "ENGINE_KIND_VLLM"
-version: "v0.32.0"
+version: "v0.34.0"
 parameterSchema:
   schemaId: "vllm-v2"
   parameterGroups:

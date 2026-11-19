@@ -320,9 +320,9 @@ configurations:
               string: "f16"
   - configurationId: "vllm-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-amd64-cuda"
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-arm64-cuda"
     # Sizing equations are measured on one NVIDIA rig and reused unmeasured as estimates on
     # other NVIDIA rigs, dedicated or unified (POC shortcut).
@@ -332,28 +332,30 @@ configurations:
         auxiliaryArtifactIds: ["gemma-chat-template"]
     # Measured on an NVIDIA GB10 host: unified host pool, linux/arm64, contexts 8192-32768, text and vision.
     # marginBytes covers this fit's 0.8 MB under-prediction plus the 1.13 GiB vLLM warm growth measured
-    # on this rig for this engine image.
+    # on this rig for this engine image. vLLM v0.34.0 first starts on the same host, at the default
+    # profile's 4 parallel requests and 32,768 total context, read 2.64 GB above the v0.32.0 base with
+    # MTP off; modelLoadingBaseBytes carries that shift, and vision was not re-measured.
     sizing:
       parameters:
-        modelLoadingBaseBytes: 25153732583
+        modelLoadingBaseBytes: 27797536768
         visionBytes: 1061830655
         marginBytes: 1300000000
-        kvBlockBytes: 1310720
+        kvBlockBytes: 5242880
         kvBatchedTokenBytes: 819200
         kvBytesPerToken: 128326
-        # Estimated, unverified: the 26B A4B's RTX 5090 on/off delta plus this assistant's
-        # 99.6 MB of extra weights; no extra KV is expected, since the assistant shares it.
-        mtpBytes: 1485832192
+        # The GB10 on/off delta at 4 draft tokens with vLLM v0.34.0, otherwise as the base measurement;
+        # no extra KV, since the assistant shares the target's.
+        mtpBytes: 1223950336
       derivedParameters:
         # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: one for
         # rounding its full-attention context up and, in each of the 5 sliding-window layer groups, its
-        # 1024-token window plus draft lookahead (67 blocks); the tokens of the 2 batches in flight hold
-        # more sliding-window blocks, counted once; one more block is held back. With one request this
-        # covers vLLM's start check at a context per request equal to the total context. The MTP
-        # assistant shares the target's KV. Per-token bytes are the measurement, larger than the block
-        # layout's.
+        # 1024-token window plus draft lookahead (18 blocks of 64 tokens); the tokens of the 2 batches
+        # in flight hold more sliding-window blocks, counted once; one more block is held back. With one
+        # request this covers vLLM's start check at a context per request equal to the total context.
+        # The MTP assistant shares the target's KV. Per-token bytes are the measurement, larger than the
+        # block layout's.
         kv-cache-memory-bytes: >-
-          ${kvBlockBytes} * (1 + ${parallel-requests} * 336)
+          ${kvBlockBytes} * (1 + ${parallel-requests} * 91)
           + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
           + ${kvBytesPerToken} * ${total-context}
       estimates:

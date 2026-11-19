@@ -44,7 +44,7 @@ fn classify_chat_rejection(status: u16, body: &[u8]) -> Option<InvalidRequest> {
 
 /// vLLM's refusals of a prompt larger than the deployment's context, which it answers with HTTP
 /// 400. It counts the prompt's tokens, or first bounds its characters, and may report a token
-/// count that is only a lower bound (v0.32.0 `vllm/renderers/params.py`).
+/// count that is only a lower bound (v0.34.0 `vllm/renderers/params.py`).
 const OVERSIZED_PROMPT_REJECTIONS: [&str; 3] = [
     "This model's maximum context length is %d tokens. However, your prompt contains %d input tokens, which exceeds this limit even without any output tokens. Please reduce the length of the input prompt. (parameter=input_tokens, value=%d)",
     "This model's maximum context length is %d tokens. However, your prompt contains at least %d input tokens, which exceeds this limit even without any output tokens. Please reduce the length of the input prompt. (parameter=input_tokens, value=%d)",

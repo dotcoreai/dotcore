@@ -4227,6 +4227,7 @@ fn materialize_temporary_site_configuration(
     fs::write(root.join("site.yaml"), site)
         .map_err(|error| format!("write temporary Docker site fixture: {error}"))?;
     support::configure_observation_interval(root, 1);
+    support::install_manager_trust(root);
     fs::copy(fixture.join("node.yaml"), root.join("node.yaml"))
         .map_err(|error| format!("copy Docker node fixture: {error}"))?;
     Ok(())

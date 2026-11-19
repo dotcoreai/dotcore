@@ -219,6 +219,7 @@ pub fn materialize_site(
         .with_context(|| format!("serialize {fixture} site"))?;
     fs::write(root.join("site.yaml"), declaration)
         .with_context(|| format!("write {fixture} site"))?;
+    crate::support::install_manager_trust(root);
     fs::copy(source.join("node.yaml"), root.join("node.yaml"))
         .with_context(|| format!("copy {fixture} node binding"))?;
     if source.join("catalog").is_dir() {

@@ -286,9 +286,9 @@ configurations:
               unsignedInteger: "2"
   - configurationId: "vllm-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-amd64-cuda"
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"
@@ -302,19 +302,19 @@ configurations:
         mtpBytes: 2450410949
         visionBytes: 591639100
         marginBytes: 800000000
-        kvBlockBytes: 21463040
+        kvBlockBytes: 21626880
         kvBytesPerToken: 13167
-        kvMtpBlockBytes: 25051136
+        kvMtpBlockBytes: 25231360
         kvMtpBytesPerToken: 14191
       derivedParameters:
         # vLLM's KV pool in whole blocks: the total context plus each request's recurrent-state and
         # rounding blocks, more for each MTP draft token.
         kv-cache-memory-bytes: >-
           if(${options.mtp.token-count} > 0, 1, 0)
-          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (7 + 3 * ${options.mtp.token-count}))
+          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (10 + 3 * ${options.mtp.token-count}))
           + ${kvMtpBytesPerToken} * ${total-context})
           + if(${options.mtp.token-count} == 0, 1, 0)
-          * (${kvBlockBytes} * (1 + ${parallel-requests} * 7)
+          * (${kvBlockBytes} * (1 + ${parallel-requests} * 10)
           + ${kvBytesPerToken} * ${total-context})
       estimates:
         acceleratorMemory:

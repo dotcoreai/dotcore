@@ -280,9 +280,9 @@ configurations:
               unsignedInteger: "4"
   - configurationId: "vllm-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-amd64-cuda"
-      - engineReleaseId: "vllm-v0-32-0"
+      - engineReleaseId: "vllm-v0-34-0"
         engineArtifactId: "linux-arm64-cuda"
     # Sizing equations are measured on one NVIDIA rig and reused unmeasured as estimates on
     # other NVIDIA rigs, dedicated or unified (POC shortcut).
@@ -298,7 +298,7 @@ configurations:
         modelLoadingBaseBytes: 17701666799
         visionBytes: 1088667647
         marginBytes: 1400000000
-        kvBlockBytes: 327680
+        kvBlockBytes: 1310720
         kvBatchedTokenBytes: 204800
         kvBytesPerToken: 31984
         # Estimated from one RTX 5090 on/off delta (32k context, vision off): assistant
@@ -307,13 +307,13 @@ configurations:
       derivedParameters:
         # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: one for
         # rounding its full-attention context up and, in each of the 5 sliding-window layer groups, its
-        # 1024-token window plus draft lookahead (67 blocks); the tokens of the 2 batches in flight hold
-        # more sliding-window blocks, counted once; one more block is held back. With one request this
-        # covers vLLM's start check at a context per request equal to the total context. The MTP
-        # assistant shares the target's KV. Per-token bytes are the measurement, larger than the block
-        # layout's.
+        # 1024-token window plus draft lookahead (18 blocks of 64 tokens); the tokens of the 2 batches
+        # in flight hold more sliding-window blocks, counted once; one more block is held back. With one
+        # request this covers vLLM's start check at a context per request equal to the total context.
+        # The MTP assistant shares the target's KV. Per-token bytes are the measurement, larger than the
+        # block layout's.
         kv-cache-memory-bytes: >-
-          ${kvBlockBytes} * (1 + ${parallel-requests} * 336)
+          ${kvBlockBytes} * (1 + ${parallel-requests} * 91)
           + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
           + ${kvBytesPerToken} * ${total-context}
       estimates:
