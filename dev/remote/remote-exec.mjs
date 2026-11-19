@@ -224,12 +224,15 @@ export function remoteWorkspaceName(localName, localRoot, machine) {
   return `remote-${readable}-${hash}`;
 }
 
-/** Arguments that make ssh non-interactive and use the configured identity, if any. */
+/** Arguments that make ssh non-interactive and use only the configured identity, if any. */
 export function sshOptions(host, env = process.env) {
   // A forwarded agent is never needed remotely, and forwarding it back to the host holding it loops.
   const options = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ForwardAgent=no"];
   if (host.key) {
-    options.push("-i", expandHome(host.key, env), "-o", "IdentitiesOnly=yes");
+    // A configured key is the only identity: the user's own configuration and agent would otherwise
+    // offer theirs, and an agent copy of a key the configuration names wins over the key file.
+    options.push("-F", "/dev/null", "-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes");
+    options.push("-i", expandHome(host.key, env));
   }
   if (host.user) {
     options.push("-l", host.user);
@@ -1668,7 +1671,7 @@ function notConfiguredMessage() {
         gb10: { user: "me", dir: "/home/me/dotcore", hosts: { "gb10-host-1": "gb10-host-1.example.net" } },
       },
     }, null, 2),
-    "`key` is optional (otherwise ssh uses your own configuration); a host may override user, key and dir.",
+    "`key` is optional and, when set, the only identity used; a host may override user, key and dir.",
     "The host needs a jj checkout at dir, a global gitignore entry for .workspaces, direnv allowed in dir, and its ssh host key accepted once.",
   ].join("\n");
 }

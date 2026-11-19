@@ -25,6 +25,7 @@ Then list your hosts in a JSON file, and point `DOTCORE_REMOTE_CONFIG` at it, fo
     "gpu": {
       "user": "me",
       "dir": "/home/me/dotcore",
+      "key": "~/.ssh/gpu-key",
       "hosts": { "gpu1": "gpu1.example.net", "gpu2": "gpu2.example.net" }
     },
     "mac": { "dir": "/Users/me/dotcore", "hosts": { "mac1": "mac1.example.net" } }
@@ -32,7 +33,9 @@ Then list your hosts in a JSON file, and point `DOTCORE_REMOTE_CONFIG` at it, fo
 }
 ```
 
-A host is written `<group>` or `<group>:<host>`. A bare group means its first host.
+A host is written `<group>` or `<group>:<host>`. A bare group means its first host. `user`, `key` and `dir` are group-wide defaults that a host entry can override.
+
+`key` names the private key the host accepts, and that key is then the only identity used: your own ssh configuration and agent are ignored. So the address must be a real host name, since aliases and jump hosts don't apply, and `user` must come from this file when it differs from your local user name. The key must open without a passphrase prompt, since these connections never prompt. Without `key`, ssh decides from your own configuration and agent.
 
 ## What gets sent
 

@@ -74,15 +74,16 @@ test("remote workspace names are marked, sanitized and distinct per root and mac
   assert.equal(name, remoteWorkspaceName("my/ws name", "/work/a", machine));
 });
 
-test("ssh and git share one option set, and the key is optional", () => {
+test("ssh and git share one option set, and a key is the only identity", () => {
   const withKey = { user: "dev", key: "~/.ssh/spark" };
   const env = { HOME: "/home/me" };
   assert.deepEqual(sshOptions(withKey, env), [
-    "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ForwardAgent=no", "-i", "/home/me/.ssh/spark", "-o", "IdentitiesOnly=yes", "-l", "dev",
+    "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ForwardAgent=no",
+    "-F", "/dev/null", "-o", "IdentityAgent=none", "-o", "IdentitiesOnly=yes", "-i", "/home/me/.ssh/spark", "-l", "dev",
   ]);
   assert.equal(
     gitSshCommand(withKey, env),
-    "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ForwardAgent=no -i /home/me/.ssh/spark -o IdentitiesOnly=yes -l dev",
+    "ssh -o BatchMode=yes -o ConnectTimeout=10 -o ForwardAgent=no -F /dev/null -o IdentityAgent=none -o IdentitiesOnly=yes -i /home/me/.ssh/spark -l dev",
   );
   assert.deepEqual(sshOptions({}, env), ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ForwardAgent=no"]);
 });
