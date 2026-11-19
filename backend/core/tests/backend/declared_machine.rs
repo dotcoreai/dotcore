@@ -2,11 +2,11 @@
 //! the host's hardware, its simulated models take their estimate on that machine, a machine of
 //! another platform runs simulated models without downloading engine artifacts, each GPU of a
 //! machine with GPUs of different sizes launches against its own memory, a starting deployment
-//! counts once in the fits, starting values and placement previews of the next one, and a node
-//! memory watch follows a deployment's claim, then its measured use, then its removal, never
-//! drawing a deployment's memory twice when its measured use arrives, nor dropping the estimate
-//! of a model that turns ready before a reading measures it. A simulated app's services record
-//! the CPU and memory they take on the machine as metric history.
+//! counts once in the fits, starting values, placement previews and memory parameter fits of the
+//! next one, and a node memory watch follows a deployment's claim, then its measured use, then its
+//! removal, never drawing a deployment's memory twice when its measured use arrives, nor dropping
+//! the estimate of a model that turns ready before a reading measures it. A simulated app's
+//! services record the CPU and memory they take on the machine as metric history.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -44,8 +44,9 @@ use dotcore_proto::dotcore::{
         CreateLocalModelDeploymentRequest, CreateModelDeploymentRequest,
         EstimateLocalModelResourcesRequest, ListModelDeploymentsRequest,
         ListModelProfileCompatibilityRequest, LocalModelDeploymentConfiguration,
-        ModelProfileCompatibility, RemoveModelDeploymentRequest, SizingScenario,
-        StartingTotalContextSource, create_model_deployment_request, model_deployment_snapshot,
+        MemoryParameterFit, ModelProfileCompatibility, RemoveModelDeploymentRequest,
+        SizingScenario, StartingTotalContextSource, create_model_deployment_request,
+        model_deployment_snapshot,
     },
     observation::v1::{
         AcceleratorFacts, AcceleratorMemoryArchitecture, HardwareSnapshot, accelerator_observation,
@@ -1312,7 +1313,7 @@ async fn check_previews(
         (starting + 1, MemoryFit::Exceeds),
     ] {
         let label = format!("{machine} {} at {total_context}", entry.profile_id);
-        let preview = backend
+        let estimate = backend
             .model_client()
             .estimate_local_model_resources(EstimateLocalModelResourcesRequest {
                 model_id: "probe-model".to_owned(),
@@ -1325,9 +1326,8 @@ async fn check_previews(
             })
             .await
             .expect("resource estimate")
-            .into_inner()
-            .placement_preview
-            .expect("a placement preview");
+            .into_inner();
+        let preview = estimate.placement_preview.expect("a placement preview");
         let compatibility = backend
             .model_client()
             .list_model_profile_compatibility(ListModelProfileCompatibilityRequest {
@@ -1349,15 +1349,44 @@ async fn check_previews(
         assert_eq!(preview.free_memory_fit(), expected_fit, "{label}");
         assert_eq!(compatibility.free_memory_fit(), expected_fit, "{label}");
         assert!(preview.observed_at.is_some(), "{label}: reading time");
+        let expected = expected_preview(idle, gpu, &entry.profile_id, total_context, step);
         assert_eq!(
             PlacementPreview {
                 observed_at: None,
                 ..preview
             },
-            expected_preview(idle, gpu, &entry.profile_id, total_context, step),
+            expected,
             "{label}"
         );
+        assert_eq!(
+            estimate.memory_parameter_fits,
+            vec![MemoryParameterFit {
+                parameter_id: "prompt-cache-memory-mib".to_owned(),
+                largest_fit: prompt_cache_fit(&expected),
+            }],
+            "{label}: prompt cache"
+        );
     }
+}
+
+/// The largest prompt cache in MiB that fits beside the configuration `expected` previews: the
+/// room its host pool leaves under the fit line, within the fixture engine's maximum of 64 GiB,
+/// when everything fits, and the minimum of 0 otherwise.
+fn prompt_cache_fit(expected: &PlacementPreview) -> u64 {
+    if expected.free_memory_fit() != MemoryFit::Fits {
+        return 0;
+    }
+    let host = expected.pools.last().expect("a host pool");
+    let drawn = host
+        .pool
+        .as_ref()
+        .expect("pool")
+        .segments
+        .iter()
+        .map(|segment| segment.bytes)
+        .sum::<u64>();
+    let line = host.fit_line_bytes.expect("a fit line");
+    ((line - drawn) / MIB).min(65_536)
 }
 
 /// The placement preview the probe profile `profile_id` at `total_context` gets on the target of
@@ -1590,7 +1619,8 @@ async fn wait_for_attributed_memory(
 
 /// The probe model, on the fixture Linux NVIDIA engine or the darwin Nix fixture engine. Its probe
 /// profile takes 8192 bytes of accelerator memory per token of total context and 256 MiB of host
-/// memory; its host probe profile swaps the two, so host memory bounds its largest fit.
+/// memory; its host probe profile swaps the two, so host memory bounds its largest fit. Both take
+/// their prompt cache in host memory too.
 fn probe_model(darwin: bool) -> String {
     let (engine, artifact, class) = if darwin {
         ("fixture-nix-engine", "fixture-metal", "apple")
@@ -1623,7 +1653,7 @@ configurations:
           equation: "${{bytesPerToken}} * ${{total-context}}"
         hostMemory:
           unit: bytes
-          equation: "${{hostBytes}}"
+          equation: "${{hostBytes}} + ${{prompt-cache-memory-mib}} * MiB"
     hardwareSupport:
       - hardwareClassId: "{class}"
         hardwareRequirements:
@@ -1646,7 +1676,7 @@ configurations:
           equation: "${{acceleratorBytes}}"
         hostMemory:
           unit: bytes
-          equation: "${{bytesPerToken}} * ${{total-context}}"
+          equation: "${{bytesPerToken}} * ${{total-context}} + ${{prompt-cache-memory-mib}} * MiB"
     hardwareSupport:
       - hardwareClassId: "{class}"
         hardwareRequirements:

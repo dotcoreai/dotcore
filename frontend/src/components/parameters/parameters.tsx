@@ -1,4 +1,4 @@
-import { Fragment, type RefObject } from "react";
+import { Fragment, type ReactNode, type RefObject } from "react";
 
 import { Detail } from "@/components/ui/detail-list";
 import { Field } from "@/components/ui/field";
@@ -33,6 +33,11 @@ interface ParametersFormProps {
   onChange: (parameterId: string, input: string) => void;
   /** The step's parameters, in parameter order. */
   parameters: readonly ParameterView[];
+  /**
+   * The owner's own field for a parameter, used in place of the typed one when it returns one, such
+   * as a richer control for some numbers. The field keeps its place in the layout.
+   */
+  renderField?: (parameter: ParameterView) => ReactNode;
   /** The errors of the latest blocked navigation, keyed by parameter ID; they open their groups. */
   revealedErrors?: FieldErrors;
 }
@@ -151,11 +156,14 @@ type TextType = Extract<ParameterViewType, { kind: "secret" | "text" }>;
 // One parameter's field, its control chosen by the parameter's type.
 function ParameterField({
   parameter,
-  props: { errors, idPrefix, inputRefs, inputs, onBlur, onChange },
+  props: { errors, idPrefix, inputRefs, inputs, onBlur, onChange, renderField },
 }: {
   parameter: ParameterView;
   props: ParametersFormProps;
 }) {
+  const ownField = renderField?.(parameter);
+  if (ownField) return ownField;
+
   const controlId = `${idPrefix}-${parameter.id}`;
   const unit = parameter.type.kind === "unsignedInteger" ? parameter.type.unit : "";
   const field = {

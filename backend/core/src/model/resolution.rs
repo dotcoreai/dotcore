@@ -35,9 +35,12 @@ use dotcore_site::node::target_inventory::TargetCapabilityInventory;
 
 use crate::{
     SecretGenerator,
-    hardware::selection::{
-        HardwareClassSelectionError, SelectedTargetCapabilities, TargetCapabilitySelectionError,
-        select_hardware_class, select_target_capabilities,
+    hardware::{
+        capacity::Estimate,
+        selection::{
+            HardwareClassSelectionError, SelectedTargetCapabilities,
+            TargetCapabilitySelectionError, select_hardware_class, select_target_capabilities,
+        },
     },
     model::{
         engine::{EngineIntegrationRegistry, engine_artifact_kinds},
@@ -100,6 +103,12 @@ impl ResolvedLocalModelValues {
         })
     }
 
+    /// The memory estimate the capacity component judges: the accelerator and host estimates,
+    /// each absent when sizing gives none.
+    pub(crate) fn estimate(&self) -> Estimate {
+        memory_estimate(&self.estimates)
+    }
+
     /// Advisory estimate of these values on their hardware class, with the derived engine
     /// parameter values; `include_estimates` false leaves the resource estimates out, for
     /// configurations whose footprint they can't predict.
@@ -131,6 +140,23 @@ impl ResolvedLocalModelValues {
                 .as_ref()
                 .map(ModelLaunchResolutionError::operator_reason),
         }
+    }
+}
+
+/// One local selection's evaluated values: [`ResolvedLocalModelValues`] without the selection.
+pub(crate) struct EvaluatedValues {
+    pub(crate) engine_parameter_values: ParameterValues,
+    pub(crate) derived_engine_parameter_values: ParameterValues,
+    pub(crate) engine_parameter_schema: EngineParameterSchema,
+    pub(crate) option_values: Vec<ModelOptionValues>,
+    pub(crate) estimates: Vec<ScalarResourceEstimate>,
+    pub(crate) launch_rejection: Option<ModelLaunchResolutionError>,
+}
+
+impl EvaluatedValues {
+    /// The memory estimate the capacity component judges, as [`ResolvedLocalModelValues::estimate`].
+    pub(crate) fn estimate(&self) -> Estimate {
+        memory_estimate(&self.estimates)
     }
 }
 
@@ -788,6 +814,34 @@ fn evaluate_selected_values(
     configuration: &LocalModelDeploymentConfiguration,
     selection: LocalModelSelection,
 ) -> Result<ResolvedLocalModelValues, ModelLaunchResolutionError> {
+    let EvaluatedValues {
+        engine_parameter_values,
+        derived_engine_parameter_values,
+        engine_parameter_schema,
+        option_values,
+        estimates,
+        launch_rejection,
+    } = evaluate_values(catalog, profile_id, configuration, &selection)?;
+    Ok(ResolvedLocalModelValues {
+        selection,
+        engine_parameter_values,
+        derived_engine_parameter_values,
+        engine_parameter_schema_id: engine_parameter_schema.schema_id.clone(),
+        engine_parameter_schema,
+        option_values,
+        estimates,
+        launch_rejection,
+    })
+}
+
+/// Evaluates a selection's values as [`evaluate_selected_values`] does without taking the
+/// selection, so a caller can evaluate it again with other values.
+pub(crate) fn evaluate_values(
+    catalog: &Catalog,
+    profile_id: &str,
+    configuration: &LocalModelDeploymentConfiguration,
+    selection: &LocalModelSelection,
+) -> Result<EvaluatedValues, ModelLaunchResolutionError> {
     let engine_parameter_values = configuration.engine_parameter_values.as_ref().ok_or(
         ModelLaunchResolutionError::InvalidConfiguration(
             "local deployment configuration has no engine parameter values",
@@ -876,7 +930,7 @@ fn evaluate_selected_values(
     if let Some(error) = parameter_errors.into_iter().next() {
         return Err(ModelLaunchResolutionError::InvalidParameterValues(error));
     }
-    let launch_rejection = validate_launch_values(&selection, &complete_values).err();
+    let launch_rejection = validate_launch_values(selection, &complete_values).err();
 
     let estimates = catalog
         .evaluate_local_sizing_inputs(
@@ -910,13 +964,9 @@ fn evaluate_selected_values(
         (Err(_), Some(rejection)) => return Err(rejection),
         (Err(error), None) => return Err(error),
     };
-    let engine_parameter_schema_id = schema.schema_id.clone();
-
-    Ok(ResolvedLocalModelValues {
-        selection,
+    Ok(EvaluatedValues {
         engine_parameter_values: complete_values,
         derived_engine_parameter_values,
-        engine_parameter_schema_id,
         engine_parameter_schema: schema,
         option_values,
         estimates,
@@ -1244,6 +1294,20 @@ fn describe_options(option_values: &[ModelOptionValues]) -> String {
         "none".to_owned()
     } else {
         pairs.join(", ")
+    }
+}
+
+/// The accelerator and host memory among sizing's `estimates`, each absent when sizing gives none.
+fn memory_estimate(estimates: &[ScalarResourceEstimate]) -> Estimate {
+    let bytes = |resource: &str| {
+        estimates
+            .iter()
+            .find(|estimate| estimate.resource == resource)
+            .map(|estimate| estimate.value)
+    };
+    Estimate {
+        accelerator_bytes: bytes(ACCELERATOR_MEMORY_RESOURCE),
+        host_bytes: bytes(HOST_MEMORY_RESOURCE),
     }
 }
 

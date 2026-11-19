@@ -306,6 +306,14 @@ fn repository_catalog_sizing_is_linear_in_the_total_context() {
     );
 }
 
+#[test]
+fn repository_catalog_memory_parameters_never_shrink_their_declared_estimate() {
+    assert_eq!(
+        dotcore_catalog::test_support::memory_estimates_decreasing(&repository_catalog()),
+        Vec::<String>::new()
+    );
+}
+
 /// Every repository profile's largest fit on each GPU target of each simulated hardware choice
 /// (each named GPU alone on the simulated host, and each named machine), idle, fills
 /// the target's free memory less the headroom: both verdicts read "fits" there, and the

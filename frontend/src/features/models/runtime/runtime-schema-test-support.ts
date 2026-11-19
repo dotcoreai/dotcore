@@ -10,7 +10,7 @@ import {
   ModelSchema,
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
-import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { MemoryPool, ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import { EngineKind } from "@/gen/dotcore/engine/v1/engine_pb";
 
 // Engine releases and a model mirroring the master catalog `catalog/engines/{llama-cpp,vllm,ninfer}.yaml`
@@ -63,6 +63,7 @@ export const llamaCppRelease = create(EngineReleaseSchema, {
         {
           description:
             "Memory kept to reuse repeated prompts, such as agent system prompts, without processing them again. Idle conversations move here and free their accelerator memory. It uses host memory, which unified-memory machines share with the model; 0 turns the cache off.",
+          memoryPool: MemoryPool.HOST,
         },
       ),
     ],
@@ -122,6 +123,7 @@ export const vllmRelease = create(EngineReleaseSchema, {
         {
           description: "Host memory used to offload the KV cache, in GiB.",
           groupId: "host-memory",
+          memoryPool: MemoryPool.HOST,
         },
       ),
     ],
@@ -166,6 +168,7 @@ export const ninferRelease = create(EngineReleaseSchema, {
           description:
             "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
           groupId: "host-memory",
+          memoryPool: MemoryPool.HOST,
         },
       ),
     ],
@@ -207,6 +210,7 @@ export const strataRelease = create(EngineReleaseSchema, {
         {
           defaultValue: 8192n,
           groupId: "expert-memory",
+          memoryPool: MemoryPool.ACCELERATOR,
         },
       ),
       unsignedParameter(
@@ -219,6 +223,7 @@ export const strataRelease = create(EngineReleaseSchema, {
         {
           defaultValue: 16384n,
           groupId: "expert-memory",
+          memoryPool: MemoryPool.HOST,
         },
       ),
     ],
@@ -421,7 +426,14 @@ function unsignedParameter(
     defaultValue,
     description = "",
     groupId,
-  }: { defaultValue?: bigint; description?: string; groupId?: string } = {},
+    memoryPool,
+  }: {
+    defaultValue?: bigint;
+    description?: string;
+    groupId?: string;
+    /** The sizing estimate a memory parameter feeds. */
+    memoryPool?: MemoryPool;
+  } = {},
 ) {
   return {
     parameterId,
@@ -431,7 +443,7 @@ function unsignedParameter(
     description,
     parameterType: {
       case: "unsignedInteger" as const,
-      value: { minimum, maximum, unit, defaultValue },
+      value: { minimum, maximum, unit, defaultValue, memoryPool },
     },
   };
 }

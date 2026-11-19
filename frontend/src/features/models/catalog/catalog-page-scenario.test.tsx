@@ -195,8 +195,8 @@ describe("ModelCatalogPage Runs on sized for", () => {
       "aria-checked",
       "true",
     );
-    expect(within(menu).getByRole("textbox", { name: "Total context" })).toHaveValue("131072");
-    expect(within(menu).getByRole("textbox", { name: "Context per request" })).toHaveValue("32768");
+    expect(within(menu).getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
+    expect(within(menu).getByRole("textbox", { name: "Context per request" })).toHaveValue("32k");
     await user.keyboard("{Escape}");
 
     // At defaults on gpu-box alone, both profiles fit.
@@ -339,11 +339,9 @@ describe("ModelCatalogPage Runs on sized for", () => {
     ).toEqual(["8k", "32k", "64k", "128k", "256k"]);
 
     fireEvent.change(perRequest, { target: { value: "1000" } });
-    expect(within(menu).getByRole("textbox", { name: "Context per request" })).toHaveValue(
-      "262144",
-    );
+    expect(within(menu).getByRole("textbox", { name: "Context per request" })).toHaveValue("256k");
     fireEvent.change(total, { target: { value: "0" } });
-    expect(within(menu).getByRole("textbox", { name: "Total context" })).toHaveValue("1024");
+    expect(within(menu).getByRole("textbox", { name: "Total context" })).toHaveValue("1k");
   });
 
   it("applies typed values once typing pauses, presets at once, and defaults again", async () => {
@@ -363,8 +361,8 @@ describe("ModelCatalogPage Runs on sized for", () => {
     // An empty context per request stands for up to the total context.
     const perRequest = within(menu).getByRole("textbox", { name: "Context per request" });
     expect(perRequest).toHaveValue("");
-    expect(perRequest).toHaveAttribute("placeholder", "131072");
-    await user.type(perRequest, "32768");
+    expect(perRequest).toHaveAttribute("placeholder", "128k");
+    await user.type(perRequest, "32k");
     await waitFor(() =>
       expect(currentLocation(router)).toBe(
         "/models/catalog?f=runs&runs=node%3Amac&ctx=131072&req=32768",
@@ -506,9 +504,9 @@ describe("ModelCatalogPage Runs on sized for", () => {
     await user.click(within(menu).getByRole("menuitemradio", { name: "Custom" }));
     const total = within(menu).getByRole("textbox", { name: "Total context" });
     const perRequest = within(menu).getByRole("textbox", { name: "Context per request" });
-    await user.type(perRequest, "262144");
+    await user.type(perRequest, "256k");
     await user.click(total);
-    expect(total).toHaveValue("262144");
+    expect(total).toHaveValue("256k");
     expect(screen.queryByText(/must be at most/)).not.toBeInTheDocument();
     await waitFor(() =>
       expect(currentLocation(router)).toBe(
@@ -522,7 +520,7 @@ describe("ModelCatalogPage Runs on sized for", () => {
         { name: "64k" },
       ),
     );
-    expect(perRequest).toHaveValue("65536");
+    expect(perRequest).toHaveValue("64k");
     await waitFor(() =>
       expect(currentLocation(router)).toBe(
         "/models/catalog?f=runs&runs=node%3Amac&ctx=65536&req=65536",
@@ -541,14 +539,14 @@ describe("ModelCatalogPage Runs on sized for", () => {
     );
     const total = within(menu).getByRole("textbox", { name: "Total context" });
     const perRequest = within(menu).getByRole("textbox", { name: "Context per request" });
-    await user.type(perRequest, "65536");
+    await user.type(perRequest, "64k");
     await user.clear(total);
     // The cleared field keeps focus, so typing doesn't click it again.
-    await user.type(total, "512k", { skipClick: true });
+    await user.type(total, "1.3k", { skipClick: true });
     await user.click(perRequest);
     expect(screen.getByText("Total context must be a whole number of tokens.")).toBeVisible();
     expect(total).toHaveAttribute("aria-invalid", "true");
-    expect(perRequest).toHaveValue("65536");
+    expect(perRequest).toHaveValue("64k");
     // Leaving the context per request applied it; the invalid total never applies.
     await waitFor(() =>
       expect(currentLocation(router)).toBe(

@@ -249,6 +249,7 @@ mod tests {
                 maximum: Some(8),
                 unit: "workers".into(),
                 default_value: Some(2),
+                memory_pool: None,
             },
         ));
         assert!(check_value(&integer, &Value::UnsignedInteger(8)).is_ok());
@@ -264,6 +265,7 @@ mod tests {
                 maximum: None,
                 unit: "tokens".into(),
                 default_value: None,
+                memory_pool: None,
             },
         ));
         assert!(check_value(&unbounded, &Value::UnsignedInteger(u64::MAX)).is_ok());
@@ -445,6 +447,7 @@ mod tests {
                     maximum: Some(1),
                     unit: String::new(),
                     default_value: None,
+                    memory_pool: None,
                 },
             )),
             &["parameter \"mode\" minimum must not exceed its maximum"],

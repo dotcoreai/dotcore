@@ -3,16 +3,13 @@ import type { ReactNode, RefObject } from "react";
 import { RangeFact } from "@/components/parameters/parameters";
 import { Field } from "@/components/ui/field";
 import type { ParameterDefinition } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { isSizeUnit } from "@/lib/format";
 
-import {
-  ContextSizeInput,
-  type ContextSizeLargestFit,
-  type ContextSizeRange,
-} from "./context-size-input";
+import { SizeInput, type SizeLargestFit, type SizeRange } from "./size-input";
 
-interface ContextSizeFieldProps {
-  disabled: boolean;
-  /** The value an empty input stands for, for an optional parameter resolution fills in. */
+interface SizeFieldProps {
+  disabled?: boolean;
+  /** The value an empty box stands for, for an optional parameter resolution fills in. */
   emptyValue?: number;
   error?: string;
   /** Buttons that change the value, shown under the input. */
@@ -24,29 +21,29 @@ interface ContextSizeFieldProps {
   input: string;
   inputRefs: RefObject<Map<string, HTMLElement | null>>;
   /** The largest size that fits the selected target, offered as the input's last chip. */
-  largestFit?: ContextSizeLargestFit;
+  largestFit?: SizeLargestFit;
   onBlur: (parameter: ParameterDefinition) => void;
   /** Receives each change, and whether it is settled rather than typing in progress. */
   onChange: (parameter: ParameterDefinition, input: string, settled: boolean) => void;
-  /** An unsigned-integer context size parameter; its schema range bounds the number input. */
+  /** An unsigned-integer parameter in tokens or a byte unit; its schema range bounds the box. */
   parameter: ParameterDefinition;
   /**
-   * The values the slider and size chips span, derived from declared data; without it, only the
-   * number input shows.
+   * The values the slider and size chips span, such as up to the largest fit; without it, only the
+   * box shows.
    */
-  range?: ContextSizeRange;
-  /** The range the slider is drawn over, shared with other context fields so they line up. */
-  sliderRange?: ContextSizeRange;
+  range?: SizeRange;
+  /** The range the slider is drawn over, shared with sibling fields so they line up. */
+  sliderRange?: SizeRange;
 }
 
 /**
- * Edits a context size engine parameter with the shared context size input, under its name and a
- * help popover holding the description, the parameter's schema range and its unit. The number input
- * owns validation and focus.
+ * Edits a size engine parameter, a context size or a memory size, with the shared size input,
+ * under its name and a help popover holding the description, the parameter's schema range and its
+ * unit. The box owns validation and focus.
  */
-export function ContextSizeField({
+export function SizeField({
   actions,
-  disabled,
+  disabled = false,
   emptyValue,
   error,
   facts,
@@ -59,14 +56,12 @@ export function ContextSizeField({
   parameter,
   range,
   sliderRange,
-}: ContextSizeFieldProps) {
+}: SizeFieldProps) {
   if (parameter.parameterType.case !== "unsignedInteger") return null;
 
   const { maximum, minimum, unit } = parameter.parameterType.value;
-  const { maximum: end, minimum: start } = range ?? {
-    maximum: Number(minimum),
-    minimum: Number(minimum),
-  };
+  if (!isSizeUnit(unit)) return null;
+
   const inputId = `engine-parameter-${parameter.parameterId}`;
   return (
     <Field
@@ -86,7 +81,7 @@ export function ContextSizeField({
       label={parameter.displayName}
     >
       {(control) => (
-        <ContextSizeInput
+        <SizeInput
           describedBy={control["aria-describedby"]}
           disabled={disabled}
           emptyValue={emptyValue}
@@ -97,10 +92,9 @@ export function ContextSizeField({
           invalid={Boolean(error)}
           largestFit={largestFit}
           label={parameter.displayName}
-          maximum={end}
-          minimum={start}
           onBlur={() => onBlur(parameter)}
           onChange={(value, settled) => onChange(parameter, value, settled)}
+          range={range}
           sliderRange={sliderRange}
           unit={unit}
           value={input}

@@ -53,6 +53,7 @@ parameterSchema:
         minimum: "0"
         maximum: "2147483647"
         unit: "MiB"
+        memoryPool: "MEMORY_POOL_HOST"
 artifacts:
   - artifactId: "metal"
     nix:

@@ -68,6 +68,10 @@ flowchart LR
 
 - Draw what the server answers: owner reads, capacity verdicts, previews, recommendations and
   metrics.
+- Offer one size control for the context and for engine memory parameters. The box holds the size
+  with its unit, in the largest unit that shows it exactly, and accepts typed binary suffixes. Chips
+  offer round sizes and the largest fit; a chip shows as pressed only after a click, and an empty
+  box shows the sized value. Memory sliders end at the largest fit the server answers.
 - Hide Get started for the whole site once a ready step shows or the operator dismisses it. The
   profile menu still opens the page without changing the choice. The choice is a site-wide console
   setting, read from and updated through the site manager ([sites](sites.md#site-manager)).

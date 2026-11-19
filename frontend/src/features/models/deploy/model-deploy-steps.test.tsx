@@ -55,7 +55,7 @@ describe("ModelDeployDialog Settings step", () => {
     expect(
       screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
     ).toEqual([
-      ["engine-parameter-total-context", "32768"],
+      ["engine-parameter-total-context", "32k"],
       ["engine-parameter-context-per-request", ""],
     ]);
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveAccessibleDescription(
@@ -86,7 +86,7 @@ describe("ModelDeployDialog Settings step", () => {
     expect(
       screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
     ).toEqual([
-      ["engine-parameter-total-context", "65536"],
+      ["engine-parameter-total-context", "64k"],
       ["engine-parameter-context-per-request", ""],
     ]);
   });
@@ -98,21 +98,27 @@ describe("ModelDeployDialog Settings step", () => {
     await openAdvancedSettings(user);
     const slider = screen.getByRole("slider", { name: "Total context" });
     const input = screen.getByRole("textbox", { name: "Total context" });
-    expect(input).toHaveValue("32768");
+    expect(input).toHaveValue("32k");
     // The total ends at the 256k model maximum for each of the 4 parallel requests, so 32768 tokens
     // sits six elevenths along the log scale from the declared 512 tokens to 1048576 tokens.
     expect(slider).toHaveValue("545");
     expect(slider).toHaveAttribute("aria-valuetext", "32,768 tokens");
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
-    expect(preset("32k")).toHaveAttribute("aria-pressed", "true");
+    // A chip is pressed only right after it is clicked, not for a value that equals it.
+    expect(preset("32k")).toHaveAttribute("aria-pressed", "false");
 
     await user.click(preset("128k"));
-    expect(input).toHaveValue("131072");
+    expect(input).toHaveValue("128k");
     expect(slider).toHaveValue("727");
     expect(preset("128k")).toHaveAttribute("aria-pressed", "true");
+    // A drag releases the chip, even back onto its own size.
+    fireEvent.change(slider, { target: { value: "700" } });
+    fireEvent.change(slider, { target: { value: "727" } });
+    expect(input).toHaveValue("128k");
+    expect(preset("128k")).toHaveAttribute("aria-pressed", "false");
 
     fireEvent.change(slider, { target: { value: "1000" } });
-    expect(input).toHaveValue("1048576");
+    expect(input).toHaveValue("1M");
     fireEvent.change(slider, { target: { value: "0" } });
     expect(input).toHaveValue("512");
     expect(await readFieldHelpFacts("Total context")).toContain("Range 512–2,147,483,647 tokens");
@@ -149,25 +155,23 @@ describe("ModelDeployDialog Settings step", () => {
     expect(kvOffload).toHaveAccessibleDescription(
       "Host memory used to offload the KV cache, in GiB.",
     );
-    expect(kvOffload).toHaveValue("0");
+    expect(kvOffload).toHaveValue("0 GiB");
     // Parameters the schema does not expose stay out of the form.
     expect(screen.queryByRole("textbox", { name: "Maximum batched tokens" })).toBeNull();
 
     await user.clear(kvOffload);
-    await user.type(kvOffload, "1.5");
+    await user.type(kvOffload, "512m");
     await user.tab();
     expect(
-      await within(hostMemory).findByText(
-        "KV offloading size must be an integer of 0 or more GiB.",
-      ),
+      await within(hostMemory).findByText("KV offloading size must be a whole number of GiB."),
     ).toBeVisible();
     expect(kvOffload).toHaveAttribute("aria-invalid", "true");
     expect(await readFieldHelpFacts("KV offloading size")).toContain("Range 0 or more GiB");
 
-    // Without a declared maximum, any larger size is accepted.
+    // Without a declared maximum, any larger size is accepted, typed in any byte unit.
     await user.clear(kvOffload);
-    await user.type(kvOffload, "2048");
-    expect(within(hostMemory).queryByText(/must be an integer/)).not.toBeInTheDocument();
+    await user.type(kvOffload, "2t");
+    expect(within(hostMemory).queryByText(/must be/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
@@ -222,12 +226,12 @@ describe("ModelDeployDialog Settings step", () => {
       expect(
         screen.getAllByRole("textbox").map((input) => [input.id, input.getAttribute("value")]),
       ).toEqual([
-        ["engine-parameter-total-context", "32768"],
+        ["engine-parameter-total-context", "32k"],
         ["engine-parameter-context-per-request", ""],
       ]);
       // An empty context per request stands for the total context, capped by the maximum.
       const perRequest = screen.getByRole("textbox", { name: "Context per request" });
-      expect(perRequest).toHaveAttribute("placeholder", "32768");
+      expect(perRequest).toHaveAttribute("placeholder", "32k");
       expect(screen.getByRole("slider", { name: "Context per request" })).toHaveAttribute(
         "aria-valuetext",
         "32,768 tokens",
@@ -252,10 +256,10 @@ describe("ModelDeployDialog Settings step", () => {
       const perRequest = screen.getByRole("textbox", { name: "Context per request" });
 
       // A typed context per request above the total raises the total once left.
-      await user.type(perRequest, "65536");
-      expect(total).toHaveValue("32768");
+      await user.type(perRequest, "64k");
+      expect(total).toHaveValue("32k");
       await user.tab();
-      expect(total).toHaveValue("65536");
+      expect(total).toHaveValue("64k");
 
       // A total preset below the context per request lowers it at once.
       await user.click(
@@ -263,7 +267,7 @@ describe("ModelDeployDialog Settings step", () => {
           name: "8k",
         }),
       );
-      expect(perRequest).toHaveValue("8192");
+      expect(perRequest).toHaveValue("8k");
       expect(screen.queryByText(/must be at most the total context/)).not.toBeInTheDocument();
 
       await deployFromSettings(user);
@@ -293,8 +297,8 @@ describe("ModelDeployDialog Settings step", () => {
     // The end of the shared scale clamps context per request to the 262144 model maximum, below
     // ninfer's own, nine elevenths along, and the total follows it there.
     fireEvent.change(perRequestSlider, { target: { value: "1000" } });
-    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("262144");
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("262144");
+    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("256k");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("256k");
     expect(perRequestSlider).toHaveValue("818");
     expect(totalSlider).toHaveValue("818");
     expect(presetLabels("Context per request")).toEqual(["8k", "32k", "64k", "128k", "256k"]);
@@ -331,7 +335,7 @@ describe("ModelDeployDialog Settings step", () => {
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k", "1M"]);
     expect(presetLabels("Context per request")).toEqual(["8k", "32k", "64k", "128k", "256k"]);
     fireEvent.change(perRequestSlider, { target: { value: "1000" } });
-    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("262144");
+    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("256k");
     await user.click(screen.getByRole("button", { name: "Follow the total" }));
 
     // One parallel request brings the total's end down to the context per request's.
@@ -344,7 +348,7 @@ describe("ModelDeployDialog Settings step", () => {
     fireEvent.change(screen.getByRole("slider", { name: "Total context" }), {
       target: { value: "1000" },
     });
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("262144");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("256k");
     expect(presetLabels()).toEqual(["8k", "32k", "64k", "128k", "256k"]);
   });
 
@@ -357,14 +361,14 @@ describe("ModelDeployDialog Settings step", () => {
 
     await openAdvancedSettings(user);
     const perRequest = screen.getByRole("textbox", { name: "Context per request" });
-    expect(perRequest).toHaveAttribute("placeholder", "16384");
+    expect(perRequest).toHaveAttribute("placeholder", "16k");
     await user.click(screen.getByRole("button", { name: "About Context per request" }));
     expect(
       await screen.findByRole("dialog", { name: "About Context per request" }),
     ).toHaveTextContent("Up to 16k (model maximum)");
     await user.keyboard("{Escape}");
     await user.click(preset("8k"));
-    expect(perRequest).toHaveAttribute("placeholder", "8192");
+    expect(perRequest).toHaveAttribute("placeholder", "8k");
   });
 });
 
@@ -382,7 +386,7 @@ describe("ModelDeployDialog Advanced step", () => {
     );
     const hostMemory = screen.getByRole("group", { name: "Host memory" });
     const hostContext = within(hostMemory).getByRole("textbox", { name: "Host context memory" });
-    expect(hostContext).toHaveValue("20480");
+    expect(hostContext).toHaveValue("20 GiB");
     expect(hostContext).toHaveAccessibleDescription(
       "Host memory where idle conversations and paused requests are kept, so they resume without processing their prompt again. 0 turns it off.",
     );
@@ -435,7 +439,65 @@ describe("ModelDeployDialog Advanced step", () => {
     const toggle = within(group).getByRole("button", { name: "Expert memory" });
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveAccessibleDescription("Where Strata keeps the model's expert weights.");
-    expect(within(group).getByRole("textbox", { name: "Expert host memory" })).toHaveValue("16384");
+    expect(within(group).getByRole("textbox", { name: "Expert host memory" })).toHaveValue(
+      "16 GiB",
+    );
+  });
+
+  it("slides Strata's expert accelerator memory up to the estimate's fit and submits typed sizes", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn();
+    const model = modelWithStrata();
+    renderDialog({
+      engineReleases: [...runtimeSchemaReleases, strataRelease],
+      initialProfileId: "strata",
+      model,
+      onEstimate: async (values) => ({
+        ...(await sharedContextEstimate(model)(values)),
+        memoryParameterSizes: {
+          fits: new Map([["expert-vram-mib", 12595]]),
+          sized: new Map([["expert-vram-mib", 12288]]),
+        },
+      }),
+      onSubmit,
+    });
+
+    await openAdvancedStep(user);
+    // Without a fit, a memory parameter keeps the box alone.
+    expect(screen.getByRole("textbox", { name: "Expert host memory" })).toHaveValue("16 GiB");
+    expect(screen.queryByRole("slider", { name: "Expert host memory" })).not.toBeInTheDocument();
+
+    // Emptied, the box shows the value sizing picks, and the thumb sits there: 12288 MiB along the
+    // slider from the declared 0 to the 12595 MiB fit.
+    const box = screen.getByRole("textbox", { name: "Expert accelerator memory" });
+    expect(box).toHaveValue("8 GiB");
+    await user.clear(box);
+    expect(box).toHaveAttribute("placeholder", "12 GiB");
+    const slider = await screen.findByRole("slider", { name: "Expert accelerator memory" });
+    expect(slider).toHaveValue("976");
+    expect(presetLabels("Expert accelerator memory")).toEqual([
+      "1 GiB",
+      "2 GiB",
+      "4 GiB",
+      "8 GiB",
+      "12.3 GiB",
+    ]);
+
+    // A size past the fit is accepted: the thumb stays at the end and the box keeps it.
+    await user.type(box, "20g");
+    await user.tab();
+    expect(box).toHaveValue("20 GiB");
+    expect(slider).toHaveValue("1000");
+    expect(box).not.toHaveAttribute("aria-invalid");
+
+    await user.clear(box);
+    await user.type(box, "6g");
+    await user.tab();
+    expect(box).toHaveValue("6 GiB");
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(submittedValues(onSubmit)).toContainEqual(["expert-vram-mib", 6144n]);
   });
 
   it("shows a group in each step that holds a member, by the profile's visibility", async () => {
@@ -483,7 +545,7 @@ describe("ModelDeployDialog Advanced step", () => {
     const user = setupUser();
     const onSubmit = vi.fn();
     renderStrataDialog({}, {}, onSubmit);
-    const error = "Expert host memory must be an integer of 0 or more MiB.";
+    const error = "Expert host memory must be a whole number of MiB.";
 
     await openAdvancedStep(user);
     const hostMemory = screen.getByRole("textbox", { name: "Expert host memory" });
@@ -856,7 +918,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     );
     await openAdvancedStep(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
-    expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("4096");
+    expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("4 GiB");
     await user.click(sectionToggle("Engine and artifact"));
     expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("q5-xl");
     expect(kvCachePrecision()).toHaveValue("q8_0");
@@ -890,7 +952,7 @@ describe("ModelDeployDialog reopened on an applied launch", () => {
     await user.click(screen.getByRole("radio", { name: /Q4_K_XL without MTP/ }));
     await openAdvancedStep(user);
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
-    expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("8192");
+    expect(screen.getByRole("textbox", { name: "Prompt cache memory" })).toHaveValue("8 GiB");
     await user.click(sectionToggle("Engine and artifact"));
     expect(screen.getByRole("combobox", { name: "Model artifact" })).toHaveValue("Q4_K_XL");
     expect(kvCachePrecision()).toHaveValue("f16");

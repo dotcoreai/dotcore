@@ -918,6 +918,7 @@ fn deployment_with_parameters() -> ApplicationDeployment {
                     maximum: Some(8192),
                     unit: "MB".to_owned(),
                     default_value: Some(1024),
+                    memory_pool: None,
                 }),
             ),
             definition(

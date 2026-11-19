@@ -1,6 +1,9 @@
 /**
- * Shared count, byte-size, quantity, and relative-time formatting for console values.
+ * Shared count, byte-size, quantity, and relative-time formatting for console values, and the
+ * reading of typed sizes.
  */
+
+import { safeNumber } from "./safe-integer";
 
 /** A protobuf `google.protobuf.Timestamp`-shaped value: seconds and nanos since the Unix epoch. */
 interface ProtoTimestamp {
@@ -72,6 +75,69 @@ export function formatQuantity(value: bigint | number, unit: string): string {
   return unit ? `${formatted} ${unit}` : formatted;
 }
 
+/** A unit the size control reads and writes: tokens, or a binary byte unit. */
+export type SizeUnit = "tokens" | ByteUnit;
+
+/** A binary byte unit, from bytes to TiB. */
+export type ByteUnit = (typeof byteUnits)[number];
+
+/** Whether a free-form unit is one the size control handles. */
+export function isSizeUnit(unit: string): unit is SizeUnit {
+  return unit === "tokens" || byteUnitSizes.has(unit);
+}
+
+/** How many bytes one of a byte unit holds. */
+export function bytesPerUnit(unit: ByteUnit): number {
+  return Number(byteUnitSizes.get(unit)!);
+}
+
+/**
+ * Reads a typed size as a whole number of the given unit, or undefined when the text isn't one. A
+ * bare number is already in the unit. Byte sizes take a binary prefix (k, m, g, t, with or without
+ * "b" or "ib") or a lone "b" for bytes; token counts take a binary k or m. A size that isn't whole
+ * in the unit is refused, never rounded, so "512m" isn't a GiB count.
+ */
+export function parseSize(text: string, unit: SizeUnit): number | undefined {
+  const tokens = unit === "tokens";
+  const match = (tokens ? tokenSizePattern : byteSizePattern).exec(text.trim());
+  if (!match) return undefined;
+
+  const [, whole, fraction = "", prefix, bytes] = match;
+  const perUnit = tokens ? 1n : byteUnitSizes.get(unit)!;
+  const multiplier = prefix ? sizePrefixes[prefix.toLowerCase()] : bytes ? 1n : perUnit;
+  const numerator = BigInt(whole + fraction) * multiplier;
+  const denominator = 10n ** BigInt(fraction.length) * perUnit;
+  return numerator % denominator === 0n ? safeNumber(numerator / denominator) : undefined;
+}
+
+/**
+ * Formats a size given in a byte unit in the largest unit that shows it exactly with at most two
+ * decimals, such as "12 GiB" or "12.25 GiB", else as the number in its own unit, such as
+ * "12595 MiB". Digits are never grouped, so `parseSize` reads the text back.
+ */
+export function formatExactSize(value: number, unit: ByteUnit): string {
+  const bytes = BigInt(value) * byteUnitSizes.get(unit)!;
+  for (const candidate of [...byteUnits].reverse()) {
+    if (candidate === unit) break;
+
+    const size = byteUnitSizes.get(candidate)!;
+    if (bytes >= size && (bytes * 100n) % size === 0n)
+      return `${Number((bytes * 100n) / size) / 100} ${candidate}`;
+  }
+  return `${value} ${unit}`;
+}
+
+/**
+ * Formats a token count exactly: in binary millions or thousands when it is a whole number of
+ * them, such as "1M" or "128k", else as digits, such as "233895". A "k" always means 1024, as it
+ * does when typed.
+ */
+export function formatExactTokens(count: number): string {
+  if (count >= 1024 ** 2 && count % 1024 ** 2 === 0) return `${count / 1024 ** 2}M`;
+  if (count >= 1024 && count % 1024 === 0) return `${count / 1024}k`;
+  return String(count);
+}
+
 /**
  * Formats a count compactly, such as "250k" or "1.5M". A count that is a multiple of 1024 counts
  * binary thousands and millions (131072 is "128k", 3486720 is "3.3M"); any other counts decimal
@@ -119,9 +185,24 @@ export function formatRelativeTime(value: ProtoTimestamp, now: Date = new Date()
   };
 }
 
-const byteUnits = ["bytes", "KiB", "MiB", "GiB", "TiB"];
+const byteUnits = ["bytes", "KiB", "MiB", "GiB", "TiB"] as const;
 
-const byteUnitSizes = new Map(byteUnits.map((unit, index) => [unit, 1024n ** BigInt(index)]));
+const byteUnitSizes = new Map<string, bigint>(
+  byteUnits.map((unit, index) => [unit, 1024n ** BigInt(index)]),
+);
+
+// A typed byte size: a number with an optional binary prefix and "b" or "ib", or a lone "b".
+const byteSizePattern = /^(\d+)(?:\.(\d+))?\s*(?:([kmgt])(?:i?b)?|(b))?$/i;
+
+// A typed token count: a number with an optional binary k or m.
+const tokenSizePattern = /^(\d+)(?:\.(\d+))?\s*([km])?$/i;
+
+const sizePrefixes: Record<string, bigint> = {
+  g: 1024n ** 3n,
+  k: 1024n,
+  m: 1024n ** 2n,
+  t: 1024n ** 4n,
+};
 
 const groupedNumber = new Intl.NumberFormat("en-US");
 

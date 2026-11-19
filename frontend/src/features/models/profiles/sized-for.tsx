@@ -7,8 +7,8 @@ import {
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
 import { FieldError } from "@/components/ui/field-error";
-import { ContextSizeInput } from "@/features/models/runtime/context-size-input";
 import type { ContextSliderEnds } from "@/features/models/runtime/context-slider-ends";
+import { SizeInput } from "@/features/models/runtime/size-input";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
 import { timing } from "@/lib/timing";
 
@@ -26,7 +26,7 @@ import {
 
 /**
  * The Runs on chip's "Sized for" menu section: defaults, or a custom sizing scenario with the shared
- * context size input for the total context and the optional context per request. Their sliders span
+ * size input for the total context and the optional context per request. Their sliders span
  * the given ends, which cover every profile the scenario sizes. A custom scenario applies once its
  * inputs hold valid values and typing pauses, and at once when an input loses focus; defaults apply
  * at once.
@@ -131,13 +131,12 @@ export function CatalogSizedFor({
           <label className="text-xs font-medium text-muted-foreground" htmlFor={totalId}>
             Total context
           </label>
-          <ContextSizeInput
+          <SizeInput
             describedBy={errors.total ? `${totalId}-error` : undefined}
             id={totalId}
             invalid={Boolean(errors.total)}
             label="Total context"
-            maximum={ends.total}
-            minimum={ends.minimum}
+            range={{ maximum: ends.total, minimum: ends.minimum }}
             onBlur={() => blur("total")}
             onChange={(value, settled) => change("total", value, settled)}
             onKeyDown={keepKeys}
@@ -149,14 +148,13 @@ export function CatalogSizedFor({
           <label className="text-xs font-medium text-muted-foreground" htmlFor={perRequestId}>
             Context per request
           </label>
-          <ContextSizeInput
+          <SizeInput
             describedBy={errors.perRequest ? `${perRequestId}-error` : undefined}
             emptyValue={total}
             id={perRequestId}
             invalid={Boolean(errors.perRequest)}
             label="Context per request"
-            maximum={ends.perRequest}
-            minimum={ends.minimum}
+            range={{ maximum: ends.perRequest, minimum: ends.minimum }}
             onBlur={() => blur("perRequest")}
             onChange={(value, settled) => change("perRequest", value, settled)}
             onKeyDown={keepKeys}

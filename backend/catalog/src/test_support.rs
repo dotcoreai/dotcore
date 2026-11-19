@@ -2,20 +2,23 @@
 //! layout with the `nvidia` and `apple` hardware classes, a minimal llama.cpp engine release, with
 //! its own parameters or the shared context parameters, and a model whose configuration carries
 //! caller-supplied sizing, and an engine declaration validator that accepts every declaration.
-//! It also checks that a loaded catalog's sizing is linear in the total context.
+//! It also checks that a loaded catalog's sizing is linear in the total context and that no memory
+//! parameter's declared estimate shrinks as its value grows.
 
 use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use dotcore_domain::test_support::{canonical_temp_dir, unique_suffix};
 use dotcore_proto::dotcore::catalog::v1::{
-    Application, EngineRelease, HardwareClass, HardwareSupport, Model, ModelEngineConfiguration,
-    ModelOptionParameterValue, ModelOptionValues, ModelProfile, ParameterValue, Selector,
-    UpstreamModelTemplate, UpstreamWireProtocol, model_option_parameter_definition,
-    model_option_parameter_value, parameter_value,
+    Application, EngineRelease, HardwareClass, HardwareSupport, MemoryPool, Model,
+    ModelEngineConfiguration, ModelOptionParameterValue, ModelOptionValues, ModelProfile,
+    ParameterValue, Selector, UpstreamModelTemplate, UpstreamWireProtocol,
+    model_option_parameter_definition, model_option_parameter_value, parameter_definition,
+    parameter_value,
 };
 
 use crate::{
-    Catalog, CatalogModelId, EngineDeclarationValidator, options,
+    ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogModelId, EngineDeclarationValidator,
+    HOST_MEMORY_RESOURCE, options,
     shared_parameters::{
         CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID, filled_context_per_request,
         maximum_context_tokens,
@@ -147,6 +150,118 @@ pub fn sizing_not_linear_in_total_context(catalog: &Catalog) -> Vec<String> {
                         problems.push(format!(
                             "{label} {name:?} isn't linear in the total context: {v1}, {v2} and {v3} at {t1}, {t2} and {t3} tokens"
                         ));
+                    }
+                }
+            }
+        }
+    }
+    problems
+}
+
+/// Describes every memory parameter of the catalog whose declared estimate shrinks as its value
+/// grows, the shape the largest fit of a memory parameter relies on. Each profile's defaults are
+/// evaluated with the parameter at its minimum and at growing powers of two above it, up to its
+/// maximum, for every option combination the profile accepts; a value the estimate isn't
+/// available at, or sizing can't evaluate, is left out of the comparison.
+pub fn memory_estimates_decreasing(catalog: &Catalog) -> Vec<String> {
+    let mut problems = Vec::new();
+    for (key, sizing) in &catalog.sizing {
+        let Some(model) = catalog.models.get(&key.model_id) else {
+            continue;
+        };
+        let Some(configuration) = model
+            .configurations
+            .iter()
+            .find(|configuration| configuration.configuration_id == key.configuration_id)
+        else {
+            continue;
+        };
+        let Some(engine) =
+            validation::configuration_engine_release(configuration, &catalog.engines)
+        else {
+            continue;
+        };
+        let Some(schema) = engine.parameter_schema.as_ref() else {
+            continue;
+        };
+        let maximum_context = maximum_context_tokens(model, configuration);
+        let memory_parameters = schema.parameters.iter().filter_map(|parameter| {
+            let Some(parameter_definition::ParameterType::UnsignedInteger(range)) =
+                &parameter.parameter_type
+            else {
+                return None;
+            };
+            let resource = match range.memory_pool? {
+                pool if pool == MemoryPool::Accelerator as i32 => ACCELERATOR_MEMORY_RESOURCE,
+                pool if pool == MemoryPool::Host as i32 => HOST_MEMORY_RESOURCE,
+                _ => return None,
+            };
+            Some((parameter.parameter_id.as_str(), range, resource))
+        });
+        for (parameter_id, range, resource) in memory_parameters {
+            let maximum = range.maximum.unwrap_or(u64::MAX);
+            let samples = std::iter::once(range.minimum)
+                .chain((0..64).map(|power| range.minimum.saturating_add(1 << power)))
+                .take_while(|value| *value <= maximum)
+                .collect::<Vec<_>>();
+            for profile in model
+                .profiles
+                .iter()
+                .filter(|profile| profile.configuration_id == key.configuration_id)
+            {
+                for (choice, options) in option_variants(model, configuration, profile) {
+                    let label = format!(
+                        "model {:?} profile {:?}{choice} hardware class {:?} binding {:?} parameter {parameter_id:?}",
+                        key.model_id, profile.profile_id, key.hardware_class_id, key.binding_id
+                    );
+                    let options = match options {
+                        Ok(options) => options,
+                        Err(error) => {
+                            problems.push(format!("{label} options don't resolve: {error:#}"));
+                            continue;
+                        }
+                    };
+                    let Some((_, defaults)) = catalog.local_defaults_for(
+                        &CatalogModelId(key.model_id.clone()),
+                        &profile.profile_id,
+                    ) else {
+                        problems.push(format!("{label} profile defaults don't resolve"));
+                        continue;
+                    };
+                    let estimate_at = |value: u64| {
+                        let mut values = defaults.clone();
+                        values
+                            .values
+                            .retain(|value| value.parameter_id != parameter_id);
+                        values.values.push(unsigned_value(parameter_id, value));
+                        let filled = filled_context_per_request(schema, &values, maximum_context);
+                        values.values.extend(filled);
+                        let derived = sizing.derive(&values, &options).ok()?;
+                        values.values.extend(
+                            derived
+                                .iter()
+                                .map(|(parameter_id, value)| unsigned_value(parameter_id, *value)),
+                        );
+                        sizing
+                            .evaluate(&values, &options)
+                            .ok()?
+                            .into_iter()
+                            .find(|estimate| estimate.resource == resource)
+                            .map(|estimate| estimate.value)
+                    };
+                    let mut previous: Option<(u64, u64)> = None;
+                    for value in &samples {
+                        let Some(bytes) = estimate_at(*value) else {
+                            continue;
+                        };
+                        if let Some((previous_value, previous_bytes)) = previous
+                            && bytes < previous_bytes
+                        {
+                            problems.push(format!(
+                                "{label} {resource:?} shrinks from {previous_bytes} at {previous_value} to {bytes} at {value}"
+                            ));
+                        }
+                        previous = Some((*value, bytes));
                     }
                 }
             }

@@ -14,6 +14,7 @@ pub mod controller;
 pub mod domain;
 pub mod engine;
 pub(crate) mod engine_pin;
+mod memory_parameter_fit;
 mod placement_preview;
 mod recommendation;
 pub mod repository;

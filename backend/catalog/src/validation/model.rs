@@ -1240,6 +1240,7 @@ mod tests {
                 maximum: Some(64),
                 unit: "requests".to_owned(),
                 default_value,
+                memory_pool: None,
             })
         };
         let boolean = |default_value| Type::Boolean(BooleanParameterSchema { default_value });

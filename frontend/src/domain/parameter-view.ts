@@ -35,7 +35,17 @@ export type ParameterViewType =
   | { kind: "secret"; maximumLength?: number; minimumLength: number }
   | { kind: "stringEnum"; values: readonly string[] }
   | { kind: "text"; maximumLength?: number; minimumLength: number }
-  | { kind: "unsignedInteger"; maximum?: bigint; minimum: bigint; unit: string };
+  | {
+      kind: "unsignedInteger";
+      maximum?: bigint;
+      /** The sizing estimate a memory parameter feeds; absent for any other number. */
+      memoryPool?: ParameterMemoryPool;
+      minimum: bigint;
+      unit: string;
+    };
+
+/** The sizing estimate a memory parameter feeds: the accelerator or the host memory estimate. */
+export type ParameterMemoryPool = "accelerator" | "host";
 
 /** A typed parameter value, matched to its view by type. */
 export type ParameterViewValue = bigint | boolean | string;
@@ -95,7 +105,12 @@ export function parameterInputError(view: ParameterView, input: string): string 
       return `${view.label} must be ${lengthBounds(view.type) ?? "valid"}.`;
     }
     case "unsignedInteger": {
-      const { maximum, minimum, unit } = view.type;
+      const { maximum, memoryPool, minimum, unit } = view.type;
+      // A memory field reads typed sizes into digits, so any other text is a size that isn't whole
+      // in the unit.
+      if (memoryPool && input.trim() && !/^\d+$/.test(input.trim()))
+        return `${view.label} must be a whole number of ${unit}.`;
+
       const bounds =
         maximum === undefined
           ? `of ${formatQuantity(minimum, "")} or more`

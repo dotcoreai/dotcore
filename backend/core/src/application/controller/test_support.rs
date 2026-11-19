@@ -2995,6 +2995,7 @@ pub(super) fn application_with_parameters() -> Application {
                     maximum: Some(8),
                     unit: String::new(),
                     default_value: Some(2),
+                    memory_pool: None,
                 },
             )),
             visibility: ParameterVisibility::Basic as i32,

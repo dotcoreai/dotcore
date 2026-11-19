@@ -17,7 +17,7 @@ frontend/src/
 │   └── models/       model deployment errors and exposure shared by the subfolders below
 │       ├── polling/     the shared view of catalog models and live deployments
 │       ├── profiles/    model and profile rows, compatibility, sizing scenarios, profile tables
-│       ├── runtime/     engine parameters, context size, speculative decoding, launch arguments
+│       ├── runtime/     engine parameters, size control (context and memory parameters), speculative decoding, launch arguments
 │       ├── inspector/   the catalog model and model deployment panels and their sections
 │       ├── catalog/     the model catalog page and its table
 │       ├── deploy/      the deploy dialog and its steps; memory/ holds its memory preview

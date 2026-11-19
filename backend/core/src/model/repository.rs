@@ -114,7 +114,7 @@ impl ModelDeclarationRepository {
         &self,
         model_id: &str,
         profile_id: &str,
-        configuration: &LocalModelDeploymentConfiguration,
+        supplied: &LocalModelDeploymentConfiguration,
         target: Option<EstimateTarget<'_>>,
     ) -> Result<EstimateLocalModelResourcesResponse, ModelDeclarationRepositoryError> {
         let catalog_model_id = CatalogModelId(model_id.to_owned());
@@ -123,20 +123,20 @@ impl ModelDeclarationRepository {
             profile_id,
             self.catalog.profiles_for_model(&catalog_model_id),
         )?;
-        let configuration = crate::model::resolution::apply_profile_defaults(
+        let completed = crate::model::resolution::apply_profile_defaults(
             &self.catalog,
             &catalog_model_id,
             profile_id,
-            configuration,
+            supplied,
         )
         .map_err(launch_resolution_error)?;
-        let estimates_apply = configuration.custom_argument_tokens.is_empty();
+        let estimates_apply = completed.custom_argument_tokens.is_empty();
         let Some(target) = target else {
             let resolved = crate::model::resolution::estimate_local_values_per_class(
                 &self.catalog,
                 &catalog_model_id,
                 profile_id,
-                &configuration,
+                &completed,
             )
             .map_err(launch_resolution_error)?;
             return Ok(EstimateLocalModelResourcesResponse {
@@ -145,6 +145,7 @@ impl ModelDeclarationRepository {
                     .map(|resolved| resolved.into_hardware_class_estimate(estimates_apply))
                     .collect(),
                 placement_preview: None,
+                memory_parameter_fits: Vec::new(),
             });
         };
 
@@ -162,7 +163,7 @@ impl ModelDeclarationRepository {
             &self.catalog,
             &catalog_model_id,
             profile_id,
-            &configuration,
+            &completed,
             &selected,
         )
         .map_err(launch_resolution_error)?;
@@ -176,9 +177,22 @@ impl ModelDeclarationRepository {
             estimates_apply,
             observed_at,
         );
+        let memory_parameter_fits = if estimates_apply {
+            crate::model::memory_parameter_fit::memory_parameter_fits(
+                &self.catalog,
+                profile_id,
+                supplied,
+                &completed,
+                &resolved,
+                &selected,
+            )
+        } else {
+            Vec::new()
+        };
         Ok(EstimateLocalModelResourcesResponse {
             hardware_class_estimates: vec![resolved.into_hardware_class_estimate(estimates_apply)],
             placement_preview: Some(placement_preview),
+            memory_parameter_fits,
         })
     }
 
@@ -1073,7 +1087,7 @@ mod tests {
             v1::{
                 CreateUpstreamModelDeploymentRequest, EstimateLocalModelResourcesResponse,
                 HardwareClassResourceEstimate, LocalModelDeploymentConfiguration,
-                ModelDeploymentDeclaration, ModelDeploymentDesiredState,
+                MemoryParameterFit, ModelDeploymentDeclaration, ModelDeploymentDesiredState,
                 ModelDeploymentLifecycleTransition, OpenAiCompatibleEndpointConfiguration,
                 ScalarResourceEstimate, UpstreamModelDesiredConfiguration,
                 UpstreamModelInputCapabilities,
@@ -3044,6 +3058,91 @@ mod tests {
     }
 
     #[test]
+    fn resource_estimation_on_a_target_reports_each_memory_parameters_largest_fit() {
+        use dotcore_domain::MemoryArchitecture::{Dedicated, Unified};
+
+        const MIB: u64 = 1024 * 1024;
+        const GIB: u64 = 1024 * MIB;
+        let mut configuration = crate::test_support::local_model_configuration();
+        configuration.engine_parameter_values = Some(engine_values(4096));
+        let prompt_cache = |largest_fit| {
+            vec![MemoryParameterFit {
+                parameter_id: "prompt-cache-memory-mib".to_owned(),
+                largest_fit,
+            }]
+        };
+
+        // On a dedicated GPU, the prompt cache fills the host room: 16 GiB less its 2 GiB reserve.
+        let host_cache = r#"      parameters: { base: 100, rate: 3, host: 50 }
+      estimates:
+        acceleratorMemory: { unit: "bytes", equation: "${base} + ${rate} * ${total-context}" }
+        hostMemory: { unit: "bytes", equation: "${host} + ${prompt-cache-memory-mib} * MiB" }
+"#;
+        assert_eq!(
+            memory_parameter_fits(Dedicated, host_cache, &configuration),
+            prompt_cache((14 * GIB - 50) / MIB)
+        );
+
+        // On unified memory, a prompt cache counted in accelerator memory, with no host estimate,
+        // fills the shared room: 8 GiB less its 1 GiB reserve.
+        let accelerator_cache = r#"      parameters: { base: 100, rate: 3 }
+      estimates:
+        acceleratorMemory:
+          unit: "bytes"
+          equation: "${base} + ${rate} * ${total-context} + ${prompt-cache-memory-mib} * MiB"
+"#;
+        assert_eq!(
+            memory_parameter_fits(Unified, accelerator_cache, &configuration),
+            prompt_cache((7 * GIB - 100 - 3 * 4096) / MIB)
+        );
+
+        // Shaped like expert memory on unified memory: below 4 GiB the value is held twice, so
+        // only the plateau fits, and sizing picks 5 GiB beyond it, which fits too, whether the
+        // value is left empty or supplied.
+        let experts = r#"      parameters: { base: 100, experts: 4294967296 }
+      derivedParameters:
+        prompt-cache-memory-mib: "5120"
+      estimates:
+        acceleratorMemory:
+          unit: "bytes"
+          equation: "${base} + if(${prompt-cache-memory-mib} * MiB < ${experts}, ${prompt-cache-memory-mib} * MiB, ${experts})"
+        hostMemory:
+          unit: "bytes"
+          equation: "if(${prompt-cache-memory-mib} * MiB < ${experts}, ${experts}, 0)"
+"#;
+        let mut left_empty = configuration.clone();
+        left_empty.engine_parameter_values = Some(unsigned_values(&[
+            ("total-context", 4096),
+            ("parallel-requests", 4),
+        ]));
+        assert_eq!(
+            memory_parameter_fits(Unified, experts, &left_empty),
+            prompt_cache(5120)
+        );
+        assert_eq!(
+            memory_parameter_fits(Unified, experts, &configuration),
+            prompt_cache(5120)
+        );
+
+        // No fit when sizing ignores the value or when custom arguments replace the launch.
+        let ignored = r#"      parameters: { base: 100, rate: 3, host: 50 }
+      estimates:
+        acceleratorMemory: { unit: "bytes", equation: "${base} + ${rate} * ${total-context}" }
+        hostMemory: { unit: "bytes", equation: "${host}" }
+"#;
+        assert_eq!(
+            memory_parameter_fits(Dedicated, ignored, &configuration),
+            Vec::new()
+        );
+        let mut custom = configuration.clone();
+        custom.custom_argument_tokens = vec!["--override".to_owned()];
+        assert_eq!(
+            memory_parameter_fits(Dedicated, host_cache, &custom),
+            Vec::new()
+        );
+    }
+
+    #[test]
     fn profile_sizing_without_a_scenario_matches_the_profile_default_estimate() {
         let directory = test_directory();
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/simulated-site");
@@ -3518,6 +3617,111 @@ mod tests {
         assert!(source.contains("sizing:"), "fixture support replacement");
         fs::write(models.join("fixture-model.yaml"), source).expect("sizing model fixture");
         catalog_root
+    }
+
+    /// The memory parameter fits an estimate of `configuration` reports on an idle target: a
+    /// 32 GiB GPU beside 16 GiB of host memory, or 8 GiB of unified memory. The fixture model is
+    /// sized by `sizing`, the body of its sizing block, and its profile sets a prompt cache of 0
+    /// unless sizing derives it.
+    fn memory_parameter_fits(
+        memory_architecture: dotcore_domain::MemoryArchitecture,
+        sizing: &str,
+        configuration: &LocalModelDeploymentConfiguration,
+    ) -> Vec<MemoryParameterFit> {
+        const GIB: u64 = 1024 * 1024 * 1024;
+        let directory = test_directory();
+        let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/simulated-site");
+        let site_path = directory.path().join("site.yaml");
+        fs::copy(fixture_root.join("site.yaml"), &site_path).expect("simulated site fixture");
+        let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
+            .expect("validated simulated site");
+        let catalog_root = write_sizing_catalog(directory.path(), &fixture_root);
+        for (id, architecture) in [("unified", "UNIFIED"), ("dedicated", "DEDICATED")] {
+            fs::write(
+                catalog_root.join(format!("hardware-classes/fixture-{id}.yaml")),
+                format!(
+                    "hardwareClassId: \"fixture-{id}\"\ndisplayName: \"Fixture {id}\"\nselector:\n  accelerators: [\"nvidia\"]\n  memoryArchitecture: \"ACCELERATOR_MEMORY_ARCHITECTURE_{architecture}\"\n"
+                ),
+            )
+            .expect("memory architecture class fixture");
+        }
+        let source = fs::read_to_string(fixture_root.join("catalog/models/fixture-model.yaml"))
+            .expect("model fixture");
+        let support = "    hardwareSupport:\n      - hardwareClassId: \"fixture-nvidia\"\n        hardwareRequirements:\n          minimumSystemMemoryBytes: \"1\"\n";
+        let profile_values = "      values:\n        - { parameterId: \"prompt-cache-memory-mib\", unsignedInteger: \"0\" }\n";
+        assert!(
+            source.contains(support) && source.contains(profile_values),
+            "model fixture"
+        );
+        let model = source
+            .replace(
+                support,
+                &format!(
+                    "    sizing:\n{sizing}    hardwareSupport:\n      - hardwareClassId: \"fixture-unified\"\n        bindingSizing: [{{ bindingId: \"fixture-artifact\" }}]\n      - hardwareClassId: \"fixture-dedicated\"\n        bindingSizing: [{{ bindingId: \"fixture-artifact\" }}]\n"
+                ),
+            )
+            .replace(
+                profile_values,
+                if sizing.contains("derivedParameters") {
+                    "      values: []\n"
+                } else {
+                    profile_values
+                },
+            );
+        fs::write(catalog_root.join("models/fixture-model.yaml"), model)
+            .expect("memory sizing model fixture");
+        let catalog = Catalog::load_with_policy(
+            &catalog_root,
+            OciArtifactPolicy::Development,
+            crate::model::engine::declaration_validator(),
+        )
+        .expect("memory sizing catalog");
+
+        let platform = dotcore_domain::ExecutionPlatform::linux_amd64();
+        let (target, _) = crate::test_support::execution_target_capabilities_with_memory(
+            platform.clone(),
+            memory_architecture,
+        );
+        let accelerator = NodeAcceleratorObservation::nvidia("fixture-node", "580.173.02")
+            .with_memory_architecture(Some(memory_architecture));
+        let accelerator = match memory_architecture {
+            dotcore_domain::MemoryArchitecture::Dedicated => accelerator
+                .with_device_memory("GPU-0", Some(32 * GIB), Some(0))
+                .with_host_memory(16 * GIB, 16 * GIB),
+            dotcore_domain::MemoryArchitecture::Unified => {
+                accelerator.with_host_memory(8 * GIB, 8 * GIB)
+            }
+        };
+        let inventory = TargetCapabilityReconciler::reconcile_now(
+            [&target],
+            [RuntimePlatformObservation::available(
+                "fixture-target",
+                platform,
+            )],
+            [accelerator],
+        );
+        let placement = ExactPlacement {
+            site_node_id: "fixture-node".to_owned(),
+            execution_target_id: "fixture-target".to_owned(),
+        };
+        ModelDeclarationRepository::new(
+            site,
+            Arc::new(catalog),
+            inventory.clone(),
+            crate::test_support::test_secret_generator(),
+        )
+        .estimate_local_model_resources(
+            "fixture-model",
+            "fixture-profile",
+            configuration,
+            Some(super::EstimateTarget {
+                placement: &placement,
+                inventory: &inventory,
+                workloads: &Default::default(),
+            }),
+        )
+        .expect("estimate on the target")
+        .memory_parameter_fits
     }
 
     /// Copies the simulated-site fixture, whose NVIDIA target runs Strata, into `directory`.

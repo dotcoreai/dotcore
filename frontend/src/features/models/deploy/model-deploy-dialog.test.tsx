@@ -212,7 +212,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("custom-route");
       await user.click(screen.getByRole("button", { name: "Back" }));
       await user.click(screen.getByRole("button", { name: "Back" }));
-      expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16384");
+      expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16k");
     });
 
     it("falls forward to Settings when the target step vanishes", async () => {
@@ -2870,7 +2870,7 @@ describe("ModelDeployDialog", () => {
       expect(await readFieldHelpFacts("Total context")).toContain(
         "Up to 16k on node / NVIDIA GeForce RTX 5090",
       );
-      expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16384");
+      expect(screen.getByRole("textbox", { name: /Total context/ })).toHaveValue("16k");
       expect(screen.queryByRole("note")).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "Next" }));

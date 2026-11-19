@@ -155,7 +155,7 @@ flowchart LR
   SCN["Sizing scenario"] --> RES
   RES -->|"estimates per hardware class"| COMP["Compatibility read"]
   CAP["Capacity component"] -->|"fits on free and total memory, largest fit, starting total context"| COMP
-  CAP -->|"placement preview"| EST["Resource estimates"]
+  CAP -->|"placement preview, memory parameter fits"| EST["Resource estimates"]
   CAP -->|"verdicts"| RECS["Recommendations"]
   RES --> RECS
 ```
@@ -169,7 +169,10 @@ flowchart LR
 - For each running target, it reports the capacity component's largest fitting total context and
   starting total context. Narrowing by scenario uses the fit.
 - Resource estimates for a launch configuration carry the capacity component's placement preview for
-  the selected target.
+  the selected target, and the largest fit of each engine memory parameter there. Memory fits use
+  the configuration's values as given, so they follow the context and other values an operator
+  picks, unlike the largest fitting total context, which uses the profile's defaults. With custom
+  arguments, the preview carries no demand and the estimate no memory fits.
 - Recommendations rank the catalog's lists with the same resolution and the capacity component's
   verdicts ([recommendations](recommendations.md#ranking-models-for-a-site)).
 

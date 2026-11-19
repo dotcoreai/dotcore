@@ -56,6 +56,7 @@ parameterSchema:
         minimum: "0"
         maximum: "17592186044415"
         unit: "MiB"
+        memoryPool: "MEMORY_POOL_HOST"
 artifacts:
   - artifactId: "linux-amd64-cuda"
     nix:

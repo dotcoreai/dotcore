@@ -197,6 +197,13 @@ fn validate_parameters(graph: &ApplicationGraph, errors: &mut Vec<anyhow::Error>
         let definition_errors = validate_parameter_definition(definition);
         let valid_definition = definition_errors.is_empty();
         errors.extend(definition_errors);
+        if let Some(ParameterType::UnsignedInteger(schema)) = &definition.parameter_type
+            && schema.memory_pool.is_some()
+        {
+            errors.push(anyhow::anyhow!(
+                "application parameter {id:?} must not declare a memory pool"
+            ));
+        }
         if valid_definition && !is_secret(definition) && default_value(definition).is_none() {
             errors.push(anyhow::anyhow!(
                 "application parameter {id:?} requires a default"

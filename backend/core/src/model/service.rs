@@ -2249,6 +2249,7 @@ mod tests {
                         },
                     ],
                     placement_preview: None,
+                    memory_parameter_fits: Vec::new(),
                 },
             ))
         }

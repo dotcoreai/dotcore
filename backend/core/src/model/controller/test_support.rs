@@ -660,6 +660,7 @@ impl DesiredDeploymentRepository for TestDesired {
                     },
                 ],
                 placement_preview: None,
+                memory_parameter_fits: Vec::new(),
             },
         )
     }

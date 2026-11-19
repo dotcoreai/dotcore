@@ -129,11 +129,11 @@ mod tests {
         ApplicationHttpReadiness, ApplicationInferenceRouteInput,
         ApplicationInferenceRouteProjection, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
         ApplicationSecretForm, ApplicationService, ApplicationServiceDependency,
-        ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, NixArtifact,
-        NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition, ParameterGroup,
-        ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind, StoragePlacement,
-        StringEnumParameterSchema, TextParameterSchema, UnsignedIntegerParameterSchema, UseCase,
-        application_configuration_binding,
+        ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, MemoryPool,
+        NixArtifact, NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition,
+        ParameterGroup, ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind,
+        StoragePlacement, StringEnumParameterSchema, TextParameterSchema,
+        UnsignedIntegerParameterSchema, UseCase, application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
         parameter_definition::ParameterType,
     };
@@ -767,6 +767,22 @@ mod tests {
                 ),
                 "parameter \"mode\" requires a basic, advanced or hidden visibility",
             ),
+            (
+                parameterized_application(
+                    vec![parameter(
+                        "cache",
+                        ParameterType::UnsignedInteger(UnsignedIntegerParameterSchema {
+                            minimum: 1,
+                            maximum: None,
+                            unit: "MiB".to_owned(),
+                            default_value: Some(64),
+                            memory_pool: Some(MemoryPool::Host as i32),
+                        }),
+                    )],
+                    &["cache"],
+                ),
+                "application parameter \"cache\" must not declare a memory pool",
+            ),
         ];
 
         for (application, expected) in cases {
@@ -1236,6 +1252,7 @@ services:
             maximum: Some(maximum),
             unit: String::new(),
             default_value,
+            memory_pool: None,
         })
     }
 

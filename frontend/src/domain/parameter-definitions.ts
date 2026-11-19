@@ -1,10 +1,16 @@
-import type {
-  ParameterDefinition,
-  ParameterGroup,
-  ParameterValue,
+import {
+  MemoryPool,
+  type ParameterDefinition,
+  type ParameterGroup,
+  type ParameterValue,
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
-import type { ParameterGroupView, ParameterView, ParameterViewValue } from "./parameter-view";
+import type {
+  ParameterGroupView,
+  ParameterMemoryPool,
+  ParameterView,
+  ParameterViewValue,
+} from "./parameter-view";
 
 /**
  * A catalog parameter definition as the console renders and validates it, for applications and
@@ -24,7 +30,9 @@ export function parameterView(definition: ParameterDefinition): ParameterView | 
       return { ...base, type: { kind: "boolean" } };
     case "unsignedInteger": {
       const { maximum, minimum, unit } = type.value;
-      return { ...base, type: { kind: "unsignedInteger", maximum, minimum, unit } };
+      const memoryPool =
+        type.value.memoryPool === undefined ? undefined : memoryPools[type.value.memoryPool];
+      return { ...base, type: { kind: "unsignedInteger", maximum, memoryPool, minimum, unit } };
     }
     case "stringEnum":
       return { ...base, type: { kind: "stringEnum", values: type.value.values } };
@@ -89,3 +97,8 @@ export function parameterValueCase(value: ParameterViewValue): ParameterValue["v
       return { case: "string", value };
   }
 }
+
+const memoryPools: Partial<Record<MemoryPool, ParameterMemoryPool>> = {
+  [MemoryPool.ACCELERATOR]: "accelerator",
+  [MemoryPool.HOST]: "host",
+};

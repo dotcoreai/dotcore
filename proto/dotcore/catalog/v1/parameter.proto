@@ -82,6 +82,10 @@ message UnsignedIntegerParameterSchema {
 
   // Value used when the caller supplies none, within the range.
   optional uint64 default_value = 4;
+
+  // Sizing estimate this value draws memory from; none when the value is not a memory size. Only
+  // engine parameters in a byte unit declare it.
+  optional MemoryPool memory_pool = 5;
 }
 
 // Defines the closed set of accepted string values for a parameter.
@@ -155,4 +159,17 @@ enum ParameterVisibility {
 
   // Never shown; the value comes from its default, a profile or sizing.
   PARAMETER_VISIBILITY_HIDDEN = 3;
+}
+
+// The sizing estimate a memory parameter feeds. It names the estimate, not a physical memory pool:
+// on a unified-memory target the accelerator estimate lands on host memory.
+enum MemoryPool {
+  // Invalid; a parameter that declares a memory pool names one of the others.
+  MEMORY_POOL_UNSPECIFIED = 0;
+
+  // Feeds the accelerator memory estimate.
+  MEMORY_POOL_ACCELERATOR = 1;
+
+  // Feeds the host memory estimate.
+  MEMORY_POOL_HOST = 2;
 }

@@ -151,6 +151,10 @@ A preset of defaults and parameter visibility overrides for one engine configura
   is rejected.
 - Defines every engine parameter and its shape. A configuration only narrows that set, never adds
   or redefines a parameter; a profile presets values and visibility.
+- May mark an integer parameter in bytes, MiB or GiB with the sizing estimate it feeds, accelerator
+  or host (its memory pool). The mark lets clients show it as a memory size; placement doesn't rely
+  on it. Where a configuration gives it, a memory parameter's declared estimate never decreases as
+  its value grows. Apps may not declare a memory pool.
 
 ### Hardware class
 

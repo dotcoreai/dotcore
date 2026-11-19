@@ -7,7 +7,7 @@ backend/
 ├── cli/               `dotc` executable (dotc): commands, root path options, guided prompts, terminal layout
 ├── core/              top crate (dotcore): controllers, router, dispatch, logs, server, composition
 │   ├── src/composition/    composition root: process configuration and wiring
-│   ├── src/model/          inference controller
+│   ├── src/model/          inference controller, memory parameter largest fit
 │   ├── src/application/    application controller
 │   ├── src/hardware/       owner-neutral hardware selection, attribution and the site workload source
 │   │   └── capacity/       capacity component: memory pools, occupancy, demand, fit, largest fit, starting value, placement preview, node pools

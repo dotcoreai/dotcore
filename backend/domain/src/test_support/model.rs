@@ -267,6 +267,7 @@ fn unsigned_parameter(
                 maximum: Some(maximum),
                 unit: unit.to_owned(),
                 default_value: None,
+                memory_pool: None,
             },
         )),
         visibility: match parameter_id {

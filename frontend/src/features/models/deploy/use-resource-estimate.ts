@@ -1,4 +1,5 @@
 import { type LocalDeploymentConfigurationValues } from "@/features/models/runtime/local-deployment-configuration";
+import type { MemoryParameterSizes } from "@/features/models/runtime/memory-parameter-sizes";
 import { type PlacementPreview } from "@/gen/dotcore/capacity/v1/placement_preview_pb";
 import { type ExactPlacement } from "@/gen/dotcore/deployment/v1/placement_pb";
 import { useKeyedRead } from "@/hooks/use-keyed-read";
@@ -32,6 +33,7 @@ export function useResourceEstimate(
     filledContextPerRequest: read.value?.estimate.filledContextPerRequest,
     launchRejection: read.value?.estimate.launchRejection,
     loadingVisible: read.loadingVisible,
+    memoryParameterSizes: read.value?.estimate.memoryParameterSizes,
     pending: read.pending,
     placement: read.value?.placement,
     placementPreview: read.value?.estimate.placementPreview,
@@ -50,6 +52,8 @@ export interface LocalResourceEstimate {
   filledContextPerRequest?: number;
   /** Why a deploy with this configuration would be rejected, for the operator. */
   launchRejection?: string;
+  /** The memory parameters' largest fits on the placement and the values sizing picks. */
+  memoryParameterSizes?: MemoryParameterSizes;
   /** The placement's target memory with the configuration added; absent without a placement. */
   placementPreview?: PlacementPreview;
 }
@@ -82,6 +86,7 @@ export interface ResourceEstimate {
   launchRejection?: string;
   /** Whether pending feedback should show, after the reveal delay and for its minimum time. */
   loadingVisible: boolean;
+  memoryParameterSizes?: MemoryParameterSizes;
   pending: boolean;
   /** The placement the shown values were estimated for. */
   placement?: ExactPlacement;

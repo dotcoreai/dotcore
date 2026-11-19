@@ -472,6 +472,7 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                                     maximum: Some(131_072),
                                     unit: "tokens".to_owned(),
                                     default_value: None,
+                                    memory_pool: None,
                                 },
                             ),
                         ),

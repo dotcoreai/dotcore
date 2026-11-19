@@ -18,8 +18,11 @@ import {
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
 import type { ResolvedLocalModelDeploymentSnapshot } from "@/gen/dotcore/model/v1/deployment_pb";
 import type { FieldErrors } from "@/lib/form-validation";
+import { isSizeUnit } from "@/lib/format";
 
 import { effectiveVisibility } from "./engine-parameter-values";
+import type { MemoryParameterSizes } from "./memory-parameter-sizes";
+import { SizeField } from "./size-field";
 
 interface EngineParametersFormProps {
   errors: FieldErrors;
@@ -27,6 +30,11 @@ interface EngineParametersFormProps {
   groups: readonly ParameterGroup[];
   inputs: ReadonlyMap<string, string>;
   inputRefs: RefObject<Map<string, HTMLElement | null>>;
+  /**
+   * The latest estimate's memory parameter sizes: a memory parameter with a largest fit gets a
+   * slider ending there, and an empty one shows the value sizing picks.
+   */
+  memoryParameterSizes?: MemoryParameterSizes;
   onBlur: (parameter: ParameterDefinition) => void;
   onChange: (parameter: ParameterDefinition, input: string) => void;
   parameters: readonly ParameterDefinition[];
@@ -34,18 +42,49 @@ interface EngineParametersFormProps {
   revealedErrors: FieldErrors;
 }
 
-/** Edits one deploy step's engine parameters, laid out by the engine's parameter groups. */
+/**
+ * Edits one deploy step's engine parameters, laid out by the engine's parameter groups. A memory
+ * parameter takes the shared size input, which reads typed sizes in any byte unit.
+ */
 export function EngineParametersForm({
   errors,
   groups,
   inputs,
   inputRefs,
+  memoryParameterSizes,
   onBlur,
   onChange,
   parameters,
   revealedErrors,
 }: EngineParametersFormProps) {
   const definitions = new Map(parameters.map((parameter) => [parameter.parameterId, parameter]));
+  const memoryField = (view: ParameterView) => {
+    const parameter = definitions.get(view.id);
+    if (
+      !parameter ||
+      view.type.kind !== "unsignedInteger" ||
+      !view.type.memoryPool ||
+      !isSizeUnit(view.type.unit)
+    )
+      return undefined;
+
+    const fit = memoryParameterSizes?.fits.get(view.id);
+    return (
+      <SizeField
+        emptyValue={memoryParameterSizes?.sized.get(view.id)}
+        error={errors.get(view.id)}
+        help={view.description || undefined}
+        input={inputs.get(view.id) ?? ""}
+        inputRefs={inputRefs}
+        key={view.id}
+        largestFit={fit === undefined ? undefined : { value: fit }}
+        onBlur={onBlur}
+        onChange={onChange}
+        parameter={parameter}
+        range={fit === undefined ? undefined : { maximum: fit, minimum: Number(view.type.minimum) }}
+      />
+    );
+  };
 
   return (
     <ParametersForm
@@ -63,6 +102,7 @@ export function EngineParametersForm({
         if (parameter) onChange(parameter, input);
       }}
       parameters={engineParameterViews(parameters)}
+      renderField={memoryField}
       revealedErrors={revealedErrors}
     />
   );
