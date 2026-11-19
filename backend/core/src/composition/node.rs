@@ -479,6 +479,7 @@ pub(super) async fn compose_node(
             preparation_logs,
             inventory: observation.inventory(),
             timing: timing.application,
+            crash_window: timing.deployment.crash_window,
             clock: Arc::clone(&clock),
         },
         publication_host,
@@ -948,6 +949,7 @@ struct ApplicationRealizerSources {
     preparation_logs: crate::deployment_logs::PreparationLogs,
     inventory: Arc<dyn HardwareInventorySource>,
     timing: ApplicationTiming,
+    crash_window: Duration,
     clock: Arc<dyn Clock>,
 }
 
@@ -966,6 +968,7 @@ async fn application_realizer_for(
         preparation_logs,
         inventory,
         timing,
+        crash_window,
         clock,
     } = sources;
     let application_targets = targets
@@ -1032,6 +1035,7 @@ async fn application_realizer_for(
             preparation_logs,
             inventory,
             timing,
+            crash_window,
             clock,
         },
     )

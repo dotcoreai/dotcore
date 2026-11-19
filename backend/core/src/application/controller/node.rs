@@ -11,6 +11,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     net::{Ipv4Addr, SocketAddrV4},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use dotcore_domain::{
@@ -45,7 +46,9 @@ use dotcore_site::{
     repository::ApplicationSiteSnapshot,
     store::{FileNodeState, StoreError},
     view::{
-        contract::{application_cleanup_evidence, bounded_accelerator_memory},
+        contract::{
+            application_cleanup_evidence, bounded_accelerator_memory, bounded_application_failure,
+        },
         desired::NodeApplicationStatusOwner,
         fencing::{
             AcceptedApplicationOwnerInput, ActionAssignment, InstalledApplicationSection,
@@ -104,6 +107,9 @@ pub(crate) struct NodeApplicationComposition {
     /// Timing of the realizer's observer passes and of each deployment's startup.
     pub(crate) timing: ApplicationTiming,
 
+    /// Span within which crashes after ready count against a deployment's crash budget.
+    pub(crate) crash_window: Duration,
+
     /// Backend clock the realizer's observer waits through.
     pub(crate) clock: Arc<dyn Clock>,
 }
@@ -133,6 +139,7 @@ impl NodeApplicationRealizer {
             preparation_logs,
             inventory,
             timing,
+            crash_window,
             clock,
         } = composition;
         if publication_host.is_unspecified() {
@@ -180,6 +187,7 @@ impl NodeApplicationRealizer {
                 accelerator_attribution: Some(accelerator_attribution.clone()),
                 resource_attribution: Some(resource_attribution.clone()),
                 timing,
+                crash_window,
                 clock,
             },
         );
@@ -716,12 +724,24 @@ impl NodeApplicationStatus {
         else {
             return status;
         };
-        let lifecycle = private_lifecycle(state.lifecycle_state);
+        let lifecycle = match private_lifecycle(state.lifecycle_state) {
+            // The manager accepts a failed observation only with its failure summary.
+            ApplicationLifecycleObservation::Failed if state.failure.is_none() => {
+                ApplicationLifecycleObservation::Unavailable
+            }
+            lifecycle => lifecycle,
+        };
         status.state_revision = record.record_revision;
         status.lifecycle = lifecycle as i32;
         status.stage = super::status_text::status_stage(&state.stage) as i32;
         status.readiness = state.readiness_state;
         status.failure_code = super::status_text::status_failure_code(state) as i32;
+        // A failed deployment carries its recorded summary, cut to the sizes the manager accepts.
+        status.failure = state
+            .failure
+            .as_ref()
+            .filter(|_| lifecycle == ApplicationLifecycleObservation::Failed)
+            .map(bounded_application_failure);
         status.services = state.services.clone();
         status.steps = state.steps.clone();
         status.service_accelerator_memory = service_accelerator_memory(
@@ -827,9 +847,8 @@ fn private_lifecycle(lifecycle: i32) -> ApplicationLifecycleObservation {
         Ok(ApplicationLifecycleState::Paused) => ApplicationLifecycleObservation::Paused,
         Ok(ApplicationLifecycleState::Stopping) => ApplicationLifecycleObservation::Stopping,
         Ok(ApplicationLifecycleState::Stopped) => ApplicationLifecycleObservation::Stopped,
-        Ok(ApplicationLifecycleState::Failed | ApplicationLifecycleState::Unavailable) => {
-            ApplicationLifecycleObservation::Unavailable
-        }
+        Ok(ApplicationLifecycleState::Failed) => ApplicationLifecycleObservation::Failed,
+        Ok(ApplicationLifecycleState::Unavailable) => ApplicationLifecycleObservation::Unavailable,
         Ok(ApplicationLifecycleState::Unspecified) | Err(_) => {
             ApplicationLifecycleObservation::Reconciling
         }
@@ -903,6 +922,7 @@ mod tests {
     use dotcore_domain::{
         ExecutionPlatform, SiteNodeId,
         clock::SystemClock,
+        deployment::crash::CRASH_BUDGET,
         hardware_observation::{
             AcceleratorProcessObservation, AcceleratorVendorProcessObservation,
             AcceleratorVendorProcessResult, NodeHardwareObservation, ObservedAcceleratorProcess,
@@ -922,8 +942,8 @@ mod tests {
             },
             v1::{
                 ApplicationConfigurationAttachment, ApplicationDeploymentDeclaration,
-                ApplicationDeploymentDesiredState, ApplicationLifecycleState,
-                ApplicationReadinessState, ApplicationSecretAttachment,
+                ApplicationDeploymentDesiredState, ApplicationDeploymentFailure,
+                ApplicationLifecycleState, ApplicationReadinessState, ApplicationSecretAttachment,
                 ApplicationServiceAcceleratorMemory, ApplicationStorageAttachment,
                 CurrentApplicationDeployment, ResolvedApplicationDeploymentSnapshot,
                 ResolvedApplicationServiceSelection,
@@ -956,11 +976,11 @@ mod tests {
     use dotcore_runtime::{
         ObservedWorkloadGroup, RuntimeBackendError, RuntimeBackendId, RuntimeFuture,
         RuntimeGroupLogFollowQuery, RuntimeLogEntry, RuntimeLogEvent, RuntimeLogFuture,
-        RuntimeLogQuery, RuntimeLogSource, RuntimeLogSourceHistory, RuntimeLogSourceSelection,
-        RuntimeLogSourceStream, RuntimeLogStream, RuntimeLogStreamKind, WorkloadCorrelation,
-        WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupLaunch, WorkloadGroupObservation,
-        WorkloadStorageAttachment, WorkloadStorageKey, WorkloadStorageKind, WorkloadUnitName,
-        WorkloadUnitObservation, WorkloadUnitState,
+        RuntimeLogHistory, RuntimeLogQuery, RuntimeLogSource, RuntimeLogSourceHistory,
+        RuntimeLogSourceSelection, RuntimeLogSourceStream, RuntimeLogStream, RuntimeLogStreamKind,
+        WorkloadCorrelation, WorkloadGroupBackend, WorkloadGroupId, WorkloadGroupLaunch,
+        WorkloadGroupObservation, WorkloadStorageAttachment, WorkloadStorageKey,
+        WorkloadStorageKind, WorkloadUnitName, WorkloadUnitObservation, WorkloadUnitState,
     };
     use dotcore_runtime_backends::simulated::{
         InMemoryRuntimeBackend, SimulatedRuntimeConfig, SimulatedRuntimeGroupCall,
@@ -2710,7 +2730,9 @@ mod tests {
     async fn a_container_restarted_in_place_resumes_without_repeats_until_removal_ends_the_follow()
     {
         let output = Arc::new(ContainerOutput::default());
-        let fixture = NodeFixture::new(None).with_container_output(Arc::clone(&output));
+        let fixture = NodeFixture::new(None)
+            .virtualized()
+            .with_container_output(Arc::clone(&output));
         fixture.install(1, vec![assignment(declaration("app-1", 1, Present), None)]);
         let node = fixture.realizer();
         node.reconcile_for_test().await.expect("create pass");
@@ -2720,7 +2742,7 @@ mod tests {
         output.write("web", 1, "first");
         output.write("web", 2, "second");
         let before_stop = next_frames(&mut follow, 3).await;
-        // The host stops the container, as when its machine restarts.
+        // The container stops after the deployment was ready, a crash within the budget.
         fixture
             .shared_runtime()
             .stop_workload_group(&launch)
@@ -2765,6 +2787,199 @@ mod tests {
             after_removal.is_none(),
             "removing the deployment ends its follow cleanly"
         );
+    }
+
+    #[tokio::test]
+    async fn a_ready_app_whose_unit_keeps_exiting_restarts_within_its_budget_then_fails() {
+        let output = Arc::new(ContainerOutput::default());
+        let fixture = NodeFixture::new(None)
+            .virtualized()
+            .with_container_output(Arc::clone(&output));
+        fixture.install(1, vec![assignment(declaration("app-1", 1, Present), None)]);
+        let node = fixture.realizer();
+        node.reconcile_for_test().await.expect("create pass");
+        assert_eq!(
+            lifecycle_of(&fixture, "app-1"),
+            ApplicationLifecycleState::Ready
+        );
+        output.write("web", 1, "serving");
+        output.write("web", 2, "out of memory");
+        fixture.support.exit_group_unit("app-1", "web", Some(137));
+
+        // Each crash before the budget-th starts the unit again; the budget-th fails the
+        // deployment, and a later pass leaves it stopped.
+        for _ in 0..=CRASH_BUDGET {
+            node.reconcile_for_test().await.expect("crash pass");
+        }
+
+        assert_eq!(
+            fixture.support.group_calls(),
+            [
+                SimulatedRuntimeGroupCall::create("app-1"),
+                SimulatedRuntimeGroupCall::start("app-1"),
+                SimulatedRuntimeGroupCall::start("app-1"),
+            ]
+        );
+        let failure = ApplicationDeploymentFailure {
+            code: "CrashedRepeatedly".to_owned(),
+            message: "Application stopped repeatedly after it was ready; check its logs, then \
+                      pause and resume it or deploy it again"
+                .to_owned(),
+            diagnostics: vec![
+                "Stage: application running".to_owned(),
+                "Crashes after ready: 3 within 5 seconds".to_owned(),
+                "Exit status: 137".to_owned(),
+                "Service: web".to_owned(),
+                "Output tail: serving\nout of memory".to_owned(),
+            ],
+        };
+        let state = fixture
+            .current("app-1")
+            .and_then(|record| record.state)
+            .expect("failed state");
+        assert_eq!(
+            state.lifecycle_state,
+            ApplicationLifecycleState::Failed as i32
+        );
+        assert_eq!(state.failure.as_ref(), Some(&failure));
+        let status = deployment_status(&status_of(&node), "app-1");
+        assert_eq!(
+            status.lifecycle,
+            ApplicationLifecycleObservation::Failed as i32
+        );
+        assert_eq!(status.failure, Some(failure));
+    }
+
+    #[tokio::test]
+    async fn units_stopped_while_the_node_was_down_start_again_without_a_failure() {
+        let fixture = NodeFixture::new(None).virtualized();
+        fixture.install(1, vec![assignment(declaration("app-1", 1, Present), None)]);
+        fixture
+            .realizer()
+            .reconcile_for_test()
+            .await
+            .expect("create pass");
+        // The host restarts with the node, so its containers are stopped when the node returns.
+        fixture
+            .shared_runtime()
+            .stop_workload_group(&fixture.launch("app-1"))
+            .await
+            .expect("containers stopped");
+
+        fixture
+            .realizer()
+            .reconcile_for_test()
+            .await
+            .expect("restarted node pass");
+
+        assert_eq!(
+            fixture.support.group_calls(),
+            [
+                SimulatedRuntimeGroupCall::create("app-1"),
+                SimulatedRuntimeGroupCall::stop("app-1"),
+                SimulatedRuntimeGroupCall::start("app-1"),
+            ]
+        );
+        let state = fixture
+            .current("app-1")
+            .and_then(|record| record.state)
+            .expect("restarted state");
+        assert_eq!(
+            state.lifecycle_state,
+            ApplicationLifecycleState::Ready as i32
+        );
+        assert_eq!(state.failure, None);
+    }
+
+    #[tokio::test]
+    async fn a_resumed_app_starts_its_stopped_units_without_a_failure() {
+        let fixture = NodeFixture::new(None).virtualized();
+        fixture.install(1, vec![assignment(declaration("app-1", 1, Present), None)]);
+        let node = fixture.realizer();
+        node.reconcile_for_test().await.expect("create pass");
+        fixture.install(2, vec![assignment(declaration("app-1", 2, Paused), None)]);
+        node.reconcile_for_test().await.expect("pause pass");
+        node.reconcile_for_test().await.expect("paused pass");
+        assert_eq!(
+            lifecycle_of(&fixture, "app-1"),
+            ApplicationLifecycleState::Paused
+        );
+
+        fixture.install(3, vec![assignment(declaration("app-1", 3, Present), None)]);
+        node.reconcile_for_test().await.expect("resume pass");
+
+        assert_eq!(
+            fixture.support.group_calls(),
+            [
+                SimulatedRuntimeGroupCall::create("app-1"),
+                SimulatedRuntimeGroupCall::stop("app-1"),
+                SimulatedRuntimeGroupCall::start("app-1"),
+            ]
+        );
+        assert_eq!(
+            lifecycle_of(&fixture, "app-1"),
+            ApplicationLifecycleState::Ready
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_app_starts_again_once_paused_and_resumed() {
+        // Nothing answers the readiness probe, so the deployment is never ready.
+        let fixture = NodeFixture::new(None);
+        fixture.install(1, vec![assignment(declaration("app-1", 1, Present), None)]);
+        let node = fixture.realizer();
+        node.reconcile_for_test().await.expect("create pass");
+        fixture.support.exit_group_unit("app-1", "web", Some(1));
+        node.reconcile_for_test().await.expect("exit pass");
+        node.reconcile_for_test().await.expect("failed pass");
+        let failed = fixture
+            .current("app-1")
+            .and_then(|record| record.state)
+            .expect("failed state");
+        assert_eq!(
+            failed.lifecycle_state,
+            ApplicationLifecycleState::Failed as i32
+        );
+        assert_eq!(
+            failed.failure.map(|failure| failure.code),
+            Some("StoppedDuringStartup".to_owned())
+        );
+
+        fixture.install(2, vec![assignment(declaration("app-1", 2, Paused), None)]);
+        node.reconcile_for_test().await.expect("pause pass");
+        assert_eq!(
+            lifecycle_of(&fixture, "app-1"),
+            ApplicationLifecycleState::Paused
+        );
+        fixture.support.clear_group_unit_exit("app-1", "web");
+        fixture.install(3, vec![assignment(declaration("app-1", 3, Present), None)]);
+        node.reconcile_for_test().await.expect("resume pass");
+
+        assert_eq!(
+            fixture.support.group_calls(),
+            [
+                SimulatedRuntimeGroupCall::create("app-1"),
+                SimulatedRuntimeGroupCall::start("app-1"),
+            ]
+        );
+        let resumed = fixture
+            .current("app-1")
+            .and_then(|record| record.state)
+            .expect("resumed state");
+        assert_eq!(
+            resumed.lifecycle_state,
+            ApplicationLifecycleState::Starting as i32
+        );
+        assert_eq!(resumed.failure, None);
+    }
+
+    /// The lifecycle the node recorded for one deployment.
+    fn lifecycle_of(fixture: &NodeFixture, id: &str) -> ApplicationLifecycleState {
+        fixture
+            .current(id)
+            .and_then(|record| record.state)
+            .map(|state| state.lifecycle_state())
+            .expect("recorded state")
     }
 
     fn log_query(sources: &[&str]) -> DeploymentLogReadQuery {
@@ -2897,6 +3112,7 @@ mod tests {
                 preparation_logs: self.preparation_logs(),
                 inventory: Arc::new(HardwareInventoryPublisher::new().1),
                 timing: Timing::test().application,
+                crash_window: Timing::test().deployment.crash_window,
                 clock: Arc::new(SystemClock),
             })
             .expect("node realizer")
@@ -3648,7 +3864,26 @@ mod tests {
             sources: &'a RuntimeLogSourceSelection,
             query: &'a RuntimeLogQuery,
         ) -> RuntimeLogFuture<'a, Vec<RuntimeLogSourceHistory>> {
-            self.0.read_workload_group_logs(group, sources, query)
+            Box::pin(async move {
+                let histories = self
+                    .0
+                    .read_workload_group_logs(group, sources, query)
+                    .await?;
+                let Some(output) = &self.1 else {
+                    return Ok(histories);
+                };
+                Ok(histories
+                    .into_iter()
+                    .map(|history| RuntimeLogSourceHistory {
+                        result: history.result.map(|_| RuntimeLogHistory {
+                            entries: output.entries(&history.source),
+                            has_older_output: false,
+                            candidate_budget_truncated: false,
+                        }),
+                        source: history.source,
+                    })
+                    .collect())
+            })
         }
 
         fn follow_workload_group_logs<'a>(
@@ -3676,7 +3911,8 @@ mod tests {
         }
     }
 
-    /// Container output a test writes per unit, followed as Docker serves it: a follow replays
+    /// Container output a test writes per unit, read and followed as Docker serves it: a read
+    /// returns all of it, and a follow replays
     /// the container's whole output whatever the resume position, then streams new lines until
     /// the container stops. A restart in place keeps the output; removal discards it.
     #[derive(Default)]
@@ -3710,6 +3946,15 @@ mod tests {
                     .is_ok()
             });
             output.entries.push(entry);
+        }
+
+        fn entries(&self, source: &RuntimeLogSource) -> Vec<RuntimeLogEntry> {
+            self.0
+                .lock()
+                .expect("container output")
+                .get(&source.name)
+                .map(|output| output.entries.clone())
+                .unwrap_or_default()
         }
 
         fn follow(&self, source: &RuntimeLogSource) -> RuntimeLogStream {

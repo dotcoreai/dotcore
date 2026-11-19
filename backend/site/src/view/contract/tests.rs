@@ -8,8 +8,8 @@ use dotcore_proto::dotcore::application::{
         application_linked_route_projection,
     },
     v1::{
-        ApplicationDeploymentDeclaration, ApplicationDeploymentStep, ApplicationDeploymentSteps,
-        ApplicationServiceAcceleratorMemory,
+        ApplicationDeploymentDeclaration, ApplicationDeploymentFailure, ApplicationDeploymentStep,
+        ApplicationDeploymentSteps, ApplicationServiceAcceleratorMemory,
     },
 };
 use dotcore_proto::{
@@ -56,8 +56,8 @@ use super::{
     MAX_APPLICATION_ASSIGNMENTS, MAX_FAILURE_CODE_BYTES, MAX_FAILURE_DIAGNOSTIC_BYTES,
     MAX_FAILURE_DIAGNOSTICS, MAX_FAILURE_MESSAGE_BYTES, MAX_STATUS_MESSAGE_BYTES,
     ValidatedNodeView, application_cleanup_evidence, application_cleanup_receipt,
-    bounded_accelerator_memory, bounded_failure, bounded_status_message,
-    cleanup_evidence_from_state, cleanup_receipt, validate_acknowledgement,
+    bounded_accelerator_memory, bounded_application_failure, bounded_failure,
+    bounded_status_message, cleanup_evidence_from_state, cleanup_receipt, validate_acknowledgement,
     validate_application_status, validate_controller_status, validate_published_view,
     validate_status_receipts,
 };
@@ -547,6 +547,24 @@ fn hosting_node_cuts_recorded_text_to_the_sizes_the_manager_accepts() {
 }
 
 #[test]
+fn hosting_node_cuts_an_application_failure_to_the_sizes_the_manager_accepts() {
+    let failure = ApplicationDeploymentFailure {
+        code: "c".repeat(MAX_FAILURE_CODE_BYTES + 5),
+        message: "m".repeat(MAX_FAILURE_MESSAGE_BYTES + 5),
+        diagnostics: vec!["d".to_owned(); MAX_FAILURE_DIAGNOSTICS + 2],
+    };
+
+    assert_eq!(
+        bounded_application_failure(&failure),
+        ApplicationDeploymentFailure {
+            code: "c".repeat(MAX_FAILURE_CODE_BYTES),
+            message: "m".repeat(MAX_FAILURE_MESSAGE_BYTES),
+            diagnostics: vec!["d".to_owned(); MAX_FAILURE_DIAGNOSTICS],
+        }
+    );
+}
+
+#[test]
 fn accelerator_memory_is_required_on_the_reporting_node_and_within_its_sizes() {
     let with_memory = |memory: Option<AcceleratorMemoryObservation>| {
         validate_preparation_status(|status| status.accelerator_memory = memory.clone())
@@ -926,7 +944,42 @@ fn application_status_problems_never_reject_model_status_and_receipts_answer_its
     });
     assert!(validate_application_status(&odd_steps).is_ok());
 
-    let invalid_edits: [(&str, StatusEdit); 7] = [
+    // A failed deployment carries its failure summary within the failure sizes.
+    let mut failed = status.clone();
+    let Some(controller_status_section::Payload::Application(section)) =
+        failed.sections[1].payload.as_mut()
+    else {
+        panic!("application status")
+    };
+    section.deployments[0].lifecycle = ApplicationLifecycleObservation::Failed as i32;
+    section.deployments[0].state_revision = 2;
+    section.deployments[0].failure = Some(application_failure());
+    assert!(validate_application_status(&failed).is_ok());
+
+    let invalid_edits: [(&str, StatusEdit); 11] = [
+        ("failed without a failure", |section| {
+            section.deployments[0].lifecycle = ApplicationLifecycleObservation::Failed as i32;
+            section.deployments[0].state_revision = 2;
+        }),
+        ("failure while not failed", |section| {
+            section.deployments[0].failure = Some(application_failure());
+        }),
+        ("failure without a code", |section| {
+            section.deployments[0].lifecycle = ApplicationLifecycleObservation::Failed as i32;
+            section.deployments[0].state_revision = 2;
+            section.deployments[0].failure = Some(ApplicationDeploymentFailure {
+                code: String::new(),
+                ..application_failure()
+            });
+        }),
+        ("oversized failure diagnostics", |section| {
+            section.deployments[0].lifecycle = ApplicationLifecycleObservation::Failed as i32;
+            section.deployments[0].state_revision = 2;
+            section.deployments[0].failure = Some(ApplicationDeploymentFailure {
+                diagnostics: vec!["d".repeat(MAX_FAILURE_DIAGNOSTIC_BYTES + 1)],
+                ..application_failure()
+            });
+        }),
         ("evidence digest", |section| {
             section.cleanup_evidence[0].evidence_sha256 = "c".repeat(64);
         }),
@@ -1176,6 +1229,14 @@ fn application_assignment(
             ..Default::default()
         }),
         linked_route: None,
+    }
+}
+
+fn application_failure() -> ApplicationDeploymentFailure {
+    ApplicationDeploymentFailure {
+        code: "StoppedDuringStartup".to_owned(),
+        message: "Application stopped during startup".to_owned(),
+        diagnostics: vec!["Exit status: 137".to_owned()],
     }
 }
 

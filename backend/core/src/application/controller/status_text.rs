@@ -2,9 +2,11 @@
 //! the stage `Application primary endpoint is not ready`, and the typed stages and failure codes
 //! the node reports to the manager.
 //!
-//! Nodes never send free text across the node boundary: they report one typed stage and one
-//! failure code, and the manager maps them back to the same text and failure summary the
-//! realizer recorded, so the application service reads them as the node recorded them.
+//! A node reports one typed stage and one failure code, and the manager maps them back to the
+//! same text and failure summary the realizer recorded, so the application service reads them as
+//! the node recorded them. The one exception is a failed deployment, whose failure summary the
+//! node sends as recorded, cut to the sizes the manager accepts, since it carries the exit
+//! status and output of the workload that stopped.
 
 use dotcore_proto::dotcore::application::{
     private::v1::{ApplicationStatusFailureCode, ApplicationStatusStage},

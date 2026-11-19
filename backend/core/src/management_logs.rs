@@ -432,6 +432,30 @@ pub(crate) fn filter_entry(
     entry
 }
 
+/// The output tail a failure summary shows of a workload that stopped: its newest `entries`, one
+/// per line, with protected values redacted, file system paths hidden and control characters
+/// other than tabs dropped; `None` when it wrote nothing.
+pub(crate) fn failure_output_tail(
+    entries: Vec<RuntimeLogEntry>,
+    protected: &ProtectedLogValues,
+) -> Option<String> {
+    let lines = entries
+        .into_iter()
+        .map(|entry| {
+            let filtered = filter_entry(entry, protected);
+            crate::diagnostic::redact_filesystem_paths(&String::from_utf8_lossy(&filtered.content))
+                .chars()
+                .filter(|character| !character.is_control() || *character == '\t')
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    let tail = lines[lines.len().saturating_sub(MAX_FAILURE_OUTPUT_LINES)..].join("\n");
+    (!tail.is_empty()).then_some(tail)
+}
+
+/// Newest output lines a failure summary shows of a workload that stopped.
+pub(crate) const MAX_FAILURE_OUTPUT_LINES: usize = 16;
+
 /// Logs one unexpected source failure with protected values filtered from its cause; expected
 /// outcomes, such as a workload that does not exist yet, are not logged.
 pub(crate) fn record_source_failure(

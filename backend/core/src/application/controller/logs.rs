@@ -488,14 +488,7 @@ fn local_group(
         .clone();
     let group = workload_group_launch(deployment, publication_host, inference_route_resolver)
         .map_err(map_lifecycle_error)?;
-    let protected = protected_values(
-        deployment,
-        group
-            .units
-            .values()
-            .flat_map(|unit| unit.environment.values())
-            .map(|value| value.expose().to_owned()),
-    );
+    let protected = launch_protected_values(deployment, &group);
     Ok(LocalGroup {
         execution_target_id,
         group,
@@ -579,6 +572,24 @@ pub(super) fn deployment_protected_values(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> ProtectedLogValues {
     protected_values(deployment, attachment_values(deployment))
+}
+
+/// Returns the values no output of `launch` may reveal: its environment values, the
+/// deployment's launch attachments and its secret parameter values.
+pub(super) fn launch_protected_values(
+    deployment: &ApplicationDeploymentDeclaration,
+    launch: &WorkloadGroupLaunch,
+) -> ProtectedLogValues {
+    protected_values(
+        deployment,
+        attachment_values(deployment).chain(
+            launch
+                .units
+                .values()
+                .flat_map(|unit| unit.environment.values())
+                .map(|value| value.expose().to_owned()),
+        ),
+    )
 }
 
 /// Returns the configuration and secret values the deployment's launch receives, which step

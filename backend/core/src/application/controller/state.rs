@@ -132,6 +132,20 @@ pub(super) fn deployment_failure_state(
     state
 }
 
+/// Failed state of a deployment whose units stopped on their own; its group stays stopped and
+/// `failure` says why.
+pub(super) fn crashed_state(failure: ApplicationDeploymentFailure) -> ApplicationDeploymentState {
+    let mut state = state(
+        ApplicationLifecycleState::Failed,
+        ApplicationReadinessState::NotReady,
+        GROUP_NOT_RUNNING_STAGE,
+        None,
+        Vec::new(),
+    );
+    state.failure = Some(failure);
+    state
+}
+
 /// Starting state after a failed workload-group creation, carrying `failure` when the runtime
 /// named a stable cause and the generic creation failure otherwise.
 pub(super) fn workload_creation_failure_state(

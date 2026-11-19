@@ -8,6 +8,7 @@
 use std::{collections::BTreeSet, sync::Mutex};
 
 use dotcore_domain::{
+    deployment::crash::CrashDecision,
     deployment::launch_pin::{
         LaunchPinError, LaunchPinResolver, SyntheticLaunchPins, UnpinnedSelection,
     },
@@ -25,6 +26,7 @@ use dotcore_site::{
 };
 use tracing::{debug, error, info, warn};
 
+use super::crash::crash_failed_state;
 use super::errors::{
     DeploymentFailureCode, DeploymentReconcileFailure, RetainedTargetMismatch,
     coded_deployment_failure, deployment_failure,
@@ -217,6 +219,14 @@ impl ApplicationRealizer {
         record: &PassRecord<'_>,
         observations: &[TargetWorkloadGroupObservation],
     ) -> DeploymentPass {
+        // A crash failure of this start stands until the deployment is paused or deployed again.
+        if matches!(
+            desired_state(deployment),
+            Ok(ApplicationDeploymentDesiredState::Present)
+        ) && let Some(failed) = crash_failed_state(deployment, record.get().as_ref())
+        {
+            return DeploymentPass::reconciled(Ok(failed.clone()));
+        }
         let Ok(token) = self.runtimes.capture_operation(
             record.assignment,
             LifecycleOperationAttempt::Runtime {
@@ -773,27 +783,14 @@ impl ApplicationRealizer {
                 Some(ExactOwnedObservation::Complete {
                     group,
                     stale: false,
-                }) if group_is_all_stopped(group) => {
-                    self.start_and_observe(token, record, desired, execution_target_id, launch)
-                        .await
-                }
-                Some(ExactOwnedObservation::Complete {
-                    group,
-                    stale: false,
                 }) if group_has_stopped_unit(group) => {
-                    self.runtimes
-                        .remove_workload_group(token, execution_target_id, launch)
-                        .await
-                        .map_err(|source| {
-                            deployment_failure("runtime-replacement-removal", source)
-                        })?;
-                    self.create_and_observe(
+                    self.reconcile_stopped_units(
                         token,
                         record,
                         desired,
                         execution_target_id,
                         launch,
-                        "runtime-replacement-creation",
+                        group,
                     )
                     .await
                 }
@@ -801,6 +798,10 @@ impl ApplicationRealizer {
                     group,
                     stale: false,
                 }) => {
+                    self.startup.record_ran(
+                        &desired.application_deployment_id,
+                        desired.lifecycle_generation,
+                    );
                     self.announce_running(desired, group);
                     readiness::state_from_group(
                         desired,
@@ -833,6 +834,42 @@ impl ApplicationRealizer {
                 configuration("Application declaration has unspecified desired state"),
             )),
         }
+    }
+
+    /// Starts the stopped units of a present deployment's group again, in place when every unit
+    /// stopped and by recreating the group otherwise, unless the crash rule fails the deployment.
+    async fn reconcile_stopped_units(
+        &self,
+        token: &LifecycleOperationToken,
+        record: &PassRecord<'_>,
+        desired: &ApplicationDeploymentDeclaration,
+        execution_target_id: &str,
+        launch: &WorkloadGroupLaunch,
+        group: &dotcore_runtime::ObservedWorkloadGroup,
+    ) -> Result<ApplicationDeploymentState, DeploymentReconcileFailure> {
+        if let CrashDecision::Fail(failure) = self.decide_stop(desired, record.get().as_ref()) {
+            return self
+                .fail_crashed(token, desired, execution_target_id, launch, group, failure)
+                .await;
+        }
+        if group_is_all_stopped(group) {
+            return self
+                .start_and_observe(token, record, desired, execution_target_id, launch)
+                .await;
+        }
+        self.runtimes
+            .remove_workload_group(token, execution_target_id, launch)
+            .await
+            .map_err(|source| deployment_failure("runtime-replacement-removal", source))?;
+        self.create_and_observe(
+            token,
+            record,
+            desired,
+            execution_target_id,
+            launch,
+            "runtime-replacement-creation",
+        )
+        .await
     }
 
     async fn reconcile_stale_group(
@@ -981,6 +1018,10 @@ impl ApplicationRealizer {
             .await
         {
             Ok(observation) => {
+                self.startup.record_ran(
+                    &desired.application_deployment_id,
+                    desired.lifecycle_generation,
+                );
                 self.announce_started(desired, &observation, |state| {
                     state != WorkloadUnitState::Absent
                 });
@@ -1342,6 +1383,10 @@ impl ApplicationRealizer {
                 Some(failure) => coded_deployment_failure("runtime-start", failure, source),
                 None => deployment_failure("runtime-start", source),
             })?;
+        self.startup.record_ran(
+            &desired.application_deployment_id,
+            desired.lifecycle_generation,
+        );
         // Every unit was stopped before, so each one running now was started again in place.
         self.announce_started(desired, &observation, |state| {
             matches!(

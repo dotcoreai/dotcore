@@ -8,6 +8,7 @@
 //! state.
 
 mod accelerator_memory;
+mod crash;
 mod errors;
 mod identity;
 mod launch;

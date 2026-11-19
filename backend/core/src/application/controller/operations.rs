@@ -409,7 +409,8 @@ where
             ApplicationLifecycleState::try_from(state.lifecycle_state),
             Ok(ApplicationLifecycleState::Pausing
                 | ApplicationLifecycleState::Paused
-                | ApplicationLifecycleState::Unavailable)
+                | ApplicationLifecycleState::Unavailable
+                | ApplicationLifecycleState::Failed)
         )
     }))
 }

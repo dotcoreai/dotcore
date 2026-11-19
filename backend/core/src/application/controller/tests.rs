@@ -319,17 +319,24 @@ async fn resumed_deployment_prepares_its_image_again_and_its_step_only_moves_for
 }
 
 #[tokio::test]
-async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units_exit() {
+async fn a_unit_that_exits_during_startup_fails_the_deployment_once_with_its_exit_status_and_masked_output()
+ {
     let directory = test_directory();
     let desired = TestApplicationDeclarationRepository::open(&directory, "site-one")
         .expect("declaration repository");
     let current =
         TestCurrentApplicationRepository::open(&directory, "site-one").expect("current repository");
-    let deployment = deployment(ApplicationDeploymentDesiredState::Present);
+    let mut deployment = deployment(ApplicationDeploymentDesiredState::Present);
+    deployment.secret_attachments = vec![ApplicationSecretAttachment {
+        service_name: "web".to_owned(),
+        binding_name: "secret".to_owned(),
+        environment_variable: "WEBUI_SECRET".to_owned(),
+        value: LAUNCH_SECRET_VALUE.to_owned(),
+    }];
     desired
         .upsert(deployment.clone(), 0)
         .expect("present desired deployment");
-    // This start already reached its starting step before its unit exited.
+    // This start already reached its starting step, as recorded before a node restart.
     let booting = with_start_steps(
         None,
         booting_state(unavailable_state(ENDPOINT_NOT_ASSIGNED_STAGE, None)),
@@ -345,7 +352,6 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
             None,
         )
         .expect("booting record");
-    let recorded = current.snapshot().expect("current state").deployments[0].clone();
     let launch = workload_group_launch(
         &deployment,
         Ipv4Addr::LOCALHOST,
@@ -357,13 +363,19 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
         dotcore_artifact::ArtifactManager::new(directory.join("artifacts"), Some(preparer.clone()))
             .expect("Artifact manager");
     let calls = Arc::new(Mutex::new(Vec::new()));
+    let secret_line = format!("fatal: rejected key {LAUNCH_SECRET_VALUE}");
     let controller = controller_with_runtime_and_artifacts(
         desired,
         current.clone(),
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped { exit_status: None })],
+                [(
+                    "web",
+                    WorkloadUnitState::Stopped {
+                        exit_status: Some(137),
+                    },
+                )],
                 false,
             )],
             Some(group_observation(
@@ -372,11 +384,14 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
                 false,
             )),
             Arc::clone(&calls),
-        ),
+        )
+        .with_output(&["listening on 8080", &secret_line]),
         artifacts,
     );
 
-    for _ in 0..2 {
+    // The first pass starts units this node process never ran; the second finds them exited
+    // before the deployment was ready; the third leaves the failed deployment alone.
+    for _ in 0..3 {
         controller
             .realizer
             .reconcile()
@@ -384,12 +399,32 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
             .expect("reconciliation");
     }
 
-    assert_eq!(*calls.lock().expect("Runtime calls"), ["start", "start"]);
-    assert_eq!(preparer.states(), [booting.clone(), booting]);
+    assert_eq!(*calls.lock().expect("Runtime calls"), ["start"]);
+    assert_eq!(preparer.states(), [booting]);
+    let failed = current.snapshot().expect("current state").deployments[0]
+        .state
+        .clone()
+        .expect("failed state");
     assert_eq!(
-        current.snapshot().expect("current state").deployments[0],
-        recorded,
-        "restarting the exited unit writes nothing"
+        failed.lifecycle_state,
+        ApplicationLifecycleState::Failed as i32
+    );
+    assert_eq!(failed.stage, GROUP_NOT_RUNNING_STAGE);
+    assert_eq!(failed.steps, None);
+    assert_eq!(
+        failed.failure,
+        Some(ApplicationDeploymentFailure {
+            code: "StoppedDuringStartup".to_owned(),
+            message: "Application stopped during startup; check its logs, then pause and resume \
+                      it or deploy it again"
+                .to_owned(),
+            diagnostics: vec![
+                "Stage: application startup".to_owned(),
+                "Exit status: 137".to_owned(),
+                "Service: web".to_owned(),
+                "Output tail: listening on 8080\nfatal: rejected key [REDACTED]".to_owned(),
+            ],
+        })
     );
     drop(controller);
     fs::remove_dir_all(directory).expect("test directory cleanup");

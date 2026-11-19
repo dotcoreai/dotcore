@@ -1320,6 +1320,7 @@ where
                 accelerator_attribution: None,
                 resource_attribution: None,
                 timing: Timing::test().application,
+                crash_window: Timing::test().deployment.crash_window,
                 clock: Arc::new(SystemClock),
                 node: super::realizer::NodeRealization {
                     records,
@@ -1900,6 +1901,9 @@ pub(super) struct PausedMatrixRuntime {
     pub(super) inspect_observation: Option<WorkloadGroupObservation>,
     pub(super) calls: Arc<Mutex<Vec<&'static str>>>,
     pub(super) removed_groups: Arc<Mutex<Vec<ObservedWorkloadGroup>>>,
+
+    /// Lines every unit wrote, oldest first, which group log reads return.
+    pub(super) output: Vec<String>,
 }
 
 impl PausedMatrixRuntime {
@@ -1915,6 +1919,7 @@ impl PausedMatrixRuntime {
             inspect_observation: None,
             calls,
             removed_groups: Arc::new(Mutex::new(Vec::new())),
+            output: Vec::new(),
         }
     }
 
@@ -1931,11 +1936,17 @@ impl PausedMatrixRuntime {
             inspect_observation: None,
             calls,
             removed_groups,
+            output: Vec::new(),
         }
     }
 
     pub(super) fn with_inspection(mut self, inspect_observation: WorkloadGroupObservation) -> Self {
         self.inspect_observation = Some(inspect_observation);
+        self
+    }
+
+    pub(super) fn with_output(mut self, lines: &[&str]) -> Self {
+        self.output = lines.iter().map(|line| (*line).to_owned()).collect();
         self
     }
 }
@@ -2012,6 +2023,37 @@ impl dotcore_runtime::WorkloadGroupBackend for PausedMatrixRuntime {
     fn stop_workload_group<'a>(&'a self, _: &'a WorkloadGroupLaunch) -> RuntimeFuture<'a, ()> {
         self.calls.lock().expect("Runtime calls").push("stop");
         Box::pin(ready(Ok(())))
+    }
+
+    fn read_workload_group_logs<'a>(
+        &'a self,
+        _: &'a WorkloadGroupLaunch,
+        sources: &'a dotcore_runtime::RuntimeLogSourceSelection,
+        _: &'a dotcore_runtime::RuntimeLogQuery,
+    ) -> dotcore_runtime::RuntimeLogFuture<'a, Vec<dotcore_runtime::RuntimeLogSourceHistory>> {
+        let histories = sources
+            .sources()
+            .iter()
+            .map(|source| dotcore_runtime::RuntimeLogSourceHistory {
+                source: source.clone(),
+                result: Ok(dotcore_runtime::RuntimeLogHistory {
+                    entries: self
+                        .output
+                        .iter()
+                        .map(|line| dotcore_runtime::RuntimeLogEntry {
+                            source: source.clone(),
+                            timestamp: std::time::UNIX_EPOCH,
+                            stream: dotcore_runtime::RuntimeLogStreamKind::Stderr,
+                            content: format!("{line}\n").into_bytes(),
+                            truncated: false,
+                        })
+                        .collect(),
+                    has_older_output: false,
+                    candidate_budget_truncated: false,
+                }),
+            })
+            .collect();
+        Box::pin(ready(Ok(histories)))
     }
 }
 
