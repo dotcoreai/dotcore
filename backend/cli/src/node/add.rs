@@ -34,6 +34,9 @@ use crate::{
     },
 };
 
+/// Where the Dotcore installer is published.
+const INSTALLER_URL: &str = "https://dotcore.ai/install.sh";
+
 /// Arguments of `dotc node add`.
 #[derive(Debug, Args)]
 pub struct NodeAddArgs {
@@ -122,9 +125,17 @@ async fn run_join(
         Some(file) => format!("dotc node join --token-file {}", file.path_text()?),
         None => format!("dotc node join --token {}", started.token),
     };
+    // The installer takes the token inline, so a token kept in a file gets no installer command.
+    let install_command = token_file
+        .is_none()
+        .then(|| install_command(&started.token));
 
     let mut terminal = (!arguments.yes).then(open_terminal);
-    let ready = announce_ready(boxed(&mut terminal), &join_command)?;
+    let ready = announce_ready(
+        boxed(&mut terminal),
+        &join_command,
+        install_command.as_deref(),
+    )?;
     if let Some(notice) = loopback_manager_notice(&started.token) {
         Notices::new(boxed(&mut terminal)).warn(&notice)?;
     }
@@ -236,10 +247,12 @@ async fn follow(
 }
 
 /// Tells the operator how to join, on the terminal when interactive, else as the join command
-/// record. Returns the records to write when there is no terminal.
+/// record. On the terminal, the installer command for a machine without Dotcore comes first when
+/// there is one. Returns the records to write when there is no terminal.
 fn announce_ready(
     terminal: Option<&mut dyn Terminal>,
     join_command: &str,
+    install_command: Option<&str>,
 ) -> anyhow::Result<Option<String>> {
     let Some(terminal) = terminal else {
         return Ok(Some(format!(
@@ -247,10 +260,26 @@ fn announce_ready(
             record_value(join_command)?
         )));
     };
-    terminal.message(&Message::Info("On the new machine, run:".to_owned()))?;
+    match install_command {
+        Some(install_command) => {
+            terminal.message(&Message::Info(
+                "On a new machine, install Dotcore and join with:".to_owned(),
+            ))?;
+            terminal.message(&Message::Command(install_command.to_owned()))?;
+            terminal.message(&Message::Info(
+                "On a machine that has Dotcore, run:".to_owned(),
+            ))?;
+        }
+        None => terminal.message(&Message::Info("On the new machine, run:".to_owned()))?,
+    }
     terminal.message(&Message::Command(join_command.to_owned()))?;
     terminal.message(&Message::Hint("Waiting for the node...".to_owned()))?;
     Ok(None)
+}
+
+/// The command that installs Dotcore on a new machine and joins it with `token`.
+fn install_command(token: &str) -> String {
+    format!("curl -fsSL {INSTALLER_URL} | sh -s -- --join {token}")
 }
 
 /// Tells the operator how a remote machine joins a manager whose declared host is a loopback
@@ -672,6 +701,66 @@ mod tests {
                     vec![Some(1), Some(0), Some(2), Some(0), Some(1)],
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn the_terminal_shows_the_installer_command_then_the_join_command() {
+        let mut terminal = ScriptedTerminal::interactive([]);
+
+        let records = announce_ready(
+            Some(&mut terminal),
+            "dotc node join --token dcjoin1.abc",
+            Some(&install_command("dcjoin1.abc")),
+        )
+        .expect("announced");
+
+        assert_eq!(records, None);
+        assert_eq!(
+            terminal.lines(),
+            [
+                "On a new machine, install Dotcore and join with:",
+                "  curl -fsSL https://dotcore.ai/install.sh | sh -s -- --join dcjoin1.abc",
+                "On a machine that has Dotcore, run:",
+                "  dotc node join --token dcjoin1.abc",
+                "Waiting for the node...",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_token_file_shows_only_the_join_command() {
+        let mut terminal = ScriptedTerminal::interactive([]);
+
+        announce_ready(
+            Some(&mut terminal),
+            "dotc node join --token-file /tmp/token",
+            None,
+        )
+        .expect("announced");
+
+        assert_eq!(
+            terminal.lines(),
+            [
+                "On the new machine, run:",
+                "  dotc node join --token-file /tmp/token",
+                "Waiting for the node...",
+            ]
+        );
+    }
+
+    #[test]
+    fn without_a_terminal_only_the_join_command_record_is_written() {
+        let records = announce_ready(
+            None,
+            "dotc node join --token dcjoin1.abc",
+            Some(&install_command("dcjoin1.abc")),
+        )
+        .expect("announced");
+
+        assert_eq!(
+            records.as_deref(),
+            Some("Node join ready\nDOTCORE_JOIN_COMMAND=dotc node join --token dcjoin1.abc\n")
         );
     }
 

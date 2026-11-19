@@ -9,7 +9,8 @@ Code: `frontend/` (its `AGENTS.md` holds the code map).
 
 - Manage and observe the site, its machines, deployments and routes, through the management API.
 - See live updates as the site changes.
-- Add a machine: start a join, then review the joining machine and approve or reject it
+- Add a machine: start a join, show the command that installs Dotcore if needed and joins, then
+  review the joining machine and approve or reject it
   ([access](access.md#joining-a-node)).
 - Remove a machine once its deployments are gone, or forget them for a machine that is not
   connected ([sites](sites.md#invariants)).
