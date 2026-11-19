@@ -7,11 +7,12 @@ import "dotcore/site/v1/site.proto";
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
-// Management API for adding a machine to the running site, or letting a declared one join again.
-// Joins live in the site manager's memory only: a manager restart ends every join and voids its
-// token. Errors: NOT_FOUND (unknown or ended join), FAILED_PRECONDITION (decision that doesn't
-// match the join's current proposal), RESOURCE_EXHAUSTED (too many active joins).
-service SiteJoinService {
+// Management API for the running site's membership: adding a machine, letting a declared one join
+// again, and removing one. Joins live in the site manager's memory only: a manager restart ends
+// every join and voids its token. Errors: NOT_FOUND (unknown or ended join), FAILED_PRECONDITION
+// (decision that doesn't match the join's current proposal), RESOURCE_EXHAUSTED (too many active
+// joins).
+service SiteMembershipService {
   // Starts a join and returns the token the joining machine presents.
   rpc StartJoin(StartJoinRequest) returns (StartJoinResponse);
 
@@ -28,6 +29,11 @@ service SiteJoinService {
 
   // Ends a join that has not reached a final state and refuses its token from then on.
   rpc CancelJoin(CancelJoinRequest) returns (CancelJoinResponse);
+
+  // Removes a worker machine from the running site, or previews the removal. A refusal or a
+  // machine that is already gone is an outcome of the response, not an error. The removal is
+  // recorded durably before the machine loses its access.
+  rpc RemoveMachine(RemoveMachineRequest) returns (RemoveMachineResponse);
 }
 
 // Requests a new join.
@@ -94,6 +100,36 @@ message CancelJoinRequest {
 
 // Acknowledges the cancellation.
 message CancelJoinResponse {}
+
+// Removes one worker machine, or previews its removal.
+message RemoveMachineRequest {
+  // SiteNode identity of the machine to remove.
+  string node_id = 1;
+
+  // Withdraws the deployments placed on the machine and the routes they alone serve, without
+  // cleanup on the machine; refused while the machine is connected.
+  bool forget_deployments = 2;
+
+  // Returns what the removal would change without changing the site.
+  bool validate_only = 3;
+}
+
+// What the removal did, would do, or why it was refused.
+message RemoveMachineResponse {
+  oneof outcome {
+    // The site no longer has the machine; its access is withdrawn.
+    MachineRemovalPlan removed = 1;
+
+    // What the removal would change; nothing was changed.
+    MachineRemovalPlan would_remove = 2;
+
+    // No such machine is in the site, for example after an earlier removal.
+    google.protobuf.Empty already_removed = 3;
+
+    // Nothing was changed, for the reason given.
+    MachineRemovalRefusal refused = 4;
+  }
+}
 
 // State of one join. Committed, cancelled, expired and failed are final; the others can change.
 message JoinState {
@@ -199,6 +235,67 @@ message JoinProposal {
   }
 }
 
+// What removing one machine changes in the site.
+message MachineRemovalPlan {
+  // SiteNode identity of the machine.
+  string node_id = 1;
+
+  // SiteNode display name of the machine.
+  string display_name = 2;
+
+  // Execution targets that leave with the machine.
+  repeated string execution_target_ids = 3;
+
+  // Deployments withdrawn without cleanup; empty unless forgetting them was asked.
+  repeated MachineRemovalDeployment forgotten_deployments = 4;
+
+  // Routes deleted because only forgotten deployments served them.
+  repeated MachineRemovalRoute deleted_routes = 5;
+}
+
+// Why a removal changed nothing, with what blocks it.
+message MachineRemovalRefusal {
+  // Kind of refusal.
+  MachineRemovalRefusalReason reason = 1;
+
+  // Human-readable explanation, safe to show the operator.
+  string message = 2;
+
+  // Deployments placed on the machine, for a refusal because of them.
+  repeated MachineRemovalDeployment deployments = 3;
+
+  // Routes that stay but are also served by forgotten deployments, for a route conflict.
+  repeated string shared_route_names = 4;
+
+  // Applications that stay but are bound to a route the removal would delete, for a route
+  // conflict.
+  repeated string linked_application_names = 5;
+}
+
+// One model or application deployment placed on the machine being removed.
+message MachineRemovalDeployment {
+  // Owner that declared the deployment.
+  MachineRemovalDeploymentKind kind = 1;
+
+  // Model or application deployment identity.
+  string deployment_id = 2;
+
+  // Display name, or the model when a model deployment has none.
+  string name = 3;
+
+  // Whether the deployment is being torn down.
+  bool tearing_down = 4;
+}
+
+// One route a removal deletes.
+message MachineRemovalRoute {
+  // Inference route identity.
+  string inference_route_id = 1;
+
+  // Route name callers use.
+  string name = 2;
+}
+
 // A small symmetric grid of colored cells derived from a key fingerprint, for a quick visual
 // match between two screens; the fingerprint stays the authoritative check.
 message FingerprintPattern {
@@ -294,4 +391,33 @@ enum JoinTargetRuntime {
 
   // Applications run through Docker.
   JOIN_TARGET_RUNTIME_DOCKER = 4;
+}
+
+// Owner of a deployment placed on a machine being removed.
+enum MachineRemovalDeploymentKind {
+  MACHINE_REMOVAL_DEPLOYMENT_KIND_UNSPECIFIED = 0;
+
+  MACHINE_REMOVAL_DEPLOYMENT_KIND_MODEL = 1;
+
+  MACHINE_REMOVAL_DEPLOYMENT_KIND_APPLICATION = 2;
+}
+
+// Why a machine removal changed nothing.
+enum MachineRemovalRefusalReason {
+  MACHINE_REMOVAL_REFUSAL_REASON_UNSPECIFIED = 0;
+
+  // The machine is the site manager, which can't leave its site.
+  MACHINE_REMOVAL_REFUSAL_REASON_MANAGER = 1;
+
+  // Deployments are placed on the machine and forgetting them wasn't asked.
+  MACHINE_REMOVAL_REFUSAL_REASON_DEPLOYMENTS_PLACED = 2;
+
+  // Forgetting deployments was asked while the machine is connected; remove them instead.
+  MACHINE_REMOVAL_REFUSAL_REASON_CONNECTED = 3;
+
+  // Forgetting the deployments would break routes or applications that stay.
+  MACHINE_REMOVAL_REFUSAL_REASON_ROUTE_CONFLICT = 4;
+
+  // The site without the machine would be invalid.
+  MACHINE_REMOVAL_REFUSAL_REASON_INVALID_SITE = 5;
 }

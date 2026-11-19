@@ -8,7 +8,7 @@ import { ClientsProvider } from "@/api/clients-provider";
 import type { MetricsClient } from "@/api/metrics-client";
 import type { ModelClient } from "@/api/model-client";
 import type { SiteClient } from "@/api/site-client";
-import type { SiteJoinClient } from "@/api/site-join-client";
+import type { SiteMembershipClient } from "@/api/site-membership-client";
 import { nodeMemoryPayload } from "@/features/memory/node-memory-test-support";
 import { idleMetricsClient } from "@/features/metrics/metric-test-support";
 import { ListApplicationDeploymentsResponseSchema } from "@/gen/dotcore/application/v1/service_pb";
@@ -47,13 +47,13 @@ export function MachinesPage({
   client,
   metricsClient = idleMetricsClient(),
   modelClient,
-  siteJoinClient,
+  siteMembershipClient,
 }: {
   applicationClient?: ApplicationClient;
   client: MachinesSite;
   metricsClient?: MetricsClient;
   modelClient?: ModelClient;
-  siteJoinClient?: SiteJoinClient;
+  siteMembershipClient?: SiteMembershipClient;
 }) {
   const [watch] = useState(() => {
     const watch = new FakeResourceWatch({
@@ -84,7 +84,7 @@ export function MachinesPage({
       metricsClient,
       modelClient,
       siteClient: client,
-      siteJoinClient,
+      siteMembershipClient,
     }),
   );
 

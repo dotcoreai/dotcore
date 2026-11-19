@@ -64,6 +64,7 @@ fn command_hint(error: &(dyn Error + 'static)) -> Option<&'static str> {
     if let Some(error) = error.downcast_ref::<CompositionError>() {
         return match error {
             CompositionError::NotSiteManager { .. } => Some(JOIN_SITE),
+            CompositionError::RemovedFromSite => Some(LEAVE_THEN_JOIN),
             CompositionError::UnresolvableNodeHost { .. } => {
                 Some(" using `dotc site reset --host`")
             }

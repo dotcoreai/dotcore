@@ -1,8 +1,11 @@
-//! The join management API: starts a join and hands out its token, streams each join's state,
-//! and takes the operator's approve, reject and cancel decisions.
+//! The membership management API: starts a join and hands out its token, streams each join's
+//! state, takes the operator's approve, reject and cancel decisions, and removes a machine or
+//! previews its removal.
 //!
-//! It projects the join registry onto the wire. A watch sends the join's current state first,
-//! then every change, a heartbeat after a quiet interval, and ends once the join has ended.
+//! It projects the join registry and the node removal onto the wire. A watch sends the join's
+//! current state first, then every change, a heartbeat after a quiet interval, and ends once the
+//! join has ended. A removal answers with what it changed, what it would change, or why it was
+//! refused; only a failure to record it is an error.
 
 use std::{pin::Pin, sync::Arc, time::Duration};
 
@@ -15,53 +18,65 @@ use dotcore_proto::{
         JoinAttemptOutcome as ProtoAttemptOutcome, JoinAwaitingApproval, JoinCommitted, JoinFailed,
         JoinHostSource as ProtoHostSource, JoinNewNode, JoinProposal as ProtoProposal,
         JoinProposedTarget, JoinRejoin, JoinState, JoinTargetRuntime, JoinWaiting,
-        NativeWorkloadLifetime, RejectJoinRequest, RejectJoinResponse, StartJoinRequest,
-        StartJoinResponse, WatchJoinRequest, WatchJoinResponse, application_runtime_binding,
-        execution_target, join_attempt_outcome, join_proposal, join_state, model_runtime_binding,
-        site_join_service_server::{SiteJoinService, SiteJoinServiceServer},
+        MachineRemovalDeployment, MachineRemovalDeploymentKind, MachineRemovalPlan,
+        MachineRemovalRefusal, MachineRemovalRefusalReason, MachineRemovalRoute,
+        NativeWorkloadLifetime, RejectJoinRequest, RejectJoinResponse, RemoveMachineRequest,
+        RemoveMachineResponse, StartJoinRequest, StartJoinResponse, WatchJoinRequest,
+        WatchJoinResponse, application_runtime_binding, execution_target, join_attempt_outcome,
+        join_proposal, join_state, model_runtime_binding, remove_machine_response,
+        site_membership_service_server::{SiteMembershipService, SiteMembershipServiceServer},
         watch_join_response,
     },
     google::protobuf::{Empty, Timestamp},
 };
 use futures_util::{Stream, stream};
+use tokio::task;
 use tonic::{Request, Response, Status};
+use tracing::warn;
 
 use super::{
-    FingerprintColor, FingerprintPattern, JoinAttemptOutcome, JoinHostSource, JoinRegistry,
-    JoinRegistryError, JoinReview, JoinStatus, JoinWatch, ReviewedJoin,
+    DeploymentKind, MachineRemoval, MachineRemovalError, MachineRemovalOutcome, NodeRemovalError,
+    NodeRemovalPlan, PlacedDeployment,
+    join::{
+        FingerprintColor, FingerprintPattern, JoinAttemptOutcome, JoinHostSource, JoinRegistry,
+        JoinRegistryError, JoinReview, JoinStatus, JoinWatch, ReviewedJoin,
+    },
 };
 
-/// The management service over the site manager's join registry.
-pub struct JoinManagementService {
+/// The management service over the site manager's join registry and node removal.
+pub struct MembershipManagementService {
     registry: JoinRegistry,
+    removal: Arc<MachineRemoval>,
     clock: Arc<dyn Clock>,
     heartbeat_interval: Duration,
 }
 
-impl JoinManagementService {
-    /// Serves `registry`, sending a heartbeat on a watch quiet for `heartbeat_interval` on
-    /// `clock`.
+impl MembershipManagementService {
+    /// Serves `registry` and `removal`, sending a heartbeat on a join watch quiet for
+    /// `heartbeat_interval` on `clock`.
     pub fn new(
         registry: JoinRegistry,
+        removal: MachineRemoval,
         clock: Arc<dyn Clock>,
         heartbeat_interval: Duration,
     ) -> Self {
         Self {
             registry,
+            removal: Arc::new(removal),
             clock,
             heartbeat_interval,
         }
     }
 
-    pub fn into_server(self) -> SiteJoinServiceServer<Self> {
-        SiteJoinServiceServer::new(self)
+    pub fn into_server(self) -> SiteMembershipServiceServer<Self> {
+        SiteMembershipServiceServer::new(self)
     }
 }
 
 type JoinStateStream = Pin<Box<dyn Stream<Item = Result<WatchJoinResponse, Status>> + Send>>;
 
 #[tonic::async_trait]
-impl SiteJoinService for JoinManagementService {
+impl SiteMembershipService for MembershipManagementService {
     type WatchJoinStream = JoinStateStream;
 
     async fn start_join(
@@ -121,6 +136,135 @@ impl SiteJoinService for JoinManagementService {
             .cancel(&request.into_inner().join_id)
             .map_err(registry_status)?;
         Ok(Response::new(CancelJoinResponse {}))
+    }
+
+    async fn remove_machine(
+        &self,
+        request: Request<RemoveMachineRequest>,
+    ) -> Result<Response<RemoveMachineResponse>, Status> {
+        let request = request.into_inner();
+        if request.node_id.is_empty() {
+            return Err(Status::invalid_argument("a node id is required"));
+        }
+        let removal = Arc::clone(&self.removal);
+        // The removal writes and syncs site.yaml.
+        let removed = task::spawn_blocking(move || {
+            removal.remove(
+                &request.node_id,
+                request.forget_deployments,
+                request.validate_only,
+            )
+        })
+        .await
+        .map_err(|error| {
+            warn!(event_kind = "site_node_removal", outcome = "failed", error = %error, "Node removal task ended without an answer");
+            Status::internal("node removal failed")
+        })?;
+        let outcome = match removed {
+            Ok(MachineRemovalOutcome::Removed(plan)) => {
+                remove_machine_response::Outcome::Removed(removal_plan(&plan))
+            }
+            Ok(MachineRemovalOutcome::WouldRemove(plan)) => {
+                remove_machine_response::Outcome::WouldRemove(removal_plan(&plan))
+            }
+            Ok(MachineRemovalOutcome::AlreadyRemoved) => {
+                remove_machine_response::Outcome::AlreadyRemoved(Empty {})
+            }
+            Err(error) => remove_machine_response::Outcome::Refused(removal_refusal(error)?),
+        };
+        Ok(Response::new(RemoveMachineResponse {
+            outcome: Some(outcome),
+        }))
+    }
+}
+
+/// Projects what a removal changes.
+fn removal_plan(plan: &NodeRemovalPlan) -> MachineRemovalPlan {
+    MachineRemovalPlan {
+        node_id: plan.node.node_id.clone(),
+        display_name: plan.node.display_name.clone(),
+        execution_target_ids: plan
+            .execution_targets
+            .iter()
+            .map(|target| target.execution_target_id.clone())
+            .collect(),
+        forgotten_deployments: plan
+            .forgotten_deployments
+            .iter()
+            .map(removal_deployment)
+            .collect(),
+        deleted_routes: plan
+            .deleted_routes
+            .iter()
+            .map(|route| MachineRemovalRoute {
+                inference_route_id: route.id.clone(),
+                name: route.name.clone(),
+            })
+            .collect(),
+    }
+}
+
+/// Projects a refused removal as an outcome, and a removal that failed to be recorded as an
+/// error status.
+fn removal_refusal(error: MachineRemovalError) -> Result<MachineRemovalRefusal, Status> {
+    let message = error.to_string();
+    let refusal = |reason: MachineRemovalRefusalReason| MachineRemovalRefusal {
+        reason: reason as i32,
+        message: message.clone(),
+        ..MachineRemovalRefusal::default()
+    };
+    match &error {
+        MachineRemovalError::Refused(NodeRemovalError::ManagerNode { .. }) => {
+            Ok(refusal(MachineRemovalRefusalReason::Manager))
+        }
+        MachineRemovalError::Refused(NodeRemovalError::PlacedDeployments {
+            deployments, ..
+        }) => Ok(MachineRemovalRefusal {
+            deployments: deployments.iter().map(removal_deployment).collect(),
+            ..refusal(MachineRemovalRefusalReason::DeploymentsPlaced)
+        }),
+        MachineRemovalError::Refused(NodeRemovalError::RouteConflicts {
+            shared_routes,
+            linked_applications,
+            ..
+        }) => Ok(MachineRemovalRefusal {
+            shared_route_names: shared_routes.clone(),
+            linked_application_names: linked_applications
+                .iter()
+                .map(|application| application.application_deployment_name.clone())
+                .collect(),
+            ..refusal(MachineRemovalRefusalReason::RouteConflict)
+        }),
+        MachineRemovalError::Refused(
+            NodeRemovalError::InvalidSite(_) | NodeRemovalError::AmbiguousNode { .. },
+        ) => Ok(refusal(MachineRemovalRefusalReason::InvalidSite)),
+        MachineRemovalError::Connected { .. } => {
+            Ok(refusal(MachineRemovalRefusalReason::Connected))
+        }
+        MachineRemovalError::Refused(_)
+        | MachineRemovalError::Failed(_)
+        | MachineRemovalError::OutcomeUncertain(_) => {
+            warn!(event_kind = "site_node_removal", outcome = "failed", error = %dotcore_domain::diagnostic::diagnostic_chain(&error), "Site manager could not record a node removal");
+            Err(Status::unavailable(match error {
+                MachineRemovalError::OutcomeUncertain(_) => {
+                    "node removal outcome is uncertain; retry the removal"
+                }
+                _ => "node removal could not be recorded; the site still has the machine",
+            }))
+        }
+    }
+}
+
+/// Projects one deployment placed on a removed node.
+fn removal_deployment(deployment: &PlacedDeployment) -> MachineRemovalDeployment {
+    MachineRemovalDeployment {
+        kind: match deployment.kind {
+            DeploymentKind::Model => MachineRemovalDeploymentKind::Model,
+            DeploymentKind::Application => MachineRemovalDeploymentKind::Application,
+        } as i32,
+        deployment_id: deployment.id.clone(),
+        name: deployment.name.clone(),
+        tearing_down: deployment.state == "teardown",
     }
 }
 

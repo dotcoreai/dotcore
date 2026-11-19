@@ -4,7 +4,8 @@
 //! The listener presents the node's certificate with the site CA. The site manager's listener asks
 //! for a client certificate without requiring one, so a machine that holds no site certificate yet
 //! can reach the join service; every other node requires one. After the handshake, a connection
-//! whose certificate is pinned is never capped or closed for being idle. Any other connection
+//! whose certificate is pinned is never capped or closed for being idle, and closes once its pin is
+//! withdrawn or replaced. Any other connection
 //! counts toward a fixed limit, closes once it stays too long without a join request in progress,
 //! and gives way to a newer one at the limit unless it ever presented a valid join secret.
 
@@ -35,7 +36,7 @@ use tokio::{
 };
 use tokio_rustls::{TlsAcceptor, server::TlsStream};
 use tokio_stream::wrappers::TcpListenerStream;
-use tokio_util::sync::{CancellationToken, DropGuard};
+use tokio_util::sync::{CancellationToken, DropGuard, WaitForCancellationFutureOwned};
 use tonic::transport::server::Connected;
 use tracing::debug;
 
@@ -150,9 +151,11 @@ impl PrivateConnections {
             .peer_certificates()
             .and_then(|certificates| certificates.first())
             .map(|certificate| Arc::<[u8]>::from(certificate.as_ref()));
-        let pinned = peer_certificate
-            .as_deref()
-            .is_some_and(|leaf| self.pins.authenticate(&self.site_id, leaf).is_some());
+        let revoked = peer_certificate.as_deref().and_then(|leaf| {
+            self.pins
+                .authenticate_revocable(&self.site_id, leaf)
+                .map(|(_, revoked)| Box::pin(revoked.cancelled_owned()))
+        });
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let activity = Arc::new(Mutex::new(ConnectionActivity {
             requests: 0,
@@ -161,7 +164,7 @@ impl PrivateConnections {
             closing: Closing::Open,
             reader: None,
         }));
-        let unpinned = if pinned {
+        let unpinned = if revoked.is_some() {
             None
         } else {
             Some(self.claim_unpinned(id, &activity, peer_address)?)
@@ -177,6 +180,7 @@ impl PrivateConnections {
                 closed: closed.clone(),
             },
             unpinned,
+            revoked,
             _closed: closed.drop_guard(),
         })
     }
@@ -329,14 +333,26 @@ pub struct PrivateConnectionIo {
     info: PrivateConnectionInfo,
     unpinned: Option<UnpinnedSlot>,
 
+    /// Completes once the pin that authenticated a pinned connection is withdrawn or replaced.
+    revoked: Option<Pin<Box<WaitForCancellationFutureOwned>>>,
+
     // Dropped last, so the close notice fires once the unpinned slot is free.
     _closed: DropGuard,
 }
 
 impl PrivateConnectionIo {
-    /// Fails a pending read of an unpinned connection once it was closed, or once it stayed past
-    /// its idle timeout without a join request in progress.
+    /// Fails a pending read of a pinned connection once its pin was revoked, and of an unpinned
+    /// connection once it was closed, or once it stayed past its idle timeout without a join
+    /// request in progress.
     fn poll_closed(&mut self, context: &mut Context<'_>) -> Poll<io::Error> {
+        if let Some(revoked) = self.revoked.as_mut() {
+            return revoked.as_mut().poll(context).map(|()| {
+                io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "the pin of this private connection was revoked",
+                )
+            });
+        }
         let Some(unpinned) = self.unpinned.as_mut() else {
             return Poll::Pending;
         };

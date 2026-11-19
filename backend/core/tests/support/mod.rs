@@ -1312,6 +1312,15 @@ pub async fn wait_for_refused_stream_opens(worker_root: &Path, failure: &str, co
 }
 
 /// Errors of every node control stream open a worker retained as failed, oldest first.
+/// Reports whether the worker under `worker_root` retained that its manager removed it from the
+/// site.
+pub fn logged_removal(worker_root: &Path) -> bool {
+    retained_json_records(worker_root).iter().any(|record| {
+        record["fields"]["event_kind"] == "node_control_stream_ended"
+            && record["fields"]["reason"] == "removed"
+    })
+}
+
 fn failed_stream_open_errors(worker_root: &Path) -> Vec<String> {
     retained_json_records(worker_root)
         .iter()
@@ -1496,6 +1505,31 @@ impl ExternalBackendProcess {
         self.child
             .as_mut()
             .is_some_and(|child| child.try_wait().expect("external backend status").is_none())
+    }
+
+    /// Waits for the process to exit on its own and returns how it ended.
+    pub async fn wait_for_exit(&mut self) -> std::process::ExitStatus {
+        const EXIT_DEADLINE: Duration = Duration::from_secs(30);
+        const EXIT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
+        let child = self.child.as_mut().expect("external backend child");
+        let exited = tokio::time::timeout(EXIT_DEADLINE, async {
+            loop {
+                if let Some(status) = child.try_wait().expect("external backend status") {
+                    return status;
+                }
+                tokio::time::sleep(EXIT_POLL_INTERVAL).await;
+            }
+        })
+        .await;
+        let status = exited.unwrap_or_else(|_| {
+            panic!(
+                "external backend still runs {EXIT_DEADLINE:?} later; its logs:\n{}",
+                retained_log_text(&self.site_root)
+            )
+        });
+        self.stop();
+        status
     }
 
     /// Suspends the owned process while preserving its operating-system identity.
@@ -2389,10 +2423,10 @@ where
 {
     use dotcore_proto::dotcore::site::v1::{
         ApproveJoinRequest, StartJoinRequest, WatchJoinRequest, join_state,
-        site_join_service_client::SiteJoinServiceClient, watch_join_response,
+        site_membership_service_client::SiteMembershipServiceClient, watch_join_response,
     };
 
-    let mut joins = SiteJoinServiceClient::connect(format!("http://{management}"))
+    let mut joins = SiteMembershipServiceClient::connect(format!("http://{management}"))
         .await
         .expect("manager join API");
     let started = joins

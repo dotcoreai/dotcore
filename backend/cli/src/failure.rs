@@ -313,6 +313,12 @@ fn typed_failure(cause: &(dyn Error + 'static)) -> Option<Typed> {
             ],
         ));
     }
+    if matches!(
+        cause.downcast_ref::<CompositionError>(),
+        Some(CompositionError::RemovedFromSite)
+    ) {
+        return Some(removed_from_site());
+    }
     if let Some(CompositionError::UnresolvableNodeHost { host, source }) =
         cause.downcast_ref::<CompositionError>()
     {
@@ -343,6 +349,24 @@ fn leave_then_join(verdict: String, root: &std::path::Path) -> Typed {
             NextStep::new("Leave that site on this machine:").with_command(leave),
             NextStep::new("Then, on the manager, get a new token to join as a new node:")
                 .with_command("dotc node add"),
+        ],
+    )
+}
+
+/// A node the site manager removed: retire its folder here, then join as a new node.
+fn removed_from_site() -> Typed {
+    (
+        "This node is no longer a member of its site".to_owned(),
+        Vec::new(),
+        vec![
+            NextStep::new("Clean up its folder and workloads on this machine:")
+                .with_command("dotc node leave"),
+            NextStep::new(
+                "Then get a new join command from the site (the console, or on the manager):",
+            )
+            .with_command("dotc node add"),
+            NextStep::new("Run the join command it prints on this machine:")
+                .with_command("dotc node join"),
         ],
     )
 }
@@ -994,6 +1018,26 @@ mod tests {
                 "✘ other is not the node in /x/node",
                 "Next",
                 "  › Join again without --name, or with the name the node was added under",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_removed_node_server_start_names_the_leave_and_join_commands() {
+        let error = anyhow::Error::new(dotcore::composition::CompositionError::RemovedFromSite)
+            .context("server start failed");
+
+        assert_eq!(
+            lines(&Failure::from_error(&error), false),
+            [
+                "✘ This node is no longer a member of its site",
+                "Next",
+                "  › Clean up its folder and workloads on this machine:",
+                "      dotc node leave",
+                "  › Then get a new join command from the site (the console, or on the manager):",
+                "      dotc node add",
+                "  › Run the join command it prints on this machine:",
+                "      dotc node join",
             ]
         );
     }

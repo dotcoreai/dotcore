@@ -19,7 +19,8 @@ use dotcore_proto::dotcore::node::v1::node_join_service_server;
 use dotcore_site::private_transport::{
     DEFAULT_MAX_UNPINNED_CONNECTIONS, JoinGate, PeerPins, PrivateConnectionInfo,
     PrivateConnections, PrivateNodeRole, PrivateServerConfiguration, PrivateServiceContext,
-    UnpinnedConnectionLimits, authentication_failure,
+    SiteMembership, UnpinnedConnectionLimits, authentication_failure, exact_node_identity,
+    not_a_member,
 };
 use futures_util::future::{self, Either, Ready};
 use tonic::Status;
@@ -83,13 +84,15 @@ impl PreparedPrivateServer {
 }
 
 /// What a server's private listener serves: its mTLS identity, its routes, the timing of its
-/// connections, and what it admits from connections without a pinned certificate.
+/// connections, what it admits from connections without a pinned certificate, and, on the site
+/// manager, the site membership that tells a removed node so.
 pub(crate) struct PrivateListener {
     pub(crate) configuration: PrivateServerConfiguration,
     pub(crate) routes: tonic::service::Routes,
     pub(crate) timing: PrivateTiming,
     pub(crate) unpinned: UnpinnedConnectionLimits,
     pub(crate) join_gate: JoinGate,
+    pub(crate) membership: Option<Arc<dyn SiteMembership>>,
 }
 
 impl PrivateListener {
@@ -109,6 +112,7 @@ impl PrivateListener {
                 idle_timeout: timing.join.idle_timeout,
             },
             join_gate: JoinGate::default(),
+            membership: None,
         }
     }
 }
@@ -126,6 +130,7 @@ pub(crate) async fn prepare(
         timing,
         unpinned,
         join_gate,
+        membership,
     } = listener;
     let tcp = tokio::net::TcpListener::bind(configuration.bind_address)
         .await
@@ -138,7 +143,7 @@ pub(crate) async fn prepare(
         .map_err(super::ListenerError::PrivateAddress)?;
     let connections =
         PrivateConnections::new(&configuration, unpinned).map_err(super::ServerError::Private)?;
-    let ingress = PrivateIngress::new(&configuration, join_gate);
+    let ingress = PrivateIngress::new(&configuration, join_gate, membership);
     let future = tonic::transport::Server::builder()
         .http2_keepalive_interval(Some(timing.keepalive_interval))
         .http2_keepalive_timeout(Some(timing.keepalive_timeout))
@@ -157,26 +162,34 @@ pub(crate) async fn prepare(
 
 /// Request ingress of the private listener: a request to the join service passes while a join
 /// is active, and every other request must come from a pinned site certificate, whose exact
-/// identity it then carries to the private services.
+/// identity it then carries to the private services. A site certificate of a node the site no
+/// longer declares is told it isn't a member.
 #[derive(Clone)]
 struct PrivateIngress {
     site_id: Arc<str>,
     pins: PeerPins,
     join_gate: JoinGate,
+    membership: Option<Arc<dyn SiteMembership>>,
 }
 
 impl PrivateIngress {
-    fn new(configuration: &PrivateServerConfiguration, join_gate: JoinGate) -> Self {
+    fn new(
+        configuration: &PrivateServerConfiguration,
+        join_gate: JoinGate,
+        membership: Option<Arc<dyn SiteMembership>>,
+    ) -> Self {
         Self {
             site_id: Arc::from(configuration.site_id.as_str()),
             pins: configuration.peers.clone(),
             join_gate,
+            membership,
         }
     }
 
     /// Admits one request, attaching the authenticated identity of a pinned peer. Every refusal
     /// is the same authentication failure, so it reveals neither the pins nor whether a join is
-    /// active.
+    /// active, except for a certificate the site's authority issued to a node the site no longer
+    /// declares, which is told so. The TLS handshake already checked that certificate's chain.
     fn admit<B>(&self, request: &mut http::Request<B>) -> Result<(), Status> {
         if is_join_request(request) {
             return self
@@ -185,14 +198,30 @@ impl PrivateIngress {
                 .then_some(())
                 .ok_or_else(authentication_failure);
         }
-        let identity = request
+        let leaf = request
             .extensions()
             .get::<PrivateConnectionInfo>()
-            .and_then(PrivateConnectionInfo::peer_certificate)
-            .and_then(|leaf| self.pins.authenticate(&self.site_id, leaf))
-            .ok_or_else(authentication_failure)?;
+            .and_then(PrivateConnectionInfo::peer_certificate);
+        let Some(identity) = leaf.and_then(|leaf| self.pins.authenticate(&self.site_id, leaf))
+        else {
+            return Err(self.refusal(leaf));
+        };
         request.extensions_mut().insert(identity);
         Ok(())
+    }
+
+    /// Tells a removed node it isn't a member, and refuses anything else as an authentication
+    /// failure, including a declared node whose pin is missing or differs.
+    fn refusal(&self, leaf: Option<&[u8]>) -> Status {
+        let removed = self.membership.as_ref().is_some_and(|membership| {
+            leaf.and_then(|leaf| exact_node_identity(leaf, &self.site_id))
+                .is_some_and(|node_id| !membership.declares(&node_id))
+        });
+        if removed {
+            not_a_member()
+        } else {
+            authentication_failure()
+        }
     }
 }
 
@@ -259,13 +288,17 @@ mod tests {
             node_join_service_client::NodeJoinServiceClient,
             node_join_service_server::{NodeJoinService, NodeJoinServiceServer},
         },
-        site::private::v1::node_control_service_client::NodeControlServiceClient,
+        site::private::v1::{
+            StreamNodeControlRequest, StreamNodeControlResponse,
+            node_control_service_client::NodeControlServiceClient,
+            node_control_service_server::{NodeControlService, NodeControlServiceServer},
+        },
     };
     use dotcore_site::{
         node::folder::{CertificateFingerprint, certificate_identity_uri},
         private_transport::{
             JoinGate, PeerPins, PinnedPeerVerifier, PrivateConnectionInfo, PrivatePeerPolicy,
-            UnpinnedConnectionLimits, pem,
+            SiteMembership, UnpinnedConnectionLimits, is_not_a_member, pem,
         },
         test_support::private_tls::TestAuthority as SiteAuthority,
         worker_channels::{WorkerChannelError, WorkerChannelPurpose, WorkerChannels},
@@ -454,6 +487,100 @@ mod tests {
         assert_eq!(reached.code(), Code::Unimplemented, "{reached:?}");
     }
 
+    #[tokio::test]
+    async fn removing_a_pin_closes_its_open_streams_and_tells_a_removed_node_it_is_not_a_member() {
+        let site = TestSite::new();
+        let pins = PeerPins::default();
+        pins.insert(WORKER_ID, site.worker_pin());
+        let membership = Arc::new(FakeMembership::declaring([WORKER_ID]));
+        let manager = site
+            .serve_manager_with_membership(pins.clone(), Arc::clone(&membership))
+            .await;
+        let from_worker = site.manager_client(manager, Some(&site.worker)).await;
+        let mut stream = NodeControlServiceClient::new(from_worker.clone())
+            .stream_node_control(futures_util::stream::pending())
+            .await
+            .expect("a pinned worker opens its stream")
+            .into_inner();
+
+        // A declared node whose pin is gone gets the generic answer, not a removal.
+        pins.remove(WORKER_ID);
+        let ended = tokio::time::timeout(DEADLINE, stream.message())
+            .await
+            .expect("the open stream ends once its pin is withdrawn");
+        assert!(!matches!(ended, Ok(Some(_))), "{ended:?}");
+        let refused = node_control(&from_worker).await.expect_err("no pin");
+        assert_authentication_failure(&refused);
+
+        membership.undeclare(WORKER_ID);
+        let removed = node_control(&from_worker).await.expect_err("removed");
+        assert!(is_not_a_member(&removed), "{removed:?}");
+    }
+
+    #[tokio::test]
+    async fn removing_one_pin_keeps_the_streams_of_other_nodes() {
+        let site = TestSite::new();
+        let other = site.authority.issue(SITE_ID, "worker-two", true);
+        let pins = PeerPins::default();
+        pins.insert(WORKER_ID, site.worker_pin());
+        pins.insert(
+            "worker-two",
+            PrivatePeerPolicy {
+                role: PrivateNodeRole::Worker,
+                certificate_sha256: CertificateFingerprint::for_certificate(&other.0),
+            },
+        );
+        let manager = site
+            .serve_manager_with_membership(
+                pins.clone(),
+                Arc::new(FakeMembership::declaring(["worker-two"])),
+            )
+            .await;
+        let from_other = site.manager_client(manager, Some(&other)).await;
+        let mut stream = NodeControlServiceClient::new(from_other.clone())
+            .stream_node_control(futures_util::stream::pending())
+            .await
+            .expect("stream")
+            .into_inner();
+
+        pins.remove(WORKER_ID);
+
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(200), stream.message())
+                .await
+                .is_err(),
+            "the other node's stream stays open"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_certificate_from_another_authority_is_never_told_it_is_not_a_member() {
+        let site = TestSite::new();
+        let stranger = SiteAuthority::new().issue(SITE_ID, WORKER_ID, true);
+        let manager = site
+            .serve_manager_with_membership(
+                PeerPins::default(),
+                Arc::new(FakeMembership::declaring([])),
+            )
+            .await;
+
+        let refused = match site
+            .client(
+                manager,
+                MANAGER_ID,
+                &site.manager.0,
+                Some(&site.identity(&stranger)),
+            )
+            .connect()
+            .await
+        {
+            Ok(channel) => node_control(&channel).await.expect_err("refused"),
+            Err(error) => Status::unavailable(error.to_string()),
+        };
+
+        assert!(!is_not_a_member(&refused), "{refused:?}");
+    }
+
     #[test]
     fn pinned_peer_is_verified_at_an_address_absent_from_its_certificate() {
         let authority = TestAuthority::new();
@@ -628,6 +755,32 @@ mod tests {
             serve(listener).await
         }
 
+        /// Serves the manager's private listener with `pins`, an open node control service, and
+        /// `membership` telling which nodes the site declares.
+        async fn serve_manager_with_membership(
+            &self,
+            pins: PeerPins,
+            membership: Arc<FakeMembership>,
+        ) -> SocketAddr {
+            let mut routes = tonic::service::Routes::builder();
+            routes.add_service(NodeControlServiceServer::new(OpenNodeControl));
+            let mut listener = PrivateListener::new(
+                self.manager_configuration(pins),
+                routes.routes(),
+                &Timing::test(),
+            );
+            listener.membership = Some(membership);
+            serve(listener).await
+        }
+
+        /// The worker's pin as the manager records it.
+        fn worker_pin(&self) -> PrivatePeerPolicy {
+            PrivatePeerPolicy {
+                role: PrivateNodeRole::Worker,
+                certificate_sha256: CertificateFingerprint::for_certificate(&self.worker.0),
+            }
+        }
+
         /// Serves the manager's private listener with `joins` while `gate` is open, bounding
         /// connections without a pinned certificate to `max_open` and `idle_timeout`.
         async fn serve_manager_with(
@@ -762,6 +915,49 @@ mod tests {
             _request: Request<CommitRequest>,
         ) -> Result<Response<CommitResponse>, Status> {
             Err(Status::unimplemented("the fake join host takes no commit"))
+        }
+    }
+
+    /// Nodes a test site declares, which the test changes.
+    struct FakeMembership(Mutex<Vec<String>>);
+
+    impl FakeMembership {
+        fn declaring<const N: usize>(node_ids: [&str; N]) -> Self {
+            Self(Mutex::new(node_ids.map(str::to_owned).to_vec()))
+        }
+
+        fn undeclare(&self, node_id: &str) {
+            self.0
+                .lock()
+                .expect("declared nodes")
+                .retain(|declared| declared != node_id);
+        }
+    }
+
+    impl SiteMembership for FakeMembership {
+        fn declares(&self, node_id: &str) -> bool {
+            self.0
+                .lock()
+                .expect("declared nodes")
+                .iter()
+                .any(|declared| declared == node_id)
+        }
+    }
+
+    /// A node control service whose streams stay open and silent.
+    struct OpenNodeControl;
+
+    #[tonic::async_trait]
+    impl NodeControlService for OpenNodeControl {
+        type StreamNodeControlStream = std::pin::Pin<
+            Box<dyn futures_util::Stream<Item = Result<StreamNodeControlResponse, Status>> + Send>,
+        >;
+
+        async fn stream_node_control(
+            &self,
+            _request: Request<tonic::Streaming<StreamNodeControlRequest>>,
+        ) -> Result<Response<Self::StreamNodeControlStream>, Status> {
+            Ok(Response::new(Box::pin(futures_util::stream::pending())))
         }
     }
 

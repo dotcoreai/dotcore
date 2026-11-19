@@ -32,11 +32,12 @@ use dotcore_proto::dotcore::{
 use futures_util::{StreamExt, future::BoxFuture, stream::BoxStream};
 use tokio::sync::{mpsc, watch};
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::sync::CancellationToken;
 use tonic::{
     Status,
     transport::{Channel, Endpoint},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use super::{
     agent::{ManagerChannelClosed, ObservationReportSink, within},
@@ -44,6 +45,7 @@ use super::{
     stream::ManagerNodeControlStreams,
 };
 use crate::{
+    private_transport::is_not_a_member,
     store::FileNodeState,
     view::{
         contract::{APPLICATION_SECTION_SCHEMA_VERSION, MODEL_SECTION_SCHEMA_VERSION},
@@ -78,6 +80,9 @@ pub struct NodeControlSession {
     /// Heartbeat, manager silence, status slots and retry pauses of the stream.
     timing: NodeControlTiming,
     clock: Arc<dyn Clock>,
+
+    /// Cancelled once the manager says the site no longer declares this node.
+    removed: CancellationToken,
 }
 
 impl NodeControlSession {
@@ -108,6 +113,7 @@ impl NodeControlSession {
         timing: NodeControlTiming,
         clock: Arc<dyn Clock>,
     ) -> Self {
+        let removed = CancellationToken::new();
         let open = NodeControlOpen {
             site_id: site_id.into(),
             node_id: node_id.into(),
@@ -126,16 +132,19 @@ impl NodeControlSession {
             application,
             timing,
             clock,
+            removed,
         }
     }
 
     /// Starts the exchange; its first stream opens once the node has an observation to send.
     pub fn start(self) -> NodeControlSessionTask {
+        let removed = self.removed.clone();
         NodeControlSessionTask {
             task: tokio::spawn(dotcore_domain::background_loop::log_unexpected_loop_end(
                 "node_control_session",
                 self.run(),
             )),
+            removed,
         }
     }
 
@@ -173,6 +182,15 @@ impl NodeControlSession {
                     backoff = RetryBackoff::new(self.timing.stream_retry);
                 }
                 StreamOutcome::Stopped => return,
+                StreamOutcome::Removed => {
+                    error!(
+                        event_kind = "node_control_stream_ended",
+                        reason = "removed",
+                        "The site manager says this node is no longer a member of the site; the node stops"
+                    );
+                    self.removed.cancel();
+                    return;
+                }
             }
             backoff.wait(self.clock.as_ref()).await;
         }
@@ -203,6 +221,7 @@ impl NodeControlSession {
         });
         let (inbound, manager_session_id, view) = match opened {
             Ok(opened) => opened,
+            Err(status) if is_not_a_member(&status) => return StreamOutcome::Removed,
             Err(status) => {
                 warn!(event_kind = "node_control_stream_open", outcome = "failed", code = ?status.code(), error = %dotcore_domain::diagnostic::diagnostic_chain(&status), "Node could not open its control stream to the manager");
                 return StreamOutcome::NotOpened;
@@ -246,6 +265,9 @@ impl NodeControlSession {
             .await;
         self.observations.set_connected(false);
         match &end {
+            StreamEnd::Failed(status) if is_not_a_member(status) => {
+                return StreamOutcome::Removed;
+            }
             StreamEnd::Failed(status) => {
                 warn!(event_kind = "node_control_stream_ended", code = ?status.code(), status_message = status.message(), "Manager ended the node control stream; the node reopens it")
             }
@@ -751,9 +773,19 @@ impl NodeControlSession {
     }
 }
 
-/// Running node control exchange, aborted when backend serving stops.
+/// Running node control exchange, aborted when backend serving stops. It also says when the
+/// manager removed the node from the site.
 pub struct NodeControlSessionTask {
     task: tokio::task::JoinHandle<()>,
+    removed: CancellationToken,
+}
+
+impl NodeControlSessionTask {
+    /// Completes once the manager says the site no longer declares this node; the exchange has
+    /// stopped by then and never reopens.
+    pub async fn removed_from_site(&self) {
+        self.removed.cancelled().await;
+    }
 }
 
 impl Drop for NodeControlSessionTask {
@@ -1001,6 +1033,9 @@ enum StreamOutcome {
     NotOpened,
     Ended,
     Stopped,
+
+    /// The manager answered that the site no longer declares this node.
+    Removed,
 }
 
 /// Exponential pause between failed opens, bounded by the longest retry pause.

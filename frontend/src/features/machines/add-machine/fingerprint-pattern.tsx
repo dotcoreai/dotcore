@@ -1,4 +1,7 @@
-import { type FingerprintPattern, FingerprintPatternColor } from "@/gen/dotcore/site/v1/join_pb";
+import {
+  type FingerprintPattern,
+  FingerprintPatternColor,
+} from "@/gen/dotcore/site/v1/membership_pb";
 import { cn } from "@/lib/utils";
 
 const PATTERN_SIZE = 5;

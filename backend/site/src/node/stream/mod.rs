@@ -37,7 +37,8 @@ use crate::{
         registry::{NodeRegistry, NodeRegistryError},
     },
     private_transport::{
-        AuthenticatedRoleAuthorization, PrivateNodeRole, PrivateServiceContext, run_commit_section,
+        AuthenticatedRoleAuthorization, PrivateNodeRole, PrivateServiceContext, not_a_member,
+        run_commit_section,
     },
     view::{
         contract::validate_stream_open,
@@ -569,7 +570,8 @@ impl StreamSession {
     }
 
     /// Publishes the node's current view: always on a republish, and on a site change only when
-    /// its revision changed. A failed publication is retried at the next republish.
+    /// its revision changed. A failed publication is retried at the next republish, except for a
+    /// node the site no longer declares, whose stream ends with that answer.
     async fn publish(&self, stream: &mut OpenedStream, always: bool) -> Result<(), StreamEnd> {
         let publisher = self.streams.publisher.clone();
         let node_id = self.node_id.clone();
@@ -585,6 +587,15 @@ impl StreamSession {
             Ok(Err(DesiredViewDistributionError::Incarnation(
                 IncarnationFenceError::StreamReplaced,
             ))) => return Err(replaced()),
+            Ok(Err(DesiredViewDistributionError::UndeclaredNode)) => {
+                info!(
+                    event_kind = "node_control_stream_ended",
+                    node_id = self.node_id,
+                    reason = "removed",
+                    "Manager ended the control stream of a node the site no longer declares"
+                );
+                return Err(StreamEnd::Failed(not_a_member()));
+            }
             Ok(Err(error)) => {
                 warn!(event_kind = "node_control_view_publication", outcome = "failed", node_id = self.node_id, error = %error, "Manager could not publish a node view; it retries at the next republish");
                 stream.republish_at = self.streams.clock.now()
@@ -803,9 +814,10 @@ impl Outbound {
 /// denied ends the stream, any other status rejects only that observation.
 fn registry_status(error: &NodeRegistryError) -> Status {
     match error {
-        NodeRegistryError::SiteIdentityMismatch | NodeRegistryError::UndeclaredNode => {
+        NodeRegistryError::SiteIdentityMismatch => {
             Status::permission_denied("node observation is not authorized for this node")
         }
+        NodeRegistryError::UndeclaredNode => not_a_member(),
         NodeRegistryError::InvalidNodeIdentity(_)
         | NodeRegistryError::InvalidIncarnation
         | NodeRegistryError::InvalidRevision

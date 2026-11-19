@@ -23,7 +23,7 @@ import type { ApplicationClient } from "@/api/application-client";
 import type { ModelClient } from "@/api/model-client";
 import type { SiteClient } from "@/api/site-client";
 import { PanelNavigationProvider } from "@/components/ui/panel-navigation-provider";
-import { fakeSiteJoinClient } from "@/features/machines/add-machine/join-test-support";
+import { fakeSiteMembershipClient } from "@/features/machines/add-machine/join-test-support";
 import { hardwareSnapshot, listedMachine } from "@/features/memory/machine-test-support";
 import {
   devicePool,
@@ -1235,7 +1235,7 @@ describe("MachinesPage add machine", () => {
         applicationClient={applicationClientFor()}
         client={clientFor([availableMachine("one", "Machine one")])}
         modelClient={modelClientFor()}
-        siteJoinClient={fakeSiteJoinClient().client}
+        siteMembershipClient={fakeSiteMembershipClient().client}
       />,
     );
   }

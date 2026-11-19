@@ -18,7 +18,7 @@ use dotcore_proto::dotcore::site::v1::{
     ApproveJoinRequest, CancelJoinRequest, JoinAttemptOutcome, JoinHostSource, JoinProposal,
     JoinTargetRuntime, RejectJoinRequest, StartJoinRequest, WatchJoinRequest, WatchJoinResponse,
     join_attempt_outcome, join_proposal, join_state,
-    site_join_service_client::SiteJoinServiceClient, watch_join_response,
+    site_membership_service_client::SiteMembershipServiceClient, watch_join_response,
 };
 use dotcore_site::{membership::join::JoinToken, node::folder::CertificateFingerprint};
 use tonic::{Code, Streaming, transport::Channel};
@@ -69,7 +69,7 @@ pub(crate) async fn node_add(_paths: &RootPathArgs, arguments: NodeAddArgs) -> a
             }
             other => other.into(),
         })?;
-    let mut joins = manager.joins();
+    let mut joins = manager.membership();
     let started = joins
         .start_join(StartJoinRequest {})
         .await
@@ -77,9 +77,12 @@ pub(crate) async fn node_add(_paths: &RootPathArgs, arguments: NodeAddArgs) -> a
         .into_inner();
 
     let join_id = started.join_id.clone();
+    // The interrupt handler is installed on its first poll, so it goes first: announcing the join
+    // tells the operator the command is ready, and an interrupt after that must cancel the join.
     let outcome = tokio::select! {
-        added = run_join(&mut joins, started, &arguments) => added,
+        biased;
         _ = tokio::signal::ctrl_c() => Err(anyhow::Error::new(PromptError::Cancelled)),
+        added = run_join(&mut joins, started, &arguments) => added,
     };
     match outcome {
         Ok(joined) => {
@@ -107,7 +110,7 @@ struct JoinedMachine {
 
 /// Announces the join command, then answers each proposal until the join ends.
 async fn run_join(
-    joins: &mut SiteJoinServiceClient<Channel>,
+    joins: &mut SiteMembershipServiceClient<Channel>,
     started: dotcore_proto::dotcore::site::v1::StartJoinResponse,
     arguments: &NodeAddArgs,
 ) -> anyhow::Result<JoinedMachine> {
@@ -144,7 +147,7 @@ async fn run_join(
 
 /// Reads the join's states until it ends, deciding on each proposal that awaits approval.
 async fn follow(
-    joins: &mut SiteJoinServiceClient<Channel>,
+    joins: &mut SiteMembershipServiceClient<Channel>,
     join_id: &str,
     watch: &mut Streaming<WatchJoinResponse>,
     yes: bool,

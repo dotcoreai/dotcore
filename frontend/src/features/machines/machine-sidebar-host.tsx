@@ -1,7 +1,9 @@
-import { type RefObject, useCallback, useEffect, useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import { useClients } from "@/api/clients";
+import { InspectorActions } from "@/components/inspector-actions/inspector-actions";
 import { InspectorShell } from "@/components/ui/inspector-shell";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
@@ -10,7 +12,11 @@ import {
   type MachineSnapshotDetail,
   useHardwareSnapshots,
 } from "@/features/memory/use-hardware-snapshots";
-import type { ConfiguredExecutionTarget, Machine } from "@/gen/dotcore/site/v1/service_pb";
+import {
+  type ConfiguredExecutionTarget,
+  type Machine,
+  NodeObservationState,
+} from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { mapRead, type ReadState } from "@/lib/read-state";
 import { usePanelNavigation } from "@/panels/panel-navigation";
@@ -36,6 +42,7 @@ import {
   MachineDetailContent,
 } from "./machine-details";
 import { inspectedMachineId, machineInspectorPanelId } from "./machine-panels";
+import { MachineRemovalDialog } from "./machine-removal-dialog";
 
 export interface MachineSidebarHostProps {
   /** The range label the resource history charts start at, such as the hosting page's range. */
@@ -52,7 +59,9 @@ export interface MachineSidebarHostProps {
  * alike.
  */
 export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHostProps) {
-  const { metricsClient } = useClients();
+  const { metricsClient, siteMembershipClient } = useClients();
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false);
+  const removeButtonRef = useRef<HTMLElement>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();
@@ -201,6 +210,17 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
     panelNavigation.close();
   }, [panelNavigation]);
 
+  const finishRemoval = useCallback(() => {
+    setConfirmingRemoval(false);
+    closeInspector();
+  }, [closeInspector]);
+
+  // The site manager's machine can't leave its site, so only a worker's own screen offers removal.
+  const removableMachine =
+    displayedInspector && !displayedInspector.machine.siteManager && !executionTargetId
+      ? displayedInspector.machine
+      : undefined;
+
   return (
     <>
       <InspectorShell
@@ -234,6 +254,21 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
             />
           ) : null
         }
+        footer={
+          removableMachine ? (
+            <InspectorActions
+              more={[
+                {
+                  destructive: true,
+                  focusRef: removeButtonRef,
+                  icon: Trash2,
+                  label: "Remove",
+                  onSelect: () => setConfirmingRemoval(true),
+                },
+              ]}
+            />
+          ) : undefined
+        }
         focusKey={
           executionTargetId
             ? `execution-target:${executionTargetId}`
@@ -248,6 +283,7 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
         // page never closes and reopens; the inventory then fills or recovers it.
         open={machineId !== undefined}
         openerRef={openerRef}
+        suspendDismissal={confirmingRemoval}
         title={
           selectedMachine && executionTargetId ? (
             <ResourceTitle
@@ -276,6 +312,20 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
           )
         }
       />
+      {removableMachine ? (
+        <MachineRemovalDialog
+          client={siteMembershipClient}
+          disconnected={
+            removableMachine.observationFreshness?.state === NodeObservationState.DISCONNECTED
+          }
+          finalFocus={removeButtonRef}
+          machineId={removableMachine.machineId}
+          machineName={removableMachine.displayName || removableMachine.machineId}
+          onOpenChange={setConfirmingRemoval}
+          onRemoved={finishRemoval}
+          open={confirmingRemoval}
+        />
+      ) : null}
     </>
   );
 }

@@ -11,8 +11,8 @@ Code: `backend/cli/`.
 - Add machines to a running site, join a machine from that machine, and remove one.
 - Manage model and application deployments through the management API, from scripts.
 - Start coding agents that use the site's routes, and run one-off development workloads.
-- Run exclusive administration on a stopped site: node removal, site reset and destructive
-  recovery.
+- Run exclusive administration on a stopped site: node removal when the site manager can't
+  start, site reset and destructive recovery.
 
 ## Architecture
 
@@ -45,7 +45,10 @@ sequenceDiagram
 - Adding a machine is one of these changes: `dotc` starts a join on the running site, shows the
   joining machine for your approval, and ends the join if you stop the command
   ([access](access.md#joining-a-node)). On the joining machine, `dotc` starts the node once it
-  joins, unless you skip that. Removal is the stopped-site administration below.
+  joins, unless you skip that. Removing a machine is one too: `dotc` shows what the removal
+  withdraws for your confirmation, then the site manager removes it
+  ([sites](sites.md#invariants)). When the site manager is stopped, removal is the stopped-site
+  administration instead.
 
 ### Before the site starts
 

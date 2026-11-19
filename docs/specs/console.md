@@ -11,6 +11,8 @@ Code: `frontend/` (its `AGENTS.md` holds the code map).
 - See live updates as the site changes.
 - Add a machine: start a join, then review the joining machine and approve or reject it
   ([access](access.md#joining-a-node)).
+- Remove a machine once its deployments are gone, or forget them for a machine that is not
+  connected ([sites](sites.md#invariants)).
 - Start with a guided Get started page that proposes, for each use case, a model, an app or both
   that can start now on your hardware ([recommendations](recommendations.md)). The console opens
   on it until it's hidden.
@@ -82,5 +84,5 @@ flowchart LR
 - Never shows representative or fixture data as infrastructure-backed.
 - The chat has no assistant tools, console actions, attachments or saved history
   ([README](README.md#non-goals)).
-- Not used for site initialization, node removal, destructive recovery or installing Dotcore on the
+- Not used for site initialization, destructive recovery or installing Dotcore on the
   machine that joins ([cli](cli.md)).

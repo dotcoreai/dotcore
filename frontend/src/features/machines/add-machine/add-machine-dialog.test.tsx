@@ -4,7 +4,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { JoinHostSource, JoinTargetRuntime } from "@/gen/dotcore/site/v1/join_pb";
+import { JoinHostSource, JoinTargetRuntime } from "@/gen/dotcore/site/v1/membership_pb";
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
 import * as clipboard from "@/lib/clipboard";
 import { productionTiming, setTiming } from "@/lib/timing";
@@ -14,7 +14,7 @@ import { setupUser } from "@/test/user";
 
 import { AddMachineDialog } from "./add-machine-dialog";
 import {
-  fakeSiteJoinClient,
+  fakeSiteMembershipClient,
   goldenFingerprintPattern,
   goldenKeyFingerprint,
   joinLifetimeMs,
@@ -33,8 +33,8 @@ function Harness() {
 }
 
 async function openDialog() {
-  const join = fakeSiteJoinClient();
-  renderWithClients(<Harness />, { siteJoinClient: join.client });
+  const join = fakeSiteMembershipClient();
+  renderWithClients(<Harness />, { siteMembershipClient: join.client });
   const dialog = await screen.findByRole("dialog", { name: "Add a machine" });
   await within(dialog).findByText("Waiting for the machine…");
   return { dialog, join, user: setupUser() };
@@ -112,8 +112,8 @@ describe("AddMachineDialog", () => {
       useFakeTimersWithWaits();
       setTiming(productionTiming);
       vi.setSystemTime(new Date(2030, 0, 1, 14, 0, 0));
-      const join = fakeSiteJoinClient();
-      renderWithClients(<Harness />, { siteJoinClient: join.client });
+      const join = fakeSiteMembershipClient();
+      renderWithClients(<Harness />, { siteMembershipClient: join.client });
 
       const pill = (await screen.findByText("15:00 left")).closest("[data-tone]");
       expect(pill).toHaveAttribute("data-tone", "info");
@@ -355,8 +355,8 @@ describe("AddMachineDialog", () => {
     it("shows the expiry and offers a new command", async () => {
       useFakeTimersWithWaits();
       vi.setSystemTime(new Date(2030, 0, 1, 14, 6, 0));
-      const join = fakeSiteJoinClient();
-      renderWithClients(<Harness />, { siteJoinClient: join.client });
+      const join = fakeSiteMembershipClient();
+      renderWithClients(<Harness />, { siteMembershipClient: join.client });
       const dialog = await screen.findByRole("dialog", { name: "Add a machine" });
       await within(dialog).findByText("dotc node join --token token-1");
 
@@ -409,11 +409,11 @@ describe("AddMachineDialog", () => {
   });
 
   it("shows why the join could not start and starts again", async () => {
-    const join = fakeSiteJoinClient();
+    const join = fakeSiteMembershipClient();
     join.spies.startJoin.mockRejectedValueOnce(
       new ConnectError("too many active joins", Code.ResourceExhausted),
     );
-    renderWithClients(<Harness />, { siteJoinClient: join.client });
+    renderWithClients(<Harness />, { siteMembershipClient: join.client });
 
     const dialog = await screen.findByRole("dialog", { name: "Add a machine" });
     expect(await within(dialog).findByText("too many active joins")).toBeVisible();

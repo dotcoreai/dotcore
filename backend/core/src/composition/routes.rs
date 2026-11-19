@@ -1,25 +1,34 @@
 //! Management and private route assembly for the capabilities selected by backend composition.
 
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use dotcore_domain::clock::Clock;
 use dotcore_site::{
-    membership::join::{JoinManagementService, JoinRegistry},
+    membership::{MachineRemoval, MembershipManagementService, join::JoinRegistry},
+    private_transport::PeerPins,
     view::fencing::AcceptedNodeViewAuthority,
 };
 
 use super::BackendServices;
 
-/// The site manager's join registry and how its management watches send heartbeats.
-pub(super) struct ManagerJoins {
+/// The site manager's join registry, what its node removal changes, and how its management
+/// watches send heartbeats.
+pub(super) struct ManagerMembership {
     pub(super) registry: JoinRegistry,
+
+    /// Root of the site whose worker pins a removal deletes.
+    pub(super) site_root: PathBuf,
+
+    /// Live pins a removal withdraws the removed node's trust from.
+    pub(super) pins: PeerPins,
+
     pub(super) clock: Arc<dyn Clock>,
     pub(super) heartbeat_interval: Duration,
 }
 
 pub(super) fn assemble(
     services: BackendServices,
-    joins: ManagerJoins,
+    membership: ManagerMembership,
 ) -> (
     tonic::service::Routes,
     crate::router::InferenceRouter,
@@ -48,15 +57,21 @@ pub(super) fn assemble(
         metric_buckets,
         node_control_streams,
         node_targets,
-        site_repository: _,
+        site_repository,
     } = manager;
+    let removal = MachineRemoval::new(
+        site_repository,
+        &membership.site_root,
+        membership.pins,
+        Arc::new(node_lifecycle.clone()),
+    );
     let lifecycle = super::backend::BackendLifecycleHandles::Manager {
         _nodes: node_lifecycle,
         _node_targets: node_targets,
         _node: node,
     };
 
-    let join_service = joins.registry.join_service();
+    let join_service = membership.registry.join_service();
     let private_services =
         crate::server::private::PrivateServiceAssembly::new(move |context, routes| {
             // Machines without a site certificate reach only this service, while a join is active.
@@ -102,8 +117,13 @@ pub(super) fn assemble(
         crate::resource_watch::ResourceWatchService::new(resource_watch.clone()).into_server(),
     )
     .add_service(
-        JoinManagementService::new(joins.registry, joins.clock, joins.heartbeat_interval)
-            .into_server(),
+        MembershipManagementService::new(
+            membership.registry,
+            removal,
+            membership.clock,
+            membership.heartbeat_interval,
+        )
+        .into_server(),
     );
     (
         routes,

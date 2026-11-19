@@ -321,11 +321,15 @@ impl Backend {
             timing.join,
             Arc::clone(&clock),
         );
+        // The listener tells a node the site no longer declares that it was removed.
+        let membership = capabilities.manager.site_repository.clone();
         let (routes, router, observers, manager_private_services, lifecycle, resource_watch) =
             routes::assemble(
                 capabilities,
-                routes::ManagerJoins {
+                routes::ManagerMembership {
                     registry: joins.clone(),
+                    site_root: configuration.site_paths.root.clone(),
+                    pins: private_configuration.peers.clone(),
                     clock,
                     heartbeat_interval: timing.watch.heartbeat_interval,
                 },
@@ -343,6 +347,7 @@ impl Backend {
         let mut private_listener =
             PrivateListener::new(private_configuration, private_routes, &timing);
         private_listener.join_gate = join_gate;
+        private_listener.membership = Some(Arc::new(membership));
         let server = crate::server::Server::prepare(
             transports,
             server.allowed_origins,
@@ -400,8 +405,11 @@ impl Backend {
             event_kind = "backend_observers_starting",
             "backend observers starting"
         );
-        let _observer_tasks = self.observers.start();
-        let result = self.server.serve().await;
+        let observer_tasks = self.observers.start();
+        let result = tokio::select! {
+            result = self.server.serve() => result.map_err(super::CompositionError::from),
+            () = observer_tasks.removed_from_site() => Err(super::CompositionError::RemovedFromSite),
+        };
         if let Err(error) = &result {
             error!(event_kind = "backend_server_failed", error = %error, "backend server failed");
         }
@@ -631,7 +639,7 @@ impl ObserverStarters {
         }
         ObserverTasks {
             _reporter: reporter,
-            _node_control: node_control,
+            node_control,
         }
     }
 }
@@ -639,7 +647,14 @@ impl ObserverStarters {
 /// Running observer tasks, stopped when dropped.
 pub(super) struct ObserverTasks {
     _reporter: NodeReporterTask,
-    _node_control: NodeControlSessionTask,
+    node_control: NodeControlSessionTask,
+}
+
+impl ObserverTasks {
+    /// Completes once the site manager says the site no longer declares this node.
+    async fn removed_from_site(&self) {
+        self.node_control.removed_from_site().await;
+    }
 }
 
 /// Explicit concrete simulation controls used by backend integration fixtures.

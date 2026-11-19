@@ -301,6 +301,46 @@ pub fn authentication_failure() -> Status {
     Status::unauthenticated("private peer authentication failed")
 }
 
+/// Answer to a node whose certificate the site's authority issued but that the site no longer
+/// declares: it was removed. The node stops instead of retrying.
+pub fn not_a_member() -> Status {
+    let mut status = Status::permission_denied("this node is no longer a member of the site");
+    status.metadata_mut().insert(
+        MEMBERSHIP_METADATA,
+        MEMBERSHIP_REMOVED.parse().expect("ASCII metadata"),
+    );
+    status
+}
+
+/// Reports whether `status` is the site manager's [`not_a_member`] answer.
+pub fn is_not_a_member(status: &Status) -> bool {
+    status.code() == tonic::Code::PermissionDenied
+        && status
+            .metadata()
+            .get(MEMBERSHIP_METADATA)
+            .is_some_and(|value| value == MEMBERSHIP_REMOVED)
+}
+
+/// Response metadata naming the caller's site membership.
+const MEMBERSHIP_METADATA: &str = "dotcore-site-membership";
+
+/// [`MEMBERSHIP_METADATA`] value of a node the site no longer declares.
+const MEMBERSHIP_REMOVED: &str = "removed";
+
+/// Tells whether the site declares a node now; the private listener asks it about a certificate
+/// it can no longer authenticate.
+pub trait SiteMembership: Send + Sync {
+    fn declares(&self, node_id: &str) -> bool;
+}
+
+impl SiteMembership for crate::repository::SiteRepository {
+    fn declares(&self, node_id: &str) -> bool {
+        // An unreadable site counts as declaring the node, so only a certain removal is told.
+        self.with_site(|site| site.nodes.iter().any(|node| node.node_id == node_id))
+            .unwrap_or(true)
+    }
+}
+
 pub fn pem(label: &str, der: &[u8]) -> String {
     let encoded = base64::engine::general_purpose::STANDARD.encode(der);
     let mut output = format!("-----BEGIN {label}-----\n");

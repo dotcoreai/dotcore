@@ -449,6 +449,10 @@ where
             },
         )
         .await?;
+        let forgetting = worker_channels.clone();
+        inputs
+            .site_repository
+            .register_change_observer(Arc::new(move |site| forgetting.forget_undeclared(site)));
         let node_logs = crate::deployment_logs::NodeDeploymentLogs::new(
             worker_channels.clone(),
             inputs.site_repository.clone(),
@@ -743,6 +747,14 @@ pub enum CompositionError {
 
     #[error("Backend composition Server failure")]
     Server(#[from] crate::server::ServerError),
+
+    /// The site manager removed this node from its site. Its workloads keep running until its
+    /// node folder is cleaned up, and it can join the site again only as a new node.
+    #[error(
+        "this node is no longer a member of its site; clean up its node folder, then join the \
+         site again as a new node"
+    )]
+    RemovedFromSite,
 
     #[error("Backend composition catalog failure")]
     Catalog(#[from] dotcore_catalog::CatalogError),
