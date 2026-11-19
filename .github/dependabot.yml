@@ -3,14 +3,14 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
 
   - package-ecosystem: cargo
     directory: /backend
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
     # Crates released and required at matching versions update in one pull request.
@@ -21,7 +21,7 @@ updates:
   - package-ecosystem: npm
     directory: /frontend
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
     # Packages released and required at matching versions update in one pull request.
@@ -40,6 +40,6 @@ updates:
   - package-ecosystem: nix
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
