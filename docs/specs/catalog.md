@@ -98,8 +98,8 @@ option effects itself.
 - A configuration whose engine requires sizing is rejected when a binding lacks a footprint
   estimate for a supported hardware class, or a derivation for one of the configuration's engine
   parameters that a profile omits and the engine release doesn't default.
-- Sizing equations must be linear in the total context, so the largest fitting total context follows
-  from the estimates.
+- Sizing equations must be linear in the total context for any values of the other parameters, so
+  the largest fitting total context follows from the estimates.
 - Repository checks reject a non-empty literal bound to a credential-like variable name in the
   master catalog; such values come from secret parameters.
 - Repository checks keep the master catalog pointing only at Dotcore's own repository. The backend

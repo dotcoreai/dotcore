@@ -169,10 +169,11 @@ flowchart LR
 - For each running target, it reports the capacity component's largest fitting total context and
   starting total context. Narrowing by scenario uses the fit.
 - Resource estimates for a launch configuration carry the capacity component's placement preview for
-  the selected target, and the largest fit of each engine memory parameter there. Memory fits use
-  the configuration's values as given, so they follow the context and other values an operator
-  picks, unlike the largest fitting total context, which uses the profile's defaults. With custom
-  arguments, the preview carries no demand and the estimate no memory fits.
+  the selected target, the largest fit of each engine memory parameter there, and the largest
+  fitting total context. These fits use the configuration's values as given, so they follow the
+  values an operator picks; the per-target read above stays on the profile's defaults, to compare
+  profiles and to start the total context. With custom arguments, the preview carries no demand and
+  the estimate no fits.
 - Recommendations rank the catalog's lists with the same resolution and the capacity component's
   verdicts ([recommendations](recommendations.md#ranking-models-for-a-site)).
 

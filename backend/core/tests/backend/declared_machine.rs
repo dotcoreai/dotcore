@@ -1366,6 +1366,13 @@ async fn check_previews(
             }],
             "{label}: prompt cache"
         );
+        // The estimate varies the total context itself, so it reports the compatibility read's
+        // largest fit at the profile's other values, whatever total it was asked about.
+        assert_eq!(
+            estimate.largest_total_context_tokens,
+            Some(starting),
+            "{label}: total context"
+        );
     }
 }
 

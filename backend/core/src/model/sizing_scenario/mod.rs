@@ -287,9 +287,16 @@ pub(crate) fn target_memory_fit(
         || unsupported_reason != SizingScenarioUnsupportedReason::Unspecified;
     let largest_total_context_tokens = evaluated_or_unsupported
         .then(|| {
+            let configuration = profile_sizing.configuration.as_ref()?;
+            let declarations = profile_sizing.declarations.as_ref()?;
             largest_fitting_total_context(
                 catalog,
-                profile_sizing,
+                &ContextFitBase {
+                    model_id: &CatalogModelId(profile_sizing.sizing.model_id.clone()),
+                    profile_id: &profile_sizing.sizing.profile_id,
+                    configuration,
+                    declarations,
+                },
                 selected_target,
                 minimums.as_ref(),
             )
@@ -375,24 +382,70 @@ fn scenario_memory_fit(
     }
 }
 
+/// Returns the largest total context of a complete configuration, with every other value as given,
+/// whose estimate fits the target `selected_target`'s free memory less a headroom, as
+/// `largest_fitting_total_context` judges it for a profile's defaults. The minimums judged are
+/// the hardware support's the configuration selects on the target. Returns none when the
+/// configuration's declarations don't resolve or the fit has no answer.
+pub(crate) fn configuration_largest_total_context(
+    catalog: &Catalog,
+    model_id: &CatalogModelId,
+    profile_id: &str,
+    configuration: &LocalModelDeploymentConfiguration,
+    selected_target: &SelectedTargetCapabilities,
+    minimums: Option<&HardwareRequirements>,
+) -> Option<u64> {
+    let declarations = catalog
+        .local_model_declarations(
+            model_id,
+            profile_id,
+            &configuration.model_artifact_binding_id,
+        )
+        .map_err(|error| {
+            debug!(
+                model_id = %model_id.0,
+                profile_id,
+                error = %format!("{:#}", anyhow::Error::new(error)),
+                "configuration declarations don't resolve for the context's largest fit"
+            );
+        })
+        .ok()?;
+    largest_fitting_total_context(
+        catalog,
+        &ContextFitBase {
+            model_id,
+            profile_id,
+            configuration,
+            declarations: &declarations,
+        },
+        selected_target,
+        minimums,
+    )
+}
+
 /// Returns the largest total context whose estimate fits the target's free memory less a headroom,
-/// at the scenario's context per request, or with the context per request filled from the maximum
-/// context as the total context grows, and the profile's other values. The capacity component
-/// finds the memory bound from the estimates at the two smallest valid totals, and the result is
+/// at the base's context per request, or with the context per request filled from the maximum
+/// context as the total context grows, and the base's other values. The capacity component finds
+/// the memory bound from the estimates at the two smallest valid totals, which is exact because
+/// sizing is linear in the total context for any values of the other parameters. The result is
 /// clamped to the totals the engine accepts and that keep derived values in range, then stepped
-/// down to the nearest total the engine accepts with the other values. Returns none
-/// when the declarations or the target's free memory are unknown, the target is below one of the
-/// declared `minimums`, nothing fits, or nothing bounds it: memory never binds and neither the
-/// engine nor a derived value declares a maximum.
+/// down to the nearest total the engine accepts with the other values. Returns none when the
+/// target's free memory is unknown, the target is below one of the declared `minimums`, nothing
+/// fits, or nothing bounds it: memory never binds and neither the engine nor a derived value
+/// declares a maximum.
 fn largest_fitting_total_context(
     catalog: &Catalog,
-    profile_sizing: &ProfileSizing,
+    base: &ContextFitBase<'_>,
     selected_target: &SelectedTargetCapabilities,
     minimums: Option<&HardwareRequirements>,
 ) -> Option<u64> {
     let capacity = &selected_target.capacity;
-    let configuration = profile_sizing.configuration.as_ref()?;
-    let declarations = profile_sizing.declarations.as_ref()?;
+    let ContextFitBase {
+        model_id,
+        profile_id,
+        configuration,
+        declarations,
+    } = *base;
     let schema = engine_parameter_schema(declarations)?;
     let total_range = unsigned_parameter_range(schema, TOTAL_CONTEXT_PARAMETER_ID)?;
     let supplied_context_per_request = configuration
@@ -431,12 +484,11 @@ fn largest_fitting_total_context(
     }
     let highest = highest_accepted(lowest, total_range.maximum, accepts);
 
-    let model_id = CatalogModelId(profile_sizing.sizing.model_id.clone());
     let evaluate = |total_context| {
         resolve_local_values_for_target(
             catalog,
-            &model_id,
-            &profile_sizing.sizing.profile_id,
+            model_id,
+            profile_id,
             &with_total(total_context),
             selected_target,
         )
@@ -519,6 +571,16 @@ fn largest_fitting_total_context(
             .find(|total| accepts(*total))
             .unwrap_or(lowest)
     })
+}
+
+/// The complete configuration a context's largest fit varies the total context of, and the
+/// declarations it selects.
+#[derive(Clone, Copy)]
+struct ContextFitBase<'a> {
+    model_id: &'a CatalogModelId,
+    profile_id: &'a str,
+    configuration: &'a LocalModelDeploymentConfiguration,
+    declarations: &'a CatalogLocalModelDeclarations,
 }
 
 /// Completes the profile's default configuration with its profile and engine defaults, and reads

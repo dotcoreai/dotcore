@@ -2286,6 +2286,33 @@ artifacts:
     }
 
     #[test]
+    fn the_linearity_guard_reports_sizing_that_bends_once_another_value_moves() {
+        let root = temporary_catalog_root().join("moved");
+        create_empty_catalog_source(&root);
+        write_sizing_engine(&root);
+        write_sizing_model(
+            &root,
+            "    sizing:\n      estimates:\n        acceleratorMemory:\n          unit: bytes\n          equation: \"if(${parallel-requests} > 4, ${total-context} * ${total-context}, ${total-context})\"\n",
+        );
+        let problems = sizing_not_linear_in_total_context(
+            &Catalog::load_with_policy(
+                &root,
+                OciArtifactPolicy::Development,
+                &ACCEPT_ENGINE_DECLARATIONS,
+            )
+            .expect("sizing catalog"),
+        );
+
+        // Linear at the defaults' four parallel requests and at one; it bends only at eight.
+        let problem = |binding: &str| {
+            format!(
+                "model \"fixture-model\" profile \"balanced\" with \"parallel-requests\" at 8 hardware class \"nvidia\" binding \"{binding}\" \"acceleratorMemory\" isn't linear in the total context: 1048576, 68719476736 and 274877906944 at 1024, 262144 and 524288 tokens"
+            )
+        };
+        assert_eq!(problems, [problem("second"), problem("sized")]);
+    }
+
+    #[test]
     fn the_linearity_guard_evaluates_every_declared_option_choice() {
         let guard = |case: &str, equation: &str, compatible_when: &str| {
             let root = temporary_catalog_root().join(case);

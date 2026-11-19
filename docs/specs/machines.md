@@ -190,8 +190,10 @@ The description a node reports instead of its real hardware.
 - Judge fit per pool against free memory (total less occupancy) less a headroom per pool, or against
   the total on request. The host pool's headroom is larger, because unified GPU memory competes with
   the operating system and can't be paged out.
+- Find the largest fitting total context the same way for each caller, whether it sizes a profile's
+  defaults or a configuration's values as given.
 - Produce the placement preview a view draws for a target: each pool's occupancy with the new
-  demand, the fit line and the starting total context.
+  demand and the fit line.
 - Produce the node memory projection that site memory views draw for each node: every pool with its
   occupancy, use past the total, and the deployments it can't size.
 
