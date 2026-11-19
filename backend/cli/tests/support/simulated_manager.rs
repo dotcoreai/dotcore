@@ -7,14 +7,9 @@
 //! view back to check every transition. The server is stopped and the site removed when dropped.
 
 use std::{
-    io::{BufRead, BufReader},
     net::SocketAddr,
-    path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        mpsc,
-    },
+    path::PathBuf,
+    sync::atomic::{AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -28,7 +23,7 @@ use dotcore_proto::dotcore::{
     deployment::v1::ExactPlacement,
 };
 
-use super::command::isolated_dotc;
+use super::manager_server::{ManagerServer, dotc_with_certificates};
 
 /// Display name of the site's only node, as `dotc` shows it.
 pub const NODE_NAME: &str = "CLI test node";
@@ -39,17 +34,11 @@ pub const APPLICATION_TARGET_ID: &str = "cli-app-target";
 /// Display name of the synthetic catalog application.
 pub const APPLICATION_NAME: &str = "Round trip fixture";
 
-/// How long the server may take to print its startup protocol.
-const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
-
 /// How long an expected deployment state may take to appear before the test fails.
 const STATE_DEADLINE: Duration = Duration::from_secs(30);
 
 /// Delay between two reads while waiting for a deployment state.
 const POLL_INTERVAL: Duration = Duration::from_millis(25);
-
-/// How long the server may take to exit after it is asked to stop.
-const EXIT_DEADLINE: Duration = Duration::from_secs(10);
 
 const SITE_ID: &str = "cli-app-site";
 const NODE_ID: &str = "cli-app-node";
@@ -58,8 +47,7 @@ const APPLICATION_ID: &str = "round-trip-fixture";
 /// A running site manager, stopped and removed when dropped.
 pub struct SimulatedManager {
     root: PathBuf,
-    child: Child,
-    address: SocketAddr,
+    server: Option<ManagerServer>,
     runtime: tokio::runtime::Runtime,
 }
 
@@ -67,21 +55,7 @@ impl SimulatedManager {
     /// Initializes a fresh site and starts its manager on free loopback ports.
     pub fn start() -> Self {
         let root = initialize_site();
-        let mut child = dotc_with_certificates()
-            .args(["server", "start"])
-            .env("DOTCORE_SITE_DIR", root.join("site"))
-            .env("DOTCORE_CATALOG_DIR", root.join("master-catalog"))
-            .env("DOTCORE_CACHE_DIR", root.join("cache"))
-            .env("DOTCORE_MANAGEMENT_ADDR", "127.0.0.1:0")
-            .env("DOTCORE_INFERENCE_ADDR", "127.0.0.1:0")
-            .env("DOTCORE_PRIVATE_ADDR", "127.0.0.1:0")
-            .env("DOTCORE_FRONTEND_ORIGIN", "http://127.0.0.1:5173")
-            .env("RUST_LOG", "warn")
-            .stdout(Stdio::piped())
-            .stderr(std::fs::File::create(root.join("server.stderr")).expect("server stderr file"))
-            .spawn()
-            .expect("start dotc server");
-        let address = management_address(&mut child, &root);
+        let server = ManagerServer::start(&root, SocketAddr::from(([127, 0, 0, 1], 0)));
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -89,15 +63,14 @@ impl SimulatedManager {
 
         Self {
             root,
-            child,
-            address,
+            server: Some(server),
             runtime,
         }
     }
 
     /// The management address to pass as `--manager` or `DOTCORE_MANAGEMENT_ADDR`.
     pub fn address(&self) -> SocketAddr {
-        self.address
+        self.server().address()
     }
 
     /// Creates a deployment of the synthetic application named `name` and returns the manager's
@@ -171,32 +144,25 @@ impl SimulatedManager {
     }
 
     async fn client(&self) -> ApplicationDeploymentServiceClient<tonic::transport::Channel> {
-        ApplicationDeploymentServiceClient::connect(format!("http://{}", self.address))
+        ApplicationDeploymentServiceClient::connect(format!("http://{}", self.address()))
             .await
             .expect("manager application API connection")
     }
 
     /// `message` followed by the server's diagnostics, for a failing assertion.
     fn failure(&self, message: &str) -> String {
-        format!("{message}\nserver stderr:\n{}", server_stderr(&self.root))
+        self.server().failure(message)
+    }
+
+    fn server(&self) -> &ManagerServer {
+        self.server.as_ref().expect("running manager")
     }
 }
 
 impl Drop for SimulatedManager {
     fn drop(&mut self) {
-        // SAFETY: the child is owned by this value and not yet reaped, so its PID is still valid.
-        unsafe {
-            libc::kill(self.child.id() as libc::pid_t, libc::SIGTERM);
-        }
-        let deadline = Instant::now() + EXIT_DEADLINE;
-        while self.child.try_wait().ok().flatten().is_none() {
-            if Instant::now() >= deadline {
-                let _ = self.child.kill();
-                let _ = self.child.wait();
-                break;
-            }
-            thread::sleep(POLL_INTERVAL);
-        }
+        // The server stops before its site folder is removed.
+        drop(self.server.take());
         let _ = std::fs::remove_dir_all(&self.root);
     }
 }
@@ -245,66 +211,13 @@ fn initialize_site() -> PathBuf {
     )
     .expect("desired site");
     std::fs::write(site.join("node.yaml"), format!("nodeId: {NODE_ID}\n")).expect("node file");
-    for directory in ["models", "engines", "applications"] {
-        std::fs::create_dir_all(root.join("master-catalog").join(directory))
-            .expect("Catalog directory");
-    }
+    std::fs::create_dir_all(root.join("master-catalog/applications")).expect("Catalog directory");
     std::fs::write(
         root.join("master-catalog/applications/round-trip-fixture.yaml"),
         APPLICATION_CATALOG,
     )
     .expect("Catalog application");
-    std::fs::create_dir_all(root.join("cache")).expect("cache directory");
     root
-}
-
-/// Reads the startup protocol from the server's stdout and returns its management address.
-fn management_address(child: &mut Child, root: &Path) -> SocketAddr {
-    let stdout = child.stdout.take().expect("server stdout");
-    let (lines, received) = mpsc::channel();
-    thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            let Ok(line) = line else { break };
-            if lines.send(line).is_err() {
-                break;
-            }
-        }
-    });
-
-    let deadline = Instant::now() + STARTUP_DEADLINE;
-    let mut output = Vec::new();
-    while Instant::now() < deadline {
-        if let Some(status) = child.try_wait().expect("server status") {
-            panic!(
-                "server exited before startup with {status}; stdout: {output:?}; stderr:\n{}",
-                server_stderr(root)
-            );
-        }
-        let Ok(line) = received.recv_timeout(POLL_INTERVAL) else {
-            continue;
-        };
-        if let Some(address) = line.strip_prefix("DOTCORE_MANAGEMENT_ADDRESS=http://") {
-            return address.parse().expect("management address");
-        }
-        output.push(line);
-    }
-    panic!(
-        "server did not print its management address within {STARTUP_DEADLINE:?}; stdout: {output:?}; stderr:\n{}",
-        server_stderr(root)
-    );
-}
-
-fn server_stderr(root: &Path) -> String {
-    std::fs::read_to_string(root.join("server.stderr")).unwrap_or_default()
-}
-
-/// Builds a `dotc` command with an empty environment, except the CA bundle the test host may need.
-fn dotc_with_certificates() -> Command {
-    let mut command = isolated_dotc();
-    if let Some(certificates) = std::env::var_os("SSL_CERT_FILE") {
-        command.env("SSL_CERT_FILE", certificates);
-    }
-    command
 }
 
 /// Synthetic application: one digest-pinned web service with retained storage and a readiness
