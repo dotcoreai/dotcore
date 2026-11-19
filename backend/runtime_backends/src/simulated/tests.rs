@@ -375,7 +375,7 @@ async fn group_stop_and_start_retain_identity_without_removal() {
         stopped
             .units
             .values()
-            .all(|unit| unit.state == WorkloadUnitState::Stopped)
+            .all(|unit| unit.state == WorkloadUnitState::Stopped { exit_status: None })
     );
 
     let WorkloadGroupObservation::Observed(started) = runtime
@@ -393,6 +393,74 @@ async fn group_stop_and_start_retain_identity_without_removal() {
             .values()
             .all(|unit| unit.state == WorkloadUnitState::Running)
     );
+}
+
+#[tokio::test]
+async fn a_configured_unit_exit_stops_the_running_unit_with_its_exit_status_until_cleared() {
+    let clock = VirtualClock::starting_at(UNIX_EPOCH + Duration::from_secs(1_800_000_000));
+    let machine = super::DeclaredMachine::new(
+        dotcore_node_hardware::MachineDescription::simulated(&["rtx-5090".to_owned()], "amd64")
+            .expect("named machine"),
+        Arc::new(clock.clone()),
+    );
+    let support = SimulatedRuntimeTestSupport::with_stop_failures(0);
+    let runtime = InMemoryRuntimeBackend::with_config(SimulatedRuntimeConfig {
+        managed_node_id: Some(SiteNodeId::for_test("node-01")),
+        machine: Some(machine.clone()),
+        test_support: Some(support.clone()),
+        ..Default::default()
+    });
+    let group = group_launch();
+    let exited = WorkloadUnitState::Stopped {
+        exit_status: Some(137),
+    };
+    let created = runtime
+        .create_workload_group(&group)
+        .await
+        .expect("create group");
+    assert_group_units(&created, WorkloadUnitState::Running);
+
+    support.exit_group_unit("application-01", "web", Some(137));
+    let inspected = runtime
+        .inspect_workload_group(&group)
+        .await
+        .expect("inspect exited group");
+    assert_group_units(&inspected, exited);
+    // The exited unit's process no longer holds memory on the declared machine.
+    assert_eq!(
+        web_resources(&runtime, &group, machine.wall_now()).await,
+        None
+    );
+    let discovered = runtime
+        .discover_workload_groups()
+        .await
+        .expect("discover exited group");
+    assert_eq!(discovered.len(), 1);
+    assert_group_units(&discovered[0], exited);
+
+    // A start runs the unit again, and it exits again once observed, as a crash loop does.
+    let started = runtime
+        .start_workload_group(&group)
+        .await
+        .expect("start exited group");
+    assert_group_units(&started, WorkloadUnitState::Running);
+    let inspected = runtime
+        .inspect_workload_group(&group)
+        .await
+        .expect("inspect exited group");
+    assert_group_units(&inspected, exited);
+
+    // A cleared exit lets the next start keep running.
+    support.clear_group_unit_exit("application-01", "web");
+    runtime
+        .start_workload_group(&group)
+        .await
+        .expect("start group");
+    let inspected = runtime
+        .inspect_workload_group(&group)
+        .await
+        .expect("inspect running group");
+    assert_group_units(&inspected, WorkloadUnitState::Running);
 }
 
 #[tokio::test]
@@ -415,7 +483,7 @@ async fn group_creation_start_and_stop_each_take_the_group_transition_delay() {
         .inspect_workload_group(&group)
         .await
         .expect("inspect stopped group");
-    assert_group_units(&stopped, WorkloadUnitState::Stopped);
+    assert_group_units(&stopped, WorkloadUnitState::Stopped { exit_status: None });
 
     let started =
         after_exactly(&clock, delay, runtime.start_workload_group(&group)).expect("start group");

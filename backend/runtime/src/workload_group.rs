@@ -475,11 +475,22 @@ pub enum WorkloadUnitState {
 
     Stopping,
 
-    Stopped,
+    /// The unit's process ended. A runtime that reads the process's terminal status reports it;
+    /// only a stopped unit carries one.
+    Stopped {
+        exit_status: Option<i64>,
+    },
 
     Unavailable,
 
     Absent,
+}
+
+impl WorkloadUnitState {
+    /// Whether the unit's process ended, whatever its exit status.
+    pub fn is_stopped(self) -> bool {
+        matches!(self, Self::Stopped { .. })
+    }
 }
 
 /// Non-authoritative result of a bounded READY launch gate.
@@ -869,7 +880,9 @@ mod tests {
                 (
                     WorkloadUnitName("worker".to_owned()),
                     WorkloadUnitObservation {
-                        state: WorkloadUnitState::Stopped,
+                        state: WorkloadUnitState::Stopped {
+                            exit_status: Some(1),
+                        },
                         ready_launch_gate: Some(ReadyLaunchGateOutcome::Failed(
                             ReadyLaunchGateFailure::ConnectionFailed,
                         )),

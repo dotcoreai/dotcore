@@ -678,6 +678,7 @@ impl NodeApplicationStatus {
             readiness: dotcore_proto::dotcore::application::v1::ApplicationReadinessState::NotReady
                 as i32,
             failure_code: ApplicationStatusFailureCode::Unspecified as i32,
+            failure: None,
             services: Vec::new(),
             endpoint: None,
             service_accelerator_memory: Vec::new(),

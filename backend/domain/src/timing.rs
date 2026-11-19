@@ -17,6 +17,7 @@ pub struct Timing {
     pub watch: WatchTiming,
     pub model: ModelTiming,
     pub application: ApplicationTiming,
+    pub deployment: DeploymentTiming,
     pub metrics: MetricsTiming,
     pub artifact: ArtifactTiming,
     pub native: NativeTiming,
@@ -77,6 +78,9 @@ impl Timing {
                     settled_interval: Duration::from_secs(30),
                 },
                 startup_window: Duration::from_secs(5 * 60),
+            },
+            deployment: DeploymentTiming {
+                crash_window: Duration::from_secs(10 * 60),
             },
             metrics: MetricsTiming {
                 store_sweep_interval: Duration::from_secs(10),
@@ -161,6 +165,9 @@ impl Timing {
         if missed_publications + control.stream_retry.max >= control.action_lease {
             return Err(TimingError::ActionLease);
         }
+        if self.deployment.crash_window.is_zero() {
+            return Err(TimingError::CrashWindow);
+        }
         Ok(())
     }
 
@@ -219,6 +226,11 @@ impl Timing {
                     settled_interval: Duration::from_secs(1),
                 },
                 ..production.application
+            },
+            // Short enough that a test spaces crashes beyond it with one clock advance, long enough
+            // that a crash loop on a loaded host still spends its budget within it.
+            deployment: DeploymentTiming {
+                crash_window: Duration::from_secs(5),
             },
             metrics: production.metrics,
             artifact: ArtifactTiming {
@@ -285,6 +297,9 @@ pub enum TimingError {
          must receive a new view before its action lease expires"
     )]
     ActionLease,
+
+    #[error("the crash window of deployments must be nonzero, or a crash loop never fails")]
+    CrashWindow,
 }
 
 /// Heartbeats a live node sends within the node silence, so missing all but one still keeps it
@@ -378,6 +393,14 @@ pub struct ApplicationTiming {
 
     /// How long an application deployment may boot before it no longer counts as starting.
     pub startup_window: Duration,
+}
+
+/// Timing shared by the model and application controllers for the deployments they realize.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeploymentTiming {
+    /// Span within which the crashes of a deployment that was ready count against its crash
+    /// budget; crashes further apart restart it without end.
+    pub crash_window: Duration,
 }
 
 /// Timing of the metric store and the metric streams from nodes.
@@ -660,6 +683,14 @@ mod tests {
         timing.node_control.stream_retry.max = timing.node_control.action_lease;
 
         assert_eq!(timing.check(), Err(TimingError::ActionLease));
+    }
+
+    #[test]
+    fn a_zero_crash_window_is_rejected() {
+        let mut timing = Timing::test();
+        timing.deployment.crash_window = Duration::ZERO;
+
+        assert_eq!(timing.check(), Err(TimingError::CrashWindow));
     }
 
     #[test]

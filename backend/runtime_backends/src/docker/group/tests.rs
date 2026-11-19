@@ -1880,7 +1880,7 @@ async fn stopped_group_discovery_accepts_network_inspection_without_stopped_atta
         observed
             .units
             .values()
-            .all(|unit| unit.state == WorkloadUnitState::Stopped)
+            .all(|unit| unit.state == WorkloadUnitState::Stopped { exit_status: None })
     );
     assert_eq!(client.requests.lock().expect("requests").len(), 2);
     std::fs::remove_dir_all(root).expect("remove application site-data root");
@@ -1921,6 +1921,65 @@ async fn group_observation_reports_the_node_qualified_host_process_of_running_un
         observed.units[&WorkloadUnitName("cache".to_owned())].host_process,
         None
     );
+    std::fs::remove_dir_all(root).expect("remove application site-data root");
+}
+
+#[tokio::test]
+async fn group_observation_reports_the_exit_status_of_an_exited_unit() {
+    let root = test_root("group-unit-exit-status");
+    let client = GroupClient::default();
+    let adapter = test_adapter(client.clone(), root.clone());
+    let group = group();
+    adapter
+        .create_workload_group(&group)
+        .await
+        .expect("create group");
+    let web = "container-dotcore_site-one_group_apps-01_unit_web";
+    client.running.lock().expect("running").remove(web);
+    client
+        .exit_statuses
+        .lock()
+        .expect("exit statuses")
+        .insert(web.to_owned(), 137);
+
+    let WorkloadGroupObservation::Observed(inspected) = adapter
+        .inspect_workload_group(&group)
+        .await
+        .expect("inspect group")
+    else {
+        panic!("group with an exited unit was not observed");
+    };
+    let unit_states = |group: &dotcore_runtime::ObservedWorkloadGroup| {
+        group
+            .units
+            .iter()
+            .map(|(name, unit)| (name.0.clone(), unit.state))
+            .collect::<Vec<_>>()
+    };
+    let expected = [
+        ("cache".to_owned(), WorkloadUnitState::Running),
+        (
+            "web".to_owned(),
+            WorkloadUnitState::Stopped {
+                exit_status: Some(137),
+            },
+        ),
+    ];
+    assert_eq!(unit_states(&inspected), expected);
+
+    // A node that rediscovers the group reads the same exit status.
+    *client
+        .omit_stopped_network_attachments
+        .lock()
+        .expect("network attachment behavior") = true;
+    let discovered = adapter
+        .discover_workload_groups()
+        .await
+        .expect("discover group");
+    let [WorkloadGroupObservation::Observed(discovered)] = discovered.as_slice() else {
+        panic!("group with an exited unit was not discovered: {discovered:?}");
+    };
+    assert_eq!(unit_states(discovered), expected);
     std::fs::remove_dir_all(root).expect("remove application site-data root");
 }
 
@@ -2081,7 +2140,7 @@ async fn partially_stopped_group_discovery_accepts_network_inspection_without_th
     );
     assert_eq!(
         observed.units[&WorkloadUnitName("web".to_owned())].state,
-        WorkloadUnitState::Stopped
+        WorkloadUnitState::Stopped { exit_status: None }
     );
     std::fs::remove_dir_all(root).expect("remove application site-data root");
 }
@@ -2155,7 +2214,7 @@ async fn exact_owned_partial_stops_only_active_verified_units_and_start_returns_
     };
     assert_eq!(
         observation.units[&WorkloadUnitName("cache".to_owned())].state,
-        WorkloadUnitState::Stopped
+        WorkloadUnitState::Stopped { exit_status: None }
     );
     assert_eq!(
         observation.units[&WorkloadUnitName("web".to_owned())].state,
@@ -3296,7 +3355,7 @@ async fn cleanup_failure_keeps_verified_partial_group_evidence_for_recovery() {
     };
     assert_eq!(
         partial.units[&WorkloadUnitName("cache".to_owned())].state,
-        WorkloadUnitState::Stopped
+        WorkloadUnitState::Stopped { exit_status: None }
     );
     assert_eq!(
         partial.units[&WorkloadUnitName("web".to_owned())].state,
@@ -4502,6 +4561,7 @@ fn strict_endpoint_rejects_raw_malformed_and_unexpected_binding_evidence() {
             strict_endpoint(
                 &GroupContainerInspection {
                     running: true,
+                    exit_status: None,
                     process_id: None,
                     host_bindings,
                     private_address: None,
@@ -4742,6 +4802,7 @@ struct GroupClient {
     fail_network_listing_after: Arc<Mutex<Option<usize>>>,
     running: Arc<Mutex<BTreeSet<String>>>,
     process_ids: Arc<Mutex<BTreeMap<String, u32>>>,
+    exit_statuses: Arc<Mutex<BTreeMap<String, i64>>>,
     logs: Arc<Mutex<GroupLogFixtures>>,
     log_requests: Arc<Mutex<Vec<DockerLogRequest>>>,
     pending_logs: Arc<Mutex<BTreeSet<String>>>,
@@ -5322,8 +5383,18 @@ impl DockerClient for GroupClient {
             .expect("process ids")
             .get(id)
             .copied();
+        let exit_status = (!running)
+            .then(|| {
+                self.exit_statuses
+                    .lock()
+                    .expect("exit statuses")
+                    .get(id)
+                    .copied()
+            })
+            .flatten();
         ready(Ok(GroupContainerInspection {
             running,
+            exit_status,
             process_id,
             host_bindings: if running {
                 host_bindings

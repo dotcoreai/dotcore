@@ -278,7 +278,7 @@ async fn resumed_deployment_prepares_its_image_again_and_its_step_only_moves_for
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             Some(group_observation(
@@ -363,7 +363,7 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             Some(group_observation(
@@ -658,7 +658,7 @@ async fn paused_reconciliation_exhaustively_maps_exact_unit_states_without_unsaf
             Vec::new(),
         ),
         (
-            WorkloadUnitState::Stopped,
+            WorkloadUnitState::Stopped { exit_status: None },
             ApplicationLifecycleState::Paused,
             "paused",
             Vec::new(),
@@ -730,7 +730,7 @@ async fn paused_reconciliation_stops_only_exact_owned_active_partial_or_stale_gr
         (
             true,
             false,
-            WorkloadUnitState::Stopped,
+            WorkloadUnitState::Stopped { exit_status: None },
             ApplicationLifecycleState::Unavailable,
             Vec::new(),
         ),
@@ -765,7 +765,7 @@ async fn paused_reconciliation_stops_only_exact_owned_active_partial_or_stale_gr
         (
             false,
             true,
-            WorkloadUnitState::Stopped,
+            WorkloadUnitState::Stopped { exit_status: None },
             ApplicationLifecycleState::Unavailable,
             Vec::new(),
         ),
@@ -888,7 +888,7 @@ async fn paused_unavailable_requires_a_later_conclusive_observation_before_pause
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             None,
@@ -985,7 +985,7 @@ async fn paused_partial_unavailable_remains_pausing_until_no_verified_active_or_
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             None,
@@ -1089,7 +1089,7 @@ async fn unchanged_reconciliation_keeps_timestamps_and_skips_the_current_state_w
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             None,
@@ -1263,7 +1263,7 @@ async fn paused_reconciliation_rehydrates_unknown_discovery_through_inspection()
         (
             Some(group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )),
             ApplicationLifecycleState::Paused,
@@ -1360,7 +1360,7 @@ async fn resume_starts_only_the_complete_retained_group_and_present_recovers_dri
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             Some(group_observation(
@@ -1432,7 +1432,7 @@ async fn present_recovery_replaces_stale_groups_only_after_resume_changes_desire
         PausedMatrixRuntime::with_recovery(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 true,
             )],
             group_observation(&launch, [("web", WorkloadUnitState::Running)], false),
@@ -3450,7 +3450,7 @@ async fn teardown_confirms_absence_before_deleting_records_for_active_and_paused
                 [(
                     "web",
                     if desired_state == ApplicationDeploymentDesiredState::Paused {
-                        WorkloadUnitState::Stopped
+                        WorkloadUnitState::Stopped { exit_status: None }
                     } else {
                         WorkloadUnitState::Running
                     },
@@ -3550,7 +3550,7 @@ async fn teardown_deletes_application_data_and_retries_a_failed_removal_while_pa
                 [(
                     "web",
                     if desired_state == ApplicationDeploymentDesiredState::Paused {
-                        WorkloadUnitState::Stopped
+                        WorkloadUnitState::Stopped { exit_status: None }
                     } else {
                         WorkloadUnitState::Running
                     },

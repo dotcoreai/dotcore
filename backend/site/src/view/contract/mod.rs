@@ -5,7 +5,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dotcore_domain::valid_id;
+use dotcore_domain::{
+    deployment::{MAX_FAILURE_DIAGNOSTIC_BYTES, MAX_FAILURE_DIAGNOSTICS},
+    valid_id,
+};
 use dotcore_proto::dotcore::{
     application::private::v1::{
         ApplicationCleanupDisposition, ApplicationCleanupEvidence, ApplicationCleanupReceipt,
@@ -58,9 +61,6 @@ pub(crate) const MAX_CLEANUP_EVIDENCE: usize = 256;
 pub(crate) const MAX_STATUS_MESSAGE_BYTES: usize = 512;
 pub(crate) const MAX_FAILURE_CODE_BYTES: usize = 64;
 pub(crate) const MAX_FAILURE_MESSAGE_BYTES: usize = 1024;
-pub(crate) const MAX_FAILURE_DIAGNOSTICS: usize = 8;
-/// Total bytes of one failure's diagnostics, room for an engine startup output tail.
-pub(crate) const MAX_FAILURE_DIAGNOSTIC_BYTES: usize = 6 * 1024;
 /// Devices one deployment's reported accelerator memory may list.
 pub(crate) const MAX_ACCELERATOR_MEMORY_DEVICES: usize = 64;
 pub(crate) const MAX_ACCELERATOR_DEVICE_ID_BYTES: usize = 256;

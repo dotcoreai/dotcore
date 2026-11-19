@@ -1484,6 +1484,7 @@ mod tests {
                     .map_or_else(|| "network-id".to_owned(), |network| network.id.clone());
                 GroupContainerInspection {
                     running: false,
+                    exit_status: None,
                     process_id: None,
                     host_bindings: BTreeMap::new(),
                     private_address: None,

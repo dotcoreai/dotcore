@@ -393,6 +393,7 @@ fn public_lifecycle(observation: ApplicationLifecycleObservation) -> Application
         ApplicationLifecycleObservation::Stopping => ApplicationLifecycleState::Stopping,
         ApplicationLifecycleObservation::Stopped => ApplicationLifecycleState::Stopped,
         ApplicationLifecycleObservation::Unavailable => ApplicationLifecycleState::Unavailable,
+        ApplicationLifecycleObservation::Failed => ApplicationLifecycleState::Failed,
     }
 }
 
