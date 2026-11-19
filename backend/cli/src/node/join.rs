@@ -76,6 +76,11 @@ const LAUNCHER: &str = "dotcore";
 const MANAGER_HOST_HINT: &str =
     "pass --manager-host <address or host name this machine reaches the manager at>";
 
+/// Hint shown when the manager reached closes the connection before admitting the machine.
+const CONNECTION_CLOSED_HINT: &str = "the token may have expired or already been used; get a new \
+     command from the console's Add machine or `dotc node add`, and keep it open on the manager \
+     until this machine joins";
+
 /// Arguments of `dotc node join`. The token comes from `--token`, `--token-file`, or a hidden
 /// prompt.
 #[derive(Debug, Args)]
@@ -769,9 +774,9 @@ fn join_failure(error: NodeJoinError) -> anyhow::Error {
             "check what `dotc node add` printed on the manager before retrying"
         }
         NodeJoinError::Connect(_) if is_unreachable(&error) => MANAGER_HOST_HINT,
-        NodeJoinError::Connect(_) => {
-            "check the token and that `dotc node add` is still running on the manager"
-        }
+        // The manager closes the connection without a reason for a token it doesn't hold, so an
+        // expired or used token looks like any other refused connection here.
+        NodeJoinError::Connect(_) => CONNECTION_CLOSED_HINT,
         NodeJoinError::DuplicateName(_) => {
             "choose another name with --name, or if this machine replaces that node, run \
              `dotc node remove <node name>` on the manager and join again"
@@ -988,6 +993,20 @@ mod tests {
         );
         assert!(text.contains(MANAGER_HOST_HINT), "{text}");
         assert!(!text.contains("DOTCORE_MANAGER_HOST"), "{text}");
+    }
+
+    #[test]
+    fn a_connection_the_manager_closes_suggests_a_new_command() {
+        let error = join_failure(NodeJoinError::Connect(anyhow::anyhow!(
+            "the manager closed the connection"
+        )));
+
+        assert_eq!(
+            error.to_string(),
+            "node join failed; the token may have expired or already been used; get a new \
+             command from the console's Add machine or `dotc node add`, and keep it open on the \
+             manager until this machine joins"
+        );
     }
 
     #[test]
