@@ -26,6 +26,7 @@ the recipes.
   commands that stop before `nix profile add` changes anything. A real `nix profile add` is safe
   only with a throwaway `HOME`: its profile lives there. A pseudo-terminal (`script`) provides the
   terminal the prompts need, and the environment must be set inside the command it runs.
-- A run from this repository's shell asks whether to use the development settings; answer stop,
-  or run the installer by path from a clean shell.
+- A run from this repository's shell offers to use the environment's own `dotc` and `dotcore`
+  instead of installing. Pick install only with a throwaway `HOME`, or stop and run the installer
+  by path from a clean shell.
 - End-to-end installs are checked by hand on a real host of each platform.

@@ -44,6 +44,15 @@ run_install() {
   step "Checking Nix"
   ensure_nix
 
+  if "$use_dev_tools"; then
+    step "Using the development environment's Dotcore"
+    check_development_tools
+
+    step "Next steps"
+    print_next_steps
+    return 0
+  fi
+
   step "Choosing the install source"
   select_source
 
@@ -155,16 +164,35 @@ parse_options() {
   esac
 }
 
-# Asks before going on when the Dotcore development environment is active: its settings would
-# point the run, and the started node, at a development site instead of the user's own. Dotcore
-# settings the user sets on purpose, and other direnv or Nix shell environments, don't count.
+# Handles the Dotcore development environment when it is active: its settings would point the run,
+# and the started node, at a development site instead of the user's own. An install can use the
+# environment's own `dotc` and `dotcore` instead of installing; `use_dev_tools` is set when the
+# user picks that. Dotcore settings the user sets on purpose, and other direnv or Nix shell
+# environments, don't count.
 check_development_environment() {
+  use_dev_tools=false
+
   # Only the development workspace environment sets this variable; Dotcore itself never reads it.
   [ -z "${DOTCORE_DEV_INDEX+x}" ] && return 0
 
   warn "The Dotcore development environment is active. Its settings, such as its site folder and"
   warn "ports, apply to this run and to Dotcore once it starts."
-  ask_yes_no "Continue with the development environment's settings?" no && return 0
+
+  if [ "$command" = install ] && command -v dotc >/dev/null 2>&1 && command -v dotcore >/dev/null 2>&1; then
+    choice=$(ask_choice "Dotcore's development tools are on your PATH. What do you want to do?" use-dev \
+      "use-dev:Use this environment's dotc and dotcore, and install nothing" \
+      "install:Install Dotcore into your Nix profile anyway, with the development settings" \
+      "stop:Stop, to run from a clean shell")
+    case "$choice" in
+      use-dev)
+        use_dev_tools=true
+        return 0
+        ;;
+      install) return 0 ;;
+    esac
+  else
+    ask_yes_no "Continue with the development environment's settings?" no && return 0
+  fi
 
   hint "To run it from a clean shell:"
   hint "  1. Leave the Dotcore checkout folder (for example 'cd ~') so direnv unloads it, or exit"
@@ -385,10 +413,19 @@ install_profile() {
   success "Dotcore is installed: 'dotcore' and 'dotc' are in your Nix profile."
 }
 
+# Checks that the development environment's `dotc` runs, so the next steps start from working tools.
+check_development_tools() {
+  dotc --help >/dev/null 2>&1 || fail "The development environment's dotc doesn't run: dotc --help failed."
+
+  success "Using 'dotcore' and 'dotc' from the development environment. Nothing was installed."
+}
+
 # Tells the user how to continue: start this machine as a site manager, or add it to an existing
 # site from its manager. A host with a site already set up only needs to start again.
 print_next_steps() {
-  if ! command -v dotcore >/dev/null 2>&1; then
+  if "$use_dev_tools"; then
+    info "The development environment's settings apply to Dotcore."
+  elif ! command -v dotcore >/dev/null 2>&1; then
     info "Open a new terminal first to have them on your PATH."
     printf '\n'
   fi
