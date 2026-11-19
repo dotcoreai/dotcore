@@ -43,6 +43,16 @@ Run `dotcore` to start. The first run asks a few questions to set up your site, 
 
 Another asks for the address other machines reach this one at, usually its address on your local network. Dotcore listens only on that address. Then it prints the console's address: port 8080 on that address.
 
+## Add this machine to a site
+
+To add a new machine to a site that already runs, start from the manager: **Machines**, then **Add machine** in the console, or `dotc node add`. It shows a command with a join token for the new machine:
+
+```sh
+curl -fsSL https://dotcore.ai/install.sh | sh -s -- --join <token>
+```
+
+It installs Dotcore, joins the site once you approve the machine on the manager, then starts Dotcore. Keep the console's dialog or `dotc node add` open until the machine joins. The token expires after a few minutes, which a first install can outlast; if it does, get a new command and run its `dotc node join` form on the machine. See [adding machines](usage.md#add-more-machines).
+
 ## Security
 
 Dotcore has no login yet. Anyone who can reach the address you chose during setup can use your models and change your site, so choose one on a network you trust, such as your home or office network. See [SECURITY.md](../SECURITY.md).

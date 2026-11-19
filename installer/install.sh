@@ -1,7 +1,8 @@
 #!/bin/sh
 # Dotcore installer: takes a Linux or macOS host from no Dotcore to a running node. It checks
-# Docker and Nix, adds Dotcore to the user's Nix profile, then tells you how to start it. Its
-# `uninstall` command removes Dotcore again, asking before it deletes any data.
+# Docker and Nix, adds Dotcore to the user's Nix profile, then tells you how to start it, or joins
+# an existing site when given a join token. Its `uninstall` command removes Dotcore again, asking
+# before it deletes any data.
 #
 # Run it piped from curl, or by path to install from a Dotcore checkout.
 # `install.sh --help` lists the commands and options.
@@ -30,7 +31,13 @@ main() {
 }
 
 # Installs Dotcore, one step after the other; each step stops the run on a failure it can't fix.
+# With a join token, it checks first that this machine can join, and ends by joining the site.
 run_install() {
+  if [ -n "$join_token" ]; then
+    step "Checking this machine can join a site"
+    check_join_ready
+  fi
+
   step "Checking Docker"
   check_docker
 
@@ -46,8 +53,13 @@ run_install() {
   step "Installing Dotcore"
   install_profile
 
-  step "Next steps"
-  print_next_steps
+  if [ -n "$join_token" ]; then
+    step "Joining the site"
+    join_site
+  else
+    step "Next steps"
+    print_next_steps
+  fi
 }
 
 # Removes Dotcore: its runtime resources and site folder, its cache folder, and its Nix profile
@@ -70,7 +82,7 @@ run_uninstall() {
 
 usage() {
   cat <<EOF
-Usage: install.sh [--flake-ref <ref>]
+Usage: install.sh [--flake-ref <ref>] [--join <token>]
        install.sh uninstall
 
 Commands:
@@ -83,6 +95,8 @@ Options:
   --flake-ref <ref>  Flake to install. Default: the Dotcore checkout holding this script, else
                      $DEFAULT_FLAKE_REF.
                      Variable: DOTCORE_INSTALL_FLAKE_REF
+  --join <token>     After installing, join this machine to a site and start it. The token
+                     comes from the console's Add machine or 'dotc node add' on the manager.
   -h, --help         Show this help.
 
 The installer asks before every choice, so it needs a terminal.
@@ -92,11 +106,22 @@ EOF
 parse_options() {
   command=install
   flake_ref="${DOTCORE_INSTALL_FLAKE_REF:-}"
+  join_token=""
 
   while [ $# -gt 0 ]; do
     case "$1" in
       uninstall)
         command=uninstall
+        shift
+        ;;
+      --join)
+        [ $# -ge 2 ] && [ -n "$2" ] || fail "--join needs the join token from the console's Add machine or 'dotc node add'."
+        join_token="$2"
+        shift 2
+        ;;
+      --join=*)
+        join_token="${1#--join=}"
+        [ -n "$join_token" ] || fail "--join needs the join token from the console's Add machine or 'dotc node add'."
         shift
         ;;
       --flake-ref)
@@ -119,6 +144,15 @@ parse_options() {
         ;;
     esac
   done
+
+  [ -z "$join_token" ] && return 0
+  [ "$command" = uninstall ] && fail "--join installs and joins; it doesn't go with uninstall."
+  # Only the token kind is checked, not its version, so later token versions need no installer
+  # change; dotc reads the rest.
+  case "$join_token" in
+    dcjoin*) ;;
+    *) fail "The --join value isn't a join token. Copy the whole command again from the console's Add machine or 'dotc node add'." ;;
+  esac
 }
 
 # Asks before going on when the Dotcore development environment is active: its settings would
@@ -143,6 +177,25 @@ check_terminal() {
   if ! (: </dev/tty) 2>/dev/null; then
     fail "The installer asks questions, so it needs a terminal. Run it from an interactive shell."
   fi
+}
+
+# Fails before anything is installed when a join can't work here: Dotcore runs, or the site folder
+# holds anything but a joined node's folder, which joins again. dotc node join stays the authority
+# on the folder; this check only saves a long install that would end in its refusal.
+check_join_ready() {
+  check_dotcore_stopped
+  find_dotc
+  locate_site
+
+  if [ -e "$site_dir" ] || [ -L "$site_dir" ]; then
+    if [ "$site_role" != joined-node ]; then
+      error "This machine has its own site at $site_dir, so it can't join another one."
+      hint "To join, uninstall Dotcore first and delete its site: run the installer with 'uninstall'."
+      exit 1
+    fi
+    info "The node folder at $site_dir joins its site again."
+  fi
+  success "This machine can join a site."
 }
 
 # Checks that this user reaches the Docker daemon Dotcore will use, without sudo. Dotcore talks to
@@ -274,7 +327,7 @@ detect_existing_install() {
     fi
   done
 
-  site_dir="${XDG_STATE_HOME:-$HOME/.local/state}/dotcore/site"
+  site_dir=$(default_site_dir)
   if [ -d "$site_dir" ]; then
     info "A Dotcore site exists at $site_dir. Installing keeps it."
     found=true
@@ -344,7 +397,7 @@ print_next_steps() {
     info "Dotcore is running and keeps its old version until you restart it."
     info "Stop it (Ctrl-C in its terminal), then run:"
     command_line "dotcore"
-  elif [ -d "${XDG_STATE_HOME:-$HOME/.local/state}/dotcore/site" ]; then
+  elif [ -d "$(default_site_dir)" ]; then
     info "Your site is kept. Start Dotcore with:"
     command_line "dotcore"
   else
@@ -356,36 +409,30 @@ print_next_steps() {
   fi
 }
 
+# Hands this terminal over to the installed dotc to join the site; dotc asks its questions, waits
+# for the operator's approval, then starts the node. Nothing of the installer runs after it, so
+# the retry steps print first.
+join_site() {
+  info "dotc asks a few questions, then waits for the operator to approve this machine on the"
+  info "manager. Dotcore starts once the machine joins."
+  info "If the join fails, open a new terminal to have 'dotc' on your PATH, then run 'dotc node join'"
+  info "with the options it suggests: the same token while it's valid, else a new command from the"
+  info "console's Add machine or 'dotc node add'."
+
+  # dotc finds the packaged dotcore on PATH to start the node; an `env -i` shell may not export
+  # PATH, so it is exported explicitly.
+  PATH="$bundle/bin:$PATH"
+  export PATH
+  exec "$bundle/bin/dotc" node join --token "$join_token" </dev/tty
+}
+
 # Finds what Dotcore left on this host and reports it with folder sizes, so the user sees what
 # large data is at stake. Fails when nothing is found. Sets `uninstall_entry`, `dotc_command`,
 # `site_dir`, `site_role` and `cache_dir`; `dotc` reports the folders and role, else the defaults
 # apply.
 find_installation() {
-  if ! command -v nix >/dev/null 2>&1 && [ -r "$NIX_DAEMON_PROFILE" ]; then
-    load_nix_profile
-  fi
-
-  uninstall_entry=""
-  dotc_command=""
-  if command -v nix >/dev/null 2>&1; then
-    entry=$(find_profile_entry)
-    if [ -n "$entry" ]; then
-      uninstall_entry=$(printf '%s\n' "$entry" | cut -f1)
-      dotc_command="$(printf '%s\n' "$entry" | cut -f3)/bin/dotc"
-    fi
-  fi
-  if [ -z "$dotc_command" ]; then
-    dotc_command=$(command -v dotc 2>/dev/null || true)
-  fi
-
-  site_dir="${XDG_STATE_HOME:-$HOME/.local/state}/dotcore/site"
-  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dotcore"
-  site_role=manager
-  if [ -n "$dotc_command" ] && config=$("$dotc_command" config show --format json 2>/dev/null); then
-    site_dir=$(json_field "$config" siteDir)
-    cache_dir=$(json_field "$config" cacheDir)
-    site_role=$(json_field "$config" role)
-  fi
+  find_dotc
+  locate_site
 
   found=false
   if [ -n "$uninstall_entry" ]; then
@@ -406,6 +453,43 @@ find_installation() {
 check_dotcore_stopped() {
   if dotcore_running; then
     fail "Dotcore is running. Stop it (Ctrl-C in its terminal), then run this again."
+  fi
+}
+
+# Sets `dotc_command` to the installed dotc and `uninstall_entry` to its Nix profile entry; each
+# is empty when not found. A dotc on PATH counts when the profile holds none.
+find_dotc() {
+  if ! command -v nix >/dev/null 2>&1 && [ -r "$NIX_DAEMON_PROFILE" ]; then
+    load_nix_profile
+  fi
+
+  uninstall_entry=""
+  dotc_command=""
+  if command -v nix >/dev/null 2>&1; then
+    entry=$(find_profile_entry)
+    if [ -n "$entry" ]; then
+      uninstall_entry=$(printf '%s\n' "$entry" | cut -f1)
+      dotc_command="$(printf '%s\n' "$entry" | cut -f3)/bin/dotc"
+    fi
+  fi
+  if [ -z "$dotc_command" ]; then
+    dotc_command=$(command -v dotc 2>/dev/null || true)
+  fi
+}
+
+# Sets `site_dir`, `cache_dir` and `site_role` (`manager` or `joined-node`): the dotc that
+# `find_dotc` found reports them, else the defaults apply and a node folder's manifest gives the
+# role.
+locate_site() {
+  site_dir=$(default_site_dir)
+  cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dotcore"
+  site_role=manager
+  if [ -n "$dotc_command" ] && config=$("$dotc_command" config show --format json 2>/dev/null); then
+    site_dir=$(json_field "$config" siteDir)
+    cache_dir=$(json_field "$config" cacheDir)
+    site_role=$(json_field "$config" role)
+  elif [ -f "$site_dir/worker.yaml" ]; then
+    site_role=joined-node
   fi
 }
 
@@ -494,6 +578,11 @@ docker_endpoint() {
     unix://*) printf '%s\n' "$DOCKER_HOST" ;;
     *) printf '%s\n' "$DEFAULT_DOCKER_ENDPOINT" ;;
   esac
+}
+
+# Prints the site folder dotc uses when nothing else names one.
+default_site_dir() {
+  printf '%s\n' "${DOTCORE_SITE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/dotcore/site}"
 }
 
 dotcore_running() {
