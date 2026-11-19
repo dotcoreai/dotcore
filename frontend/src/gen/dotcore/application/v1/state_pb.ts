@@ -334,7 +334,8 @@ export enum ApplicationLifecycleState {
   STOPPED = 7,
 
   /**
-   * The application lifecycle state failed value.
+   * A deployment that failed in its lifecycle generation; it is not started again until it is
+   * paused and resumed or redeployed, and its failure says why.
    *
    * @generated from enum value: APPLICATION_LIFECYCLE_STATE_FAILED = 8;
    */
@@ -342,7 +343,7 @@ export enum ApplicationLifecycleState {
 
   /**
    * A deployment that does not serve after it was ready in this start or after its startup
-   * grace, or whose runtime group is inconclusive.
+   * grace, or whose runtime group is inconclusive; unlike a failed one, it keeps reconciling.
    *
    * @generated from enum value: APPLICATION_LIFECYCLE_STATE_UNAVAILABLE = 9;
    */

@@ -45,7 +45,8 @@ message ApplicationControllerStatusSection {
   repeated ApplicationCleanupEvidence cleanup_evidence = 2;
 }
 
-// Safe node observation of one assigned application deployment, without free text.
+// Node observation of one assigned application deployment. Its only free text is the failure
+// summary of a Failed deployment, bounded in size.
 message ApplicationDeploymentStatus {
   // Stable deployment identity.
   string application_deployment_id = 1;
@@ -75,8 +76,13 @@ message ApplicationDeploymentStatus {
   // Node-evaluated deployment readiness.
   dotcore.application.v1.ApplicationReadinessState readiness = 9;
 
-  // Stable non-sensitive failure code, unspecified when no failure is observed.
+  // Typed failure the manager maps to a failure summary; unspecified when none or when Failed.
   ApplicationStatusFailureCode failure_code = 10;
+
+  // Failure summary the hosting node records, present exactly when the lifecycle is Failed: a
+  // non-empty code of at most 64 bytes, a message of at most 1024 bytes, and at most 8
+  // diagnostics totalling at most 6144 bytes.
+  dotcore.application.v1.ApplicationDeploymentFailure failure = 16;
 
   // Observations for named services in the immutable snapshot.
   repeated dotcore.application.v1.ApplicationServiceObservation services = 11;
@@ -196,10 +202,15 @@ enum ApplicationLifecycleObservation {
 
   // The deployment's image is being prepared before its workload group is created.
   APPLICATION_LIFECYCLE_OBSERVATION_PREPARING = 10;
+
+  // The deployment failed in this lifecycle generation and is not started again; the failure
+  // summary says why.
+  APPLICATION_LIFECYCLE_OBSERVATION_FAILED = 11;
 }
 
 // Typed operation stage of an assigned application deployment, carrying no runtime detail.
-// Progress stages match the lifecycle; observation and failure stages explain Unavailable.
+// Progress stages match the lifecycle; observation and failure stages explain Unavailable and
+// Failed.
 enum ApplicationStatusStage {
   // No stage was specified.
   APPLICATION_STATUS_STAGE_UNSPECIFIED = 0;
