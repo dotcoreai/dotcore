@@ -903,6 +903,7 @@ fn parse_profile_compatibility_request(
             SizingScenario::new(
                 scenario.total_context_tokens,
                 scenario.context_tokens_per_request,
+                scenario.parallel_requests.map(u64::from),
             )
         })
         .transpose()
@@ -1410,7 +1411,7 @@ mod tests {
             (
                 Some("model".to_owned()),
                 Some(placement("node", "target")),
-                Some(SizingScenario::new(Some(1), Some(1)).expect("smallest scenario"))
+                Some(SizingScenario::new(Some(1), Some(1), None).expect("smallest scenario"))
             )
         );
         assert_eq!(

@@ -1248,7 +1248,8 @@ async fn claims_count_a_starting_deployment_once(
 }
 
 /// Reads the largest fits of the probe and of the host probe on the fixture target, checking that
-/// each starts from its exact largest fit and previews as [`check_previews`] expects at `step`.
+/// each starts from its context per request times its parallel requests, which fit, and previews
+/// its largest fit as [`check_previews`] expects at `step`.
 async fn read_largest_fits(
     backend: &support::RunningBackend,
     machine: &str,
@@ -1279,22 +1280,26 @@ async fn read_largest_fits(
     ];
     for (entry, largest) in [probe, host_probe].into_iter().zip(largest) {
         let largest = largest.expect("a largest fit");
+        // The engine's 8192 tokens per request for the 4 parallel requests fit.
         assert_eq!(
             (
                 entry.starting_total_context_tokens,
                 entry.starting_total_context_source(),
             ),
-            (Some(largest), StartingTotalContextSource::LargestFit),
+            (
+                Some(32_768),
+                StartingTotalContextSource::PerRequestTimesParallel
+            ),
             "{machine} {}",
             entry.profile_id
         );
-        check_previews(backend, machine, idle, gpu, entry, step).await;
+        check_previews(backend, machine, idle, gpu, entry, largest, step).await;
     }
     largest
 }
 
-/// Previews the compatibility `entry`'s profile at its starting total context and one token above
-/// it, and checks each preview against the compatibility read's free memory verdict for the same
+/// Previews the compatibility `entry`'s profile at its `largest` fitting total context and one
+/// token above it, and checks each preview against the compatibility read's free memory verdict for the same
 /// total and against the pools `machine` draws from `idle` plus the probe deployment at `step`
 /// (1 before loading, 2 loading, 3 ready), when it is deployed.
 async fn check_previews(
@@ -1303,14 +1308,12 @@ async fn check_previews(
     idle: &HardwareSnapshot,
     gpu: &str,
     entry: &ModelProfileCompatibility,
+    largest: u64,
     step: Option<(usize, &str)>,
 ) {
-    let starting = entry
-        .starting_total_context_tokens
-        .expect("a starting value");
     for (total_context, expected_fit) in [
-        (starting, MemoryFit::Fits),
-        (starting + 1, MemoryFit::Exceeds),
+        (largest, MemoryFit::Fits),
+        (largest + 1, MemoryFit::Exceeds),
     ] {
         let label = format!("{machine} {} at {total_context}", entry.profile_id);
         let estimate = backend
@@ -1371,7 +1374,7 @@ async fn check_previews(
         // largest fit at the profile's other values, whatever total it was asked about.
         assert_eq!(
             estimate.largest_total_context_tokens,
-            Some(starting),
+            Some(largest),
             "{label}: total context"
         );
     }

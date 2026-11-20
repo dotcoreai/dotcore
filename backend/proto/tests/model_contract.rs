@@ -1616,6 +1616,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
                 "STARTING_TOTAL_CONTEXT_SOURCE_PER_REQUEST_TIMES_PARALLEL",
                 2
             ),
+            ("STARTING_TOTAL_CONTEXT_SOURCE_SCENARIO_TOTAL", 3),
         ]
     );
 

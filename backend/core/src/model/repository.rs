@@ -179,7 +179,7 @@ impl ModelDeclarationRepository {
             estimates_apply,
             observed_at,
         );
-        let (memory_parameter_fits, largest_total_context_tokens) = if estimates_apply {
+        let (memory_parameter_fits, largest) = if estimates_apply {
             let fits = crate::model::memory_parameter_fit::memory_parameter_fits(
                 &self.catalog,
                 profile_id,
@@ -188,29 +188,28 @@ impl ModelDeclarationRepository {
                 &resolved,
                 &selected,
             );
-            let largest_total_context =
-                crate::model::sizing_scenario::configuration_largest_total_context(
-                    &self.catalog,
-                    &catalog_model_id,
-                    profile_id,
-                    &completed,
-                    &selected,
-                    resolved
-                        .selection
-                        .hardware_support
-                        .hardware_requirements
-                        .as_ref(),
-                );
-            (fits, largest_total_context)
+            let largest = crate::model::sizing_scenario::configuration_largest_contexts(
+                &self.catalog,
+                &catalog_model_id,
+                profile_id,
+                &completed,
+                &selected,
+                resolved
+                    .selection
+                    .hardware_support
+                    .hardware_requirements
+                    .as_ref(),
+            );
+            (fits, largest)
         } else {
-            (Vec::new(), None)
+            (Vec::new(), Default::default())
         };
         Ok(EstimateLocalModelResourcesResponse {
             hardware_class_estimates: vec![resolved.into_hardware_class_estimate(estimates_apply)],
             placement_preview: Some(placement_preview),
             memory_parameter_fits,
-            largest_total_context_tokens,
-            largest_context_tokens_per_request: None,
+            largest_total_context_tokens: largest.total_context_tokens,
+            largest_context_tokens_per_request: largest.context_tokens_per_request,
         })
     }
 
@@ -781,7 +780,8 @@ fn recommendations_response(
                                 .into(),
                                 model_deployment_id: target.model_deployment_id,
                                 starting_total_context_tokens: target.starting_total_context_tokens,
-                                starting_context_tokens_per_request: None,
+                                starting_context_tokens_per_request: target
+                                    .starting_context_tokens_per_request,
                             })
                             .collect(),
                     })
@@ -3234,12 +3234,25 @@ mod tests {
             configuration
         };
 
-        // At the profile's values, the estimate's fit is the compatibility read's starting total.
-        let at_defaults = target
-            .estimate(&with_cache(0))
+        // At the profile's values, the estimate's fit is the compatibility read's. The largest total
+        // split among the 4 parallel requests is above the model's 262144-token maximum context,
+        // which bounds the largest context per request. The profile's 8192 tokens per request for 4
+        // requests fit, so a deployment starts from them.
+        let estimate = target.estimate(&with_cache(0));
+        let at_defaults = estimate
             .largest_total_context_tokens
             .expect("a fit at the profile's values");
-        assert_eq!(target.starting_total_context(), Some(at_defaults));
+        assert_eq!(estimate.largest_context_tokens_per_request, Some(262_144));
+        let compatibility = target.compatibility();
+        assert_eq!(
+            (
+                compatibility.largest_total_context_tokens,
+                compatibility.largest_context_tokens_per_request,
+                compatibility.starting_context_tokens_per_request,
+                compatibility.starting_total_context_tokens,
+            ),
+            (Some(at_defaults), Some(262_144), None, Some(32_768))
+        );
 
         // A larger prompt cache takes its bytes from the context: 1 GiB is 262144 tokens.
         assert_eq!(
@@ -3785,9 +3798,8 @@ mod tests {
                 .expect("estimate on the target")
         }
 
-        /// The fixture profile's starting total context on the target, from the compatibility
-        /// read of its defaults.
-        fn starting_total_context(&self) -> Option<u64> {
+        /// The compatibility read of the fixture profile's defaults on the target.
+        fn compatibility(&self) -> dotcore_proto::dotcore::model::v1::ModelProfileCompatibility {
             self.repository
                 .profile_compatibility(
                     Some("fixture-model"),
@@ -3801,7 +3813,6 @@ mod tests {
                 .into_iter()
                 .find(|entry| entry.profile_id == "fixture-profile")
                 .expect("fixture profile entry")
-                .starting_total_context_tokens
         }
     }
 

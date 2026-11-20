@@ -59,17 +59,25 @@ pub(crate) fn derived_context_values(
     schema: &dotcore_proto::dotcore::catalog::v1::EngineParameterSchema,
     values: &dotcore_proto::dotcore::catalog::v1::ParameterValues,
 ) -> Vec<dotcore_proto::dotcore::catalog::v1::ParameterValue> {
-    use dotcore_catalog::shared_parameters::{self, SharedContextRule};
+    use dotcore_catalog::shared_parameters;
 
-    let rule = definition::definition(kind).map_or(
-        &SharedContextRule as &dyn shared_parameters::ContextRule,
-        |engine| engine.context_rule(configuration),
-    );
     shared_parameters::derived_context_values(
         schema,
         values,
         shared_parameters::maximum_context_tokens(model, configuration),
-        rule,
+        context_rule(kind, configuration),
+    )
+}
+
+/// Returns how the engine of a raw engine kind relates the context values of the configuration;
+/// an unsupported kind takes the shared rule.
+pub(crate) fn context_rule(
+    kind: i32,
+    configuration: &dotcore_proto::dotcore::catalog::v1::ModelEngineConfiguration,
+) -> &'static dyn dotcore_catalog::shared_parameters::ContextRule {
+    definition::definition(kind).map_or(
+        &dotcore_catalog::shared_parameters::SharedContextRule,
+        |engine| engine.context_rule(configuration),
     )
 }
 

@@ -21,8 +21,9 @@ use evaluation::device_share;
 pub(crate) use evaluation::host_reserve_bytes;
 pub(crate) use evaluation::{
     Estimate, EstimatePart, LargestTotalContext, MemoryParameterRange, Policy, PoolPreview,
-    StartingTotalContext, below_device_minimum, combined_minimums, demand, fit,
-    largest_fitting_value, largest_total_context, preview, starting_total_context, steps_within,
+    StartingContext, StartingContextRequest, StartingTotalContext, below_device_minimum,
+    combined_minimums, demand, fit, largest_fitting_value, largest_total_context, preview,
+    starting_context, steps_within,
 };
 pub(crate) use node::NodeCapacity;
 

@@ -361,8 +361,9 @@ fn repository_largest_fits_fill_free_memory_on_every_simulated_choice() {
                 let (lowest, context_per_request) =
                     lowest_total_context(&catalog, &models[0], &entry.profile_id);
                 let verdict = |total_context: u64| {
-                    let scenario = SizingScenario::new(Some(total_context), context_per_request)
-                        .unwrap_or_else(|error| panic!("{label}: scenario: {error}"));
+                    let scenario =
+                        SizingScenario::new(Some(total_context), context_per_request, None)
+                            .unwrap_or_else(|error| panic!("{label}: scenario: {error}"));
                     let response = read(Some(&scenario));
                     let sizing = response
                         .profiles

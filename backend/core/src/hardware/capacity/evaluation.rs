@@ -1,12 +1,13 @@
 //! Judges a memory estimate against one target's pools: the demand it puts on each pool, whether
-//! that demand fits, the largest total context that fits and the one a deployment starts from, the
-//! largest value of a memory parameter that fits, and the preview a view draws of it.
+//! that demand fits, the largest total context that fits and the context values a deployment starts
+//! from, the largest value of a memory parameter that fits, and the preview a view draws of it.
 //!
 //! Dedicated devices hold the accelerator estimate in their own memory, while unified devices
 //! take it from the host pool along with the host estimate. A declared minimum above a pool's
 //! total exceeds it whatever the estimate, since it describes the hardware. A missing estimate or
 //! pool fact reads as unknown rather than a guess.
 
+use dotcore_catalog::shared_parameters::ContextRule;
 use dotcore_proto::dotcore::{catalog::v1::HardwareRequirements, deployment::v1::MemoryFit};
 
 use super::{Pool, PoolKind, PoolView, TargetCapacity};
@@ -435,32 +436,95 @@ enum Growth {
     Beyond(u64),
 }
 
-/// Returns the total context a deployment starts from: the largest total context that fits, or the
-/// profile's `default` when there is no largest fit.
-pub(crate) fn starting_total_context(
-    largest: Option<u64>,
-    default: Option<u64>,
-) -> Option<StartingTotalContext> {
-    largest
-        .map(StartingTotalContext::LargestFit)
-        .or(default.map(StartingTotalContext::ProfileDefault))
+/// Returns the context values a deployment starts from: the requested context per request and the
+/// requested total context, or else the one the engine's `rule` derives for them, capped by the
+/// largest total context that fits. When even one request at the requested size can't fit, the context per
+/// request drops to what the rule fills from the largest total. Without a largest fit, the
+/// requested values stand.
+pub(crate) fn starting_context(
+    requested: StartingContextRequest,
+    largest_total_context: Option<u64>,
+    rule: &dyn ContextRule,
+) -> StartingContext {
+    let StartingContextRequest {
+        context_tokens_per_request,
+        parallel_requests,
+        total_context_tokens,
+        maximum_context_tokens,
+    } = requested;
+    let starting_per_request =
+        largest_total_context.map_or(context_tokens_per_request, |largest| {
+            context_tokens_per_request.min(rule.filled_context_per_request(
+                largest,
+                parallel_requests,
+                maximum_context_tokens,
+            ))
+        });
+    // A requested total stays as asked, within what fits.
+    let asked = match total_context_tokens {
+        Some(total_context) => StartingTotalContext::Requested(total_context),
+        None => StartingTotalContext::PerRequestTimesParallel(rule.derived_total_context(
+            starting_per_request,
+            parallel_requests,
+            maximum_context_tokens,
+        )),
+    };
+    let total_context = match largest_total_context {
+        Some(largest) if largest < asked.tokens() => StartingTotalContext::LargestFit(largest),
+        _ => asked,
+    };
+    StartingContext {
+        context_tokens_per_request: starting_per_request,
+        lowered: starting_per_request < context_tokens_per_request,
+        total_context,
+    }
+}
+
+/// The context values a starting deployment is asked for, before the target caps them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StartingContextRequest {
+    pub(crate) context_tokens_per_request: u64,
+    pub(crate) parallel_requests: u64,
+
+    /// Total context asked for; none follows the context per request by the engine's rule.
+    pub(crate) total_context_tokens: Option<u64>,
+
+    /// Largest context one request may use on the configuration.
+    pub(crate) maximum_context_tokens: u64,
+}
+
+/// The context values a deployment starts from on one target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct StartingContext {
+    pub(crate) context_tokens_per_request: u64,
+
+    /// Whether the context per request is below the requested one, since one request at that
+    /// size doesn't fit.
+    pub(crate) lowered: bool,
+
+    pub(crate) total_context: StartingTotalContext,
 }
 
 /// The total context in tokens a deployment starts from, by where it comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum StartingTotalContext {
-    /// The largest total context that fits.
+    /// The largest total context that fits, below what the context per request derives.
     LargestFit(u64),
 
-    /// The profile's default, without a largest fit.
-    ProfileDefault(u64),
+    /// What the engine's rule derives from the context per request and the parallel requests.
+    PerRequestTimesParallel(u64),
+
+    /// The total context asked for.
+    Requested(u64),
 }
 
 impl StartingTotalContext {
     /// The total context in tokens, whatever its source.
     pub(crate) fn tokens(self) -> u64 {
         match self {
-            Self::LargestFit(tokens) | Self::ProfileDefault(tokens) => tokens,
+            Self::LargestFit(tokens)
+            | Self::PerRequestTimesParallel(tokens)
+            | Self::Requested(tokens) => tokens,
         }
     }
 }

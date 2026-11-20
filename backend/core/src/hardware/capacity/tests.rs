@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, time::SystemTime};
 
+use dotcore_catalog::shared_parameters::ContextRule;
 use dotcore_domain::MemoryArchitecture::{self, Dedicated, Unified};
 use dotcore_node_hardware::{MachineDescription, MachineWorkload};
 use dotcore_proto::dotcore::{
@@ -20,10 +21,10 @@ use super::{
     DeviceMemory, Estimate, EstimatePart, HostMemory,
     LargestTotalContext::{Bounded, Unbounded},
     MemoryParameterRange, NodeHardware, Occupancy, Policy, Pool, PoolDevice, PoolKind, PoolPreview,
-    PoolView, Segment, SegmentSource,
-    StartingTotalContext::{LargestFit, ProfileDefault},
+    PoolView, Segment, SegmentSource, StartingContext, StartingContextRequest,
+    StartingTotalContext::{LargestFit, PerRequestTimesParallel, Requested},
     TargetCapacity, Workload, WorkloadKey, WorkloadPhase, combined_minimums, demand, fit,
-    largest_fitting_value, largest_total_context, preview, starting_total_context,
+    largest_fitting_value, largest_total_context, preview, starting_context,
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -1176,19 +1177,98 @@ fn an_application_named_in_a_preview_splits_other_use_without_changing_its_verdi
 }
 
 #[test]
-fn a_deployment_starts_from_the_exact_largest_fit_or_the_default() {
-    for (largest, default, expected) in [
-        (Some(222_527), Some(32_768), Some(LargestFit(222_527))),
-        (Some(1), None, Some(LargestFit(1))),
-        (None, Some(32_768), Some(ProfileDefault(32_768))),
-        (None, None, None),
-    ] {
-        assert_eq!(
-            starting_total_context(largest, default),
-            expected,
-            "{largest:?} {default:?}"
-        );
+fn a_deployment_starts_from_the_product_capped_at_the_largest_fit() {
+    use dotcore_catalog::shared_parameters::SharedContextRule;
+
+    let request = |context_tokens_per_request| StartingContextRequest {
+        context_tokens_per_request,
+        parallel_requests: 4,
+        total_context_tokens: None,
+        maximum_context_tokens: 262_144,
+    };
+    let start = |per_request, largest| {
+        let starting = starting_context(request(per_request), largest, &SharedContextRule);
+        (
+            starting.context_tokens_per_request,
+            starting.lowered,
+            starting.total_context,
+        )
+    };
+
+    // The product fits, or no largest fit is known.
+    assert_eq!(
+        start(32_768, Some(222_527)),
+        (32_768, false, PerRequestTimesParallel(131_072))
+    );
+    assert_eq!(
+        start(32_768, None),
+        (32_768, false, PerRequestTimesParallel(131_072))
+    );
+    // Four requests don't fit, one does: the total is capped at the largest fit.
+    assert_eq!(
+        start(32_768, Some(100_000)),
+        (32_768, false, LargestFit(100_000))
+    );
+    // Even one request doesn't fit: the context per request drops to the largest fit.
+    assert_eq!(
+        start(32_768, Some(20_000)),
+        (20_000, true, LargestFit(20_000))
+    );
+
+    // A requested total stays as asked when it fits, and is capped at the largest fit otherwise.
+    let with_total = |total_context, largest| {
+        starting_context(
+            StartingContextRequest {
+                total_context_tokens: Some(total_context),
+                ..request(8192)
+            },
+            largest,
+            &SharedContextRule,
+        )
+        .total_context
+    };
+    assert_eq!(with_total(20_000, Some(222_527)), Requested(20_000));
+    assert_eq!(with_total(20_000, None), Requested(20_000));
+    assert_eq!(with_total(300_000, Some(222_527)), LargestFit(222_527));
+}
+
+#[test]
+fn an_exact_engine_rule_lowers_the_context_per_request_instead_of_the_total() {
+    struct Exact;
+    impl ContextRule for Exact {
+        fn filled_context_per_request(&self, total: u64, parallel: u64, maximum: u64) -> u64 {
+            (total / parallel).min(maximum)
+        }
     }
+    let start = |largest| {
+        starting_context(
+            StartingContextRequest {
+                context_tokens_per_request: 32_768,
+                parallel_requests: 4,
+                total_context_tokens: None,
+                maximum_context_tokens: 262_144,
+            },
+            largest,
+            &Exact,
+        )
+    };
+
+    assert_eq!(
+        start(Some(100_000)),
+        StartingContext {
+            context_tokens_per_request: 25_000,
+            lowered: true,
+            total_context: PerRequestTimesParallel(100_000),
+        }
+    );
+    assert_eq!(
+        start(Some(200_000)),
+        StartingContext {
+            context_tokens_per_request: 32_768,
+            lowered: false,
+            total_context: PerRequestTimesParallel(131_072),
+        }
+    );
 }
 
 #[test]

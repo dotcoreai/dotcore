@@ -12,7 +12,7 @@
 
 use std::{collections::BTreeMap, time::SystemTime};
 
-use dotcore_catalog::{Catalog, CatalogModelId, shared_parameters::TOTAL_CONTEXT_PARAMETER_ID};
+use dotcore_catalog::{Catalog, CatalogModelId};
 use dotcore_domain::MemoryArchitecture;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
@@ -34,7 +34,6 @@ use crate::{
     hardware::attribution::PROCESS_MEMORY_PENDING,
     hardware::capacity::{
         Estimate, NodeWorkloads, StartingTotalContext, Workload, WorkloadKey, WorkloadPhase,
-        starting_total_context,
     },
     hardware::selection::{
         HardwareClassSelectionError, SelectedTargetCapabilities, TargetCapabilitySelectionError,
@@ -42,7 +41,7 @@ use crate::{
     },
     model::{
         advisory::local_deployment_advisories,
-        engine::{EngineIntegrationRegistry, engine_artifact_kinds, unsigned_parameter_value},
+        engine::{EngineIntegrationRegistry, engine_artifact_kinds},
         resolution::{
             ModelLaunchResolutionError, apply_profile_defaults,
             resolve_local_launch_on_selected_target,
@@ -206,10 +205,6 @@ pub(crate) struct RunningProfile {
     pub(crate) hardware_class_id: String,
 
     pub(crate) fit: TargetMemoryFit,
-
-    /// Total context a deployment of the profile starts from there; absent without a largest fit
-    /// or a profile default.
-    pub(crate) starting_total_context: Option<StartingTotalContext>,
 }
 
 /// One model profile to evaluate on targets, with its target-independent sizing.
@@ -280,11 +275,6 @@ pub(crate) fn evaluate_profile(
             );
         })
         .unwrap_or_default();
-    // The defaults' total context is the one resolution derived from the context per request.
-    let default_total_context = snapshot
-        .engine_parameter_values
-        .as_ref()
-        .and_then(|values| unsigned_parameter_value(values, TOTAL_CONTEXT_PARAMETER_ID));
     let fit = target_memory_fit(catalog, sizing, &snapshot, selected, extra_minimums);
     ProfileEvaluation::Runs(RunningProfile {
         advisories,
@@ -292,10 +282,6 @@ pub(crate) fn evaluate_profile(
             .hardware_support
             .map(|support| support.hardware_class_id)
             .unwrap_or_default(),
-        starting_total_context: starting_total_context(
-            fit.largest_total_context_tokens,
-            default_total_context,
-        ),
         fit,
     })
 }
@@ -457,13 +443,18 @@ fn profile_compatibility(
             entry.set_free_memory_fit(fit.free_memory_fit);
             entry.set_unsupported_reason(fit.unsupported_reason);
             entry.largest_total_context_tokens = fit.largest_total_context_tokens;
-            if let Some(starting) = running.starting_total_context {
-                entry.starting_total_context_tokens = Some(starting.tokens());
-                entry.set_starting_total_context_source(match starting {
+            entry.largest_context_tokens_per_request = fit.largest_context_tokens_per_request;
+            if let Some(starting) = fit.starting_context {
+                entry.starting_context_tokens_per_request = starting
+                    .lowered
+                    .then_some(starting.context_tokens_per_request);
+                entry.starting_total_context_tokens = Some(starting.total_context.tokens());
+                entry.set_starting_total_context_source(match starting.total_context {
                     StartingTotalContext::LargestFit(_) => StartingTotalContextSource::LargestFit,
-                    StartingTotalContext::ProfileDefault(_) => {
+                    StartingTotalContext::PerRequestTimesParallel(_) => {
                         StartingTotalContextSource::PerRequestTimesParallel
                     }
+                    StartingTotalContext::Requested(_) => StartingTotalContextSource::ScenarioTotal,
                 });
             }
         }
