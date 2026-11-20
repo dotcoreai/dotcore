@@ -162,6 +162,29 @@ describe("MachinesResources", () => {
     expect(rows(resources)[0]).toEqual(["CPU", "25% · 52 CPUs"]);
   });
 
+  it("draws every row in the machine's color on a single machine", async () => {
+    renderPage(metricsClientWith(staticWatch(answer())), [
+      [listedMachine("gpu1", "gpu1"), workstationSnapshot()],
+    ]);
+
+    const resources = await screen.findByRole("region", { name: "Resources" });
+    await waitFor(() => expect(rows(resources)[0]).toEqual(["CPU", "12% · 32 CPUs"]));
+    for (const label of ["CPU", "GPU", "Storage"]) {
+      expect(fillColors(rowElement(resources, label))).toEqual([cssColor("gpu1")]);
+    }
+    expect(memoryPartColors(rowElement(resources, "RAM"))).toEqual([[cssColor("gpu1")]]);
+  });
+
+  it("draws combined bars of several machines neutral", async () => {
+    renderPage(metricsClientWith(staticWatch(answer())));
+
+    const resources = await screen.findByRole("region", { name: "Resources" });
+    await waitFor(() => expect(rows(resources)[0]).toEqual(["CPU", "25% · 52 CPUs"]));
+    for (const label of ["CPU", "GPU", "Storage"]) {
+      expect(fillColors(rowElement(resources, label))).toEqual(["var(--chart-1)"]);
+    }
+  });
+
   it("shows a single machine without the view choice, and draws rows it cannot fill empty", async () => {
     const user = setupUser();
     renderPage(metricsClientWith(staticWatch(answer())), [
