@@ -252,7 +252,13 @@ function ReadingRow({
               })}
             />
           ) : (
-            <MetricBar fraction={fraction} />
+            // A lone machine's bar takes its marker color, like its memory bars.
+            <MetricBar
+              color={
+                reading.parts.length === 1 ? { resource: reading.parts[0].machineId } : undefined
+              }
+              fraction={fraction}
+            />
           )}
         </div>
       }
