@@ -108,7 +108,7 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             ],
         },
         // The running model is deployed and a second one needs its memory freed; it starts from
-        // the profile default without room for a largest fit.
+        // the context per request times the parallel requests without room for a largest fit.
         Case {
             machines: &["x32"],
             occupancy: Occupancy::Running("big", "q4"),
@@ -118,7 +118,7 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
                 (
                     "big/q4",
                     32_768,
-                    vec![("x32", NeedsMemoryFreed, Some("big-q4"), 32_768)],
+                    vec![("x32", NeedsMemoryFreed, Some("big-q4"), 131_072)],
                 ),
                 ("mid/q4", 32_768, vec![("x32", FitsNow, None, 82_024)]),
                 ("small/q4", 32_768, vec![("x32", FitsNow, None, 122_024)]),
@@ -218,8 +218,8 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::StartingUnsized,
             use_case: Coding,
             rows: vec![
-                ("big/q4", 32_768, vec![("uni128", Unknown, None, 32_768)]),
-                ("mid/q4", 32_768, vec![("uni128", Unknown, None, 32_768)]),
+                ("big/q4", 32_768, vec![("uni128", Unknown, None, 131_072)]),
+                ("mid/q4", 32_768, vec![("uni128", Unknown, None, 131_072)]),
             ],
         },
         // A starting deployment names its profile's row.
@@ -228,11 +228,11 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::StartingUnsized,
             use_case: ChatAssistant,
             rows: vec![
-                ("mid/q4", 32_768, vec![("uni128", Unknown, None, 32_768)]),
+                ("mid/q4", 32_768, vec![("uni128", Unknown, None, 131_072)]),
                 (
                     "small/q4",
                     32_768,
-                    vec![("uni128", Unknown, Some("small-q4"), 32_768)],
+                    vec![("uni128", Unknown, Some("small-q4"), 131_072)],
                 ),
             ],
         },
@@ -307,10 +307,18 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::Stale,
             use_case: Coding,
             rows: vec![
-                ("x-only/x", 32_768, vec![("x32", Unreachable, None, 32_768)]),
-                ("big/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
-                ("mid/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
-                ("small/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                (
+                    "x-only/x",
+                    32_768,
+                    vec![("x32", Unreachable, None, 131_072)],
+                ),
+                ("big/q4", 32_768, vec![("x32", Unreachable, None, 131_072)]),
+                ("mid/q4", 32_768, vec![("x32", Unreachable, None, 131_072)]),
+                (
+                    "small/q4",
+                    32_768,
+                    vec![("x32", Unreachable, None, 131_072)],
+                ),
             ],
         },
         // What runs on an unreachable machine is deployed there, and never drops an entry its
@@ -320,14 +328,22 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
             occupancy: Occupancy::StaleRunning("big", "q4"),
             use_case: Coding,
             rows: vec![
-                ("x-only/x", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                (
+                    "x-only/x",
+                    32_768,
+                    vec![("x32", Unreachable, None, 131_072)],
+                ),
                 (
                     "big/q4",
                     32_768,
-                    vec![("x32", Unreachable, Some("big-q4"), 32_768)],
+                    vec![("x32", Unreachable, Some("big-q4"), 131_072)],
                 ),
-                ("mid/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
-                ("small/q4", 32_768, vec![("x32", Unreachable, None, 32_768)]),
+                ("mid/q4", 32_768, vec![("x32", Unreachable, None, 131_072)]),
+                (
+                    "small/q4",
+                    32_768,
+                    vec![("x32", Unreachable, None, 131_072)],
+                ),
             ],
         },
         // An unreachable machine beside a reachable one: each target keeps its own fit in a row.
@@ -341,7 +357,7 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
                     "big/q4",
                     32_768,
                     vec![
-                        ("mac64", Unreachable, None, 32_768),
+                        ("mac64", Unreachable, None, 131_072),
                         ("x32", FitsNow, None, 174_792),
                     ],
                 ),
@@ -349,7 +365,7 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
                     "mid/q4",
                     32_768,
                     vec![
-                        ("mac64", Unreachable, None, 32_768),
+                        ("mac64", Unreachable, None, 131_072),
                         ("x32", FitsNow, None, 274_792),
                     ],
                 ),
@@ -357,7 +373,7 @@ fn declared_machines_get_exact_ranked_recommendations_per_use_case_and_occupancy
                     "small/q4",
                     32_768,
                     vec![
-                        ("mac64", Unreachable, None, 32_768),
+                        ("mac64", Unreachable, None, 131_072),
                         ("x32", FitsNow, None, 314_792),
                     ],
                 ),
@@ -440,7 +456,7 @@ fn every_use_case_asked_gets_its_own_list_in_the_order_asked() {
 #[test]
 fn entries_are_sized_with_their_context_per_request() {
     // The dedicated coding entry asks for 131072 tokens per request, the dedicated chat entry
-    // leaves it to the profile's default, and the unified coding entry asks for 32768.
+    // leaves it to the engine default, and the unified coding entry asks for 32768.
     let catalog = catalog_with_lists(&[
         (
             "nvidia-dedicated",
@@ -509,7 +525,7 @@ useCases:
                 (
                     "mid/q4",
                     131_072,
-                    vec![("x32", NeedsMemoryFreed, None, 32_768)]
+                    vec![("x32", NeedsMemoryFreed, None, 131_072)]
                 ),
             ]),
             owned(vec![(
@@ -584,7 +600,7 @@ fn can_start_now_keeps_deployed_and_fitting_targets_with_deployed_rows_first() {
             rows: vec![(
                 "x-only/x",
                 32_768,
-                vec![("x32", NeedsMemoryFreed, Some("x-only-x"), 32_768)],
+                vec![("x32", NeedsMemoryFreed, Some("x-only-x"), 131_072)],
             )],
         },
         // An unreachable machine's targets are dropped, even with a deployment there.
@@ -619,7 +635,7 @@ fn can_start_now_keeps_deployed_and_fitting_targets_with_deployed_rows_first() {
             rows: vec![(
                 "small/q4",
                 32_768,
-                vec![("uni128", Unknown, Some("small-q4"), 32_768)],
+                vec![("uni128", Unknown, Some("small-q4"), 131_072)],
             )],
         },
     ];
@@ -705,7 +721,7 @@ useCases:
         owned(vec![(
             "mid/q4",
             262_144,
-            vec![("x32", NeedsMemoryFreed, Some("mid-q4"), 32_768)],
+            vec![("x32", NeedsMemoryFreed, Some("mid-q4"), 131_072)],
         )]),
         owned(vec![(
             "mid/q4",
@@ -949,7 +965,7 @@ fn deployment(
     }
 }
 
-/// Accelerator memory of a fixture model at its default 32768-token total context.
+/// Accelerator memory of a fixture model at a 32768-token total context.
 fn default_estimate(model_id: &str) -> u64 {
     let model = MODELS
         .iter()
@@ -1244,9 +1260,9 @@ version: "1"
 parameterSchema:
   schemaId: "llama-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" } }
     - { parameterId: "prompt-cache-memory-mib", displayName: "Prompt cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" } }
 artifacts:
   - artifactId: "linux-amd64"

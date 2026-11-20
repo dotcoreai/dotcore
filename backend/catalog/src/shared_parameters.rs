@@ -3,8 +3,8 @@
 //!
 //! The catalog owns their ids and their fixed shape and visibility, so controllers, adapters and
 //! the console name and place them the same way on every engine, while each release sets its own
-//! ranges, default values and descriptions. It also fills the context per request a deployment
-//! leaves out, from the maximum context and the total context.
+//! ranges, default values and descriptions. It also derives the context values a deployment
+//! leaves out, by each engine's rule for how they relate.
 
 use dotcore_proto::dotcore::catalog::v1::{
     EngineParameterSchema, Model, ModelEngineConfiguration, ParameterDefinition, ParameterValue,
@@ -46,55 +46,111 @@ pub fn maximum_context_tokens(model: &Model, configuration: &ModelEngineConfigur
         })
 }
 
-/// Context per request for values that leave it out: the maximum context, or the total context
-/// when it is smaller. Returns none when the schema doesn't declare a context per request, the
-/// values already supply one, or they hold no total context to bound it.
-pub fn filled_context_per_request(
+/// Context values resolution derives for values that leave them out, by the engine's `rule`, in
+/// shared parameter order. With neither context value, the context per request starts at its
+/// engine default capped by the maximum context. A total context left out follows the context per
+/// request and the parallel requests; a context per request left out beside a total context is
+/// filled from it. Nothing is derived for a context value the schema doesn't declare or the values
+/// already supply.
+pub fn derived_context_values(
     schema: &EngineParameterSchema,
     values: &ParameterValues,
     maximum_context_tokens: u32,
-) -> Option<ParameterValue> {
-    let total_context = total_context_to_fill(schema, values)?;
-    Some(ParameterValue {
-        parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
-        value: Some(Value::UnsignedInteger(
-            total_context.min(u64::from(maximum_context_tokens)),
-        )),
-    })
+    rule: &dyn ContextRule,
+) -> Vec<ParameterValue> {
+    let declared = |parameter_id: &str| {
+        schema
+            .parameters
+            .iter()
+            .any(|definition| definition.parameter_id == parameter_id)
+    };
+    let maximum = u64::from(maximum_context_tokens);
+    let parallel_requests = unsigned_value(values, PARALLEL_REQUESTS_PARAMETER_ID)
+        .or_else(|| engine_default(schema, PARALLEL_REQUESTS_PARAMETER_ID))
+        .unwrap_or(1)
+        .max(1);
+    let supplied_per_request = unsigned_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID);
+    let supplied_total = unsigned_value(values, TOTAL_CONTEXT_PARAMETER_ID);
+
+    let mut derived = Vec::new();
+    match (supplied_per_request, supplied_total) {
+        (Some(_), Some(_)) => {}
+        (None, Some(total_context)) => {
+            if declared(CONTEXT_PER_REQUEST_PARAMETER_ID) {
+                derived.push(unsigned_parameter(
+                    CONTEXT_PER_REQUEST_PARAMETER_ID,
+                    rule.filled_context_per_request(total_context, parallel_requests, maximum),
+                ));
+            }
+        }
+        (supplied_per_request, None) => {
+            // The engine default lives on the context per request's definition, so an undeclared
+            // context per request has none.
+            let Some(context_per_request) = supplied_per_request.or_else(|| {
+                engine_default(schema, CONTEXT_PER_REQUEST_PARAMETER_ID)
+                    .map(|default| default.min(maximum))
+            }) else {
+                return derived;
+            };
+            if supplied_per_request.is_none() {
+                derived.push(unsigned_parameter(
+                    CONTEXT_PER_REQUEST_PARAMETER_ID,
+                    context_per_request,
+                ));
+            }
+            if declared(TOTAL_CONTEXT_PARAMETER_ID) {
+                derived.push(unsigned_parameter(
+                    TOTAL_CONTEXT_PARAMETER_ID,
+                    rule.derived_total_context(context_per_request, parallel_requests, maximum),
+                ));
+            }
+        }
+    }
+    derived
 }
 
-/// Total context a context per request is filled from, for values that leave the context per
-/// request out. Returns none under the same conditions as the shared fill, so an engine with its
-/// own fill rule fills exactly when the shared rule would.
-pub fn total_context_to_fill(
-    schema: &EngineParameterSchema,
-    values: &ParameterValues,
-) -> Option<u64> {
-    let declared = schema
-        .parameters
-        .iter()
-        .any(|definition| definition.parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID);
-    let supplied = values
-        .values
-        .iter()
-        .any(|value| value.parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID);
-    if !declared || supplied {
-        return None;
+/// How one engine relates its total context to its context per request and parallel requests.
+/// The provided methods are the shared rule, for engines whose requests share one total context;
+/// an engine overrides the part its launch relates differently.
+pub trait ContextRule: Sync {
+    /// Context per request filled from a supplied total context: the smaller of the total context
+    /// and the maximum context.
+    fn filled_context_per_request(
+        &self,
+        total_context: u64,
+        _parallel_requests: u64,
+        maximum_context_tokens: u64,
+    ) -> u64 {
+        total_context.min(maximum_context_tokens)
     }
 
-    values.values.iter().find_map(|value| {
-        match (
-            value.parameter_id == TOTAL_CONTEXT_PARAMETER_ID,
-            &value.value,
-        ) {
-            (true, Some(Value::UnsignedInteger(total_context))) => Some(*total_context),
-            _ => None,
-        }
-    })
+    /// Total context derived from a context per request: room for every parallel request to use
+    /// that context at once.
+    fn derived_total_context(
+        &self,
+        context_per_request: u64,
+        parallel_requests: u64,
+        _maximum_context_tokens: u64,
+    ) -> u64 {
+        context_per_request.saturating_mul(parallel_requests)
+    }
 }
 
-/// Whether a profile may set a default for the parameter. Profiles carry no context: the engine
-/// default and the deployment set the total context, and the context per request is filled.
+/// The shared context rule, for engines whose requests share one total context.
+pub struct SharedContextRule;
+
+impl ContextRule for SharedContextRule {}
+
+/// Whether resolution applies the parameter's engine default rather than the default merge. The
+/// context per request's applies only when neither context value is given, so it never takes the
+/// place of a context per request filled from a total context.
+pub fn resolution_applies_default(parameter_id: &str) -> bool {
+    parameter_id == CONTEXT_PER_REQUEST_PARAMETER_ID
+}
+
+/// Whether a profile may set a default for the parameter. Profiles carry no context: the
+/// deployment or the engine default sets the context per request, and resolution derives the
+/// total context or fills the context per request.
 pub(crate) fn profile_may_default(parameter_id: &str) -> bool {
     SHARED_PARAMETERS
         .iter()
@@ -102,7 +158,7 @@ pub(crate) fn profile_may_default(parameter_id: &str) -> bool {
         .is_none_or(|shared| shared.profile_default)
 }
 
-/// Whether the parameter always sits in the main view: the context parameters do, and a profile
+/// Whether the parameter always sits in the main view: the shared parameters do, and a profile
 /// may only hide them.
 fn in_main_view(parameter_id: &str) -> bool {
     SHARED_PARAMETERS.iter().any(|shared| {
@@ -111,7 +167,7 @@ fn in_main_view(parameter_id: &str) -> bool {
 }
 
 /// Returns why a profile may not give the parameter this visibility, or none when it may. The
-/// context parameters belong to the main view: a profile may hide them but not move them to the
+/// shared parameters belong to the main view: a profile may hide them but not move them to the
 /// advanced view. A profile may give any other parameter any visibility.
 pub(crate) fn profile_visibility_problem(
     parameter_id: &str,
@@ -162,7 +218,7 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         unit: "tokens",
         visibility: ParameterVisibility::Basic,
         minimum_floor: CONTEXT_FLOOR_TOKENS,
-        engine_default: true,
+        engine_default: false,
         profile_default: false,
     },
     SharedParameter {
@@ -171,14 +227,14 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
         unit: "tokens",
         visibility: ParameterVisibility::Basic,
         minimum_floor: CONTEXT_FLOOR_TOKENS,
-        engine_default: false,
+        engine_default: true,
         profile_default: false,
     },
     SharedParameter {
         parameter_id: PARALLEL_REQUESTS_PARAMETER_ID,
         display_name: "Parallel requests",
         unit: "requests",
-        visibility: ParameterVisibility::Advanced,
+        visibility: ParameterVisibility::Basic,
         // Zero is never a usable count.
         minimum_floor: 1,
         engine_default: true,
@@ -187,7 +243,7 @@ const SHARED_PARAMETERS: [SharedParameter; 3] = [
 ];
 
 /// One shared parameter's fixed shape. Every shared parameter is an unsigned integer the console
-/// shows: the contexts in its main view, the parallel requests in its advanced view.
+/// shows in its main view.
 struct SharedParameter {
     parameter_id: &'static str,
     display_name: &'static str,
@@ -241,6 +297,37 @@ fn visibility_name(visibility: ParameterVisibility) -> &'static str {
         ParameterVisibility::Basic => "basic",
         ParameterVisibility::Advanced => "advanced",
         ParameterVisibility::Hidden => "hidden",
+    }
+}
+
+/// Returns the parameter's unsigned value, when the values hold one.
+fn unsigned_value(values: &ParameterValues, parameter_id: &str) -> Option<u64> {
+    values
+        .values
+        .iter()
+        .find(|value| value.parameter_id == parameter_id)
+        .and_then(|value| match value.value {
+            Some(Value::UnsignedInteger(value)) => Some(value),
+            _ => None,
+        })
+}
+
+/// Returns the unsigned engine default the schema declares for the parameter.
+fn engine_default(schema: &EngineParameterSchema, parameter_id: &str) -> Option<u64> {
+    schema
+        .parameters
+        .iter()
+        .find(|definition| definition.parameter_id == parameter_id)
+        .and_then(|definition| match definition.parameter_type.as_ref() {
+            Some(ParameterType::UnsignedInteger(range)) => range.default_value,
+            _ => None,
+        })
+}
+
+fn unsigned_parameter(parameter_id: &str, value: u64) -> ParameterValue {
+    ParameterValue {
+        parameter_id: parameter_id.to_owned(),
+        value: Some(Value::UnsignedInteger(value)),
     }
 }
 
@@ -299,8 +386,8 @@ mod tests {
             ),
             (
                 PARALLEL_REQUESTS_PARAMETER_ID,
-                |definition| definition.set_visibility(ParameterVisibility::Hidden),
-                "must be advanced",
+                |definition| definition.set_visibility(ParameterVisibility::Advanced),
+                "must be basic",
             ),
             (
                 TOTAL_CONTEXT_PARAMETER_ID,
@@ -333,12 +420,12 @@ mod tests {
                 "must have a minimum of at least 1",
             ),
             (
-                TOTAL_CONTEXT_PARAMETER_ID,
+                CONTEXT_PER_REQUEST_PARAMETER_ID,
                 |definition| range(definition).default_value = None,
                 "requires an engine default",
             ),
             (
-                CONTEXT_PER_REQUEST_PARAMETER_ID,
+                TOTAL_CONTEXT_PARAMETER_ID,
                 |definition| range(definition).default_value = Some(4096),
                 "takes no engine default",
             ),
@@ -398,10 +485,14 @@ mod tests {
     }
 
     #[test]
-    fn profiles_may_hide_any_parameter_and_keep_the_contexts_basic() {
+    fn profiles_may_hide_any_parameter_and_keep_the_shared_parameters_basic() {
         use ParameterVisibility::{Advanced, Basic, Hidden, Unspecified};
 
-        for parameter_id in [TOTAL_CONTEXT_PARAMETER_ID, CONTEXT_PER_REQUEST_PARAMETER_ID] {
+        for parameter_id in [
+            TOTAL_CONTEXT_PARAMETER_ID,
+            CONTEXT_PER_REQUEST_PARAMETER_ID,
+            PARALLEL_REQUESTS_PARAMETER_ID,
+        ] {
             assert_eq!(profile_visibility_problem(parameter_id, Basic), None);
             assert_eq!(profile_visibility_problem(parameter_id, Hidden), None);
             assert_eq!(
@@ -409,11 +500,18 @@ mod tests {
                 Some("may be hidden but not advanced")
             );
         }
-        for parameter_id in [PARALLEL_REQUESTS_PARAMETER_ID, "prompt-cache-memory-mib"] {
-            assert_eq!(profile_visibility_problem(parameter_id, Basic), None);
-            assert_eq!(profile_visibility_problem(parameter_id, Advanced), None);
-            assert_eq!(profile_visibility_problem(parameter_id, Hidden), None);
-        }
+        assert_eq!(
+            profile_visibility_problem("prompt-cache-memory-mib", Basic),
+            None
+        );
+        assert_eq!(
+            profile_visibility_problem("prompt-cache-memory-mib", Advanced),
+            None
+        );
+        assert_eq!(
+            profile_visibility_problem("prompt-cache-memory-mib", Hidden),
+            None
+        );
         assert_eq!(
             profile_visibility_problem(TOTAL_CONTEXT_PARAMETER_ID, Unspecified),
             Some("requires a basic, advanced or hidden visibility")
@@ -421,25 +519,138 @@ mod tests {
     }
 
     #[test]
-    fn the_omitted_context_per_request_is_the_smaller_of_the_maximum_and_the_total_context() {
-        let schema = shared_schema();
-        let filled = |total_context: u64, maximum: u32| {
-            filled_context_per_request(&schema, &total(total_context), maximum)
-        };
-
-        assert_eq!(filled(32_768, 262_144), Some(context_per_request(32_768)));
-        assert_eq!(
-            filled(1_048_576, 262_144),
-            Some(context_per_request(262_144))
-        );
-        assert_eq!(filled(262_144, 262_144), Some(context_per_request(262_144)));
+    fn only_the_context_per_request_default_is_left_to_resolution() {
+        assert!(resolution_applies_default(CONTEXT_PER_REQUEST_PARAMETER_ID));
+        assert!(!resolution_applies_default(TOTAL_CONTEXT_PARAMETER_ID));
+        assert!(!resolution_applies_default(PARALLEL_REQUESTS_PARAMETER_ID));
+        assert!(!resolution_applies_default("prompt-cache-memory-mib"));
     }
 
     #[test]
-    fn the_context_per_request_is_not_filled_when_supplied_undeclared_or_unbounded() {
+    fn a_total_context_alone_fills_the_smaller_of_the_maximum_and_the_total_context() {
         let schema = shared_schema();
-        let mut supplied = total(32_768);
-        supplied.values.push(context_per_request(8192));
+        let derived = |total_context: u64, maximum: u32| {
+            derived_context_values(
+                &schema,
+                &values(&[(TOTAL_CONTEXT_PARAMETER_ID, total_context)]),
+                maximum,
+                &SharedContextRule,
+            )
+        };
+
+        assert_eq!(
+            derived(32_768, 262_144),
+            [unsigned_parameter(CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768)]
+        );
+        assert_eq!(
+            derived(1_048_576, 262_144),
+            [unsigned_parameter(
+                CONTEXT_PER_REQUEST_PARAMETER_ID,
+                262_144
+            )]
+        );
+    }
+
+    #[test]
+    fn a_context_per_request_alone_derives_the_total_context_for_the_parallel_requests() {
+        let schema = shared_schema();
+
+        assert_eq!(
+            derived_context_values(
+                &schema,
+                &values(&[
+                    (CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384),
+                    (PARALLEL_REQUESTS_PARAMETER_ID, 3),
+                ]),
+                262_144,
+                &SharedContextRule,
+            ),
+            [unsigned_parameter(TOTAL_CONTEXT_PARAMETER_ID, 49_152)]
+        );
+        // Parallel requests left out take the engine default.
+        assert_eq!(
+            derived_context_values(
+                &schema,
+                &values(&[(CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384)]),
+                262_144,
+                &SharedContextRule,
+            ),
+            [unsigned_parameter(TOTAL_CONTEXT_PARAMETER_ID, 65_536)]
+        );
+    }
+
+    #[test]
+    fn no_context_value_starts_the_context_per_request_at_the_engine_default_capped_by_the_maximum()
+    {
+        let schema = shared_schema();
+        let derived = |maximum: u32| {
+            derived_context_values(
+                &schema,
+                &values(&[(PARALLEL_REQUESTS_PARAMETER_ID, 2)]),
+                maximum,
+                &SharedContextRule,
+            )
+        };
+
+        assert_eq!(
+            derived(262_144),
+            [
+                unsigned_parameter(CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
+                unsigned_parameter(TOTAL_CONTEXT_PARAMETER_ID, 65_536),
+            ]
+        );
+        assert_eq!(
+            derived(16_384),
+            [
+                unsigned_parameter(CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384),
+                unsigned_parameter(TOTAL_CONTEXT_PARAMETER_ID, 32_768),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_engine_rule_takes_the_place_of_the_shared_fill_and_total() {
+        struct Split;
+        impl ContextRule for Split {
+            fn filled_context_per_request(&self, total: u64, parallel: u64, maximum: u64) -> u64 {
+                (total / parallel).min(maximum)
+            }
+
+            fn derived_total_context(&self, per_request: u64, parallel: u64, maximum: u64) -> u64 {
+                per_request.saturating_mul(parallel).min(maximum)
+            }
+        }
+        let schema = shared_schema();
+
+        assert_eq!(
+            derived_context_values(
+                &schema,
+                &values(&[
+                    (TOTAL_CONTEXT_PARAMETER_ID, 65_536),
+                    (PARALLEL_REQUESTS_PARAMETER_ID, 4),
+                ]),
+                262_144,
+                &Split,
+            ),
+            [unsigned_parameter(CONTEXT_PER_REQUEST_PARAMETER_ID, 16_384)]
+        );
+        assert_eq!(
+            derived_context_values(
+                &schema,
+                &values(&[(PARALLEL_REQUESTS_PARAMETER_ID, 4)]),
+                65_536,
+                &Split,
+            ),
+            [
+                unsigned_parameter(CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
+                unsigned_parameter(TOTAL_CONTEXT_PARAMETER_ID, 65_536),
+            ]
+        );
+    }
+
+    #[test]
+    fn supplied_or_undeclared_context_values_are_not_derived() {
+        let schema = shared_schema();
         let undeclared = EngineParameterSchema {
             schema_id: "fixture-other".to_owned(),
             parameters: vec![definition("memory-bytes", "Memory", "bytes", 1, None)],
@@ -447,16 +658,34 @@ mod tests {
         };
 
         assert_eq!(
-            filled_context_per_request(&schema, &supplied, 262_144),
-            None
+            derived_context_values(
+                &schema,
+                &values(&[
+                    (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
+                    (CONTEXT_PER_REQUEST_PARAMETER_ID, 8192),
+                ]),
+                262_144,
+                &SharedContextRule,
+            ),
+            []
         );
         assert_eq!(
-            filled_context_per_request(&undeclared, &total(32_768), 262_144),
-            None
+            derived_context_values(
+                &undeclared,
+                &values(&[(TOTAL_CONTEXT_PARAMETER_ID, 32_768)]),
+                262_144,
+                &SharedContextRule,
+            ),
+            []
         );
         assert_eq!(
-            filled_context_per_request(&schema, &ParameterValues::default(), 262_144),
-            None
+            derived_context_values(
+                &undeclared,
+                &ParameterValues::default(),
+                262_144,
+                &SharedContextRule,
+            ),
+            []
         );
     }
 
@@ -504,14 +733,14 @@ mod tests {
                     "Total context",
                     "tokens",
                     512,
-                    Some(32_768),
+                    None,
                 ),
                 definition(
                     CONTEXT_PER_REQUEST_PARAMETER_ID,
                     "Context per request",
                     "tokens",
                     512,
-                    None,
+                    Some(32_768),
                 ),
                 definition(
                     PARALLEL_REQUESTS_PARAMETER_ID,
@@ -562,19 +791,12 @@ mod tests {
         }
     }
 
-    fn total(value: u64) -> ParameterValues {
+    fn values(values: &[(&str, u64)]) -> ParameterValues {
         ParameterValues {
-            values: vec![ParameterValue {
-                parameter_id: TOTAL_CONTEXT_PARAMETER_ID.to_owned(),
-                value: Some(Value::UnsignedInteger(value)),
-            }],
-        }
-    }
-
-    fn context_per_request(value: u64) -> ParameterValue {
-        ParameterValue {
-            parameter_id: CONTEXT_PER_REQUEST_PARAMETER_ID.to_owned(),
-            value: Some(Value::UnsignedInteger(value)),
+            values: values
+                .iter()
+                .map(|(parameter_id, value)| unsigned_parameter(parameter_id, *value))
+                .collect(),
         }
     }
 }

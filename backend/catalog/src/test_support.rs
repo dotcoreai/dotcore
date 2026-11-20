@@ -20,8 +20,8 @@ use crate::{
     ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogModelId, EngineDeclarationValidator,
     HOST_MEMORY_RESOURCE, options,
     shared_parameters::{
-        CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
-        TOTAL_CONTEXT_PARAMETER_ID, filled_context_per_request, maximum_context_tokens,
+        CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID, SharedContextRule,
+        TOTAL_CONTEXT_PARAMETER_ID, derived_context_values, maximum_context_tokens,
     },
     validation,
 };
@@ -134,8 +134,9 @@ pub fn sizing_not_linear_in_total_context(catalog: &Catalog) -> Vec<String> {
                         values
                             .values
                             .push(unsigned_value(TOTAL_CONTEXT_PARAMETER_ID, total));
-                        let filled = filled_context_per_request(schema, &values, maximum);
-                        values.values.extend(filled);
+                        let derived =
+                            derived_context_values(schema, &values, maximum, &SharedContextRule);
+                        values.values.extend(derived);
                         let derived = sizing.derive(&values, &options)?;
                         values.values.extend(
                             derived
@@ -286,8 +287,13 @@ pub fn memory_estimates_decreasing(catalog: &Catalog) -> Vec<String> {
                             .values
                             .retain(|value| value.parameter_id != parameter_id);
                         values.values.push(unsigned_value(parameter_id, value));
-                        let filled = filled_context_per_request(schema, &values, maximum_context);
-                        values.values.extend(filled);
+                        let derived = derived_context_values(
+                            schema,
+                            &values,
+                            maximum_context,
+                            &SharedContextRule,
+                        );
+                        values.values.extend(derived);
                         let derived = sizing.derive(&values, &options).ok()?;
                         values.values.extend(
                             derived
@@ -449,8 +455,8 @@ pub const SIZING_ENGINE_CACHE_DEFAULT: &str = r#"        - parameterId: "prompt-
 "#;
 
 /// Writes the master declarations the sizing fixture model needs: its llama.cpp engine release,
-/// with the shared context parameters and their engine defaults, 32768 tokens of total context and
-/// 4 parallel requests, beside the prompt cache, a linux/amd64 NVIDIA and a darwin/arm64 Apple
+/// with the shared context parameters and their engine defaults, 8192 tokens of context per request
+/// and 4 parallel requests, beside the prompt cache, a linux/amd64 NVIDIA and a darwin/arm64 Apple
 /// artifact, and the `nvidia` and `apple` hardware classes.
 pub fn write_sizing_engine(root: &std::path::Path) {
     write_sizing_engine_with(
@@ -464,7 +470,6 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         minimum: "512"
         maximum: "16777216"
         unit: "tokens"
-        defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -472,9 +477,10 @@ pub fn write_sizing_engine(root: &std::path::Path) {
         minimum: "512"
         maximum: "16777216"
         unit: "tokens"
+        defaultValue: "8192"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger:
         minimum: "1"
         maximum: "64"

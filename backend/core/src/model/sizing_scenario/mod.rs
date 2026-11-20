@@ -48,11 +48,11 @@ use crate::{
     },
 };
 
-/// A validated sizing scenario: a total context its requests share, optionally with a cap on each
-/// request's context. Parallel requests keep each profile's defaults.
+/// A validated sizing scenario: a context per request and a total context its requests share, each
+/// optional; resolution derives the one left out. Parallel requests keep each profile's defaults.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SizingScenario {
-    total_context_tokens: u64,
+    total_context_tokens: Option<u64>,
     context_tokens_per_request: Option<u64>,
 }
 
@@ -61,10 +61,11 @@ impl SizingScenario {
     /// profile checks the values against its engine's ranges, so a value one engine refuses stays a
     /// valid scenario for the others.
     pub fn new(
-        total_context_tokens: u64,
+        total_context_tokens: Option<u64>,
         context_tokens_per_request: Option<u64>,
     ) -> Result<Self, InvalidSizingScenario> {
-        if let Some(context_tokens_per_request) = context_tokens_per_request
+        if let (Some(total_context_tokens), Some(context_tokens_per_request)) =
+            (total_context_tokens, context_tokens_per_request)
             && context_tokens_per_request > total_context_tokens
         {
             return Err(InvalidSizingScenario::ContextPerRequestAboveTotal {
@@ -78,8 +79,8 @@ impl SizingScenario {
         })
     }
 
-    /// Context every request shares, in tokens.
-    pub fn total_context_tokens(&self) -> u64 {
+    /// Context every request shares, in tokens; none leaves it to resolution to derive.
+    pub fn total_context_tokens(&self) -> Option<u64> {
         self.total_context_tokens
     }
 
@@ -226,7 +227,7 @@ pub(crate) fn size_profile(
     if scenario.is_some() && sized_classes > 0 && out_of_range_classes.len() == sized_classes {
         sizing.set_unsupported_reason(SizingScenarioUnsupportedReason::DerivedParameterOutOfRange);
     } else {
-        sizing.engine_parameter_values = Some(with_filled_context_per_request(
+        sizing.engine_parameter_values = Some(with_derived_context_values(
             &declarations,
             configuration
                 .engine_parameter_values
@@ -245,16 +246,16 @@ pub(crate) fn size_profile(
     }
 }
 
-/// Context per request a profile's defaults resolve to: the engine's default total context, capped
-/// at the configuration's maximum context. Returns none when the defaults don't resolve or hold no
-/// total context.
+/// Context per request a profile's defaults resolve to: the engine default, capped at the
+/// configuration's maximum context. Returns none when the defaults don't resolve or the engine
+/// declares no default.
 pub(crate) fn default_context_per_request(
     catalog: &Catalog,
     model: &Model,
     profile: &ModelProfile,
 ) -> Option<u64> {
     let (defaults, declarations) = profile_defaults(catalog, model, profile)?;
-    let values = with_filled_context_per_request(
+    let values = with_derived_context_values(
         &declarations,
         defaults.engine_parameter_values.unwrap_or_default(),
     );
@@ -473,7 +474,7 @@ fn largest_fitting_total_context(
         accepts_context_values(
             declarations,
             schema,
-            &with_filled_context_per_request(declarations, values),
+            &with_derived_context_values(declarations, values),
         ) == Some(true)
     };
     let lowest = supplied_context_per_request.map_or(total_range.minimum, |context_tokens| {
@@ -621,7 +622,7 @@ fn profile_defaults(
     Some((defaults, declarations))
 }
 
-/// Sets the scenario's total context and context per request over the configuration, after
+/// Sets the scenario's total context and context per request it holds over the configuration, after
 /// checking the context per request against the maximum context, then every value the scenario
 /// sets or fills against its parameter range and the engine's rules for values used together.
 /// Returns none when a shared context parameter the scenario sets has no unsigned definition to
@@ -644,35 +645,34 @@ fn with_scenario_values(
     let values = configuration
         .engine_parameter_values
         .get_or_insert_with(ParameterValues::default);
-    set_unsigned_value(
-        values,
-        TOTAL_CONTEXT_PARAMETER_ID,
-        scenario.total_context_tokens(),
-    );
+    if let Some(total_context_tokens) = scenario.total_context_tokens() {
+        set_unsigned_value(values, TOTAL_CONTEXT_PARAMETER_ID, total_context_tokens);
+    }
     if let Some(context_tokens) = scenario.context_tokens_per_request() {
         set_unsigned_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID, context_tokens);
     }
-    let complete = with_filled_context_per_request(declarations, values.clone());
+    let complete = with_derived_context_values(declarations, values.clone());
     if !accepts_context_values(declarations, schema, &complete)? {
         return Some(Err(SizingScenarioUnsupportedReason::ParameterOutOfRange));
     }
     Some(Ok(configuration))
 }
 
-/// Adds the context per request resolution fills when the values leave it out, so the reported
+/// Adds the context values resolution derives when the values leave them out, so the reported
 /// values are the ones a launch would resolve before sizing derivations.
-fn with_filled_context_per_request(
+fn with_derived_context_values(
     declarations: &CatalogLocalModelDeclarations,
     mut values: ParameterValues,
 ) -> ParameterValues {
     if let Some(schema) = engine_parameter_schema(declarations) {
-        let filled = crate::model::engine::filled_context_per_request(
+        let derived = crate::model::engine::derived_context_values(
             declarations.engine_kind,
+            &declarations.model,
+            &declarations.configuration,
             schema,
             &values,
-            maximum_context_tokens(&declarations.model, &declarations.configuration),
         );
-        values.values.extend(filled);
+        values.values.extend(derived);
     }
     values
 }

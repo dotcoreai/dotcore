@@ -215,9 +215,8 @@ impl Catalog {
     }
 
     /// Returns the profile-selected artifact binding and its engine parameter defaults: the
-    /// profile's defaults, then the engine default of each parameter the profile leaves out. An
-    /// engine default is the one the engine derives from the profile's configuration, else the
-    /// release's. Parameters with neither stay out for resolution to fill or derive.
+    /// profile's defaults, then the release's engine default of each parameter the profile leaves
+    /// out. The context values and parameters with no default stay out for resolution to derive.
     pub fn local_defaults_for(
         &self,
         model_id: &CatalogModelId,
@@ -1097,14 +1096,14 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "8192" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
     - parameterId: "cache-mib"
       displayName: "Cache"
@@ -1333,9 +1332,13 @@ artifacts:
         assert_eq!(site_catalog.sizing.len(), 2);
 
         let model_id = super::CatalogModelId("fixture-model".to_owned());
-        let (_, defaults) = catalog
+        let (_, mut defaults) = catalog
             .local_defaults_for(&model_id, "balanced")
             .expect("profile defaults");
+        // Resolution derives the total context, which sizing reads.
+        defaults
+            .values
+            .extend(unsigned_values(&[("total-context", 32_768)]).values);
         let local = resolved_fixture_snapshot("sized-weights", "nvidia", defaults.clone());
 
         let expected = vec![
@@ -1469,12 +1472,16 @@ artifacts:
             &ACCEPT_ENGINE_DECLARATIONS,
         )
         .expect("layered sizing catalog");
-        let (_, defaults) = catalog
+        let (_, mut defaults) = catalog
             .local_defaults_for(
                 &super::CatalogModelId("fixture-model".to_owned()),
                 "balanced",
             )
             .expect("profile defaults");
+        // Resolution derives the total context, which sizing reads.
+        defaults
+            .values
+            .extend(unsigned_values(&[("total-context", 32_768)]).values);
 
         let accelerator_memory = |class: &str, artifact: &str, binding: &str| {
             catalog
@@ -1887,7 +1894,7 @@ artifacts:
                 .iter()
                 .map(|value| value.parameter_id.as_str())
                 .collect::<Vec<_>>(),
-            vec!["total-context", "parallel-requests"]
+            vec!["parallel-requests"]
         );
         let declarations = catalog
             .local_model_declarations(&model_id, "balanced", "sized")
@@ -2038,6 +2045,28 @@ artifacts:
     }
 
     #[test]
+    fn a_profile_may_hide_the_context_values_resolution_derives() {
+        let root = temporary_catalog_root();
+        create_empty_catalog_source(&root);
+        write_sizing_engine(&root);
+        write_sizing_model_with(
+            &root,
+            "",
+            "",
+            &format!(
+                "      values:\n{SIZING_ENGINE_CACHE_DEFAULT}    engineParameterVisibilityOverrides:\n      - {{ parameterId: \"total-context\", visibility: \"PARAMETER_VISIBILITY_HIDDEN\" }}\n      - {{ parameterId: \"context-per-request\", visibility: \"PARAMETER_VISIBILITY_HIDDEN\" }}\n"
+            ),
+        );
+
+        Catalog::load_with_policy(
+            &root,
+            OciArtifactPolicy::Development,
+            &ACCEPT_ENGINE_DECLARATIONS,
+        )
+        .expect("hidden context values take their derived values");
+    }
+
+    #[test]
     fn profile_defaults_overlay_the_engine_defaults_per_parameter() {
         let load = |profile_defaults: &str| {
             shared_parameter_catalog(
@@ -2057,11 +2086,7 @@ artifacts:
             defaults(&load("")),
             (
                 "sized".to_owned(),
-                unsigned_values(&[
-                    ("prompt-cache-memory-mib", 0),
-                    ("total-context", 32_768),
-                    ("parallel-requests", 4),
-                ])
+                unsigned_values(&[("prompt-cache-memory-mib", 0), ("parallel-requests", 4),])
             )
         );
         assert_eq!(
@@ -2070,11 +2095,7 @@ artifacts:
             )),
             (
                 "sized".to_owned(),
-                unsigned_values(&[
-                    ("prompt-cache-memory-mib", 0),
-                    ("parallel-requests", 2),
-                    ("total-context", 32_768),
-                ])
+                unsigned_values(&[("prompt-cache-memory-mib", 0), ("parallel-requests", 2),])
             )
         );
     }
@@ -2167,11 +2188,7 @@ artifacts:
                 .local_defaults_for(&CatalogModelId("fixture-model".to_owned()), "balanced")
                 .expect("profile defaults")
                 .1,
-            unsigned_values(&[
-                ("prompt-cache-memory-mib", 0),
-                ("total-context", 32_768),
-                ("parallel-requests", 4),
-            ])
+            unsigned_values(&[("prompt-cache-memory-mib", 0), ("parallel-requests", 4),])
         );
 
         let error = load(
@@ -3430,14 +3447,14 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "32768" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens" }}
+      unsignedInteger: {{ minimum: "512", maximum: "131072", unit: "tokens", defaultValue: "8192" }}
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: {{ minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }}
     - parameterId: "cache-mib"
       displayName: "Cache"

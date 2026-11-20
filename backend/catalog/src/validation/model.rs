@@ -31,7 +31,10 @@ use crate::{
         valid_option_values,
     },
     selector::{SelectorRelation, selector_relation},
-    shared_parameters::{is_shared_parameter, profile_may_default, profile_visibility_problem},
+    shared_parameters::{
+        is_shared_parameter, profile_may_default, profile_visibility_problem,
+        resolution_applies_default,
+    },
     typed_parameters::{
         check_value, default_value, is_secret, unsigned_range_contains, unsigned_range_text,
     },
@@ -1002,13 +1005,15 @@ pub fn overlay_parameter_defaults(
     overlaid
 }
 
-/// Engine defaults the release declares for its parameters, in schema order.
+/// Engine defaults the release declares for its parameters, in schema order, that the default
+/// merge applies: resolution applies the others itself.
 pub(super) fn engine_default_values(engine: &EngineRelease) -> ParameterValues {
     ParameterValues {
         values: engine
             .parameter_schema
             .iter()
             .flat_map(|schema| &schema.parameters)
+            .filter(|definition| !resolution_applies_default(&definition.parameter_id))
             .filter_map(|definition| {
                 default_value(definition).map(|default| ParameterValue {
                     parameter_id: definition.parameter_id.clone(),
@@ -1166,7 +1171,8 @@ mod tests {
     use crate::test_support::vendor_hardware_class;
 
     #[test]
-    fn engine_defaults_cover_every_parameter_declaring_one_booleans_included() {
+    fn engine_defaults_cover_every_parameter_declaring_one_booleans_included_but_not_the_context_per_request()
+     {
         use dotcore_proto::dotcore::catalog::v1::{
             BooleanParameterSchema, EngineParameterSchema, ParameterDefinition, ParameterValue,
             UnsignedIntegerParameterSchema, parameter_definition::ParameterType as Type,
@@ -1193,6 +1199,7 @@ mod tests {
                 schema_id: "fixture".to_owned(),
                 parameters: vec![
                     definition("parallel-requests", unsigned(Some(4))),
+                    definition("context-per-request", unsigned(Some(32))),
                     definition("flash-attention", boolean(Some(false))),
                     definition("cache-mib", unsigned(None)),
                     definition("mlock", boolean(None)),

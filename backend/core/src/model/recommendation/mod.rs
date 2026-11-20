@@ -343,7 +343,7 @@ fn entry_scenario(
     let context_tokens = entry
         .context_tokens_per_request
         .or_else(|| default_context_per_request(catalog, model, profile))?;
-    SizingScenario::new(context_tokens, Some(context_tokens)).ok()
+    SizingScenario::new(Some(context_tokens), Some(context_tokens)).ok()
 }
 
 /// The row an entry sized for `scenario` merges into.
@@ -351,7 +351,8 @@ fn row_key(entry: &ModelRecommendation, scenario: SizingScenario) -> RowKey {
     (
         entry.model_id.clone(),
         entry.profile_id.clone(),
-        scenario.total_context_tokens(),
+        // An entry scenario always holds its context per request.
+        scenario.context_tokens_per_request().unwrap_or_default(),
     )
 }
 

@@ -14,6 +14,7 @@ mod workload;
 use std::sync::Arc;
 
 use dotcore_artifact::PreparedModelArtifacts;
+use dotcore_catalog::shared_parameters::ContextRule;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
@@ -59,15 +60,9 @@ impl EngineDefinition for LlamaCpp {
         &self,
         model: &Model,
         configuration: &ModelEngineConfiguration,
-        engine: &EngineRelease,
+        _engine: &EngineRelease,
     ) -> Vec<anyhow::Error> {
-        let mut errors = declaration::validate_model_configuration(model, configuration);
-        errors.extend(declaration::validate_total_context_default(
-            model,
-            configuration,
-            engine,
-        ));
-        errors
+        declaration::validate_model_configuration(model, configuration)
     }
 
     fn validate_hardware_support(
@@ -78,12 +73,8 @@ impl EngineDefinition for LlamaCpp {
         declaration::validate_hardware_support(configuration, hardware_classes)
     }
 
-    fn parameter_defaults(
-        &self,
-        model: &Model,
-        configuration: &ModelEngineConfiguration,
-    ) -> ParameterValues {
-        declaration::parameter_defaults(model, configuration)
+    fn context_rule(&self, configuration: &ModelEngineConfiguration) -> &'static dyn ContextRule {
+        declaration::context_rule(configuration)
     }
 
     fn validate_parameter_values(

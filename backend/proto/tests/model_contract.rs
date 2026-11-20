@@ -531,6 +531,7 @@ fn generated_bindings_preserve_minimal_generic_resource_estimates() {
             largest_fit: 48,
         }],
         largest_total_context_tokens: Some(131_072),
+        largest_context_tokens_per_request: Some(32_768),
     };
     assert_eq!(
         EstimateLocalModelResourcesResponse::decode(response.encode_to_vec().as_slice())
@@ -1336,6 +1337,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
                 ".dotcore.model.v1.MemoryParameterFit"
             ),
             ("largest_total_context_tokens", 4, "TYPE_UINT64"),
+            ("largest_context_tokens_per_request", 5, "TYPE_UINT64"),
         ]
     );
     assert_eq!(
@@ -1468,14 +1470,21 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
     assert_eq!(
         field_numbers(service, "SizingScenario"),
         [
+            ("context_tokens_per_request", 2),
+            ("parallel_requests", 3),
             ("total_context_tokens", 1),
-            ("context_tokens_per_request", 2)
         ]
     );
-    assert!(
-        field_is_proto3_optional(service, "SizingScenario", "context_tokens_per_request"),
-        "scenario context per request must preserve scalar presence"
-    );
+    for field in [
+        "context_tokens_per_request",
+        "parallel_requests",
+        "total_context_tokens",
+    ] {
+        assert!(
+            field_is_proto3_optional(service, "SizingScenario", field),
+            "scenario {field} must preserve scalar presence"
+        );
+    }
     assert_eq!(
         field_layout(service, "ListModelRecommendationsRequest"),
         [
@@ -1499,6 +1508,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("fit", 2, ".dotcore.model.v1.ModelRecommendationFit"),
             ("model_deployment_id", 3, "TYPE_STRING"),
             ("starting_total_context_tokens", 4, "TYPE_UINT64"),
+            ("starting_context_tokens_per_request", 5, "TYPE_UINT64"),
         ]
     );
     assert_eq!(
@@ -1523,6 +1533,8 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
             ("free_memory_fit", 11),
             ("unsupported_reason", 9),
             ("largest_total_context_tokens", 10),
+            ("largest_context_tokens_per_request", 14),
+            ("starting_context_tokens_per_request", 15),
             ("starting_total_context_tokens", 12),
             ("starting_total_context_source", 13),
         ]
@@ -1530,6 +1542,8 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
     for field in [
         "largest_total_context_tokens",
         "starting_total_context_tokens",
+        "largest_context_tokens_per_request",
+        "starting_context_tokens_per_request",
     ] {
         assert!(
             field_is_proto3_optional(service, "ModelProfileCompatibility", field),
@@ -1598,7 +1612,10 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         [
             ("STARTING_TOTAL_CONTEXT_SOURCE_UNSPECIFIED", 0),
             ("STARTING_TOTAL_CONTEXT_SOURCE_LARGEST_FIT", 1),
-            ("STARTING_TOTAL_CONTEXT_SOURCE_PROFILE_DEFAULT", 2),
+            (
+                "STARTING_TOTAL_CONTEXT_SOURCE_PER_REQUEST_TIMES_PARALLEL",
+                2
+            ),
         ]
     );
 

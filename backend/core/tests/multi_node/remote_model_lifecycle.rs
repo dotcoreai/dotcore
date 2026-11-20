@@ -1646,14 +1646,14 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" }
+      unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" }
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" }
+      unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "8192" }
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" }
     - parameterId: "prompt-cache-memory-mib"
       displayName: "Prompt cache memory"

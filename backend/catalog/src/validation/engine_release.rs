@@ -482,8 +482,13 @@ mod tests {
         let schema = EngineParameterSchema {
             schema_id: "fixture-shared".to_owned(),
             parameters: vec![
-                unsigned("total-context", "Total context", "tokens", Some(131_072)),
-                unsigned("context-per-request", "Context per request", "tokens", None),
+                unsigned("total-context", "Total context", "tokens", None),
+                unsigned(
+                    "context-per-request",
+                    "Context per request",
+                    "tokens",
+                    Some(131_072),
+                ),
             ],
             parameter_groups: Vec::new(),
         };
@@ -494,7 +499,7 @@ mod tests {
         assert_eq!(
             errors.iter().map(ToString::to_string).collect::<Vec<_>>(),
             [
-                "parameter \"total-context\" default is invalid: 131072 is outside 1024..=65536",
+                "parameter \"context-per-request\" default is invalid: 131072 is outside 1024..=65536",
                 "engine parameter schema \"fixture-shared\" must declare the shared parameter \"parallel-requests\"",
             ]
         );
@@ -641,19 +646,19 @@ mod tests {
                             "Total context",
                             ParameterVisibility::Basic,
                             "tokens",
-                            Some(4096),
+                            None,
                         ),
                         shared(
                             "context-per-request",
                             "Context per request",
                             ParameterVisibility::Basic,
                             "tokens",
-                            None,
+                            Some(4096),
                         ),
                         shared(
                             "parallel-requests",
                             "Parallel requests",
-                            ParameterVisibility::Advanced,
+                            ParameterVisibility::Basic,
                             "requests",
                             Some(512),
                         ),

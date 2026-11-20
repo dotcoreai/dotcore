@@ -1334,8 +1334,9 @@ async fn check_previews(
                 model_id: Some("probe-model".to_owned()),
                 target: Some(support::exact_placement("fixture-node", "fixture-target")),
                 scenario: Some(SizingScenario {
-                    total_context_tokens: total_context,
+                    total_context_tokens: Some(total_context),
                     context_tokens_per_request: None,
+                    parallel_requests: None,
                 }),
             })
             .await

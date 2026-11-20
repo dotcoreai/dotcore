@@ -6,7 +6,7 @@ use dotcore_catalog::{
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::catalog::v1::{
     EngineRelease, HardwareClass, InferenceRequestKind, Model, ModelEngineConfiguration,
-    ParameterValues, model_option,
+    model_option,
 };
 
 use super::definition::{definition, unsigned_parameter_range};
@@ -59,17 +59,6 @@ impl EngineDeclarationValidator for EngineFacade {
 
     fn launch_requires_sizing(&self, engine: &EngineRelease) -> bool {
         definition(engine.engine_kind).is_some_and(|definition| definition.launch_requires_sizing())
-    }
-
-    fn configuration_parameter_defaults(
-        &self,
-        model: &Model,
-        configuration: &ModelEngineConfiguration,
-        engine: &EngineRelease,
-    ) -> ParameterValues {
-        definition(engine.engine_kind)
-            .map(|definition| definition.parameter_defaults(model, configuration))
-            .unwrap_or_default()
     }
 }
 

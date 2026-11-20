@@ -662,6 +662,7 @@ impl DesiredDeploymentRepository for TestDesired {
                 placement_preview: None,
                 memory_parameter_fits: Vec::new(),
                 largest_total_context_tokens: None,
+                largest_context_tokens_per_request: None,
             },
         )
     }

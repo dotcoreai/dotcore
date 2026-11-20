@@ -4847,8 +4847,9 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                 model_id: Some("fixture-model".to_owned()),
                 target: None,
                 scenario: Some(SizingScenario {
-                    total_context_tokens,
+                    total_context_tokens: Some(total_context_tokens),
                     context_tokens_per_request,
+                    parallel_requests: None,
                 }),
             }),
         )
@@ -4929,8 +4930,8 @@ async fn profile_compatibility_sizes_a_scenario_against_the_simulated_target_mem
                 Some(ParameterValues {
                     values: [
                         ("prompt-cache-memory-mib", 0),
-                        ("total-context", total_context),
                         ("parallel-requests", 4),
+                        ("total-context", total_context),
                         ("context-per-request", context_per_request),
                     ]
                     .into_iter()
@@ -5153,13 +5154,14 @@ async fn model_recommendations_rank_the_simulated_site_through_the_model_service
         rows: vec![RecommendedModelProfile {
             model_id: "fixture-model".to_owned(),
             profile_id: "fixture-profile".to_owned(),
-            // The entry sets none, so the row reads the profile's default.
-            context_tokens_per_request: 32_768,
+            // The entry sets none, so the row reads the engine default.
+            context_tokens_per_request: 8192,
             targets: vec![RecommendedProfileTarget {
                 target: Some(support::exact_placement("fixture-node", "fixture-target")),
                 fit: ModelRecommendationFit::FitsNow as i32,
                 model_deployment_id: None,
                 starting_total_context_tokens: Some(starting_total_context_tokens),
+                starting_context_tokens_per_request: None,
             }],
         }],
     }];

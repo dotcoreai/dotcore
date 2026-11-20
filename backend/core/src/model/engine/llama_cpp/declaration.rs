@@ -5,20 +5,19 @@ use std::collections::BTreeSet;
 use dotcore_catalog::{
     options::KV_CACHE_PRECISION_PARAMETER_ID,
     shared_parameters::{
-        CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
-        TOTAL_CONTEXT_PARAMETER_ID, maximum_context_tokens,
+        CONTEXT_PER_REQUEST_PARAMETER_ID, ContextRule, PARALLEL_REQUESTS_PARAMETER_ID,
+        SharedContextRule, TOTAL_CONTEXT_PARAMETER_ID, maximum_context_tokens,
     },
-    typed_parameters::{unsigned_range_contains, unsigned_range_text},
 };
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineRelease, HardwareClass, Model, ModelConfigurationOption, ModelEngineConfiguration,
-        ModelInputModality, ParameterDefinition, ParameterValue, ParameterValues,
-        SpeculativeDecodingMethod, hugging_face_artifact_source::Content as HuggingFaceContent,
+        ModelInputModality, ParameterDefinition, ParameterValues, SpeculativeDecodingMethod,
+        hugging_face_artifact_source::Content as HuggingFaceContent,
         model_option::Kind as ModelOptionKind,
         model_option_parameter_definition::ParameterType as ModelOptionParameterType,
-        parameter_definition::ParameterType, parameter_value::Value as EngineParameterValueKind,
+        parameter_definition::ParameterType,
     },
     engine::{
         llama_cpp::v1::{
@@ -38,7 +37,7 @@ use crate::model::engine::{
     declaration::classes_outside_vendors,
     speculative_draft::{self, SpeculativeDraft},
     split_gguf::split_gguf_entry,
-    unsigned_parameter_range, unsigned_parameter_value,
+    unsigned_parameter_value,
 };
 
 /// Accepts a release whose schema declares exactly the shared total context, context per request
@@ -108,49 +107,32 @@ pub(crate) fn validate_hardware_support(
         .collect()
 }
 
-/// Returns the engine parameter defaults a configuration's fixed settings imply. A single
-/// micro-batch configuration defaults the total context to its maximum context, since the
-/// micro-batch spans the total context and the release default would not follow the model.
-pub(crate) fn parameter_defaults(
-    model: &Model,
-    configuration: &ModelEngineConfiguration,
-) -> ParameterValues {
-    if !uses_single_micro_batch(configuration) {
-        return ParameterValues::default();
-    }
-    ParameterValues {
-        values: vec![ParameterValue {
-            parameter_id: TOTAL_CONTEXT_PARAMETER_ID.to_owned(),
-            value: Some(EngineParameterValueKind::UnsignedInteger(u64::from(
-                maximum_context_tokens(model, configuration),
-            ))),
-        }],
+/// Context rule of a configuration that processes prompts in a single micro-batch: the
+/// micro-batch, and so compute memory, spans the total context while no request could use more
+/// than the maximum context, so the derived total context is capped at the maximum context.
+struct SingleMicroBatchContextRule;
+
+impl ContextRule for SingleMicroBatchContextRule {
+    fn derived_total_context(
+        &self,
+        context_per_request: u64,
+        parallel_requests: u64,
+        maximum_context_tokens: u64,
+    ) -> u64 {
+        context_per_request
+            .saturating_mul(parallel_requests)
+            .min(maximum_context_tokens)
     }
 }
 
-/// Rejects a single micro-batch configuration whose maximum context, the total context it
-/// defaults to, lies outside the total context range its engine release accepts, since every
-/// default launch would then fail.
-pub(crate) fn validate_total_context_default(
-    model: &Model,
-    configuration: &ModelEngineConfiguration,
-    engine: &EngineRelease,
-) -> Option<anyhow::Error> {
-    if !uses_single_micro_batch(configuration) {
-        return None;
+/// Returns the context rule of a configuration: the single micro-batch rule when its fixed
+/// settings process prompts in one micro-batch, else the shared rule.
+pub(super) fn context_rule(configuration: &ModelEngineConfiguration) -> &'static dyn ContextRule {
+    if uses_single_micro_batch(configuration) {
+        &SingleMicroBatchContextRule
+    } else {
+        &SharedContextRule
     }
-    let range = engine
-        .parameter_schema
-        .as_ref()
-        .and_then(|schema| unsigned_parameter_range(schema, TOTAL_CONTEXT_PARAMETER_ID))?;
-    let maximum = maximum_context_tokens(model, configuration);
-    (!unsigned_range_contains(range, u64::from(maximum))).then(|| {
-        anyhow::anyhow!(
-            "configuration {:?} processes prompts in a single llama.cpp micro-batch, so its total context defaults to its maximum context of {maximum} tokens, outside the {} tokens its engine release accepts; declare a maximum context within that range",
-            configuration.configuration_id,
-            unsigned_range_text(range)
-        )
-    })
 }
 
 /// Rejects a total context above the maximum context of a single micro-batch configuration, whose
@@ -335,8 +317,8 @@ fn validate_payload(
         ));
         return;
     };
-    // The micro-batch spans the total context, which defaults to the configuration's maximum, so
-    // the model's own maximum would size it far beyond what the configuration's sizing covers.
+    // The micro-batch spans the total context, which the configuration's maximum caps, so the
+    // model's own maximum would size it far beyond what the configuration's sizing covers.
     if fixed.single_micro_batch && configuration.maximum_context_tokens.is_none() {
         errors.push(anyhow::anyhow!(
             "configuration {:?} processes prompts in a single llama.cpp micro-batch and must declare its own maximum context",
@@ -679,9 +661,8 @@ mod tests {
     };
 
     use super::{
-        LlamaCppSamplingError, valid_realization, validate_engine_release,
+        LlamaCppSamplingError, context_rule, valid_realization, validate_engine_release,
         validate_hardware_support, validate_model_configuration, validate_sampling_settings,
-        validate_total_context_default,
     };
     use crate::model::engine::declaration_validator;
 
@@ -1229,40 +1210,16 @@ mod tests {
     }
 
     #[test]
-    fn a_single_micro_batch_maximum_context_must_be_a_valid_total_context() {
-        use dotcore_proto::dotcore::{
-            catalog::v1::{EngineParameterSchema, EngineRelease, UnsignedIntegerParameterSchema},
-            engine::{
-                llama_cpp::v1::{LlamaCppFixedModelSettings, LlamaCppModelConfiguration},
-                v1::EngineModelConfiguration,
-            },
+    fn a_single_micro_batch_configuration_caps_the_derived_total_context_at_its_maximum() {
+        use dotcore_proto::dotcore::engine::{
+            llama_cpp::v1::{LlamaCppFixedModelSettings, LlamaCppModelConfiguration},
+            v1::EngineModelConfiguration,
         };
 
-        let model = Model {
-            maximum_context_tokens: 262_144,
-            ..Default::default()
-        };
-        let engine = EngineRelease {
-            parameter_schema: Some(EngineParameterSchema {
-                parameters: vec![ParameterDefinition {
-                    parameter_id: "total-context".to_owned(),
-                    parameter_type: Some(ParameterType::UnsignedInteger(
-                        UnsignedIntegerParameterSchema {
-                            minimum: 1024,
-                            maximum: Some(8192),
-                            ..Default::default()
-                        },
-                    )),
-                    ..Default::default()
-                }],
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let problem = |single_micro_batch: bool, maximum_context_tokens: u32| {
+        let derived_total = |single_micro_batch: bool, parallel_requests: u64| {
             let configuration = ModelEngineConfiguration {
                 configuration_id: "local".to_owned(),
-                maximum_context_tokens: Some(maximum_context_tokens),
+                maximum_context_tokens: Some(16_384),
                 engine_configuration: Some(EngineModelConfiguration {
                     configuration: Some(Configuration::LlamaCpp(LlamaCppModelConfiguration {
                         fixed_settings: Some(LlamaCppFixedModelSettings {
@@ -1275,21 +1232,12 @@ mod tests {
                 }),
                 ..Default::default()
             };
-            validate_total_context_default(&model, &configuration, &engine)
-                .map(|error| error.to_string())
-        };
-        let outside = |maximum: u32| {
-            Some(format!(
-                "configuration \"local\" processes prompts in a single llama.cpp micro-batch, so its total context defaults to its maximum context of {maximum} tokens, outside the 1024..=8192 tokens its engine release accepts; declare a maximum context within that range"
-            ))
+            context_rule(&configuration).derived_total_context(16_384, parallel_requests, 16_384)
         };
 
-        assert_eq!(problem(true, 0), outside(0));
-        assert_eq!(problem(true, 512), outside(512));
-        assert_eq!(problem(true, 8193), outside(8193));
-        assert_eq!(problem(true, 1024), None);
-        assert_eq!(problem(true, 8192), None);
-        assert_eq!(problem(false, 16_384), None);
+        assert_eq!(derived_total(true, 1), 16_384);
+        assert_eq!(derived_total(true, 4), 16_384);
+        assert_eq!(derived_total(false, 4), 65_536);
     }
 
     #[test]

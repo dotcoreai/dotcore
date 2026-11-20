@@ -18,7 +18,7 @@ use dotcore_proto::dotcore::catalog::v1::{
 };
 
 use super::{
-    shared_parameters::CONTEXT_PER_REQUEST_PARAMETER_ID,
+    shared_parameters::{CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID},
     sizing::{self, CompiledSizing, SizingKey},
     source::CatalogSourceRecords,
 };
@@ -67,18 +67,6 @@ pub trait EngineDeclarationValidator: Send + Sync {
     /// accelerator memory footprint estimate.
     fn launch_requires_sizing(&self, _engine: &EngineRelease) -> bool {
         false
-    }
-
-    /// Engine parameter defaults the engine derives from one configuration. They take the place
-    /// of the release's defaults for the parameters they cover, while profile and supplied values
-    /// still win over them.
-    fn configuration_parameter_defaults(
-        &self,
-        _model: &Model,
-        _configuration: &ModelEngineConfiguration,
-        _engine: &EngineRelease,
-    ) -> ParameterValues {
-        ParameterValues::default()
     }
 }
 
@@ -158,8 +146,7 @@ pub(super) fn validate_catalog(
         &hardware_class_index,
         diagnostics,
     );
-    let engine_defaults =
-        configuration_engine_defaults(&model_index, &engine_index, engine_validator);
+    let engine_defaults = configuration_engine_defaults(&model_index, &engine_index);
     validate_sizing_coverage(
         &model_index,
         &engine_index,
@@ -457,12 +444,13 @@ fn validate_sizing_coverage(
                     continue;
                 };
                 let defaulted = model::overlay_parameter_defaults(values, &engine_defaults);
-                // Resolution fills the context per request and deployment creation generates
-                // secrets, so no sizing needs to derive either.
+                // Resolution derives both context values and deployment creation generates
+                // secrets, so no sizing needs to derive them.
                 for parameter_id in model::missing_parameter_ids(&defaulted, engine)
                     .into_iter()
                     .filter(|parameter_id| {
                         parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID
+                            && parameter_id != TOTAL_CONTEXT_PARAMETER_ID
                             && !model::is_secret_parameter(engine, parameter_id)
                     })
                 {
@@ -509,12 +497,11 @@ fn validate_sizing_coverage(
     }
 }
 
-/// Returns the engine parameter defaults of every configuration whose engine release is known: the
-/// engine's configuration defaults, then the release default of each parameter they leave out.
+/// Returns the engine parameter defaults the default merge applies to every configuration whose
+/// engine release is known.
 fn configuration_engine_defaults(
     models: &BTreeMap<String, Model>,
     engines: &BTreeMap<String, EngineRelease>,
-    engine_validator: &dyn EngineDeclarationValidator,
 ) -> ConfigurationEngineDefaults {
     models
         .values()
@@ -524,15 +511,7 @@ fn configuration_engine_defaults(
                 .iter()
                 .filter_map(move |configuration| {
                     let engine = configuration_engine_release(configuration, engines)?;
-                    let engine = &*engine;
-                    let defaults = model::overlay_parameter_defaults(
-                        &engine_validator.configuration_parameter_defaults(
-                            model,
-                            configuration,
-                            engine,
-                        ),
-                        &model::engine_default_values(engine),
-                    );
+                    let defaults = model::engine_default_values(&engine);
                     Some((
                         (
                             model.model_id.clone(),

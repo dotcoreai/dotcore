@@ -14,8 +14,8 @@ use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
-        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
-        ParameterValues, UnsignedIntegerParameterSchema, parameter_definition, parameter_value,
+        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValues,
+        UnsignedIntegerParameterSchema, parameter_definition, parameter_value,
     },
     engine::v1::{EngineKind, ResolvedEngineModelState},
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
@@ -67,27 +67,14 @@ pub(crate) trait EngineDefinition: Send + Sync {
         hardware_classes: &[&HardwareClass],
     ) -> Vec<anyhow::Error>;
 
-    /// Engine parameter defaults the engine derives from one configuration of the model. They
-    /// take the place of the release's defaults for the parameters they cover, while profile and
-    /// supplied values still win over them.
-    fn parameter_defaults(
+    /// How the engine relates the context values of one configuration, which resolution derives
+    /// the omitted ones by. By default it is the shared rule, for engines whose requests share one
+    /// total context.
+    fn context_rule(
         &self,
-        _model: &Model,
         _configuration: &ModelEngineConfiguration,
-    ) -> ParameterValues {
-        ParameterValues::default()
-    }
-
-    /// Context per request for values that leave it out, which counts as derived. By default it is
-    /// the maximum context capped by the total context, for engines whose requests share one total
-    /// context.
-    fn filled_context_per_request(
-        &self,
-        schema: &EngineParameterSchema,
-        values: &ParameterValues,
-        maximum_context_tokens: u32,
-    ) -> Option<ParameterValue> {
-        shared_parameters::filled_context_per_request(schema, values, maximum_context_tokens)
+    ) -> &'static dyn shared_parameters::ContextRule {
+        &shared_parameters::SharedContextRule
     }
 
     /// Rejects complete engine parameter values the engine cannot launch together, or cannot launch

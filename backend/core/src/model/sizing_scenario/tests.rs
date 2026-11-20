@@ -27,20 +27,21 @@ const MIB: u64 = 1024 * 1024;
 
 #[test]
 fn scenarios_need_a_context_per_request_within_the_total() {
-    let capped = SizingScenario::new(1, Some(1)).expect("smallest scenario");
+    let capped = SizingScenario::new(Some(1), Some(1)).expect("smallest scenario");
     assert_eq!(
         (
             capped.total_context_tokens(),
             capped.context_tokens_per_request()
         ),
-        (1, Some(1))
+        (Some(1), Some(1))
     );
     assert_eq!(
-        SizingScenario::new(u64::MAX, None).map(|scenario| scenario.context_tokens_per_request()),
+        SizingScenario::new(Some(u64::MAX), None)
+            .map(|scenario| scenario.context_tokens_per_request()),
         Ok(None)
     );
     assert_eq!(
-        SizingScenario::new(4096, Some(4097)),
+        SizingScenario::new(Some(4096), Some(4097)),
         Err(InvalidSizingScenario::ContextPerRequestAboveTotal {
             total_context_tokens: 4096,
             context_tokens_per_request: 4097
@@ -73,8 +74,8 @@ fn each_engine_sets_the_scenario_on_its_profile_values() {
             "chat",
             [
                 ("prompt-cache-memory-mib", 1024),
-                ("total-context", 65_536),
                 ("parallel-requests", 4),
+                ("total-context", 65_536),
                 ("context-per-request", 16_384),
             ],
             llama_estimates(&[]),
@@ -87,8 +88,8 @@ fn each_engine_sets_the_scenario_on_its_profile_values() {
             "chat",
             [
                 ("prompt-cache-memory-mib", 1024),
-                ("total-context", 65_536),
                 ("parallel-requests", 4),
+                ("total-context", 65_536),
                 ("context-per-request", 65_536),
             ],
             llama_estimates(&[("context-per-request", 65_536)]),
@@ -115,8 +116,8 @@ fn each_engine_sets_the_scenario_on_its_profile_values() {
             ("maximum-batched-tokens", 1024),
             ("maximum-cudagraph-capture-size", 16),
             ("kv-offloading-size-gib", 0),
-            ("total-context", 131_072),
             ("parallel-requests", 4),
+            ("total-context", 131_072),
             ("context-per-request", context_per_request),
         ]
     };
@@ -334,8 +335,8 @@ fn a_derived_value_out_of_range_on_one_class_marks_only_that_class() {
                     ("maximum-batched-tokens", 1024),
                     ("maximum-cudagraph-capture-size", 16),
                     ("kv-offloading-size-gib", 0),
-                    ("total-context", 786_432),
                     ("parallel-requests", 4),
+                    ("total-context", 786_432),
                     ("context-per-request", 131_072),
                 ],
                 vec![class_estimate(
@@ -651,7 +652,7 @@ fn without_an_engine_maximum_a_flat_estimate_has_no_largest_fit_and_starts_from_
             MemoryFit::Fits,
             None,
             Some(32_768),
-            StartingTotalContextSource::ProfileDefault
+            StartingTotalContextSource::PerRequestTimesParallel
         )]
     );
 }
@@ -829,7 +830,8 @@ fn a_single_micro_batch_profile_sizes_and_fits_within_its_configuration_maximum(
     let catalog = scenario_catalog();
     let now = SystemTime::now();
 
-    // The engine defaults the total context to the 16384-token configuration maximum.
+    // The engine caps the total context derived from the default context per request and the 4
+    // parallel requests at the 16384-token configuration maximum.
     assert_eq!(
         profiles(&catalog, LLAMA_MICRO_BATCH_MODEL, None),
         [supported(
@@ -837,16 +839,16 @@ fn a_single_micro_batch_profile_sizes_and_fits_within_its_configuration_maximum(
             "chat",
             [
                 ("prompt-cache-memory-mib", 1024),
-                ("total-context", 16_384),
                 ("parallel-requests", 4),
-                ("context-per-request", 16_384),
+                ("context-per-request", 8192),
+                ("total-context", 16_384),
             ],
             ["dedicated", "unified"]
                 .map(|class| class_estimate(
                     class,
                     1_216_384_000,
                     Some(1024 * MIB),
-                    [("context-per-request", 16_384)]
+                    [("context-per-request", 8192), ("total-context", 16_384)]
                 ))
                 .to_vec(),
         )]
@@ -929,10 +931,12 @@ fn profiles_without_an_estimate_have_unknown_fit_and_profiles_that_cant_run_have
                     memory_fit: MemoryFit::Unknown as i32,
                     free_memory_fit: MemoryFit::Unknown as i32,
                     unsupported_reason: SizingScenarioUnsupportedReason::Unspecified as i32,
+                    largest_context_tokens_per_request: None,
+                    starting_context_tokens_per_request: None,
                     largest_total_context_tokens: None,
                     starting_total_context_tokens: Some(32_768),
-                    starting_total_context_source: StartingTotalContextSource::ProfileDefault
-                        as i32,
+                    starting_total_context_source:
+                        StartingTotalContextSource::PerRequestTimesParallel as i32,
                 },
                 ModelProfileCompatibility {
                     model_id: UNSIZED_MODEL.to_owned(),
@@ -950,6 +954,8 @@ fn profiles_without_an_estimate_have_unknown_fit_and_profiles_that_cant_run_have
                     memory_fit: MemoryFit::Unspecified as i32,
                     free_memory_fit: MemoryFit::Unspecified as i32,
                     unsupported_reason: SizingScenarioUnsupportedReason::Unspecified as i32,
+                    largest_context_tokens_per_request: None,
+                    starting_context_tokens_per_request: None,
                     largest_total_context_tokens: None,
                     starting_total_context_tokens: None,
                     starting_total_context_source: StartingTotalContextSource::Unspecified as i32,
@@ -1013,8 +1019,8 @@ fn profiles_keep_their_class_estimates_when_no_target_reports() {
 fn without_a_scenario_out_of_range_classes_are_left_out_without_a_reason() {
     let catalog = scenario_catalog();
 
-    // The 32768-token default total context derives 2647483648 bytes of KV cache on the
-    // dedicated class and 137938953472 bytes, above the 64 GiB maximum, on the unified one.
+    // The 32768-token total context derived from the default 8192-token context per request and
+    // the 4 parallel requests derives 2647483648 bytes of KV cache on the dedicated class and 137938953472 bytes, above the 64 GiB maximum, on the unified one.
     assert_eq!(
         profiles(&catalog, VLLM_LONG_MODEL, None),
         [supported(
@@ -1024,17 +1030,18 @@ fn without_a_scenario_out_of_range_classes_are_left_out_without_a_reason() {
                 ("maximum-batched-tokens", 1024),
                 ("maximum-cudagraph-capture-size", 16),
                 ("kv-offloading-size-gib", 0),
-                ("total-context", 32_768),
                 ("parallel-requests", 4),
-                ("context-per-request", 32_768),
+                ("context-per-request", 8192),
+                ("total-context", 32_768),
             ],
             vec![class_estimate(
                 "dedicated",
                 6_647_483_648,
                 None,
                 [
-                    ("context-per-request", 32_768),
-                    ("kv-cache-memory-bytes", 2_647_483_648)
+                    ("context-per-request", 8192),
+                    ("kv-cache-memory-bytes", 2_647_483_648),
+                    ("total-context", 32_768),
                 ]
             )],
         )]
@@ -1173,7 +1180,7 @@ const NINFER_MODEL: &str = "ninfer-model";
 const NINFER_UNIFIED_MODEL: &str = "ninfer-unified-model";
 
 fn scenario(total_context_tokens: u64, context_tokens_per_request: Option<u64>) -> SizingScenario {
-    SizingScenario::new(total_context_tokens, context_tokens_per_request).expect("scenario")
+    SizingScenario::new(Some(total_context_tokens), context_tokens_per_request).expect("scenario")
 }
 
 /// Profile sizings of one model of `catalog` without any target.
@@ -1486,8 +1493,8 @@ fn scenario_catalog() -> Catalog {
                 LLAMA_ENGINE,
                 "engineReleaseId: \"llama\"",
                 "engineReleaseId: \"llama-open\"",
-                "minimum: \"512\", maximum: \"16777216\", unit: \"tokens\", defaultValue",
-                "minimum: \"512\", unit: \"tokens\", defaultValue",
+                "minimum: \"512\", maximum: \"16777216\", unit: \"tokens\" }",
+                "minimum: \"512\", unit: \"tokens\" }",
             )
             .replace("schemaId: \"llama-v2\"", "schemaId: \"llama-open-v2\""),
         ),
@@ -1588,9 +1595,9 @@ version: "1"
 parameterSchema:
   schemaId: "llama-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", maximum: "16777216", unit: "tokens", defaultValue: "8192" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1", maximum: "64", unit: "requests", defaultValue: "4" } }
     - { parameterId: "prompt-cache-memory-mib", displayName: "Prompt cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "0", maximum: "65536", unit: "MiB" } }
 artifacts:
   - artifactId: "linux"
@@ -1698,9 +1705,9 @@ version: "1"
 parameterSchema:
   schemaId: "vllm-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "512", unit: "tokens", defaultValue: "8192" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1", unit: "requests", defaultValue: "4" } }
     - { parameterId: "maximum-batched-tokens", displayName: "Maximum batched tokens", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1048576", unit: "tokens" } }
     - { parameterId: "maximum-cudagraph-capture-size", displayName: "Maximum CUDA graph capture size", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "1024", unit: "sequences" } }
     - { parameterId: "kv-cache-memory-bytes", displayName: "KV cache memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "1", maximum: "68719476736", unit: "bytes" } }
@@ -1792,9 +1799,9 @@ version: "1"
 parameterSchema:
   schemaId: "ninfer-v2"
   parameters:
-    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens", defaultValue: "32768" } }
-    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens" } }
-    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_ADVANCED", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
+    - { parameterId: "total-context", displayName: "Total context", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "2097152", unit: "tokens" } }
+    - { parameterId: "context-per-request", displayName: "Context per request", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1024", maximum: "262144", unit: "tokens", defaultValue: "8192" } }
+    - { parameterId: "parallel-requests", displayName: "Parallel requests", visibility: "PARAMETER_VISIBILITY_BASIC", unsignedInteger: { minimum: "1", maximum: "8", unit: "requests", defaultValue: "4" } }
     - { parameterId: "host-context-mib", displayName: "Host context memory", visibility: "PARAMETER_VISIBILITY_HIDDEN", unsignedInteger: { minimum: "0", maximum: "1048576", unit: "MiB" } }
 artifacts:
   - artifactId: "linux"

@@ -18,12 +18,13 @@ mod workload;
 use std::sync::Arc;
 
 use dotcore_artifact::PreparedModelArtifacts;
+use dotcore_catalog::shared_parameters::ContextRule;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
-        ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
-        ParameterValues, hugging_face_artifact_source::Content as HuggingFaceContent,
+        EngineRelease, HardwareClass, InferenceRequestKind, Model, ModelArtifactBinding,
+        ModelEngineConfiguration, ModelOptionValues, ParameterValues,
+        hugging_face_artifact_source::Content as HuggingFaceContent,
     },
     engine::{
         strata::v1::{
@@ -95,13 +96,8 @@ impl EngineDefinition for Strata {
         declaration::validate_hardware_support(configuration, hardware_classes)
     }
 
-    fn filled_context_per_request(
-        &self,
-        schema: &EngineParameterSchema,
-        values: &ParameterValues,
-        maximum_context_tokens: u32,
-    ) -> Option<ParameterValue> {
-        declaration::filled_context_per_request(schema, values, maximum_context_tokens)
+    fn context_rule(&self, _configuration: &ModelEngineConfiguration) -> &'static dyn ContextRule {
+        &declaration::StrataContextRule
     }
 
     fn validate_parameter_values(

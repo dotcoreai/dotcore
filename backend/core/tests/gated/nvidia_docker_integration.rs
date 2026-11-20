@@ -81,9 +81,9 @@ const MODEL_ID: &str = "gemma-4-e2b";
 const PROFILE_IDS: [&str; 2] = ["fast-start", "higher-precision"];
 const SPLIT_MODEL_ID: &str = "stories15m-split-qualification";
 const SPLIT_PROFILE_ID: &str = "split-text";
-/// Total context the fast-start qualification supplies, below the engine default.
+/// Total context the fast-start qualification supplies, off the usual power-of-two sizes.
 const NON_DEFAULT_TOTAL_CONTEXT: u64 = 30_000;
-/// The llama.cpp release's engine default total context.
+/// Total context the other qualification profiles supply.
 const DEFAULT_TOTAL_CONTEXT: u64 = 32_768;
 const QUALIFICATION_NODE_ID: &str = "qualification-node";
 const NVIDIA_GPU_MINIMUM_FREE_BYTES: u64 = 10 * 1024 * 1024 * 1024;
