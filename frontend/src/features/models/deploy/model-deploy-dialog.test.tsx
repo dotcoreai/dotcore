@@ -158,6 +158,32 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByRole("button", { name: "Deploy" })).toBeEnabled();
     });
 
+    it("shows the Advanced step only while a profile gives it fields", async () => {
+      const user = setupUser();
+      renderDialog({
+        listProfileCompatibility: compatibilityLoader(
+          targetCompatibility(poolPlacement, { default: {}, large: {} }),
+        ),
+      });
+
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Fast start" })).toBeChecked());
+      await enableAdvanced(user);
+      expect(stepLabels()).toContain("4. Advanced");
+
+      await user.type(screen.getByRole("searchbox", { name: "Filter profiles" }), "Large");
+      expect(screen.getByRole("radio", { name: "Large context" })).not.toBeChecked();
+      expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Settings", "4. Deploy"]);
+
+      await user.click(screen.getByRole("row", { name: "Large context" }));
+      expect(stepLabels()).toEqual([
+        "1. Profile",
+        "2. Target",
+        "3. Settings",
+        "4. Advanced",
+        "5. Deploy",
+      ]);
+    });
+
     it("opens with Advanced off every time", async () => {
       const user = setupUser();
       const { rerender } = renderDialog();

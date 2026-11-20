@@ -691,7 +691,9 @@ export function useModelDeployForm({
   const wizard = useDeployWizard<ModelDeployStep>({
     errorsFor: stepErrors,
     fieldControls,
-    hasFields: () => true,
+    // The Advanced step's fields, the artifact and custom arguments among them, belong to the
+    // selected profile's engine configuration.
+    hasFields: (step) => step !== "Advanced" || Boolean(configuration),
     // The target placed for the operator stays theirs, so a refresh can't take it away unasked.
     onLeaveFirstStep: () => {
       if (pickedPlacement === undefined && placement) setPickedPlacement(placement);
