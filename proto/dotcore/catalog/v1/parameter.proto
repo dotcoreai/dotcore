@@ -98,7 +98,7 @@ message StringEnumParameterSchema {
 }
 
 // Defines a free text parameter: any single-line text within its length bounds, without control
-// characters. Lengths count UTF-8 bytes.
+// characters, and in its format when it declares one. Lengths count UTF-8 bytes.
 message TextParameterSchema {
   // Inclusive minimum length in bytes.
   uint32 minimum_length = 1;
@@ -108,6 +108,9 @@ message TextParameterSchema {
 
   // Value used when the caller supplies none, within the length bounds.
   optional string default_value = 3;
+
+  // Shape the text must have; plain text when absent.
+  optional TextFormat format = 4;
 }
 
 // Defines a secret parameter: never defaulted, generated at random from letters and digits when the
@@ -172,4 +175,13 @@ enum MemoryPool {
 
   // Feeds the host memory estimate.
   MEMORY_POOL_HOST = 2;
+}
+
+// Shapes a text parameter value can be required to have.
+enum TextFormat {
+  // Invalid; a parameter that declares a format names one of the others.
+  TEXT_FORMAT_UNSPECIFIED = 0;
+
+  // An email address: one `@`, a local part, and a dotted domain, without whitespace.
+  TEXT_FORMAT_EMAIL = 1;
 }
