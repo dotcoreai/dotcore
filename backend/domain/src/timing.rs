@@ -104,7 +104,7 @@ impl Timing {
                 token_lifetime: Duration::from_secs(15 * 60),
                 watcher_grace: Duration::from_secs(10),
                 ended_retention: Duration::from_secs(60),
-                start_countdown: Duration::from_secs(5),
+                start_countdown: Duration::from_secs(2),
             },
             private: PrivateTiming {
                 keepalive_interval: Duration::from_secs(10),

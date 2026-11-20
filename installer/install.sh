@@ -15,6 +15,7 @@ DETERMINATE_DOCS_URL="https://docs.determinate.systems/determinate-nix/"
 NIX_UNINSTALL_DOCS_URL="https://nix.dev/manual/nix/stable/installation/uninstall.html"
 NIX_DAEMON_PROFILE="/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh"
 DEFAULT_DOCKER_ENDPOINT="unix:///var/run/docker.sock"
+START_COUNTDOWN_SECONDS=2
 
 # Runs the requested command after the checks both share.
 main() {
@@ -65,6 +66,7 @@ run_install() {
   else
     step "Next steps"
     print_next_steps
+    offer_start
   fi
 }
 
@@ -441,6 +443,57 @@ print_next_steps() {
     info "  1. On the manager, run: $(style 1 '1;36' 'dotc node add')"
     info "  2. Run the 'dotc node join' command it prints, here. It starts Dotcore once joined."
   fi
+}
+
+# Starts Dotcore once a short countdown runs out, unless the user cancels it; the next steps stay
+# on screen for a cancel. Nothing starts when Dotcore already runs, as it keeps its old version
+# until restarted.
+offer_start() {
+  dotcore_running && return 0
+
+  if countdown "Starting Dotcore" "$START_COUNTDOWN_SECONDS"; then
+    printf '\n'
+    # The installed dotcore may not be on PATH yet, and an `env -i` shell may not export PATH.
+    "$use_dev_tools" || PATH="$bundle/bin:$PATH"
+    export PATH
+    exec dotcore </dev/tty
+  fi
+
+  printf '\n'
+  info "Not started. Run 'dotcore' when you are ready."
+}
+
+# Counts down `$2` seconds on the terminal, redrawing the line `$1 in Ns`. Enter ends it at once
+# and succeeds; Escape cancels and fails. The terminal's settings are restored on every exit.
+countdown() {
+  title="$1"
+  remaining="$2"
+  saved_stty=$(stty -g </dev/tty)
+  trap 'stty "$saved_stty" </dev/tty; exit 130' INT TERM
+  # `time 10` is tenths of a second: each read waits up to one second.
+  stty -icanon -echo min 0 time 10 </dev/tty
+
+  outcome=ready
+  while [ "$remaining" -gt 0 ]; do
+    printf '\r\033[K    %s in %ss %s' "$title" "$remaining" "$(style tty 36 '· enter start now · esc cancel')" >/dev/tty
+    key=$(dd bs=1 count=1 </dev/tty 2>/dev/null | od -An -tx1 | tr -d ' \n')
+    case "$key" in
+      0a | 0d)
+        outcome=go
+        break
+        ;;
+      1b)
+        outcome=cancel
+        break
+        ;;
+    esac
+    # A pass that returned early on a key press still counts as a second.
+    remaining=$((remaining - 1))
+  done
+
+  stty "$saved_stty" </dev/tty
+  trap - INT TERM
+  [ "$outcome" != cancel ]
 }
 
 # Hands this terminal over to dotc to join the site: the development environment's when the user
