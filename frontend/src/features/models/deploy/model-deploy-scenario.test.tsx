@@ -34,7 +34,6 @@ import { ExactPlacementSchema } from "@/gen/dotcore/deployment/v1/placement_pb";
 import {
   ListModelProfileCompatibilityResponseSchema,
   ModelProfileSizingSchema,
-  StartingTotalContextSource,
 } from "@/gen/dotcore/model/v1/service_pb";
 import { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
 import {
@@ -54,7 +53,7 @@ import { type ResourceEstimateLoader } from "./use-resource-estimate";
 const modelId = runtimeSchemaModel.modelId;
 const scenario: SizingScenario = { contextTokensPerRequest: 65536, totalContextTokens: 524288 };
 // The Runs on chip's summary of that scenario.
-const sizedFor = "512k · 64k per request";
+const sizedFor = "64k per request · 512k total";
 const poolPlacement = { executionTargetId: "pool", siteNodeId: "node" };
 const workerPlacement = { executionTargetId: "worker-gpu", siteNodeId: "worker" };
 
@@ -141,12 +140,13 @@ describe("ModelDeployDialog scenario prefill", () => {
       ]),
       onEstimate,
       onSubmit,
-      scenario: { totalContextTokens: 524288 },
+      scenario,
     });
 
     await screen.findByRole("radio", { name: /NVFP4 ninfer/ });
     await user.click(screen.getByRole("button", { name: "Next" }));
     const perRequest = screen.getByRole("textbox", { name: /Context per request/ });
+    await user.clear(perRequest);
     await user.type(perRequest, "32768");
     const message = "Total context is above what 4 parallel requests use.";
     expect(await screen.findByText(message)).toBeVisible();
@@ -162,36 +162,6 @@ describe("ModelDeployDialog scenario prefill", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(await screen.findByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-  });
-
-  it("leaves the context per request empty and unsubmitted when the scenario sets only a total", async () => {
-    const user = setupUser();
-    const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
-    const totalOnly: SizingScenario = { totalContextTokens: 524288 };
-    renderDialog({
-      initialProfileId: "ninfer-nvfp4",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, { "ninfer-nvfp4": {} }),
-      ]),
-      onSubmit,
-      scenario: totalOnly,
-    });
-
-    await screen.findByRole("radio", { name: /NVFP4 ninfer/ });
-    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
-    expect(screen.getByRole("textbox", { name: /Context per request/ })).toHaveValue("");
-    while (!screen.queryByRole("button", { name: "Deploy" }))
-      await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Deploy" }));
-    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
-    expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
-      ["parallel-requests", 8n],
-      ["host-context-mib", 20480n],
-      ["total-context", 524288n],
-    ]);
   });
 
   it("starts the Runs on chip at the catalog's machine", async () => {
@@ -213,10 +183,10 @@ describe("ModelDeployDialog scenario prefill", () => {
   it("shows the total context in the Runs on scope: the largest fitting at defaults, else the scenario's", async () => {
     const targets = [
       targetCompatibility(poolPlacement, {
-        "ninfer-nvfp4": { startingTotalContextTokens: 98304 },
+        "ninfer-nvfp4": { largestTotalContextTokens: 98304, startingTotalContextTokens: 98304 },
       }),
       targetCompatibility(workerPlacement, {
-        "ninfer-nvfp4": { startingTotalContextTokens: 65536 },
+        "ninfer-nvfp4": { largestTotalContextTokens: 65536, startingTotalContextTokens: 65536 },
       }),
     ];
     const totalContext = () =>
@@ -594,7 +564,8 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
+      ["total-context", 131072n],
     ]);
   });
 
@@ -662,7 +633,7 @@ describe("ModelDeployDialog scenario prefill", () => {
     ]);
   });
 
-  it("keeps the release default for a profile whose read carries no values", async () => {
+  it("starts a profile whose read carries no values at the engine default per request times its parallel requests", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
@@ -678,7 +649,11 @@ describe("ModelDeployDialog scenario prefill", () => {
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     const submitted = pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values);
-    expect(submitted.find(([id]) => id === "total-context")).toEqual(["total-context", 32768n]);
+    expect(submitted.find(([id]) => id === "context-per-request")).toEqual([
+      "context-per-request",
+      32768n,
+    ]);
+    expect(submitted.find(([id]) => id === "total-context")).toEqual(["total-context", 131072n]);
   });
 
   it('shows Reset once "Sized for" leaves the opener\'s, and restores it', async () => {
@@ -735,7 +710,8 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
+      ["total-context", 131072n],
     ]);
   });
 
@@ -774,7 +750,8 @@ describe("ModelDeployDialog scenario prefill", () => {
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
+      ["total-context", 131072n],
     ]);
   });
 });
@@ -788,10 +765,10 @@ describe("ModelDeployDialog largest fitting total context", () => {
         Promise.resolve({ executionTargets: [poolTarget(), workerTarget()] }),
       listProfileCompatibility: scenarioLoader({}, [
         targetCompatibility(poolPlacement, {
-          "ninfer-nvfp4": { startingTotalContextTokens: 126976 },
+          "ninfer-nvfp4": { largestTotalContextTokens: 126976, startingTotalContextTokens: 126976 },
         }),
         targetCompatibility(workerPlacement, {
-          "ninfer-nvfp4": { startingTotalContextTokens: 409600 },
+          "ninfer-nvfp4": { largestTotalContextTokens: 409600, startingTotalContextTokens: 409600 },
         }),
       ]),
     });
@@ -825,8 +802,8 @@ describe("ModelDeployDialog largest fit under a new scenario", () => {
             [
               targetCompatibility(poolPlacement, {
                 "ninfer-nvfp4": requested
-                  ? { startingTotalContextTokens: 126976 }
-                  : { startingTotalContextTokens: 98304 },
+                  ? { largestTotalContextTokens: 126976, startingTotalContextTokens: 126976 }
+                  : { largestTotalContextTokens: 98304, startingTotalContextTokens: 98304 },
               }),
             ],
             requested ? scenarioValues : undefined,
@@ -851,14 +828,14 @@ describe("ModelDeployDialog largest fit under a new scenario", () => {
 });
 
 describe("ModelDeployDialog shared context", () => {
-  it("starts total context at the largest fit, as the table shows", async () => {
+  it("starts total context at the read's starting value, as the table shows", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
         targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
+          "q4-xl": { largestTotalContextTokens: 910336, startingTotalContextTokens: 910336 },
         }),
       ]),
       onSubmit,
@@ -869,14 +846,15 @@ describe("ModelDeployDialog shared context", () => {
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(summaryContext()).toBe("889k total · 256k per request");
+    expect(summaryContext()).toBe("32k per request · 4 parallel · 889k total");
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["prompt-cache-memory-mib", 8192n],
-      ["total-context", 910336n],
+      ["context-per-request", 32768n],
       ["parallel-requests", 4n],
+      ["total-context", 910336n],
     ]);
   });
 
@@ -885,7 +863,7 @@ describe("ModelDeployDialog shared context", () => {
       case: "a fit above parallel requests × the maximum",
       chip: "1.9M",
       hint: "Up to 1.9M on node / NVIDIA GeForce RTX 5090",
-      source: StartingTotalContextSource.LARGEST_FIT,
+      largest: 1_999_872,
       starting: 1_999_872,
       total: 1999872n,
     },
@@ -893,13 +871,13 @@ describe("ModelDeployDialog shared context", () => {
       case: "no fit",
       chip: undefined,
       hint: undefined,
-      source: StartingTotalContextSource.PROFILE_DEFAULT,
-      starting: 32768,
-      total: 32768n,
+      largest: undefined,
+      starting: 131072,
+      total: 131072n,
     },
   ])(
     "starts total context at $total with $case",
-    async ({ chip, hint, source, starting, total }) => {
+    async ({ chip, hint, largest, starting, total }) => {
       const user = setupUser();
       const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
       renderDialog({
@@ -907,7 +885,7 @@ describe("ModelDeployDialog shared context", () => {
         listProfileCompatibility: scenarioLoader({}, [
           targetCompatibility(poolPlacement, {
             "q4-xl": {
-              startingTotalContextSource: source,
+              largestTotalContextTokens: largest,
               startingTotalContextTokens: starting,
             },
           }),
@@ -917,7 +895,7 @@ describe("ModelDeployDialog shared context", () => {
 
       await screen.findByRole("button", { name: "Runs on filter: this site" });
       await user.click(screen.getByRole("button", { name: "Next" }));
-      // Only a starting value from the largest fit is hinted and offered as the last chip.
+      // Only a largest fit is hinted and offered as the last chip.
       expect(
         (await readFieldHelpFacts("Total context")).find((fact) => /^Up to .* on /.test(fact)),
       ).toBe(hint);
@@ -931,7 +909,7 @@ describe("ModelDeployDialog shared context", () => {
     },
   );
 
-  it("starts total context at the engine default when the read fails", async () => {
+  it("starts total context at the engine default per request times the parallel requests when the read fails", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
     renderDialog({
@@ -942,54 +920,148 @@ describe("ModelDeployDialog shared context", () => {
 
     await screen.findByText("Couldn't check which profiles can run on this site.");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
   });
 
-  it("keeps the default total context when parallel requests change on the Advanced step", async () => {
+  it("starts a context per request one request can't use at the target's lowered value", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
+    const longContext: SizingScenario = { contextTokensPerRequest: 262144 };
     renderDialog({
       initialProfileId: "q4-xl",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
-        }),
-      ]),
+      listProfileCompatibility: vi.fn(() =>
+        Promise.resolve(
+          scenarioResponse(
+            [
+              targetCompatibility(poolPlacement, {
+                "q4-xl": {
+                  largestContextTokensPerRequest: 24576,
+                  largestTotalContextTokens: 98304,
+                  startingContextTokensPerRequest: 98304,
+                  startingTotalContextTokens: 98304,
+                },
+              }),
+            ],
+            {
+              "q4-xl": [
+                ["prompt-cache-memory-mib", 8192n],
+                ["context-per-request", 262144n],
+                ["parallel-requests", 4n],
+                ["total-context", 1048576n],
+              ],
+            },
+          ),
+        ),
+      ),
       onSubmit,
+      scenario: longContext,
     });
 
-    await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    await screen.findByRole("radio", { name: /Q4_K_XL/ });
     await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByText("Step 3 of 5 — Settings")).toBeVisible();
+    // One request at 256k doesn't fit, so it starts at the largest that does, with the total
+    // capped at the largest fit.
     await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k"),
+      expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("96k"),
     );
-    expect(screen.queryByRole("textbox", { name: "Parallel requests" })).not.toBeInTheDocument();
-
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("96k");
+    expect(largestFitChip("24k")).toBeVisible();
+    expect(largestFitChip("96k")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Deploy" }));
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
+      ["prompt-cache-memory-mib", 8192n],
+      ["context-per-request", 98304n],
+      ["parallel-requests", 4n],
+      ["total-context", 98304n],
+    ]);
+  });
+
+  it("follows the context per request and parallel requests with the read's starting total until edited, and relinks it", async () => {
+    const user = setupUser();
+    const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
+    const listProfileCompatibility = ruleLoader(196608);
+    renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility, onSubmit });
+
+    await screen.findByRole("button", { name: "Runs on filter: this site" });
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const total = screen.getByRole("textbox", { name: "Total context" });
+    const perRequest = screen.getByRole("textbox", { name: "Context per request" });
     const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
+    await waitFor(() => expect(total).toHaveValue("128k"));
+    expect(perRequest).toHaveValue("32k");
     expect(parallel).toHaveValue("4");
+
+    // A settled change sizes the launch again, and the total starts where the read says: the
+    // product while it fits, else the largest fit.
+    await user.click(
+      within(screen.getByRole("group", { name: "Context per request presets" })).getByRole(
+        "button",
+        { name: "64k" },
+      ),
+    );
+    await waitFor(() =>
+      expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId, {
+        contextTokensPerRequest: 65536,
+      }),
+    );
+    await waitFor(() => expect(total).toHaveValue("192k"));
+    await user.clear(parallel);
+    await user.type(parallel, "2");
+    await user.tab();
+    await waitFor(() =>
+      expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId, {
+        contextTokensPerRequest: 65536,
+        parallelRequests: 2,
+      }),
+    );
+    await waitFor(() => expect(total).toHaveValue("128k"));
+    expect(screen.queryByRole("button", { name: /^Follow/ })).not.toBeInTheDocument();
+
+    // An edited total stays put while the others change, until the link relinks it.
+    await user.click(
+      within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
+        name: "64k",
+      }),
+    );
     await user.clear(parallel);
     await user.type(parallel, "1");
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
+    await user.tab();
+    await waitFor(() =>
+      expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId, {
+        contextTokensPerRequest: 65536,
+        parallelRequests: 1,
+        totalContextTokens: 65536,
+      }),
+    );
+    expect(total).toHaveValue("64k");
+    await user.click(screen.getByRole("button", { name: "Follow per request × parallel" }));
+    await waitFor(() =>
+      expect(listProfileCompatibility).toHaveBeenLastCalledWith(modelId, {
+        contextTokensPerRequest: 65536,
+        parallelRequests: 1,
+      }),
+    );
+    await waitFor(() => expect(total).toHaveValue("64k"));
+    expect(screen.queryByRole("button", { name: /^Follow/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(summaryContext()).toBe("64k per request · 1 parallel · 64k total");
     await user.click(screen.getByRole("button", { name: "Deploy" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["prompt-cache-memory-mib", 8192n],
-      ["total-context", 910336n],
+      ["context-per-request", 65536n],
       ["parallel-requests", 1n],
+      ["total-context", 65536n],
     ]);
   });
 
-  it("offers the estimate's largest fit for the dialog's values, keeping the total", async () => {
+  it("offers the estimate's largest fits for the dialog's parallel requests", async () => {
     const user = setupUser();
-    // The backend's fit grows once fewer parallel requests leave more memory to the context.
+    // The backend's fits grow once fewer parallel requests leave more memory to each request.
     const estimateFit = sharedContextEstimate(runtimeSchemaModel);
     const onEstimate = vi.fn<ResourceEstimateLoader>(async (values) => {
       const parallel = values.configuration.engineParameterValues.values.find(
@@ -997,35 +1069,36 @@ describe("ModelDeployDialog shared context", () => {
       )?.value.value;
       return {
         ...(await estimateFit(values)),
+        largestContextPerRequest: parallel === 1n ? 262_144 : 229_376,
         largestTotalContext: parallel === 1n ? 1_048_576 : 910_336,
       };
     });
     renderDialog({
       initialProfileId: "q4-xl",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
-        }),
-      ]),
+      listProfileCompatibility: ruleLoader(910336),
       onEstimate,
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(largestFitChip("889k")).toBeVisible());
+    expect(largestFitChip("224k")).toBeVisible();
+    expect(await readFieldHelpFacts("Context per request")).toContain(
+      "Up to 224k with 4 parallel requests on node / NVIDIA GeForce RTX 5090",
+    );
 
-    await user.click(screen.getByRole("button", { name: "Next" }));
     const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
     await user.clear(parallel);
     await user.type(parallel, "1");
-    await user.click(screen.getByRole("button", { name: "Back" }));
+    await user.tab();
 
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
     await waitFor(() => expect(largestFitChip("1M")).toBeVisible());
+    expect(largestFitChip("256k")).toBeVisible();
     expect(await readFieldHelpFacts("Total context")).toContain(
       "Up to 1M on node / NVIDIA GeForce RTX 5090",
+    );
+    expect(await readFieldHelpFacts("Context per request")).toContain(
+      "Up to 256k with 1 parallel request on node / NVIDIA GeForce RTX 5090",
     );
   });
 
@@ -1036,7 +1109,7 @@ describe("ModelDeployDialog shared context", () => {
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
         targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
+          "q4-xl": { largestTotalContextTokens: 910336, startingTotalContextTokens: 910336 },
         }),
       ]),
       onEstimate,
@@ -1059,7 +1132,7 @@ describe("ModelDeployDialog shared context", () => {
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
         targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
+          "q4-xl": { largestTotalContextTokens: 910336, startingTotalContextTokens: 910336 },
         }),
       ]),
     });
@@ -1085,7 +1158,11 @@ describe("ModelDeployDialog shared context", () => {
     expect(total).toHaveValue("64k");
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "false");
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("button", { name: "Runs on filter: this site, 64k" })).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Runs on filter: this site, 32k per request · 64k total",
+      }),
+    ).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(largestFitChip("889k"));
@@ -1096,7 +1173,11 @@ describe("ModelDeployDialog shared context", () => {
     );
     // The chip sets its value as a chosen total, which "Sized for" then names.
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("button", { name: "Runs on filter: this site, 889k" })).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: "Runs on filter: this site, 32k per request · 889k total",
+      }),
+    ).toBeVisible();
   });
 
   it.each([
@@ -1122,7 +1203,7 @@ describe("ModelDeployDialog shared context", () => {
         initialProfileId: "q4-xl",
         listProfileCompatibility: scenarioLoader({}, [
           targetCompatibility(poolPlacement, {
-            "q4-xl": { startingTotalContextTokens: fit },
+            "q4-xl": { largestTotalContextTokens: fit, startingTotalContextTokens: fit },
           }),
         ]),
       });
@@ -1149,7 +1230,9 @@ describe("ModelDeployDialog shared context", () => {
     renderDialog({
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, { "q4-xl": { startingTotalContextTokens: 1_999_872 } }),
+        targetCompatibility(poolPlacement, {
+          "q4-xl": { largestTotalContextTokens: 1_999_872, startingTotalContextTokens: 1_999_872 },
+        }),
       ]),
     });
 
@@ -1173,7 +1256,7 @@ describe("ModelDeployDialog shared context", () => {
       initialProfileId: "q4-xl",
       listProfileCompatibility: scenarioLoader({}, [
         targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
+          "q4-xl": { largestTotalContextTokens: 910336, startingTotalContextTokens: 910336 },
         }),
       ]),
     });
@@ -1187,12 +1270,13 @@ describe("ModelDeployDialog shared context", () => {
 
     // Clicking the chip at its own value presses it and changes nothing, the chosen per request
     // value included.
-    await user.type(perRequest, "32k");
+    await user.clear(perRequest);
+    await user.type(perRequest, "16k");
     await user.tab();
     await user.click(largestFitChip("889k"));
     expect(largestFitChip("889k")).toHaveAttribute("aria-pressed", "true");
     expect(total).toHaveValue("889k");
-    expect(perRequest).toHaveValue("32k");
+    expect(perRequest).toHaveValue("16k");
 
     await user.clear(total);
     await user.type(total, "889k");
@@ -1205,11 +1289,7 @@ describe("ModelDeployDialog shared context", () => {
     const user = setupUser();
     renderDialog({
       initialProfileId: "q4-xl",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
-        }),
-      ]),
+      listProfileCompatibility: ruleLoader(910336),
     });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
@@ -1227,26 +1307,11 @@ describe("ModelDeployDialog shared context", () => {
     expect(screen.queryByText(totalContextError)).not.toBeInTheDocument();
   });
 
-  it("keeps the operator's parallel requests when using the largest fit", async () => {
+  it("keeps the operator's parallel requests and their error when using the largest fit", async () => {
     const user = setupUser();
-    renderDialog({
-      initialProfileId: "q4-xl",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
-        }),
-      ]),
-    });
+    renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility: ruleLoader(910336) });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(
-      within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
-        name: "64k",
-      }),
-    );
     await user.click(screen.getByRole("button", { name: "Next" }));
     const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
     await user.clear(parallel);
@@ -1255,56 +1320,41 @@ describe("ModelDeployDialog shared context", () => {
     const parallelError = "Parallel requests must be an integer from 1 to 256 requests.";
     expect(await screen.findByText(parallelError)).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Back" }));
     await user.click(largestFitChip("889k"));
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("0");
+    expect(parallel).toHaveValue("0");
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(await screen.findByText(parallelError)).toBeVisible();
-    expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+    expect(screen.getByText("Step 2 of 3 — Settings")).toBeVisible();
   });
 
-  it('keeps the operator\'s parallel requests and their error when "Sized for" returns to defaults', async () => {
+  it('returns every context value to the read\'s when "Sized for" returns to defaults', async () => {
     const user = setupUser();
-    renderDialog({
-      initialProfileId: "q4-xl",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
-        }),
-      ]),
-    });
+    renderDialog({ initialProfileId: "q4-xl", listProfileCompatibility: ruleLoader(910336) });
 
     await screen.findByRole("button", { name: "Runs on filter: this site" });
-    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(
-      within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
-        name: "64k",
-      }),
-    );
     await user.click(screen.getByRole("button", { name: "Next" }));
     const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
     await user.clear(parallel);
-    await user.type(parallel, "0");
+    await user.type(parallel, "2");
     await user.tab();
-    const parallelError = "Parallel requests must be an integer from 1 to 256 requests.";
-    expect(await screen.findByText(parallelError)).toBeVisible();
-
+    await user.click(
+      within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
+        name: "32k",
+      }),
+    );
     await user.click(screen.getByRole("button", { name: "Back" }));
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await user.click(screen.getByRole("button", { name: "Back" }));
-    await chooseSizedFor(user, "Runs on filter: this site, 64k", "Defaults");
+    await chooseSizedFor(
+      user,
+      "Runs on filter: this site, 32k per request · 2 parallel · 32k total",
+      "Defaults",
+    );
     await user.click(screen.getByRole("button", { name: "Next" }));
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("0");
-    await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(await screen.findByText(parallelError)).toBeVisible();
-    expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("4");
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k"),
+    );
+    expect(screen.queryByRole("button", { name: /^Follow/ })).not.toBeInTheDocument();
   });
 
   it('shares the context between the Settings step and "Sized for", with the fit verdicts following', async () => {
@@ -1313,7 +1363,10 @@ describe("ModelDeployDialog shared context", () => {
       Promise.resolve(
         scenarioResponse([
           targetCompatibility(poolPlacement, {
-            "q4-xl": { startingTotalContextTokens: 910336 },
+            "q4-xl": {
+              largestTotalContextTokens: 910336,
+              startingTotalContextTokens: requested?.totalContextTokens ?? 131072,
+            },
             "nvfp4-text": requested ? { memoryFit: MemoryFit.EXCEEDS } : {},
           }),
         ]),
@@ -1330,27 +1383,29 @@ describe("ModelDeployDialog shared context", () => {
     await user.tab();
     await user.click(screen.getByRole("button", { name: "Back" }));
 
-    expect(
-      await screen.findByRole("button", { name: "Runs on filter: this site, 64k" }),
-    ).toBeVisible();
+    const chip = "Runs on filter: this site, 32k per request · 64k total";
+    expect(await screen.findByRole("button", { name: chip })).toBeVisible();
     await waitFor(() =>
       expect(listProfileCompatibility).toHaveBeenCalledWith(modelId, {
+        contextTokensPerRequest: 32768,
         totalContextTokens: 65536,
       }),
     );
     await waitFor(() => expect(profileRows()).toEqual(["Q4_K_XL"]));
     expect(totalContextCell("Q4_K_XL")).toBe("64k");
 
-    // "Sized for" back to defaults returns the Settings step to its default.
-    await chooseSizedFor(user, "Runs on filter: this site, 64k", "Defaults");
+    // "Sized for" back to defaults returns the Settings step to the read's starting values.
+    await chooseSizedFor(user, chip, "Defaults");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k"),
+    );
 
     // A custom "Sized for" shows on the Settings step.
     await user.click(screen.getByRole("button", { name: "Back" }));
     await chooseSizedFor(user, "Runs on filter: this site", "Custom");
     await user.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
+    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("32k");
   });
 
   it("keeps an edited total context across profile and target changes", async () => {
@@ -1362,12 +1417,12 @@ describe("ModelDeployDialog shared context", () => {
         Promise.resolve({ executionTargets: [poolTarget(), workerTarget()] }),
       listProfileCompatibility: scenarioLoader({}, [
         targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
-          "nvfp4-text": { startingTotalContextTokens: 910336 },
+          "q4-xl": { largestTotalContextTokens: 910336, startingTotalContextTokens: 910336 },
+          "nvfp4-text": { largestTotalContextTokens: 910336, startingTotalContextTokens: 910336 },
         }),
         targetCompatibility(workerPlacement, {
-          "q4-xl": { startingTotalContextTokens: 409600 },
-          "nvfp4-text": { startingTotalContextTokens: 409600 },
+          "q4-xl": { largestTotalContextTokens: 409600, startingTotalContextTokens: 409600 },
+          "nvfp4-text": { largestTotalContextTokens: 409600, startingTotalContextTokens: 409600 },
         }),
       ]),
       onSubmit,
@@ -1408,32 +1463,37 @@ describe("ModelDeployDialog shared context", () => {
     ).toEqual(["total-context", 65536n]);
   });
 
-  it("opens a catalog 128k scenario on the Settings step and submits it", async () => {
+  it("opens a catalog scenario with a total on the Settings step and submits it", async () => {
     const user = setupUser();
     const onSubmit = vi.fn<ComponentProps<typeof ModelDeployDialog>["onSubmit"]>();
-    const catalogScenario: SizingScenario = { totalContextTokens: 131072 };
+    const catalogScenario: SizingScenario = {
+      contextTokensPerRequest: 16384,
+      totalContextTokens: 131072,
+    };
     renderDialog({
       initialProfileId: "q4-xl",
-      listProfileCompatibility: scenarioLoader({}, [
-        targetCompatibility(poolPlacement, {
-          "q4-xl": { startingTotalContextTokens: 910336 },
-        }),
-      ]),
+      listProfileCompatibility: ruleLoader(910336),
       onSubmit,
       scenario: catalogScenario,
     });
 
-    await screen.findByRole("button", { name: "Runs on filter: this site, 128k" });
+    await screen.findByRole("button", {
+      name: "Runs on filter: this site, 16k per request · 128k total",
+    });
     await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("textbox", { name: "Context per request" })).toHaveValue("16k");
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
+    // The scenario's total stays put, with the link that makes it follow.
+    expect(screen.getByRole("button", { name: "Follow per request × parallel" })).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 
     await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
     expect(pairs(onSubmit.mock.calls[0][0].configuration.engineParameterValues.values)).toEqual([
       ["prompt-cache-memory-mib", 8192n],
+      ["context-per-request", 16384n],
+      ["parallel-requests", 4n],
       ["total-context", 131072n],
-      ["parallel-requests", 8n],
     ]);
   });
 });
@@ -1557,7 +1617,10 @@ describe("ModelDeployDialog scenario polling", () => {
       return Promise.resolve(
         scenarioResponse([
           targetCompatibility(poolPlacement, {
-            "ninfer-nvfp4": { startingTotalContextTokens },
+            "ninfer-nvfp4": {
+              largestTotalContextTokens: startingTotalContextTokens,
+              startingTotalContextTokens,
+            },
           }),
         ]),
       );
@@ -1589,8 +1652,14 @@ describe("ModelDeployDialog scenario polling", () => {
       return Promise.resolve(
         scenarioResponse([
           targetCompatibility(poolPlacement, {
-            "ninfer-nvfp4": { startingTotalContextTokens: later ? 98304 : 126976 },
-            "nvfp4-text": { startingTotalContextTokens: later ? 32768 : 65536 },
+            "ninfer-nvfp4": {
+              largestTotalContextTokens: later ? 98304 : 126976,
+              startingTotalContextTokens: later ? 98304 : 126976,
+            },
+            "nvfp4-text": {
+              largestTotalContextTokens: later ? 32768 : 65536,
+              startingTotalContextTokens: later ? 32768 : 65536,
+            },
           }),
         ]),
       );
@@ -1618,7 +1687,7 @@ describe("ModelDeployDialog scenario polling", () => {
       Promise.resolve(
         scenarioResponse([
           targetCompatibility(poolPlacement, {
-            "ninfer-nvfp4": { startingTotalContextTokens: live },
+            "ninfer-nvfp4": { largestTotalContextTokens: live, startingTotalContextTokens: live },
           }),
         ]),
       ),
@@ -1651,7 +1720,7 @@ describe("ModelDeployDialog scenario polling", () => {
     expect(largestFitChip("64k")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("stays on the engine default when the first read has no fit, and offers a later read's fit", async () => {
+  it("keeps the first read's starting total when it has no fit, and offers a later read's fit", async () => {
     setTiming(productionTiming);
     useFakeTimersWithWaits();
     let reads = 0;
@@ -1661,11 +1730,10 @@ describe("ModelDeployDialog scenario polling", () => {
         scenarioResponse([
           targetCompatibility(poolPlacement, {
             "ninfer-nvfp4": {
-              // Without a fit, the starting value is the profile's default.
-              startingTotalContextSource: fit
-                ? StartingTotalContextSource.LARGEST_FIT
-                : StartingTotalContextSource.PROFILE_DEFAULT,
-              startingTotalContextTokens: fit ?? 32768,
+              // Without a fit, the starting value is the context per request times the parallel
+              // requests.
+              largestTotalContextTokens: fit,
+              startingTotalContextTokens: fit ?? 131072,
             },
           }),
         ]),
@@ -1674,12 +1742,12 @@ describe("ModelDeployDialog scenario polling", () => {
     renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility });
     await advance();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
 
     await advance(productionTiming.profileCompatibilityRefreshMs);
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("128k");
     expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 124k on /m);
     expect(largestFitChip("124k")).toHaveAttribute("aria-pressed", "false");
   });
@@ -1757,8 +1825,8 @@ describe("ModelDeployDialog scenario polling", () => {
     ).toEqual([
       ["parallel-requests", 4n],
       ["host-context-mib", 20480n],
-      ["total-context", 524288n],
       ["context-per-request", 65536n],
+      ["total-context", 524288n],
     ]);
   });
 });
@@ -1769,10 +1837,10 @@ const totalContextError = "Total context must be an integer from 512 to 2,147,48
 // NVFP4 ninfer fits up to 96k total context on the pool and 64k on the worker.
 const twoTargetContexts = [
   targetCompatibility(poolPlacement, {
-    "ninfer-nvfp4": { startingTotalContextTokens: 98304 },
+    "ninfer-nvfp4": { largestTotalContextTokens: 98304, startingTotalContextTokens: 98304 },
   }),
   targetCompatibility(workerPlacement, {
-    "ninfer-nvfp4": { startingTotalContextTokens: 65536 },
+    "ninfer-nvfp4": { largestTotalContextTokens: 65536, startingTotalContextTokens: 65536 },
   }),
 ];
 
@@ -1928,5 +1996,39 @@ function workerTarget() {
     siteManager: false,
     siteNodeDisplayName: "Worker",
     siteNodeId: "worker",
+  });
+}
+
+/**
+ * A compatibility loader answering like the backend for "q4-xl" on the pool target, whose largest
+ * total context that fits is `largest`: the read's values take the scenario's context per request
+ * and parallel requests, else the defaults, and its total context, else their product; the target
+ * starts the total there, capped at the largest fit.
+ */
+function ruleLoader(largest: number) {
+  return vi.fn((_modelId: string, requested?: SizingScenario) => {
+    const perRequest = requested?.contextTokensPerRequest ?? 32768;
+    const parallel = requested?.parallelRequests ?? 4;
+    const total = requested?.totalContextTokens ?? perRequest * parallel;
+    return Promise.resolve(
+      scenarioResponse(
+        [
+          targetCompatibility(poolPlacement, {
+            "q4-xl": {
+              largestTotalContextTokens: largest,
+              startingTotalContextTokens: Math.min(total, largest),
+            },
+          }),
+        ],
+        {
+          "q4-xl": [
+            ["prompt-cache-memory-mib", 8192n],
+            ["context-per-request", BigInt(perRequest)],
+            ["parallel-requests", BigInt(parallel)],
+            ["total-context", BigInt(total)],
+          ],
+        },
+      ),
+    );
   });
 }

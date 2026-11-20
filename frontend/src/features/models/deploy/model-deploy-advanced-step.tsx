@@ -86,9 +86,9 @@ interface ModelDeployAdvancedStepProps {
 
 /**
  * The Advanced step of the model deploy dialog, driven by the selected profile's advanced engine
- * parameters and options: parallel requests, the other parameters laid out by the engine's
- * parameter groups, the KV cache precision and speculative decoding choices, then the model
- * artifact and custom arguments in collapsed sections. The context sizes and basic parameters
+ * parameters and options: the parameters laid out by the engine's parameter groups, the KV cache
+ * precision and speculative decoding choices, then the model artifact and custom arguments in
+ * collapsed sections. The context parameters and basic parameters
  * belong to the Settings step. A collapsed section or group opens when a blocked navigation flags
  * one of its fields, so the field can take focus.
  */
@@ -130,7 +130,7 @@ export function ModelDeployAdvancedStep({
   const artifact = model.artifacts.find(
     (candidate) => candidate.artifactId === binding?.modelArtifactId,
   );
-  const { others, parallelRequests } = runtimeParameterGroups(exposedParameters);
+  const { others } = runtimeParameterGroups(exposedParameters);
   const parametersForm = (parameters: readonly ParameterDefinition[]) => (
     <EngineParametersForm
       errors={fieldErrors}
@@ -153,7 +153,6 @@ export function ModelDeployAdvancedStep({
           The selected engine release schema has no exposed parameters.
         </Notice>
       )}
-      {parallelRequests ? parametersForm([parallelRequests]) : null}
       {others.length ? parametersForm(others) : null}
       {hostKvOffloadSharesMemory ? (
         <Notice tone="warning">

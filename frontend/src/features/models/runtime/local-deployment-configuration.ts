@@ -9,7 +9,6 @@ import {
   engineParameterError,
   engineParameterInputs,
   engineParameterValues,
-  PARALLEL_REQUESTS_PARAMETER_ID,
   profileStartingValues,
 } from "./engine-parameter-values";
 
@@ -78,8 +77,8 @@ export function defaultLocalDeploymentConfiguration(
 
 /**
  * Describes the settings of a deployment draft that a profile change resets: edited engine
- * parameters in schema order, then a changed model artifact. The context sizes, parallel requests
- * and custom arguments belong to the launch rather than the profile, so a profile change keeps them.
+ * parameters in schema order, then a changed model artifact. The context parameters and custom
+ * arguments belong to the launch rather than the profile, so a profile change keeps them.
  */
 export function runtimeCustomizations(
   model: Model,
@@ -88,9 +87,9 @@ export function runtimeCustomizations(
   edits: LocalDeploymentConfigurationEdits,
 ): string[] {
   return [
-    ...changedEngineParameters(profile, engineRelease, edits)
-      .filter(({ parameter }) => parameter.parameterId !== PARALLEL_REQUESTS_PARAMETER_ID)
-      .map(({ parameter, value }) => `${parameter.displayName} ${value}`),
+    ...changedEngineParameters(profile, engineRelease, edits).map(
+      ({ parameter, value }) => `${parameter.displayName} ${value}`,
+    ),
     ...artifactCustomization(model, profile, edits.bindingId),
   ];
 }
@@ -103,7 +102,7 @@ export interface ChangedEngineParameter {
 
 /**
  * The engine parameters of a deployment draft whose input differs from the profile's default, in
- * schema order, leaving out the context sizes, which a launch describes on their own.
+ * schema order, leaving out the context parameters, which a launch describes on their own.
  */
 export function changedEngineParameters(
   profile: ModelProfile | undefined,

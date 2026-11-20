@@ -223,7 +223,7 @@ describe("ModelDeployDialog", () => {
       expect(summaryRows()).toEqual([
         ["Target", "node / NVIDIA GeForce RTX 5090"],
         ["Profile", "Fast start"],
-        ["Context", "16k total · 16k per request"],
+        ["Context", "16k per request · 16k total"],
       ]);
       expect(screen.getByRole("textbox", { name: "Route name" })).toHaveValue("custom-route");
 
@@ -272,7 +272,6 @@ describe("ModelDeployDialog", () => {
       const overridden = clone(ModelSchema, multiParameterModel);
       overridden.profiles[0].engineParameterVisibilityOverrides = [
         { parameterId: "total-context", visibility: ParameterVisibility.HIDDEN },
-        { parameterId: "parallel-requests", visibility: ParameterVisibility.ADVANCED },
         { parameterId: "enable-prefix-caching", visibility: ParameterVisibility.HIDDEN },
       ] as ParameterVisibilityOverride[];
       renderDialog({ engineReleases: multiParameterReleases, model: overridden });
@@ -287,10 +286,10 @@ describe("ModelDeployDialog", () => {
 
       await user.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByText("Step 4 of 5 — Advanced")).toBeVisible();
-      expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("4");
+      expect(screen.queryByRole("switch", { name: "Prefix caching" })).not.toBeInTheDocument();
     });
 
-    it("shows parameters a profile makes basic on the Settings step after the context", async () => {
+    it("shows parameters a profile makes basic on the Settings step after the context ones", async () => {
       const user = setupUser();
       const onSubmit = vi.fn();
       const promoted = clone(ModelSchema, multiParameterModel);
@@ -304,10 +303,8 @@ describe("ModelDeployDialog", () => {
       const total = screen.getByRole("textbox", { name: /Total context/ });
       const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
       const prefixCaching = screen.getByRole("switch", { name: "Prefix caching" });
-      expect(total.compareDocumentPosition(parallel)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-      expect(parallel.compareDocumentPosition(prefixCaching)).toBe(
-        Node.DOCUMENT_POSITION_FOLLOWING,
-      );
+      expect(parallel.compareDocumentPosition(total)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(total.compareDocumentPosition(prefixCaching)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
       expect(prefixCaching).toHaveAccessibleDescription("Caches reusable prompt prefixes.");
       await user.clear(parallel);
       await user.type(parallel, "2");
@@ -318,8 +315,7 @@ describe("ModelDeployDialog", () => {
       expect(summaryRows()).toEqual([
         ["Target", "node / NVIDIA GeForce RTX 5090"],
         ["Profile", "NVFP4 text"],
-        ["Context", "32k total · 32k per request"],
-        ["Parallel requests", "2 requests"],
+        ["Context", "32k per request · 2 parallel · 32k total"],
         ["Prefix caching", "Enabled"],
       ]);
 
@@ -357,7 +353,7 @@ describe("ModelDeployDialog", () => {
       );
     });
 
-    it("reveals invalid parallel requests with Advanced instead of deploying", async () => {
+    it("reveals an invalid advanced parameter with Advanced instead of deploying", async () => {
       const user = setupUser();
       const onSubmit = vi.fn();
       renderDialog({
@@ -368,9 +364,9 @@ describe("ModelDeployDialog", () => {
       });
 
       await openAdvancedStep(user);
-      const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
-      await user.clear(parallel);
-      await user.type(parallel, "0");
+      const promptCache = screen.getByRole("textbox", { name: "Prompt cache memory" });
+      await user.clear(promptCache);
+      await user.type(promptCache, "x");
       await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
       expect(screen.getByText("Step 3 of 3 — Deploy")).toBeVisible();
       // The new step takes focus in an effect after it renders; acting earlier loses that move.
@@ -381,12 +377,10 @@ describe("ModelDeployDialog", () => {
 
       expect(await screen.findByText("Step 4 of 5 — Advanced")).toBeVisible();
       expect(screen.getByRole("checkbox", { name: "Advanced" })).toBeChecked();
-      const revealed = screen.getByRole("textbox", { name: "Parallel requests" });
+      const revealed = screen.getByRole("textbox", { name: "Prompt cache memory" });
       await waitFor(() => expect(revealed).toHaveFocus());
       expect(revealed).toHaveAttribute("aria-invalid", "true");
-      expect(
-        screen.getByText("Parallel requests must be an integer from 1 to 256 requests."),
-      ).toBeVisible();
+      expect(screen.getByText(/^Prompt cache memory must/)).toBeVisible();
       expect(onSubmit).not.toHaveBeenCalled();
     });
   });
@@ -403,7 +397,7 @@ describe("ModelDeployDialog", () => {
       expect(summaryRows()).toEqual([
         ["Target", "node / NVIDIA GeForce RTX 5090"],
         ["Profile", "Fast start"],
-        ["Context", "8k total · 8k per request"],
+        ["Context", "8k per request · 8k total"],
       ]);
     });
 
@@ -458,7 +452,7 @@ describe("ModelDeployDialog", () => {
       expect(summaryRows()).toEqual([
         ["Target", "node / NVIDIA GeForce RTX 5090"],
         ["Profile", "NVFP4 text"],
-        ["Context", "32k total · 32k per request"],
+        ["Context", "32k per request · 4 parallel · 32k total"],
         ["Prefix caching", "Enabled"],
         ["Advanced", "Customized: 1 custom argument"],
       ]);
@@ -472,25 +466,22 @@ describe("ModelDeployDialog", () => {
         model: runtimeSchemaModel,
       });
 
-      await openAdvancedStep(user);
+      await openSettings(user);
       const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
       await user.clear(parallel);
       await user.type(parallel, "2");
-      await user.click(screen.getByRole("button", { name: "Back" }));
-      await user.click(screen.getByRole("button", { name: "Back" }));
+      await user.tab();
       await user.click(screen.getByRole("button", { name: "Back" }));
 
-      expect(screen.getByText("Step 1 of 5 — Profile")).toBeVisible();
+      expect(screen.getByText("Step 1 of 3 — Profile")).toBeVisible();
       expect(screen.queryByText(profileResetHint)).not.toBeInTheDocument();
       await user.click(screen.getByRole("radio", { name: /Q4_K_XL without MTP/ }));
       await user.click(screen.getByRole("button", { name: "Next" }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
-      await user.click(screen.getByRole("button", { name: "Next" }));
       expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveValue("2");
       await user.click(screen.getByRole("button", { name: "Next" }));
-      expect(summaryRows().find(([label]) => label === "Parallel requests")).toEqual([
-        "Parallel requests",
-        "2 requests",
+      expect(summaryRows().find(([label]) => label === "Context")).toEqual([
+        "Context",
+        "32k per request · 2 parallel · 64k total",
       ]);
     });
 
@@ -2245,7 +2236,7 @@ describe("ModelDeployDialog", () => {
       expect(screen.queryByRole("dialog", { name: "Command preview" })).not.toBeInTheDocument();
     });
 
-    it("keeps an untouched total context quiet on blur and flags it after a change", async () => {
+    it("keeps an untouched total context quiet on blur and flags an out-of-range one after a change", async () => {
       const user = setupUser();
       renderDialog();
 
@@ -2259,6 +2250,7 @@ describe("ModelDeployDialog", () => {
       expect(context).not.toHaveAttribute("aria-invalid");
 
       await user.clear(context);
+      await user.type(context, "512");
       await user.tab();
       await waitFor(() => expect(context).toHaveAttribute("aria-invalid", "true"));
       expect(
@@ -2306,8 +2298,9 @@ describe("ModelDeployDialog", () => {
       await openSettings(user);
       expect(onEstimate).toHaveBeenLastCalledWith(estimateRequest("default", "q4-binding", 8192n));
 
-      await user.clear(screen.getByRole("textbox", { name: /Total context/ }));
-      await user.type(screen.getByRole("textbox", { name: /Total context/ }), "9000");
+      // Each value typed on the way is below the range, so only the last one is estimated.
+      await user.tripleClick(screen.getByRole("textbox", { name: /Total context/ }));
+      await user.keyboard("9000");
       await waitFor(() => expect(onEstimate).toHaveBeenCalledTimes(2));
       expect(onEstimate).toHaveBeenLastCalledWith(estimateRequest("default", "q4-binding", 9000n));
 

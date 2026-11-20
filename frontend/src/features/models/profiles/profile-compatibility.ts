@@ -9,7 +9,6 @@ import {
   ModelCompatibilityStatus,
   type ModelProfileSizing,
   SizingScenarioUnsupportedReason,
-  StartingTotalContextSource as ProtoStartingTotalContextSource,
 } from "@/gen/dotcore/model/v1/service_pb";
 import { safeNumber } from "@/lib/safe-integer";
 
@@ -26,9 +25,6 @@ export interface TargetIdentity {
  * target of the site, or the targets of one machine.
  */
 export type RunsOnScope = { kind: "site" } | { kind: "node"; siteNodeId: string };
-
-/** Where a starting total context comes from: the largest fit, or the profile's default. */
-export type StartingTotalContextSource = "largestFit" | "profileDefault";
 
 /** Whether a profile runs, can't run, or can't be judged from the target's current facts. */
 export type CompatibilityStatus = "cannot-run" | "runs" | "unknown";
@@ -58,13 +54,20 @@ export interface CompatibilityVerdict {
   freeMemoryFit?: MemoryFit;
   /** The advisory memory fit of a profile that runs, against the target's total memory. */
   memoryFit?: MemoryFit;
+  /** The largest context per request that fits the target at the scenario's parallel requests. */
+  largestContextTokensPerRequest?: number;
+  /** The largest total context that fits the target's free memory. */
+  largestTotalContextTokens?: number;
   /**
-   * The total context a deployment starts from on the target: the largest fit, or the profile's
-   * default without one.
+   * The context per request a deployment starts from on the target, when lowered because one
+   * request at the asked size doesn't fit; absent otherwise.
+   */
+  startingContextTokensPerRequest?: number;
+  /**
+   * The total context a deployment starts from on the target: the scenario's, or the starting
+   * context per request times the parallel requests, capped at the largest fit.
    */
   startingTotalContextTokens?: number;
-  /** Whether the starting total context comes from the largest fit or the profile's default. */
-  startingTotalContextSource?: StartingTotalContextSource;
   /** Why the profile can't run or is unknown; absent when it runs. */
   reason?: ModelCompatibilityReason;
   status: CompatibilityStatus;
@@ -266,8 +269,8 @@ export function profileScopeFit(
 }
 
 /**
- * The starting total context of the targets in the scopes that run a profile when it comes from
- * their largest fit, the most any of them starts from. Undefined when none starts from a fit.
+ * The starting total context of the targets in the scopes that run a profile, the most any of them
+ * starts from. Undefined when none has one.
  */
 export function profileScopeStartingTotalContext(
   compatibility: ProfileCompatibility,
@@ -275,27 +278,15 @@ export function profileScopeStartingTotalContext(
   profileId: string,
   scopes: readonly RunsOnScope[],
 ): number | undefined {
-  const starting = profileTargetVerdicts(compatibility, modelId, profileId).flatMap((verdict) => {
-    const tokens = fitStartingTotalContext(verdict);
-    return verdict.status === "runs" &&
-      tokens !== undefined &&
-      scopes.some((scope) => inScope(verdict.target, scope))
-      ? [tokens]
-      : [];
-  });
+  const starting = profileTargetVerdicts(compatibility, modelId, profileId).flatMap(
+    ({ startingTotalContextTokens, status, target }) =>
+      status === "runs" &&
+      startingTotalContextTokens !== undefined &&
+      scopes.some((scope) => inScope(target, scope))
+        ? [startingTotalContextTokens]
+        : [],
+  );
   return starting.length ? Math.max(...starting) : undefined;
-}
-
-/**
- * A verdict's starting total context when it comes from the largest fit. Without a fit of one
- * block, the starting value is the profile's default, which the launch already holds.
- */
-export function fitStartingTotalContext(
-  verdict: CompatibilityVerdict | undefined,
-): number | undefined {
-  return verdict?.startingTotalContextSource === "largestFit"
-    ? verdict.startingTotalContextTokens
-    : undefined;
 }
 
 /**
@@ -368,7 +359,9 @@ function verdict(
     freeMemoryFit?: ProtoMemoryFit;
     memoryFit?: ProtoMemoryFit;
     reason?: ModelCompatibilityReason;
-    startingTotalContextSource?: ProtoStartingTotalContextSource;
+    largestContextTokensPerRequest?: bigint;
+    largestTotalContextTokens?: bigint;
+    startingContextTokensPerRequest?: bigint;
     startingTotalContextTokens?: bigint;
     status: ModelCompatibilityStatus;
     unsupportedReason?: SizingScenarioUnsupportedReason;
@@ -391,28 +384,15 @@ function verdict(
     hardwareClassId: entry.hardwareClassId || undefined,
     memoryFit: fit(entry.memoryFit),
     reason: entry.reason,
-    startingTotalContextSource:
-      entry.startingTotalContextSource === undefined
-        ? undefined
-        : startingSources[entry.startingTotalContextSource],
-    startingTotalContextTokens:
-      entry.startingTotalContextTokens === undefined
-        ? undefined
-        : safeNumber(entry.startingTotalContextTokens),
+    largestContextTokensPerRequest: tokens(entry.largestContextTokensPerRequest),
+    largestTotalContextTokens: tokens(entry.largestTotalContextTokens),
+    startingContextTokensPerRequest: tokens(entry.startingContextTokensPerRequest),
+    startingTotalContextTokens: tokens(entry.startingTotalContextTokens),
     status: compatibilityStatus(entry.status),
     target: identity(target),
     unsupportedReason,
   };
 }
-
-const startingSources: Record<
-  ProtoStartingTotalContextSource,
-  StartingTotalContextSource | undefined
-> = {
-  [ProtoStartingTotalContextSource.UNSPECIFIED]: undefined,
-  [ProtoStartingTotalContextSource.LARGEST_FIT]: "largestFit",
-  [ProtoStartingTotalContextSource.PROFILE_DEFAULT]: "profileDefault",
-};
 
 const memoryFits: Record<ProtoMemoryFit, MemoryFit | undefined> = {
   [ProtoMemoryFit.UNSPECIFIED]: undefined,
@@ -452,4 +432,8 @@ function identity({ executionTargetId, siteNodeId }: TargetIdentity): TargetIden
 
 function entryKey(modelId: string, profileId: string, target: TargetIdentity): string {
   return `${modelId}\0${profileId}\0${executionTargetKey(target)}`;
+}
+
+function tokens(value: bigint | undefined): number | undefined {
+  return value === undefined ? undefined : safeNumber(value);
 }

@@ -21,20 +21,23 @@ import type { FieldErrors } from "@/lib/form-validation";
 import { formatCompactCount } from "@/lib/format";
 
 interface ModelDeploySettingsStepProps {
-  /** The largest total context that fits the selected target, shown in the total context's help. */
-  contextHint?: string;
+  /** The largest values that fit the selected target, offered as each context field's last chip. */
+  contextFits: ContextValues<SizeLargestFit>;
+  /** The largest values that fit the selected target, in each context field's help. */
+  contextHints: ContextValues<string>;
   disabled: boolean;
   engineParameterRefs: RefObject<Map<string, HTMLElement | null>>;
+  /** The context parameters the profile exposes. */
   exposedParameters: readonly ParameterDefinition[];
   fieldErrors: FieldErrors;
   /** The context per request the backend fills while the input is empty, from the latest estimate. */
   filledContextPerRequest?: number;
   inputs: ReadonlyMap<string, string>;
-  /** The largest total context that fits the selected target, offered as the total's last chip. */
-  largestFit?: SizeLargestFit;
   /** The latest estimate's memory parameter sizes, for the memory parameters' sliders. */
   memoryParameterSizes?: MemoryParameterSizes;
   model: Model;
+  /** Makes the total context follow the context per request and parallel requests again. */
+  onFollowTotal: () => void;
   onParameterBlur: (parameter: ParameterDefinition) => void;
   /** Receives each change, and whether it is settled, as a slider or preset is, or typed. */
   onParameterChange: (parameter: ParameterDefinition, input: string, settled?: boolean) => void;
@@ -49,33 +52,45 @@ interface ModelDeploySettingsStepProps {
     shown: readonly ParameterDefinition[];
   };
   profile?: ModelProfile;
+  /** Whether the total context follows the context per request and parallel requests. */
+  totalFollows: boolean;
+}
+
+/** One value for each context size field. */
+export interface ContextValues<T> {
+  perRequest?: T;
+  total?: T;
 }
 
 /**
- * The Settings step of the model deploy dialog: the total context the deployment holds and the
- * context one request may use, which follows the total until set, then the profile's other basic
- * engine parameters. Each field shows only when the selected profile exposes its engine parameter.
+ * The Settings step of the model deploy dialog: the context one request may use, the requests
+ * served at once, and the total context they share, which follows the other two until set, then
+ * the profile's other basic engine parameters. Each field shows only when the selected profile
+ * exposes its engine parameter.
  */
 export function ModelDeploySettingsStep({
-  contextHint,
+  contextFits,
+  contextHints,
   disabled,
   engineParameterRefs,
   exposedParameters,
   fieldErrors,
   filledContextPerRequest,
   inputs,
-  largestFit,
   memoryParameterSizes,
   model,
+  onFollowTotal,
   onParameterBlur,
   onParameterChange,
   parameters,
   profile,
+  totalFollows,
 }: ModelDeploySettingsStepProps) {
   const configuration = model.configurations.find(
     (candidate) => candidate.configurationId === profile?.configurationId,
   );
-  const { contextPerRequest, totalContext } = runtimeParameterGroups(exposedParameters).context;
+  const { contextPerRequest, parallelRequests, totalContext } =
+    runtimeParameterGroups(exposedParameters).context;
   const maximum = maximumContext(model, configuration);
   const ends = contextSliderEnds({
     contextPerRequest,
@@ -121,36 +136,47 @@ export function ModelDeploySettingsStep({
           This profile sets its context itself.
         </p>
       )}
-      {totalContext
-        ? contextField(totalContext, ends?.total, {
-            facts: contextHint ? [contextHint] : undefined,
-            help: totalContext.description,
-            largestFit,
-          })
-        : null}
       {contextPerRequest
         ? contextField(contextPerRequest, ends?.perRequest, {
-            actions: inputs.get(contextPerRequest.parameterId) ? (
-              <Button
-                className="h-auto p-0 text-xs"
-                disabled={disabled}
-                onClick={() => onParameterChange(contextPerRequest, "", true)}
-                type="button"
-                variant="link"
-              >
-                Follow the total
-              </Button>
-            ) : undefined,
             emptyValue: filledContextPerRequest,
             facts: [
+              ...(contextHints.perRequest ? [contextHints.perRequest] : []),
               ...(maximum === undefined
                 ? []
                 : [`Up to ${formatCompactCount(maximum)} (model maximum)`]),
-              ...(inputs.get(contextPerRequest.parameterId)
-                ? []
-                : ["Left empty, it follows the total context."]),
             ],
             help: contextPerRequest.description,
+            largestFit: contextFits.perRequest,
+          })
+        : null}
+      {parallelRequests ? (
+        <EngineParametersForm
+          errors={fieldErrors}
+          groups={[]}
+          inputRefs={engineParameterRefs}
+          inputs={inputs}
+          onBlur={onParameterBlur}
+          onChange={(parameter, input) => onParameterChange(parameter, input)}
+          parameters={[parallelRequests]}
+          revealedErrors={parameters.revealedErrors}
+        />
+      ) : null}
+      {totalContext
+        ? contextField(totalContext, ends?.total, {
+            actions: totalFollows ? undefined : (
+              <Button
+                className="h-auto p-0 text-xs"
+                disabled={disabled}
+                onClick={onFollowTotal}
+                type="button"
+                variant="link"
+              >
+                Follow per request × parallel
+              </Button>
+            ),
+            facts: contextHints.total ? [contextHints.total] : undefined,
+            help: totalContext.description,
+            largestFit: contextFits.total,
           })
         : null}
       {parameters.shown.length ? (

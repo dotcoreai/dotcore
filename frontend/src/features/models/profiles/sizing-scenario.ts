@@ -11,29 +11,27 @@ import { panelParameter } from "@/panels/panel-stack";
 import { defaultMemoryBasis, type MemoryBasis } from "./profile-compatibility";
 
 /**
- * An operator use case that sizing evaluates on every profile: a total context shared by the
- * requests a deployment serves at once, each optionally capped at a context per request. Without
- * one, profiles are sized from their defaults.
+ * An operator use case that sizing evaluates on every profile: the context each request may use
+ * and how many requests run at once, with the total context they share following them unless the
+ * scenario sets it. Without one, profiles are sized from their defaults.
  */
 export interface SizingScenario {
-  /** The largest context one request may use; absent, each request may use up to the maximum. */
-  contextTokensPerRequest?: number;
-  totalContextTokens: number;
+  /** The largest context one request may use. */
+  contextTokensPerRequest: number;
+  /** The requests generated at once; absent, each profile keeps its own. */
+  parallelRequests?: number;
+  /** The context the requests share; absent, it follows the other two. */
+  totalContextTokens?: number;
 }
 
 /** Reads the scenario of a location search; a missing or invalid value means none. */
 export function parseSizingScenario(search: string | URLSearchParams): SizingScenario | undefined {
   const params = new URLSearchParams(search);
-  const totalContextTokens = scenarioNumber(params.get(scenarioTotalKey) ?? "");
-  if (totalContextTokens === undefined) return undefined;
-
-  const perRequest = params.get(scenarioPerRequestKey);
-  if (perRequest === null) return { totalContextTokens };
-
-  const contextTokensPerRequest = scenarioNumber(perRequest);
-  return contextTokensPerRequest !== undefined && contextTokensPerRequest <= totalContextTokens
-    ? { contextTokensPerRequest, totalContextTokens }
-    : undefined;
+  return scenarioFromInputs({
+    parallel: params.get(scenarioParallelKey) ?? "",
+    perRequest: params.get(scenarioPerRequestKey) ?? "",
+    total: params.get(scenarioTotalKey) ?? "",
+  });
 }
 
 /**
@@ -46,13 +44,16 @@ export function applySizingScenario(
 ): string {
   const params = new URLSearchParams(search);
   const panels = params.getAll(panelParameter);
-  params.delete(scenarioTotalKey);
   params.delete(scenarioPerRequestKey);
+  params.delete(scenarioParallelKey);
+  params.delete(scenarioTotalKey);
   params.delete(panelParameter);
   if (scenario) {
-    params.set(scenarioTotalKey, String(scenario.totalContextTokens));
-    if (scenario.contextTokensPerRequest !== undefined)
-      params.set(scenarioPerRequestKey, String(scenario.contextTokensPerRequest));
+    params.set(scenarioPerRequestKey, String(scenario.contextTokensPerRequest));
+    if (scenario.parallelRequests !== undefined)
+      params.set(scenarioParallelKey, String(scenario.parallelRequests));
+    if (scenario.totalContextTokens !== undefined)
+      params.set(scenarioTotalKey, String(scenario.totalContextTokens));
   }
   for (const panel of panels) params.append(panelParameter, panel);
   const serialized = params.toString();
@@ -89,31 +90,39 @@ export function sameSizingScenario(
 
 /** A scenario as one string that equal scenarios share; empty without one. */
 export function sizingScenarioKey(scenario: SizingScenario | undefined): string {
-  return scenario ? `${scenario.totalContextTokens}/${scenario.contextTokensPerRequest ?? ""}` : "";
+  return scenario
+    ? `${scenario.contextTokensPerRequest}/${scenario.parallelRequests ?? ""}/${scenario.totalContextTokens ?? ""}`
+    : "";
 }
 
 /** The compatibility read's scenario for the catalog's one. */
 export function sizingScenarioRequest({
   contextTokensPerRequest,
+  parallelRequests,
   totalContextTokens,
 }: SizingScenario): MessageInitShape<typeof SizingScenarioSchema> {
-  return contextTokensPerRequest === undefined
-    ? { totalContextTokens: BigInt(totalContextTokens) }
-    : {
-        contextTokensPerRequest: BigInt(contextTokensPerRequest),
-        totalContextTokens: BigInt(totalContextTokens),
-      };
+  return {
+    contextTokensPerRequest: BigInt(contextTokensPerRequest),
+    ...(parallelRequests === undefined ? {} : { parallelRequests }),
+    ...(totalContextTokens === undefined ? {} : { totalContextTokens: BigInt(totalContextTokens) }),
+  };
 }
 
-/** A scenario in a few characters, such as "1M" or "1M · 64k per request". */
+/** A scenario in a few characters, such as "64k per request · 4 parallel · 1M total". */
 export function formatSizingScenario({
   contextTokensPerRequest,
+  parallelRequests,
   totalContextTokens,
 }: SizingScenario): string {
-  const total = formatCompactCount(totalContextTokens);
-  return contextTokensPerRequest === undefined
-    ? total
-    : `${total} · ${formatCompactCount(contextTokensPerRequest)} per request`;
+  return [
+    `${formatCompactCount(contextTokensPerRequest)} per request`,
+    parallelRequests === undefined ? undefined : `${parallelRequests} parallel`,
+    totalContextTokens === undefined
+      ? undefined
+      : `${formatCompactCount(totalContextTokens)} total`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /**
@@ -139,37 +148,41 @@ export function sizingUnsupportedText(
   }
 }
 
-/** A scenario input: the total context, or the optional context per request. */
-export type ScenarioInput = "perRequest" | "total";
+/** A scenario input: the context per request, or the optional parallel requests or total context. */
+export type ScenarioInput = "parallel" | "perRequest" | "total";
 
 /**
- * Why the scenario inputs are invalid, by input. The total context is a whole number of tokens; the
- * context per request is empty, or such a number at most the total context. Each profile checks the
+ * Why the scenario inputs are invalid, by input. The context per request is a whole number of
+ * tokens; the parallel requests are empty or a whole number of at least one; the total context is
+ * empty or a whole number of tokens at least the context per request. Each profile checks the
  * values against its own engine's ranges.
  */
 export function scenarioInputErrors(
   inputs: Record<ScenarioInput, string>,
 ): Partial<Record<ScenarioInput, string>> {
-  const total = scenarioNumber(inputs.total.trim());
-  const perRequestInput = inputs.perRequest.trim();
-  const perRequest = perRequestInput ? scenarioNumber(perRequestInput) : undefined;
+  const perRequest = scenarioNumber(inputs.perRequest.trim());
+  const parallelInput = inputs.parallel.trim();
+  const parallel = scenarioNumber(parallelInput);
+  const totalInput = inputs.total.trim();
+  const total = scenarioNumber(totalInput);
   const errors: Partial<Record<ScenarioInput, string>> = {};
-  if (total === undefined) errors.total = "Total context must be a whole number of tokens.";
-  if (perRequestInput && perRequest === undefined)
+  if (perRequest === undefined)
     errors.perRequest = "Context per request must be a whole number of tokens.";
-  else if (perRequest !== undefined && total !== undefined && perRequest > total)
+  else if (total !== undefined && perRequest > total)
     errors.perRequest = "Context per request must be at most the total context.";
+  if (parallelInput && !parallel)
+    errors.parallel = "Parallel requests must be a whole number of at least 1.";
+  if (totalInput && total === undefined)
+    errors.total = "Total context must be a whole number of tokens.";
   return errors;
 }
 
-/** The inputs that describe a scenario, with an empty context per request when it sets none. */
+/** The inputs that describe a scenario, empty for the values it leaves to each profile. */
 export function scenarioInputs(scenario: SizingScenario): Record<ScenarioInput, string> {
   return {
-    perRequest:
-      scenario.contextTokensPerRequest === undefined
-        ? ""
-        : String(scenario.contextTokensPerRequest),
-    total: String(scenario.totalContextTokens),
+    parallel: scenario.parallelRequests === undefined ? "" : String(scenario.parallelRequests),
+    perRequest: String(scenario.contextTokensPerRequest),
+    total: scenario.totalContextTokens === undefined ? "" : String(scenario.totalContextTokens),
   };
 }
 
@@ -178,36 +191,21 @@ export function scenarioFromInputs(
   inputs: Record<ScenarioInput, string>,
 ): SizingScenario | undefined {
   const errors = scenarioInputErrors(inputs);
-  if (errors.total || errors.perRequest) return undefined;
+  if (errors.perRequest || errors.parallel || errors.total) return undefined;
 
-  const perRequest = inputs.perRequest.trim();
+  const parallel = inputs.parallel.trim();
+  const total = inputs.total.trim();
   return {
-    ...(perRequest ? { contextTokensPerRequest: Number(perRequest) } : {}),
-    totalContextTokens: Number(inputs.total.trim()),
+    contextTokensPerRequest: Number(inputs.perRequest.trim()),
+    ...(parallel ? { parallelRequests: Number(parallel) } : {}),
+    ...(total ? { totalContextTokens: Number(total) } : {}),
   };
 }
 
-/**
- * The inputs with the one the operator didn't edit following the edited one, so the context per
- * request stays at most the total context: a larger context per request raises the total, and a
- * smaller total lowers the context per request. Unchanged inputs come back as the same object, as
- * do inputs that aren't both whole numbers and an empty context per request.
- */
-export function followContextInputs(
-  inputs: Record<ScenarioInput, string>,
-  edited: ScenarioInput,
-): Record<ScenarioInput, string> {
-  const total = inputs.total.trim();
-  const perRequest = inputs.perRequest.trim();
-  if (!/^\d+$/.test(total) || !/^\d+$/.test(perRequest)) return inputs;
-  if (BigInt(perRequest) <= BigInt(total)) return inputs;
-
-  return edited === "total" ? { ...inputs, perRequest: total } : { ...inputs, total: perRequest };
-}
-
 // The URL keys of the scenario inputs, beside the catalog table view.
-const scenarioTotalKey = "ctx";
 const scenarioPerRequestKey = "req";
+const scenarioParallelKey = "par";
+const scenarioTotalKey = "ctx";
 // The URL key of the memory basis, beside the scenario.
 const memoryBasisKey = "mem";
 

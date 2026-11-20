@@ -49,7 +49,7 @@ describe("local deployment configuration", () => {
     });
   });
 
-  it("starts from the engine defaults the profile leaves out, without a context per request", () => {
+  it("starts from the engine defaults the profile leaves out, without a total context", () => {
     const profile = runtimeSchemaModel.profiles.find(
       ({ profileId }) => profileId === "nvfp4-text",
     )!;
@@ -63,7 +63,7 @@ describe("local deployment configuration", () => {
       ["maximum-batched-tokens", 4096n],
       ["maximum-cudagraph-capture-size", 32n],
       ["kv-offloading-size-gib", 0n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
       ["parallel-requests", 4n],
     ]);
   });
@@ -107,7 +107,7 @@ describe("local deployment configuration", () => {
     ).toEqual([
       ["maximum-batched-tokens", 4096n],
       ["maximum-cudagraph-capture-size", 32n],
-      ["total-context", 32768n],
+      ["context-per-request", 32768n],
       ["parallel-requests", 4n],
     ]);
   });
@@ -193,7 +193,10 @@ describe("local deployment configuration", () => {
     const release = engineReleases[0];
 
     expect(
-      localDeploymentConfiguration(fast, release, { bindingId: "q4-binding", inputs: new Map() }),
+      localDeploymentConfiguration(fast, release, {
+        bindingId: "q4-binding",
+        inputs: new Map([["total-context", "8k"]]),
+      }),
     ).toBeUndefined();
     expect(
       localDeploymentConfiguration(fast, release, {
@@ -253,7 +256,7 @@ describe("local deployment configuration", () => {
     ).toEqual([]);
   });
 
-  it("lists the changed engine parameters with parallel requests, leaving out context sizes", () => {
+  it("lists the changed engine parameters, leaving out the context parameters", () => {
     const profile = runtimeSchemaModel.profiles.find(({ profileId }) => profileId === "q4-xl")!;
     const changed = (inputs: [string, string][]) =>
       changedEngineParameters(profile, llamaCppRelease, {
@@ -266,14 +269,13 @@ describe("local deployment configuration", () => {
         ]),
       }).map(({ parameter, value }) => [parameter.parameterId, value]);
 
-    expect(changed([["total-context", "16384"]])).toEqual([]);
     expect(
       changed([
+        ["total-context", "16384"],
         ["parallel-requests", "2"],
-        ["prompt-cache-memory-mib", "4096"],
       ]),
-    ).toEqual([
-      ["parallel-requests", "2 requests"],
+    ).toEqual([]);
+    expect(changed([["prompt-cache-memory-mib", "4096"]])).toEqual([
       ["prompt-cache-memory-mib", "4 GiB"],
     ]);
   });

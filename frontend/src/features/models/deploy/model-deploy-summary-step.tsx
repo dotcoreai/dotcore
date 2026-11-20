@@ -8,6 +8,7 @@ import type { PredictedMemory } from "@/features/models/deploy/memory/model-depl
 import { MemoryCapacityWarning } from "@/features/models/deploy/memory/model-deploy-memory-strip";
 import {
   CONTEXT_PER_REQUEST_PARAMETER_ID,
+  PARALLEL_REQUESTS_PARAMETER_ID,
   TOTAL_CONTEXT_PARAMETER_ID,
 } from "@/features/models/runtime/engine-parameter-values";
 import type { ChangedEngineParameter } from "@/features/models/runtime/local-deployment-configuration";
@@ -113,8 +114,8 @@ export interface ModelDeploySummaryStepProps {
 }
 
 /**
- * The launch's context in a few words, such as "128k total · 64k per request". An empty context
- * per request reads as the value resolution fills in.
+ * The launch's context in a few words, such as "32k per request · 4 parallel · 128k total". An
+ * empty context per request reads as the value resolution fills in.
  */
 function contextSummary(
   inputs: ReadonlyMap<string, string>,
@@ -126,7 +127,12 @@ function contextSummary(
   const perRequest =
     inputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID) ||
     (filledPerRequest === undefined ? "" : String(filledPerRequest));
-  return [total && `${tokens(total)} total`, perRequest && `${tokens(perRequest)} per request`]
+  const parallel = inputs.get(PARALLEL_REQUESTS_PARAMETER_ID) ?? "";
+  return [
+    perRequest && `${tokens(perRequest)} per request`,
+    parallel && `${parallel} parallel`,
+    total && `${tokens(total)} total`,
+  ]
     .filter(Boolean)
     .join(" · ");
 }

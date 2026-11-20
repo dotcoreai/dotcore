@@ -129,7 +129,15 @@ interface Site {
 }
 
 /** A recommendation row: model, profile, context per request, machine and running deployment. */
-type Row = [model: string, profile: string, context: number, machine: string, deployment?: string];
+// The starting values a target gives the row: a lowered context per request, if any, and the total.
+type Row = [
+  model: string,
+  profile: string,
+  context: number,
+  machine: string,
+  deployment?: string,
+  starting?: [perRequest: number | undefined, total: number],
+];
 
 /** Each catalog profile's estimate at any context, in GiB. */
 const estimates: Record<string, number> = {
@@ -199,12 +207,14 @@ describe("GetStartedPage", () => {
       notice: undefined,
     });
     expect(primaryAction()).toEqual({ disabled: false, name: "Deploy" });
-    expect(compatibilityReads.map((read) => [read.modelId, read.scenario])).toEqual([
-      [
-        "qwen-27b",
-        expect.objectContaining({ contextTokensPerRequest: 32768n, totalContextTokens: 32768n }),
-      ],
-    ]);
+    // Without a starting total from the target, the total follows the profile's rule.
+    expect(
+      compatibilityReads.map((read) => [
+        read.modelId,
+        read.scenario?.contextTokensPerRequest,
+        read.scenario?.totalContextTokens,
+      ]),
+    ).toEqual([["qwen-27b", 32768n, undefined]]);
   });
 
   it("switches the proposal to another choice", async () => {
@@ -414,13 +424,17 @@ describe("GetStartedPage", () => {
         expect(within(dialog).getByRole("radio", { name: /NVFP4 ninfer/ })).toBeChecked(),
       );
       await user.click(within(dialog).getByRole("button", { name: "Next" }));
-      expect(within(dialog).getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
+      const total = within(dialog).getByRole("textbox", { name: "Total context" });
+      expect(total).toHaveValue("128k");
       const perRequest = within(dialog).getByRole("textbox", { name: "Context per request" });
       expect(perRequest).toHaveValue("32k");
+      expect(within(dialog).getByRole("textbox", { name: "Parallel requests" })).toHaveValue("4");
 
+      // The total context follows the context per request times the parallel requests.
       await user.clear(perRequest);
       await user.type(perRequest, "65536");
       await user.tab();
+      expect(total).toHaveValue("256k");
       await user.click(within(dialog).getByRole("button", { name: "Next" }));
       expect(within(dialog).getByText("Step 3 of 3 — Deploy")).toBeVisible();
       expect(summaryTarget(dialog)).toBe("gpu1 / NVIDIA GeForce RTX 5090");
@@ -431,7 +445,7 @@ describe("GetStartedPage", () => {
       expect(createApplicationDeployment).not.toHaveBeenCalled();
       expect(detailsOf("Model")).toEqual([
         ["Machine", "gpu1"],
-        ["Memory", "25 GiB"],
+        ["Memory", "31 GiB"],
         ["Context per request", "64k"],
       ]);
 
@@ -447,7 +461,7 @@ describe("GetStartedPage", () => {
       });
       expect(contextValues(request.configuration?.engineParameterValues?.values ?? [])).toEqual({
         "context-per-request": 65536n,
-        "total-context": 65536n,
+        "total-context": 262144n,
       });
     });
 
@@ -459,27 +473,32 @@ describe("GetStartedPage", () => {
         targets: { "open-webui": [["gpu1", true]] },
       });
 
-      // Opens Customize in advanced mode on the Advanced step.
-      const openAdvanced = async () => {
+      // Opens Customize in advanced mode on the Settings step.
+      const openSettings = async () => {
         await user.click(await screen.findByRole("button", { name: "Customize" }));
         const dialog = await screen.findByRole("dialog", { name: "Qwen3.8 27B — Customize model" });
         await user.click(await within(dialog).findByRole("checkbox", { name: "Advanced" }));
-        for (let step = 0; step < 3; step += 1)
+        for (let step = 0; step < 2; step += 1)
           await user.click(within(dialog).getByRole("button", { name: "Next" }));
-        expect(within(dialog).getByText("Step 4 of 5 — Advanced")).toBeVisible();
+        expect(within(dialog).getByText("Step 3 of 5 — Settings")).toBeVisible();
         return {
           dialog,
-          hostContext: within(dialog).getByRole("textbox", { name: "Host context memory" }),
           parallel: within(dialog).getByRole("textbox", { name: "Parallel requests" }),
+          total: within(dialog).getByRole("textbox", { name: "Total context" }),
         };
       };
-      const first = await openAdvanced();
+      const hostContext = (dialog: HTMLElement) =>
+        within(dialog).getByRole("textbox", { name: "Host context memory" });
+      const first = await openSettings();
       expect(first.parallel).toHaveValue("4");
-      expect(first.hostContext).toHaveValue("20 GiB");
       await user.clear(first.parallel);
       await user.type(first.parallel, "2");
-      await user.clear(first.hostContext);
-      await user.type(first.hostContext, "1024");
+      await user.tab();
+      expect(first.total).toHaveValue("64k");
+      await user.click(within(first.dialog).getByRole("button", { name: "Next" }));
+      expect(hostContext(first.dialog)).toHaveValue("20 GiB");
+      await user.clear(hostContext(first.dialog));
+      await user.type(hostContext(first.dialog), "1024");
       await user.click(within(first.dialog).getByRole("button", { name: "Next" }));
       const firstName = within(first.dialog).getByRole("textbox", { name: "Deployment name" });
       expect(firstName).toHaveValue("Qwen3.8 27B");
@@ -491,9 +510,15 @@ describe("GetStartedPage", () => {
       await user.click(within(first.dialog).getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(first.dialog).not.toBeInTheDocument());
 
-      const second = await openAdvanced();
+      // The applied total context stays as applied, with the link that makes it follow again.
+      const second = await openSettings();
       expect(second.parallel).toHaveValue("2");
-      expect(second.hostContext).toHaveValue("1 GiB");
+      expect(second.total).toHaveValue("64k");
+      expect(
+        within(second.dialog).getByRole("button", { name: "Follow per request × parallel" }),
+      ).toBeVisible();
+      await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
+      expect(hostContext(second.dialog)).toHaveValue("1 GiB");
       await user.click(within(second.dialog).getByRole("button", { name: "Next" }));
       expect(within(second.dialog).getByRole("textbox", { name: "Deployment name" })).toHaveValue(
         "Team model",
@@ -521,7 +546,7 @@ describe("GetStartedPage", () => {
         "context-per-request": 32768n,
         "host-context-mib": 1024n,
         "parallel-requests": 2n,
-        "total-context": 32768n,
+        "total-context": 65536n,
       });
     });
 
@@ -543,7 +568,7 @@ describe("GetStartedPage", () => {
       await user.click(await within(dialog).findByRole("button", { name: "Next" }));
       const total = within(dialog).getByRole("textbox", { name: "Total context" });
       await user.clear(total);
-      await user.type(total, "128k");
+      await user.type(total, "64k");
       await user.tab();
       expect(within(dialog).getByRole("textbox", { name: "Context per request" })).toHaveValue(
         "32k",
@@ -552,10 +577,10 @@ describe("GetStartedPage", () => {
       await user.click(within(dialog).getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(dialog).not.toBeInTheDocument());
 
-      await waitFor(() => expect(detailsOf("Model")).toContainEqual(["Memory", "27 GiB"]));
+      await waitFor(() => expect(detailsOf("Model")).toContainEqual(["Memory", "25 GiB"]));
       expect(detailsOf("Model")).toEqual([
         ["Machine", "gpu1"],
-        ["Memory", "27 GiB"],
+        ["Memory", "25 GiB"],
         ["Context per request", "32k"],
       ]);
       await user.click(screen.getByRole("button", { name: "Other choices (1)" }));
@@ -595,14 +620,19 @@ describe("GetStartedPage", () => {
   });
 
   describe("deploy", () => {
-    it("creates the model at its context per request, then the app", async () => {
+    it("creates the model at the context its target starts it from, then the app", async () => {
       const user = setupUser();
       const { createApplicationDeployment, createLocalModelDeployment } = await renderPage({
         machines: [{ id: "gpu1", vramGib: 32 }],
-        rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1"]] },
+        rows: {
+          [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 65536, "gpu1", undefined, [49152, 98304]]],
+        },
         targets: { "open-webui": [["gpu1", true]] },
       });
 
+      // The card shows the lowered context per request, sized at the capped total.
+      await waitFor(() => expect(detailsOf("Model")).toContainEqual(["Memory", "24 GiB"]));
+      expect(detailsOf("Model")).toContainEqual(["Context per request", "48k"]);
       await user.click(screen.getByRole("button", { name: "Deploy" }));
 
       await waitFor(() => expect(createApplicationDeployment).toHaveBeenCalledOnce());
@@ -613,8 +643,8 @@ describe("GetStartedPage", () => {
               configuration: {
                 engineParameterValues: {
                   values: [
-                    unsigned("context-per-request", 32768n),
-                    unsigned("total-context", 32768n),
+                    unsigned("context-per-request", 49152n),
+                    unsigned("total-context", 98304n),
                   ],
                 },
               },
@@ -1406,7 +1436,10 @@ async function renderPage(site: Site) {
           compatibility(
             request.modelId ?? "",
             site,
-            request.scenario && Number(request.scenario.totalContextTokens),
+            request.scenario &&
+              Number(
+                request.scenario.totalContextTokens ?? request.scenario.contextTokensPerRequest,
+              ),
           ),
         );
       }),
@@ -1558,7 +1591,8 @@ const qwen = create(ModelSchema, {
 });
 
 // Every profile runs on every machine, on a class named after the machine.
-// Each total context step of 32k above the first adds 1 GiB to a profile's estimate.
+// Each total context step of 32k above the first adds 1 GiB to a profile's estimate; a scenario
+// without a total context is sized at one request.
 function compatibility(modelId: string, site: Site, totalContext = 32768) {
   const extra = BigInt(Math.max(0, totalContext / 32768 - 1));
   const profiles = Object.keys(estimates).flatMap((key) => {
@@ -1596,7 +1630,7 @@ function compatibility(modelId: string, site: Site, totalContext = 32768) {
   });
 }
 
-function recommendedRow([modelId, profileId, context, machine, deploymentId]: Row) {
+function recommendedRow([modelId, profileId, context, machine, deploymentId, starting]: Row) {
   return create(RecommendedModelProfileSchema, {
     contextTokensPerRequest: BigInt(context),
     modelId,
@@ -1605,6 +1639,9 @@ function recommendedRow([modelId, profileId, context, machine, deploymentId]: Ro
       {
         fit: ModelRecommendationFit.FITS_NOW,
         modelDeploymentId: deploymentId,
+        startingContextTokensPerRequest:
+          starting?.[0] === undefined ? undefined : BigInt(starting[0]),
+        startingTotalContextTokens: starting === undefined ? undefined : BigInt(starting[1]),
         target: { executionTargetId: "model", siteNodeId: machine },
       },
     ],

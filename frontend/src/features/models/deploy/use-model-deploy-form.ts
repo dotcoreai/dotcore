@@ -36,9 +36,7 @@ import {
   startShows,
 } from "@/features/models/profiles/profile-table-seed";
 import {
-  followContextInputs,
   sameSizingScenario,
-  scenarioFromInputs,
   type SizingScenario,
   sizingScenarioKey,
 } from "@/features/models/profiles/sizing-scenario";
@@ -47,6 +45,7 @@ import {
   type ProfileEstimateState,
   useProfileCompatibility,
 } from "@/features/models/profiles/use-profile-compatibility";
+import { requestCount } from "@/features/models/runtime/context-slider-ends";
 import {
   CONTEXT_PARAMETER_IDS,
   CONTEXT_PER_REQUEST_PARAMETER_ID,
@@ -100,6 +99,7 @@ import { formatCompactCount, formatCount } from "@/lib/format";
 
 import {
   configurationStart,
+  followingContext,
   launchRejectionField,
   type LocalDeploymentValues,
   MODEL_DEPLOY_STEPS,
@@ -109,10 +109,9 @@ import {
   scenarioContext,
   scenarioInput,
   settledContext,
-  startContext,
+  totalFollows,
   useLaunchEngineValues,
   withoutChosenContextErrors,
-  withoutUnsetContextPerRequest,
 } from "./model-deploy-launch";
 import { useCommandPreview } from "./use-command-preview";
 import {
@@ -162,7 +161,7 @@ export function useModelDeployForm({
       : { exposure: "direct" },
   );
   // The launch's context, starting from the opener's; changing it leaves the opener alone.
-  const [context, setContext] = useState(() => startContext(startScenario, initialConfiguration));
+  const [context, setContext] = useState(() => scenarioContext(startScenario));
   // The chosen context's "Sized for", which the dialog's read sizes; absent at the default context.
   const scenario = context.scenario;
   // The memory basis profiles are judged on, starting from the opener's; changing it leaves the
@@ -282,9 +281,8 @@ export function useModelDeployForm({
   );
   const exposedParameters = effectiveEngineParameters(engineRelease, profile);
   const parameterGroups = engineRelease?.parameterSchema?.parameterGroups ?? [];
-  // The scenario's values for the profile, hidden ones included, replace the profile's defaults.
-  // Resolution fills the context per request the scenario leaves unset; it stays empty here so it
-  // isn't submitted as a supplied value and keeps following the total context.
+  // The scenario's values for the profile, hidden ones and the context values resolution derives
+  // included, replace the profile's defaults.
   const profileReadKey = profile ? profileEstimateKey(model.modelId, profile.profileId) : undefined;
   // The parameters sizing derives come from the backend's read of the profile; until it lands, an
   // empty one reads as missing, and the deploy waits for the read anyway.
@@ -308,9 +306,7 @@ export function useModelDeployForm({
     scenario && !ownReadValues && profileReadKey
       ? defaultsCompatibility.sizing?.engineValues.get(profileReadKey)
       : undefined;
-  const readValues = ownReadValues
-    ? withoutUnsetContextPerRequest(ownReadValues, scenario)
-    : withoutUnsetContextPerRequest(defaultReadValues, undefined);
+  const readValues = ownReadValues ?? defaultReadValues;
   // The values of a profile's first read under each scenario stay for the dialog's life, so later
   // reads never swap them under the operator; a new "Sized for" starts from its own read.
   const [frozenValues, setFrozenValues] = useState<ReadonlyMap<string, ParameterValues>>(new Map());
@@ -351,13 +347,9 @@ export function useModelDeployForm({
     ? profileCompatibility.compatibility
     : undefined;
   // A "Sized for" becomes the chosen context and removing it returns the context to the default;
-  // either way the operator's parallel requests stay.
+  // either way the Settings step starts again from the read's values.
   const chooseSizedFor = useCallback((next: SizingScenario | undefined) => {
-    setContext((previous) =>
-      next
-        ? { ...previous, ...scenarioContext(next) }
-        : { parallelRequests: previous.parallelRequests },
-    );
+    setContext(scenarioContext(next));
     setFieldErrors(withoutChosenContextErrors);
   }, []);
   const profileTable = useModelDeployProfileTable({
@@ -380,12 +372,13 @@ export function useModelDeployForm({
   });
   const { chipKey, profileAvailability, scopes, tableProfileRows } = profileTable;
   const {
-    fitStart,
     launchesOn,
     pickedTarget,
     placement,
     profileLaunchCandidates,
     selectedExecutionTarget,
+    start: contextStart,
+    targetVerdict,
   } = useModelDeployTarget({
     basis,
     compatibility,
@@ -400,13 +393,14 @@ export function useModelDeployForm({
     sizingRead: profileCompatibility.sizing,
   });
 
-  // The selected profile's row shows the value the Settings step starts from, frozen with it; the
-  // other rows stay live, so their changes still show.
+  // The selected profile's row shows the total context the Settings step starts from, frozen with
+  // it; the other rows stay live, so their changes still show.
+  const startTotal = contextStart?.totalContextTokens;
   const shownProfileRows =
-    scenario || fitStart === undefined
+    scenario?.totalContextTokens !== undefined || startTotal === undefined
       ? tableProfileRows
       : tableProfileRows.map((row) =>
-          row.profileId === profileId ? { ...row, totalContext: fitStart } : row,
+          row.profileId === profileId ? { ...row, totalContext: startTotal } : row,
         );
   const { declaredValues, engineParameterInputs } = useLaunchEngineValues(
     scenarioValues,
@@ -414,7 +408,7 @@ export function useModelDeployForm({
     profile,
     editedInputs,
     context,
-    fitStart,
+    contextStart,
   );
   const selectedProfileRow = profileRows.find((row) => row.profileId === profileId);
   const selectedAvailability = selectedProfileRow && profileAvailability?.(selectedProfileRow);
@@ -530,31 +524,23 @@ export function useModelDeployForm({
     );
   const settingsParameters = nonContextParameters(ParameterVisibility.BASIC);
   const advancedParameters = nonContextParameters(ParameterVisibility.ADVANCED);
-  // A context change edits the shared context: total context and context per request become the
-  // chosen ones, starting from what the step shows. A settled change, from a slider or preset, also
-  // moves the other of the two to keep the edited one, and sizes "Sized for" when valid; typing
-  // waits until the input is left.
+  // A context change edits the shared context: the edited value becomes the operator's, and a total
+  // context left alone keeps following. A settled change, from a slider or preset, also sizes
+  // "Sized for" when valid, so the read starts the rest from it; typing waits until the input is
+  // left.
   const changeContext = (parameter: ParameterDefinition, nextInput: string, settled?: boolean) => {
     const edited = scenarioInput(parameter.parameterId);
     if (!edited) return;
 
     dirtyFields.markDirty(parameter.parameterId);
-    const shown = {
-      perRequest: engineParameterInputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID) ?? "",
-      total: engineParameterInputs.get(TOTAL_CONTEXT_PARAMETER_ID) ?? "",
-    };
-    const changed = { ...shown, [edited]: nextInput };
-    const chosen = settled ? followContextInputs(changed, edited) : changed;
-    setContext((previous) => ({
-      ...previous,
-      inputs: chosen,
-      scenario: (settled && scenarioFromInputs(chosen)) || previous.scenario,
-    }));
+    const shownPerRequest = engineParameterInputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID) ?? "";
+    setContext((previous) => {
+      const next = { ...previous, edits: { ...previous.edits, [edited]: nextInput } };
+      return settled ? settledContext(next, shownPerRequest) : next;
+    });
     // A shown error re-validates, including one the changed value causes or clears on another
     // field, such as a context per request above a new total context.
-    const nextInputs = new Map(engineParameterInputs)
-      .set(TOTAL_CONTEXT_PARAMETER_ID, chosen.total)
-      .set(CONTEXT_PER_REQUEST_PARAMETER_ID, chosen.perRequest);
+    const nextInputs = new Map(engineParameterInputs).set(parameter.parameterId, nextInput);
     for (const shownParameter of contextParameters)
       if (fieldErrors.has(shownParameter.parameterId))
         setFieldError(
@@ -566,8 +552,8 @@ export function useModelDeployForm({
   // A typed context settles once left, as a settled change does.
   const blurContext = (parameter: ParameterDefinition) => {
     if (!dirtyFields.isDirty(parameter.parameterId)) return;
-    const edited = scenarioInput(parameter.parameterId);
-    if (edited) setContext((previous) => settledContext(previous, edited));
+    const shownPerRequest = engineParameterInputs.get(CONTEXT_PER_REQUEST_PARAMETER_ID) ?? "";
+    setContext((previous) => settledContext(previous, shownPerRequest));
     // Runs after a change the blur preceded, such as a total context preset clicked while the
     // context per request had focus, and re-validates any context field the settling moved.
     setTimeout(() =>
@@ -587,15 +573,17 @@ export function useModelDeployForm({
       }),
     );
   };
+  // The total context follows the context per request and parallel requests again.
+  const followTotal = () => {
+    setContext(followingContext);
+    setFieldError(TOTAL_CONTEXT_PARAMETER_ID, undefined);
+    invalidatePreview();
+  };
   // A change to a parameter outside the context, on the Settings or the Advanced step.
   const changeParameter = (parameter: ParameterDefinition, nextInput: string) => {
     dirtyFields.markDirty(parameter.parameterId);
     const nextInputs = new Map(engineParameterInputs).set(parameter.parameterId, nextInput);
-    // Parallel requests belong to the shared context, which "Sized for" also edits and a profile
-    // change keeps.
-    if (parameter.parameterId === PARALLEL_REQUESTS_PARAMETER_ID)
-      setContext((previous) => ({ ...previous, parallelRequests: nextInput }));
-    else setEditedInputs((inputs) => new Map(inputs).set(parameter.parameterId, nextInput));
+    setEditedInputs((inputs) => new Map(inputs).set(parameter.parameterId, nextInput));
     if (fieldErrors.has(parameter.parameterId))
       setFieldError(
         parameter.parameterId,
@@ -624,13 +612,11 @@ export function useModelDeployForm({
       engineParameterError(parameter, engineParameterInputs, derivedParameterIds),
     ]);
   // A rejection spans the context values, so it shows as soon as it's known, on the context per
-  // request once the operator set one, else on the first context field. A profile that sets its
+  // request, which leads the step, else on the first context field. A profile that sets its
   // context itself has no field to fix.
   const launchRejectionParameter =
-    contextParameters.find(
-      ({ parameterId }) =>
-        parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID && engineParameterInputs.get(parameterId),
-    ) ?? contextParameters[0];
+    contextParameters.find(({ parameterId }) => parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID) ??
+    contextParameters[0];
   // The launch values arrive with the read, so the first estimate and the deploy wait for them.
   const launchValuesPending =
     profileCompatibility.estimates.pending ||
@@ -666,8 +652,8 @@ export function useModelDeployForm({
     targetsLoadingPresentation,
     values,
   });
-  // The total context's largest fit with the dialog's values, from the estimate of the selected
-  // profile on the selected target; the starting value stands in until that estimate lands. An
+  // The largest fits with the dialog's values, from the estimate of the selected profile on the
+  // selected target; the read's values for the target stand in until that estimate lands. An
   // estimate without a fit, such as with custom arguments, offers none.
   const estimate = memory.estimate;
   const estimateMatches =
@@ -675,13 +661,31 @@ export function useModelDeployForm({
     estimate.profileId === profileId &&
     estimate.placement?.siteNodeId === placement.siteNodeId &&
     estimate.placement.executionTargetId === placement.executionTargetId;
-  const largestTotalContext = estimateMatches ? estimate.largestTotalContext : fitStart;
-  const contextHint =
-    largestTotalContext !== undefined && selectedExecutionTarget
-      ? `Up to ${formatCompactCount(largestTotalContext)} on ${executionTargetName(selectedExecutionTarget)}`
-      : undefined;
-  // Offered as the total context's last chip; choosing it sets the shown value like a size chip.
-  const largestFit = largestTotalContext === undefined ? undefined : { value: largestTotalContext };
+  const largestTotalContext = estimateMatches
+    ? estimate.largestTotalContext
+    : targetVerdict?.largestTotalContextTokens;
+  const largestContextPerRequest = estimateMatches
+    ? estimate.largestContextPerRequest
+    : targetVerdict?.largestContextTokensPerRequest;
+  const targetName = selectedExecutionTarget && executionTargetName(selectedExecutionTarget);
+  const parallelRequests = engineParameterInputs.get(PARALLEL_REQUESTS_PARAMETER_ID);
+  // Each is offered as its field's last chip, and choosing it sets the shown value like a size
+  // chip; its hint names the target, and the parallel requests the context per request fits with.
+  const contextFits = {
+    perRequest:
+      largestContextPerRequest === undefined ? undefined : { value: largestContextPerRequest },
+    total: largestTotalContext === undefined ? undefined : { value: largestTotalContext },
+  };
+  const contextHints = {
+    perRequest:
+      largestContextPerRequest !== undefined && targetName
+        ? `Up to ${formatCompactCount(largestContextPerRequest)} with ${formatCount(requestCount(parallelRequests), "parallel request")} on ${targetName}`
+        : undefined,
+    total:
+      largestTotalContext !== undefined && targetName
+        ? `Up to ${formatCompactCount(largestTotalContext)} on ${targetName}`
+        : undefined,
+  };
   const launchRejectionMessage =
     memory.estimate.launchRejection && launchRejectionParameter
       ? operatorSentence(memory.estimate.launchRejection)
@@ -879,8 +883,10 @@ export function useModelDeployForm({
     compatibilityLoadingVisible,
     configuration,
     contextFieldErrors,
-    contextHint,
+    contextFits,
+    contextHints,
     contextParameters,
+    followTotal,
     customArgumentTokens,
     customizations,
     deployCustomizations,
@@ -901,7 +907,6 @@ export function useModelDeployForm({
     ineligibleTarget,
     kvCachePrecision,
     kvCachePrecisionOption,
-    largestFit,
     launchValuesLoadingVisible,
     memory,
     name,
@@ -936,6 +941,7 @@ export function useModelDeployForm({
     speculativeCountRef,
     speculativeOptions,
     tableEstimates,
+    totalFollows: totalFollows(context),
     targetsLoading,
     targetsLoadingPresentation,
     targetsLoadingVisible,

@@ -64,11 +64,18 @@ export interface ModelProposal {
   profileId: string;
   target: ExactPlacement;
   fit: ModelRecommendationFit;
-  /** The context per request to show: the running deployment's own, else the row's. */
+  /**
+   * The context per request to show and launch: the running deployment's own, else the one the
+   * target starts the row at, lowered when one request at the row's doesn't fit there.
+   */
   contextTokensPerRequest: bigint;
-  /** The total context a customized launch holds; one request's context per request without one. */
+  /** The parallel requests a customized launch holds; the profile's without one. */
+  parallelRequests?: bigint;
+  /**
+   * The total context to launch: a customized launch's, else the one the target starts the row at;
+   * absent when unknown, so resolution derives it.
+   */
   totalContextTokens?: bigint;
-  startingTotalContextTokens?: bigint;
   /** The running or starting deployment on the target; its id is set before the watch lists it. */
   deploymentId?: string;
   deployment?: ModelDeployment;
@@ -189,14 +196,15 @@ function modelProposal(
   );
 
   return {
-    contextTokensPerRequest: running ?? row.contextTokensPerRequest,
+    contextTokensPerRequest:
+      running ?? target.startingContextTokensPerRequest ?? row.contextTokensPerRequest,
     deployment,
     deploymentId,
     fit: target.fit,
     modelId: row.modelId,
     profileId: row.profileId,
-    startingTotalContextTokens: target.startingTotalContextTokens,
     target: target.target,
+    totalContextTokens: target.startingTotalContextTokens,
   };
 }
 

@@ -92,8 +92,8 @@ export interface ProfileRow {
   /** The profile's speculative options with the count range and the profile's effective default. */
   speculativeOptions: SpeculativeOption[];
   /**
-   * The total context the profile is shown at: the sizing scenario's, or without one the largest
-   * that fits the location's machines that run it. Absent when unknown or nothing fits.
+   * The total context the profile is shown at: the sizing scenario's, or the one its launch starts
+   * from on the location's machines that run it. Absent when unknown.
    */
   totalContext?: number;
 }

@@ -249,6 +249,7 @@ export function GetStartedPage() {
       )}
       {customizing && launch && catalogModel ? (
         <CustomizeModelDialog
+          customized={Boolean(customLaunch)}
           deployments={watchedDeployments?.value?.deployments ?? []}
           launch={launch}
           model={catalogModel}

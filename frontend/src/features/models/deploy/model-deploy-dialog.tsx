@@ -203,16 +203,17 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
       ) : null}
       {step === "Settings" ? (
         <ModelDeploySettingsStep
-          contextHint={form.contextHint}
+          contextFits={form.contextFits}
+          contextHints={form.contextHints}
           disabled={pending}
           engineParameterRefs={form.engineParameterRefs}
           exposedParameters={form.contextParameters}
           fieldErrors={form.contextFieldErrors}
           filledContextPerRequest={memory.estimate.filledContextPerRequest}
           inputs={form.engineParameterInputs}
-          largestFit={form.largestFit}
           memoryParameterSizes={memory.estimate.memoryParameterSizes}
           model={model}
+          onFollowTotal={form.followTotal}
           onParameterBlur={form.blurContext}
           onParameterChange={form.changeContext}
           parameters={{
@@ -223,6 +224,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
             shown: form.settingsParameters,
           }}
           profile={form.profile}
+          totalFollows={form.totalFollows}
         />
       ) : null}
       {step === "Advanced" ? (

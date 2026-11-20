@@ -318,6 +318,10 @@ export function modelDeployRequests(
       return {
         filledContextPerRequest:
           filled?.case === "unsignedInteger" ? Number(filled.value) : undefined,
+        largestContextPerRequest:
+          response.largestContextTokensPerRequest === undefined
+            ? undefined
+            : Number(response.largestContextTokensPerRequest),
         largestTotalContext:
           response.largestTotalContextTokens === undefined
             ? undefined

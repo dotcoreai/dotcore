@@ -115,7 +115,7 @@ export function useModelDeployProfileTable({
     [basis, compatibility, executionTargets, model.modelId, scopes],
   );
   // The table's rows show the total context each profile's launch starts from in the Runs on scope:
-  // the chosen one, else the largest starting value a fit gives there.
+  // the scenario's, else the most a target there starts from, else the read's starting value.
   const tableProfileRows = useMemo(
     () =>
       profileRows.map((row) => {

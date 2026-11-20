@@ -4,7 +4,6 @@ import { SizingScenarioUnsupportedReason } from "@/gen/dotcore/model/v1/service_
 
 import {
   applySizingScenario,
-  followContextInputs,
   formatSizingScenario,
   parseSizingScenario,
   scenarioFromInputs,
@@ -14,17 +13,19 @@ import {
 } from "./sizing-scenario";
 
 describe("sizing scenario", () => {
-  it("round-trips the total context and context per request through ctx and req", () => {
+  it("round-trips the context per request, parallel requests and total context through req, par and ctx", () => {
     const search = applySizingScenario("?f=runs&runs=node%3Aa&panel=model-catalog%2Fcatalog%3Aa", {
       contextTokensPerRequest: 65536,
+      parallelRequests: 4,
       totalContextTokens: 1048576,
     });
 
     expect(search).toBe(
-      "?f=runs&runs=node%3Aa&ctx=1048576&req=65536&panel=model-catalog%2Fcatalog%3Aa",
+      "?f=runs&runs=node%3Aa&req=65536&par=4&ctx=1048576&panel=model-catalog%2Fcatalog%3Aa",
     );
     expect(parseSizingScenario(search)).toEqual({
       contextTokensPerRequest: 65536,
+      parallelRequests: 4,
       totalContextTokens: 1048576,
     });
     expect(applySizingScenario(search, undefined)).toBe(
@@ -32,65 +33,90 @@ describe("sizing scenario", () => {
     );
   });
 
-  it("round-trips a total context without a context per request", () => {
-    const search = applySizingScenario("?req=4096", { totalContextTokens: 262144 });
+  it("round-trips a context per request that leaves the rest to each profile", () => {
+    const search = applySizingScenario("?ctx=4096&par=2", { contextTokensPerRequest: 32768 });
 
-    expect(search).toBe("?ctx=262144");
-    expect(parseSizingScenario(search)).toEqual({ totalContextTokens: 262144 });
+    expect(search).toBe("?req=32768");
+    expect(parseSizingScenario(search)).toEqual({ contextTokensPerRequest: 32768 });
   });
 
   it.each([
     ["no parameters", ""],
-    ["only a context per request", "?req=32768"],
-    ["a context per request above the total context", "?ctx=32768&req=65536"],
-    ["a fraction", "?ctx=32768.5"],
-    ["a value no number holds exactly", "?ctx=9007199254740992"],
+    ["only a total context", "?ctx=32768"],
+    ["a context per request above the total context", "?req=65536&ctx=32768"],
+    ["no parallel requests", "?req=32768&par=0"],
+    ["a fraction", "?req=32768.5"],
+    ["a value no number holds exactly", "?req=9007199254740992"],
   ])("reads defaults from %s", (_, search) => {
     expect(parseSizingScenario(search)).toBeUndefined();
   });
 
-  it("requests the total context, and the context per request only when chosen", () => {
+  it("requests the context per request, and the parallel requests and total only when chosen", () => {
     expect(
-      sizingScenarioRequest({ contextTokensPerRequest: 32768, totalContextTokens: 131072 }),
-    ).toEqual({ contextTokensPerRequest: 32768n, totalContextTokens: 131072n });
-    expect(sizingScenarioRequest({ totalContextTokens: 131072 })).toEqual({
+      sizingScenarioRequest({
+        contextTokensPerRequest: 32768,
+        parallelRequests: 4,
+        totalContextTokens: 131072,
+      }),
+    ).toEqual({
+      contextTokensPerRequest: 32768n,
+      parallelRequests: 4,
       totalContextTokens: 131072n,
+    });
+    expect(sizingScenarioRequest({ contextTokensPerRequest: 32768 })).toEqual({
+      contextTokensPerRequest: 32768n,
     });
   });
 
   it("names a scenario compactly", () => {
-    expect(formatSizingScenario({ totalContextTokens: 1048576 })).toBe("1M");
+    expect(formatSizingScenario({ contextTokensPerRequest: 65536 })).toBe("64k per request");
     expect(
-      formatSizingScenario({ contextTokensPerRequest: 65536, totalContextTokens: 1048576 }),
-    ).toBe("1M · 64k per request");
+      formatSizingScenario({
+        contextTokensPerRequest: 65536,
+        parallelRequests: 4,
+        totalContextTokens: 1048576,
+      }),
+    ).toBe("64k per request · 4 parallel · 1M total");
   });
 
   it("explains each input's range, leaving engine ranges to each profile", () => {
-    expect(scenarioInputErrors({ perRequest: "", total: "1" })).toEqual({});
-    expect(scenarioInputErrors({ perRequest: " 4096 ", total: " 8192 " })).toEqual({});
-    expect(scenarioInputErrors({ perRequest: "", total: "8k" })).toEqual({
-      total: "Total context must be a whole number of tokens.",
+    const inputs = (perRequest: string, parallel = "", total = "") => ({
+      parallel,
+      perRequest,
+      total,
     });
-    expect(scenarioInputErrors({ perRequest: "", total: "9007199254740992" })).toEqual({
-      total: "Total context must be a whole number of tokens.",
-    });
-    expect(scenarioInputErrors({ perRequest: "1.5", total: "8192" })).toEqual({
+
+    expect(scenarioInputErrors(inputs("1"))).toEqual({});
+    expect(scenarioInputErrors(inputs(" 4096 ", " 4 ", " 8192 "))).toEqual({});
+    expect(scenarioInputErrors(inputs(""))).toEqual({
       perRequest: "Context per request must be a whole number of tokens.",
     });
-    expect(scenarioInputErrors({ perRequest: "16384", total: "8192" })).toEqual({
+    expect(scenarioInputErrors(inputs("9007199254740992"))).toEqual({
+      perRequest: "Context per request must be a whole number of tokens.",
+    });
+    expect(scenarioInputErrors(inputs("4096", "0"))).toEqual({
+      parallel: "Parallel requests must be a whole number of at least 1.",
+    });
+    expect(scenarioInputErrors(inputs("4096", "", "8k"))).toEqual({
+      total: "Total context must be a whole number of tokens.",
+    });
+    expect(scenarioInputErrors(inputs("16384", "", "8192"))).toEqual({
       perRequest: "Context per request must be at most the total context.",
     });
   });
 
   it("reads a scenario from valid inputs only", () => {
-    expect(scenarioFromInputs({ perRequest: "", total: "131072" })).toEqual({
-      totalContextTokens: 131072,
-    });
-    expect(scenarioFromInputs({ perRequest: "32768", total: "131072" })).toEqual({
+    expect(scenarioFromInputs({ parallel: "", perRequest: "32768", total: "" })).toEqual({
       contextTokensPerRequest: 32768,
+    });
+    expect(scenarioFromInputs({ parallel: "4", perRequest: "32768", total: "131072" })).toEqual({
+      contextTokensPerRequest: 32768,
+      parallelRequests: 4,
       totalContextTokens: 131072,
     });
-    expect(scenarioFromInputs({ perRequest: "262144", total: "131072" })).toBeUndefined();
+    expect(
+      scenarioFromInputs({ parallel: "", perRequest: "262144", total: "131072" }),
+    ).toBeUndefined();
   });
 
   it("says why a profile can't serve the scenario", () => {
@@ -106,32 +132,5 @@ describe("sizing scenario", () => {
     expect(text(SizingScenarioUnsupportedReason.DERIVED_PARAMETER_OUT_OF_RANGE)).toBe(
       "ninfer can't size memory for this scenario",
     );
-  });
-});
-
-describe("followContextInputs", () => {
-  it("moves the input the operator didn't edit so the total covers the context per request", () => {
-    expect(followContextInputs({ perRequest: "65536", total: "32768" }, "perRequest")).toEqual({
-      perRequest: "65536",
-      total: "65536",
-    });
-    expect(followContextInputs({ perRequest: "65536", total: "8192" }, "total")).toEqual({
-      perRequest: "8192",
-      total: "8192",
-    });
-    expect(followContextInputs({ perRequest: "65536", total: "512" }, "total")).toEqual({
-      perRequest: "512",
-      total: "512",
-    });
-  });
-
-  it("leaves inputs that already fit, and an empty or invalid one", () => {
-    for (const [inputs, edited] of [
-      [{ perRequest: "8192", total: "32768" }, "perRequest"],
-      [{ perRequest: "", total: "8192" }, "total"],
-      [{ perRequest: "65536", total: "8k" }, "total"],
-    ] as const) {
-      expect(followContextInputs(inputs, edited)).toBe(inputs);
-    }
   });
 });
