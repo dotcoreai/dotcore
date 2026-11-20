@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/catalog/v1/storage.proto.
  */
 export const file_dotcore_catalog_v1_storage: GenFile = /*@__PURE__*/
-  fileDesc("CiBkb3Rjb3JlL2NhdGFsb2cvdjEvc3RvcmFnZS5wcm90bxISZG90Y29yZS5jYXRhbG9nLnYxIugBCg5TdG9yYWdlQmluZGluZxIUCgxiaW5kaW5nX25hbWUYASABKAkSEgoKbW91bnRfcGF0aBgCIAEoCRItCgRraW5kGAMgASgOMh8uZG90Y29yZS5jYXRhbG9nLnYxLlN0b3JhZ2VLaW5kEjgKCnBsYWNlbWVudHMYBCADKA4yJC5kb3Rjb3JlLmNhdGFsb2cudjEuU3RvcmFnZVBsYWNlbWVudBJDCgtlbnZpcm9ubWVudBgFIAMoCzIuLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlRW52aXJvbm1lbnRWYXJpYWJsZSJBChpTdG9yYWdlRW52aXJvbm1lbnRWYXJpYWJsZRIMCgRuYW1lGAEgASgJEhUKDXJlbGF0aXZlX3BhdGgYAiABKAkqWgoLU3RvcmFnZUtpbmQSHAoYU1RPUkFHRV9LSU5EX1VOU1BFQ0lGSUVEEAASFgoSU1RPUkFHRV9LSU5EX0NBQ0hFEAESFQoRU1RPUkFHRV9LSU5EX0RBVEEQAiqhAQoQU3RvcmFnZVBsYWNlbWVudBIhCh1TVE9SQUdFX1BMQUNFTUVOVF9VTlNQRUNJRklFRBAAEiAKHFNUT1JBR0VfUExBQ0VNRU5UX0RFUExPWU1FTlQQARIhCh1TVE9SQUdFX1BMQUNFTUVOVF9BUFBMSUNBVElPThACEiUKIVNUT1JBR0VfUExBQ0VNRU5UX0VOR0lORV9BUlRJRkFDVBADYgZwcm90bzM");
+  fileDesc("CiBkb3Rjb3JlL2NhdGFsb2cvdjEvc3RvcmFnZS5wcm90bxISZG90Y29yZS5jYXRhbG9nLnYxIpMCCg5TdG9yYWdlQmluZGluZxIUCgxiaW5kaW5nX25hbWUYASABKAkSFAoMZGlzcGxheV9uYW1lGAYgASgJEhMKC2Rlc2NyaXB0aW9uGAcgASgJEhIKCm1vdW50X3BhdGgYAiABKAkSLQoEa2luZBgDIAEoDjIfLmRvdGNvcmUuY2F0YWxvZy52MS5TdG9yYWdlS2luZBI4CgpwbGFjZW1lbnRzGAQgAygOMiQuZG90Y29yZS5jYXRhbG9nLnYxLlN0b3JhZ2VQbGFjZW1lbnQSQwoLZW52aXJvbm1lbnQYBSADKAsyLi5kb3Rjb3JlLmNhdGFsb2cudjEuU3RvcmFnZUVudmlyb25tZW50VmFyaWFibGUiQQoaU3RvcmFnZUVudmlyb25tZW50VmFyaWFibGUSDAoEbmFtZRgBIAEoCRIVCg1yZWxhdGl2ZV9wYXRoGAIgASgJKloKC1N0b3JhZ2VLaW5kEhwKGFNUT1JBR0VfS0lORF9VTlNQRUNJRklFRBAAEhYKElNUT1JBR0VfS0lORF9DQUNIRRABEhUKEVNUT1JBR0VfS0lORF9EQVRBEAIqoQEKEFN0b3JhZ2VQbGFjZW1lbnQSIQodU1RPUkFHRV9QTEFDRU1FTlRfVU5TUEVDSUZJRUQQABIgChxTVE9SQUdFX1BMQUNFTUVOVF9ERVBMT1lNRU5UEAESIQodU1RPUkFHRV9QTEFDRU1FTlRfQVBQTElDQVRJT04QAhIlCiFTVE9SQUdFX1BMQUNFTUVOVF9FTkdJTkVfQVJUSUZBQ1QQA2IGcHJvdG8z");
 
 /**
  * Declares one writable storage the owner attaches to a workload, and where it may be placed.
@@ -24,6 +24,21 @@ export type StorageBinding = Message<"dotcore.catalog.v1.StorageBinding"> & {
    * @generated from field: string binding_name = 1;
    */
   bindingName: string;
+
+  /**
+   * Name the console shows for this storage. Required on an app binding, empty on an engine binding.
+   *
+   * @generated from field: string display_name = 6;
+   */
+  displayName: string;
+
+  /**
+   * What the storage holds, in a sentence or two. Required on an app binding, empty on an engine
+   * binding.
+   *
+   * @generated from field: string description = 7;
+   */
+  description: string;
 
   /**
    * Absolute container path the storage is mounted at.
