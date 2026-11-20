@@ -517,15 +517,6 @@ pub(super) fn resume_start_state(
     state
 }
 
-pub(super) fn startup_pending(state: &ModelDeploymentState) -> bool {
-    ModelDeploymentStatus::try_from(state.status) == Ok(ModelDeploymentStatus::Loading)
-        && !matches!(
-            resume_phase(state),
-            ModelDeploymentActivationPhase::AwaitingStart
-                | ModelDeploymentActivationPhase::StartInFlight
-        )
-}
-
 pub(super) fn resume_start_uncertain_state(
     previous: &ModelDeploymentState,
 ) -> ModelDeploymentState {
@@ -1670,13 +1661,11 @@ mod tests {
             state =
                 artifact_preparation_stage_state(Some(&state), stage).expect("preparation stage");
             assert_eq!(state.activation, initial.activation);
-            assert!(!super::startup_pending(&state));
         }
         let encoded = prost::Message::encode_to_vec(&state);
         let restored = <ModelDeploymentState as prost::Message>::decode(encoded.as_slice())
             .expect("retained state");
         assert_eq!(restored.activation, initial.activation);
-        assert!(!super::startup_pending(&restored));
     }
 
     #[test]

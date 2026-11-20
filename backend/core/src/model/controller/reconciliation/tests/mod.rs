@@ -2735,6 +2735,8 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         },
     );
     calls.lock().expect("calls").clear();
+    // The node has seen the engine running in this generation, so a stop while loading is a crash.
+    controller.inner.crashes.record_ran("deployment", 1, None);
 
     let (reconciliation, records, _) = capture_records_async(|| controller.inner.reconcile()).await;
     reconciliation.expect("startup reconciliation");
@@ -2977,6 +2979,48 @@ async fn a_node_restart_starts_the_stopped_engine_of_a_ready_deployment_without_
     assert_eq!(harness.failure(), None);
 }
 
+#[tokio::test]
+async fn a_node_restart_starts_the_stopped_engine_of_a_loading_deployment_without_a_failure() {
+    let harness = CrashHarness::new();
+    harness.retain_status(ModelDeploymentStatus::Loading);
+
+    harness.observe(harness.stopped(137));
+    harness.reconcile().await;
+
+    assert_eq!(runtime_calls(&harness.calls), ["start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+    assert_eq!(harness.failure(), None);
+}
+
+#[tokio::test]
+async fn an_engine_seen_running_after_a_node_restart_fails_the_deployment_when_it_stops_loading() {
+    let harness = CrashHarness::new();
+    harness.retain_status(ModelDeploymentStatus::Loading);
+
+    harness.observe(WorkloadObservation::Starting(harness.workload.clone()));
+    harness.reconcile().await;
+    assert!(runtime_calls(&harness.calls).is_empty());
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+
+    harness.observe(harness.stopped(137));
+    harness.reconcile().await;
+    assert!(runtime_calls(&harness.calls).is_empty());
+    assert_eq!(harness.status(), ModelDeploymentStatus::Failed as i32);
+    assert_eq!(
+        harness
+            .failure()
+            .map(|failure| (failure.code, failure.diagnostics)),
+        Some((
+            "engine_startup_failed".to_owned(),
+            vec![
+                "Stage: engine startup".to_owned(),
+                "Exit status: 137".to_owned(),
+                "Output tail: booting\nFile \"[REDACTED]\" vanished".to_owned(),
+            ]
+        ))
+    );
+}
+
 /// A freshly started node realizer over one deployment retained ready, whose engine
 /// observations each test sets; a start reports the engine loading again.
 struct CrashHarness {
@@ -3071,6 +3115,21 @@ impl CrashHarness {
     /// Makes every later discovery report `observation` for the deployment's engine.
     fn observe(&self, observation: WorkloadObservation) {
         *self.observations.lock().expect("observations") = vec![vec![observation]];
+    }
+
+    /// Sets the deployment's retained status, as a node restart finds it.
+    fn retain_status(&self, status: ModelDeploymentStatus) {
+        let mut record = self
+            .current
+            .snapshot()
+            .expect("current state")
+            .model_deployments[0]
+            .clone();
+        let revision = record.record_revision;
+        record.state.as_mut().expect("retained state").status = status as i32;
+        self.current
+            .upsert(record, Some(revision))
+            .expect("retained status");
     }
 
     fn stopped(&self, exit_status: i64) -> WorkloadObservation {
@@ -3186,6 +3245,8 @@ async fn a_secret_engine_value_reaches_no_log_failure_text_telemetry_or_command(
         builder.build().expect("Runtime map"),
         artifacts.clone(),
     );
+    // The node has seen the engine running in this generation, so a stop while loading is a crash.
+    controller.inner.crashes.record_ran("deployment", 1, None);
 
     let (reconciliation, records, output) =
         capture_records_async(|| controller.inner.reconcile()).await;

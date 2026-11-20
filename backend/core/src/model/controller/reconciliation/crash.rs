@@ -5,8 +5,8 @@
 //! deployment at once. One that stops after the deployment was ready starts again until the crash
 //! budget is spent; these restarts stay in the generation, so a crash while one loads counts
 //! against the budget. A failure carries the exit status, the engine's own refusal and its masked
-//! last output, and an engine of a ready deployment that this node never ran in the generation, as
-//! after a node or host restart, starts as usual.
+//! last output, and an engine that this node never ran in the generation, as after a node or host
+//! restart, starts as usual, whether its deployment was loading or ready.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -30,7 +30,7 @@ use tracing::{debug, info, warn};
 use super::{
     super::{
         InferenceControllerInner, ModelLifecycleError,
-        state::{apply_crash_failure, engine_startup_failed_state, failed_state, startup_pending},
+        state::{apply_crash_failure, engine_startup_failed_state, failed_state},
     },
     protected_startup_values,
 };
@@ -85,8 +85,8 @@ impl CrashTracker {
 
     /// Decides what the stopped engine of a deployment leads to at `now`, recording a crash after
     /// ready against the generation's budget. The deployment's `retained` state of the generation
-    /// stands in for what a restarted node process no longer remembers: a start still loading
-    /// means this node ran the engine, and a ready one that the deployment was ready.
+    /// stands in for what a restarted node process no longer remembers: a ready one means the
+    /// deployment was ready.
     pub(super) fn decide_stop(
         &self,
         deployment_id: &str,
@@ -98,7 +98,7 @@ impl CrashTracker {
         let start = current_start(&mut starts, deployment_id, lifecycle_generation);
         start.ready |= retained_ready(retained);
         let stopped = StoppedWorkload {
-            ran_in_generation: start.ran || retained.is_some_and(startup_pending),
+            ran_in_generation: start.ran,
             ready_in_generation: start.ready,
         };
         start.crashes.decide(stopped, now, self.crash_window)
@@ -420,12 +420,12 @@ mod tests {
     }
 
     #[test]
-    fn a_retained_start_still_loading_fails_at_once_as_a_startup_crash() {
+    fn an_engine_the_node_never_ran_starts_while_its_deployment_is_still_loading() {
         let tracker = CrashTracker::new(WINDOW);
 
         assert_eq!(
             tracker.decide_stop("model", 1, Some(&loading_state()), Instant::now()),
-            CrashDecision::Fail(CrashFailure::StoppedDuringStartup)
+            CrashDecision::Start
         );
     }
 
@@ -436,7 +436,7 @@ mod tests {
         tracker.record_ran("model", 1, None);
         tracker.record_ready("model", 1);
 
-        // Each restart reads as a start still loading, which counts against the budget.
+        // Each restart reports the deployment loading again, and its stop counts against the budget.
         assert_eq!(
             tracker.decide_stop("model", 1, Some(&loading_state()), now),
             CrashDecision::Restart

@@ -94,8 +94,9 @@ deployment. The same rule holds for model and app deployments.
   of times within a set time window, the deployment fails instead. Restarts stay in the same
   generation, so a crash while a restart is still loading counts against the same budget.
 - A stopped workload that this node didn't run in the generation isn't a crash, such as after a
-  runtime or host restart. It starts as usual. After a node restart, the deployment's recorded
-  lifecycle state stands in for what the node no longer remembers.
+  runtime or host restart, even while the deployment was loading. It starts as usual. Only a
+  deployment recorded as ready counts as ready in the generation; the recorded lifecycle state
+  stands in for what the node no longer remembers.
 - The failure carries the exit status, or says the runtime reported none, and the workload's last
   output, with secret values masked. It reaches the site manager from remote nodes too.
 - A failed deployment stays stopped. Pausing and resuming it, or deploying it again, retries it.
