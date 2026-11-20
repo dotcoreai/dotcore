@@ -255,6 +255,7 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
         });
     }
 
+    let command_line = command_line(&command);
     let terminal = Arc::new(Mutex::new(Terminal::new()));
     let transcript = Arc::new(Mutex::new(Vec::new()));
     let stop = Arc::new(AtomicBool::new(false));
@@ -278,18 +279,24 @@ pub fn run_in_pty(mut command: Command, session: Session) -> Option<PtyRun> {
 
     let mut keyboard = master;
     if let Err(failure) = run_steps(&mut keyboard, &terminal, &session.steps) {
-        kill_and_reap(pid, &exit);
+        let output = kill_and_reap(pid, &exit);
         stop.store(true, Ordering::SeqCst);
-        panic!("{failure}");
+        panic!(
+            "{failure}\n{}",
+            child_report(&command_line, output.as_ref())
+        );
     }
 
     let output = match exit.recv_timeout(EXIT_TIMEOUT) {
         Ok(output) => output.expect("wait for dotc"),
         Err(_) => {
-            kill_and_reap(pid, &exit);
+            let output = kill_and_reap(pid, &exit);
             stop.store(true, Ordering::SeqCst);
             let session = terminal.lock().unwrap().session();
-            panic!("dotc did not exit; session:\n{session}");
+            panic!(
+                "dotc did not exit; session:\n{session}\n{}",
+                child_report(&command_line, output.as_ref())
+            );
         }
     };
     // Let the reader drain the last terminal output before the final state is read.
@@ -563,19 +570,44 @@ fn color_row(screen: &vt100::Screen, row: u16) -> String {
 }
 
 /// Kills the child's process group unless the child already exited, and waits for its waiter
-/// thread to reap it, so a failed session leaves no process behind.
-fn kill_and_reap(pid: u32, exit: &mpsc::Receiver<std::io::Result<Output>>) {
-    if exit.try_recv().is_ok() {
-        return;
+/// thread to reap it, so a failed session leaves no process behind. Returns what the child left
+/// behind, when it could be collected.
+fn kill_and_reap(pid: u32, exit: &mpsc::Receiver<std::io::Result<Output>>) -> Option<Output> {
+    if let Ok(output) = exit.try_recv() {
+        return output.ok();
     }
     // The child leads its own session and process group (setsid before exec), so signalling the
     // group also stops helpers that could hold its stdout or stderr open and block the waiter.
     // SAFETY: plain kill of the process group led by the unreaped child this module spawned.
     unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+    let reaped = exit.recv_timeout(EXIT_TIMEOUT);
     assert!(
-        exit.recv_timeout(EXIT_TIMEOUT).is_ok(),
+        reaped.is_ok(),
         "dotc (pid {pid}) was not reaped after SIGKILL"
     );
+    reaped.ok().and_then(Result::ok)
+}
+
+/// The program and arguments of `command`, for failure reports.
+fn command_line(command: &Command) -> String {
+    std::iter::once(command.get_program())
+        .chain(command.get_args())
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Renders the command, exit status, stdout and stderr of a child killed after a failed session.
+fn child_report(command_line: &str, output: Option<&Output>) -> String {
+    let Some(output) = output else {
+        return format!("command: {command_line}\nno output was collected");
+    };
+    format!(
+        "command: {command_line}\nstatus: {}\nstdout:\n{}\nstderr:\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {

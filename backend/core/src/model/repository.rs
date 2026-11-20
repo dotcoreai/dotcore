@@ -1306,6 +1306,61 @@ mod tests {
     }
 
     #[test]
+    fn creation_never_generates_a_secret_of_a_parameter_the_configuration_excludes() {
+        use crate::test_support::strata::{
+            API_KEY_GENERATED_LENGTH, API_KEY_PARAMETER_ID, CATALOG_MODEL,
+        };
+
+        let excluding_model = CATALOG_MODEL.replace(
+            r#"excludedEngineParameterIds: ["expert-host-memory-mib"]"#,
+            r#"excludedEngineParameterIds: ["expert-host-memory-mib", "api-key"]"#,
+        );
+        assert_ne!(
+            excluding_model, CATALOG_MODEL,
+            "the fixture excludes api-key"
+        );
+        let created = |model: &str| {
+            let directory = test_directory();
+            let site_path = strata_site(directory.path());
+            let generator = Arc::new(CountingSecretGenerator::default());
+            let repository = strata_repository_with(&site_path, model, generator.clone());
+            let deployment = repository
+                .load_model(
+                    "fixture-strata-model",
+                    "strata-q4",
+                    &fixture_placement(),
+                    &LocalModelDeploymentConfiguration::default(),
+                    &ModelDeploymentExposureIntent::Hidden,
+                    None,
+                )
+                .expect("deployment");
+            (generator.calls(), local_snapshot(&deployment))
+        };
+
+        // The same fixture without the exclusion generates the key, so the exclusion is what
+        // keeps it out below.
+        let (calls, included) = created(CATALOG_MODEL);
+        assert_eq!(calls, 1);
+        assert_eq!(
+            secret_of(&included, API_KEY_PARAMETER_ID),
+            Some(crate::test_support::sequential_secret(
+                1,
+                API_KEY_GENERATED_LENGTH as usize
+            ))
+        );
+
+        let (calls, excluded) = created(&excluding_model);
+        assert_eq!(calls, 0);
+        let stored = excluded
+            .engine_parameter_values
+            .iter()
+            .flat_map(|values| &values.values)
+            .map(|value| value.parameter_id.as_str())
+            .collect::<Vec<_>>();
+        assert!(!stored.contains(&API_KEY_PARAMETER_ID), "{stored:?}");
+    }
+
+    #[test]
     fn creation_generates_a_missing_engine_secret_once_after_sizing_and_keeps_a_typed_one() {
         use crate::test_support::strata::{
             API_KEY_GENERATED_LENGTH, API_KEY_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
@@ -3866,6 +3921,19 @@ mod tests {
     /// A repository over the site at `site_path` and the Strata engine with an API key secret
     /// beside `model`, generating predictable secrets.
     fn strata_repository(site_path: &Path, model: &str) -> ModelDeclarationRepository {
+        strata_repository_with(
+            site_path,
+            model,
+            crate::test_support::test_secret_generator(),
+        )
+    }
+
+    /// Like [`strata_repository`], generating secrets with `generator`.
+    fn strata_repository_with(
+        site_path: &Path,
+        model: &str,
+        generator: Arc<dyn crate::SecretGenerator>,
+    ) -> ModelDeclarationRepository {
         let catalog = crate::test_support::strata::load_catalog(
             &crate::test_support::strata::catalog_engine_with_api_key(),
             model,
@@ -3876,8 +3944,27 @@ mod tests {
                 .expect("validated simulated site"),
             Arc::new(catalog),
             fixture_target_capabilities(),
-            crate::test_support::test_secret_generator(),
+            generator,
         )
+    }
+
+    /// Counts the secrets requested and returns predictable values.
+    #[derive(Default)]
+    struct CountingSecretGenerator {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CountingSecretGenerator {
+        fn calls(&self) -> usize {
+            self.calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl crate::SecretGenerator for CountingSecretGenerator {
+        fn generate(&self, length: usize) -> anyhow::Result<String> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            Ok(crate::test_support::sequential_secret(n, length))
+        }
     }
 
     fn fixture_placement() -> ExactPlacement {

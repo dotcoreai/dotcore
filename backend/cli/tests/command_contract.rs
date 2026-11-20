@@ -3390,7 +3390,7 @@ fn the_operator_reviews_a_rejoin_and_declining_leaves_the_site_and_the_folder_un
             ]),
         )
     });
-    wait_for_file(&token_file);
+    wait_for_file(&token_file, &manager);
     // The joining machine runs on a terminal, so it shows the fingerprint to match.
     let mut join = dotc();
     join.args(["node", "join", "--site-dir"])
@@ -3402,7 +3402,7 @@ fn the_operator_reviews_a_rejoin_and_declining_leaves_the_site_and_the_folder_un
     let Some(joined) = run_in_pty(join, Session::new([])) else {
         return;
     };
-    let Some(added) = add_run.join().expect("node add session") else {
+    let Some(added) = manager.finish(add_run) else {
         return;
     };
 
@@ -4604,7 +4604,7 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
             Session::new([Step::Wait("Allow this node to join?"), Step::Send(b"yes\n")]),
         )
     });
-    wait_for_file(&token_file);
+    wait_for_file(&token_file, &manager);
     let token = std::fs::read_to_string(&token_file)
         .expect("token")
         .trim()
@@ -4641,10 +4641,7 @@ fn node_add_asks_the_operator_and_node_join_enters_the_token_hidden() {
     let Some(joined) = run_in_pty(join, session) else {
         return;
     };
-    let added = add_run
-        .join()
-        .expect("node add session")
-        .expect("pty available");
+    let added = manager.finish(add_run).expect("pty available");
 
     assert_eq!(joined.code(), Some(0), "screen:\n{}", joined.screen());
     assert_eq!(joined.stderr(), "");
@@ -4738,7 +4735,7 @@ fn an_interactive_join_starts_the_node_with_its_packaged_launcher_or_shows_how()
                 Session::new([Step::Wait("Allow this node to join?"), Step::Send(b"yes\n")]),
             )
         });
-        wait_for_file(&token_file);
+        wait_for_file(&token_file, &manager);
         let mut join = dotc();
         join.args(["node", "join", "--site-dir"])
             .arg(&node_dir)
@@ -4770,10 +4767,7 @@ fn an_interactive_join_starts_the_node_with_its_packaged_launcher_or_shows_how()
         ) else {
             return;
         };
-        let added = add_run
-            .join()
-            .expect("node add session")
-            .expect("pty available");
+        let added = manager.finish(add_run).expect("pty available");
 
         assert_eq!(added.code(), Some(0), "session:\n{}", added.session());
         assert_eq!(joined.code(), Some(0), "session:\n{}", joined.session());
@@ -4852,7 +4846,7 @@ fn node_add_and_join_show_the_same_fingerprint_pattern_in_color_or_without() {
                 Session::new([Step::Wait("Allow this node to join?"), Step::Send(b"y")]),
             )
         });
-        wait_for_file(&token_file);
+        wait_for_file(&token_file, &manager);
         let Some(joined) = run_in_pty(
             join,
             Session::new([
@@ -4862,10 +4856,7 @@ fn node_add_and_join_show_the_same_fingerprint_pattern_in_color_or_without() {
         ) else {
             return;
         };
-        let added = add_run
-            .join()
-            .expect("node add session")
-            .expect("pty available");
+        let added = manager.finish(add_run).expect("pty available");
 
         assert_eq!(joined.code(), Some(0), "session:\n{}", joined.session());
         assert_eq!(added.code(), Some(0), "session:\n{}", added.session());
@@ -5973,6 +5964,7 @@ struct LiveManager {
     // Kept so the server's pipes stay open until it stops.
     _stdout: mpsc::Receiver<String>,
     _stderr: mpsc::Receiver<Vec<u8>>,
+    logs: Arc<Mutex<Vec<u8>>>,
 }
 
 impl LiveManager {
@@ -5996,7 +5988,7 @@ impl LiveManager {
             .env("DOTCORE_SITE_DIR", site_dir)
             .env("DOTCORE_CATALOG_DIR", site_dir.join("master-catalog"))
             .env("DOTCORE_CACHE_DIR", site_dir.join("cache"))
-            .env("RUST_LOG", "off");
+            .env("RUST_LOG", "warn");
         let child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -6006,19 +5998,41 @@ impl LiveManager {
         let stdout = server.child.stdout.take().expect("server stdout");
         let stderr = server.child.stderr.take().expect("server stderr");
         let (lines, _) = read_lines(stdout);
-        let (errors, _) = read_output(stderr);
+        let (errors, logs) = read_output_live(stderr);
         let startup = wait_for_startup(&mut server.child, &lines, &errors);
         Self {
             management: startup_addresses(&startup).management,
             server,
             _stdout: lines,
             _stderr: errors,
+            logs,
         }
     }
 
     /// The management address to pass as `--manager`.
     fn management(&self) -> String {
         self.management.to_string()
+    }
+
+    /// The warnings and errors the manager logged so far, for failure messages.
+    fn logs(&self) -> String {
+        text(&self.logs.lock().unwrap())
+    }
+
+    /// Waits for a thread playing the manager operator's side, failing with the manager's logs
+    /// when that thread panicked.
+    fn finish<T>(&self, operator: thread::JoinHandle<T>) -> T {
+        operator.join().unwrap_or_else(|payload| {
+            let reason = payload
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| payload.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic");
+            panic!(
+                "node add session panicked: {reason}\nmanager logs:\n{}",
+                self.logs()
+            )
+        })
     }
 
     /// Stops the manager and waits until it released the site.
@@ -6231,13 +6245,14 @@ fn loopback_peer_address_toward(destination: std::net::Ipv4Addr) -> std::net::Ip
     peer.ip()
 }
 
-fn wait_for_file(path: &Path) {
+fn wait_for_file(path: &Path, manager: &LiveManager) {
     let deadline = Instant::now() + Duration::from_secs(20);
     while !path.exists() {
         assert!(
             Instant::now() < deadline,
-            "{} never appeared",
-            path.display()
+            "{} never appeared; manager logs:\n{}",
+            path.display(),
+            manager.logs()
         );
         thread::sleep(Duration::from_millis(20));
     }
@@ -6468,6 +6483,25 @@ fn read_lines(
         }
     });
     (receiver, reader)
+}
+
+fn read_output_live(
+    mut input: impl Read + Send + 'static,
+) -> (mpsc::Receiver<Vec<u8>>, Arc<Mutex<Vec<u8>>>) {
+    let (sender, receiver) = mpsc::channel();
+    let shared = Arc::new(Mutex::new(Vec::new()));
+    let collected = shared.clone();
+    thread::spawn(move || {
+        let mut chunk = [0u8; 4096];
+        loop {
+            match input.read(&mut chunk).expect("server stderr") {
+                0 => break,
+                read => collected.lock().unwrap().extend_from_slice(&chunk[..read]),
+            }
+        }
+        let _ = sender.send(collected.lock().unwrap().clone());
+    });
+    (receiver, shared)
 }
 
 fn read_output(

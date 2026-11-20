@@ -1660,7 +1660,7 @@ async fn backend_preparation_waits_for_the_manager_node_first_collection() {
         },
         collector,
     ));
-    probe.wait_for_calls(1).await;
+    wait_for_first_collection(&probe, &mut preparation).await;
     tokio::task::yield_now().await;
     assert!(
         !preparation.is_finished(),
@@ -1668,8 +1668,14 @@ async fn backend_preparation_waits_for_the_manager_node_first_collection() {
     );
 
     release.send(()).expect("release first collection");
-    let backend = (&mut preparation)
+    let backend = tokio::time::timeout(support::CONVERGENCE_DEADLINE, &mut preparation)
         .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "preparation did not finish after the first collection was released (collector calls: {})",
+                probe.calls()
+            )
+        })
         .expect("preparation task")
         .expect("prepared backend");
     let address = backend.addresses().management.expect("management listener");
@@ -2321,6 +2327,29 @@ impl CollectorProbe {
             }
             notified.await;
         }
+    }
+}
+
+/// Waits for the collector's first call, failing with the preparation error if preparation ends
+/// first and with the probe state if the deadline passes.
+async fn wait_for_first_collection<T, E: std::fmt::Display>(
+    probe: &CollectorProbe,
+    preparation: &mut tokio::task::JoinHandle<Result<T, E>>,
+) {
+    tokio::select! {
+        waited = tokio::time::timeout(support::CONVERGENCE_DEADLINE, probe.wait_for_calls(1)) => {
+            if waited.is_err() {
+                panic!(
+                    "no first collection within the deadline (collector calls: {}, preparation finished: {})",
+                    probe.calls(),
+                    preparation.is_finished()
+                );
+            }
+        }
+        result = &mut *preparation => match result.expect("preparation task") {
+            Ok(_) => panic!("preparation finished without a first collection"),
+            Err(error) => panic!("preparation failed before the first collection: {error}"),
+        },
     }
 }
 
