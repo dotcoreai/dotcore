@@ -31,7 +31,8 @@ main() {
 }
 
 # Installs Dotcore, one step after the other; each step stops the run on a failure it can't fix.
-# With a join token, it checks first that this machine can join, and ends by joining the site.
+# The development environment's own Dotcore replaces the install when the user picks it. With a
+# join token, it checks first that this machine can join, and ends by joining the site.
 run_install() {
   if [ -n "$join_token" ]; then
     step "Checking this machine can join a site"
@@ -47,20 +48,16 @@ run_install() {
   if "$use_dev_tools"; then
     step "Using the development environment's Dotcore"
     check_development_tools
+  else
+    step "Choosing the install source"
+    select_source
 
-    step "Next steps"
-    print_next_steps
-    return 0
+    step "Looking for an existing install"
+    detect_existing_install
+
+    step "Installing Dotcore"
+    install_profile
   fi
-
-  step "Choosing the install source"
-  select_source
-
-  step "Looking for an existing install"
-  detect_existing_install
-
-  step "Installing Dotcore"
-  install_profile
 
   if [ -n "$join_token" ]; then
     step "Joining the site"
@@ -446,12 +443,21 @@ print_next_steps() {
   fi
 }
 
-# Hands this terminal over to the installed dotc to join the site; dotc asks its questions, waits
-# for the operator's approval, then starts the node. Nothing of the installer runs after it, so
-# the retry steps print first.
+# Hands this terminal over to dotc to join the site: the development environment's when the user
+# picked it, else the one just installed. dotc asks its questions, waits for the operator's
+# approval, then starts the node. Nothing of the installer runs after it, so the retry steps print
+# first.
 join_site() {
   info "dotc asks a few questions, then waits for the operator to approve this machine on the"
   info "manager. Dotcore starts once the machine joins."
+  if "$use_dev_tools"; then
+    info "If the join fails, run 'dotc node join' in this environment with the options it suggests:"
+    info "the same token while it's valid, else a new command from the console's Add machine or"
+    info "'dotc node add'."
+
+    exec dotc node join --token "$join_token" </dev/tty
+  fi
+
   info "If the join fails, open a new terminal to have 'dotc' on your PATH, then run 'dotc node join'"
   info "with the options it suggests: the same token while it's valid, else a new command from the"
   info "console's Add machine or 'dotc node add'."
