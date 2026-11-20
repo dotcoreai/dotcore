@@ -3067,6 +3067,8 @@ pub(super) fn application_with_storage_choices() -> Application {
     let mut application = application();
     let binding = |name: &str, placements: &[StoragePlacement]| StorageBinding {
         binding_name: name.to_owned(),
+        display_name: format!("{name} storage"),
+        description: format!("Holds the {name} files."),
         mount_path: format!("/{name}"),
         kind: StorageKind::Data as i32,
         placements: placements

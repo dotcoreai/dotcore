@@ -81,7 +81,7 @@ graph:
       arguments:
         - "trap 'exit 0' TERM; mkdir -p /www; printf 'rejoin-ready' > /www/index.html; httpd -f -p 8080 -h /www & wait $!"
       ports: [{ portName: "http", portNumber: 8080 }]
-      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
+      storageBindings: [{ bindingName: "data", displayName: "Data", description: "Application files.", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
       readiness: { httpGet: { portName: "http", path: "/" } }
   primaryEndpoint:
     serviceName: "web"

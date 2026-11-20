@@ -731,6 +731,8 @@ mod tests {
         let binding =
             |binding_name: &str, kind: StorageKind, placement: StoragePlacement| StorageBinding {
                 binding_name: binding_name.to_owned(),
+                display_name: String::new(),
+                description: String::new(),
                 mount_path: format!("/cache/{binding_name}"),
                 kind: kind as i32,
                 placements: vec![placement as i32],

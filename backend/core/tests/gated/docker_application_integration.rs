@@ -3557,6 +3557,8 @@ graph:
               projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
       storageBindings:
         - bindingName: "data"
+          displayName: "Data"
+          description: "Synthetic lifecycle data."
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
@@ -3592,10 +3594,14 @@ graph:
           portNumber: 8080
       storageBindings:
         - bindingName: "data"
+          displayName: "Data"
+          description: "Synthetic deployment data."
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
         - bindingName: "models"
+          displayName: "Models"
+          description: "Synthetic model files."
           mountPath: "/data/models"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_APPLICATION", "STORAGE_PLACEMENT_DEPLOYMENT"]

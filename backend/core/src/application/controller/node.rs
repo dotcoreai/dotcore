@@ -3298,6 +3298,8 @@ mod tests {
             .services[0];
         service.storage_bindings = vec![StorageBinding {
             binding_name: "data".to_owned(),
+            display_name: "data storage".to_owned(),
+            description: "Holds the data files.".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![StoragePlacement::Deployment as i32],

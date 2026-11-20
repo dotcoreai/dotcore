@@ -78,6 +78,7 @@ pub(super) fn validate_storage_bindings(
                 binding.mount_path
             ));
         }
+        validate_display_text(binding, owner, subject, errors);
         match StorageKind::try_from(binding.kind) {
             Ok(StorageKind::Unspecified) | Err(_) => errors.push(anyhow::anyhow!(
                 "{subject} storage binding {name:?} requires a kind"
@@ -107,6 +108,31 @@ pub(super) fn validate_storage_bindings(
                     variable.name
                 ));
             }
+        }
+    }
+}
+
+/// Checks that an application binding names and describes its storage for the console, and that an
+/// engine binding, which the console never shows, sets neither.
+fn validate_display_text(
+    binding: &StorageBinding,
+    owner: StorageOwner,
+    subject: &str,
+    errors: &mut Vec<anyhow::Error>,
+) {
+    let name = &binding.binding_name;
+    for (field, value) in [
+        ("display name", &binding.display_name),
+        ("description", &binding.description),
+    ] {
+        match owner {
+            StorageOwner::ApplicationService if value.trim().is_empty() => errors.push(
+                anyhow::anyhow!("{subject} storage binding {name:?} requires a {field}"),
+            ),
+            StorageOwner::EngineRelease if !value.is_empty() => errors.push(anyhow::anyhow!(
+                "{subject} storage binding {name:?} must not set a {field}"
+            )),
+            _ => {}
         }
     }
 }
@@ -241,6 +267,51 @@ mod tests {
     }
 
     #[test]
+    fn requires_display_text_on_application_bindings_and_rejects_it_on_engine_bindings() {
+        let application = [
+            StorageBinding {
+                display_name: String::new(),
+                ..binding("nameless", "/nameless", StoragePlacement::Deployment)
+            },
+            StorageBinding {
+                description: "  ".to_owned(),
+                ..binding("undescribed", "/undescribed", StoragePlacement::Deployment)
+            },
+        ];
+        let engine = [StorageBinding {
+            kind: StorageKind::Cache as i32,
+            display_name: "Cache".to_owned(),
+            description: "Compile cache.".to_owned(),
+            ..engine_binding("cache", "/cache", StoragePlacement::Deployment)
+        }];
+
+        assert_eq!(
+            validate(
+                &application,
+                StorageOwner::ApplicationService,
+                &mut BTreeSet::new(),
+                &mut BTreeSet::new()
+            ),
+            [
+                "service storage binding \"nameless\" requires a display name",
+                "service storage binding \"undescribed\" requires a description",
+            ]
+        );
+        assert_eq!(
+            validate(
+                &engine,
+                StorageOwner::EngineRelease,
+                &mut BTreeSet::new(),
+                &mut BTreeSet::new()
+            ),
+            [
+                "engine release storage binding \"cache\" must not set a display name",
+                "engine release storage binding \"cache\" must not set a description",
+            ]
+        );
+    }
+
+    #[test]
     fn rejects_missing_kinds_and_placements() {
         let bindings = [StorageBinding {
             kind: 0,
@@ -272,14 +343,14 @@ mod tests {
             },
         ];
         let engine = [
-            binding("data", "/data", StoragePlacement::Deployment),
+            engine_binding("data", "/data", StoragePlacement::Deployment),
             StorageBinding {
                 kind: StorageKind::Cache as i32,
-                ..binding("shared", "/shared", StoragePlacement::Application)
+                ..engine_binding("shared", "/shared", StoragePlacement::Application)
             },
             StorageBinding {
                 kind: StorageKind::Cache as i32,
-                ..binding("compile", "/compile", StoragePlacement::EngineArtifact)
+                ..engine_binding("compile", "/compile", StoragePlacement::EngineArtifact)
             },
         ];
 
@@ -303,8 +374,8 @@ mod tests {
                 &mut BTreeSet::new()
             ),
             [
-                "service storage binding \"data\" cannot use kind STORAGE_KIND_DATA",
-                "service storage binding \"shared\" cannot use placement STORAGE_PLACEMENT_APPLICATION",
+                "engine release storage binding \"data\" cannot use kind STORAGE_KIND_DATA",
+                "engine release storage binding \"shared\" cannot use placement STORAGE_PLACEMENT_APPLICATION",
             ]
         );
     }
@@ -340,7 +411,7 @@ mod tests {
                 StoragePlacement::Deployment,
                 StoragePlacement::EngineArtifact,
             ]),
-            ..binding("cache", "/cache", StoragePlacement::Deployment)
+            ..engine_binding("cache", "/cache", StoragePlacement::Deployment)
         }];
 
         assert_eq!(
@@ -362,7 +433,7 @@ mod tests {
                 &mut BTreeSet::new(),
                 &mut BTreeSet::new()
             ),
-            ["service storage binding \"cache\" must declare exactly one placement"]
+            ["engine release storage binding \"cache\" must declare exactly one placement"]
         );
     }
 
@@ -413,18 +484,32 @@ mod tests {
         names: &mut BTreeSet<String>,
         variables: &mut BTreeSet<String>,
     ) -> Vec<String> {
+        let subject = match owner {
+            StorageOwner::ApplicationService => "service",
+            StorageOwner::EngineRelease => "engine release",
+        };
         let mut errors = Vec::new();
-        validate_storage_bindings(bindings, owner, "service", names, variables, &mut errors);
+        validate_storage_bindings(bindings, owner, subject, names, variables, &mut errors);
         errors.iter().map(ToString::to_string).collect()
     }
 
     fn binding(name: &str, mount_path: &str, placement: StoragePlacement) -> StorageBinding {
         StorageBinding {
             binding_name: name.to_owned(),
+            display_name: format!("{name} storage"),
+            description: format!("Holds the {name} files."),
             mount_path: mount_path.to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![placement as i32],
             environment: Vec::new(),
+        }
+    }
+
+    fn engine_binding(name: &str, mount_path: &str, placement: StoragePlacement) -> StorageBinding {
+        StorageBinding {
+            display_name: String::new(),
+            description: String::new(),
+            ..binding(name, mount_path, placement)
         }
     }
 

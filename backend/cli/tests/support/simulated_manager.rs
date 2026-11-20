@@ -240,7 +240,7 @@ graph:
           - { operatingSystem: "linux", architecture: "amd64" }
           - { operatingSystem: "linux", architecture: "arm64" }
       ports: [{ portName: "http", portNumber: 8080 }]
-      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
+      storageBindings: [{ bindingName: "data", displayName: "Data", description: "Application files.", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
       readiness: { httpGet: { portName: "http", path: "/health" } }
   primaryEndpoint:
     serviceName: "web"

@@ -2499,6 +2499,8 @@ mod tests {
             [
                 StorageBinding {
                     binding_name: "compile-cache".to_owned(),
+                    display_name: String::new(),
+                    description: String::new(),
                     mount_path: "/cache".to_owned(),
                     kind: StorageKind::Cache as i32,
                     placements: vec![StoragePlacement::EngineArtifact as i32],
@@ -2515,6 +2517,8 @@ mod tests {
                 },
                 StorageBinding {
                     binding_name: "scratch".to_owned(),
+                    display_name: String::new(),
+                    description: String::new(),
                     mount_path: "/scratch".to_owned(),
                     kind: StorageKind::Cache as i32,
                     placements: vec![StoragePlacement::Deployment as i32],

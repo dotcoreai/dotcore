@@ -193,6 +193,8 @@ mod tests {
                         }],
                         storage_bindings: vec![StorageBinding {
                             binding_name: "data".to_owned(),
+                            display_name: "Application data".to_owned(),
+                            description: "Files the application stores.".to_owned(),
                             mount_path: "/app/data".to_owned(),
                             kind: StorageKind::Data as i32,
                             placements: vec![StoragePlacement::Deployment as i32],

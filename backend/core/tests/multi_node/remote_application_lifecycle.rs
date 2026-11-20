@@ -1027,7 +1027,7 @@ graph:
           input:
             inferenceRoute:
               projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
-      storageBindings: [{ bindingName: "data", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
+      storageBindings: [{ bindingName: "data", displayName: "Data", description: "Application files.", mountPath: "/data", kind: "STORAGE_KIND_DATA", placements: ["STORAGE_PLACEMENT_DEPLOYMENT"] }]
       readiness: { httpGet: { portName: "http", path: "/health" } }
   primaryEndpoint:
     serviceName: "web"

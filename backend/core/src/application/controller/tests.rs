@@ -1513,6 +1513,8 @@ fn launch_keys_each_storage_attachment_by_its_retained_placement() {
     web.storage_bindings = vec![
         StorageBinding {
             binding_name: "data".to_owned(),
+            display_name: "data storage".to_owned(),
+            description: "Holds the data files.".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![StoragePlacement::Deployment as i32],
@@ -1520,6 +1522,8 @@ fn launch_keys_each_storage_attachment_by_its_retained_placement() {
         },
         StorageBinding {
             binding_name: "models".to_owned(),
+            display_name: "models storage".to_owned(),
+            description: "Holds the models files.".to_owned(),
             mount_path: "/data/models".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![
@@ -5112,6 +5116,8 @@ async fn malformed_persisted_launch_declarations_fail_before_resolution_or_runti
                 .storage_bindings
                 .push(StorageBinding {
                     binding_name: "missing".to_owned(),
+                    display_name: "missing storage".to_owned(),
+                    description: "Holds the missing files.".to_owned(),
                     mount_path: "/missing".to_owned(),
                     kind: StorageKind::Data as i32,
                     placements: vec![StoragePlacement::Deployment as i32],
@@ -5538,6 +5544,8 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
     web.storage_bindings = vec![
         StorageBinding {
             binding_name: "data".to_owned(),
+            display_name: "data storage".to_owned(),
+            description: "Holds the data files.".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![StoragePlacement::Deployment as i32],
@@ -5545,6 +5553,8 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
         },
         StorageBinding {
             binding_name: "cache".to_owned(),
+            display_name: "cache storage".to_owned(),
+            description: "Holds the cache files.".to_owned(),
             mount_path: "/cache".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![StoragePlacement::Deployment as i32],

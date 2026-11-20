@@ -3608,6 +3608,8 @@ async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_sha
     ]
     .map(|(binding_name, mount_path, placement)| StorageBinding {
         binding_name: binding_name.to_owned(),
+        display_name: String::new(),
+        description: String::new(),
         mount_path: mount_path.to_owned(),
         kind: StorageKind::Cache as i32,
         placements: vec![placement as i32],
@@ -3720,6 +3722,8 @@ async fn teardown_after_a_relaunch_that_failed_before_its_workload_deletes_only_
         .expect("engine artifact")
         .storage_bindings = vec![StorageBinding {
         binding_name: "data".to_owned(),
+        display_name: String::new(),
+        description: String::new(),
         mount_path: "/data".to_owned(),
         kind: StorageKind::Cache as i32,
         placements: vec![StoragePlacement::Deployment as i32],
