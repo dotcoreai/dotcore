@@ -21,7 +21,6 @@ parameterSchema:
       unsignedInteger:
         minimum: "512"
         unit: "tokens"
-        defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -34,9 +33,10 @@ parameterSchema:
         minimum: "512"
         maximum: "2147483639"
         unit: "tokens"
+        defaultValue: "32768"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
       # 1 to 8, as Strata's own launcher allows (`check_parallel`, `terminal/strata_cli/launch/settings.py`) and
       # Dotcore's wrapper enforces (`MAX_PARALLEL`, `engines/strata/start.py`).

@@ -17,13 +17,12 @@ parameterSchema:
     - parameterId: "total-context"
       displayName: "Total context"
       visibility: "PARAMETER_VISIBILITY_BASIC"
-      description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. Raise it to serve longer or more simultaneous conversations; when it fills, the newest requests pause and are processed again once memory frees up."
+      description: "Memory the model holds for all requests at once; requests that start with the same prompt share it. It follows the context per request times the parallel requests unless you set it. Raise it to serve longer or more simultaneous conversations; when it fills, the newest requests pause and are processed again once memory frees up."
       # At least Dotcore's context floor. No vLLM argument: the adapter turns it into KV cache bytes,
       # so vLLM bounds nothing above.
       unsignedInteger:
         minimum: "512"
         unit: "tokens"
-        defaultValue: "32768"
     - parameterId: "context-per-request"
       displayName: "Context per request"
       visibility: "PARAMETER_VISIBILITY_BASIC"
@@ -33,10 +32,11 @@ parameterSchema:
       unsignedInteger:
         minimum: "512"
         unit: "tokens"
+        defaultValue: "32768"
     - parameterId: "parallel-requests"
       displayName: "Parallel requests"
-      visibility: "PARAMETER_VISIBILITY_ADVANCED"
-      description: "Requests generated at once; more wait in a queue. Each one also holds model state of its own, so every added request uses more memory; raise it when several callers use the model together."
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      description: "Requests generated at once; more wait in a queue. The total context grows with them unless you set it, and each one also holds model state of its own, so every added request uses more memory; raise it when several callers use the model together."
       # `--max-num-seqs` is `ge=1` with no upper limit (`max_num_seqs`, `vllm/config/scheduler.py`).
       unsignedInteger:
         minimum: "1"

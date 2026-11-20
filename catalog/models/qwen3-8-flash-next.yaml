@@ -375,30 +375,45 @@ profiles:
     configurationId: "strata-nvidia-cuda"
     defaultModelArtifactBindingId: "iq3-s"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "iq2-xs"
     displayName: "ISTA-DASLab IQ2_XS"
     description: "Runs the smaller mixed 2-bit weights on an RTX 5090 or RTX PRO 6000, keeping the experts that don't fit on the GPU in host memory."
     configurationId: "strata-nvidia-cuda"
     defaultModelArtifactBindingId: "iq2-xs"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "nvfp4"
     displayName: "GPTQ NVFP4"
     description: "Runs the 4-bit weights, the closest to the full model, on an RTX PRO 6000 with every expert on the GPU."
     configurationId: "strata-nvfp4-nvidia-cuda"
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "gb10-iq3-s"
     displayName: "ISTA-DASLab IQ3_S for GB10"
     description: "Runs upstream's recommended mixed 3-bit weights on a GB10, keeping every expert in the memory its GPU shares with the host."
     configurationId: "strata-nvidia-gb10"
     defaultModelArtifactBindingId: "iq3-s"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
   - profileId: "gb10-nvfp4"
     displayName: "GPTQ NVFP4 for GB10"
     description: "Runs the 4-bit weights, the closest to the full model, on a GB10, keeping every expert in the memory its GPU shares with the host."
     configurationId: "strata-nvfp4-nvidia-gb10"
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults: {}
+    # Strata's total context is always the parallel requests times the context per request.
+    engineParameterVisibilityOverrides:
+      - { parameterId: "total-context", visibility: "PARAMETER_VISIBILITY_HIDDEN" }
 intelligence:
   overall: 38
 license:
