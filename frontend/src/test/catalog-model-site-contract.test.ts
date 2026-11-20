@@ -14,6 +14,7 @@ import {
   file_dotcore_catalog_v1_execution,
   ModelParallelShape,
 } from "@/gen/dotcore/catalog/v1/execution_pb";
+import { file_dotcore_catalog_v1_license } from "@/gen/dotcore/catalog/v1/license_pb";
 import { file_dotcore_catalog_v1_model } from "@/gen/dotcore/catalog/v1/model_pb";
 import { file_dotcore_catalog_v1_service } from "@/gen/dotcore/catalog/v1/service_pb";
 import { file_dotcore_catalog_v1_upstream_model_template } from "@/gen/dotcore/catalog/v1/upstream_model_template_pb";
@@ -288,7 +289,7 @@ describe("separate catalog and model read contracts", () => {
     expect(fieldNames(message(file_dotcore_catalog_v1_model, "IntelligenceScore"))).toEqual([
       "overall",
     ]);
-    expect(fieldNames(message(file_dotcore_catalog_v1_model, "License"))).toEqual([
+    expect(fieldNames(message(file_dotcore_catalog_v1_license, "License"))).toEqual([
       "id",
       "terms_url",
     ]);

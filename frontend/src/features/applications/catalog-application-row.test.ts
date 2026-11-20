@@ -148,6 +148,20 @@ describe("projectCatalogApplicationRows", () => {
     ).toEqual([]);
   });
 
+  it("carries the licence identifier and leaves it absent without a licence", () => {
+    const licensed = row(
+      create(ApplicationSchema, {
+        applicationId: "licensed",
+        displayName: "Licensed",
+        license: { id: "GPL-3.0", termsUrl: "https://www.gnu.org/licenses/gpl-3.0.html" },
+      }),
+    );
+    const bare = row(create(ApplicationSchema, { applicationId: "bare", displayName: "Bare" }));
+
+    expect(licensed.licenseId).toBe("GPL-3.0");
+    expect(bare).not.toHaveProperty("licenseId");
+  });
+
   it("carries the description", () => {
     const projected = row(
       create(ApplicationSchema, {

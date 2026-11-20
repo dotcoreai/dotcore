@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import { syntheticCatalog } from "@/features/models/catalog/catalog-table-test-support";
 import { projectModelRows } from "@/features/models/profiles/model-row";
-import { LicenseSchema, type Model, ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
+import { LicenseSchema } from "@/gen/dotcore/catalog/v1/license_pb";
+import { type Model, ModelSchema } from "@/gen/dotcore/catalog/v1/model_pb";
 
 import { CatalogModelInspector } from "./catalog-model-inspector";
 
@@ -43,7 +44,7 @@ function renderInspector(model: Model) {
   );
 }
 
-describe("ModelLicenseDetail", () => {
+describe("Catalog model inspector license", () => {
   it("links an SPDX identifier to its terms", () => {
     renderInspector(withLicense("Apache-2.0", "https://www.apache.org/licenses/LICENSE-2.0"));
 
