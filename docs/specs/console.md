@@ -74,8 +74,11 @@ flowchart LR
   with its unit, in the largest unit that shows it exactly, and accepts typed binary suffixes. Chips
   offer round sizes and the largest fit; a chip shows as pressed only after a click, and an empty
   box shows the sized value. Memory sliders end at the largest fit the server answers, and the
-  total context's largest fit follows the dialog's values the same way; clicking it sets that
-  value.
+  largest fits of total context and context per request follow the dialog's values the same way;
+  clicking one sets that value.
+- Ask for context per request and parallel requests before total context. Total context starts at
+  the server's starting value and follows the other two, capped at its largest fit, until you edit
+  it.
 - Hide Get started for the whole site once a ready step shows or the operator dismisses it. The
   profile menu still opens the page without changing the choice. The choice is a site-wide console
   setting, read from and updated through the site manager ([sites](sites.md#site-manager)).

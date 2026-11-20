@@ -73,7 +73,7 @@ and app access. Inference clients include SDKs, applications and evaluation harn
   unavailable. A missing value is never shown as zero.
 - Physical, reserved, used, claimed and available capacity are kept apart. Free memory in total is
   never proof that a workload fits.
-- One capacity answer. Every view of memory fit, largest fit, starting total context and memory use
+- One capacity answer. Every view of memory fit, largest fit, starting context values and memory use
   shows the same server evaluation, so views never disagree.
 - Actions explain their impact and constraints. Destructive actions ask for confirmation, and
   failures say what to do next.

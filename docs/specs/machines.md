@@ -14,10 +14,11 @@ Code: `backend/node_hardware/` (hardware facts, signal sampling, declared machin
 - Discover the GPUs present on a machine, for every supported vendor, apart from how the site uses
   them.
 - See which deployments use each GPU, when attribution is authoritative.
-- Check whether a configuration fits a target for a scenario you choose (total context and
-  optional context per request), against free memory by default or total memory on request.
-- See the largest total context that fits a target's free memory, and start a new deployment's
-  total context from it.
+- Check whether a configuration fits a target for a scenario you choose (context per request,
+  parallel requests and an optional total context), against free memory by default or total memory
+  on request.
+- See the largest total context and the largest context per request that fit a target's free
+  memory, and start a new deployment's context values within them.
 - Preview the memory a deployment would use on its target, beside what already runs there.
 - Use machines with several GPUs of different sizes. Each target is judged on its own GPUs.
 - Run development sites and tests on declared machines without their hardware. Real hardware only
@@ -179,8 +180,9 @@ The description a node reports instead of its real hardware.
 
 #### Responsibilities
 
-- Evaluate memory pools, occupancy, demands, fit, the largest fitting total context, the starting
-  total context, the largest fitting value of a memory parameter, target ranking and placement
+- Evaluate memory pools, occupancy, demands, fit, the largest fitting total context, the largest
+  fitting context per request for a number of parallel requests, the starting context values, the
+  largest fitting value of a memory parameter, target ranking and placement
   previews.
 - Find a memory parameter's largest fit by probing estimates the caller computes at chosen values,
   judged on every pool under the same room as the total context's largest fit. The fit stops where
@@ -190,8 +192,11 @@ The description a node reports instead of its real hardware.
 - Judge fit per pool against free memory (total less occupancy) less a headroom per pool, or against
   the total on request. The host pool's headroom is larger, because unified GPU memory competes with
   the operating system and can't be paged out.
-- Find the largest fitting total context the same way for each caller, whether it sizes a profile's
-  defaults or a configuration's values as given.
+- Find the largest fitting total context and context per request the same way for each caller,
+  whether it sizes a profile's defaults or a configuration's values as given.
+- Start a new deployment's total context at what its context per request and parallel requests
+  need, capped at the largest fit, not at all free memory. Context per request is lowered only when
+  one request at that size can't fit.
 - Produce the placement preview a view draws for a target: each pool's occupancy with the new
   demand and the fit line.
 - Produce the node memory projection that site memory views draw for each node: every pool with its

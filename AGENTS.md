@@ -223,12 +223,14 @@ in the same change that adds, removes or renames a folder it lists.
   per request (the profile still holds none); advisory, never used for admission or placement.
 - **maximum context**: the largest context one request can use with the model's weights; a
   configuration may lower it. No "effective" variant.
-- **total context** (`total-context`): the KV pool an engine holds, shared by active requests.
+- **total context** (`total-context`): the KV pool an engine holds, shared by active requests; it
+  follows context per request and parallel requests unless set.
 - **context per request** (`context-per-request`): the largest context one request may use in a
   deployment; at most the maximum and the total context.
 - **parallel requests** (`parallel-requests`): requests generated at once; more wait in a queue.
-- **sizing scenario**: context values an operator picks to estimate memory; advisory, never used for
-  admission or placement.
+  With context per request, it sizes the total context.
+- **sizing scenario**: the context per request, parallel requests and optional total context an
+  operator picks to estimate memory; advisory, never used for admission or placement.
 - **memory pool**: memory a target draws from: one pool per dedicated GPU, and one host pool per
   node, which unified GPUs share.
 - **occupancy**: what is in use in a memory pool: measured use per deployment, other use, and
