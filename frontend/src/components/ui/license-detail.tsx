@@ -1,12 +1,10 @@
 import { Detail } from "@/components/ui/detail-list";
-import type { Model } from "@/gen/dotcore/catalog/v1/model_pb";
 
 /**
- * The License row of a catalog model inspector's details: the upstream licence identifier, linked
- * to its terms when the declaration has a link. A model without a licence renders nothing.
+ * The License row of an inspector's details: the upstream licence identifier, linked to its terms
+ * when the declaration has a link. An undeclared licence renders nothing.
  */
-export function ModelLicenseDetail({ model }: { model: Model }) {
-  const license = model.license;
+export function LicenseDetail({ license }: { license?: { id: string; termsUrl: string } }) {
   if (!license) return null;
 
   return (

@@ -12,6 +12,7 @@ import {
   type ApplicationService,
   ApplicationServiceSchema,
 } from "@/gen/dotcore/catalog/v1/application_pb";
+import { LicenseSchema } from "@/gen/dotcore/catalog/v1/license_pb";
 import { setupUser } from "@/test/user";
 
 import {
@@ -38,6 +39,7 @@ const hermes = create(ApplicationSchema, {
     }),
   ]),
   description: hermesDescription,
+  license: create(LicenseSchema, { id: "MIT", termsUrl: "https://opensource.org/license/mit" }),
 });
 const openWebUi = application("open-webui", "Open WebUI", "0.6.5", [
   service(["amd64", "arm64"], { configurationBindings: [routeBinding] }),
@@ -226,7 +228,7 @@ describe("AppCatalogPage table", () => {
     expect(bodyRows()).toEqual(["Notebook", "Hermes", "Open WebUI"]);
   });
 
-  it("shows Uses, Platforms, and Services from the View menu", async () => {
+  it("shows Uses, Platforms, Services, and License from the View menu", async () => {
     const { router, user } = renderCatalog();
     await loaded();
 
@@ -241,20 +243,30 @@ describe("AppCatalogPage table", () => {
       ["Uses", "false"],
       ["Platforms", "false"],
       ["Services", "false"],
+      ["License", "false"],
     ]);
     await user.click(within(menu).getByRole("menuitemcheckbox", { name: "Uses" }));
     await user.click(within(menu).getByRole("menuitemcheckbox", { name: "Platforms" }));
     await user.click(within(menu).getByRole("menuitemcheckbox", { name: "Services" }));
+    await user.click(within(menu).getByRole("menuitemcheckbox", { name: "License" }));
 
-    expect(headers()).toEqual(["Application", "Version", "Uses", "Platforms", "Services"]);
+    expect(headers()).toEqual([
+      "Application",
+      "Version",
+      "Uses",
+      "Platforms",
+      "Services",
+      "License",
+    ]);
     expect(cells("Hermes").slice(2)).toEqual([
       "Inference routePersistent storage",
       "linux/amd64linux/arm64",
       "1",
+      "MIT",
     ]);
-    expect(cells("Notebook").slice(2)).toEqual(["Persistent storage", "linux/amd64", "2"]);
+    expect(cells("Notebook").slice(2)).toEqual(["Persistent storage", "linux/amd64", "2", ""]);
     expect(currentLocation(router)).toBe(
-      "/apps/catalog?cols=application%2Cversion%2Cuses%2Cplatforms%2Cservices",
+      "/apps/catalog?cols=application%2Cversion%2Cuses%2Cplatforms%2Cservices%2Clicense",
     );
   });
 

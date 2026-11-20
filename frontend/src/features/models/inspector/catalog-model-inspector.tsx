@@ -6,6 +6,7 @@ import { DeployActionIcon } from "@/components/ui/action-icons";
 import { Detail, DetailList } from "@/components/ui/detail-list";
 import { InspectorSectionHeader } from "@/components/ui/inspector-section-header";
 import { InspectorShell } from "@/components/ui/inspector-shell";
+import { LicenseDetail } from "@/components/ui/license-detail";
 import { Notice } from "@/components/ui/notice";
 import { ResourceTitle } from "@/components/ui/resource-marker";
 import {
@@ -27,7 +28,6 @@ import { type ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb
 
 import { modelInspectorPanelId } from "./model-inspector-panel";
 import { ModelIntelligenceSection } from "./model-intelligence-section";
-import { ModelLicenseDetail } from "./model-license-detail";
 import { CatalogProfiles, CatalogProfileSections } from "./profile-sections";
 
 /**
@@ -188,7 +188,7 @@ function CatalogModelOverview({
           <Detail label="Version" value={model.version} />
           <Detail label="Model ID" value={model.modelId} />
           <Detail label="Request kinds" value={requestKindsLabel(row.requestKinds) || "None"} />
-          <ModelLicenseDetail model={model} />
+          <LicenseDetail license={model.license} />
         </DetailList>
       </section>
       {onOpenDeployment ? (
