@@ -5,8 +5,8 @@
 //! A node reports one typed stage and one failure code, and the manager maps them back to the
 //! same text and failure summary the realizer recorded, so the application service reads them as
 //! the node recorded them. The one exception is a failed deployment, whose failure summary the
-//! node sends as recorded, cut to the sizes the manager accepts, since it carries the exit
-//! status and output of the workload that stopped.
+//! node sends as recorded, cut to the sizes the manager accepts, since it carries diagnostics
+//! such as the output of a workload that stopped or of an image that failed to build.
 
 use dotcore_proto::dotcore::application::{
     private::v1::{ApplicationStatusFailureCode, ApplicationStatusStage},
@@ -260,7 +260,7 @@ mod tests {
             public_failure(ApplicationStatusFailureCode::ArtifactPreparationFailed)
                 .expect("artifact preparation failure")
                 .message,
-            "Application image did not match its pinned identity or this node's platform"
+            "Application image could not be prepared on this node; retrying"
         );
         let uncoded_artifact = ApplicationDeploymentState {
             stage: "artifact-preparation".to_owned(),

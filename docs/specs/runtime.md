@@ -65,6 +65,8 @@ The backend realizes it and reports back what it started and where it listens.
   and artifact kind, before launching.
 - Physical artifact preparation belongs to the artifact manager ([storage](storage.md)). The runtime
   owns virtualized startup. Controllers keep the operation's progress, failure and cancellation.
+- An image that fails to build or doesn't match its pinned identity fails its deployment, with the
+  build output when there is some. It isn't prepared again until the deployment starts afresh.
 - Runtime failure changes observations, never desired intent.
 
 ### Handling a workload that stops

@@ -1,7 +1,7 @@
 //! Inference controller lifecycle state projection and error mapping.
 
 use dotcore_artifact::{ModelArtifactProgress, ModelArtifactStage};
-use dotcore_domain::{real_time, valid_id};
+use dotcore_domain::{deployment::failure::failure_diagnostics, real_time, valid_id};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivation, ModelDeploymentActivationPhase,
     ModelDeploymentDeclaration, ModelDeploymentDesiredState, ModelDeploymentFailure,
@@ -633,16 +633,14 @@ pub(super) fn engine_image_acquisition_failed_state(
 }
 
 /// Diagnostics of a failed engine artifact preparation: the stage and output tail of a Docker
-/// image derivation loader that failed, and none for other failures.
-pub(super) fn engine_image_acquisition_diagnostics(
-    loader_output_tail: Option<&str>,
-) -> Vec<String> {
-    loader_output_tail
+/// image build that failed, its newest output kept, and none for other failures.
+pub(super) fn engine_image_acquisition_diagnostics(output_tail: Option<&str>) -> Vec<String> {
+    output_tail
         .map(|output| {
-            vec![
-                "Stage: engine image acquisition".to_owned(),
-                format!("Output tail: {output}"),
-            ]
+            failure_diagnostics(
+                vec!["Stage: engine image acquisition".to_owned()],
+                Some(output),
+            )
         })
         .unwrap_or_default()
 }
@@ -1353,6 +1351,24 @@ mod tests {
             ]
         );
         assert!(super::engine_image_acquisition_diagnostics(None).is_empty());
+
+        // A long loader output keeps its newest lines.
+        let output = (1..=200)
+            .map(|line| format!("docker-image-vllm: layer {line:03} pulled"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let stage = "Stage: engine image acquisition";
+        let room = dotcore_domain::deployment::MAX_FAILURE_DIAGNOSTIC_BYTES
+            - stage.len()
+            - "Output tail: ".len();
+        assert_eq!(
+            super::engine_image_acquisition_diagnostics(Some(&output)),
+            [
+                stage.to_owned(),
+                format!("Output tail: {}", &output[output.len() - room..]),
+            ]
+        );
+        assert!(output.len() > room && output.ends_with("layer 200 pulled"));
     }
 
     #[test]

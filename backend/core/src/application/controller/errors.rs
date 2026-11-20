@@ -141,9 +141,12 @@ pub enum TargetIneligibility {
     NotApplicationTarget,
 }
 
+/// One deployment's failed reconciliation: the stage it failed in, its stable failure code when it
+/// has one, the diagnostics its failure summary shows, and the error behind it.
 pub(super) struct DeploymentReconcileFailure {
     pub(super) stage: &'static str,
     pub(super) failure: Option<DeploymentFailureCode>,
+    pub(super) diagnostics: Vec<String>,
     pub(super) source: Box<dyn std::error::Error + Send + Sync>,
 }
 
@@ -155,6 +158,18 @@ impl DeploymentReconcileFailure {
             self.source.downcast_ref(),
             Some(crate::dispatch::application::ApplicationRuntimeError::ActionRejected)
         )
+    }
+
+    /// The failure summary of a coded failure, with its diagnostics.
+    pub(super) fn summary(
+        &self,
+    ) -> Option<dotcore_proto::dotcore::application::v1::ApplicationDeploymentFailure> {
+        self.failure.map(|failure| {
+            dotcore_proto::dotcore::application::v1::ApplicationDeploymentFailure {
+                diagnostics: self.diagnostics.clone(),
+                ..failure.summary()
+            }
+        })
     }
 }
 
@@ -170,8 +185,15 @@ pub(super) enum DeploymentFailureCode {
     /// The image of a pinned launch identity is not available on the node.
     ImageMissing,
 
-    /// A prepared image did not match its pinned identity or the retained platform.
+    /// The node could not prepare an image yet, such as while its container daemon is
+    /// unreachable; preparation is retried.
     ArtifactPreparationFailed,
+
+    /// An image failed to build, load, or finish loading in time.
+    ImageBuildFailed,
+
+    /// A prepared image is not the one its pinned identity or the retained platform names.
+    ImageIdentityMismatch,
 
     /// The deployment's published host port is held by something else on the node.
     PublishedPortInUse,
@@ -185,8 +207,16 @@ impl DeploymentFailureCode {
             Self::LaunchIdentityUnresolved => "LaunchIdentityUnresolved",
             Self::ImageMissing => "ImageMissing",
             Self::ArtifactPreparationFailed => "ArtifactPreparationFailed",
+            Self::ImageBuildFailed => "ImageBuildFailed",
+            Self::ImageIdentityMismatch => "ImageIdentityMismatch",
             Self::PublishedPortInUse => "PublishedPortInUse",
         }
+    }
+
+    /// Whether the failure fails the deployment until it is paused and resumed or deployed
+    /// again, instead of being retried on the next pass.
+    pub(super) fn is_terminal(self) -> bool {
+        matches!(self, Self::ImageBuildFailed | Self::ImageIdentityMismatch)
     }
 
     fn message(self) -> &'static str {
@@ -199,7 +229,15 @@ impl DeploymentFailureCode {
             }
             Self::ImageMissing => "Application image is not available locally",
             Self::ArtifactPreparationFailed => {
-                "Application image did not match its pinned identity or this node's platform"
+                "Application image could not be prepared on this node; retrying"
+            }
+            Self::ImageBuildFailed => {
+                "Application image failed to build; check its output, then pause and resume the \
+                 deployment or deploy it again"
+            }
+            Self::ImageIdentityMismatch => {
+                "Application image did not match its pinned identity or this node's platform; \
+                 pause and resume the deployment or deploy it again"
             }
             Self::PublishedPortInUse => {
                 "Application published port is in use on this node; free the port or delete the deployment"
@@ -244,6 +282,7 @@ pub(super) fn deployment_failure(
     DeploymentReconcileFailure {
         stage,
         failure: None,
+        diagnostics: Vec::new(),
         source: Box::new(source),
     }
 }
@@ -256,6 +295,22 @@ pub(super) fn coded_deployment_failure(
     DeploymentReconcileFailure {
         stage,
         failure: Some(failure),
+        diagnostics: Vec::new(),
+        source: Box::new(source),
+    }
+}
+
+/// A coded failure whose summary shows `diagnostics`.
+pub(super) fn diagnosed_deployment_failure(
+    stage: &'static str,
+    failure: DeploymentFailureCode,
+    diagnostics: Vec<String>,
+    source: impl std::error::Error + Send + Sync + 'static,
+) -> DeploymentReconcileFailure {
+    DeploymentReconcileFailure {
+        stage,
+        failure: Some(failure),
+        diagnostics,
         source: Box::new(source),
     }
 }

@@ -1,11 +1,12 @@
 //! Shared deployment value validation, metadata admission policy, secret values, node-side
-//! launch identity pinning, and the crash rule with its failure diagnostics.
+//! launch identity pinning, the crash rule, and the failure diagnostics of every owner.
 //!
 //! This private capability contains owner-neutral rules only; model and application modules
 //! retain deployment records, lifecycle, persistence, projection, and execution authority.
 
 pub mod artifact;
 pub mod crash;
+pub mod failure;
 pub mod launch_pin;
 pub mod metadata;
 pub mod name;

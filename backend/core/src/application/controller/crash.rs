@@ -26,9 +26,11 @@ use dotcore_site::view::fencing::LifecycleOperationToken;
 use tracing::{debug, info, warn};
 
 use super::{
-    ApplicationRealizer, CurrentApplicationDeployment, crashed_state,
+    ApplicationRealizer, CurrentApplicationDeployment,
     errors::{DeploymentReconcileFailure, deployment_failure},
+    failed_state,
     logs::launch_protected_values,
+    readiness::GROUP_NOT_RUNNING_STAGE,
 };
 use crate::management_logs::{MAX_FAILURE_OUTPUT_LINES, failure_output_tail};
 
@@ -106,12 +108,10 @@ impl ApplicationRealizer {
             failure = ?failure,
             "Application units stopped on their own; the deployment failed and is not started again"
         );
-        Ok(crashed_state(crash_failure(
-            &failure,
-            exit_status,
-            &unit_name.0,
-            output.as_deref(),
-        )))
+        Ok(failed_state(
+            GROUP_NOT_RUNNING_STAGE,
+            crash_failure(&failure, exit_status, &unit_name.0, output.as_deref()),
+        ))
     }
 
     /// Reads the masked last output of one unit that stopped, `None` when the runtime has none
@@ -154,9 +154,10 @@ impl ApplicationRealizer {
     }
 }
 
-/// The failed state a present deployment recorded in its current start, which stops it from
-/// starting again until it is paused and resumed or deployed again.
-pub(super) fn crash_failed_state<'a>(
+/// The failed state a deployment recorded in its current lifecycle generation, whatever failed
+/// it: a crash or a broken image. It stands until the deployment is paused and resumed or deployed
+/// again, which starts a new generation.
+pub(super) fn failed_state_of_generation<'a>(
     desired: &ApplicationDeploymentDeclaration,
     existing: Option<&'a CurrentApplicationDeployment>,
 ) -> Option<&'a ApplicationDeploymentState> {

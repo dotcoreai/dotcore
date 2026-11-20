@@ -1469,7 +1469,7 @@ mod tests {
         let mut selection = snapshot.service_selections[0].clone();
         selection.service_name = "worker".to_owned();
         snapshot.service_selections.push(selection);
-        fixture.install(1, vec![assignment(deployment, None)]);
+        fixture.install(1, vec![assignment(deployment.clone(), None)]);
         let node = fixture.realizer();
         let preparation = fixture.preparation_logs();
         let log = |step| {
@@ -1494,7 +1494,17 @@ mod tests {
             }
         };
 
+        // A failed build fails the deployment until it is paused and resumed.
         node.reconcile_for_test().await.expect("failed build pass");
+        let generation = |lifecycle_generation, desired_state| {
+            let mut declaration = deployment.clone();
+            declaration.lifecycle_generation = lifecycle_generation;
+            declaration.desired_state = desired_state as i32;
+            vec![assignment(declaration, None)]
+        };
+        fixture.install(2, generation(2, Paused));
+        node.reconcile_for_test().await.expect("pause pass");
+        fixture.install(3, generation(3, Present));
         node.reconcile_for_test().await.expect("retried build pass");
         let logs = [
             log(PreparationStep::ServiceBuild {
@@ -1581,6 +1591,191 @@ mod tests {
             "warm passes, also after a restart, write nothing more"
         );
         assert_eq!(fixture_images.loader_runs(WEB), 1);
+    }
+
+    #[tokio::test]
+    async fn a_failing_image_loader_fails_the_deployment_with_its_output_until_resumed() {
+        const WEB: &str = "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-docker-image-web";
+        let images = crate::test_support::canonical_tempdir().expect("image fixture");
+        let fixture_images = dotcore_artifact::DockerImageFixture::new(images.path());
+        // The loader colors 25 lines on stderr, more than a failure keeps, then fails.
+        fixture_images.add_package(
+            WEB,
+            &serde_json::json!({
+                "reference": "dotcore-nix/fixture:web",
+                "platform": "linux/amd64",
+                "kind": "registry",
+            }),
+            "for line in $(seq 1 25); do printf '\\033[31mline %s\\033[0m\\n' \"$line\" >&2; done\n\
+             exit 3",
+        );
+        let fixture = NodeFixture::new(None).with_artifacts(fixture_images.manager("x86_64-linux"));
+        let declaration = |lifecycle_generation, desired_state| {
+            vec![assignment(
+                docker_delivered_declaration(
+                    "app-1",
+                    lifecycle_generation,
+                    desired_state,
+                    &dotcore_domain::test_support::nix::locked_flake(),
+                    &[("x86_64-linux", WEB)],
+                ),
+                None,
+            )]
+        };
+        fixture.install(1, declaration(1, Present));
+        let node = fixture.realizer();
+
+        node.reconcile_for_test().await.expect("failed build pass");
+
+        let output = (6..=25)
+            .map(|line| format!("line {line}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let failure = ApplicationDeploymentFailure {
+            code: "ImageBuildFailed".to_owned(),
+            message: "Application image failed to build; check its output, then pause and \
+                      resume the deployment or deploy it again"
+                .to_owned(),
+            diagnostics: vec![
+                "Stage: image preparation".to_owned(),
+                "Service: web".to_owned(),
+                "Cause: Docker image derivation loader exited with exit status: 3".to_owned(),
+                format!("Output tail: {output}"),
+            ],
+        };
+        let failed = fixture
+            .current("app-1")
+            .and_then(|record| record.state)
+            .expect("failed state");
+        assert_eq!(
+            failed.lifecycle_state,
+            ApplicationLifecycleState::Failed as i32
+        );
+        assert_eq!(failed.stage, "artifact-preparation");
+        assert_eq!(failed.failure.as_ref(), Some(&failure));
+        assert_eq!(fixture_images.loader_runs(WEB), 1);
+
+        // The failure crosses to the manager as recorded, with no typed failure code.
+        let status = deployment_status(&status_of(&node), "app-1");
+        assert_eq!(
+            status.lifecycle,
+            ApplicationLifecycleObservation::Failed as i32
+        );
+        assert_eq!(
+            status.stage,
+            ApplicationStatusStage::ArtifactPreparationFailed as i32
+        );
+        assert_eq!(
+            status.failure_code,
+            ApplicationStatusFailureCode::Unspecified as i32
+        );
+        assert_eq!(status.failure.as_ref(), Some(&failure));
+
+        // A later pass keeps the failure without loading again, and so does a pause.
+        node.reconcile_for_test().await.expect("failed pass");
+        assert_eq!(fixture_images.loader_runs(WEB), 1);
+        assert_eq!(
+            fixture.current("app-1").and_then(|record| record.state),
+            Some(failed)
+        );
+        fixture.install(2, declaration(2, Paused));
+        node.reconcile_for_test().await.expect("pause pass");
+        assert_eq!(fixture_images.loader_runs(WEB), 1);
+        let paused = fixture
+            .current("app-1")
+            .and_then(|record| record.state)
+            .expect("paused state");
+        assert_eq!(
+            paused.lifecycle_state,
+            ApplicationLifecycleState::Unavailable as i32
+        );
+        assert_eq!(
+            paused.stage,
+            "Application runtime group is unavailable while paused"
+        );
+        assert_eq!(paused.failure, None);
+
+        // Resuming prepares the image again.
+        fixture.install(3, declaration(3, Present));
+        node.reconcile_for_test().await.expect("resume pass");
+        assert_eq!(fixture_images.loader_runs(WEB), 2);
+        assert_eq!(
+            fixture
+                .current("app-1")
+                .and_then(|record| record.state)
+                .and_then(|state| state.failure),
+            Some(failure)
+        );
+        assert_eq!(fixture.support.group_calls(), []);
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_docker_daemon_is_retried_on_each_pass() {
+        const WEB: &str = "/nix/store/0123456789abcdfghijklmnpqrsvwxyz-docker-image-web";
+        let images = crate::test_support::canonical_tempdir().expect("image fixture");
+        let fixture_images = dotcore_artifact::DockerImageFixture::new(images.path());
+        fixture_images.add_image(WEB, "amd64");
+        fixture_images.set_daemon_unreachable(true);
+        let fixture = NodeFixture::new(None).with_artifacts(fixture_images.manager("x86_64-linux"));
+        fixture.install(
+            1,
+            vec![assignment(
+                docker_delivered_declaration(
+                    "app-1",
+                    1,
+                    Present,
+                    &dotcore_domain::test_support::nix::locked_flake(),
+                    &[("x86_64-linux", WEB)],
+                ),
+                None,
+            )],
+        );
+        let node = fixture.realizer();
+
+        node.reconcile_for_test().await.expect("unreachable pass");
+
+        let unavailable = fixture
+            .current("app-1")
+            .and_then(|record| record.state)
+            .expect("unavailable state");
+        assert_eq!(
+            unavailable.lifecycle_state,
+            ApplicationLifecycleState::Unavailable as i32
+        );
+        assert_eq!(unavailable.stage, "artifact-preparation");
+        assert_eq!(
+            unavailable.failure,
+            Some(ApplicationDeploymentFailure {
+                code: "ArtifactPreparationFailed".to_owned(),
+                message: "Application image could not be prepared on this node; retrying"
+                    .to_owned(),
+                diagnostics: Vec::new(),
+            })
+        );
+        assert_eq!(fixture_images.loader_runs(WEB), 1);
+
+        node.reconcile_for_test().await.expect("retried pass");
+        assert_eq!(
+            fixture_images.loader_runs(WEB),
+            2,
+            "the next pass loads again"
+        );
+
+        // Once the daemon answers, the next pass finds the loaded image and starts the deployment.
+        fixture_images.set_daemon_unreachable(false);
+        node.reconcile_for_test().await.expect("reachable pass");
+        assert_eq!(fixture_images.loader_runs(WEB), 2);
+        assert_eq!(
+            fixture.support.group_calls(),
+            [SimulatedRuntimeGroupCall::create("app-1")]
+        );
+        assert_eq!(
+            fixture
+                .current("app-1")
+                .and_then(|record| record.state)
+                .and_then(|state| state.failure),
+            None
+        );
     }
 
     #[tokio::test]

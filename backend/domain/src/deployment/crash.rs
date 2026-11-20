@@ -3,14 +3,14 @@
 //! The hosting node asks it what to do when a workload it ran in the current lifecycle generation
 //! is found stopped: a stop before the deployment was ready fails it at once, and a stop after it
 //! was ready restarts it until too many such crashes fall within one crash window. It also builds
-//! the failure diagnostics both controllers record, bounded to what a failure may carry. It reads
-//! time only from the instants its caller passes, so tests decide it on a controlled clock.
+//! the crash failure diagnostics both controllers record. It reads time only from the instants its
+//! caller passes, so tests decide it on a controlled clock.
 
 use std::{collections::VecDeque, time::Duration};
 
 use tokio::time::Instant;
 
-use super::{MAX_FAILURE_DIAGNOSTIC_BYTES, MAX_FAILURE_DIAGNOSTICS};
+use super::failure::failure_diagnostics;
 
 /// Crashes after ready, within one crash window, that fail a deployment instead of restarting it.
 pub const CRASH_BUDGET: u32 = 3;
@@ -92,10 +92,9 @@ pub enum CrashFailure {
     CrashBudgetSpent { crashes: u32, window: Duration },
 }
 
-/// Diagnostics of a crash failure, within the count and byte limits of a failure: the stage, the
-/// crash count after ready, the exit status (or that the runtime reported none), the owner's own
-/// `details` and the masked output tail. Details beyond the count limit are dropped, keeping a
-/// line for the tail; beyond the byte limit, the tail loses its oldest output first.
+/// Diagnostics of a crash failure, bounded like those of any failure: the stage, the crash count
+/// after ready, the exit status (or that the runtime reported none), the owner's own `details` and
+/// the masked output tail.
 pub fn crash_diagnostics(
     stage: &str,
     failure: &CrashFailure,
@@ -103,8 +102,6 @@ pub fn crash_diagnostics(
     details: &[String],
     output_tail: Option<&str>,
 ) -> Vec<String> {
-    let output_tail = output_tail.filter(|tail| !tail.is_empty());
-
     let mut lines = vec![format!("Stage: {stage}")];
     if let CrashFailure::CrashBudgetSpent { crashes, window } = failure {
         lines.push(format!(
@@ -117,29 +114,8 @@ pub fn crash_diagnostics(
         None => "Exit status: not reported".to_owned(),
     });
     lines.extend(details.iter().cloned());
-    lines.truncate(MAX_FAILURE_DIAGNOSTICS - usize::from(output_tail.is_some()));
-
-    let mut remaining = MAX_FAILURE_DIAGNOSTIC_BYTES;
-    let mut diagnostics = Vec::with_capacity(lines.len() + 1);
-    for line in lines {
-        if remaining == 0 {
-            break;
-        }
-        let kept = leading(&line, remaining);
-        remaining -= kept.len();
-        diagnostics.push(kept.to_owned());
-    }
-
-    if let Some(tail) = output_tail
-        && remaining > OUTPUT_TAIL_PREFIX.len()
-    {
-        let tail = trailing(tail, remaining - OUTPUT_TAIL_PREFIX.len());
-        diagnostics.push(format!("{OUTPUT_TAIL_PREFIX}{tail}"));
-    }
-    diagnostics
+    failure_diagnostics(lines, output_tail)
 }
-
-const OUTPUT_TAIL_PREFIX: &str = "Output tail: ";
 
 /// A crash window in operator words, in its largest whole unit.
 fn describe_duration(duration: Duration) -> String {
@@ -152,30 +128,6 @@ fn describe_duration(duration: Duration) -> String {
     };
     let plural = if count == 1 { "" } else { "s" };
     format!("{count} {unit}{plural}")
-}
-
-/// The longest start of `text` within `limit` bytes, cut on a character boundary.
-fn leading(text: &str, limit: usize) -> &str {
-    if text.len() <= limit {
-        return text;
-    }
-    let mut end = limit;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
-/// The longest end of `text` within `limit` bytes, cut on a character boundary.
-fn trailing(text: &str, limit: usize) -> &str {
-    if text.len() <= limit {
-        return text;
-    }
-    let mut start = text.len() - limit;
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
 }
 
 #[cfg(test)]
@@ -351,103 +303,6 @@ mod tests {
         assert_eq!(
             diagnostics(Duration::from_millis(1_500))[1],
             "Crashes after ready: 3 within 1500 milliseconds"
-        );
-    }
-
-    #[test]
-    fn diagnostics_beyond_the_count_limit_drop_details_and_keep_the_output_tail() {
-        let details = (1..=10).map(|n| format!("Detail: {n}")).collect::<Vec<_>>();
-
-        let diagnostics = crash_diagnostics(
-            "application startup",
-            &CrashFailure::StoppedDuringStartup,
-            Some(1),
-            &details,
-            Some("last line"),
-        );
-
-        assert_eq!(
-            diagnostics,
-            [
-                "Stage: application startup",
-                "Exit status: 1",
-                "Detail: 1",
-                "Detail: 2",
-                "Detail: 3",
-                "Detail: 4",
-                "Detail: 5",
-                "Output tail: last line",
-            ]
-        );
-        assert_eq!(diagnostics.len(), MAX_FAILURE_DIAGNOSTICS);
-    }
-
-    #[test]
-    fn diagnostics_beyond_the_byte_limit_keep_the_end_of_the_output_tail() {
-        let tail = format!(
-            "{}{}",
-            "a".repeat(10),
-            "z".repeat(MAX_FAILURE_DIAGNOSTIC_BYTES)
-        );
-
-        let diagnostics = crash_diagnostics(
-            "application startup",
-            &CrashFailure::StoppedDuringStartup,
-            Some(1),
-            &[],
-            Some(&tail),
-        );
-
-        let fixed = "Stage: application startup".len() + "Exit status: 1".len();
-        let room = MAX_FAILURE_DIAGNOSTIC_BYTES - fixed - OUTPUT_TAIL_PREFIX.len();
-        assert_eq!(
-            diagnostics,
-            [
-                "Stage: application startup".to_owned(),
-                "Exit status: 1".to_owned(),
-                format!("Output tail: {}", "z".repeat(room)),
-            ]
-        );
-        assert_eq!(
-            diagnostics.iter().map(String::len).sum::<usize>(),
-            MAX_FAILURE_DIAGNOSTIC_BYTES
-        );
-
-        // A multibyte character straddling the cut moves it to the next character boundary.
-        let straddling = format!("é{}", "z".repeat(room - 1));
-        let diagnostics = crash_diagnostics(
-            "application startup",
-            &CrashFailure::StoppedDuringStartup,
-            Some(1),
-            &[],
-            Some(&straddling),
-        );
-        assert_eq!(
-            diagnostics[2],
-            format!("Output tail: {}", "z".repeat(room - 1))
-        );
-    }
-
-    #[test]
-    fn details_beyond_the_byte_limit_are_cut_and_leave_no_room_for_the_tail() {
-        let details = ["d".repeat(MAX_FAILURE_DIAGNOSTIC_BYTES)];
-
-        let diagnostics = crash_diagnostics(
-            "application startup",
-            &CrashFailure::StoppedDuringStartup,
-            Some(1),
-            &details,
-            Some("last line"),
-        );
-
-        let fixed = "Stage: application startup".len() + "Exit status: 1".len();
-        assert_eq!(
-            diagnostics,
-            [
-                "Stage: application startup".to_owned(),
-                "Exit status: 1".to_owned(),
-                "d".repeat(MAX_FAILURE_DIAGNOSTIC_BYTES - fixed),
-            ]
         );
     }
 

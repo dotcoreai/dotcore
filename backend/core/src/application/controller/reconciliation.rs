@@ -9,6 +9,7 @@ use std::{collections::BTreeSet, sync::Mutex};
 
 use dotcore_domain::{
     deployment::crash::CrashDecision,
+    deployment::failure::failure_diagnostics,
     deployment::launch_pin::{
         LaunchPinError, LaunchPinResolver, SyntheticLaunchPins, UnpinnedSelection,
     },
@@ -26,10 +27,10 @@ use dotcore_site::{
 };
 use tracing::{debug, error, info, warn};
 
-use super::crash::crash_failed_state;
+use super::crash::failed_state_of_generation;
 use super::errors::{
     DeploymentFailureCode, DeploymentReconcileFailure, RetainedTargetMismatch,
-    coded_deployment_failure, deployment_failure,
+    coded_deployment_failure, deployment_failure, diagnosed_deployment_failure,
 };
 use super::observation::{
     ExactOwnedObservation, exact_owned_observation, group_has_absent_unit,
@@ -219,11 +220,13 @@ impl ApplicationRealizer {
         record: &PassRecord<'_>,
         observations: &[TargetWorkloadGroupObservation],
     ) -> DeploymentPass {
-        // A crash failure of this start stands until the deployment is paused or deployed again.
+        // A failure of this generation stands, without runtime actions or image preparation,
+        // until the deployment is paused and resumed or deployed again.
         if matches!(
             desired_state(deployment),
-            Ok(ApplicationDeploymentDesiredState::Present)
-        ) && let Some(failed) = crash_failed_state(deployment, record.get().as_ref())
+            Ok(ApplicationDeploymentDesiredState::Present
+                | ApplicationDeploymentDesiredState::Paused)
+        ) && let Some(failed) = failed_state_of_generation(deployment, record.get().as_ref())
         {
             return DeploymentPass::reconciled(Ok(failed.clone()));
         }
@@ -606,7 +609,7 @@ impl ApplicationRealizer {
         let mut next = reconciliation.unwrap_or_else(|failure| {
             let error = redacted_debug(&failure.source, deployment);
             error!(event_kind = "application_reconciliation_failed", deployment_id = %deployment.application_deployment_id, failure_stage = failure.stage, failure_code = failure.failure.map(DeploymentFailureCode::code), error = %error, "Application deployment reconciliation failed");
-            deployment_failure_state(failure.stage, failure.failure)
+            reconcile_failure_state(&failure)
         });
         next.observed_placement = match ApplicationLifecycleState::try_from(next.lifecycle_state)
             .ok()
@@ -1219,46 +1222,7 @@ impl ApplicationRealizer {
                 ),
             )
             .await
-            .map_err(|source| match source {
-                // A node reports its missing pinned image as a typed failure code.
-                dotcore_artifact::ApplicationArtifactPreparationError::Service {
-                    source: dotcore_artifact::OciPreparationError::LocalImageMissing,
-                    ..
-                } => coded_deployment_failure(
-                    "artifact-preparation",
-                    DeploymentFailureCode::ImageMissing,
-                    source,
-                ),
-                // An image that keeps failing verification is reported publicly while retried.
-                dotcore_artifact::ApplicationArtifactPreparationError::Service {
-                    source: dotcore_artifact::OciPreparationError::VerificationMismatch,
-                    ..
-                } => coded_deployment_failure(
-                    "artifact-preparation",
-                    DeploymentFailureCode::ArtifactPreparationFailed,
-                    source,
-                ),
-                // A Docker image derivation that cannot build, load, or verify its image is
-                // reported publicly while retried.
-                dotcore_artifact::ApplicationArtifactPreparationError::DockerImageService {
-                    source: ref error,
-                    ..
-                } if !matches!(
-                    error,
-                    dotcore_artifact::DockerImagePreparationError::Cancelled
-                        | dotcore_artifact::DockerImagePreparationError::Nix(
-                            dotcore_artifact::NixPreparationError::Cancelled
-                        )
-                ) =>
-                {
-                    coded_deployment_failure(
-                        "artifact-preparation",
-                        DeploymentFailureCode::ArtifactPreparationFailed,
-                        source,
-                    )
-                }
-                source => deployment_failure("artifact-preparation", source),
-            })
+            .map_err(artifact_preparation_failure)
     }
 
     /// Retains the launch generation of the workload group this node just created, so cleanup
@@ -1614,6 +1578,112 @@ pub(super) fn with_launch_identities(
     effective
 }
 
+/// Sorts a failed image preparation by what fixes it. A broken or mismatched image fails the
+/// deployment with its cause and build output; a node not ready to prepare images, a missing
+/// pinned image and a cancelled preparation are retried on the next pass.
+fn artifact_preparation_failure(
+    error: dotcore_artifact::ApplicationArtifactPreparationError,
+) -> DeploymentReconcileFailure {
+    use dotcore_artifact::{
+        ApplicationArtifactPreparationError as Preparation, OciPreparationError as Oci,
+    };
+
+    const STAGE: &str = "artifact-preparation";
+    let (code, service_name, cause, output_tail) = match &error {
+        // A node reports its missing pinned image as a typed failure code.
+        Preparation::Service {
+            source: Oci::LocalImageMissing,
+            ..
+        } => {
+            return coded_deployment_failure(STAGE, DeploymentFailureCode::ImageMissing, error);
+        }
+        Preparation::Service {
+            service_name,
+            source: source @ Oci::VerificationMismatch,
+        } => (
+            DeploymentFailureCode::ImageIdentityMismatch,
+            service_name,
+            source.to_string(),
+            None,
+        ),
+        Preparation::DockerImageService {
+            service_name,
+            source,
+        } => match docker_image_failure_code(source) {
+            Some(code) => (
+                code,
+                service_name,
+                docker_image_failure_cause(source),
+                source.output_tail(),
+            ),
+            None => return deployment_failure(STAGE, error),
+        },
+        _ => return deployment_failure(STAGE, error),
+    };
+    if !code.is_terminal() {
+        return coded_deployment_failure(STAGE, code, error);
+    }
+
+    let diagnostics = failure_diagnostics(
+        vec![
+            "Stage: image preparation".to_owned(),
+            format!("Service: {service_name}"),
+            format!("Cause: {cause}"),
+        ],
+        output_tail,
+    );
+    diagnosed_deployment_failure(STAGE, code, diagnostics, error)
+}
+
+/// The failure code of a Docker image preparation error: a broken image fails to build, a
+/// mismatched one is not the pinned image, and any other error means the node is not ready to
+/// prepare images yet. A cancelled preparation has none.
+fn docker_image_failure_code(
+    error: &dotcore_artifact::DockerImagePreparationError,
+) -> Option<DeploymentFailureCode> {
+    use dotcore_artifact::{DockerImagePreparationError as Docker, NixPreparationError as Nix};
+
+    match error {
+        Docker::Cancelled | Docker::Nix(Nix::Cancelled) => None,
+        Docker::LoaderFailed { .. }
+        | Docker::TimedOut { .. }
+        | Docker::MalformedResult { .. }
+        | Docker::Nix(Nix::Build { .. }) => Some(DeploymentFailureCode::ImageBuildFailed),
+        Docker::ReferenceMismatch { .. }
+        | Docker::TagMismatch { .. }
+        | Docker::PlatformMismatch { .. }
+        | Docker::IdentityMismatch { .. }
+        | Docker::RecipeMismatch { .. }
+        | Docker::ImageMissing { .. }
+        | Docker::Nix(Nix::StorePathMismatch { .. }) => {
+            Some(DeploymentFailureCode::ImageIdentityMismatch)
+        }
+        Docker::InspectorNotConfigured
+        | Docker::NixSystemUnavailable
+        | Docker::Nix(_)
+        | Docker::InvalidStorePath { .. }
+        | Docker::Metadata { .. }
+        | Docker::LoaderMissing { .. }
+        | Docker::Lock(_)
+        | Docker::Spawn(_)
+        | Docker::Wait(_)
+        | Docker::Inspection(_) => Some(DeploymentFailureCode::ArtifactPreparationFailed),
+    }
+}
+
+/// The message a failure's `Cause:` diagnostic shows. A failed Nix build leaves out its error
+/// messages, which the output tail shows.
+fn docker_image_failure_cause(error: &dotcore_artifact::DockerImagePreparationError) -> String {
+    match error {
+        dotcore_artifact::DockerImagePreparationError::Nix(
+            dotcore_artifact::NixPreparationError::Build {
+                installable, hint, ..
+            },
+        ) => format!("nix build of {installable:?} failed on this node; {hint}"),
+        error => error.to_string(),
+    }
+}
+
 /// Returns the stable failure a runtime error names on the hosting node, such as a missing
 /// image or a published host port something else holds; other errors have none.
 fn runtime_failure_code(error: &ApplicationRuntimeError) -> Option<DeploymentFailureCode> {
@@ -1636,4 +1706,147 @@ fn redacted_debug(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> String {
     super::logs::deployment_protected_values(deployment).redact(&format!("{error:?}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use dotcore_artifact::{
+        ApplicationArtifactPreparationError, DockerImagePreparationError, NixPreparationError,
+    };
+    use dotcore_proto::dotcore::application::v1::{
+        ApplicationDeploymentFailure, ApplicationLifecycleState,
+    };
+
+    use super::{artifact_preparation_failure, reconcile_failure_state};
+
+    #[test]
+    fn broken_and_mismatched_images_fail_with_their_cause_and_build_output() {
+        let failure = |source| {
+            reconcile_failure_state(&artifact_preparation_failure(
+                ApplicationArtifactPreparationError::DockerImageService {
+                    service_name: "web".to_owned(),
+                    source,
+                },
+            ))
+        };
+        let diagnostics = |cause: &str, tail: Option<&str>| {
+            let mut diagnostics = vec![
+                "Stage: image preparation".to_owned(),
+                "Service: web".to_owned(),
+                format!("Cause: {cause}"),
+            ];
+            diagnostics.extend(tail.map(|tail| format!("Output tail: {tail}")));
+            diagnostics
+        };
+
+        let timed_out = failure(DockerImagePreparationError::TimedOut {
+            time_limit: Duration::from_secs(2 * 60 * 60),
+        });
+        assert_eq!(
+            timed_out.lifecycle_state,
+            ApplicationLifecycleState::Failed as i32
+        );
+        assert_eq!(timed_out.stage, "artifact-preparation");
+        assert_eq!(
+            timed_out
+                .failure
+                .map(|failure| (failure.code, failure.diagnostics)),
+            Some((
+                "ImageBuildFailed".to_owned(),
+                diagnostics(
+                    "Docker image derivation loader did not finish within 7200s",
+                    None
+                ),
+            ))
+        );
+
+        let nix_build = failure(DockerImagePreparationError::Nix(
+            NixPreparationError::Build {
+                installable: "flake#apps.web.docker".to_owned(),
+                hint: "check the Nix build log on this node, then retry",
+                detail: "error: builder failed".to_owned(),
+            },
+        ));
+        assert_eq!(
+            nix_build
+                .failure
+                .map(|failure| (failure.code, failure.diagnostics)),
+            Some((
+                "ImageBuildFailed".to_owned(),
+                diagnostics(
+                    "nix build of \"flake#apps.web.docker\" failed on this node; check the Nix \
+                     build log on this node, then retry",
+                    Some("error: builder failed"),
+                ),
+            ))
+        );
+
+        let mismatch = failure(DockerImagePreparationError::PlatformMismatch {
+            reference: "dotcore-nix/web:1".to_owned(),
+            expected: "linux/amd64".to_owned(),
+            realized: "linux/arm64".to_owned(),
+        });
+        assert_eq!(
+            mismatch.lifecycle_state,
+            ApplicationLifecycleState::Failed as i32
+        );
+        assert_eq!(
+            mismatch
+                .failure
+                .map(|failure| (failure.code, failure.diagnostics)),
+            Some((
+                "ImageIdentityMismatch".to_owned(),
+                diagnostics(
+                    "Docker image \"dotcore-nix/web:1\" is for platform linux/arm64, not \
+                     linux/amd64",
+                    None
+                ),
+            ))
+        );
+    }
+
+    #[test]
+    fn node_environment_errors_and_cancellations_stay_unavailable_and_retried() {
+        let failure = |source| {
+            reconcile_failure_state(&artifact_preparation_failure(
+                ApplicationArtifactPreparationError::DockerImageService {
+                    service_name: "web".to_owned(),
+                    source,
+                },
+            ))
+        };
+
+        let unreachable = failure(DockerImagePreparationError::Inspection(anyhow::anyhow!(
+            "daemon unreachable"
+        )));
+        assert_eq!(
+            unreachable.lifecycle_state,
+            ApplicationLifecycleState::Unavailable as i32
+        );
+        assert_eq!(unreachable.stage, "artifact-preparation");
+        assert_eq!(
+            unreachable.failure,
+            Some(ApplicationDeploymentFailure {
+                code: "ArtifactPreparationFailed".to_owned(),
+                message: "Application image could not be prepared on this node; retrying"
+                    .to_owned(),
+                diagnostics: Vec::new(),
+            })
+        );
+
+        for cancelled in [
+            DockerImagePreparationError::Cancelled,
+            DockerImagePreparationError::Nix(NixPreparationError::Cancelled),
+        ] {
+            let cancelled = failure(cancelled);
+            assert_eq!(
+                cancelled.lifecycle_state,
+                ApplicationLifecycleState::Unavailable as i32
+            );
+            assert_eq!(cancelled.stage, "artifact-preparation");
+            assert_eq!(cancelled.failure, None);
+        }
+    }
 }

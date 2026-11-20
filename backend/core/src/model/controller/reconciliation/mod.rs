@@ -1095,12 +1095,11 @@ where
                 );
             }
             Err(error) => {
-                let loader_output_tail = match &error {
-                    ArtifactPreparationError::DockerImage(error) => error.loader_stderr(),
+                let output_tail = match &error {
+                    ArtifactPreparationError::DockerImage(error) => error.output_tail(),
                     _ => None,
                 };
-                let diagnostics =
-                    super::state::engine_image_acquisition_diagnostics(loader_output_tail);
+                let diagnostics = super::state::engine_image_acquisition_diagnostics(output_tail);
                 self.update_preparation_state_fenced(
                     commit.deployment_id,
                     commit.ticket,

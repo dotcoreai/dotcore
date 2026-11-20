@@ -125,6 +125,14 @@ impl DockerImageFixture {
             .insert(reference.to_owned(), (self.runs_file(store_path), image));
     }
 
+    /// Makes the fake daemon fail every inspection while `unreachable`, as a Docker daemon that
+    /// is not running does.
+    pub fn set_daemon_unreachable(&self, unreachable: bool) {
+        self.daemon
+            .unreachable
+            .store(unreachable, std::sync::atomic::Ordering::SeqCst);
+    }
+
     /// Returns the references the fake daemon was asked to inspect, in order.
     pub fn inspected(&self) -> Vec<String> {
         self.daemon
@@ -258,6 +266,9 @@ struct FakeDockerDaemon {
     /// Images a loader realizes, by reference, with the file recording that loader's runs.
     loads: Mutex<BTreeMap<String, (PathBuf, DockerImageFacts)>>,
     inspected: Mutex<Vec<String>>,
+
+    /// Whether every inspection fails, as with a daemon that is not running.
+    unreachable: std::sync::atomic::AtomicBool,
 }
 
 impl OciImagePreparer for FakeDockerDaemon {
@@ -281,6 +292,11 @@ impl DockerImageInspector for FakeDockerDaemon {
             .lock()
             .expect("fixture inspections")
             .push(reference.clone());
+        if self.unreachable.load(std::sync::atomic::Ordering::SeqCst) {
+            return Box::pin(async {
+                Err(anyhow::anyhow!("fixture Docker daemon is unreachable"))
+            });
+        }
         let image = self
             .images
             .lock()

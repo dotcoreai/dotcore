@@ -82,8 +82,7 @@ use super::*;
 use crate::dispatch::application::{ApplicationRuntimeError, TargetWorkloadGroupObservation};
 
 #[tokio::test]
-async fn application_artifact_verification_failure_prevents_runtime_creation_with_a_public_failure()
-{
+async fn application_artifact_verification_failure_fails_the_deployment_without_runtime_creation() {
     let directory = test_directory();
     let desired = TestApplicationDeclarationRepository::open(&directory, "site-one")
         .expect("declaration repository");
@@ -143,17 +142,23 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
     assert_eq!(state.stage, "artifact-preparation");
     assert_eq!(
         state.lifecycle_state,
-        ApplicationLifecycleState::Unavailable as i32
+        ApplicationLifecycleState::Failed as i32
     );
     assert_eq!(state.steps, None);
     let failed_revision = current.snapshot().expect("current state").deployments[0].record_revision;
     assert_eq!(
         state.failure,
         Some(ApplicationDeploymentFailure {
-            code: "ArtifactPreparationFailed".to_owned(),
-            message: "Application image did not match its pinned identity or this node's platform"
+            code: "ImageIdentityMismatch".to_owned(),
+            message: "Application image did not match its pinned identity or this node's \
+                      platform; pause and resume the deployment or deploy it again"
                 .to_owned(),
-            diagnostics: Vec::new(),
+            diagnostics: vec![
+                "Stage: image preparation".to_owned(),
+                "Service: web".to_owned(),
+                "Cause: OCI image identity or platform did not match the deployment snapshot"
+                    .to_owned(),
+            ],
         })
     );
 
@@ -161,17 +166,16 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
         .realizer
         .reconcile()
         .await
-        .expect("retried reconciliation");
+        .expect("later reconciliation");
 
-    assert_eq!(preparer.requests().len(), 2);
-    let retried_record = current.snapshot().expect("current state").deployments[0].clone();
     assert_eq!(
-        retried_record.record_revision, failed_revision,
-        "a retried preparation keeps reporting the failure instead of preparing again"
+        preparer.requests().len(),
+        1,
+        "a mismatched image is not prepared again"
     );
-    let retried = retried_record.state.expect("failed state");
-    assert_eq!(retried.stage, "artifact-preparation");
-    assert_eq!(retried.failure, state.failure);
+    let later_record = current.snapshot().expect("current state").deployments[0].clone();
+    assert_eq!(later_record.record_revision, failed_revision);
+    assert_eq!(later_record.state, Some(state));
     fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 

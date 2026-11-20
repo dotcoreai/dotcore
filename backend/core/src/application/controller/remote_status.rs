@@ -706,9 +706,7 @@ mod tests {
 
     #[test]
     fn a_failed_node_deployment_is_recorded_as_failed_with_the_failure_the_node_recorded() {
-        let manager = Manager::new(vec![deployment(ApplicationDeploymentDesiredState::Present)]);
-        manager.intent(super::super::queued_state());
-        let failure = ApplicationDeploymentFailure {
+        let crashed = ApplicationDeploymentFailure {
             code: "StoppedDuringStartup".to_owned(),
             message: "Application stopped during startup".to_owned(),
             diagnostics: vec![
@@ -718,20 +716,47 @@ mod tests {
                 "Output tail: out of memory".to_owned(),
             ],
         };
+        let broken_image = ApplicationDeploymentFailure {
+            code: "ImageBuildFailed".to_owned(),
+            message: "Application image failed to build".to_owned(),
+            diagnostics: vec![
+                "Stage: image preparation".to_owned(),
+                "Service: web".to_owned(),
+                "Cause: Docker image derivation loader exited with exit status: 3".to_owned(),
+                "Output tail: error: pull failed".to_owned(),
+            ],
+        };
 
-        let mut failed = status(1, ApplicationLifecycleObservation::Failed, 7);
-        failed.stage = ApplicationStatusStage::GroupNotRunning as i32;
-        failed.failure = Some(failure.clone());
-        manager.accept(vec![failed], Vec::new());
+        for (stage, stage_text, failure) in [
+            (
+                ApplicationStatusStage::GroupNotRunning,
+                "Application group is not running",
+                crashed,
+            ),
+            (
+                ApplicationStatusStage::ArtifactPreparationFailed,
+                "artifact-preparation",
+                broken_image,
+            ),
+        ] {
+            let manager =
+                Manager::new(vec![deployment(ApplicationDeploymentDesiredState::Present)]);
+            manager.intent(super::super::queued_state());
 
-        let state = manager.record().state.expect("recorded state");
-        assert_eq!(
-            state.lifecycle_state,
-            ApplicationLifecycleState::Failed as i32
-        );
-        assert_eq!(state.stage, "Application group is not running");
-        assert_eq!(state.failure, Some(failure));
-        assert_eq!(state.steps, None);
+            let mut failed = status(1, ApplicationLifecycleObservation::Failed, 7);
+            failed.stage = stage as i32;
+            failed.failure = Some(failure.clone());
+            manager.accept(vec![failed], Vec::new());
+
+            let state = manager.record().state.expect("recorded state");
+            assert_eq!(
+                state.lifecycle_state,
+                ApplicationLifecycleState::Failed as i32
+            );
+            assert_eq!(state.stage, stage_text);
+            assert_eq!(state.failure, Some(failure));
+            assert_eq!(state.steps, None);
+        }
     }
 
     #[test]
