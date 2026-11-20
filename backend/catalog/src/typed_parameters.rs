@@ -10,8 +10,8 @@ use std::collections::BTreeSet;
 use anyhow::anyhow;
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
-    ParameterDefinition, ParameterValue, ParameterVisibility, UnsignedIntegerParameterSchema,
-    parameter_definition::ParameterType, parameter_value::Value,
+    ParameterDefinition, ParameterValue, ParameterVisibility, TextFormat,
+    UnsignedIntegerParameterSchema, parameter_definition::ParameterType, parameter_value::Value,
 };
 
 /// Validates one definition's identity, label, visibility and type constraints, including any
@@ -74,6 +74,12 @@ pub(crate) fn validate_parameter_definition(
                 errors.push(anyhow!(
                     "parameter {id:?} minimum length must not exceed its maximum length"
                 ));
+            }
+            if schema
+                .format
+                .is_some_and(|format| !is_declared_text_format(format))
+            {
+                errors.push(anyhow!("parameter {id:?} requires a known text format"));
             }
         }
         Some(ParameterType::Secret(schema)) => {
@@ -156,7 +162,12 @@ pub fn check_value(definition: &ParameterDefinition, value: &Value) -> anyhow::R
             }
         }
         (Some(ParameterType::Text(schema)), Value::String(value)) => {
-            check_free_text(value, schema.minimum_length, schema.maximum_length)
+            check_free_text(value, schema.minimum_length, schema.maximum_length)?;
+            match schema.format.map(TextFormat::try_from) {
+                Some(Ok(TextFormat::Email)) => check_email(value),
+                Some(_) => Err(anyhow!("the text format is not known")),
+                None => Ok(()),
+            }
         }
         (Some(ParameterType::Secret(schema)), Value::String(value)) => {
             check_free_text(value, schema.minimum_length, schema.maximum_length)
@@ -219,6 +230,27 @@ fn check_free_text(value: &str, minimum: u32, maximum: Option<u32>) -> anyhow::R
         ));
     }
     Ok(())
+}
+
+/// Whether a text format is one a parameter may declare. Unspecified never is.
+fn is_declared_text_format(format: i32) -> bool {
+    matches!(TextFormat::try_from(format), Ok(TextFormat::Email))
+}
+
+/// Checks that a value reads as an email address: one `@`, a non-empty local part, a domain with a
+/// dot, and no whitespace. Deliverability is not checked.
+fn check_email(value: &str) -> anyhow::Result<()> {
+    let valid = !value.contains(char::is_whitespace)
+        && value.split_once('@').is_some_and(|(local, domain)| {
+            !local.is_empty() && !domain.contains('@') && domain.contains('.')
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(anyhow!(
+            "it must be an email address, such as name@example.com"
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -298,6 +330,7 @@ mod tests {
             minimum_length: 2,
             maximum_length: Some(4),
             default_value: None,
+            format: None,
         }));
         let secret = definition(ParameterType::Secret(SecretParameterSchema {
             generated_length: 32,
@@ -354,11 +387,44 @@ mod tests {
     }
 
     #[test]
+    fn check_value_requires_the_declared_email_format_without_quoting_the_value() {
+        let email = definition(ParameterType::Text(TextParameterSchema {
+            minimum_length: 5,
+            maximum_length: None,
+            default_value: None,
+            format: Some(TextFormat::Email as i32),
+        }));
+        let check = |value: &str| {
+            check_value(&email, &Value::String(value.to_owned())).map_err(|error| error.to_string())
+        };
+        let rejected = Err("it must be an email address, such as name@example.com".to_owned());
+
+        assert_eq!(check("admin@example.com"), Ok(()));
+        assert_eq!(check("a@b.c"), Ok(()));
+        for invalid in [
+            "abcdef",
+            "a@bcde",
+            "@b.com",
+            "a@@b.com",
+            "a@b@c.com",
+            "a b@c.com",
+            "a@b .com",
+        ] {
+            assert_eq!(check(invalid), rejected, "{invalid:?}");
+        }
+        assert_eq!(
+            check("a@b"),
+            Err("it has fewer bytes than the minimum length of 5".to_owned())
+        );
+    }
+
+    #[test]
     fn only_secrets_are_secret_and_secrets_have_no_default() {
         let text = definition(ParameterType::Text(TextParameterSchema {
             minimum_length: 2,
             maximum_length: None,
             default_value: None,
+            format: None,
         }));
         let secret = definition(ParameterType::Secret(SecretParameterSchema {
             generated_length: 32,
@@ -375,9 +441,30 @@ mod tests {
     fn definition_validation_orders_length_bounds() {
         assert_errors(
             &definition(ParameterType::Text(TextParameterSchema {
+                minimum_length: 0,
+                maximum_length: None,
+                default_value: None,
+                format: Some(TextFormat::Unspecified as i32),
+            })),
+            &["parameter \"mode\" requires a known text format"],
+        );
+        assert_errors(
+            &definition(ParameterType::Text(TextParameterSchema {
+                minimum_length: 0,
+                maximum_length: None,
+                default_value: Some("admin".into()),
+                format: Some(TextFormat::Email as i32),
+            })),
+            &[
+                "parameter \"mode\" default is invalid: it must be an email address, such as name@example.com",
+            ],
+        );
+        assert_errors(
+            &definition(ParameterType::Text(TextParameterSchema {
                 minimum_length: 5,
                 maximum_length: Some(4),
                 default_value: None,
+                format: None,
             })),
             &["parameter \"mode\" minimum length must not exceed its maximum length"],
         );
@@ -386,6 +473,7 @@ mod tests {
                 minimum_length: 0,
                 maximum_length: Some(0),
                 default_value: None,
+                format: None,
             })),
             &["parameter \"mode\" maximum length must be at least 1"],
         );
@@ -394,6 +482,7 @@ mod tests {
                 minimum_length: 0,
                 maximum_length: Some(4),
                 default_value: Some("abcde".into()),
+                format: None,
             })),
             &[
                 "parameter \"mode\" default is invalid: it has more bytes than the maximum length of 4",

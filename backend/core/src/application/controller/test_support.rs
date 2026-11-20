@@ -3004,12 +3004,12 @@ pub(super) fn application_with_route_input() -> Application {
     application
 }
 
-/// The test application with an advanced `mode` choice and a basic `workers` count, each bound to
-/// an environment variable of its web service.
+/// The test application with an advanced `mode` choice, a basic `workers` count and a `contact`
+/// email, each bound to an environment variable of its web service.
 pub(super) fn application_with_parameters() -> Application {
     use dotcore_proto::dotcore::catalog::v1::{
-        ParameterDefinition, ParameterVisibility, StringEnumParameterSchema,
-        UnsignedIntegerParameterSchema, parameter_definition::ParameterType,
+        ParameterDefinition, ParameterVisibility, StringEnumParameterSchema, TextFormat,
+        TextParameterSchema, UnsignedIntegerParameterSchema, parameter_definition::ParameterType,
     };
 
     let mut application = application();
@@ -3044,8 +3044,22 @@ pub(super) fn application_with_parameters() -> Application {
             enabled_by_parameter_id: None,
             group_id: None,
         },
+        ParameterDefinition {
+            parameter_id: "contact".to_owned(),
+            display_name: "Contact".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::Text(TextParameterSchema {
+                minimum_length: 5,
+                maximum_length: None,
+                default_value: Some("owner@example.com".to_owned()),
+                format: Some(TextFormat::Email as i32),
+            })),
+            visibility: ParameterVisibility::Basic as i32,
+            enabled_by_parameter_id: None,
+            group_id: None,
+        },
     ];
-    graph.services[0].configuration_bindings = ["mode", "workers"]
+    graph.services[0].configuration_bindings = ["mode", "workers", "contact"]
         .into_iter()
         .map(|id| ApplicationConfigurationBinding {
             binding_name: id.to_owned(),
@@ -3106,6 +3120,7 @@ pub(super) fn application_with_secret_parameters() -> Application {
                 minimum_length: 1,
                 maximum_length: Some(64),
                 default_value: Some("admin".to_owned()),
+                format: None,
             })),
             visibility: ParameterVisibility::Basic as i32,
             enabled_by_parameter_id: None,

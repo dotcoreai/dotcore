@@ -781,6 +781,7 @@ fn show_prints_only_retained_parameters() {
                     minimum_length: 3,
                     maximum_length: Some(254),
                     default_value: Some("admin@example.com".to_owned()),
+                    format: None,
                 }),
             ),
         ],
@@ -936,6 +937,7 @@ fn deployment_with_parameters() -> ApplicationDeployment {
                     minimum_length: 0,
                     maximum_length: Some(100),
                     default_value: None,
+                    format: None,
                 }),
             ),
             definition(

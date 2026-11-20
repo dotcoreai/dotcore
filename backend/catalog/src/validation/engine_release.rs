@@ -572,6 +572,7 @@ mod tests {
                     minimum_length: 0,
                     maximum_length: Some(8),
                     default_value: Some("on".to_owned()),
+                    format: None,
                 },
             ))),
             ["engine parameter \"feature\" must be a boolean, an unsigned integer or a secret"]

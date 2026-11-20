@@ -7976,6 +7976,7 @@ async fn deployment_creation_resolves_parameter_overrides_over_defaults() {
             parameter_id: "workers".to_owned(),
             value: Some(parameter_value::Value::UnsignedInteger(2)),
         },
+        string_parameter("contact", "owner@example.com"),
     ];
     assert_eq!(
         deployment
@@ -8007,7 +8008,11 @@ async fn deployment_creation_resolves_parameter_overrides_over_defaults() {
                 attachment.value.as_str()
             ))
             .collect::<Vec<_>>(),
-        [("MODE", "highvram"), ("WORKERS", "2")]
+        [
+            ("MODE", "highvram"),
+            ("WORKERS", "2"),
+            ("CONTACT", "owner@example.com")
+        ]
     );
     let launch = workload_group_launch(
         &declaration,
@@ -8019,6 +8024,7 @@ async fn deployment_creation_resolves_parameter_overrides_over_defaults() {
         exposed_environment(&launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([
             ("MODE".to_owned(), "highvram".to_owned()),
+            ("CONTACT".to_owned(), "owner@example.com".to_owned()),
             ("WORKERS".to_owned(), "2".to_owned()),
         ])
     );
@@ -8548,6 +8554,36 @@ async fn a_switched_group_keeps_values_and_reaches_the_service_only_while_its_sw
     );
     drop(controller);
     fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn invalid_email_values_reject_creation_without_quoting_them() {
+    let directory = test_directory();
+    let (controller, desired) = parameter_test_controller(&directory);
+
+    for value in ["abcdef", "a@bcde", "@b.com", "a@@b.com", "a b@c.com"] {
+        let error = controller
+            .create_deployment(parameter_request(vec![string_parameter("contact", value)]))
+            .await
+            .expect_err("invalid email");
+        assert!(matches!(
+            error,
+            ApplicationLifecycleError::InvalidParameter { .. }
+        ));
+        assert_eq!(
+            error.to_string(),
+            "Application parameter \"contact\" has an invalid value: it must be an email address, such as name@example.com"
+        );
+    }
+    assert!(
+        desired
+            .snapshot()
+            .expect("declaration snapshot")
+            .deployments
+            .is_empty()
+    );
+    drop(controller);
+    std::fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 
 #[tokio::test]

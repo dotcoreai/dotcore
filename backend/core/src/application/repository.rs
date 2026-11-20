@@ -1452,6 +1452,7 @@ mod tests {
                         minimum_length: 1,
                         maximum_length: Some(64),
                         default_value: Some("admin".to_owned()),
+                        format: None,
                     })),
                     visibility: ParameterVisibility::Basic as i32,
                     enabled_by_parameter_id: None,

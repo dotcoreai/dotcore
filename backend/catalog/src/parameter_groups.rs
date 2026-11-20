@@ -715,6 +715,7 @@ mod tests {
                 minimum_length: 0,
                 maximum_length: None,
                 default_value: Some(String::new()),
+                format: None,
             }),
         )
     }

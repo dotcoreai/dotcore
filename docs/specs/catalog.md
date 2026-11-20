@@ -203,6 +203,7 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 - Own the typed parameter definition that engine releases and apps share: its basic, advanced or
   hidden visibility and its types (boolean, integer, text, string enum and secret). Apps use any
   type. Engines use boolean, integer and secret. An integer has a minimum and an optional maximum.
+  A text parameter may declare a format, such as an email address, that its values must have.
 - Own the parameter groups of that definition, which present related parameters together. Apps and
   engines declare groups. Only apps declare conditions: a parameter enabled by a boolean parameter
   or by its group's switch.
