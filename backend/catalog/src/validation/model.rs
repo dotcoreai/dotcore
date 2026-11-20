@@ -12,17 +12,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use dotcore_domain::valid_id;
 use dotcore_proto::dotcore::catalog::v1::{
     EngineArtifact, EngineRelease, HardwareClass, HuggingFaceArtifactSource, InferenceRequestKind,
-    IntelligenceScore, License, Model, ModelArtifact, ModelConfigurationOption,
-    ModelEngineConfiguration, ModelInputCapabilities, ModelInputModality,
-    ModelOptionParameterDefinition, ModelProfile, ParameterValue, ParameterValues,
-    SpeculativeDecodingMethod, hugging_face_artifact_source::Content as HuggingFaceContent,
+    IntelligenceScore, Model, ModelArtifact, ModelConfigurationOption, ModelEngineConfiguration,
+    ModelInputCapabilities, ModelInputModality, ModelOptionParameterDefinition, ModelProfile,
+    ParameterValue, ParameterValues, SpeculativeDecodingMethod,
+    hugging_face_artifact_source::Content as HuggingFaceContent,
     model_option::Kind as ModelOptionKind,
     model_option_parameter_definition::ParameterType as ModelOptionParameterType,
     parameter_definition::ParameterType as EngineParameterType,
     parameter_value::Value as EngineParameterValueKind,
 };
 
-use super::common::lower_hex;
+use super::common::{lower_hex, validate_license};
 use super::same_parameter_schema;
 use crate::{
     options::{
@@ -41,8 +41,6 @@ use crate::{
 };
 
 const MAX_WEIGHT_QUANTIZATION_BYTES: usize = 128;
-const CUSTOM_LICENSE_ID: &str = "custom";
-const LICENSE_REF_PREFIX: &str = "LicenseRef-";
 const SPECULATIVE_TOKEN_COUNT_UNIT: &str = "tokens";
 
 pub fn validate_model(
@@ -70,7 +68,7 @@ pub fn validate_model(
         validate_intelligence_score(score, &mut errors);
     }
     if let Some(license) = &model.license {
-        validate_license(&model.model_id, license, &mut errors);
+        validate_license(&format!("model {:?}", model.model_id), license, &mut errors);
     }
     let configurations = validate_configurations(
         model,
@@ -168,60 +166,6 @@ fn validate_intelligence_score(score: &IntelligenceScore, errors: &mut Vec<anyho
             score.overall
         ));
     }
-}
-
-/// Checks the licence identifier shape and terms link. Membership in the SPDX list is
-/// deliberately not checked, so no maintained dataset is needed.
-fn validate_license(model_id: &str, license: &License, errors: &mut Vec<anyhow::Error>) {
-    let id = license.id.as_str();
-    let needs_terms_url = if id == CUSTOM_LICENSE_ID {
-        true
-    } else if id.eq_ignore_ascii_case(CUSTOM_LICENSE_ID) {
-        errors.push(anyhow::anyhow!(
-            "model {model_id:?} license id {id:?} must be spelled {CUSTOM_LICENSE_ID:?} in lowercase"
-        ));
-        false
-    } else if valid_spdx_style_id(id) {
-        id.starts_with(LICENSE_REF_PREFIX)
-    } else {
-        errors.push(anyhow::anyhow!(
-            "model {model_id:?} license id {id:?} must be an SPDX-style identifier (letters and digits separated by single '.', '-' or '+') or {CUSTOM_LICENSE_ID:?}"
-        ));
-        false
-    };
-
-    if license.terms_url.is_empty() {
-        if needs_terms_url {
-            errors.push(anyhow::anyhow!(
-                "model {model_id:?} license id {id:?} requires a terms URL"
-            ));
-        }
-    } else if !valid_http_url(&license.terms_url) {
-        errors.push(anyhow::anyhow!(
-            "model {model_id:?} license terms URL {:?} must be an http(s) URL with a host",
-            license.terms_url
-        ));
-    }
-}
-
-/// Accepts ASCII letter-and-digit segments joined by single `.`, `-`, or `+` separators.
-fn valid_spdx_style_id(id: &str) -> bool {
-    let mut previous_separator = true;
-    for character in id.chars() {
-        if character.is_ascii_alphanumeric() {
-            previous_separator = false;
-        } else if matches!(character, '.' | '-' | '+') && !previous_separator {
-            previous_separator = true;
-        } else {
-            return false;
-        }
-    }
-    !previous_separator
-}
-
-fn valid_http_url(value: &str) -> bool {
-    url::Url::parse(value)
-        .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
 }
 
 fn validate_configurations(

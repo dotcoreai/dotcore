@@ -796,6 +796,24 @@ fn application_descriptors_define_portable_graph_and_owner_separated_records() {
 }
 
 #[test]
+fn application_descriptor_declares_an_optional_shared_license() {
+    let descriptor = FileDescriptorSet::decode(FILE_DESCRIPTOR_SET)
+        .expect("the generated descriptor set must decode");
+    let catalog = descriptor_file(&descriptor, "dotcore/catalog/v1/application.proto");
+
+    assert!(field_numbers(catalog, "Application").contains(&("license", 9)));
+    assert_eq!(
+        field_type_name(catalog, "Application", "license"),
+        ".dotcore.catalog.v1.License"
+    );
+    assert!(
+        catalog
+            .dependency
+            .contains(&"dotcore/catalog/v1/license.proto".to_owned())
+    );
+}
+
+#[test]
 fn public_application_contracts_exclude_runtime_native_details() {
     let contracts = [
         include_str!("../dotcore/catalog/v1/application.proto"),

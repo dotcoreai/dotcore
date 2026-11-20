@@ -9,6 +9,9 @@ notes: |-
   A Dotcore Inference credential points at this Site's Inference endpoint; pick it in OpenAI nodes.
   OpenAI node "Message a model": under Options, add Store and turn it off. Dotcore does not keep responses.
 version: "2.43.5"
+license:
+  id: SUL-1.0
+  termsUrl: https://docs.n8n.io/sustainable-use-license/
 graph:
   parameterGroups:
     - groupId: "owner-account"

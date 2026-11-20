@@ -570,6 +570,7 @@ fn complete_application() -> Application {
         notes: "First line.\nSecond line.".to_owned(),
         use_cases: Vec::new(),
         preferred_accelerators: Vec::new(),
+        license: None,
         version: "1.0.0".to_owned(),
         graph: Some(ApplicationGraph {
             services: vec![

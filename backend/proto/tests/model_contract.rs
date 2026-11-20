@@ -970,6 +970,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
     let nix = descriptor_file(&descriptor, "dotcore/catalog/v1/nix.proto");
     let selector = descriptor_file(&descriptor, "dotcore/catalog/v1/selector.proto");
     let catalog = descriptor_file(&descriptor, "dotcore/catalog/v1/model.proto");
+    let license = descriptor_file(&descriptor, "dotcore/catalog/v1/license.proto");
     let deployment = descriptor_file(&descriptor, "dotcore/model/v1/deployment.proto");
     let service = descriptor_file(&descriptor, "dotcore/model/v1/service.proto");
 
@@ -1142,7 +1143,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
         [("overall", 1, "TYPE_DOUBLE")]
     );
     assert_eq!(
-        field_layout(catalog, "License"),
+        field_layout(license, "License"),
         [("id", 1, "TYPE_STRING"), ("terms_url", 2, "TYPE_STRING")]
     );
     assert_eq!(

@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use dotcore_domain::oci::OciReferenceKind;
 use dotcore_proto::dotcore::{
-    catalog::v1::{ApplicationServiceArtifact, OciImageReference, OciPlatform, Selector},
+    catalog::v1::{ApplicationServiceArtifact, License, OciImageReference, OciPlatform, Selector},
     observation::v1::AcceleratorMemoryArchitecture,
 };
 
@@ -97,6 +97,63 @@ pub(super) fn lower_hex(value: &str, length: usize) -> bool {
             .all(|value| value.is_ascii_digit() || (b'a'..=b'f').contains(&value))
 }
 
+const CUSTOM_LICENSE_ID: &str = "custom";
+const LICENSE_REF_PREFIX: &str = "LicenseRef-";
+
+/// Checks a declaration's licence identifier shape and terms link. `subject` names the declaration
+/// in errors. Membership in the SPDX list is deliberately not checked, so no maintained dataset is
+/// needed.
+pub(super) fn validate_license(subject: &str, license: &License, errors: &mut Vec<anyhow::Error>) {
+    let id = license.id.as_str();
+    let needs_terms_url = if id == CUSTOM_LICENSE_ID {
+        true
+    } else if id.eq_ignore_ascii_case(CUSTOM_LICENSE_ID) {
+        errors.push(anyhow::anyhow!(
+            "{subject} license id {id:?} must be spelled {CUSTOM_LICENSE_ID:?} in lowercase"
+        ));
+        false
+    } else if valid_spdx_style_id(id) {
+        id.starts_with(LICENSE_REF_PREFIX)
+    } else {
+        errors.push(anyhow::anyhow!(
+            "{subject} license id {id:?} must be an SPDX-style identifier (letters and digits separated by single '.', '-' or '+') or {CUSTOM_LICENSE_ID:?}"
+        ));
+        false
+    };
+
+    if license.terms_url.is_empty() {
+        if needs_terms_url {
+            errors.push(anyhow::anyhow!(
+                "{subject} license id {id:?} requires a terms URL"
+            ));
+        }
+    } else if !valid_http_url(&license.terms_url) {
+        errors.push(anyhow::anyhow!(
+            "{subject} license terms URL {:?} must be an http(s) URL with a host",
+            license.terms_url
+        ));
+    }
+}
+
+/// Accepts ASCII letter-and-digit segments joined by single `.`, `-`, or `+` separators.
+fn valid_spdx_style_id(id: &str) -> bool {
+    let mut previous_separator = true;
+    for character in id.chars() {
+        if character.is_ascii_alphanumeric() {
+            previous_separator = false;
+        } else if matches!(character, '.' | '-' | '+') && !previous_separator {
+            previous_separator = true;
+        } else {
+            return false;
+        }
+    }
+    !previous_separator
+}
+
+fn valid_http_url(value: &str) -> bool {
+    url::Url::parse(value)
+        .is_ok_and(|url| matches!(url.scheme(), "http" | "https") && url.host_str().is_some())
+}
 #[cfg(test)]
 mod tests {
     use dotcore_proto::dotcore::catalog::v1::{

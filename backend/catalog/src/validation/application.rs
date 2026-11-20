@@ -1,8 +1,8 @@
 //! Application declaration graph, service, and binding validation.
 //!
-//! Besides its graph, an application may name the use cases it serves and the accelerator vendors
-//! it prefers. Both are recommendation and display metadata: each use case is served by at most
-//! one master-catalog application, and they never decide admission or placement.
+//! Besides its graph, an application may name the use cases it serves, the accelerator vendors it
+//! prefers, and an upstream licence. All are recommendation and display metadata: each use case is
+//! served by at most one master-catalog application, and they never decide admission or placement.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -10,7 +10,7 @@ use anyhow::anyhow;
 use dotcore_domain::{Accelerator, valid_id};
 use dotcore_proto::dotcore::catalog::v1::{Application, UseCase};
 
-use super::{CatalogDiagnostic, graph::validate_application_graph};
+use super::{CatalogDiagnostic, common::validate_license, graph::validate_application_graph};
 use crate::OciArtifactPolicy;
 
 pub fn validate_application_with_policy(
@@ -33,6 +33,13 @@ pub fn validate_application_with_policy(
         errors.push(anyhow!(
             "application notes must be at most {MAX_NOTES_BYTES} bytes and contain no control characters other than line breaks"
         ));
+    }
+    if let Some(license) = &application.license {
+        validate_license(
+            &format!("application {:?}", application.application_id),
+            license,
+            &mut errors,
+        );
     }
     validate_use_cases(application, &mut errors);
     validate_preferred_accelerators(application, &mut errors);
@@ -129,11 +136,12 @@ mod tests {
         ApplicationHttpReadiness, ApplicationInferenceRouteInput,
         ApplicationInferenceRouteProjection, ApplicationPrimaryEndpoint, ApplicationSecretBinding,
         ApplicationSecretForm, ApplicationService, ApplicationServiceDependency,
-        ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, MemoryPool,
-        NixArtifact, NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition,
-        ParameterGroup, ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind,
-        StoragePlacement, StringEnumParameterSchema, TextFormat, TextParameterSchema,
-        UnsignedIntegerParameterSchema, UseCase, application_configuration_binding,
+        ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, License,
+        MemoryPool, NixArtifact, NixDockerImage, NixSystemStorePath, OciPlatform,
+        ParameterDefinition, ParameterGroup, ParameterVisibility, SecretParameterSchema,
+        StorageBinding, StorageKind, StoragePlacement, StringEnumParameterSchema, TextFormat,
+        TextParameterSchema, UnsignedIntegerParameterSchema, UseCase,
+        application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
         parameter_definition::ParameterType,
     };
@@ -154,6 +162,7 @@ mod tests {
             version: "0.10.1".to_owned(),
             use_cases: Vec::new(),
             preferred_accelerators: Vec::new(),
+            license: None,
             graph: Some(ApplicationGraph {
                 services: vec![
                     ApplicationService {
@@ -289,6 +298,56 @@ mod tests {
         assert!(notes_error("carriage\rreturn"));
         // Bounded by bytes, not characters.
         assert!(notes_error(&"é".repeat(501)));
+    }
+
+    #[test]
+    fn application_license_follows_the_shared_license_rules() {
+        let errors = |id: &str, terms_url: &str| {
+            let mut application = application();
+            application.license = Some(License {
+                id: id.to_owned(),
+                terms_url: terms_url.to_owned(),
+            });
+            validate_application(&application)
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        };
+        let identifier = "an SPDX-style identifier (letters and digits separated by single '.', '-' or '+') or \"custom\"";
+
+        assert!(validate_application(&application()).is_empty());
+        assert!(errors("AGPL-3.0-only", "").is_empty());
+        assert!(errors("MIT", "http://example.test/mit").is_empty());
+        assert!(errors("LicenseRef-Example-1.0", "https://example.test/terms").is_empty());
+        assert!(errors("custom", "https://example.test/terms").is_empty());
+        assert_eq!(
+            errors("MIT OR Apache-2.0", ""),
+            [format!(
+                "application \"open-webui\" license id \"MIT OR Apache-2.0\" must be {identifier}"
+            )]
+        );
+        assert_eq!(
+            errors("Custom", ""),
+            [
+                "application \"open-webui\" license id \"Custom\" must be spelled \"custom\" in lowercase"
+            ]
+        );
+        assert_eq!(
+            errors("custom", ""),
+            ["application \"open-webui\" license id \"custom\" requires a terms URL"]
+        );
+        assert_eq!(
+            errors("LicenseRef-Example-1.0", ""),
+            [
+                "application \"open-webui\" license id \"LicenseRef-Example-1.0\" requires a terms URL"
+            ]
+        );
+        assert_eq!(
+            errors("MIT", "example.test/mit"),
+            [
+                "application \"open-webui\" license terms URL \"example.test/mit\" must be an http(s) URL with a host"
+            ]
+        );
     }
 
     #[test]
