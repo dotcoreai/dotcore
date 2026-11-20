@@ -1,0 +1,230 @@
+# RadixArk's official ModelOpt mixed-precision NVFP4 build of DaisyRose-27B,
+# a reinforcement-learning fine-tune of Qwen3.8-27B.
+modelId: "daisy-rose-27b"
+displayName: "DaisyRose 27B"
+version: "27b"
+# text_config.max_position_embeddings in the pinned config.json.
+maximumContextTokens: 262144
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+artifacts:
+  - artifactId: "nvfp4"
+    weightQuantization: "NVFP4"
+    source:
+      repository: "RadixArk/DaisyRose-27B-NVFP4"
+      revision: "d7a485994f1cc0c756efb9f157a9842b2df703fc"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041"
+          - path: "config.json"
+            provenanceDigest: "36f53bd9dad0963c2800c934f920998357f467f3e6795f7d03146faf221ee865"
+          - path: "generation_config.json"
+            provenanceDigest: "d0d6dc40794a570ed9a66a005146ea5dc537ce11c42eb00c676bd220f6c01cf2"
+          - path: "hf_quant_config.json"
+            provenanceDigest: "f599595eb5dde0eb7204a6abc7454161fbc472b234437c8a3f45813f33c712e2"
+          - path: "model-00001-of-00006.safetensors"
+            provenanceDigest: "ce75a78ba1c49ee849ac043e8744b2adbe23968c66e36d8682947763318e5cdc"
+          - path: "model-00002-of-00006.safetensors"
+            provenanceDigest: "cb46114c3c5ce503b211874c1d91037e65c875907b3d4d37c4ec7f293f2015a7"
+          - path: "model-00003-of-00006.safetensors"
+            provenanceDigest: "67a01bde0b6e5e59e7580060f0c7557c217ae1602eca0d363bf24fa71688890c"
+          - path: "model-00004-of-00006.safetensors"
+            provenanceDigest: "8e4f0c3e643e0c9ea9ee13b03a34ddb805322ff49fbeb10778005ec5cc406c86"
+          - path: "model-00005-of-00006.safetensors"
+            provenanceDigest: "47aaf5edfe09df796656afad5a88459900a5f4a6d59769f3497d70af57fab7c1"
+          - path: "model-00006-of-00006.safetensors"
+            provenanceDigest: "1d25ec9530b97641a62b0a0ce68f1fa7f96b4998cb4a35d2d2464bcd0ca3b4ec"
+          - path: "model.safetensors.index.json"
+            provenanceDigest: "7833ddbee2e0f15a340d5c318aeeabdd42d1fc4f33dff91c1e3477382eec8999"
+          - path: "preprocessor_config.json"
+            provenanceDigest: "27225450ac9c6529872ee1924fcb0962ff5634834f817040f444118116f4e516"
+          - path: "tokenizer.json"
+            provenanceDigest: "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "b11349aafa7cdc6a320767cf7ceb29ed82f7eda5d65e8e0819e76f0ce947bf27"
+          - path: "vocab.json"
+            provenanceDigest: "ce99b4cb2983d118806ce0a8b777a35b093e2000a503ebde25853284c9dfa003"
+# The checkpoint template rejects multiple system messages; this template supports them.
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "daisy-chat-template"
+    source:
+      repository: "froggeric/Qwen-Fixed-Chat-Templates"
+      revision: "492315ea6d7343bcfb32598d6a898c34e0d69ed8"
+      file:
+        path: "chat_template.jinja"
+        provenanceDigest: "6e1439c913ad7df4a966493ad70de7e7fc5a548d41bbe417c1571f766603629b"
+configurations:
+  - configurationId: "vllm-nvidia-cuda"
+    engineArtifacts:
+      - engineReleaseId: "vllm-v0-34-0"
+        engineArtifactId: "linux-amd64-cuda"
+      - engineReleaseId: "vllm-v0-34-0"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "nvfp4"
+        modelArtifactId: "nvfp4"
+        auxiliaryArtifactIds: ["daisy-chat-template"]
+    # Initial estimate derived from Qwen3.8-27B's vLLM sizing. The base adjusts its measured
+    # value by the pinned weight-file size difference; MTP, vision, KV and margin terms use the
+    # Qwen values pending measurement on this model.
+    sizing:
+      parameters:
+        modelLoadingBaseBytes: 25271169480
+        mtpBytes: 1089765376
+        visionBytes: 789212160
+        marginBytes: 600000000
+        kvBlockBytes: 52428800
+        kvBytesPerToken: 32768
+        kvMtpBlockBytes: 57933824
+        kvMtpBytesPerToken: 34816
+      derivedParameters:
+        # vLLM holds the total context plus each parallel request's own blocks, in whole blocks: 3
+        # recurrent-state blocks per recurrent layer group (3 groups; the third is a prefill checkpoint
+        # with prefix caching), one more per group for each MTP draft token, and one for rounding the
+        # request's context up; one more block is held back. With
+        # one request this is vLLM's start check at a context per request equal to the total context.
+        # Block bytes are those of the largest MTP draft count; per-token bytes are the larger of vLLM's
+        # block layout and the measurement; vision has no KV effect.
+        kv-cache-memory-bytes: >-
+          if(${options.mtp.token-count} > 0, 1, 0)
+          * (${kvMtpBlockBytes} * (1 + ${parallel-requests} * (10 + 3 * ${options.mtp.token-count}))
+          + ${kvMtpBytesPerToken} * ${total-context})
+          + if(${options.mtp.token-count} == 0, 1, 0)
+          * (${kvBlockBytes} * (1 + ${parallel-requests} * 10)
+          + ${kvBytesPerToken} * ${total-context})
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${modelLoadingBaseBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0) * ${mtpBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + ${kv-cache-memory-bytes}
+          allowance: >-
+            ${marginBytes}
+        # Host KV offload size only (rough estimate).
+        hostMemory:
+          unit: bytes
+          equation: >-
+            ${kv-offloading-size-gib} * GiB
+    hardwareSupport:
+      # The minimum covers the largest default profile estimate.
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "33351902152"
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          - bindingId: "nvfp4"
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_VLLM"
+      vllm:
+        fixedSettings:
+          reasoningParser: "qwen3"
+          toolCallParser: "qwen3_xml"
+          chatTemplateAuxiliaryArtifactId: "daisy-chat-template"
+          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
+          kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
+          maximumBatchedTokensParameterId: "maximum-batched-tokens"
+          maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
+          kvOffloadingSizeGibParameterId: "kv-offloading-size-gib"
+          kvOffloadingBackend: "VLLM_KV_OFFLOADING_BACKEND_NATIVE"
+          containerPort: 15000
+          readinessPolicy:
+            mode: "VLLM_READINESS_MODE_MODELS"
+          requiresHostIpc: true
+          trustRemoteCode: true
+          enableLogRequests: true
+          enableAutoToolChoice: true
+          enableChunkedPrefill: true
+          enableAsyncScheduling: true
+          enablePrefixCaching: true
+          enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      imageInputCapacity:
+        maximumImageCount: 1
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "20971520"
+        maximumDecodedBytes: "67108864"
+        maximumWidth: 8192
+        maximumHeight: 8192
+        maximumPixels: "16000000"
+        fixedVisualTokens: 256
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            # Matches the Qwen3.8 vLLM sizing range; this model's estimate is unmeasured.
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              unsignedInteger: "3"
+profiles:
+  - profileId: "nvfp4-text"
+    displayName: "RadixArk NVFP4"
+    description: "Runs DaisyRose 27B through vLLM for text inference."
+    configurationId: "vllm-nvidia-cuda"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: false
+  - profileId: "nvfp4-multimodal"
+    displayName: "RadixArk NVFP4 with vision"
+    description: "Runs DaisyRose 27B through vLLM for text and image inference."
+    configurationId: "vllm-nvidia-cuda"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "4096"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0
