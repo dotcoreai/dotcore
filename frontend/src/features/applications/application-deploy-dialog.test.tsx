@@ -1793,10 +1793,14 @@ describe("Application deployment dialog storage choices", () => {
           storageBindings: [
             create(StorageBindingSchema, {
               bindingName: "data",
+              displayName: "Base directory",
+              description: "Custom nodes, inputs and generated images.",
               placements: [StoragePlacement.DEPLOYMENT],
             }),
             create(StorageBindingSchema, {
               bindingName: "models",
+              displayName: "Model library",
+              description: "Downloaded model files.",
               placements: [StoragePlacement.APPLICATION, StoragePlacement.DEPLOYMENT],
             }),
           ],
@@ -1824,25 +1828,26 @@ describe("Application deployment dialog storage choices", () => {
     const onSubmit = renderDialog();
 
     // Basic mode has no Advanced step, so no select.
-    expect(screen.queryByRole("combobox", { name: "Models storage" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Model library" })).toBeNull();
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     expect(stepLabels()).toEqual(["1. Target", "2. Advanced", "3. Deploy"]);
     await user.click(screen.getByRole("button", { name: "Back" }));
 
-    const models = screen.getByRole("combobox", { name: "Models storage" });
+    const models = screen.getByRole("combobox", { name: "Model library" });
     expect(models).toHaveValue(String(StoragePlacement.APPLICATION));
     expect(
       within(models)
         .getAllByRole("option")
         .map((option) => option.textContent),
     ).toEqual(["Shared by the app", "This deployment"]);
-    expect(screen.queryByRole("combobox", { name: "Data storage" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Base directory" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "About Models storage" }));
-    const help = await screen.findByRole("dialog", { name: "About Models storage" });
+    await user.click(screen.getByRole("button", { name: "About Model library" }));
+    const help = await screen.findByRole("dialog", { name: "About Model library" });
     expect(models).toHaveAccessibleDescription(
-      "Shared by the app. Kept after teardown and reused by the app's next deployment. This deployment. Deleted when the deployment is torn down.",
+      "Downloaded model files. Shared by the app. Kept after teardown and reused by the app's next deployment. This deployment. Deleted when the deployment is torn down.",
     );
+    expect(help).toHaveTextContent("Downloaded model files.");
     expect(help).toHaveTextContent(
       "Shared by the app. Kept after teardown and reused by the app's next deployment.",
     );
@@ -1869,14 +1874,14 @@ describe("Application deployment dialog storage choices", () => {
     await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
     await user.click(screen.getByRole("button", { name: "Back" }));
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Models storage" }),
+      screen.getByRole("combobox", { name: "Model library" }),
       String(StoragePlacement.DEPLOYMENT),
     );
     await user.click(screen.getByRole("button", { name: "Next" }));
     expect(summaryRows()).toEqual([
       ["Target", "local / Docker applications"],
       ["GPU devices", "none"],
-      ["Models storage", "This deployment"],
+      ["Model library", "This deployment"],
     ]);
     await user.click(screen.getByRole("button", { name: "Deploy" }));
 

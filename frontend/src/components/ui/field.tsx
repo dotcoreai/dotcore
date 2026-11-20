@@ -1,5 +1,6 @@
 import { CircleQuestionMark } from "lucide-react";
 import { type ReactNode, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import { FieldError } from "@/components/ui/field-error";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -140,6 +141,11 @@ function FieldHelp({
           onBlur={() => {
             pointerDown.current = false;
             if (openedByFocus.current) setOpenAndForgetFocus(false);
+          }}
+          onKeyDown={(event) => {
+            // Closing before focus moves removes the popup and its focus guards, so Tab reaches the
+            // field's control instead of landing in a popup that the blur then unmounts.
+            if (event.key === "Tab" && open) flushSync(() => setOpenAndForgetFocus(false));
           }}
           onFocus={() => {
             // A pointer press focuses the button too; its click opens the help instead.

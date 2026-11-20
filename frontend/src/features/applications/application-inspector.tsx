@@ -68,7 +68,7 @@ import { formatGpuDevices } from "./application-gpu-devices";
 import { applicationInspectorPanelId } from "./application-inspector-panel";
 import { applicationParameterFields, retainedParameterValues } from "./application-parameters";
 import {
-  storageBindingLabel,
+  attachedStorageBinding,
   storagePlacementLabel,
   teardownConsequence,
 } from "./application-storage";
@@ -342,7 +342,9 @@ export function DeploymentApplicationInspector({
                   {deployment.storageAttachments.map((attachment) => (
                     <Detail
                       key={`${attachment.serviceName}/${attachment.bindingName}`}
-                      label={storageBindingLabel(attachment.bindingName)}
+                      label={
+                        attachedStorageBinding(application?.graph, attachment)?.displayName ?? ""
+                      }
                       value={storagePlacementLabel(attachment.placement)}
                     />
                   ))}
@@ -517,8 +519,8 @@ export function DeploymentApplicationInspector({
               <DialogDescription id="remove-deployment-description">
                 Teardown deployment <ResourceMarker colorKey={deployment.applicationDeploymentId} />
                 {deployment.applicationDeploymentName || deployment.applicationDeploymentId}?{" "}
-                {teardownConsequence(deployment.storageAttachments)} The deployment remains visible
-                as Tearing down until cleanup completes.
+                {teardownConsequence(deployment.snapshot?.graph, deployment.storageAttachments)} The
+                deployment remains visible as Tearing down until cleanup completes.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

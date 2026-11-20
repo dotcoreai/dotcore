@@ -58,7 +58,6 @@ import {
 import {
   changedStorageChoices,
   defaultStorageInputs,
-  storageBindingLabel,
   type StorageChoiceField,
   storageChoiceFields,
   storageChoiceKey,
@@ -707,7 +706,7 @@ export function ApplicationDeployDialog({
           {changedStorageChoices(storageFields, storageInputs).map(({ field, placement }) => (
             <Detail
               key={storageChoiceKey(field)}
-              label={storageBindingLabel(field.bindingName)}
+              label={field.displayName}
               value={storagePlacementLabel(placement)}
             />
           ))}
@@ -731,16 +730,19 @@ function StorageChoiceSelect({
     <Field
       controlId={`application-storage-${storageChoiceKey(field).replace("/", "-")}`}
       help={
-        <ul className="grid gap-1">
-          {field.placements.map((placement) => (
-            <li key={placement}>
-              <strong>{`${storagePlacementLabel(placement)}.`}</strong>{" "}
-              {storagePlacementLifetime(placement)}
-            </li>
-          ))}
-        </ul>
+        <div className="grid gap-1.5">
+          <p>{field.description}</p>
+          <ul className="grid gap-1">
+            {field.placements.map((placement) => (
+              <li key={placement}>
+                <strong>{`${storagePlacementLabel(placement)}.`}</strong>{" "}
+                {storagePlacementLifetime(placement)}
+              </li>
+            ))}
+          </ul>
+        </div>
       }
-      label={storageBindingLabel(field.bindingName)}
+      label={field.displayName}
     >
       {(control) => (
         <NativeSelect
