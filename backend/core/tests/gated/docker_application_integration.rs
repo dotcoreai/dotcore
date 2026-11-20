@@ -1491,7 +1491,14 @@ async fn hw_docker_lightweight_application_logs_are_owned_filtered_and_cancellab
                 inference_route_id: None,
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
-                parameter_values: Vec::new(),
+                parameter_values: vec![dotcore_proto::dotcore::catalog::v1::ParameterValue {
+                    parameter_id: "protected".to_owned(),
+                    value: Some(
+                        dotcore_proto::dotcore::catalog::v1::parameter_value::Value::String(
+                            "protected-value".to_owned(),
+                        ),
+                    ),
+                }],
                 storage_choices: Vec::new(),
             }),
         )
@@ -1817,7 +1824,7 @@ async fn hw_docker_a_container_that_exits_during_startup_fails_the_app_with_its_
             "Stage: application startup",
             "Exit status: 3",
             "Service: web",
-            "Output tail: crash fixture starting\n[REDACTED]",
+            "Output tail: crash fixture starting\nprotected-value",
         ];
         if failure.code != "StoppedDuringStartup" || failure.diagnostics != expected {
             return Err(format!("unexpected crash failure: {failure:?}"));
@@ -1889,14 +1896,10 @@ async fn hw_docker_secret_parameter_reaches_only_the_container_and_site_yaml() {
                 environment.len()
             ));
         }
-        // The serving unit prints the username and the secret; deployment logs redact every
-        // launch value.
-        let serving_logs = read_logs_containing(
-            &mut applications,
-            &serving_id,
-            "login [REDACTED] [REDACTED]",
-        )
-        .await?;
+        // The serving unit prints the username and the secret; deployment logs redact only the
+        // secret.
+        let serving_logs =
+            read_logs_containing(&mut applications, &serving_id, "login admin [REDACTED]").await?;
         assert_no_sentinel("serving deployment logs", &serving_logs)?;
 
         // The failing unit prints the secret, then exits before it ever serves.
@@ -3660,15 +3663,23 @@ graph:
 displayName: "Log fixture"
 version: "1.0.0"
 graph:
+  parameters:
+    - parameterId: "protected"
+      displayName: "Protected"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      secret:
+        generatedLength: 32
+        minimumLength: 12
   services:
     - serviceName: "alpha"
       artifact:
 {artifact}      command: ["sh", "-ec"]
       arguments: ["trap 'exit 0' TERM; printf 'alpha stdout\\n'; printf 'alpha stderr\\n' >&2; printf '%s\\n' \"$PROTECTED_VALUE\"; mkdir -p /www; printf 'ready\\n' > /www/index.html; httpd -f -p 8080 -h /www & wait $!"]
-      configurationBindings:
+      secretBindings:
         - bindingName: "protected"
           environmentVariable: "PROTECTED_VALUE"
-          literalValue: "protected-value"
+          parameterId: "protected"
+          form: "APPLICATION_SECRET_FORM_PLAIN"
       ports:
         - portName: "http"
           portNumber: 8080

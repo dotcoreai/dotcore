@@ -2608,18 +2608,8 @@ mod tests {
                 ),
             ]
         );
-        let launched_values = linked_fixture
-            .launch("linked-1")
-            .units
-            .values()
-            .flat_map(|unit| {
-                unit.environment
-                    .values()
-                    .map(|value| value.expose().to_owned())
-            })
-            .collect::<Vec<_>>();
-        assert!(launched_values.contains(&"chat-default".to_owned()));
-        assert_eq!(protected, ProtectedLogValues::new(launched_values));
+        // The launch environment holds no secret, so nothing is protected.
+        assert_eq!(protected, ProtectedLogValues::new(Vec::<String>::new()));
         assert!(matches!(
             followed,
             Some(Ok(RuntimeLogEvent::Entry(entry)))
@@ -2691,7 +2681,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn node_logs_serve_preparation_steps_before_the_group_exists_and_protect_launch_values() {
+    async fn node_logs_serve_preparation_steps_before_the_group_exists_and_protect_secret_values() {
         let fixture = NodeFixture::new(None);
         let mut preparing = declaration("dev-1", 1, Present);
         preparing
@@ -2798,11 +2788,7 @@ mod tests {
         ));
         assert_eq!(
             all.protected,
-            ProtectedLogValues::new([
-                "secret-token".to_owned(),
-                PASSWORD_HASH.to_owned(),
-                "secret-password".to_owned(),
-            ])
+            ProtectedLogValues::new([PASSWORD_HASH.to_owned(), "secret-password".to_owned(),])
         );
         let build_entry = all.sources[0]
             .result
@@ -2812,7 +2798,7 @@ mod tests {
             .clone();
         assert_eq!(
             filter_entry(build_entry, &all.protected).content,
-            b"building with [REDACTED], [REDACTED] and [REDACTED]"
+            b"building with secret-token, [REDACTED] and [REDACTED]"
         );
         assert_eq!(
             filtered
@@ -2832,8 +2818,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_follow_opened_before_the_group_exists_receives_each_container_redacted_as_it_starts()
-    {
+    async fn a_follow_opened_before_the_group_exists_receives_each_container_as_it_starts() {
         let output = Arc::new(ContainerOutput::default());
         let fixture = NodeFixture::new(None).with_container_output(Arc::clone(&output));
         let mut application = application_with_route_input();
@@ -2848,7 +2833,7 @@ mod tests {
         linked.placement = Some(node_placement());
         linked.snapshot.as_mut().unwrap().placement = Some(node_placement());
         linked.inference_route_id = Some("route-one".to_owned());
-        // The route name reaches only the web container's environment, never an attachment.
+        // The route name reaches only the web container's environment and is not a secret.
         fixture.install(
             1,
             vec![assignment(linked, Some(route_name("secret-route")))],
@@ -2879,7 +2864,7 @@ mod tests {
         );
         assert_eq!(
             frames_of(&announced, "web"),
-            ["opened", "entry web serves [REDACTED]"]
+            ["opened", "entry web serves secret-route"]
         );
         assert_eq!(
             frames_of(&announced, "worker"),

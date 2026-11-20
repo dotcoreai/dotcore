@@ -35,6 +35,7 @@ use super::{
     protected_startup_values,
 };
 use crate::{
+    diagnostic::redact_filesystem_paths,
     management_logs::{ProtectedLogValues, failure_output_lines, newest_failure_output},
     model::engine::startup_refusal::StartupRefusal,
 };
@@ -322,14 +323,18 @@ struct StoppedOutput {
     refusal: Option<StartupRefusal>,
 }
 
-/// Masks a stopped engine's output for its failure, keeps the newest lines as the tail, and reads
-/// the engine's refusal from every line.
+/// Masks a stopped engine's output for its failure, hiding file system paths too since engines run
+/// on the host and paths can reveal user names, keeps the newest lines as the tail, and reads the
+/// engine's refusal from every line.
 fn stopped_output(
     history: dotcore_runtime::RuntimeLogHistory,
     protected: &ProtectedLogValues,
     read_refusal: &dyn Fn(&str) -> Option<StartupRefusal>,
 ) -> StoppedOutput {
-    let lines = failure_output_lines(history.entries, protected);
+    let lines: Vec<String> = failure_output_lines(history.entries, protected)
+        .iter()
+        .map(|line| redact_filesystem_paths(line))
+        .collect();
     StoppedOutput {
         refusal: read_refusal(&lines.join("\n")),
         tail: newest_failure_output(&lines),

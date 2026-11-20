@@ -337,6 +337,24 @@ async fn a_unit_that_exits_during_startup_fails_the_deployment_once_with_its_exi
         environment_variable: "WEBUI_SECRET".to_owned(),
         value: LAUNCH_SECRET_VALUE.to_owned(),
     }];
+    deployment.configuration_attachments = vec![ApplicationConfigurationAttachment {
+        service_name: "web".to_owned(),
+        binding_name: "contact".to_owned(),
+        environment_variable: "CONTACT".to_owned(),
+        value: "admin@example.com".to_owned(),
+    }];
+    // A typed secret parameter and a generated one are both secret parameter values.
+    let snapshot = deployment.snapshot.as_mut().expect("snapshot");
+    snapshot
+        .graph
+        .as_mut()
+        .expect("graph")
+        .parameters
+        .extend([secret_parameter("typed"), secret_parameter("generated")]);
+    snapshot.parameter_values.extend([
+        string_parameter("typed", "typed-password-1"),
+        string_parameter("generated", "secret1xxxxxxxxxxxxxxxxxxxxxxxxx"),
+    ]);
     desired
         .upsert(deployment.clone(), 0)
         .expect("present desired deployment");
@@ -367,7 +385,14 @@ async fn a_unit_that_exits_during_startup_fails_the_deployment_once_with_its_exi
         dotcore_artifact::ArtifactManager::new(directory.join("artifacts"), Some(preparer.clone()))
             .expect("Artifact manager");
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let secret_line = format!("fatal: rejected key {LAUNCH_SECRET_VALUE}");
+    let output_lines = [
+        "listening on 8080, data in /srv/app/data".to_owned(),
+        "contact admin@example.com".to_owned(),
+        format!(
+            "fatal: rejected key {LAUNCH_SECRET_VALUE}, typed-password-1 and \
+             secret1xxxxxxxxxxxxxxxxxxxxxxxxx"
+        ),
+    ];
     let controller = controller_with_runtime_and_artifacts(
         desired,
         current.clone(),
@@ -389,7 +414,7 @@ async fn a_unit_that_exits_during_startup_fails_the_deployment_once_with_its_exi
             )),
             Arc::clone(&calls),
         )
-        .with_output(&["listening on 8080", &secret_line]),
+        .with_output(&output_lines.each_ref().map(String::as_str)),
         artifacts,
     );
 
@@ -426,7 +451,8 @@ async fn a_unit_that_exits_during_startup_fails_the_deployment_once_with_its_exi
                 "Stage: application startup".to_owned(),
                 "Exit status: 137".to_owned(),
                 "Service: web".to_owned(),
-                "Output tail: listening on 8080\nfatal: rejected key [REDACTED]".to_owned(),
+                "Output tail: listening on 8080, data in /srv/app/data\ncontact admin@example.com\nfatal: rejected key [REDACTED], [REDACTED] and [REDACTED]"
+                    .to_owned(),
             ],
         })
     );

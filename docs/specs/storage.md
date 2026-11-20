@@ -136,9 +136,9 @@ flowchart LR
 - On-demand reads cross neither the node agent nor observability, and aren't retained.
 - Bounded failure diagnostics a hosting node reports in deployment status are kept on the deployment
   record.
-- The hosting node removes protected launch values from deployment diagnostics, and each node removes
-  filesystem paths from backend diagnostics, before the data leaves the node. Preparation output
-  keeps host paths.
+- The hosting node removes secret values from deployment diagnostics, and each node removes
+  filesystem paths from backend diagnostics, before the data leaves the node. Model failure output
+  hides paths too; application failure output and preparation output keep them.
 
 ## Resources
 

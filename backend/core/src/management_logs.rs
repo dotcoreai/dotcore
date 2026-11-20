@@ -442,7 +442,7 @@ pub(crate) fn failure_output_tail(
 }
 
 /// Each of a stopped workload's `entries` as one line a failure may show: protected values
-/// redacted, file system paths hidden and control characters other than tabs dropped.
+/// redacted and control characters other than tabs dropped.
 pub(crate) fn failure_output_lines(
     entries: Vec<RuntimeLogEntry>,
     protected: &ProtectedLogValues,
@@ -451,7 +451,7 @@ pub(crate) fn failure_output_lines(
         .into_iter()
         .map(|entry| {
             let filtered = filter_entry(entry, protected);
-            crate::diagnostic::redact_filesystem_paths(&String::from_utf8_lossy(&filtered.content))
+            String::from_utf8_lossy(&filtered.content)
                 .chars()
                 .filter(|character| !character.is_control() || *character == '\t')
                 .collect::<String>()

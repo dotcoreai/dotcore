@@ -4,7 +4,7 @@
 //! Each request names the manager session, the node incarnation, the owner kind, and the
 //! deployment. The node admits it only from the manager, for its own incarnation and the
 //! session whose view it installed, within a fixed number of concurrent reads, and then asks the
-//! deployment's owner to read its exact local runtime. The owner's protected launch values are
+//! deployment's owner to read its exact local runtime. The owner's protected secret values are
 //! redacted from every entry before it is cut to 64 KiB, and a history drops its oldest entries
 //! to stay within one response budget, saying so in its truncation flag. A follow of every
 //! source stays open while the deployment's sources come and go, announcing each one that starts

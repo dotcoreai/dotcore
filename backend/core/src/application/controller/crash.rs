@@ -29,7 +29,7 @@ use super::{
     ApplicationRealizer, CurrentApplicationDeployment,
     errors::{DeploymentReconcileFailure, deployment_failure},
     failed_state,
-    logs::launch_protected_values,
+    logs::deployment_protected_values,
     readiness::GROUP_NOT_RUNNING_STAGE,
 };
 use crate::management_logs::{MAX_FAILURE_OUTPUT_LINES, failure_output_tail};
@@ -150,7 +150,7 @@ impl ApplicationRealizer {
                 "Last output of the stopped application unit is unavailable"
             );
         }
-        failure_output_tail(history?.entries, &launch_protected_values(desired, launch))
+        failure_output_tail(history?.entries, &deployment_protected_values(desired))
     }
 }
 

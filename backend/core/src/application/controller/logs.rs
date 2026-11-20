@@ -4,7 +4,7 @@
 //! its process and over the private deployment-log service otherwise. The node serves the output
 //! of each preparation step it ran for the deployment's services, resolves its own group from the
 //! installed assignment and its pinned launch identities, exactly as it launches it, and redacts
-//! the launch environment values and the secret parameter values from both before any entry leaves
+//! the secret attachment values and the secret parameter values from both before any entry leaves
 //! it, so a secret is redacted in its plain form as well as in the form its service receives.
 
 use std::{future::Future, net::Ipv4Addr, sync::Arc};
@@ -98,7 +98,7 @@ where
         }
     }
 
-    /// The hosting node redacts its launch values before entries leave it, so the owner adds
+    /// The hosting node redacts its secret values before entries leave it, so the owner adds
     /// none.
     fn protected_log_values(
         &self,
@@ -223,7 +223,7 @@ impl NodeApplicationLogs {
             steps: split.steps.clone(),
             known_steps: known_steps.clone(),
             workload: NodeGroupSource::NotCreated(selection),
-            protected: protected_values(declaration, attachment_values(declaration)),
+            protected: deployment_protected_values(declaration),
         };
         let Some(workload_names) = &split.workload else {
             return Ok(not_created(
@@ -345,7 +345,7 @@ impl DeploymentLogOwner for NodeApplicationLogs {
 }
 
 /// What a node serves for one assigned deployment: its selected preparation steps, its
-/// workload sources, and the launch values redacted from both.
+/// workload sources, and the secret values redacted from both.
 struct NodeDeploymentSources {
     steps: Vec<PreparationStep>,
 
@@ -407,7 +407,7 @@ impl LogLocation {
     }
 }
 
-/// The exact local group, selected sources, and protected launch values of one deployment.
+/// The exact local group, selected sources, and protected secret values of one deployment.
 struct LocalGroup {
     execution_target_id: String,
     group: WorkloadGroupLaunch,
@@ -488,7 +488,7 @@ fn local_group(
         .clone();
     let group = workload_group_launch(deployment, publication_host, inference_route_resolver)
         .map_err(map_lifecycle_error)?;
-    let protected = launch_protected_values(deployment, &group);
+    let protected = deployment_protected_values(deployment);
     Ok(LocalGroup {
         execution_target_id,
         group,
@@ -566,59 +566,22 @@ fn step_sources(services: &[RuntimeLogSource]) -> Vec<PreparationStep> {
         .collect()
 }
 
-/// Returns the values of `deployment` that no log or recorded failure text may reveal: its launch
-/// attachments and secret parameter values.
+/// Returns the secret values of `deployment` that no log or recorded failure text may reveal: its
+/// secret attachments and its secret parameter values. A secret bound in a derived form, such as a
+/// hash, never appears among the launch values as typed, yet stays protected.
+///
+/// Credentials reach an application only as secret parameters or secret attachments, so every
+/// other launch value is shown as is.
 pub(super) fn deployment_protected_values(
     deployment: &ApplicationDeploymentDeclaration,
 ) -> ProtectedLogValues {
-    protected_values(deployment, attachment_values(deployment))
-}
-
-/// Returns the values no output of `launch` may reveal: its environment values, the
-/// deployment's launch attachments and its secret parameter values.
-pub(super) fn launch_protected_values(
-    deployment: &ApplicationDeploymentDeclaration,
-    launch: &WorkloadGroupLaunch,
-) -> ProtectedLogValues {
-    protected_values(
-        deployment,
-        attachment_values(deployment).chain(
-            launch
-                .units
-                .values()
-                .flat_map(|unit| unit.environment.values())
-                .map(|value| value.expose().to_owned()),
-        ),
+    ProtectedLogValues::new(
+        deployment
+            .secret_attachments
+            .iter()
+            .map(|attachment| attachment.value.clone())
+            .chain(secret_parameter_values(deployment)),
     )
-}
-
-/// Returns the configuration and secret values the deployment's launch receives, which step
-/// lines must not reveal either.
-fn attachment_values(
-    deployment: &ApplicationDeploymentDeclaration,
-) -> impl Iterator<Item = String> {
-    deployment
-        .configuration_attachments
-        .iter()
-        .map(|attachment| attachment.value.clone())
-        .chain(
-            deployment
-                .secret_attachments
-                .iter()
-                .map(|attachment| attachment.value.clone()),
-        )
-}
-
-/// Protects `launch_values` and the deployment's secret parameter values. A secret bound in a
-/// derived form, such as a hash, never appears among the launch values as typed, yet stays
-/// protected.
-fn protected_values(
-    deployment: &ApplicationDeploymentDeclaration,
-    launch_values: impl IntoIterator<Item = String>,
-) -> ProtectedLogValues {
-    let mut protected = ProtectedLogValues::new(launch_values);
-    protected.extend(ProtectedLogValues::new(secret_parameter_values(deployment)));
-    protected
 }
 
 /// Returns the retained values of the deployment's secret parameters.

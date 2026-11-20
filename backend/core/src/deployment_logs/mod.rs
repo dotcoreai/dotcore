@@ -82,8 +82,8 @@ pub(crate) trait DeploymentLogOwner: Send + Sync {
     ) -> DeploymentLogOwnerFuture<'a, OwnerLogSources<RuntimeLogSourceStream>>;
 }
 
-/// One owner's per-source results for an installed deployment, with the values resolved for its
-/// launch, such as application environment values, that must never leave the node.
+/// One owner's per-source results for an installed deployment, with the secret values resolved for its
+// launch that must never leave the node.
 pub(crate) struct OwnerLogSources<T> {
     /// Per-source results, in selection order.
     pub(crate) sources: Vec<T>,
