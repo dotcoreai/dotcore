@@ -15,7 +15,7 @@ export interface WizardSteps<Step extends string> {
  */
 export function useWizardSteps<Step extends string>(
   steps: readonly Step[],
-  order: readonly Step[] = steps,
+  order: readonly Step[],
 ): WizardSteps<Step> {
   const [state, setState] = useState<WizardStepsState<Step>>(() => ({
     current: steps[0] ?? "",

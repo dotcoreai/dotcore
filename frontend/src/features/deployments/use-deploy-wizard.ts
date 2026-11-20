@@ -9,8 +9,16 @@ import {
 import { useAdvancedMode } from "./use-advanced-mode";
 import { useWizardSteps } from "./use-wizard-steps";
 
+/**
+ * The deploy steps, named by Dotcore in R3 order: what to run (Inference route for an app that takes
+ * a route, or Profile for a model), Target, Settings, Advanced, then Deploy. Each dialog uses a
+ * subset.
+ */
+export type DeployStep =
+  "Inference route" | "Profile" | "Target" | "Settings" | "Advanced" | "Deploy";
+
 /** What a deploy dialog tells its wizard about its steps and fields. */
-export interface DeployWizardOptions<Step extends string> {
+export interface DeployWizardOptions<Step extends DeployStep> {
   /** Every step in flow order: what to run, Target, Settings, Advanced, then Deploy. */
   order: readonly Step[];
   /** Whether a step has fields; a step without them never shows. */
@@ -31,14 +39,14 @@ export interface DeployWizardOptions<Step extends string> {
 }
 
 /** The shown steps of a deploy dialog, its navigation and its error reveal. */
-export interface DeployWizard<Step extends string> {
+export interface DeployWizard<Step extends DeployStep> {
   advanced: boolean;
   /** Message for the shell's live region, such as the step count after a toggle. */
   announcement: string;
   /** Moves to a step without validating the current one. */
   goTo: (step: Step) => void;
   /** Handles a step header or Back: moving forward first validates the current step. */
-  changeStep: (step: string) => void;
+  changeStep: (step: Step) => void;
   /** Handles the primary action: Next validates the current step, the last step submits. */
   primary: () => void;
   /**
@@ -60,7 +68,7 @@ export interface DeployWizard<Step extends string> {
  * the first step so the steps ahead stay put. A blocked navigation shows the step's errors and
  * focuses the first invalid field; an error on a hidden step turns Advanced on and opens it.
  */
-export function useDeployWizard<Step extends string>({
+export function useDeployWizard<Step extends DeployStep>({
   errorsFor,
   fieldControls,
   hasFields,
@@ -134,9 +142,8 @@ export function useDeployWizard<Step extends string>({
     advanced,
     announcement: advancedMode.announcement,
     changeStep: (next) => {
-      const target = next as Step;
-      if (steps.indexOf(target) > steps.indexOf(step) && !exposeErrors(errorsFor(step))) return;
-      goTo(target);
+      if (steps.indexOf(next) > steps.indexOf(step) && !exposeErrors(errorsFor(step))) return;
+      goTo(next);
     },
     goTo,
     primary: () => {

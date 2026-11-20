@@ -2,7 +2,7 @@ import type { RefObject } from "react";
 
 import { Notice } from "@/components/ui/notice";
 import { validateDeploymentName } from "@/domain/deployment-name";
-import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
+import { deployWizardShellProps } from "@/features/deployments/deploy-wizard-shell-props";
 import { DeploymentWizardShell } from "@/features/deployments/deployment-wizard-shell";
 import { ModelDeployMemoryStrip } from "@/features/models/deploy/memory/model-deploy-memory-strip";
 import { deriveRouteName } from "@/features/models/deployment-exposure";
@@ -37,7 +37,6 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
   const { error, labels = deployLabels, model, onOpenChange, open, openerRef, pending } = props;
   const form = useModelDeployForm(props);
   const {
-    advanced,
     commandPreview,
     compatibility,
     dirtyFields,
@@ -49,9 +48,9 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
     placement,
     selectedProfileRow,
     setFieldError,
-    step,
-    steps,
+    wizard,
   } = form;
+  const { advanced, step, steps } = wizard;
 
   const siteNotice = effectiveTargetsError ? (
     <Notice role="alert" tone="destructive">
@@ -67,7 +66,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
     </Notice>
   ) : undefined;
   const firstStepNotice =
-    step !== steps[0] ? undefined : form.targetsLoadingVisible && !form.targetStepShown ? (
+    step !== steps[0] ? undefined : form.targetsLoadingVisible && !steps.includes("Target") ? (
       <p className="text-xs text-muted-foreground" role="status">
         Loading configured execution targets…
       </p>
@@ -82,14 +81,8 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
 
   return (
     <DeploymentWizardShell
-      announcement={form.announcement}
-      currentStep={step}
-      footerStart={
-        <AdvancedToggle checked={advanced} disabled={pending} onChange={form.toggleAdvanced} />
-      }
+      {...deployWizardShellProps(wizard, { labels, pending })}
       onOpenChange={onOpenChange}
-      onPrimary={form.handlePrimary}
-      onStepChange={form.handleStepChange}
       open={open}
       openerRef={openerRef}
       pending={pending}
@@ -99,13 +92,10 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
         ) : undefined
       }
       primaryDisabled={step === "Deploy" && form.deployDisabled}
-      primaryLabel={step === "Deploy" ? (pending ? labels.pending : labels.submit) : "Next"}
       resourceColorKey={model.modelId}
       resourceName={model.displayName}
-      steps={steps}
       submitError={step === "Deploy" ? error : undefined}
       title={labels.title}
-      visitedSteps={form.visitedSteps}
     >
       {step === "Target" ? (
         <ModelDeployTargetStep
@@ -229,7 +219,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
             onBlur: form.blurParameter,
             groups: form.parameterGroups,
             onChange: form.changeParameter,
-            revealedErrors: form.revealedErrors,
+            revealedErrors: wizard.revealedErrors,
             shown: form.settingsParameters,
           }}
           profile={form.profile}
@@ -288,7 +278,7 @@ export function ModelDeployDialog(props: ModelDeployDialogProps) {
           }
           previewPending={commandPreview.previewPending}
           profile={form.profile}
-          revealedErrors={form.revealedErrors}
+          revealedErrors={wizard.revealedErrors}
           schemaExposesParameters={form.exposedParameters.length > 0}
           kvCachePrecision={{
             onChange: (precision) => {

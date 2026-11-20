@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { useMemo } from "react";
 
+import type { DeployStep } from "@/features/deployments/use-deploy-wizard";
 import type { deploymentExposure } from "@/features/models/deployment-exposure";
 import { configurationSpeculativeOptions } from "@/features/models/profiles/model-row";
 import {
@@ -72,7 +73,13 @@ export type ModelDeployStep = (typeof MODEL_DEPLOY_STEPS)[number];
 export type ModelDeployField = string;
 
 /** Every step in flow order; the dialog shows a subset depending on Advanced and the targets. */
-export const MODEL_DEPLOY_STEPS = ["Profile", "Target", "Settings", "Advanced", "Deploy"] as const;
+export const MODEL_DEPLOY_STEPS = [
+  "Profile",
+  "Target",
+  "Settings",
+  "Advanced",
+  "Deploy",
+] as const satisfies readonly DeployStep[];
 
 /** Keys a launch rejection among the Settings step's errors. */
 export const launchRejectionField = "launchRejection";

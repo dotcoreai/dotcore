@@ -11,13 +11,13 @@ import {
 } from "@/domain/execution-target";
 import { parameterInputError } from "@/domain/parameter-view";
 import { servesChat } from "@/domain/request-kinds";
-import { AdvancedToggle } from "@/features/deployments/advanced-toggle";
+import { deployWizardShellProps } from "@/features/deployments/deploy-wizard-shell-props";
 import { DeploymentWizardShell } from "@/features/deployments/deployment-wizard-shell";
 import {
   type ConfiguredExecutionTargetLoader,
   useConfiguredExecutionTargets,
 } from "@/features/deployments/use-configured-execution-targets";
-import { useDeployWizard } from "@/features/deployments/use-deploy-wizard";
+import { type DeployStep, useDeployWizard } from "@/features/deployments/use-deploy-wizard";
 import type { ApplicationStorageChoice } from "@/gen/dotcore/application/v1/service_pb";
 import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
 import type { ParameterValue } from "@/gen/dotcore/catalog/v1/parameter_pb";
@@ -27,7 +27,7 @@ import {
   ExecutionTargetWorkloadKind,
 } from "@/gen/dotcore/site/v1/service_pb";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import { type FieldErrors, toFieldErrors } from "@/lib/form-validation";
+import { type FieldErrors, toFieldErrors, withFieldError } from "@/lib/form-validation";
 
 import {
   type ApplicationParameterField,
@@ -37,22 +37,22 @@ import {
   defaultParameterInputs,
   enabledParameterFields,
   parameterOverrides,
-} from "./application-parameters";
+} from "../application-parameters";
 import {
   changedStorageChoices,
   defaultStorageInputs,
   storageChoiceFields,
   storageChoiceKey,
   storageChoiceOverrides,
-} from "./application-storage";
-import { ApplicationDeployAdvancedStep } from "./deploy/application-deploy-advanced-step";
-import { ApplicationDeployRouteStep } from "./deploy/application-deploy-route-step";
+} from "../application-storage";
+import { ApplicationDeployAdvancedStep } from "./application-deploy-advanced-step";
+import { ApplicationDeployRouteStep } from "./application-deploy-route-step";
 import {
   ApplicationDeploySettingsStep,
   type ApplicationParametersFormProps,
-} from "./deploy/application-deploy-settings-step";
-import { ApplicationDeploySummaryStep } from "./deploy/application-deploy-summary-step";
-import { ApplicationDeployTargetStep } from "./deploy/application-deploy-target-step";
+} from "./application-deploy-settings-step";
+import { ApplicationDeploySummaryStep } from "./application-deploy-summary-step";
+import { ApplicationDeployTargetStep } from "./application-deploy-target-step";
 
 /** Every step in flow order; the wizard shows those with fields, and Target and Advanced per mode. */
 const APPLICATION_DEPLOY_STEPS = [
@@ -61,7 +61,7 @@ const APPLICATION_DEPLOY_STEPS = [
   "Settings",
   "Advanced",
   "Deploy",
-] as const;
+] as const satisfies readonly DeployStep[];
 
 type ApplicationDeployStep = (typeof APPLICATION_DEPLOY_STEPS)[number];
 
@@ -282,7 +282,7 @@ export function ApplicationDeployDialog({
     setFieldErrors,
     severalTargets: deployableExecutionTargets.length > 1,
   });
-  const { advanced, step } = wizard;
+  const { step } = wizard;
   // Converted once per blocked navigation, since a new map is what opens the groups.
   const revealedParameterErrors = useMemo(
     () => parameterIdErrors(wizard.revealedErrors),
@@ -368,25 +368,16 @@ export function ApplicationDeployDialog({
 
   return (
     <DeploymentWizardShell
-      announcement={wizard.announcement}
-      currentStep={step}
-      footerStart={
-        <AdvancedToggle checked={advanced} disabled={pending} onChange={wizard.toggleAdvanced} />
-      }
+      {...deployWizardShellProps(wizard, { pending })}
       onOpenChange={onOpenChange}
-      onPrimary={wizard.primary}
-      onStepChange={wizard.changeStep}
       open={open}
       openerRef={openerRef}
       pending={pending}
       primaryDisabled={primaryDisabled}
-      primaryLabel={step === "Deploy" ? (pending ? "Deploying…" : "Deploy") : "Next"}
       resourceColorKey={application.applicationId}
       resourceName={application.displayName}
-      steps={wizard.steps}
       submitError={error}
       title="Deploy application"
-      visitedSteps={wizard.visited}
     >
       {effectiveExecutionTargetError ? (
         <Notice aria-label="Execution target status" role="alert" tone="destructive">
@@ -517,17 +508,6 @@ function parameterIdErrors(errors: FieldErrors): FieldErrors {
       key.startsWith("parameter:") ? [[key.slice("parameter:".length), error]] : [],
     ),
   );
-}
-
-function withFieldError(
-  errors: FieldErrors,
-  field: string,
-  nextError: string | undefined,
-): FieldErrors {
-  const next = new Map(errors);
-  if (nextError) next.set(field, nextError);
-  else next.delete(field);
-  return next;
 }
 
 function buildCreationOptions(route: InferenceRouteView | undefined): DeploymentCreationOptions {

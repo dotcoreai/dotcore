@@ -292,7 +292,7 @@ describe("DeploymentWizardShell", () => {
 
     function Harness() {
       const steps = ["Profile", "Deployment"];
-      const wizard = useWizardSteps(steps);
+      const wizard = useWizardSteps(steps, steps);
       return (
         <DeploymentWizardShell
           announcement={wizard.current === "Deployment" ? "Advanced on: 2 steps" : ""}
@@ -388,7 +388,7 @@ describe("DeploymentWizardShell", () => {
 
     function Harness() {
       const steps = ["Profile", "Deploy"];
-      const wizard = useWizardSteps(steps);
+      const wizard = useWizardSteps(steps, steps);
       return (
         <DeploymentWizardShell
           currentStep={wizard.current}

@@ -95,7 +95,7 @@ import type { ModelDeploymentExposure } from "@/gen/dotcore/model/v1/service_pb"
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import { type FieldErrors, toFieldErrors } from "@/lib/form-validation";
+import { type FieldErrors, toFieldErrors, withFieldError } from "@/lib/form-validation";
 import { formatCompactCount, formatCount } from "@/lib/format";
 
 import {
@@ -514,14 +514,8 @@ export function useModelDeployForm({
     engineParameterInputs,
     derivedParameterIds,
   );
-  const setFieldError = (field: string, nextError: string | undefined) => {
-    setFieldErrors((errors) => {
-      const nextErrors = new Map(errors);
-      if (nextError) nextErrors.set(field, nextError);
-      else nextErrors.delete(field);
-      return nextErrors;
-    });
-  };
+  const setFieldError = (field: string, nextError: string | undefined) =>
+    setFieldErrors((errors) => withFieldError(errors, field, nextError));
   const contextParameters = exposedParameters.filter((parameter) =>
     CONTEXT_PARAMETER_IDS.has(parameter.parameterId),
   );
@@ -637,6 +631,73 @@ export function useModelDeployForm({
       ({ parameterId }) =>
         parameterId === CONTEXT_PER_REQUEST_PARAMETER_ID && engineParameterInputs.get(parameterId),
     ) ?? contextParameters[0];
+  // The launch values arrive with the read, so the first estimate and the deploy wait for them.
+  const launchValuesPending =
+    profileCompatibility.estimates.pending ||
+    (Boolean(scenario) && !ownReadValues && defaultsCompatibility.estimates.pending);
+  const launchValuesLoadingVisible = useDelayedLoading(launchValuesPending);
+  const memory = useModelDeployMemoryPreview({
+    applications,
+    binding,
+    bindingId,
+    compatibilityRead: profileCompatibility.compatibility,
+    configuration,
+    customArgumentTokens,
+    declaredValues,
+    deployments,
+    derivedParameterIds,
+    engineParameterInputs,
+    engineRelease,
+    engineReleases,
+    exposedParameters,
+    launchValuesPending,
+    model,
+    name,
+    onEstimate,
+    onPreviewMemory,
+    optionOverrides,
+    pickedKvCachePrecision,
+    placement,
+    profile,
+    profileId,
+    selectedExecutionTarget,
+    storedSpeculativeChoice,
+    targetsLoading,
+    targetsLoadingPresentation,
+    values,
+  });
+  // The total context's largest fit with the dialog's values, from the estimate of the selected
+  // profile on the selected target; the starting value stands in until that estimate lands. An
+  // estimate without a fit, such as with custom arguments, offers none.
+  const estimate = memory.estimate;
+  const estimateMatches =
+    placement !== null &&
+    estimate.profileId === profileId &&
+    estimate.placement?.siteNodeId === placement.siteNodeId &&
+    estimate.placement.executionTargetId === placement.executionTargetId;
+  const largestTotalContext = estimateMatches ? estimate.largestTotalContext : fitStart;
+  const contextHint =
+    largestTotalContext !== undefined && selectedExecutionTarget
+      ? `Up to ${formatCompactCount(largestTotalContext)} on ${executionTargetName(selectedExecutionTarget)}`
+      : undefined;
+  // Offered as the total context's last chip; choosing it sets the shown value like a size chip.
+  const largestFit = largestTotalContext === undefined ? undefined : { value: largestTotalContext };
+  const launchRejectionMessage =
+    memory.estimate.launchRejection && launchRejectionParameter
+      ? operatorSentence(memory.estimate.launchRejection)
+      : undefined;
+  const contextFieldErrors = launchRejectionMessage
+    ? new Map(fieldErrors).set(launchRejectionParameter.parameterId, launchRejectionMessage)
+    : fieldErrors;
+
+  const following = exposureValues.routeName === undefined;
+  const routeBlocking = routeBlockingMessage({
+    conflict: routeConflict,
+    deploymentName: name,
+    existingRouteNames,
+    values: exposureValues,
+  });
+
   const stepErrors = (activeStep: ModelDeployStep): FieldErrors => {
     switch (activeStep) {
       case "Target":
@@ -706,72 +767,6 @@ export function useModelDeployForm({
   });
   const targetStepShown = wizard.steps.includes("Target");
 
-  // The launch values arrive with the read, so the first estimate and the deploy wait for them.
-  const launchValuesPending =
-    profileCompatibility.estimates.pending ||
-    (Boolean(scenario) && !ownReadValues && defaultsCompatibility.estimates.pending);
-  const launchValuesLoadingVisible = useDelayedLoading(launchValuesPending);
-  const memory = useModelDeployMemoryPreview({
-    applications,
-    binding,
-    bindingId,
-    compatibilityRead: profileCompatibility.compatibility,
-    configuration,
-    customArgumentTokens,
-    declaredValues,
-    deployments,
-    derivedParameterIds,
-    engineParameterInputs,
-    engineRelease,
-    engineReleases,
-    exposedParameters,
-    launchValuesPending,
-    model,
-    name,
-    onEstimate,
-    onPreviewMemory,
-    optionOverrides,
-    pickedKvCachePrecision,
-    placement,
-    profile,
-    profileId,
-    selectedExecutionTarget,
-    storedSpeculativeChoice,
-    targetsLoading,
-    targetsLoadingPresentation,
-    values,
-  });
-  // The total context's largest fit with the dialog's values, from the estimate of the selected
-  // profile on the selected target; the starting value stands in until that estimate lands. An
-  // estimate without a fit, such as with custom arguments, offers none.
-  const estimate = memory.estimate;
-  const estimateMatches =
-    placement !== null &&
-    estimate.profileId === profileId &&
-    estimate.placement?.siteNodeId === placement.siteNodeId &&
-    estimate.placement.executionTargetId === placement.executionTargetId;
-  const largestTotalContext = estimateMatches ? estimate.largestTotalContext : fitStart;
-  const contextHint =
-    largestTotalContext !== undefined && selectedExecutionTarget
-      ? `Up to ${formatCompactCount(largestTotalContext)} on ${executionTargetName(selectedExecutionTarget)}`
-      : undefined;
-  // Offered as the total context's last chip; choosing it sets the shown value like a size chip.
-  const largestFit = largestTotalContext === undefined ? undefined : { value: largestTotalContext };
-  const launchRejectionMessage =
-    memory.estimate.launchRejection && launchRejectionParameter
-      ? operatorSentence(memory.estimate.launchRejection)
-      : undefined;
-  const contextFieldErrors = launchRejectionMessage
-    ? new Map(fieldErrors).set(launchRejectionParameter.parameterId, launchRejectionMessage)
-    : fieldErrors;
-
-  const following = exposureValues.routeName === undefined;
-  const routeBlocking = routeBlockingMessage({
-    conflict: routeConflict,
-    deploymentName: name,
-    existingRouteNames,
-    values: exposureValues,
-  });
   const launchEdits = { bindingId, declaredValues, inputs: engineParameterInputs };
   const optionCustomizations = [
     ...speculativeCustomizations(speculativeOptions, speculativeChoice),
@@ -869,9 +864,7 @@ export function useModelDeployForm({
     Boolean(routeBlocking);
 
   return {
-    advanced: wizard.advanced,
     advancedParameters,
-    announcement: wizard.announcement,
     artifactRef,
     binding,
     bindingId,
@@ -905,8 +898,6 @@ export function useModelDeployForm({
     exposureValues,
     fieldErrors,
     following,
-    handlePrimary: wizard.primary,
-    handleStepChange: wizard.changeStep,
     ineligibleTarget,
     kvCachePrecision,
     kvCachePrecisionOption,
@@ -924,7 +915,6 @@ export function useModelDeployForm({
     profileLaunchCandidates,
     profileRef,
     profileTable,
-    revealedErrors: wizard.revealedErrors,
     routeBlocking,
     routeNameRef,
     runPreview,
@@ -945,18 +935,14 @@ export function useModelDeployForm({
     speculativeChoice,
     speculativeCountRef,
     speculativeOptions,
-    step: wizard.step,
-    steps: wizard.steps,
     tableEstimates,
-    targetStepShown,
     targetsLoading,
     targetsLoadingPresentation,
     targetsLoadingVisible,
-    toggleAdvanced: wizard.toggleAdvanced,
     updateCustomArguments,
     updateShownProfiles,
     validateRoute,
-    visitedSteps: wizard.visited,
+    wizard,
   };
 }
 
