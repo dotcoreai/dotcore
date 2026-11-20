@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { useMemo } from "react";
 
+import type { DeployStep } from "@/features/deployments/use-deploy-wizard";
 import type { deploymentExposure } from "@/features/models/deployment-exposure";
 import { configurationSpeculativeOptions } from "@/features/models/profiles/model-row";
 import {
@@ -72,7 +73,13 @@ export type ModelDeployStep = (typeof MODEL_DEPLOY_STEPS)[number];
 export type ModelDeployField = string;
 
 /** Every step in flow order; the dialog shows a subset depending on Advanced and the targets. */
-export const MODEL_DEPLOY_STEPS = ["Profile", "Target", "Settings", "Advanced", "Deploy"] as const;
+export const MODEL_DEPLOY_STEPS = [
+  "Profile",
+  "Target",
+  "Settings",
+  "Advanced",
+  "Deploy",
+] as const satisfies readonly DeployStep[];
 
 /** Keys a launch rejection among the Settings step's errors. */
 export const launchRejectionField = "launchRejection";
@@ -239,22 +246,6 @@ export interface ConfigurationStart {
   /** The picked KV cache precision; empty for the profile's default. */
   kvCachePrecision: string;
   speculativeChoice: SpeculativeChoice;
-}
-
-export function modelDeploySteps(target: boolean, advanced: boolean): ModelDeployStep[] {
-  return MODEL_DEPLOY_STEPS.filter(
-    (step) =>
-      (step === "Target" && target) ||
-      (step === "Advanced" && advanced) ||
-      step === "Profile" ||
-      step === "Settings" ||
-      step === "Deploy",
-  );
-}
-
-// A vanished step falls forward: Target to Settings, which always shows, and Advanced to Deploy.
-export function fallbackStep(missingStep: string): string {
-  return missingStep === "Target" ? "Settings" : "Deploy";
 }
 
 export function exactPlacement(target: ConfiguredExecutionTarget): ExactPlacement {

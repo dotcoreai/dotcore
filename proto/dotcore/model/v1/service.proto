@@ -192,6 +192,9 @@ message EstimateLocalModelResourcesResponse {
 
   // Largest fit of each memory parameter whose value changes the estimate, with every other value as supplied; absent without a placement or with custom arguments.
   repeated MemoryParameterFit memory_parameter_fits = 3;
+
+  // Largest total context that fits the target's free memory less the headroom, with every other value as supplied; absent without a placement, with custom arguments, when free memory is unknown, or when no accepted total fits.
+  optional uint64 largest_total_context_tokens = 4;
 }
 
 // Carries the estimates and derived engine parameter values of one configuration on one hardware class.

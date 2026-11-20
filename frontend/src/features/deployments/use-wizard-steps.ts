@@ -10,11 +10,12 @@ export interface WizardSteps<Step extends string> {
 /**
  * Tracks the current step and the visited steps of a wizard by step name, so the step list can
  * change while the dialog is open. When the step list changes, the current step is kept if it
- * still exists, otherwise `fallback` picks its replacement, and steps that appear are not visited.
+ * still exists, otherwise the next step after it in `order` that still shows replaces it, or the
+ * first step when none follows. Steps that appear are not visited.
  */
 export function useWizardSteps<Step extends string>(
   steps: readonly Step[],
-  fallback?: (missingStep: Step) => Step,
+  order: readonly Step[],
 ): WizardSteps<Step> {
   const [state, setState] = useState<WizardStepsState<Step>>(() => ({
     current: steps[0] ?? "",
@@ -25,7 +26,7 @@ export function useWizardSteps<Step extends string>(
 
   // Adjusting state during render applies the step-list rule before the stale step can render.
   if (!sameSteps(state.steps, steps)) {
-    effective = reconcileSteps(state, steps, fallback);
+    effective = reconcileSteps(state, steps, order);
     setState(effective);
   }
 
@@ -50,14 +51,12 @@ interface WizardStepsState<Step extends string> {
 function reconcileSteps<Step extends string>(
   state: WizardStepsState<Step>,
   steps: readonly Step[],
-  fallback: ((missingStep: Step) => Step) | undefined,
+  order: readonly Step[],
 ): WizardStepsState<Step> {
-  const fallbackStep = fallback?.(state.current);
-  const current = steps.includes(state.current)
-    ? state.current
-    : fallbackStep && steps.includes(fallbackStep)
-      ? fallbackStep
-      : (steps[0] ?? "");
+  const nextShown = order
+    .slice(order.indexOf(state.current) + 1)
+    .find((step) => steps.includes(step));
+  const current = steps.includes(state.current) ? state.current : (nextShown ?? steps[0] ?? "");
   const visited = new Set([...state.visited].filter((step) => steps.includes(step)));
   visited.add(current);
   return { current, steps, visited };

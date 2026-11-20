@@ -26,8 +26,9 @@ use dotcore_proto::dotcore::{
         hugging_face_artifact_source::Content as HuggingFaceContent,
     },
     model::v1::{
-        ModelDeploymentDesiredState, ModelDeploymentLifecycleTransition, ModelDeploymentSnapshot,
-        ModelDeploymentStatus, model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
+        ModelDeploymentDesiredState, ModelDeploymentFailure, ModelDeploymentLifecycleTransition,
+        ModelDeploymentSnapshot, ModelDeploymentStatus,
+        model_deployment_snapshot::Source as ModelDeploymentSnapshotSource,
     },
     site::v1::{ModelRuntimeBinding, execution_target, model_runtime_binding},
 };
@@ -642,112 +643,6 @@ async fn protected_launch_values_never_leave_the_node_in_a_realization_failure()
             .any(|window| window == SECRET.as_bytes())
     );
     std::fs::remove_dir_all(cache_root).expect("cache cleanup");
-}
-#[test]
-fn startup_output_tail_masks_secrets_and_paths_before_bounding_the_last_bytes() {
-    use dotcore_runtime::{
-        RuntimeLogEntry, RuntimeLogHistory, RuntimeLogSource, RuntimeLogStreamKind,
-    };
-
-    use crate::management_logs::ProtectedLogValues;
-    let source = RuntimeLogSource {
-        name: "model".to_owned(),
-        label: "Model".to_owned(),
-    };
-    let entry = |content: Vec<u8>| RuntimeLogEntry {
-        source: source.clone(),
-        timestamp: std::time::SystemTime::UNIX_EPOCH,
-        stream: RuntimeLogStreamKind::Stderr,
-        content,
-        truncated: false,
-    };
-    let history = RuntimeLogHistory {
-            entries: vec![
-                entry(b"booting".to_vec()),
-                entry(b"File \"/opt/dotcore/models/snapshot/model_mtp.safetensors\" key=sk-test-private FileNotFoundError".to_vec()),
-            ],
-            has_older_output: false,
-            candidate_budget_truncated: false,
-        };
-    let output = super::startup_output(
-        history,
-        &ProtectedLogValues::new(["sk-test-private".to_owned()]),
-        &|_| None,
-    );
-    assert_eq!(
-        output,
-        super::StartupOutput {
-            tail: Some("booting\nFile \"[REDACTED]\" key=[REDACTED] FileNotFoundError".to_owned()),
-            refusal: None,
-        }
-    );
-
-    let history = RuntimeLogHistory {
-        entries: vec![entry(
-            format!("{}\nlast failure", "x".repeat(9000)).into_bytes(),
-        )],
-        has_older_output: true,
-        candidate_budget_truncated: false,
-    };
-    let tail = super::startup_output(history, &ProtectedLogValues::default(), &|_| None)
-        .tail
-        .expect("bounded output");
-    assert!(tail.len() <= 4096);
-    assert!(tail.ends_with("last failure"));
-}
-
-#[test]
-fn startup_output_recognizes_an_engine_refusal_older_than_the_tail() {
-    use dotcore_proto::dotcore::engine::v1::EngineKind;
-    use dotcore_runtime::{
-        RuntimeLogEntry, RuntimeLogHistory, RuntimeLogSource, RuntimeLogStreamKind,
-    };
-
-    use crate::{
-        management_logs::ProtectedLogValues, model::engine::startup_refusal::StartupRefusal,
-    };
-    const REFUSAL: &str = "(EngineCore pid=212) ERROR 11-04 09:12:52 [core.py:1080] ValueError: Free memory on device cuda:0 (111.66/121.63 GiB) on startup is less than desired GPU memory utilization (0.97, 117.98 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.";
-    let later = (0..20)
-        .map(|frame| format!("(APIServer pid=1)   frame {frame}, in run_engine_core"))
-        .chain(["(APIServer pid=1) RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}".to_owned()])
-        .collect::<Vec<_>>();
-    let history = RuntimeLogHistory {
-        entries: std::iter::once(REFUSAL.to_owned())
-            .chain(later.iter().cloned())
-            .map(|line| RuntimeLogEntry {
-                source: RuntimeLogSource {
-                    name: "model".to_owned(),
-                    label: "Model".to_owned(),
-                },
-                timestamp: std::time::SystemTime::UNIX_EPOCH,
-                stream: RuntimeLogStreamKind::Stderr,
-                content: line.into_bytes(),
-                truncated: false,
-            })
-            .collect(),
-        has_older_output: false,
-        candidate_budget_truncated: false,
-    };
-    let integrations = crate::model::controller::test_support::test_engine_integrations();
-    let vllm = integrations
-        .integration(EngineKind::Vllm)
-        .expect("vLLM integration");
-
-    let output = super::startup_output(history, &ProtectedLogValues::default(), &|output| {
-        vllm.startup_refusal(output)
-    });
-
-    assert_eq!(
-        output,
-        super::StartupOutput {
-            tail: Some(later[later.len() - 16..].join("\n")),
-            refusal: Some(StartupRefusal::InsufficientFreeMemory {
-                needed_bytes: 126_680_060_396,
-                free_bytes: 119_894_012_068,
-                line: REFUSAL.to_owned(),
-            }),
-        }
-    );
 }
 #[tokio::test(start_paused = true)]
 async fn download_progress_publication_writes_first_changed_interval_and_final_snapshots() {
@@ -1559,6 +1454,7 @@ async fn reconciliation_from(
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
         clock: Arc::new(SystemClock),
+        crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
     };
     calls.lock().expect("calls").clear();
     let mut reconciled = true;
@@ -1670,6 +1566,7 @@ async fn reconciliation_stops_and_removes_a_valid_owned_orphan() {
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
         clock: Arc::new(SystemClock),
+        crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
     };
 
     assert!(matches!(
@@ -1753,6 +1650,7 @@ async fn node_pass_never_treats_changed_or_newly_declared_workloads_as_orphans()
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crash_window: Timing::test().deployment.crash_window,
                 preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                     directory.path(),
                 ),
@@ -1853,6 +1751,7 @@ async fn paused_stopped_workload_projects_paused_without_runtime_mutation() {
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
         clock: Arc::new(SystemClock),
+        crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
     };
     calls.lock().expect("calls").clear();
 
@@ -2827,6 +2726,7 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
         clock: Arc::new(SystemClock),
+        crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
     };
     let controller = manager_test_controller(
         desired.clone(),
@@ -2835,6 +2735,8 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
         },
     );
     calls.lock().expect("calls").clear();
+    // The node has seen the engine running in this generation, so a stop while loading is a crash.
+    controller.inner.crashes.record_ran("deployment", 1, None);
 
     let (reconciliation, records, _) = capture_records_async(|| controller.inner.reconcile()).await;
     reconciliation.expect("startup reconciliation");
@@ -3015,6 +2917,256 @@ async fn loading_stopped_workload_records_startup_failure_without_restart() {
 }
 
 #[tokio::test]
+async fn a_ready_engine_that_keeps_stopping_restarts_until_its_crash_budget_is_spent() {
+    let harness = CrashHarness::new();
+    harness.observe(WorkloadObservation::Running(harness.workload.clone()));
+    harness.reconcile().await;
+    assert_eq!(harness.status(), ModelDeploymentStatus::Ready as i32);
+    assert!(runtime_calls(&harness.calls).is_empty());
+
+    // The first crash after ready restarts the engine; each restart reports it loading again.
+    harness.observe(harness.stopped(9));
+    harness.reconcile().await;
+    assert_eq!(runtime_calls(&harness.calls), ["start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+    assert_eq!(harness.failure(), None);
+
+    // A crash while a budget restart loads counts against the budget instead of failing at once.
+    harness.reconcile().await;
+    assert_eq!(runtime_calls(&harness.calls), ["start", "start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+    assert_eq!(harness.failure(), None);
+
+    harness.reconcile().await;
+    assert_eq!(runtime_calls(&harness.calls), ["start", "start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Failed as i32);
+    assert_eq!(
+        harness.failure(),
+        Some(ModelDeploymentFailure {
+            code: "engine_crashed_repeatedly".to_owned(),
+            message: "Engine stopped repeatedly after the model was ready; check its logs, then \
+                      pause and resume the model or deploy it again"
+                .to_owned(),
+            diagnostics: vec![
+                "Stage: engine running".to_owned(),
+                "Crashes after ready: 3 within 5 seconds".to_owned(),
+                "Exit status: 9".to_owned(),
+                "Output tail: booting\nFile \"[REDACTED]\" vanished".to_owned(),
+            ],
+        })
+    );
+
+    // A failed deployment is not started again.
+    harness.reconcile().await;
+    assert_eq!(runtime_calls(&harness.calls), ["start", "start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Failed as i32);
+}
+
+#[tokio::test]
+async fn a_node_restart_starts_the_stopped_engine_of_a_ready_deployment_without_a_failure() {
+    let harness = CrashHarness::new();
+
+    harness.observe(harness.stopped(137));
+    harness.reconcile().await;
+    assert_eq!(runtime_calls(&harness.calls), ["start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+    assert_eq!(harness.failure(), None);
+
+    // The retained ready state still counts the next crash against the budget.
+    harness.reconcile().await;
+    assert_eq!(runtime_calls(&harness.calls), ["start", "start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+    assert_eq!(harness.failure(), None);
+}
+
+#[tokio::test]
+async fn a_node_restart_starts_the_stopped_engine_of_a_loading_deployment_without_a_failure() {
+    let harness = CrashHarness::new();
+    harness.retain_status(ModelDeploymentStatus::Loading);
+
+    harness.observe(harness.stopped(137));
+    harness.reconcile().await;
+
+    assert_eq!(runtime_calls(&harness.calls), ["start"]);
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+    assert_eq!(harness.failure(), None);
+}
+
+#[tokio::test]
+async fn an_engine_seen_running_after_a_node_restart_fails_the_deployment_when_it_stops_loading() {
+    let harness = CrashHarness::new();
+    harness.retain_status(ModelDeploymentStatus::Loading);
+
+    harness.observe(WorkloadObservation::Starting(harness.workload.clone()));
+    harness.reconcile().await;
+    assert!(runtime_calls(&harness.calls).is_empty());
+    assert_eq!(harness.status(), ModelDeploymentStatus::Loading as i32);
+
+    harness.observe(harness.stopped(137));
+    harness.reconcile().await;
+    assert!(runtime_calls(&harness.calls).is_empty());
+    assert_eq!(harness.status(), ModelDeploymentStatus::Failed as i32);
+    assert_eq!(
+        harness
+            .failure()
+            .map(|failure| (failure.code, failure.diagnostics)),
+        Some((
+            "engine_startup_failed".to_owned(),
+            vec![
+                "Stage: engine startup".to_owned(),
+                "Exit status: 137".to_owned(),
+                "Output tail: booting\nFile \"[REDACTED]\" vanished".to_owned(),
+            ]
+        ))
+    );
+}
+
+/// A freshly started node realizer over one deployment retained ready, whose engine
+/// observations each test sets; a start reports the engine loading again.
+struct CrashHarness {
+    calls: Arc<Mutex<Vec<&'static str>>>,
+    current: TestCurrent,
+    controller: super::super::test_support::TestRealizer,
+    observations: Arc<Mutex<Vec<Vec<WorkloadObservation>>>>,
+    workload: ObservedWorkload,
+}
+
+impl CrashHarness {
+    fn new() -> Self {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let desired = TestDesired::new(calls.clone());
+        let deployment = crate::model::controller::test_support::test_desired_deployment(
+            "model",
+            dotcore_proto::dotcore::model::v1::ModelDeploymentDesiredState::Present,
+        );
+        let workload = crate::model::controller::test_support::expected_identity(
+            &test_site(),
+            &deployment,
+            dotcore_runtime_backends::simulated::BACKEND_ID,
+        );
+        desired
+            .state
+            .lock()
+            .expect("desired state")
+            .model_deployments
+            .push(deployment);
+        let current = TestCurrent::new(calls.clone());
+        let mut record = current_deployment("deployment");
+        record.state.as_mut().expect("retained state").status = ModelDeploymentStatus::Ready as i32;
+        current.upsert(record, None).expect("current state");
+        let observations = Arc::new(Mutex::new(Vec::new()));
+        let mut builder = RuntimeTargetMapBuilder::new();
+        builder
+            .insert(
+                "target-one",
+                PausedRuntime {
+                    calls: calls.clone(),
+                    observations: observations.clone(),
+                    start_observation: Some(WorkloadObservation::Starting(workload.clone())),
+                    startup_logs: Arc::new(Mutex::new(StartupLogBehavior::History {
+                        expected_workload_id: workload.workload_id.clone(),
+                        history: dotcore_runtime::RuntimeLogHistory {
+                            entries: [
+                                "booting",
+                                "File \"/opt/dotcore/models/model.gguf\" vanished",
+                            ]
+                            .into_iter()
+                            .map(|line| dotcore_runtime::RuntimeLogEntry {
+                                source: dotcore_runtime::RuntimeLogSource {
+                                    name: "model".to_owned(),
+                                    label: "Model".to_owned(),
+                                },
+                                timestamp: std::time::SystemTime::UNIX_EPOCH,
+                                stream: dotcore_runtime::RuntimeLogStreamKind::Stderr,
+                                content: line.as_bytes().to_vec(),
+                                truncated: false,
+                            })
+                            .collect(),
+                            has_older_output: false,
+                            candidate_budget_truncated: false,
+                        },
+                    })),
+                    backend_id: RuntimeBackendId(
+                        dotcore_runtime_backends::simulated::BACKEND_ID.to_owned(),
+                    ),
+                },
+            )
+            .expect("Runtime adapter");
+        let artifacts = ArtifactManager::from_parts(
+            dotcore_artifact::ModelArtifactCache::new("/test-cache".into()).expect("test cache"),
+            Some(crate::model::controller::test_support::ready_oci_preparer()),
+        );
+        let controller = sweep_controller(
+            &desired,
+            &current,
+            builder.build().expect("Runtime map"),
+            artifacts,
+        );
+        calls.lock().expect("calls").clear();
+        Self {
+            calls,
+            current,
+            controller,
+            observations,
+            workload,
+        }
+    }
+
+    /// Makes every later discovery report `observation` for the deployment's engine.
+    fn observe(&self, observation: WorkloadObservation) {
+        *self.observations.lock().expect("observations") = vec![vec![observation]];
+    }
+
+    /// Sets the deployment's retained status, as a node restart finds it.
+    fn retain_status(&self, status: ModelDeploymentStatus) {
+        let mut record = self
+            .current
+            .snapshot()
+            .expect("current state")
+            .model_deployments[0]
+            .clone();
+        let revision = record.record_revision;
+        record.state.as_mut().expect("retained state").status = status as i32;
+        self.current
+            .upsert(record, Some(revision))
+            .expect("retained status");
+    }
+
+    fn stopped(&self, exit_status: i64) -> WorkloadObservation {
+        WorkloadObservation::Stopped {
+            workload: self.workload.clone(),
+            exit_status: Some(exit_status),
+        }
+    }
+
+    async fn reconcile(&self) {
+        self.controller
+            .inner
+            .reconcile()
+            .await
+            .expect("crash reconciliation");
+    }
+
+    fn state(&self) -> dotcore_proto::dotcore::model::v1::ModelDeploymentState {
+        self.current
+            .snapshot()
+            .expect("current state")
+            .model_deployments[0]
+            .state
+            .clone()
+            .expect("deployment state")
+    }
+
+    fn status(&self) -> i32 {
+        self.state().status
+    }
+
+    fn failure(&self) -> Option<ModelDeploymentFailure> {
+        self.state().failure
+    }
+}
+
+#[tokio::test]
 async fn a_secret_engine_value_reaches_no_log_failure_text_telemetry_or_command() {
     use prost::Message as _;
 
@@ -3093,6 +3245,8 @@ async fn a_secret_engine_value_reaches_no_log_failure_text_telemetry_or_command(
         builder.build().expect("Runtime map"),
         artifacts.clone(),
     );
+    // The node has seen the engine running in this generation, so a stop while loading is a crash.
+    controller.inner.crashes.record_ran("deployment", 1, None);
 
     let (reconciliation, records, output) =
         capture_records_async(|| controller.inner.reconcile()).await;
@@ -3258,6 +3412,7 @@ fn sweep_controller(
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
         clock: Arc::new(SystemClock),
+        crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
     };
     manager_test_controller(
         desired.clone(),
@@ -3514,6 +3669,8 @@ async fn teardown_deletes_the_deployment_storage_that_pause_keeps_and_leaves_sha
     ]
     .map(|(binding_name, mount_path, placement)| StorageBinding {
         binding_name: binding_name.to_owned(),
+        display_name: String::new(),
+        description: String::new(),
         mount_path: mount_path.to_owned(),
         kind: StorageKind::Cache as i32,
         placements: vec![placement as i32],
@@ -3626,6 +3783,8 @@ async fn teardown_after_a_relaunch_that_failed_before_its_workload_deletes_only_
         .expect("engine artifact")
         .storage_bindings = vec![StorageBinding {
         binding_name: "data".to_owned(),
+        display_name: String::new(),
+        description: String::new(),
         mount_path: "/data".to_owned(),
         kind: StorageKind::Cache as i32,
         placements: vec![StoragePlacement::Deployment as i32],
@@ -4293,6 +4452,7 @@ async fn retained_docker_workload_restarts_after_pause_and_resume() {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
             }),
         },
     );
@@ -4524,6 +4684,7 @@ async fn paused_retained_docker_deployment() -> PausedRetainedDockerDeployment {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
             }),
         },
     );
@@ -4701,6 +4862,7 @@ async fn omitted_docker_workload_recreation_rebinds_healthy_replacement() {
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
         clock: Arc::new(SystemClock),
+        crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
     };
 
     inner.reconcile().await.expect("replacement reconciliation");
@@ -4827,6 +4989,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
             }),
         },
     );
@@ -4917,6 +5080,7 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
             }),
         },
     );
@@ -4960,7 +5124,10 @@ async fn retained_docker_workload_resume_recovers_from_unconfirmed_start() {
     assert_eq!(failed.status, ModelDeploymentStatus::Failed as i32);
     let failure = failed.failure.expect("failure");
     assert_eq!(failure.code, "engine_startup_failed");
-    assert_eq!(failure.diagnostics, ["Stage: engine startup"]);
+    assert_eq!(
+        failure.diagnostics,
+        ["Stage: engine startup", "Exit status: not reported"]
+    );
 
     let record = current
         .snapshot()
@@ -5296,6 +5463,7 @@ async fn repaired_docker_artifact_recreates_a_stopped_workload_before_ready() {
         shutdown: tokio_util::sync::CancellationToken::new(),
         timing: Timing::test().model,
         clock: Arc::new(SystemClock),
+        crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
     };
     let mut changes = inner.workload_lifecycle.subscribe("deployment");
 
@@ -5444,6 +5612,7 @@ async fn preparation_failure_cancels_and_drains_other_deployments_before_returni
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
             }),
         },
     );
@@ -5597,6 +5766,7 @@ async fn pause_intent_cancels_a_permanently_stalled_artifact_repair() {
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
             }),
         },
     );
@@ -5746,6 +5916,7 @@ async fn pause_intent_is_not_undone_by_stale_final_publication_and_other_deploym
                 shutdown: tokio_util::sync::CancellationToken::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crashes: super::CrashTracker::new(Timing::test().deployment.crash_window),
             }),
         },
     );
@@ -5855,7 +6026,6 @@ async fn replacement_session_rejects_suspended_create_and_start_completions() {
                         observation,
                         false,
                         false,
-                        false,
                         None,
                     )
                     .await
@@ -5953,6 +6123,7 @@ async fn replacement_session_rejects_suspended_status_without_retiring_replaceme
                     &site.execution_targets[0],
                     &launch,
                     observation,
+                    None,
                 )
                 .await
                 .map(|_| ())
@@ -5969,6 +6140,7 @@ async fn replacement_session_rejects_suspended_status_without_retiring_replaceme
             &site.execution_targets[0],
             &launch,
             running("replacement-workload"),
+            None,
         )
         .await
         .expect("replacement status");

@@ -32,10 +32,6 @@ import { usePublishPanelTitles } from "@/panels/panel-titles-context";
 import { useWatchedRoutes } from "@/resource-watch/resource-watch";
 
 import { CatalogApplicationInspector } from "./app-catalog-inspector";
-import {
-  ApplicationDeployDialog,
-  type DeploymentCreationOptions,
-} from "./application-deploy-dialog";
 import { describeMutationError } from "./application-mutation-errors";
 import { useSharedApplicationsPolling } from "./applications-polling-context";
 import {
@@ -47,6 +43,10 @@ import {
   catalogApplicationTableUi,
   catalogApplicationViewCodec,
 } from "./catalog-application-table";
+import {
+  ApplicationDeployDialog,
+  type DeploymentCreationOptions,
+} from "./deploy/application-deploy-dialog";
 
 /**
  * The Application Catalog page: the catalog applications as a table, their inspector, and the

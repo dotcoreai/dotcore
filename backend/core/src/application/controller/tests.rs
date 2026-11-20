@@ -82,8 +82,7 @@ use super::*;
 use crate::dispatch::application::{ApplicationRuntimeError, TargetWorkloadGroupObservation};
 
 #[tokio::test]
-async fn application_artifact_verification_failure_prevents_runtime_creation_with_a_public_failure()
-{
+async fn application_artifact_verification_failure_fails_the_deployment_without_runtime_creation() {
     let directory = test_directory();
     let desired = TestApplicationDeclarationRepository::open(&directory, "site-one")
         .expect("declaration repository");
@@ -143,17 +142,23 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
     assert_eq!(state.stage, "artifact-preparation");
     assert_eq!(
         state.lifecycle_state,
-        ApplicationLifecycleState::Unavailable as i32
+        ApplicationLifecycleState::Failed as i32
     );
     assert_eq!(state.steps, None);
     let failed_revision = current.snapshot().expect("current state").deployments[0].record_revision;
     assert_eq!(
         state.failure,
         Some(ApplicationDeploymentFailure {
-            code: "ArtifactPreparationFailed".to_owned(),
-            message: "Application image did not match its pinned identity or this node's platform"
+            code: "ImageIdentityMismatch".to_owned(),
+            message: "Application image did not match its pinned identity or this node's \
+                      platform; pause and resume the deployment or deploy it again"
                 .to_owned(),
-            diagnostics: Vec::new(),
+            diagnostics: vec![
+                "Stage: image preparation".to_owned(),
+                "Service: web".to_owned(),
+                "Cause: OCI image identity or platform did not match the deployment snapshot"
+                    .to_owned(),
+            ],
         })
     );
 
@@ -161,17 +166,16 @@ async fn application_artifact_verification_failure_prevents_runtime_creation_wit
         .realizer
         .reconcile()
         .await
-        .expect("retried reconciliation");
+        .expect("later reconciliation");
 
-    assert_eq!(preparer.requests().len(), 2);
-    let retried_record = current.snapshot().expect("current state").deployments[0].clone();
     assert_eq!(
-        retried_record.record_revision, failed_revision,
-        "a retried preparation keeps reporting the failure instead of preparing again"
+        preparer.requests().len(),
+        1,
+        "a mismatched image is not prepared again"
     );
-    let retried = retried_record.state.expect("failed state");
-    assert_eq!(retried.stage, "artifact-preparation");
-    assert_eq!(retried.failure, state.failure);
+    let later_record = current.snapshot().expect("current state").deployments[0].clone();
+    assert_eq!(later_record.record_revision, failed_revision);
+    assert_eq!(later_record.state, Some(state));
     fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 
@@ -278,7 +282,7 @@ async fn resumed_deployment_prepares_its_image_again_and_its_step_only_moves_for
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             Some(group_observation(
@@ -319,17 +323,42 @@ async fn resumed_deployment_prepares_its_image_again_and_its_step_only_moves_for
 }
 
 #[tokio::test]
-async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units_exit() {
+async fn a_unit_that_exits_during_startup_fails_the_deployment_once_with_its_exit_status_and_masked_output()
+ {
     let directory = test_directory();
     let desired = TestApplicationDeclarationRepository::open(&directory, "site-one")
         .expect("declaration repository");
     let current =
         TestCurrentApplicationRepository::open(&directory, "site-one").expect("current repository");
-    let deployment = deployment(ApplicationDeploymentDesiredState::Present);
+    let mut deployment = deployment(ApplicationDeploymentDesiredState::Present);
+    deployment.secret_attachments = vec![ApplicationSecretAttachment {
+        service_name: "web".to_owned(),
+        binding_name: "secret".to_owned(),
+        environment_variable: "WEBUI_SECRET".to_owned(),
+        value: LAUNCH_SECRET_VALUE.to_owned(),
+    }];
+    deployment.configuration_attachments = vec![ApplicationConfigurationAttachment {
+        service_name: "web".to_owned(),
+        binding_name: "contact".to_owned(),
+        environment_variable: "CONTACT".to_owned(),
+        value: "admin@example.com".to_owned(),
+    }];
+    // A typed secret parameter and a generated one are both secret parameter values.
+    let snapshot = deployment.snapshot.as_mut().expect("snapshot");
+    snapshot
+        .graph
+        .as_mut()
+        .expect("graph")
+        .parameters
+        .extend([secret_parameter("typed"), secret_parameter("generated")]);
+    snapshot.parameter_values.extend([
+        string_parameter("typed", "typed-password-1"),
+        string_parameter("generated", "secret1xxxxxxxxxxxxxxxxxxxxxxxxx"),
+    ]);
     desired
         .upsert(deployment.clone(), 0)
         .expect("present desired deployment");
-    // This start already reached its starting step before its unit exited.
+    // This start already reached its starting step, as recorded before a node restart.
     let booting = with_start_steps(
         None,
         booting_state(unavailable_state(ENDPOINT_NOT_ASSIGNED_STAGE, None)),
@@ -345,7 +374,6 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
             None,
         )
         .expect("booting record");
-    let recorded = current.snapshot().expect("current state").deployments[0].clone();
     let launch = workload_group_launch(
         &deployment,
         Ipv4Addr::LOCALHOST,
@@ -357,13 +385,26 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
         dotcore_artifact::ArtifactManager::new(directory.join("artifacts"), Some(preparer.clone()))
             .expect("Artifact manager");
     let calls = Arc::new(Mutex::new(Vec::new()));
+    let output_lines = [
+        "listening on 8080, data in /srv/app/data".to_owned(),
+        "contact admin@example.com".to_owned(),
+        format!(
+            "fatal: rejected key {LAUNCH_SECRET_VALUE}, typed-password-1 and \
+             secret1xxxxxxxxxxxxxxxxxxxxxxxxx"
+        ),
+    ];
     let controller = controller_with_runtime_and_artifacts(
         desired,
         current.clone(),
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [(
+                    "web",
+                    WorkloadUnitState::Stopped {
+                        exit_status: Some(137),
+                    },
+                )],
                 false,
             )],
             Some(group_observation(
@@ -372,11 +413,14 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
                 false,
             )),
             Arc::clone(&calls),
-        ),
+        )
+        .with_output(&output_lines.each_ref().map(String::as_str)),
         artifacts,
     );
 
-    for _ in 0..2 {
+    // The first pass starts units this node process never ran; the second finds them exited
+    // before the deployment was ready; the third leaves the failed deployment alone.
+    for _ in 0..3 {
         controller
             .realizer
             .reconcile()
@@ -384,12 +428,33 @@ async fn a_start_past_its_first_step_is_not_recorded_as_preparing_when_its_units
             .expect("reconciliation");
     }
 
-    assert_eq!(*calls.lock().expect("Runtime calls"), ["start", "start"]);
-    assert_eq!(preparer.states(), [booting.clone(), booting]);
+    assert_eq!(*calls.lock().expect("Runtime calls"), ["start"]);
+    assert_eq!(preparer.states(), [booting]);
+    let failed = current.snapshot().expect("current state").deployments[0]
+        .state
+        .clone()
+        .expect("failed state");
     assert_eq!(
-        current.snapshot().expect("current state").deployments[0],
-        recorded,
-        "restarting the exited unit writes nothing"
+        failed.lifecycle_state,
+        ApplicationLifecycleState::Failed as i32
+    );
+    assert_eq!(failed.stage, GROUP_NOT_RUNNING_STAGE);
+    assert_eq!(failed.steps, None);
+    assert_eq!(
+        failed.failure,
+        Some(ApplicationDeploymentFailure {
+            code: "StoppedDuringStartup".to_owned(),
+            message: "Application stopped during startup; check its logs, then pause and resume \
+                      it or deploy it again"
+                .to_owned(),
+            diagnostics: vec![
+                "Stage: application startup".to_owned(),
+                "Exit status: 137".to_owned(),
+                "Service: web".to_owned(),
+                "Output tail: listening on 8080, data in /srv/app/data\ncontact admin@example.com\nfatal: rejected key [REDACTED], [REDACTED] and [REDACTED]"
+                    .to_owned(),
+            ],
+        })
     );
     drop(controller);
     fs::remove_dir_all(directory).expect("test directory cleanup");
@@ -658,7 +723,7 @@ async fn paused_reconciliation_exhaustively_maps_exact_unit_states_without_unsaf
             Vec::new(),
         ),
         (
-            WorkloadUnitState::Stopped,
+            WorkloadUnitState::Stopped { exit_status: None },
             ApplicationLifecycleState::Paused,
             "paused",
             Vec::new(),
@@ -730,7 +795,7 @@ async fn paused_reconciliation_stops_only_exact_owned_active_partial_or_stale_gr
         (
             true,
             false,
-            WorkloadUnitState::Stopped,
+            WorkloadUnitState::Stopped { exit_status: None },
             ApplicationLifecycleState::Unavailable,
             Vec::new(),
         ),
@@ -765,7 +830,7 @@ async fn paused_reconciliation_stops_only_exact_owned_active_partial_or_stale_gr
         (
             false,
             true,
-            WorkloadUnitState::Stopped,
+            WorkloadUnitState::Stopped { exit_status: None },
             ApplicationLifecycleState::Unavailable,
             Vec::new(),
         ),
@@ -888,7 +953,7 @@ async fn paused_unavailable_requires_a_later_conclusive_observation_before_pause
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             None,
@@ -985,7 +1050,7 @@ async fn paused_partial_unavailable_remains_pausing_until_no_verified_active_or_
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             None,
@@ -1089,7 +1154,7 @@ async fn unchanged_reconciliation_keeps_timestamps_and_skips_the_current_state_w
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             None,
@@ -1263,7 +1328,7 @@ async fn paused_reconciliation_rehydrates_unknown_discovery_through_inspection()
         (
             Some(group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )),
             ApplicationLifecycleState::Paused,
@@ -1360,7 +1425,7 @@ async fn resume_starts_only_the_complete_retained_group_and_present_recovers_dri
         PausedMatrixRuntime::new(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 false,
             )],
             Some(group_observation(
@@ -1432,7 +1497,7 @@ async fn present_recovery_replaces_stale_groups_only_after_resume_changes_desire
         PausedMatrixRuntime::with_recovery(
             vec![group_observation(
                 &launch,
-                [("web", WorkloadUnitState::Stopped)],
+                [("web", WorkloadUnitState::Stopped { exit_status: None })],
                 true,
             )],
             group_observation(&launch, [("web", WorkloadUnitState::Running)], false),
@@ -1478,6 +1543,8 @@ fn launch_keys_each_storage_attachment_by_its_retained_placement() {
     web.storage_bindings = vec![
         StorageBinding {
             binding_name: "data".to_owned(),
+            display_name: "data storage".to_owned(),
+            description: "Holds the data files.".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![StoragePlacement::Deployment as i32],
@@ -1485,6 +1552,8 @@ fn launch_keys_each_storage_attachment_by_its_retained_placement() {
         },
         StorageBinding {
             binding_name: "models".to_owned(),
+            display_name: "models storage".to_owned(),
+            description: "Holds the models files.".to_owned(),
             mount_path: "/data/models".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![
@@ -3450,7 +3519,7 @@ async fn teardown_confirms_absence_before_deleting_records_for_active_and_paused
                 [(
                     "web",
                     if desired_state == ApplicationDeploymentDesiredState::Paused {
-                        WorkloadUnitState::Stopped
+                        WorkloadUnitState::Stopped { exit_status: None }
                     } else {
                         WorkloadUnitState::Running
                     },
@@ -3550,7 +3619,7 @@ async fn teardown_deletes_application_data_and_retries_a_failed_removal_while_pa
                 [(
                     "web",
                     if desired_state == ApplicationDeploymentDesiredState::Paused {
-                        WorkloadUnitState::Stopped
+                        WorkloadUnitState::Stopped { exit_status: None }
                     } else {
                         WorkloadUnitState::Running
                     },
@@ -5077,6 +5146,8 @@ async fn malformed_persisted_launch_declarations_fail_before_resolution_or_runti
                 .storage_bindings
                 .push(StorageBinding {
                     binding_name: "missing".to_owned(),
+                    display_name: "missing storage".to_owned(),
+                    description: "Holds the missing files.".to_owned(),
                     mount_path: "/missing".to_owned(),
                     kind: StorageKind::Data as i32,
                     placements: vec![StoragePlacement::Deployment as i32],
@@ -5503,6 +5574,8 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
     web.storage_bindings = vec![
         StorageBinding {
             binding_name: "data".to_owned(),
+            display_name: "data storage".to_owned(),
+            description: "Holds the data files.".to_owned(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![StoragePlacement::Deployment as i32],
@@ -5510,6 +5583,8 @@ fn canonical_generation_ignores_valid_ordering_and_changes_for_every_runtime_pro
         },
         StorageBinding {
             binding_name: "cache".to_owned(),
+            display_name: "cache storage".to_owned(),
+            description: "Holds the cache files.".to_owned(),
             mount_path: "/cache".to_owned(),
             kind: StorageKind::Data as i32,
             placements: vec![StoragePlacement::Deployment as i32],
@@ -7927,6 +8002,7 @@ async fn deployment_creation_resolves_parameter_overrides_over_defaults() {
             parameter_id: "workers".to_owned(),
             value: Some(parameter_value::Value::UnsignedInteger(2)),
         },
+        string_parameter("contact", "owner@example.com"),
     ];
     assert_eq!(
         deployment
@@ -7958,7 +8034,11 @@ async fn deployment_creation_resolves_parameter_overrides_over_defaults() {
                 attachment.value.as_str()
             ))
             .collect::<Vec<_>>(),
-        [("MODE", "highvram"), ("WORKERS", "2")]
+        [
+            ("MODE", "highvram"),
+            ("WORKERS", "2"),
+            ("CONTACT", "owner@example.com")
+        ]
     );
     let launch = workload_group_launch(
         &declaration,
@@ -7970,6 +8050,7 @@ async fn deployment_creation_resolves_parameter_overrides_over_defaults() {
         exposed_environment(&launch.units[&WorkloadUnitName("web".to_owned())]),
         BTreeMap::from([
             ("MODE".to_owned(), "highvram".to_owned()),
+            ("CONTACT".to_owned(), "owner@example.com".to_owned()),
             ("WORKERS".to_owned(), "2".to_owned()),
         ])
     );
@@ -8499,6 +8580,36 @@ async fn a_switched_group_keeps_values_and_reaches_the_service_only_while_its_sw
     );
     drop(controller);
     fs::remove_dir_all(directory).expect("test directory cleanup");
+}
+
+#[tokio::test]
+async fn invalid_email_values_reject_creation_without_quoting_them() {
+    let directory = test_directory();
+    let (controller, desired) = parameter_test_controller(&directory);
+
+    for value in ["abcdef", "a@bcde", "@b.com", "a@@b.com", "a b@c.com"] {
+        let error = controller
+            .create_deployment(parameter_request(vec![string_parameter("contact", value)]))
+            .await
+            .expect_err("invalid email");
+        assert!(matches!(
+            error,
+            ApplicationLifecycleError::InvalidParameter { .. }
+        ));
+        assert_eq!(
+            error.to_string(),
+            "Application parameter \"contact\" has an invalid value: it must be an email address, such as name@example.com"
+        );
+    }
+    assert!(
+        desired
+            .snapshot()
+            .expect("declaration snapshot")
+            .deployments
+            .is_empty()
+    );
+    drop(controller);
+    std::fs::remove_dir_all(directory).expect("test directory cleanup");
 }
 
 #[tokio::test]

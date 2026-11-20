@@ -351,7 +351,10 @@ fn observed_state(
         stage,
         started_at: previous.and_then(|state| state.started_at),
         updated_at: previous.and_then(|state| state.updated_at),
-        failure: status_text::public_failure(failure_code),
+        failure: match lifecycle {
+            ApplicationLifecycleState::Failed => status.failure.clone(),
+            _ => status_text::public_failure(failure_code),
+        },
         services: status.services.clone(),
         endpoint,
         observed_placement,
@@ -393,6 +396,7 @@ fn public_lifecycle(observation: ApplicationLifecycleObservation) -> Application
         ApplicationLifecycleObservation::Stopping => ApplicationLifecycleState::Stopping,
         ApplicationLifecycleObservation::Stopped => ApplicationLifecycleState::Stopped,
         ApplicationLifecycleObservation::Unavailable => ApplicationLifecycleState::Unavailable,
+        ApplicationLifecycleObservation::Failed => ApplicationLifecycleState::Failed,
     }
 }
 
@@ -586,9 +590,10 @@ mod tests {
             },
             v1::{
                 ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
-                ApplicationDeploymentState, ApplicationDeploymentStep, ApplicationDeploymentSteps,
-                ApplicationLifecycleState, ApplicationReadinessState,
-                ApplicationServiceAcceleratorMemory, CurrentApplicationDeployment,
+                ApplicationDeploymentFailure, ApplicationDeploymentState,
+                ApplicationDeploymentStep, ApplicationDeploymentSteps, ApplicationLifecycleState,
+                ApplicationReadinessState, ApplicationServiceAcceleratorMemory,
+                CurrentApplicationDeployment,
             },
         },
         deployment::v1::{
@@ -697,6 +702,61 @@ mod tests {
             before.state.as_ref().and_then(|state| state.updated_at)
         );
         assert_eq!(after, before);
+    }
+
+    #[test]
+    fn a_failed_node_deployment_is_recorded_as_failed_with_the_failure_the_node_recorded() {
+        let crashed = ApplicationDeploymentFailure {
+            code: "StoppedDuringStartup".to_owned(),
+            message: "Application stopped during startup".to_owned(),
+            diagnostics: vec![
+                "Stage: application startup".to_owned(),
+                "Exit status: 137".to_owned(),
+                "Service: web".to_owned(),
+                "Output tail: out of memory".to_owned(),
+            ],
+        };
+        let broken_image = ApplicationDeploymentFailure {
+            code: "ImageBuildFailed".to_owned(),
+            message: "Application image failed to build".to_owned(),
+            diagnostics: vec![
+                "Stage: image preparation".to_owned(),
+                "Service: web".to_owned(),
+                "Cause: Docker image derivation loader exited with exit status: 3".to_owned(),
+                "Output tail: error: pull failed".to_owned(),
+            ],
+        };
+
+        for (stage, stage_text, failure) in [
+            (
+                ApplicationStatusStage::GroupNotRunning,
+                "Application group is not running",
+                crashed,
+            ),
+            (
+                ApplicationStatusStage::ArtifactPreparationFailed,
+                "artifact-preparation",
+                broken_image,
+            ),
+        ] {
+            let manager =
+                Manager::new(vec![deployment(ApplicationDeploymentDesiredState::Present)]);
+            manager.intent(super::super::queued_state());
+
+            let mut failed = status(1, ApplicationLifecycleObservation::Failed, 7);
+            failed.stage = stage as i32;
+            failed.failure = Some(failure.clone());
+            manager.accept(vec![failed], Vec::new());
+
+            let state = manager.record().state.expect("recorded state");
+            assert_eq!(
+                state.lifecycle_state,
+                ApplicationLifecycleState::Failed as i32
+            );
+            assert_eq!(state.stage, stage_text);
+            assert_eq!(state.failure, Some(failure));
+            assert_eq!(state.steps, None);
+        }
     }
 
     #[test]

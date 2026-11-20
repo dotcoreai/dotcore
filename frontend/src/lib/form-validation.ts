@@ -33,3 +33,15 @@ export function focusFirstInvalidField(errors: FieldErrors, controls: FieldContr
   }
   return false;
 }
+
+/** Returns the errors with one field's error set, or removed when there is none. */
+export function withFieldError(
+  errors: FieldErrors,
+  field: string,
+  error: string | undefined,
+): FieldErrors {
+  const next = new Map(errors);
+  if (error) next.set(field, error);
+  else next.delete(field);
+  return next;
+}

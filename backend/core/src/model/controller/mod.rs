@@ -675,6 +675,10 @@ pub(super) struct InferenceControllerInner<D, S, R> {
 
     /// Backend clock the observer and download progress writes wait through.
     clock: Arc<dyn Clock>,
+
+    /// Each deployment's current lifecycle generation on this node: whether it ran the engine,
+    /// whether the deployment was ready, and the crashes counting against its budget.
+    crashes: reconciliation::CrashTracker,
 }
 
 impl<D, S> InferenceController<D, S> {

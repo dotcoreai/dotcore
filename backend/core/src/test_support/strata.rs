@@ -266,6 +266,8 @@ pub(crate) fn release() -> EngineRelease {
         }),
         storage_bindings: vec![StorageBinding {
             binding_name: "data".to_owned(),
+            display_name: String::new(),
+            description: String::new(),
             mount_path: "/data".to_owned(),
             kind: StorageKind::Cache as i32,
             placements: vec![StoragePlacement::Deployment as i32],

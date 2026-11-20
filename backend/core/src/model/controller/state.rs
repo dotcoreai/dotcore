@@ -1,7 +1,7 @@
 //! Inference controller lifecycle state projection and error mapping.
 
 use dotcore_artifact::{ModelArtifactProgress, ModelArtifactStage};
-use dotcore_domain::{real_time, valid_id};
+use dotcore_domain::{deployment::failure::failure_diagnostics, real_time, valid_id};
 use dotcore_proto::dotcore::model::v1::{
     CurrentModelDeployment, ModelDeploymentActivation, ModelDeploymentActivationPhase,
     ModelDeploymentDeclaration, ModelDeploymentDesiredState, ModelDeploymentFailure,
@@ -105,11 +105,13 @@ pub(super) async fn status_from_observation(
     .await
 }
 
-pub(super) fn apply_startup_failure<S: super::CurrentStateRepository>(
+/// Records the failed state `failed` builds from a deployment's retained state after its engine
+/// crashed. Returns whether it recorded it, which it does not when no state is retained or the
+/// deployment already failed.
+pub(super) fn apply_crash_failure<S: super::CurrentStateRepository>(
     state: &S,
     desired: &ModelDeploymentDeclaration,
-    refusal: Option<&StartupRefusal>,
-    diagnostics: Vec<String>,
+    failed: impl FnOnce(&ModelDeploymentState) -> ModelDeploymentState,
 ) -> Result<bool, ModelLifecycleError> {
     let snapshot = state.snapshot().map_err(current_error)?;
     let existing = snapshot
@@ -119,7 +121,7 @@ pub(super) fn apply_startup_failure<S: super::CurrentStateRepository>(
     let Some(previous) = existing.as_ref().and_then(|record| record.state.as_ref()) else {
         return Ok(false);
     };
-    if !startup_pending(previous) {
+    if ModelDeploymentStatus::try_from(previous.status) == Ok(ModelDeploymentStatus::Failed) {
         return Ok(false);
     }
     state
@@ -129,7 +131,7 @@ pub(super) fn apply_startup_failure<S: super::CurrentStateRepository>(
                 reconciled_lifecycle_generation: Some(desired.lifecycle_generation),
                 record_revision: 0,
                 recovery_barrier: None,
-                state: Some(engine_startup_failed_state(previous, refusal, diagnostics)),
+                state: Some(failed(previous)),
             },
             existing.map(|value| value.record_revision),
         )
@@ -515,15 +517,6 @@ pub(super) fn resume_start_state(
     state
 }
 
-pub(super) fn startup_pending(state: &ModelDeploymentState) -> bool {
-    ModelDeploymentStatus::try_from(state.status) == Ok(ModelDeploymentStatus::Loading)
-        && !matches!(
-            resume_phase(state),
-            ModelDeploymentActivationPhase::AwaitingStart
-                | ModelDeploymentActivationPhase::StartInFlight
-        )
-}
-
 pub(super) fn resume_start_uncertain_state(
     previous: &ModelDeploymentState,
 ) -> ModelDeploymentState {
@@ -631,16 +624,14 @@ pub(super) fn engine_image_acquisition_failed_state(
 }
 
 /// Diagnostics of a failed engine artifact preparation: the stage and output tail of a Docker
-/// image derivation loader that failed, and none for other failures.
-pub(super) fn engine_image_acquisition_diagnostics(
-    loader_output_tail: Option<&str>,
-) -> Vec<String> {
-    loader_output_tail
+/// image build that failed, its newest output kept, and none for other failures.
+pub(super) fn engine_image_acquisition_diagnostics(output_tail: Option<&str>) -> Vec<String> {
+    output_tail
         .map(|output| {
-            vec![
-                "Stage: engine image acquisition".to_owned(),
-                format!("Output tail: {output}"),
-            ]
+            failure_diagnostics(
+                vec!["Stage: engine image acquisition".to_owned()],
+                Some(output),
+            )
         })
         .unwrap_or_default()
 }
@@ -687,24 +678,6 @@ pub(super) fn engine_startup_failed_state(
         diagnostics,
     });
     state
-}
-
-pub(super) fn startup_failure_diagnostics(
-    exit_status: Option<i64>,
-    refusal: Option<&StartupRefusal>,
-    output_tail: Option<String>,
-) -> Vec<String> {
-    let mut diagnostics = vec!["Stage: engine startup".to_owned()];
-    if let Some(status) = exit_status {
-        diagnostics.push(format!("Exit status: {status}"));
-    }
-    if let Some(refusal) = refusal {
-        diagnostics.push(format!("Engine refusal: {}", refusal.line()));
-    }
-    if let Some(output) = output_tail {
-        diagnostics.push(format!("Output tail: {output}"));
-    }
-    diagnostics
 }
 
 /// Converts bytes to GiB for operator messages.
@@ -1293,7 +1266,10 @@ mod tests {
         let failed = engine_startup_failed_state(
             &previous,
             None,
-            super::startup_failure_diagnostics(Some(17), None, None),
+            vec![
+                "Stage: engine startup".to_owned(),
+                "Exit status: 17".to_owned(),
+            ],
         );
 
         assert_eq!(failed.status, ModelDeploymentStatus::Failed as i32);
@@ -1310,7 +1286,7 @@ mod tests {
         );
     }
     #[test]
-    fn engine_startup_refusal_explains_the_failure_and_leads_the_diagnostics() {
+    fn engine_startup_refusal_gives_the_failure_its_code_and_explanation() {
         const LINE: &str = "ValueError: Free memory on device cuda:0 (111.66/121.63 GiB) on startup is less than desired GPU memory utilization (0.97, 117.98 GiB). Decrease GPU memory utilization or reduce GPU memory used by other processes.";
         let refusal = StartupRefusal::InsufficientFreeMemory {
             needed_bytes: 126_680_060_396,
@@ -1321,11 +1297,12 @@ mod tests {
         let failed = engine_startup_failed_state(
             &loading_state(),
             Some(&refusal),
-            super::startup_failure_diagnostics(
-                Some(1),
-                Some(&refusal),
-                Some("RuntimeError: Engine core initialization failed".to_owned()),
-            ),
+            vec![
+                "Stage: engine startup".to_owned(),
+                "Exit status: 1".to_owned(),
+                format!("Engine refusal: {LINE}"),
+                "Output tail: RuntimeError: Engine core initialization failed".to_owned(),
+            ],
         );
 
         assert_eq!(
@@ -1365,26 +1342,24 @@ mod tests {
             ]
         );
         assert!(super::engine_image_acquisition_diagnostics(None).is_empty());
-    }
 
-    #[test]
-    fn startup_failure_diagnostics_preserve_exit_status_without_a_log_tail() {
+        // A long loader output keeps its newest lines.
+        let output = (1..=200)
+            .map(|line| format!("docker-image-vllm: layer {line:03} pulled"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let stage = "Stage: engine image acquisition";
+        let room = dotcore_domain::deployment::MAX_FAILURE_DIAGNOSTIC_BYTES
+            - stage.len()
+            - "Output tail: ".len();
         assert_eq!(
-            super::startup_failure_diagnostics(
-                Some(17),
-                None,
-                Some("FileNotFoundError: [REDACTED]".to_owned())
-            ),
-            vec![
-                "Stage: engine startup",
-                "Exit status: 17",
-                "Output tail: FileNotFoundError: [REDACTED]",
+            super::engine_image_acquisition_diagnostics(Some(&output)),
+            [
+                stage.to_owned(),
+                format!("Output tail: {}", &output[output.len() - room..]),
             ]
         );
-        assert_eq!(
-            super::startup_failure_diagnostics(Some(1), None, None),
-            vec!["Stage: engine startup", "Exit status: 1"]
-        );
+        assert!(output.len() > room && output.ends_with("layer 200 pulled"));
     }
 
     #[test]
@@ -1686,13 +1661,11 @@ mod tests {
             state =
                 artifact_preparation_stage_state(Some(&state), stage).expect("preparation stage");
             assert_eq!(state.activation, initial.activation);
-            assert!(!super::startup_pending(&state));
         }
         let encoded = prost::Message::encode_to_vec(&state);
         let restored = <ModelDeploymentState as prost::Message>::decode(encoded.as_slice())
             .expect("retained state");
         assert_eq!(restored.activation, initial.activation);
-        assert!(!super::startup_pending(&restored));
     }
 
     #[test]

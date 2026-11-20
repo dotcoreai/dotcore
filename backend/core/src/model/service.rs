@@ -2250,6 +2250,7 @@ mod tests {
                     ],
                     placement_preview: None,
                     memory_parameter_fits: Vec::new(),
+                    largest_total_context_tokens: None,
                 },
             ))
         }

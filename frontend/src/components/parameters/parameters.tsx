@@ -252,10 +252,11 @@ function parameterFacts(type: ParameterViewType) {
   return null;
 }
 
-// The input attributes that differ by type: a numeric keyboard for numbers, and a hint that an
-// empty secret is generated.
+// The input attributes that differ by type: a numeric keyboard for numbers, an email keyboard for
+// emails, and a hint that an empty secret is generated.
 function textInputProps(type: ParameterViewType) {
   if (type.kind === "unsignedInteger") return { inputMode: "numeric" as const };
+  if (type.kind === "text" && type.format === "email") return { inputMode: "email" as const };
   if (type.kind === "secret")
     return {
       className: "placeholder:text-muted-foreground placeholder:italic",

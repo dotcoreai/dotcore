@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { executionTargetName } from "@/domain/execution-target";
 import { previewMemory } from "@/features/models/deploy/memory/model-deploy-memory";
@@ -34,6 +34,7 @@ import type { ModelDeployment } from "@/gen/dotcore/model/v1/deployment_pb";
 import { LocalModelDeploymentAdvisory } from "@/gen/dotcore/model/v1/service_pb";
 import type { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
 import type { ConfiguredExecutionTarget } from "@/gen/dotcore/site/v1/service_pb";
+import { useKeyedRead } from "@/hooks/use-keyed-read";
 
 import {
   type LocalResourceEstimateValues,
@@ -76,8 +77,6 @@ export function useModelDeployMemoryPreview({
   targetsLoadingPresentation,
   values,
 }: ModelDeployMemoryPreviewOptions) {
-  const [memoryPreviewResult, setMemoryPreviewResult] = useState<MemoryPreviewResult>();
-  const onPreviewMemoryRef = useRef(onPreviewMemory);
   const placementNodeId = placement?.siteNodeId;
   const placementTargetId = placement?.executionTargetId;
 
@@ -166,72 +165,50 @@ export function useModelDeployMemoryPreview({
         targetsLoading: targetsLoadingPresentation,
       })
     : undefined;
-  useEffect(() => {
-    onPreviewMemoryRef.current = onPreviewMemory;
-  }, [onPreviewMemory]);
-  useEffect(() => {
-    const previewMemory = onPreviewMemoryRef.current;
-    const previewSpeculativeOptions = configurationSpeculativeOptions(
-      model,
-      configuration,
-      profile,
-    );
-    const previewKvCachePrecision = configurationKvCachePrecision(model, configuration, profile);
-    const previewSpeculativeOverrides = speculativeOptionOverrides(
-      previewSpeculativeOptions,
-      currentSpeculativeChoice(previewSpeculativeOptions, storedSpeculativeChoice),
-    );
-    const previewConfiguration = profile
-      ? localDeploymentConfiguration(profile, engineRelease, {
-          bindingId: estimateBindingId ?? "",
-          customArgumentTokens,
-          declaredValues,
-          derivedParameterIds,
-          inputs: engineParameterInputs,
-          optionOverrides: previewSpeculativeOverrides && [
-            ...previewSpeculativeOverrides,
-            ...kvCachePrecisionOverrides(
-              previewKvCachePrecision,
-              currentKvCachePrecision(previewKvCachePrecision, pickedKvCachePrecision),
-            ),
-          ],
-        })
+  // The preview builds its own option overrides from the speculative and KV cache choices, so its
+  // key adds them to the estimate's; one preview runs per distinct configuration and target.
+  const previewSpeculativeOptions = configurationSpeculativeOptions(model, configuration, profile);
+  const previewKvCachePrecision = configurationKvCachePrecision(model, configuration, profile);
+  const previewSpeculativeOverrides = speculativeOptionOverrides(
+    previewSpeculativeOptions,
+    currentSpeculativeChoice(previewSpeculativeOptions, storedSpeculativeChoice),
+  );
+  const previewConfiguration = profile
+    ? localDeploymentConfiguration(profile, engineRelease, {
+        bindingId: estimateBindingId ?? "",
+        customArgumentTokens,
+        declaredValues,
+        derivedParameterIds,
+        inputs: engineParameterInputs,
+        optionOverrides: previewSpeculativeOverrides && [
+          ...previewSpeculativeOverrides,
+          ...kvCachePrecisionOverrides(
+            previewKvCachePrecision,
+            currentKvCachePrecision(previewKvCachePrecision, pickedKvCachePrecision),
+          ),
+        ],
+      })
+    : undefined;
+  const previewKey =
+    estimateKey && placement
+      ? [estimateKey, JSON.stringify(storedSpeculativeChoice), pickedKvCachePrecision].join("\0")
       : undefined;
-    if (!previewMemory || !estimateKey || !previewConfiguration || !placement) return;
-
-    let active = true;
-    previewMemory({
-      configuration: previewConfiguration,
-      profileId,
-      placement,
-    }).then(
-      (preview) => {
-        if (active) setMemoryPreviewResult({ preview, placement, profileId });
-      },
-      // The explicit command preview reports rejections; this background read only drops its facts.
-      () => {
-        if (active) setMemoryPreviewResult({ placement, profileId });
-      },
-    );
-
-    return () => {
-      active = false;
-    };
-  }, [
-    configuration,
-    customArgumentTokens,
-    engineParameterInputs,
-    engineRelease,
-    declaredValues,
-    estimateBindingId,
-    estimateKey,
-    model,
-    profile,
-    profileId,
-    placement,
-    pickedKvCachePrecision,
-    storedSpeculativeChoice,
-  ]);
+  const previewRead = useKeyedRead<MemoryPreviewResult>(
+    previewKey && onPreviewMemory && previewConfiguration && placement
+      ? {
+          failureLabel: "Could not preview the deployment",
+          key: previewKey,
+          load: () =>
+            onPreviewMemory({ configuration: previewConfiguration, placement, profileId }).then(
+              (preview) => ({ placement, preview, profileId }),
+              // The explicit command preview reports rejections; this background read only drops
+              // its facts.
+              () => ({ placement, profileId }),
+            ),
+        }
+      : undefined,
+  );
+  const memoryPreviewResult = previewRead.value;
   // The latest result for the selected target stays visible while a newer one resolves, so the
   // wording does not flicker as parameters are typed; the architecture depends only on the target.
   const memoryPreview =

@@ -27,7 +27,7 @@ import {
   ApplicationServiceSchema,
 } from "@/gen/dotcore/catalog/v1/application_pb";
 import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
-import { StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
+import { StorageBindingSchema, StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
 import {
   type AcceleratorMemoryObservation,
   AcceleratorMemoryObservationSchema,
@@ -48,6 +48,22 @@ const application = create(ApplicationSchema, {
   applicationId: "open-webui",
   displayName: "OpenWebUI",
   version: "0.6.0",
+});
+
+// ComfyUI's shape: names differ from the binding ids so a test can tell them apart.
+const storageApplication = create(ApplicationSchema, {
+  ...application,
+  graph: create(ApplicationGraphSchema, {
+    services: [
+      create(ApplicationServiceSchema, {
+        serviceName: "web",
+        storageBindings: [
+          create(StorageBindingSchema, { bindingName: "data", displayName: "Base directory" }),
+          create(StorageBindingSchema, { bindingName: "models", displayName: "Model library" }),
+        ],
+      }),
+    ],
+  }),
 });
 
 function applicationTarget(id: string, available = true) {
@@ -575,7 +591,7 @@ describe("Application deployment dialog", () => {
           applicationDeploymentId: "deployment-1",
           applicationDeploymentName: "Images",
           placement: { siteNodeId: "local", executionTargetId: "local" },
-          snapshot: resolvedSnapshot(application),
+          snapshot: resolvedSnapshot(storageApplication),
           storageAttachments: [
             { serviceName: "web", bindingName: "data", placement: StoragePlacement.DEPLOYMENT },
             { serviceName: "web", bindingName: "models", placement: StoragePlacement.APPLICATION },
@@ -594,8 +610,8 @@ describe("Application deployment dialog", () => {
     );
 
     expect(detailTexts(screen.getByRole("region", { name: "Parameters" }))).toEqual([
-      ["Data storage", "This deployment"],
-      ["Models storage", "Shared by the app"],
+      ["Base directory", "This deployment"],
+      ["Model library", "Shared by the app"],
     ]);
   });
 
@@ -607,7 +623,7 @@ describe("Application deployment dialog", () => {
           applicationDeploymentId: "deployment-1",
           applicationDeploymentName: "comfy",
           desiredState: ApplicationDeploymentDesiredState.PRESENT,
-          snapshot: resolvedSnapshot(application),
+          snapshot: resolvedSnapshot(storageApplication),
           storageAttachments: [
             { serviceName: "web", bindingName: "data", placement: StoragePlacement.DEPLOYMENT },
             { serviceName: "web", bindingName: "models", placement: StoragePlacement.APPLICATION },
@@ -628,7 +644,7 @@ describe("Application deployment dialog", () => {
     await chooseMoreAction(user, "Teardown…");
     expect(
       within(screen.getByRole("dialog")).getByText(
-        "Teardown deployment comfy? This stops and removes its workloads and deletes this deployment's data (data). It keeps the data shared by the app (models) and the catalog application. The deployment remains visible as Tearing down until cleanup completes.",
+        "Teardown deployment comfy? This stops and removes its workloads and deletes this deployment's data (Base directory). It keeps the data shared by the app (Model library) and the catalog application. The deployment remains visible as Tearing down until cleanup completes.",
         { exact: true },
       ),
     ).toBeVisible();

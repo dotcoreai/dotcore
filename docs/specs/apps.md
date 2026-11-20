@@ -155,11 +155,17 @@ What an application deployment keeps from creation:
   devices, and fail the deployment as incompatible when they differ.
 - Ask the artifact manager to prepare service images only for targets whose runtime needs them
   physically present.
+- Fail a deployment whose image fails to build or doesn't match its pinned identity, with the cause
+  and the build output, and don't prepare it again until it is paused and resumed or deployed
+  again. A node that can't prepare images yet, such as while its container daemon is unreachable,
+  retries on each pass.
 - Project each unit's GPU memory, as attributed by the hosting node, from that node's current status
   at read time, never from retained state. A unit without current status or attribution reads as
   unavailable ([machines](machines.md#attributing-memory-to-deployments)).
 - On a virtualized runtime, treat the deployment as ready once its group runs with an assigned
   endpoint, with no probe, since nothing it runs serves.
+- Fail a deployment whose units stop on their own, or restart them, by the crash rule
+  ([runtime](runtime.md#handling-a-workload-that-stops)).
 
 #### Boundaries
 

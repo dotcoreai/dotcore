@@ -29,8 +29,7 @@ interface SizeInputProps {
   invalid?: boolean;
   /**
    * The largest size that fits where the model runs, offered as the last chip. The size chips stop
-   * below it. Its click runs "onSelect" when given, such as to return the owner to following the
-   * fit, else sets the value like a size chip; it changes nothing when the value already equals it.
+   * below it. Its click sets the value like a size chip.
    */
   largestFit?: SizeLargestFit;
   /** The accessible name of the slider and of the chip group. */
@@ -58,9 +57,8 @@ interface SizeInputProps {
   value: string;
 }
 
-/** The largest size that fits, and what choosing it does beyond setting the value, if anything. */
+/** The largest size that fits. */
 export interface SizeLargestFit {
-  onSelect?: () => void;
   value: number;
 }
 
@@ -175,10 +173,7 @@ export function SizeInput({
               onClick={() => {
                 setDraft(undefined);
                 setPressed(largestFit.value);
-                if (value === largestFit.value) return;
-
-                if (largestFit.onSelect) largestFit.onSelect();
-                else onChange(String(largestFit.value), true);
+                if (value !== largestFit.value) onChange(String(largestFit.value), true);
               }}
               pressed={pressed === largestFit.value && value === largestFit.value}
             />

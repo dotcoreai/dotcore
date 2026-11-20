@@ -34,7 +34,7 @@ export type ParameterViewType =
   | { kind: "boolean" }
   | { kind: "secret"; maximumLength?: number; minimumLength: number }
   | { kind: "stringEnum"; values: readonly string[] }
-  | { kind: "text"; maximumLength?: number; minimumLength: number }
+  | { kind: "text"; format?: ParameterTextFormat; maximumLength?: number; minimumLength: number }
   | {
       kind: "unsignedInteger";
       maximum?: bigint;
@@ -43,6 +43,9 @@ export type ParameterViewType =
       minimum: bigint;
       unit: string;
     };
+
+/** The shape a text parameter value must have; plain text when absent. */
+export type ParameterTextFormat = "email";
 
 /** The sizing estimate a memory parameter feeds: the accelerator or the host memory estimate. */
 export type ParameterMemoryPool = "accelerator" | "host";
@@ -102,6 +105,8 @@ export function parameterInputError(view: ParameterView, input: string): string 
     case "secret": {
       const forbidden = textValueError(view.label, input);
       if (forbidden) return forbidden;
+      if (view.type.kind === "text" && view.type.format === "email" && !isEmail(input))
+        return `${view.label} must be an email address, such as name@example.com.`;
       return `${view.label} must be ${lengthBounds(view.type) ?? "valid"}.`;
     }
     case "unsignedInteger": {
@@ -140,7 +145,10 @@ export function parameterInputValue(
       const length = utf8.encode(input).length;
       const { maximumLength = Infinity, minimumLength } = view.type;
       const valid =
-        length >= minimumLength && length <= maximumLength && !hasForbiddenTextCharacters(input);
+        length >= minimumLength &&
+        length <= maximumLength &&
+        !hasForbiddenTextCharacters(input) &&
+        (view.type.kind !== "text" || view.type.format !== "email" || isEmail(input));
       return valid ? input : undefined;
     }
     case "unsignedInteger": {
@@ -197,6 +205,13 @@ export function textValueError(label: string, input: string): string | undefined
 /** Whether a text or secret value holds a control character, which no parameter accepts. */
 export function hasForbiddenTextCharacters(input: string): boolean {
   return controlCharacters.test(input);
+}
+
+/** Whether a value reads as an email address: one `@`, a local part, a dotted domain, no spaces. */
+function isEmail(input: string): boolean {
+  if (/\s/.test(input)) return false;
+  const parts = input.split("@");
+  return parts.length === 2 && parts[0] !== "" && parts[1].includes(".");
 }
 
 // Lengths count UTF-8 bytes, as the server does.

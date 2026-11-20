@@ -228,7 +228,7 @@ in the same change that adds, removes or renames a folder it lists.
   use; advisory, never a reservation.
 - **demand**: a configuration's estimated bytes per memory pool on one target.
 - **placement preview**: the capacity component's answer for one configuration on one target: each
-  pool's occupancy with the demand, the fit line and the starting total context.
+  pool's occupancy with the demand and the fit line.
 - **machine description**: hardware as data: platform, host memory, and each GPU's memory and
   architecture. A **declared machine** is the description a node reports instead of its real
   hardware, resolved when the node is created and kept with it.

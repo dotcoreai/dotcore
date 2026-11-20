@@ -58,7 +58,7 @@ pub(crate) struct ApplicationRealizer {
     pub(super) shutdown: tokio_util::sync::CancellationToken,
     observer_started: Mutex<bool>,
     reconcile: ReconcileSchedule,
-    clock: Arc<dyn Clock>,
+    pub(super) clock: Arc<dyn Clock>,
 }
 
 /// Node realization state: durable node records and the view each deployment last reconciled.
@@ -97,6 +97,9 @@ pub(super) struct RealizerDependencies {
     /// Timing of the observer's passes and of each deployment's startup.
     pub(super) timing: ApplicationTiming,
 
+    /// Span within which crashes after ready count against a deployment's crash budget.
+    pub(super) crash_window: Duration,
+
     /// Backend clock the observer waits through.
     pub(super) clock: Arc<dyn Clock>,
 }
@@ -133,7 +136,10 @@ impl ApplicationRealizer {
             node: dependencies.node,
             accelerator_attribution: dependencies.accelerator_attribution,
             resource_attribution: dependencies.resource_attribution,
-            startup: StartupTracker::new(dependencies.timing.startup_window),
+            startup: StartupTracker::new(
+                dependencies.timing.startup_window,
+                dependencies.crash_window,
+            ),
             active_reconciliation: Mutex::new(None),
             shutdown: tokio_util::sync::CancellationToken::new(),
             observer_started: Mutex::new(false),

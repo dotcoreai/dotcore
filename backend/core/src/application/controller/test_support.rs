@@ -1320,6 +1320,7 @@ where
                 accelerator_attribution: None,
                 resource_attribution: None,
                 timing: Timing::test().application,
+                crash_window: Timing::test().deployment.crash_window,
                 clock: Arc::new(SystemClock),
                 node: super::realizer::NodeRealization {
                     records,
@@ -1900,6 +1901,9 @@ pub(super) struct PausedMatrixRuntime {
     pub(super) inspect_observation: Option<WorkloadGroupObservation>,
     pub(super) calls: Arc<Mutex<Vec<&'static str>>>,
     pub(super) removed_groups: Arc<Mutex<Vec<ObservedWorkloadGroup>>>,
+
+    /// Lines every unit wrote, oldest first, which group log reads return.
+    pub(super) output: Vec<String>,
 }
 
 impl PausedMatrixRuntime {
@@ -1915,6 +1919,7 @@ impl PausedMatrixRuntime {
             inspect_observation: None,
             calls,
             removed_groups: Arc::new(Mutex::new(Vec::new())),
+            output: Vec::new(),
         }
     }
 
@@ -1931,11 +1936,17 @@ impl PausedMatrixRuntime {
             inspect_observation: None,
             calls,
             removed_groups,
+            output: Vec::new(),
         }
     }
 
     pub(super) fn with_inspection(mut self, inspect_observation: WorkloadGroupObservation) -> Self {
         self.inspect_observation = Some(inspect_observation);
+        self
+    }
+
+    pub(super) fn with_output(mut self, lines: &[&str]) -> Self {
+        self.output = lines.iter().map(|line| (*line).to_owned()).collect();
         self
     }
 }
@@ -2012,6 +2023,37 @@ impl dotcore_runtime::WorkloadGroupBackend for PausedMatrixRuntime {
     fn stop_workload_group<'a>(&'a self, _: &'a WorkloadGroupLaunch) -> RuntimeFuture<'a, ()> {
         self.calls.lock().expect("Runtime calls").push("stop");
         Box::pin(ready(Ok(())))
+    }
+
+    fn read_workload_group_logs<'a>(
+        &'a self,
+        _: &'a WorkloadGroupLaunch,
+        sources: &'a dotcore_runtime::RuntimeLogSourceSelection,
+        _: &'a dotcore_runtime::RuntimeLogQuery,
+    ) -> dotcore_runtime::RuntimeLogFuture<'a, Vec<dotcore_runtime::RuntimeLogSourceHistory>> {
+        let histories = sources
+            .sources()
+            .iter()
+            .map(|source| dotcore_runtime::RuntimeLogSourceHistory {
+                source: source.clone(),
+                result: Ok(dotcore_runtime::RuntimeLogHistory {
+                    entries: self
+                        .output
+                        .iter()
+                        .map(|line| dotcore_runtime::RuntimeLogEntry {
+                            source: source.clone(),
+                            timestamp: std::time::UNIX_EPOCH,
+                            stream: dotcore_runtime::RuntimeLogStreamKind::Stderr,
+                            content: format!("{line}\n").into_bytes(),
+                            truncated: false,
+                        })
+                        .collect(),
+                    has_older_output: false,
+                    candidate_budget_truncated: false,
+                }),
+            })
+            .collect();
+        Box::pin(ready(Ok(histories)))
     }
 }
 
@@ -2962,12 +3004,12 @@ pub(super) fn application_with_route_input() -> Application {
     application
 }
 
-/// The test application with an advanced `mode` choice and a basic `workers` count, each bound to
-/// an environment variable of its web service.
+/// The test application with an advanced `mode` choice, a basic `workers` count and a `contact`
+/// email, each bound to an environment variable of its web service.
 pub(super) fn application_with_parameters() -> Application {
     use dotcore_proto::dotcore::catalog::v1::{
-        ParameterDefinition, ParameterVisibility, StringEnumParameterSchema,
-        UnsignedIntegerParameterSchema, parameter_definition::ParameterType,
+        ParameterDefinition, ParameterVisibility, StringEnumParameterSchema, TextFormat,
+        TextParameterSchema, UnsignedIntegerParameterSchema, parameter_definition::ParameterType,
     };
 
     let mut application = application();
@@ -3002,8 +3044,22 @@ pub(super) fn application_with_parameters() -> Application {
             enabled_by_parameter_id: None,
             group_id: None,
         },
+        ParameterDefinition {
+            parameter_id: "contact".to_owned(),
+            display_name: "Contact".to_owned(),
+            description: String::new(),
+            parameter_type: Some(ParameterType::Text(TextParameterSchema {
+                minimum_length: 5,
+                maximum_length: None,
+                default_value: Some("owner@example.com".to_owned()),
+                format: Some(TextFormat::Email as i32),
+            })),
+            visibility: ParameterVisibility::Basic as i32,
+            enabled_by_parameter_id: None,
+            group_id: None,
+        },
     ];
-    graph.services[0].configuration_bindings = ["mode", "workers"]
+    graph.services[0].configuration_bindings = ["mode", "workers", "contact"]
         .into_iter()
         .map(|id| ApplicationConfigurationBinding {
             binding_name: id.to_owned(),
@@ -3025,6 +3081,8 @@ pub(super) fn application_with_storage_choices() -> Application {
     let mut application = application();
     let binding = |name: &str, placements: &[StoragePlacement]| StorageBinding {
         binding_name: name.to_owned(),
+        display_name: format!("{name} storage"),
+        description: format!("Holds the {name} files."),
         mount_path: format!("/{name}"),
         kind: StorageKind::Data as i32,
         placements: placements
@@ -3062,6 +3120,7 @@ pub(super) fn application_with_secret_parameters() -> Application {
                 minimum_length: 1,
                 maximum_length: Some(64),
                 default_value: Some("admin".to_owned()),
+                format: None,
             })),
             visibility: ParameterVisibility::Basic as i32,
             enabled_by_parameter_id: None,

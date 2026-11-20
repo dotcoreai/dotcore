@@ -11,7 +11,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use dotcore_artifact::{
@@ -21,8 +20,8 @@ use dotcore_artifact::{
 };
 use dotcore_domain::{
     clock::Clock,
+    deployment::crash::{CrashDecision, CrashFailure},
     diagnostic::diagnostic_chain,
-    real_time,
     timing::{ModelTiming, ReconcileCadence, ReconcileOutcome},
 };
 use dotcore_proto::dotcore::model::v1::{
@@ -49,14 +48,13 @@ use super::{
     preparation::{PreparationEntry, PreparationLease, PreparationTicket},
     serving_targets::{ReadyServingTarget, serving_targets},
     state::{
-        RegisteredObservationStatus, apply_observation, apply_startup_failure,
-        checking_model_artifacts_state, configuration, current_error, desired_error,
-        downloading_state, failed_state, generation_state, is_absent, observation_identity,
-        paused_state, pausing_state, previously_realized, realization_prepared_state,
-        realization_startup_admitted_state, reconciled_generation, register_observation_status,
-        resolve_observation_status, resume_matches_generation, resume_matches_lifecycle,
-        resume_phase, resume_start_state, resume_start_uncertain_state, resuming_state,
-        runtime_startup_progress_state, startup_failure_diagnostics, startup_pending,
+        RegisteredObservationStatus, apply_observation, checking_model_artifacts_state,
+        configuration, current_error, desired_error, downloading_state, failed_state,
+        generation_state, is_absent, observation_identity, paused_state, pausing_state,
+        previously_realized, realization_prepared_state, realization_startup_admitted_state,
+        reconciled_generation, register_observation_status, resolve_observation_status,
+        resume_matches_generation, resume_matches_lifecycle, resume_phase, resume_start_state,
+        resume_start_uncertain_state, resuming_state, runtime_startup_progress_state,
         unavailable_state,
     },
 };
@@ -64,10 +62,14 @@ use crate::{
     deployment_logs::PreparationOwner,
     dispatch::model::{RuntimeTargetError, RuntimeTargetMap, TargetObservation},
     model::{
-        domain::ModelDeploymentId, engine::startup_refusal::StartupRefusal,
-        resolved::ResolvedModelLaunch, selection::RetainedTargetCapabilityError,
+        domain::ModelDeploymentId, resolved::ResolvedModelLaunch,
+        selection::RetainedTargetCapabilityError,
     },
 };
+
+mod crash;
+
+pub(super) use crash::CrashTracker;
 
 impl<D, S, R> InferenceControllerInner<D, S, R>
 where
@@ -1093,12 +1095,11 @@ where
                 );
             }
             Err(error) => {
-                let loader_output_tail = match &error {
-                    ArtifactPreparationError::DockerImage(error) => error.loader_stderr(),
+                let output_tail = match &error {
+                    ArtifactPreparationError::DockerImage(error) => error.output_tail(),
                     _ => None,
                 };
-                let diagnostics =
-                    super::state::engine_image_acquisition_diagnostics(loader_output_tail);
+                let diagnostics = super::state::engine_image_acquisition_diagnostics(output_tail);
                 self.update_preparation_state_fenced(
                     commit.deployment_id,
                     commit.ticket,
@@ -1317,6 +1318,13 @@ where
             .filter_map(|desired| observations.remove_entry(&desired.model_deployment_id))
             .collect::<BTreeMap<_, _>>();
         let orphans = observations;
+        self.crashes.retain(
+            &site
+                .model_deployments
+                .iter()
+                .map(|desired| desired.model_deployment_id.as_str())
+                .collect(),
+        );
         // Revoke leases for stale targets before runtime mutations can replace their workloads.
         self.retain_ready_serving_targets(&site, &current, &deployment_observations, preparations)
             .await?;
@@ -1476,7 +1484,6 @@ where
             };
             let launch = workload_launch(desired, target, &artifacts)?;
             let activation_state = current_record.state.as_ref();
-            let startup_pending = activation_state.is_some_and(startup_pending);
             let previously_realized =
                 previously_realized_deployments.contains(&desired.model_deployment_id);
             debug!(
@@ -1499,15 +1506,21 @@ where
                     &launch,
                     observation,
                     artifacts_replaced,
-                    startup_pending,
                     previously_realized,
                     activation_state,
                 )
                 .await
             {
-                Ok(Some(observation)) => {
+                Ok(Some(transitioned)) => {
                     let result = self
-                        .record_workload_observation(&site, desired, target, &launch, observation)
+                        .record_workload_observation(
+                            &site,
+                            desired,
+                            target,
+                            &launch,
+                            transitioned.observation,
+                            transitioned.crash,
+                        )
                         .await?;
                     pending |= result.pending;
                     if let Some(ready_target) = result.ready_target {
@@ -2190,17 +2203,15 @@ where
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn transition_workload(
         &self,
         desired: &dotcore_proto::dotcore::model::v1::ModelDeploymentDeclaration,
         launch: &dotcore_runtime::WorkloadLaunch,
         observation: Option<TargetObservation>,
         artifacts_replaced: bool,
-        startup_pending: bool,
         previously_realized: bool,
         activation_state: Option<&dotcore_proto::dotcore::model::v1::ModelDeploymentState>,
-    ) -> Result<Option<WorkloadObservation>, ModelLifecycleError> {
+    ) -> Result<Option<TransitionedWorkload>, ModelLifecycleError> {
         let generation = launch.correlation.reconcile_generation;
         let protected = protected_startup_values(desired, &launch.spec.environment);
         let operation = self.capture_operation(
@@ -2261,9 +2272,10 @@ where
                         &protected,
                     )
                     .await?;
+                self.record_engine_ran(desired, activation_state);
                 self.announce_started_workload(desired);
                 self.commit_operation(&operation, || ())?;
-                Ok(Some(created))
+                Ok(Some(created.into()))
             }
             Some(TargetObservation {
                 observation: WorkloadObservation::Absent(_),
@@ -2307,9 +2319,10 @@ where
                         &protected,
                     )
                     .await?;
+                self.record_engine_ran(desired, activation_state);
                 self.announce_started_workload(desired);
                 self.commit_operation(&operation, || ())?;
-                Ok(Some(created))
+                Ok(Some(created.into()))
             }
             Some(TargetObservation {
                 observation:
@@ -2324,10 +2337,12 @@ where
                     && resume_matches_generation(state, generation)
             }) =>
             {
-                Ok(Some(WorkloadObservation::Stopped {
-                    workload,
-                    exit_status,
-                }))
+                Ok(Some(TransitionedWorkload::from(
+                    WorkloadObservation::Stopped {
+                        workload,
+                        exit_status,
+                    },
+                )))
             }
             Some(TargetObservation {
                 execution_target_id,
@@ -2358,6 +2373,7 @@ where
                         &protected,
                     )
                     .await?;
+                self.record_engine_ran(desired, activation_state);
                 self.announce_started_workload(desired);
                 self.commit_operation(&operation, || {
                     self.persist_resume_activation(
@@ -2366,7 +2382,7 @@ where
                         generation,
                     )
                 })??;
-                Ok(Some(started))
+                Ok(Some(started.into()))
             }
             Some(TargetObservation {
                 observation:
@@ -2374,15 +2390,17 @@ where
                         workload,
                         exit_status,
                     },
-                ..
-            }) if startup_pending => Ok(Some(WorkloadObservation::Stopped {
-                workload,
-                exit_status,
-            })),
-            Some(TargetObservation {
                 execution_target_id,
-                observation: WorkloadObservation::Stopped { workload, .. },
             }) => {
+                if let CrashDecision::Fail(failure) = self.decide_stop(desired, activation_state) {
+                    return Ok(Some(TransitionedWorkload {
+                        observation: WorkloadObservation::Stopped {
+                            workload,
+                            exit_status,
+                        },
+                        crash: Some(failure),
+                    }));
+                }
                 self.engine_integrations
                     .retire_inactive_deployment(&desired.model_deployment_id);
                 let started = self
@@ -2394,18 +2412,20 @@ where
                         &protected,
                     )
                     .await?;
+                self.record_engine_ran(desired, activation_state);
                 self.announce_started_workload(desired);
                 self.commit_operation(&operation, || ())?;
-                Ok(Some(started))
+                Ok(Some(started.into()))
             }
             Some(TargetObservation { observation, .. }) => {
                 if running {
+                    self.record_engine_ran(desired, activation_state);
                     self.workload_lifecycle.running(
                         &desired.model_deployment_id,
                         super::logs::MODEL_LOG_SOURCE_NAME,
                     );
                 }
-                Ok(Some(observation))
+                Ok(Some(observation.into()))
             }
         }
     }
@@ -2496,6 +2516,8 @@ where
         Ok(())
     }
 
+    /// Records what this pass observed of a present deployment's engine, or the failure its
+    /// `crash` decided when the engine stopped on its own.
     async fn record_workload_observation<'a>(
         &self,
         site: &dotcore_proto::dotcore::site::v1::Site,
@@ -2503,6 +2525,7 @@ where
         target: &'a dotcore_proto::dotcore::site::v1::ExecutionTarget,
         launch: &dotcore_runtime::WorkloadLaunch,
         observation: WorkloadObservation,
+        crash: Option<CrashFailure>,
     ) -> Result<RecordedWorkloadObservation<'a>, ModelLifecycleError> {
         validate_action_observation(
             site,
@@ -2585,41 +2608,30 @@ where
             );
             lifecycle = ModelDeploymentStatus::Failed;
         }
-        let startup_failed = if previous_state.as_ref().is_some_and(startup_pending) {
-            if let WorkloadObservation::Stopped {
-                workload,
-                exit_status,
-            } = &observation
-            {
-                let output = self
-                    .capture_startup_output(desired, target, workload, launch)
-                    .await;
-                self.commit_status_operation(&operation, attempt_binding.as_ref(), || {
-                    apply_startup_failure(
-                        &self.state,
-                        desired,
-                        output.refusal.as_ref(),
-                        startup_failure_diagnostics(
-                            *exit_status,
-                            output.refusal.as_ref(),
-                            output.tail.clone(),
-                        ),
-                    )
-                })??
-            } else {
-                false
+        let crash_failed = match (crash, &observation) {
+            (
+                Some(failure),
+                WorkloadObservation::Stopped {
+                    workload,
+                    exit_status,
+                },
+            ) => {
+                self.record_crash_failure(
+                    desired,
+                    target,
+                    launch,
+                    workload,
+                    *exit_status,
+                    failure,
+                    &operation,
+                    attempt_binding.as_ref(),
+                )
+                .await?
             }
-        } else {
-            false
+            _ => false,
         };
-        if startup_failed {
+        if crash_failed {
             lifecycle = ModelDeploymentStatus::Failed;
-            warn!(
-                event_kind = "model_lifecycle_problem",
-                deployment_id = %desired.model_deployment_id,
-                error_kind = "engine_startup_failed",
-                "model runtime workload stopped during startup",
-            );
         }
         if lifecycle != ModelDeploymentStatus::Ready
             && matches!(observation, WorkloadObservation::Running(_))
@@ -2629,7 +2641,7 @@ where
                     .withdraw_deployment(&ModelDeploymentId(desired.model_deployment_id.clone()));
             })?;
         }
-        if !startup_failed && !resume_uncertain {
+        if !crash_failed && !resume_uncertain {
             let execution_target = dotcore_runtime::ExecutionTarget {
                 managed_node_id: dotcore_domain::SiteNodeId::parse(&target.site_node_id).map_err(
                     |error| {
@@ -2668,6 +2680,8 @@ where
             let workload = observation_identity(&observation).ok_or_else(|| {
                 configuration("Runtime returned no identity for a READY workload")
             })?;
+            self.crashes
+                .record_ready(&desired.model_deployment_id, desired.lifecycle_generation);
             self.start_resource_telemetry(site, desired, target, workload, ready_transition);
             Some(ReadyServingTarget {
                 deployment: desired,
@@ -2746,64 +2760,6 @@ where
                 })
             },
         );
-    }
-
-    /// Reads the newest page of a stopped workload's output for its startup failure, letting its
-    /// engine recognize a refusal that the shown tail would cut off.
-    async fn capture_startup_output(
-        &self,
-        desired: &dotcore_proto::dotcore::model::v1::ModelDeploymentDeclaration,
-        target: &dotcore_proto::dotcore::site::v1::ExecutionTarget,
-        workload: &dotcore_runtime::ObservedWorkload,
-        launch: &dotcore_runtime::WorkloadLaunch,
-    ) -> StartupOutput {
-        let source = dotcore_runtime::RuntimeLogSource {
-            name: super::logs::MODEL_LOG_SOURCE_NAME.to_owned(),
-            label: super::logs::MODEL_LOG_SOURCE_LABEL.to_owned(),
-        };
-        let history = dotcore_runtime::RuntimeLogQuery::new(
-            std::num::NonZeroU16::new(dotcore_runtime::MAX_RUNTIME_LOG_ENTRIES)
-                .expect("positive startup log limit"),
-            None,
-        )
-        .expect("startup log limit is within runtime bounds");
-        let query = dotcore_runtime::RuntimeWorkloadLogQuery::new(source, history);
-        let protected = protected_startup_values(desired, &launch.spec.environment);
-        match real_time::bound(
-            Duration::from_secs(2),
-            self.runtimes.read_workload_logs(
-                &target.execution_target_id,
-                &workload.workload_id,
-                &query,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(history)) => {
-                let launch = super::launch::resolved_launch(desired).ok();
-                startup_output(history, &protected, &|output| {
-                    let launch = launch.as_ref()?;
-                    self.engine_integrations
-                        .startup_refusal(&launch.snapshot, output)
-                })
-            }
-            Ok(Err(_)) => {
-                debug!(
-                    event_kind = "model_startup_output_unavailable",
-                    reason = "read_failed",
-                    "startup output unavailable"
-                );
-                StartupOutput::default()
-            }
-            Err(_) => {
-                debug!(
-                    event_kind = "model_startup_output_unavailable",
-                    reason = "timeout",
-                    "startup output timed out"
-                );
-                StartupOutput::default()
-            }
-        }
     }
 }
 
@@ -3121,6 +3077,23 @@ struct RecordedWorkloadObservation<'a> {
     operation: LifecycleOperationToken,
 }
 
+/// A deployment's engine after this pass acted on it: what the runtime reports, and the crash
+/// failure to record when its engine stopped on its own and is not started again.
+#[derive(Debug)]
+struct TransitionedWorkload {
+    observation: WorkloadObservation,
+    crash: Option<CrashFailure>,
+}
+
+impl From<WorkloadObservation> for TransitionedWorkload {
+    fn from(observation: WorkloadObservation) -> Self {
+        Self {
+            observation,
+            crash: None,
+        }
+    }
+}
+
 impl<D, S, R> super::ModelRealizer<D, S, R>
 where
     D: super::ModelRealizationInput + 'static,
@@ -3366,51 +3339,6 @@ async fn replace_stale_workload_admitted(
         runtimes.commit_operation(token, || ())?;
     }
     Ok(None)
-}
-
-/// Output of a workload that stopped during startup: the bounded tail shown in its diagnostics,
-/// and the engine's own refusal when the engine recognizes one.
-#[derive(Debug, Default, PartialEq)]
-struct StartupOutput {
-    tail: Option<String>,
-    refusal: Option<StartupRefusal>,
-}
-
-/// Masks protected values and file paths in startup output, keeps the newest entries within the
-/// diagnostic bounds as the tail, and reads the engine's refusal from every entry.
-fn startup_output(
-    history: dotcore_runtime::RuntimeLogHistory,
-    protected: &crate::management_logs::ProtectedLogValues,
-    read_refusal: &dyn Fn(&str) -> Option<StartupRefusal>,
-) -> StartupOutput {
-    const MAX_STARTUP_OUTPUT_ENTRIES: usize = 16;
-    const MAX_STARTUP_OUTPUT_BYTES: usize = 4096;
-    let entries = history
-        .entries
-        .into_iter()
-        .map(|entry| {
-            let filtered = crate::management_logs::filter_entry(entry, protected);
-            crate::diagnostic::redact_filesystem_paths(&String::from_utf8_lossy(&filtered.content))
-                .chars()
-                .filter(|character| {
-                    !character.is_control() || *character == '\n' || *character == '\t'
-                })
-                .collect::<String>()
-        })
-        .collect::<Vec<_>>();
-    let refusal = read_refusal(&entries.join("\n"));
-    let mut tail = entries[entries.len().saturating_sub(MAX_STARTUP_OUTPUT_ENTRIES)..].join("\n");
-    if tail.len() > MAX_STARTUP_OUTPUT_BYTES {
-        let mut start = tail.len() - MAX_STARTUP_OUTPUT_BYTES;
-        while !tail.is_char_boundary(start) {
-            start += 1;
-        }
-        tail.drain(..start);
-    }
-    StartupOutput {
-        tail: (!tail.is_empty()).then_some(tail),
-        refusal,
-    }
 }
 
 /// Values startup output and failure text never show: the deployment's secret engine parameter

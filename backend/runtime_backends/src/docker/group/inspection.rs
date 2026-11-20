@@ -93,11 +93,7 @@ impl<C: DockerClient> DockerAdapter<C> {
                     )
                 })?;
             validate_unit_network(&inspection, unit, &known.network_id)?;
-            let state = if inspection.running {
-                WorkloadUnitState::Running
-            } else {
-                WorkloadUnitState::Stopped
-            };
+            let state = unit_state(&inspection);
             if name == &requested.publication.unit_name && state == WorkloadUnitState::Running {
                 endpoint = Some(strict_endpoint(&inspection, unit, requested)?);
             } else if has_host_bindings(&inspection) {
@@ -193,11 +189,7 @@ impl<C: DockerClient> DockerAdapter<C> {
                 }
             };
             validate_unit_network(&inspection, unit, &known.network_id)?;
-            let state = if inspection.running {
-                WorkloadUnitState::Running
-            } else {
-                WorkloadUnitState::Stopped
-            };
+            let state = unit_state(&inspection);
             if name == &known.launch.publication.unit_name && state == WorkloadUnitState::Running {
                 endpoint = Some(strict_endpoint(&inspection, unit, requested)?);
             } else if has_host_bindings(&inspection) {
@@ -379,11 +371,7 @@ impl<C: DockerClient> DockerAdapter<C> {
                     )
                 })?;
             validate_unit_network(&inspection, unit, &known.network_id)?;
-            let state = if inspection.running {
-                WorkloadUnitState::Running
-            } else {
-                WorkloadUnitState::Stopped
-            };
+            let state = unit_state(&inspection);
             if name == &requested.publication.unit_name && state == WorkloadUnitState::Running {
                 endpoint = Some(strict_endpoint(&inspection, unit, requested)?);
             } else if has_host_bindings(&inspection) {
@@ -464,4 +452,15 @@ fn unit_host_process(
         .process_id
         .filter(|_| state == WorkloadUnitState::Running)
         .and_then(|process_id| container_host_process(managed_node_id.clone(), process_id))
+}
+
+/// The lifecycle state of a unit's container, with the process's exit status once it stopped.
+fn unit_state(inspection: &GroupContainerInspection) -> WorkloadUnitState {
+    if inspection.running {
+        WorkloadUnitState::Running
+    } else {
+        WorkloadUnitState::Stopped {
+            exit_status: inspection.exit_status,
+        }
+    }
 }

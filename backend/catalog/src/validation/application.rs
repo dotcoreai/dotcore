@@ -132,7 +132,7 @@ mod tests {
         ApplicationServicePort, ApplicationServiceReadiness, BooleanParameterSchema, MemoryPool,
         NixArtifact, NixDockerImage, NixSystemStorePath, OciPlatform, ParameterDefinition,
         ParameterGroup, ParameterVisibility, SecretParameterSchema, StorageBinding, StorageKind,
-        StoragePlacement, StringEnumParameterSchema, TextParameterSchema,
+        StoragePlacement, StringEnumParameterSchema, TextFormat, TextParameterSchema,
         UnsignedIntegerParameterSchema, UseCase, application_configuration_binding,
         application_service_artifact::Kind as ServiceArtifactKind, nix_artifact::Provides,
         parameter_definition::ParameterType,
@@ -193,6 +193,8 @@ mod tests {
                         }],
                         storage_bindings: vec![StorageBinding {
                             binding_name: "data".to_owned(),
+                            display_name: "Application data".to_owned(),
+                            description: "Files the application stores.".to_owned(),
                             mount_path: "/app/data".to_owned(),
                             kind: StorageKind::Data as i32,
                             placements: vec![StoragePlacement::Deployment as i32],
@@ -878,6 +880,26 @@ mod tests {
             ),
             (
                 parameterized_application(
+                    vec![parameter(
+                        "username",
+                        formatted_text(Some("admin"), TextFormat::Email),
+                    )],
+                    &["username"],
+                ),
+                "parameter \"username\" default is invalid: it must be an email address, such as name@example.com",
+            ),
+            (
+                parameterized_application(
+                    vec![parameter(
+                        "username",
+                        formatted_text(Some("admin@example.com"), TextFormat::Unspecified),
+                    )],
+                    &["username"],
+                ),
+                "parameter \"username\" requires a known text format",
+            ),
+            (
+                parameterized_application(
                     vec![parameter("username", text(0, Some(0), Some("")))],
                     &["username"],
                 ),
@@ -1265,6 +1287,16 @@ services:
             minimum_length,
             maximum_length,
             default_value: default_value.map(str::to_owned),
+            format: None,
+        })
+    }
+
+    fn formatted_text(default_value: Option<&str>, format: TextFormat) -> ParameterType {
+        ParameterType::Text(TextParameterSchema {
+            minimum_length: 1,
+            maximum_length: None,
+            default_value: default_value.map(str::to_owned),
+            format: Some(format as i32),
         })
     }
 

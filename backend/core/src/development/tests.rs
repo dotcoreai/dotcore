@@ -19,6 +19,7 @@ use dotcore_proto::dotcore::{
     catalog::v1::{
         ModelOptionParameterValue, ModelOptionValues, Selector,
         model_option_parameter_value::Value as ModelOptionValue,
+        parameter_value::Value as EngineParameterValueKind,
     },
     model::v1::{
         LocalModelDeploymentConfiguration, ModelDeploymentSnapshot, model_deployment_snapshot,
@@ -1584,6 +1585,100 @@ async fn facade_pins_a_tag_only_engine_image_and_prepares_and_launches_by_its_im
         "could not prepare direct development engine artifact: tagged OCI image is not available in the local image store"
     );
     assert_eq!(unbuilt_runtime.launches().len(), 0);
+}
+
+#[tokio::test]
+async fn facade_launches_a_strata_workload_with_a_generated_api_key() {
+    use crate::test_support::strata::{
+        API_KEY_GENERATED_LENGTH, API_KEY_PARAMETER_ID, CATALOG_MODEL, catalog_engine_with_api_key,
+        load_catalog,
+    };
+
+    let catalog = load_catalog(&catalog_engine_with_api_key(), CATALOG_MODEL)
+        .expect("Strata catalog with an API key")
+        .with_test_model_artifact_digests_omitted("fixture-strata-model");
+    let model_id = CatalogModelId("fixture-strata-model".to_owned());
+    let (binding, parameters) = catalog
+        .local_defaults_for(&model_id, "strata-q4")
+        .expect("profile defaults");
+    let configuration = LocalModelDeploymentConfiguration {
+        model_artifact_binding_id: binding,
+        engine_parameter_values: Some(parameters),
+        ..Default::default()
+    };
+    let cache_root = crate::test_support::canonical_tempdir().expect("cache root");
+    let artifacts = ArtifactManager::new(
+        cache_root.path().to_path_buf(),
+        Some(Arc::new(RecordingOciPreparer::default())),
+    )
+    .expect("Artifact manager");
+    let (target, inventory) = crate::test_support::execution_target_capabilities(
+        dotcore_domain::ExecutionPlatform::linux_amd64(),
+    );
+    let resolved = resolve_local_launch(
+        &catalog,
+        &model_id,
+        "strata-q4",
+        &configuration,
+        &target,
+        &inventory,
+        None,
+    )
+    .and_then(|resolution| resolution.generate_missing_secrets(&crate::RandomSecretGenerator))
+    .and_then(|resolution| resolution.into_snapshot())
+    .expect("resolved launch");
+    let resolved = ResolvedModelLaunch::from_local_snapshot(&resolved).expect("resolved model");
+    for path in artifacts
+        .expected_model_paths(&resolved.artifacts)
+        .expect("expected artifact paths")
+        .artifacts
+        .values()
+    {
+        std::fs::create_dir_all(path.parent().expect("artifact parent")).expect("artifact parent");
+        std::fs::write(path, b"development artifact").expect("cached artifact");
+    }
+    let runtime = Arc::new(RecordingDevelopmentRuntime::default());
+    let facade = DirectWorkloadFacade::new(
+        catalog,
+        artifacts,
+        runtime.clone(),
+        DevelopmentRuntimeNamespace::derive("experiment-strata-key")
+            .expect("development runtime namespace"),
+    );
+
+    let facts = facade
+        .launch(
+            DirectWorkloadLaunchRequest {
+                handle_path: cache_root.path().join("ownership.json"),
+                owner_id: "development-run-one".to_owned(),
+                model_id,
+                profile_id: "strata-q4".to_owned(),
+                configuration,
+                execution_target: ExecutionTarget {
+                    managed_node_id: SiteNodeId::for_test("development-node"),
+                    accelerator_device_ids: vec!["0".to_owned()],
+                },
+            },
+            CancellationToken::new(),
+            DevelopmentLaunchProgress::default(),
+        )
+        .await
+        .expect("direct development launch");
+
+    assert_eq!(runtime.launches().len(), 1);
+    let keys = facts
+        .engine_parameter_values
+        .values
+        .iter()
+        .filter(|value| value.parameter_id == API_KEY_PARAMETER_ID)
+        .map(|value| value.value.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        keys,
+        [Some(EngineParameterValueKind::String(
+            crate::test_support::sequential_secret(1, API_KEY_GENERATED_LENGTH as usize)
+        ))]
+    );
 }
 
 #[tokio::test]

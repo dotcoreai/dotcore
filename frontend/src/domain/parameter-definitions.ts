@@ -3,6 +3,7 @@ import {
   type ParameterDefinition,
   type ParameterGroup,
   type ParameterValue,
+  TextFormat,
 } from "@/gen/dotcore/catalog/v1/parameter_pb";
 
 import type {
@@ -38,7 +39,8 @@ export function parameterView(definition: ParameterDefinition): ParameterView | 
       return { ...base, type: { kind: "stringEnum", values: type.value.values } };
     case "text": {
       const { maximumLength, minimumLength } = type.value;
-      return { ...base, type: { kind: "text", maximumLength, minimumLength } };
+      const format = type.value.format === TextFormat.EMAIL ? "email" : undefined;
+      return { ...base, type: { kind: "text", format, maximumLength, minimumLength } };
     }
     case "secret": {
       const { maximumLength, minimumLength } = type.value;

@@ -30,6 +30,7 @@ import {
   SpeculativeDecodingMethod,
 } from "@/gen/dotcore/catalog/v1/model_pb";
 import { ParameterVisibility } from "@/gen/dotcore/catalog/v1/parameter_pb";
+import { AcceleratorMemoryArchitecture } from "@/gen/dotcore/observation/v1/observation_pb";
 import {
   ConfiguredExecutionTargetSchema,
   ExecutionTargetWorkloadKind,
@@ -539,6 +540,33 @@ describe("ModelDeployDialog Advanced step", () => {
     expect(screen.getAllByRole("textbox").map((input) => input.id)).toEqual([
       "engine-parameter-parallel-requests",
     ]);
+  });
+
+  it("previews once per configuration when the configuration excludes parameters", async () => {
+    const user = setupUser();
+    const onPreviewMemory = vi.fn().mockResolvedValue({
+      acceleratorMemoryArchitecture: AcceleratorMemoryArchitecture.UNSPECIFIED,
+      advisories: [],
+    });
+    const model = modelWithStrata({ excludedEngineParameterIds: ["expert-host-memory-mib"] });
+    renderDialog({
+      deployments: [],
+      engineReleases: [...runtimeSchemaReleases, strataRelease],
+      initialProfileId: "strata",
+      model,
+      onPreviewMemory,
+    });
+
+    await openAdvancedStep(user);
+    await waitFor(() => expect(onPreviewMemory).toHaveBeenCalledOnce());
+    const parallelRequests = screen.getByRole("textbox", { name: "Parallel requests" });
+    await user.clear(parallelRequests);
+    await user.type(parallelRequests, "3");
+    await user.tab();
+    await waitFor(() => expect(onPreviewMemory).toHaveBeenCalledTimes(2));
+    // Settled: the predicted memory shows the last estimate, and no preview follows it.
+    await screen.findByRole("region", { name: "Predicted memory" });
+    expect(onPreviewMemory).toHaveBeenCalledTimes(2);
   });
 
   it("reopens a collapsed group and focuses its invalid value", async () => {

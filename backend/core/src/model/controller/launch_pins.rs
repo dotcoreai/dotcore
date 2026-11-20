@@ -1694,6 +1694,7 @@ mod tests {
                     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
                     timing: Timing::test().model,
                     clock: Arc::new(SystemClock),
+                    crash_window: Timing::test().deployment.crash_window,
                     preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(
                         self._directory.path(),
                     ),

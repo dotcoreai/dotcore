@@ -132,6 +132,40 @@ pub(super) fn deployment_failure_state(
     state
 }
 
+/// State of a failed reconciliation: `Failed` with its diagnosed summary when its failure is
+/// terminal, and otherwise `Unavailable` with its summary, so the next pass retries it.
+pub(super) fn reconcile_failure_state(
+    failure: &super::errors::DeploymentReconcileFailure,
+) -> ApplicationDeploymentState {
+    match failure.summary() {
+        Some(summary)
+            if failure
+                .failure
+                .is_some_and(super::errors::DeploymentFailureCode::is_terminal) =>
+        {
+            failed_state(failure.stage, summary)
+        }
+        _ => deployment_failure_state(failure.stage, failure.failure),
+    }
+}
+
+/// Failed state of a deployment at `stage`, such as a group whose units stopped on their own or
+/// an image that failed to build; nothing of it runs and `failure` says why.
+pub(super) fn failed_state(
+    stage: &str,
+    failure: ApplicationDeploymentFailure,
+) -> ApplicationDeploymentState {
+    let mut state = state(
+        ApplicationLifecycleState::Failed,
+        ApplicationReadinessState::NotReady,
+        stage,
+        None,
+        Vec::new(),
+    );
+    state.failure = Some(failure);
+    state
+}
+
 /// Starting state after a failed workload-group creation, carrying `failure` when the runtime
 /// named a stable cause and the generic creation failure otherwise.
 pub(super) fn workload_creation_failure_state(
@@ -360,10 +394,11 @@ mod tests {
     };
 
     use super::{
-        booting_state, deployment_failure_state, paused_state, pausing_state, preparing_state,
-        queued_state, settled_state, starting_state, stopped_state, unavailable_state,
-        with_start_steps,
+        booting_state, deployment_failure_state, failed_state, paused_state, pausing_state,
+        preparing_state, queued_state, settled_state, starting_state, stopped_state,
+        unavailable_state, with_start_steps,
     };
+    use crate::application::controller::errors::DeploymentFailureCode;
     use crate::application::controller::readiness::{
         ENDPOINT_NOT_ASSIGNED_STAGE, ENDPOINT_NOT_READY_STAGE, GROUP_NOT_RUNNING_STAGE,
     };
@@ -511,8 +546,15 @@ mod tests {
                 unavailable_state(ENDPOINT_NOT_READY_STAGE, None),
             ),
             (
-                "failed",
+                "unavailable after a failure",
                 deployment_failure_state("artifact-preparation", None),
+            ),
+            (
+                "failed",
+                failed_state(
+                    "artifact-preparation",
+                    DeploymentFailureCode::ImageBuildFailed.summary(),
+                ),
             ),
             ("failed creation", failed_creation),
             ("reconciling", reconciling),

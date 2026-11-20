@@ -74,7 +74,7 @@ import { expectResourceMarker, inspectorTitle } from "@/test/resource-marker";
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
-import { sharedContextEstimate } from "./resource-estimate-test-support";
+import { compatibilityFitEstimates } from "./resource-estimate-test-support";
 import { type LocalResourceEstimate } from "./use-resource-estimate";
 
 const unifiedKvOffloadWarning =
@@ -156,6 +156,32 @@ describe("ModelDeployDialog", () => {
       expect(screen.getByText("Step 5 of 5 — Deploy")).toBeVisible();
       expect(screen.queryByText(/Review/)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Deploy" })).toBeEnabled();
+    });
+
+    it("shows the Advanced step only while a profile gives it fields", async () => {
+      const user = setupUser();
+      renderDialog({
+        listProfileCompatibility: compatibilityLoader(
+          targetCompatibility(poolPlacement, { default: {}, large: {} }),
+        ),
+      });
+
+      await waitFor(() => expect(screen.getByRole("radio", { name: "Fast start" })).toBeChecked());
+      await enableAdvanced(user);
+      expect(stepLabels()).toContain("4. Advanced");
+
+      await user.type(screen.getByRole("searchbox", { name: "Filter profiles" }), "Large");
+      expect(screen.getByRole("radio", { name: "Large context" })).not.toBeChecked();
+      expect(stepLabels()).toEqual(["1. Profile", "2. Target", "3. Settings", "4. Deploy"]);
+
+      await user.click(screen.getByRole("row", { name: "Large context" }));
+      expect(stepLabels()).toEqual([
+        "1. Profile",
+        "2. Target",
+        "3. Settings",
+        "4. Advanced",
+        "5. Deploy",
+      ]);
     });
 
     it("opens with Advanced off every time", async () => {
@@ -2838,6 +2864,7 @@ describe("ModelDeployDialog", () => {
         ),
         onEstimate: () =>
           Promise.resolve({
+            largestTotalContext: 16_384,
             placementPreview: placementPreview([
               devicePool(
                 32n * gib,
@@ -3120,6 +3147,7 @@ function dialog(
     ),
   }: { watch?: FakeResourceWatch } = {},
 ) {
+  const fits = compatibilityFitEstimates(props.model ?? model, props.listProfileCompatibility);
   return (
     <ExecutionTargetsWatch watch={watch}>
       <ModelDeployDialog
@@ -3127,13 +3155,14 @@ function dialog(
         hardwareClasses={[]}
         listConfiguredExecutionTargets={targetsLoader(poolTarget())}
         model={model}
-        onEstimate={sharedContextEstimate(props.model ?? model)}
+        onEstimate={fits.onEstimate}
         onOpenChange={vi.fn()}
         onPreview={vi.fn()}
         onSubmit={vi.fn()}
         open
         pending={false}
         {...props}
+        listProfileCompatibility={fits.listProfileCompatibility}
       />
     </ExecutionTargetsWatch>
   );

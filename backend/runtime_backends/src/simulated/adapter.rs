@@ -169,11 +169,12 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
 
     fn discover_workload_groups<'a>(&'a self) -> RuntimeFuture<'a, Vec<WorkloadGroupObservation>> {
         Box::pin(async move {
-            let state = self.state.lock().expect("simulated runtime state");
+            let mut state = self.state.lock().expect("simulated runtime state");
             Ok(state
                 .groups
-                .values()
+                .values_mut()
                 .filter_map(|group| {
+                    self.exit_configured_units(group);
                     let observation = simulated_group_observation(
                         group,
                         RuntimeBackend::backend_id(self),
@@ -353,9 +354,10 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
                     .group_calls
                     .push(SimulatedRuntimeGroupCall::inspect(&group.group_id.0));
             }
-            let state = self.state.lock().expect("simulated runtime state");
-            Ok(match state.groups.get(&group.group_id.0) {
+            let mut state = self.state.lock().expect("simulated runtime state");
+            Ok(match state.groups.get_mut(&group.group_id.0) {
                 Some(existing) => {
+                    self.exit_configured_units(existing);
                     let observation = simulated_group_observation(
                         existing,
                         RuntimeBackend::backend_id(self),
@@ -464,7 +466,7 @@ impl WorkloadGroupBackend for InMemoryRuntimeBackend {
                 ));
             }
             for unit in stored.unit_states.values_mut() {
-                *unit = WorkloadUnitState::Stopped;
+                *unit = WorkloadUnitState::Stopped { exit_status: None };
             }
             self.end_unit_processes(stored);
             Ok(())
@@ -577,6 +579,29 @@ impl InMemoryRuntimeBackend {
             processes
                 .values()
                 .for_each(|process| machine.end_application_unit(process));
+        }
+    }
+
+    /// Stops every running unit of `group` that test support makes exit, as a process that ended
+    /// on its own, with the configured exit status; its process ends on the declared machine.
+    fn exit_configured_units(&self, group: &mut FakeWorkloadGroup) {
+        let Some(support) = &self.config.test_support else {
+            return;
+        };
+        for (name, state) in &mut group.unit_states {
+            if *state != WorkloadUnitState::Running {
+                continue;
+            }
+            let Some(exit_status) = support.group_unit_exit(&group.launch.group_id.0, &name.0)
+            else {
+                continue;
+            };
+            *state = WorkloadUnitState::Stopped { exit_status };
+            if let Some(process) = group.unit_processes.remove(name)
+                && let Some(machine) = &self.config.machine
+            {
+                machine.end_application_unit(&process);
+            }
         }
     }
 

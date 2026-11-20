@@ -401,6 +401,8 @@ fn complete_model_snapshot() -> ModelDeploymentSnapshot {
                     launch_identity: "registry.dotcore.test/engine@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789".to_owned(),
                     storage_bindings: vec![StorageBinding {
                         binding_name: "compile-cache".to_owned(),
+                        display_name: String::new(),
+                        description: String::new(),
                         mount_path: "/cache".to_owned(),
                         kind: StorageKind::Cache as i32,
                         placements: vec![StoragePlacement::EngineArtifact as i32],
@@ -604,6 +606,8 @@ fn complete_application() -> Application {
                     configuration_bindings: Vec::new(),
                     storage_bindings: vec![StorageBinding {
                         binding_name: "database-data".to_owned(),
+                        display_name: String::new(),
+                        description: String::new(),
                         mount_path: "/var/lib/database".to_owned(),
                         kind: StorageKind::Data as i32,
                         placements: vec![StoragePlacement::Deployment as i32],
@@ -653,6 +657,8 @@ fn complete_application() -> Application {
                     }],
                     storage_bindings: vec![StorageBinding {
                         binding_name: "data".to_owned(),
+                        display_name: String::new(),
+                        description: String::new(),
                         mount_path: "/app/data".to_owned(),
                         kind: StorageKind::Data as i32,
                         placements: vec![StoragePlacement::Deployment as i32],

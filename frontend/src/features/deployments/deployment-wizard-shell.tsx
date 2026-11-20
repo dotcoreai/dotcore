@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 import { DeploymentDialogFrame } from "./deployment-dialog-frame";
 
-interface DeploymentWizardShellProps {
+export interface DeploymentWizardShellProps {
   /**
    * Message for the polite live region, such as a change to the step list. The region renders
    * whenever this is defined; pass an empty string to mount it before the first message.

@@ -1491,7 +1491,14 @@ async fn hw_docker_lightweight_application_logs_are_owned_filtered_and_cancellab
                 inference_route_id: None,
                 expected_inference_route_generation: 0,
                 application_deployment_name: None,
-                parameter_values: Vec::new(),
+                parameter_values: vec![dotcore_proto::dotcore::catalog::v1::ParameterValue {
+                    parameter_id: "protected".to_owned(),
+                    value: Some(
+                        dotcore_proto::dotcore::catalog::v1::parameter_value::Value::String(
+                            "protected-value".to_owned(),
+                        ),
+                    ),
+                }],
                 storage_choices: Vec::new(),
             }),
         )
@@ -1774,6 +1781,82 @@ async fn hw_docker_lightweight_application_logs_are_owned_filtered_and_cancellab
 
 #[tokio::test]
 #[ignore = "hardware: just backend::test-docker"]
+async fn hw_docker_a_container_that_exits_during_startup_fails_the_app_with_its_exit_code() {
+    let resources = TestResources::new_log_fixture()
+        .await
+        .expect("Docker preflight and temporary site");
+    let result = async {
+        resources.write_crash_application()?;
+        let service = resources.composition_services().await?;
+        let deployment = ApplicationServiceContract::create_application_deployment(
+            &service,
+            Request::new(CreateApplicationDeploymentRequest {
+                application_id: "crash-fixture".to_owned(),
+                placement: Some(support::exact_placement(
+                    "docker-apps",
+                    "docker-apps-target",
+                )),
+                inference_route_id: None,
+                expected_inference_route_generation: 0,
+                application_deployment_name: None,
+                parameter_values: Vec::new(),
+                storage_choices: Vec::new(),
+            }),
+        )
+        .await
+        .map_err(|error| format!("create crash fixture application: {error}"))?
+        .into_inner()
+        .deployment
+        .ok_or_else(|| "create crash fixture application returned no deployment".to_owned())?;
+        service.start_observer();
+        let failed = wait_for_application_lifecycle(
+            &service,
+            &deployment.application_deployment_id,
+            ApplicationLifecycleState::Failed,
+        )
+        .await?;
+        let failure = failed
+            .state
+            .as_ref()
+            .and_then(|state| state.failure.clone())
+            .ok_or_else(|| format!("failed deployment has no failure: {:?}", failed.state))?;
+        let expected = [
+            "Stage: application startup",
+            "Exit status: 3",
+            "Service: web",
+            "Output tail: crash fixture starting\nprotected-value",
+        ];
+        if failure.code != "StoppedDuringStartup" || failure.diagnostics != expected {
+            return Err(format!("unexpected crash failure: {failure:?}"));
+        }
+        // The exited container stays, so its logs remain readable.
+        resources.assert_group_units(&["web"])?;
+
+        ApplicationServiceContract::remove_application_deployment(
+            &service,
+            Request::new(RemoveApplicationDeploymentRequest {
+                application_deployment_id: deployment.application_deployment_id.clone(),
+            }),
+        )
+        .await
+        .map_err(|error| format!("remove crash fixture application: {error}"))?;
+        resources
+            .wait_for_no_docker_resources(&service, &deployment.application_deployment_id)
+            .await?;
+        Ok(())
+    }
+    .await;
+    let cleanup = resources.cleanup();
+    match (result, cleanup) {
+        (Ok(()), Ok(())) => {}
+        (Err(primary), Ok(())) => panic!("{primary}"),
+        (Ok(()), Err(cleanup)) => panic!("cleanup: {cleanup}"),
+        (Err(primary), Err(cleanup)) => panic!("{primary}; cleanup: {cleanup}"),
+    }
+}
+
+#[tokio::test]
+#[ignore = "hardware: just backend::test-docker"]
 async fn hw_docker_secret_parameter_reaches_only_the_container_and_site_yaml() {
     // Debug-level records reach the site's retained logs, which the sentinel search covers.
     dotcore::logging::initialize_with_default_filter(
@@ -1813,14 +1896,10 @@ async fn hw_docker_secret_parameter_reaches_only_the_container_and_site_yaml() {
                 environment.len()
             ));
         }
-        // The serving unit prints the username and the secret; deployment logs redact every
-        // launch value.
-        let serving_logs = read_logs_containing(
-            &mut applications,
-            &serving_id,
-            "login [REDACTED] [REDACTED]",
-        )
-        .await?;
+        // The serving unit prints the username and the secret; deployment logs redact only the
+        // secret.
+        let serving_logs =
+            read_logs_containing(&mut applications, &serving_id, "login admin [REDACTED]").await?;
         assert_no_sentinel("serving deployment logs", &serving_logs)?;
 
         // The failing unit prints the secret, then exits before it ever serves.
@@ -2242,6 +2321,44 @@ where
     })
     .await
     .map_err(|_| format!("timed out waiting for application stage {stage:?}"))?
+}
+
+async fn wait_for_application_lifecycle<C>(
+    service: &C,
+    deployment_id: &str,
+    lifecycle: ApplicationLifecycleState,
+) -> Result<ApplicationDeployment, String>
+where
+    C: ApplicationServiceContract,
+{
+    let deadline = Instant::now() + READY_TIMEOUT;
+    loop {
+        let deployment = ApplicationServiceContract::get_application_deployment(
+            service,
+            Request::new(GetApplicationDeploymentRequest {
+                application_deployment_id: deployment_id.to_owned(),
+            }),
+        )
+        .await
+        .map_err(|error| format!("read application deployment: {error}"))?
+        .into_inner()
+        .deployment
+        .ok_or_else(|| "Application read returned no deployment".to_owned())?;
+        if deployment
+            .state
+            .as_ref()
+            .is_some_and(|state| state.lifecycle_state == lifecycle as i32)
+        {
+            return Ok(deployment);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out waiting for application lifecycle {lifecycle:?}; last state {:?}",
+                deployment.state
+            ));
+        }
+        sleep(Duration::from_millis(250)).await;
+    }
 }
 
 async fn wait_for_endpoint<C>(
@@ -3443,6 +3560,8 @@ graph:
               projection: "APPLICATION_INFERENCE_ROUTE_PROJECTION_ROUTE_NAME"
       storageBindings:
         - bindingName: "data"
+          displayName: "Data"
+          description: "Synthetic lifecycle data."
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
@@ -3478,10 +3597,14 @@ graph:
           portNumber: 8080
       storageBindings:
         - bindingName: "data"
+          displayName: "Data"
+          description: "Synthetic deployment data."
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
         - bindingName: "models"
+          displayName: "Models"
+          description: "Synthetic model files."
           mountPath: "/data/models"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_APPLICATION", "STORAGE_PLACEMENT_DEPLOYMENT"]
@@ -3498,6 +3621,40 @@ graph:
         )
     }
 
+    fn write_crash_application(&self) -> Result<(), String> {
+        self.write_site_catalog_application(
+            "crash-fixture.yaml",
+            &format!(
+                r#"applicationId: "crash-fixture"
+displayName: "Crash fixture"
+version: "1.0.0"
+graph:
+  services:
+    - serviceName: "web"
+      artifact:
+{artifact}      command: ["sh", "-ec"]
+      arguments: ["printf 'crash fixture starting\\n'; printf '%s\\n' \"$PROTECTED_VALUE\"; exit 3"]
+      configurationBindings:
+        - bindingName: "protected"
+          environmentVariable: "PROTECTED_VALUE"
+          literalValue: "protected-value"
+      ports:
+        - portName: "http"
+          portNumber: 8080
+      readiness:
+        httpGet:
+          portName: "http"
+          path: "/"
+  primaryEndpoint:
+    serviceName: "web"
+    portName: "http"
+    protocol: "APPLICATION_ENDPOINT_PROTOCOL_HTTP"
+"#,
+                artifact = remote_image_artifact(),
+            ),
+        )
+    }
+
     fn write_log_application(&self) -> Result<(), String> {
         self.write_site_catalog_application(
             "log-fixture.yaml",
@@ -3506,15 +3663,23 @@ graph:
 displayName: "Log fixture"
 version: "1.0.0"
 graph:
+  parameters:
+    - parameterId: "protected"
+      displayName: "Protected"
+      visibility: "PARAMETER_VISIBILITY_BASIC"
+      secret:
+        generatedLength: 32
+        minimumLength: 12
   services:
     - serviceName: "alpha"
       artifact:
 {artifact}      command: ["sh", "-ec"]
       arguments: ["trap 'exit 0' TERM; printf 'alpha stdout\\n'; printf 'alpha stderr\\n' >&2; printf '%s\\n' \"$PROTECTED_VALUE\"; mkdir -p /www; printf 'ready\\n' > /www/index.html; httpd -f -p 8080 -h /www & wait $!"]
-      configurationBindings:
+      secretBindings:
         - bindingName: "protected"
           environmentVariable: "PROTECTED_VALUE"
-          literalValue: "protected-value"
+          parameterId: "protected"
+          form: "APPLICATION_SECRET_FORM_PLAIN"
       ports:
         - portName: "http"
           portNumber: 8080

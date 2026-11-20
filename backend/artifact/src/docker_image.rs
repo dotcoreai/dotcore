@@ -386,10 +386,16 @@ impl DockerImagePreparationError {
         )
     }
 
-    /// Returns the last lines the loader wrote to stderr, for failure diagnostics.
-    pub fn loader_stderr(&self) -> Option<&str> {
+    /// Returns the last output of a failed image build, for failure diagnostics: what the loader
+    /// wrote to stderr, or the error messages of a failed Nix build.
+    pub fn output_tail(&self) -> Option<&str> {
         match self {
-            Self::LoaderFailed { stderr, .. } if !stderr.is_empty() => Some(stderr),
+            Self::LoaderFailed { stderr: output, .. }
+            | Self::Nix(NixPreparationError::Build { detail: output, .. })
+                if !output.is_empty() =>
+            {
+                Some(output)
+            }
             _ => None,
         }
     }
@@ -916,7 +922,7 @@ mod tests {
             stderr.lines().last(),
             Some("docker-image-n8n: error: pull failed")
         );
-        assert_eq!(error.loader_stderr(), Some(stderr.as_str()));
+        assert_eq!(error.output_tail(), Some(stderr.as_str()));
         // The image is only checked before loading, never verified after a failed load.
         assert_eq!(
             fixture.images.inspected(),

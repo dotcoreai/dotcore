@@ -339,7 +339,7 @@ impl<C: DockerClient> DockerAdapter<C> {
                     }
                     continue;
                 }
-                if state != WorkloadUnitState::Stopped {
+                if !state.is_stopped() {
                     let source = runtime_error(
                         "Docker reversible group unit has an unsupported lifecycle state",
                     );

@@ -9,8 +9,8 @@ use std::{collections::BTreeMap, fs, path::PathBuf};
 
 use dotcore_domain::test_support::{canonical_temp_dir, unique_suffix};
 use dotcore_proto::dotcore::catalog::v1::{
-    Application, EngineRelease, HardwareClass, HardwareSupport, MemoryPool, Model,
-    ModelEngineConfiguration, ModelOptionParameterValue, ModelOptionValues, ModelProfile,
+    Application, EngineParameterSchema, EngineRelease, HardwareClass, HardwareSupport, MemoryPool,
+    Model, ModelEngineConfiguration, ModelOptionParameterValue, ModelOptionValues, ModelProfile,
     ParameterValue, Selector, UpstreamModelTemplate, UpstreamWireProtocol,
     model_option_parameter_definition, model_option_parameter_value, parameter_definition,
     parameter_value,
@@ -20,8 +20,8 @@ use crate::{
     ACCELERATOR_MEMORY_RESOURCE, Catalog, CatalogModelId, EngineDeclarationValidator,
     HOST_MEMORY_RESOURCE, options,
     shared_parameters::{
-        CONTEXT_PER_REQUEST_PARAMETER_ID, TOTAL_CONTEXT_PARAMETER_ID, filled_context_per_request,
-        maximum_context_tokens,
+        CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
+        TOTAL_CONTEXT_PARAMETER_ID, filled_context_per_request, maximum_context_tokens,
     },
     validation,
 };
@@ -51,11 +51,14 @@ impl EngineDeclarationValidator for AcceptEngineDeclarations {
 }
 
 /// Describes every sizing estimate and derived parameter of the catalog that isn't linear in the
-/// total context, the shape the compatibility read's largest fitting total context relies on.
-/// Each profile's defaults are evaluated at three totals, with the context per request filled as
-/// resolution fills it, so one depending on the context per request bends at the maximum context.
-/// Every combination of declared boolean and string-enum option values the profile accepts is
-/// evaluated too, since operators may choose any of them.
+/// total context for any values of the other parameters, the shape the largest fitting total
+/// context relies on. Each profile's defaults are evaluated at three totals, with the context per
+/// request filled as resolution fills it, so one depending on the context per request bends at the
+/// maximum context. Operators may change the other values, so the defaults are also evaluated with
+/// one value moved at a time: each memory parameter at its minimum and well above it, and the
+/// parallel requests at one and at a larger count. Every combination of declared boolean and
+/// string-enum option values the profile accepts is evaluated too, and each reports its first
+/// bending variant only.
 pub fn sizing_not_linear_in_total_context(catalog: &Catalog) -> Vec<String> {
     let mut problems = Vec::new();
     for (key, sizing) in &catalog.sizing {
@@ -80,82 +83,131 @@ pub fn sizing_not_linear_in_total_context(catalog: &Catalog) -> Vec<String> {
         let maximum = maximum_context_tokens(model, configuration);
         let middle = u64::from(maximum).max(2048);
         let totals = [1024, middle, 2 * middle];
+        let moved_values = moved_values(schema);
         for profile in model
             .profiles
             .iter()
             .filter(|profile| profile.configuration_id == key.configuration_id)
         {
             for (choice, options) in option_variants(model, configuration, profile) {
-                let label = format!(
-                    "model {:?} profile {:?}{choice} hardware class {:?} binding {:?}",
-                    key.model_id, profile.profile_id, key.hardware_class_id, key.binding_id
-                );
                 let options = match options {
                     Ok(options) => options,
                     Err(error) => {
-                        problems.push(format!("{label} options don't resolve: {error:#}"));
+                        problems.push(format!(
+                            "model {:?} profile {:?}{choice} hardware class {:?} binding {:?} options don't resolve: {error:#}",
+                            key.model_id, profile.profile_id, key.hardware_class_id, key.binding_id
+                        ));
                         continue;
                     }
                 };
-                let evaluated = totals.map(|total| {
-                    let (_, defaults) = catalog
-                        .local_defaults_for(
-                            &CatalogModelId(key.model_id.clone()),
-                            &profile.profile_id,
-                        )
-                        .ok_or_else(|| anyhow::anyhow!("profile defaults don't resolve"))?;
-                    let mut values = defaults;
-                    values.values.retain(|value| {
-                        value.parameter_id != TOTAL_CONTEXT_PARAMETER_ID
-                            && value.parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID
+                // Each choice reports its first bending variant only, the defaults before any moved value.
+                let reported = problems.len();
+                for moved in std::iter::once(None).chain(moved_values.iter().copied().map(Some)) {
+                    if problems.len() > reported {
+                        break;
+                    }
+                    let moved_label = moved.map_or_else(String::new, |(parameter_id, value)| {
+                        format!(" with {parameter_id:?} at {value}")
                     });
-                    values
-                        .values
-                        .push(unsigned_value(TOTAL_CONTEXT_PARAMETER_ID, total));
-                    let filled = filled_context_per_request(schema, &values, maximum);
-                    values.values.extend(filled);
-                    let derived = sizing.derive(&values, &options)?;
-                    values.values.extend(
-                        derived
-                            .iter()
-                            .map(|(parameter_id, value)| unsigned_value(parameter_id, *value)),
+                    let label = format!(
+                        "model {:?} profile {:?}{choice}{moved_label} hardware class {:?} binding {:?}",
+                        key.model_id, profile.profile_id, key.hardware_class_id, key.binding_id
                     );
-                    let results = derived
-                        .into_iter()
-                        .chain(
-                            sizing
-                                .evaluate(&values, &options)?
-                                .into_iter()
-                                .map(|estimate| (estimate.resource, estimate.value)),
-                        )
-                        .collect::<BTreeMap<_, _>>();
-                    anyhow::Ok(results)
-                });
-                let [Ok(first), Ok(second), Ok(third)] = evaluated else {
-                    problems.push(format!("{label} doesn't evaluate at every total context"));
-                    continue;
-                };
-                for (name, first_value) in &first {
-                    let (Some(second_value), Some(third_value)) =
-                        (second.get(name), third.get(name))
-                    else {
-                        problems.push(format!(
-                            "{label} {name:?} isn't evaluated at every total context"
-                        ));
+                    let evaluated = totals.map(|total| {
+                        let (_, defaults) = catalog
+                            .local_defaults_for(
+                                &CatalogModelId(key.model_id.clone()),
+                                &profile.profile_id,
+                            )
+                            .ok_or_else(|| anyhow::anyhow!("profile defaults don't resolve"))?;
+                        let mut values = defaults;
+                        values.values.retain(|value| {
+                            value.parameter_id != TOTAL_CONTEXT_PARAMETER_ID
+                                && value.parameter_id != CONTEXT_PER_REQUEST_PARAMETER_ID
+                                && moved.is_none_or(|(parameter_id, _)| {
+                                    value.parameter_id != parameter_id
+                                })
+                        });
+                        values.values.extend(
+                            moved.map(|(parameter_id, value)| unsigned_value(parameter_id, value)),
+                        );
+                        values
+                            .values
+                            .push(unsigned_value(TOTAL_CONTEXT_PARAMETER_ID, total));
+                        let filled = filled_context_per_request(schema, &values, maximum);
+                        values.values.extend(filled);
+                        let derived = sizing.derive(&values, &options)?;
+                        values.values.extend(
+                            derived
+                                .iter()
+                                .map(|(parameter_id, value)| unsigned_value(parameter_id, *value)),
+                        );
+                        let results = derived
+                            .into_iter()
+                            .chain(
+                                sizing
+                                    .evaluate(&values, &options)?
+                                    .into_iter()
+                                    .map(|estimate| (estimate.resource, estimate.value)),
+                            )
+                            .collect::<BTreeMap<_, _>>();
+                        anyhow::Ok(results)
+                    });
+                    let [Ok(first), Ok(second), Ok(third)] = evaluated else {
+                        problems.push(format!("{label} doesn't evaluate at every total context"));
                         continue;
                     };
-                    let [t1, t2, t3] = totals.map(i128::from);
-                    let [v1, v2, v3] = [*first_value, *second_value, *third_value].map(i128::from);
-                    if (v2 - v1) * (t3 - t2) != (v3 - v2) * (t2 - t1) {
-                        problems.push(format!(
+                    for (name, first_value) in &first {
+                        let (Some(second_value), Some(third_value)) =
+                            (second.get(name), third.get(name))
+                        else {
+                            problems.push(format!(
+                                "{label} {name:?} isn't evaluated at every total context"
+                            ));
+                            continue;
+                        };
+                        let [t1, t2, t3] = totals.map(i128::from);
+                        let [v1, v2, v3] =
+                            [*first_value, *second_value, *third_value].map(i128::from);
+                        if (v2 - v1) * (t3 - t2) != (v3 - v2) * (t2 - t1) {
+                            problems.push(format!(
                             "{label} {name:?} isn't linear in the total context: {v1}, {v2} and {v3} at {t1}, {t2} and {t3} tokens"
                         ));
+                        }
                     }
                 }
             }
         }
     }
     problems
+}
+
+/// The values the linearity check moves one at a time: each memory parameter at its minimum and
+/// 65536 units above it, and the parallel requests at one and at eight, each kept within the
+/// parameter's declared maximum.
+fn moved_values(schema: &EngineParameterSchema) -> Vec<(&str, u64)> {
+    schema
+        .parameters
+        .iter()
+        .filter_map(|parameter| {
+            let Some(parameter_definition::ParameterType::UnsignedInteger(range)) =
+                &parameter.parameter_type
+            else {
+                return None;
+            };
+            let parameter_id = parameter.parameter_id.as_str();
+            let samples = if parameter_id == PARALLEL_REQUESTS_PARAMETER_ID {
+                [1, 8]
+            } else if range.memory_pool.is_some() {
+                [range.minimum, range.minimum.saturating_add(1 << 16)]
+            } else {
+                return None;
+            };
+            let maximum = range.maximum.unwrap_or(u64::MAX);
+            Some(samples.map(move |value| (parameter_id, value.clamp(range.minimum, maximum))))
+        })
+        .flatten()
+        .collect()
 }
 
 /// Describes every memory parameter of the catalog whose declared estimate shrinks as its value

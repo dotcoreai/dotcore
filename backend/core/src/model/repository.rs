@@ -146,6 +146,7 @@ impl ModelDeclarationRepository {
                     .collect(),
                 placement_preview: None,
                 memory_parameter_fits: Vec::new(),
+                largest_total_context_tokens: None,
             });
         };
 
@@ -177,22 +178,37 @@ impl ModelDeclarationRepository {
             estimates_apply,
             observed_at,
         );
-        let memory_parameter_fits = if estimates_apply {
-            crate::model::memory_parameter_fit::memory_parameter_fits(
+        let (memory_parameter_fits, largest_total_context_tokens) = if estimates_apply {
+            let fits = crate::model::memory_parameter_fit::memory_parameter_fits(
                 &self.catalog,
                 profile_id,
                 supplied,
                 &completed,
                 &resolved,
                 &selected,
-            )
+            );
+            let largest_total_context =
+                crate::model::sizing_scenario::configuration_largest_total_context(
+                    &self.catalog,
+                    &catalog_model_id,
+                    profile_id,
+                    &completed,
+                    &selected,
+                    resolved
+                        .selection
+                        .hardware_support
+                        .hardware_requirements
+                        .as_ref(),
+                );
+            (fits, largest_total_context)
         } else {
-            Vec::new()
+            (Vec::new(), None)
         };
         Ok(EstimateLocalModelResourcesResponse {
             hardware_class_estimates: vec![resolved.into_hardware_class_estimate(estimates_apply)],
             placement_preview: Some(placement_preview),
             memory_parameter_fits,
+            largest_total_context_tokens,
         })
     }
 
@@ -1287,6 +1303,61 @@ mod tests {
             finalized_bytes
         );
         assert!(!site.is_dirty());
+    }
+
+    #[test]
+    fn creation_never_generates_a_secret_of_a_parameter_the_configuration_excludes() {
+        use crate::test_support::strata::{
+            API_KEY_GENERATED_LENGTH, API_KEY_PARAMETER_ID, CATALOG_MODEL,
+        };
+
+        let excluding_model = CATALOG_MODEL.replace(
+            r#"excludedEngineParameterIds: ["expert-host-memory-mib"]"#,
+            r#"excludedEngineParameterIds: ["expert-host-memory-mib", "api-key"]"#,
+        );
+        assert_ne!(
+            excluding_model, CATALOG_MODEL,
+            "the fixture excludes api-key"
+        );
+        let created = |model: &str| {
+            let directory = test_directory();
+            let site_path = strata_site(directory.path());
+            let generator = Arc::new(CountingSecretGenerator::default());
+            let repository = strata_repository_with(&site_path, model, generator.clone());
+            let deployment = repository
+                .load_model(
+                    "fixture-strata-model",
+                    "strata-q4",
+                    &fixture_placement(),
+                    &LocalModelDeploymentConfiguration::default(),
+                    &ModelDeploymentExposureIntent::Hidden,
+                    None,
+                )
+                .expect("deployment");
+            (generator.calls(), local_snapshot(&deployment))
+        };
+
+        // The same fixture without the exclusion generates the key, so the exclusion is what
+        // keeps it out below.
+        let (calls, included) = created(CATALOG_MODEL);
+        assert_eq!(calls, 1);
+        assert_eq!(
+            secret_of(&included, API_KEY_PARAMETER_ID),
+            Some(crate::test_support::sequential_secret(
+                1,
+                API_KEY_GENERATED_LENGTH as usize
+            ))
+        );
+
+        let (calls, excluded) = created(&excluding_model);
+        assert_eq!(calls, 0);
+        let stored = excluded
+            .engine_parameter_values
+            .iter()
+            .flat_map(|values| &values.values)
+            .map(|value| value.parameter_id.as_str())
+            .collect::<Vec<_>>();
+        assert!(!stored.contains(&API_KEY_PARAMETER_ID), "{stored:?}");
     }
 
     #[test]
@@ -3143,6 +3214,66 @@ mod tests {
     }
 
     #[test]
+    fn resource_estimation_on_a_target_reports_the_total_contexts_largest_fit_from_its_values() {
+        use dotcore_domain::MemoryArchitecture::Dedicated;
+
+        const MIB: u64 = 1024 * 1024;
+        // 4 KiB per token: the GPU's room ends well below the engine's maximum total context, and
+        // 1 GiB of prompt cache is a whole number of tokens.
+        let sizing = r#"      parameters: { base: 100, rate: 4096, host: 50 }
+      estimates:
+        acceleratorMemory:
+          unit: "bytes"
+          equation: "${base} + ${rate} * ${total-context} + ${prompt-cache-memory-mib} * MiB"
+        hostMemory: { unit: "bytes", equation: "${host}" }
+"#;
+        let target = sized_fixture_target(Dedicated, sizing);
+        let with_cache = |prompt_cache_mib| {
+            let mut configuration = crate::test_support::local_model_configuration();
+            configuration.engine_parameter_values = Some(unsigned_values(&[
+                ("total-context", 8192),
+                ("prompt-cache-memory-mib", prompt_cache_mib),
+                ("parallel-requests", 4),
+            ]));
+            configuration
+        };
+
+        // At the profile's values, the estimate's fit is the compatibility read's starting total.
+        let at_defaults = target
+            .estimate(&with_cache(0))
+            .largest_total_context_tokens
+            .expect("a fit at the profile's values");
+        assert_eq!(target.starting_total_context(), Some(at_defaults));
+
+        // A larger prompt cache takes its bytes from the context: 1 GiB is 262144 tokens.
+        assert_eq!(
+            target
+                .estimate(&with_cache(1024))
+                .largest_total_context_tokens,
+            Some(at_defaults - 1024 * MIB / 4096)
+        );
+
+        // No fit when custom arguments replace the launch, or a context per request leaves no
+        // total that fits.
+        let mut custom = with_cache(0);
+        custom.custom_argument_tokens = vec!["--override".to_owned()];
+        assert_eq!(target.estimate(&custom).largest_total_context_tokens, None);
+        let mut too_long = with_cache(0);
+        too_long
+            .engine_parameter_values
+            .get_or_insert_default()
+            .values
+            .push(ParameterValue {
+                parameter_id: "context-per-request".to_owned(),
+                value: Some(EngineParameterValueKind::UnsignedInteger(16_777_216)),
+            });
+        assert_eq!(
+            target.estimate(&too_long).largest_total_context_tokens,
+            None
+        );
+    }
+
+    #[test]
     fn profile_sizing_without_a_scenario_matches_the_profile_default_estimate() {
         let directory = test_directory();
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/simulated-site");
@@ -3619,15 +3750,73 @@ mod tests {
         catalog_root
     }
 
-    /// The memory parameter fits an estimate of `configuration` reports on an idle target: a
-    /// 32 GiB GPU beside 16 GiB of host memory, or 8 GiB of unified memory. The fixture model is
-    /// sized by `sizing`, the body of its sizing block, and its profile sets a prompt cache of 0
-    /// unless sizing derives it.
+    /// The memory parameter fits an estimate of `configuration` reports on the idle target of
+    /// `sized_fixture_target`.
     fn memory_parameter_fits(
         memory_architecture: dotcore_domain::MemoryArchitecture,
         sizing: &str,
         configuration: &LocalModelDeploymentConfiguration,
     ) -> Vec<MemoryParameterFit> {
+        sized_fixture_target(memory_architecture, sizing)
+            .estimate(configuration)
+            .memory_parameter_fits
+    }
+
+    /// An idle target running the fixture model, and the repository that reads it.
+    struct SizedFixtureTarget {
+        _directory: tempfile::TempDir,
+        repository: ModelDeclarationRepository,
+        inventory: TargetCapabilityInventory,
+        placement: ExactPlacement,
+    }
+
+    impl SizedFixtureTarget {
+        /// The resource estimate of `configuration` on the target.
+        fn estimate(
+            &self,
+            configuration: &LocalModelDeploymentConfiguration,
+        ) -> EstimateLocalModelResourcesResponse {
+            self.repository
+                .estimate_local_model_resources(
+                    "fixture-model",
+                    "fixture-profile",
+                    configuration,
+                    Some(super::EstimateTarget {
+                        placement: &self.placement,
+                        inventory: &self.inventory,
+                        workloads: &Default::default(),
+                    }),
+                )
+                .expect("estimate on the target")
+        }
+
+        /// The fixture profile's starting total context on the target, from the compatibility
+        /// read of its defaults.
+        fn starting_total_context(&self) -> Option<u64> {
+            self.repository
+                .profile_compatibility(
+                    Some("fixture-model"),
+                    Some(&self.placement),
+                    None,
+                    Some(&self.inventory),
+                    &Default::default(),
+                )
+                .expect("compatibility on the target")
+                .entries
+                .into_iter()
+                .find(|entry| entry.profile_id == "fixture-profile")
+                .expect("fixture profile entry")
+                .starting_total_context_tokens
+        }
+    }
+
+    /// An idle target running the fixture model: a 32 GiB GPU beside 16 GiB of host memory, or
+    /// 8 GiB of unified memory. The model is sized by `sizing`, the body of its sizing block, and
+    /// its profile sets a prompt cache of 0 unless sizing derives it.
+    fn sized_fixture_target(
+        memory_architecture: dotcore_domain::MemoryArchitecture,
+        sizing: &str,
+    ) -> SizedFixtureTarget {
         const GIB: u64 = 1024 * 1024 * 1024;
         let directory = test_directory();
         let fixture_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fixtures/simulated-site");
@@ -3704,24 +3893,18 @@ mod tests {
             site_node_id: "fixture-node".to_owned(),
             execution_target_id: "fixture-target".to_owned(),
         };
-        ModelDeclarationRepository::new(
+        let repository = ModelDeclarationRepository::new(
             site,
             Arc::new(catalog),
             inventory.clone(),
             crate::test_support::test_secret_generator(),
-        )
-        .estimate_local_model_resources(
-            "fixture-model",
-            "fixture-profile",
-            configuration,
-            Some(super::EstimateTarget {
-                placement: &placement,
-                inventory: &inventory,
-                workloads: &Default::default(),
-            }),
-        )
-        .expect("estimate on the target")
-        .memory_parameter_fits
+        );
+        SizedFixtureTarget {
+            _directory: directory,
+            repository,
+            inventory,
+            placement,
+        }
     }
 
     /// Copies the simulated-site fixture, whose NVIDIA target runs Strata, into `directory`.
@@ -3738,6 +3921,19 @@ mod tests {
     /// A repository over the site at `site_path` and the Strata engine with an API key secret
     /// beside `model`, generating predictable secrets.
     fn strata_repository(site_path: &Path, model: &str) -> ModelDeclarationRepository {
+        strata_repository_with(
+            site_path,
+            model,
+            crate::test_support::test_secret_generator(),
+        )
+    }
+
+    /// Like [`strata_repository`], generating secrets with `generator`.
+    fn strata_repository_with(
+        site_path: &Path,
+        model: &str,
+        generator: Arc<dyn crate::SecretGenerator>,
+    ) -> ModelDeclarationRepository {
         let catalog = crate::test_support::strata::load_catalog(
             &crate::test_support::strata::catalog_engine_with_api_key(),
             model,
@@ -3748,8 +3944,27 @@ mod tests {
                 .expect("validated simulated site"),
             Arc::new(catalog),
             fixture_target_capabilities(),
-            crate::test_support::test_secret_generator(),
+            generator,
         )
+    }
+
+    /// Counts the secrets requested and returns predictable values.
+    #[derive(Default)]
+    struct CountingSecretGenerator {
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl CountingSecretGenerator {
+        fn calls(&self) -> usize {
+            self.calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl crate::SecretGenerator for CountingSecretGenerator {
+        fn generate(&self, length: usize) -> anyhow::Result<String> {
+            let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            Ok(crate::test_support::sequential_secret(n, length))
+        }
     }
 
     fn fixture_placement() -> ExactPlacement {

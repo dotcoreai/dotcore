@@ -7,6 +7,13 @@ message StorageBinding {
   // Stable name of this binding within its owner.
   string binding_name = 1;
 
+  // Name the console shows for this storage. Required on an app binding, empty on an engine binding.
+  string display_name = 6;
+
+  // What the storage holds, in a sentence or two. Required on an app binding, empty on an engine
+  // binding.
+  string description = 7;
+
   // Absolute container path the storage is mounted at.
   string mount_path = 2;
 

@@ -98,8 +98,8 @@ option effects itself.
 - A configuration whose engine requires sizing is rejected when a binding lacks a footprint
   estimate for a supported hardware class, or a derivation for one of the configuration's engine
   parameters that a profile omits and the engine release doesn't default.
-- Sizing equations must be linear in the total context, so the largest fitting total context follows
-  from the estimates.
+- Sizing equations must be linear in the total context for any values of the other parameters, so
+  the largest fitting total context follows from the estimates.
 - Repository checks reject a non-empty literal bound to a credential-like variable name in the
   master catalog; such values come from secret parameters.
 - Repository checks keep the master catalog pointing only at Dotcore's own repository. The backend
@@ -203,6 +203,7 @@ The artifact manager also owns artifact bytes ([storage](storage.md)).
 - Own the typed parameter definition that engine releases and apps share: its basic, advanced or
   hidden visibility and its types (boolean, integer, text, string enum and secret). Apps use any
   type. Engines use boolean, integer and secret. An integer has a minimum and an optional maximum.
+  A text parameter may declare a format, such as an email address, that its values must have.
 - Own the parameter groups of that definition, which present related parameters together. Apps and
   engines declare groups. Only apps declare conditions: a parameter enabled by a boolean parameter
   or by its group's switch.

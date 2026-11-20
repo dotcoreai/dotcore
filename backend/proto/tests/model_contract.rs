@@ -530,6 +530,7 @@ fn generated_bindings_preserve_minimal_generic_resource_estimates() {
             parameter_id: "kv-offloading-size-gib".to_owned(),
             largest_fit: 48,
         }],
+        largest_total_context_tokens: Some(131_072),
     };
     assert_eq!(
         EstimateLocalModelResourcesResponse::decode(response.encode_to_vec().as_slice())
@@ -1333,6 +1334,7 @@ fn model_descriptors_define_typed_configuration_and_resolved_plan_contracts() {
                 3,
                 ".dotcore.model.v1.MemoryParameterFit"
             ),
+            ("largest_total_context_tokens", 4, "TYPE_UINT64"),
         ]
     );
     assert_eq!(

@@ -18,7 +18,7 @@ use dotcore_proto::{
             },
             v1::{
                 ApplicationDeploymentDeclaration, ApplicationDeploymentDesiredState,
-                ApplicationReadinessState,
+                ApplicationDeploymentFailure, ApplicationReadinessState,
             },
         },
         deployment::v1::{ExactPlacement, NodeResolvedLaunchIdentity},
@@ -191,7 +191,7 @@ fn private_wire_round_trip_keeps_manifest_independent_and_cleanup_receipt_exact(
 }
 
 #[test]
-fn application_owner_extends_the_generic_envelope_without_free_text_or_reservations() {
+fn application_owner_extends_the_generic_envelope_with_bounded_failure_text_and_no_reservations() {
     let descriptors =
         FileDescriptorSet::decode(FILE_DESCRIPTOR_SET).expect("generated descriptor set");
     let site = descriptor_file(&descriptors, "dotcore/site/private/v1/desired_view.proto");
@@ -253,6 +253,7 @@ fn application_owner_extends_the_generic_envelope_without_free_text_or_reservati
             "stage",
             "readiness",
             "failure_code",
+            "failure",
             "services",
             "endpoint",
             "service_accelerator_memory",
@@ -269,7 +270,16 @@ fn application_owner_extends_the_generic_envelope_without_free_text_or_reservati
     assert_eq!(
         string_fields,
         ["application_deployment_id"],
-        "status carries typed stage and failure, never free text"
+        "status carries a typed stage and failure code, and free text only in its failure summary"
+    );
+    let failure = message(application, "ApplicationDeploymentStatus")
+        .field
+        .iter()
+        .find(|field| field.name.as_deref() == Some("failure"))
+        .expect("failure summary field");
+    assert_eq!(
+        failure.type_name.as_deref(),
+        Some(".dotcore.application.v1.ApplicationDeploymentFailure")
     );
     assert_eq!(
         field_names(message(application, "ApplicationCleanupEvidence")),
@@ -381,26 +391,43 @@ fn application_wire_round_trip_keeps_route_projection_pins_and_cleanup_receipt_e
         sections: vec![ControllerStatusSection {
             payload: Some(controller_status_section::Payload::Application(
                 ApplicationControllerStatusSection {
-                    deployments: vec![ApplicationDeploymentStatus {
-                        application_deployment_id: "app-one".to_owned(),
-                        lifecycle_generation: 5,
-                        placement: Some(placement),
-                        realization_generation: Some(77),
-                        accepted_view_revision: 13,
-                        state_revision: 2,
-                        lifecycle: ApplicationLifecycleObservation::Unavailable as i32,
-                        stage: ApplicationStatusStage::EndpointNotReady as i32,
-                        readiness: ApplicationReadinessState::NotReady as i32,
-                        failure_code: ApplicationStatusFailureCode::Unspecified as i32,
-                        services: Vec::new(),
-                        endpoint: Some(ApplicationPublishedEndpoint {
-                            host: "192.0.2.20".to_owned(),
-                            port: 32768,
-                        }),
-                        service_accelerator_memory: Vec::new(),
-                        steps: None,
-                        resolved_launch_identities: vec![pin],
-                    }],
+                    deployments: vec![
+                        ApplicationDeploymentStatus {
+                            application_deployment_id: "app-one".to_owned(),
+                            lifecycle_generation: 5,
+                            placement: Some(placement),
+                            realization_generation: Some(77),
+                            accepted_view_revision: 13,
+                            state_revision: 2,
+                            lifecycle: ApplicationLifecycleObservation::Unavailable as i32,
+                            stage: ApplicationStatusStage::EndpointNotReady as i32,
+                            readiness: ApplicationReadinessState::NotReady as i32,
+                            failure_code: ApplicationStatusFailureCode::Unspecified as i32,
+                            failure: None,
+                            services: Vec::new(),
+                            endpoint: Some(ApplicationPublishedEndpoint {
+                                host: "192.0.2.20".to_owned(),
+                                port: 32768,
+                            }),
+                            service_accelerator_memory: Vec::new(),
+                            steps: None,
+                            resolved_launch_identities: vec![pin],
+                        },
+                        ApplicationDeploymentStatus {
+                            application_deployment_id: "app-crashed".to_owned(),
+                            lifecycle_generation: 2,
+                            lifecycle: ApplicationLifecycleObservation::Failed as i32,
+                            failure: Some(ApplicationDeploymentFailure {
+                                code: "application_crashed".to_owned(),
+                                message: "Application stopped during startup".to_owned(),
+                                diagnostics: vec![
+                                    "Stage: application startup".to_owned(),
+                                    "Exit status: 137".to_owned(),
+                                ],
+                            }),
+                            ..Default::default()
+                        },
+                    ],
                     cleanup_evidence: vec![ApplicationCleanupEvidence {
                         application_deployment_id: "app-gone".to_owned(),
                         lifecycle_generation: 9,

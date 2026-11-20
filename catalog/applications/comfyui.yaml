@@ -49,6 +49,8 @@ graph:
         # ComfyUI's base directory: custom nodes, inputs, generated images, and user state live
         # below it, on storage that belongs to the deployment.
         - bindingName: "data"
+          displayName: "Base directory"
+          description: "Custom nodes, inputs, generated images and user state."
           mountPath: "/data"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
@@ -56,6 +58,8 @@ graph:
         # ComfyUI deployment on the node shares this storage and it outlives each deployment; the
         # operator may keep it with the deployment instead.
         - bindingName: "models"
+          displayName: "Models"
+          description: "Downloaded model files."
           mountPath: "/data/models"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_APPLICATION", "STORAGE_PLACEMENT_DEPLOYMENT"]

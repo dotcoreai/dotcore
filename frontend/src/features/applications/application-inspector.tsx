@@ -68,7 +68,7 @@ import { formatGpuDevices } from "./application-gpu-devices";
 import { applicationInspectorPanelId } from "./application-inspector-panel";
 import { applicationParameterFields, retainedParameterValues } from "./application-parameters";
 import {
-  storageBindingLabel,
+  attachedStorageBinding,
   storagePlacementLabel,
   teardownConsequence,
 } from "./application-storage";
@@ -134,7 +134,7 @@ export function DeploymentApplicationInspector({
   const cancelRemovalRef = useRef<HTMLButtonElement>(null);
   const removeButtonRef = useRef<HTMLElement>(null);
   const lifecycleState = applicationDeploymentLifecycleState(deployment);
-  const application = deployment.snapshot;
+  const snapshot = deployment.snapshot;
   const endpointUrl = applicationDeploymentEndpoint(deployment);
   const failure = deployment.state?.failure;
   const canPause = isPausableApplication(deployment);
@@ -182,7 +182,7 @@ export function DeploymentApplicationInspector({
   // The deployment's per-unit accelerator memory from its service observations; units the
   // projection does not cover render nothing.
   const acceleratorMemory = applicationAcceleratorMemory(deployment);
-  const parameterFields = applicationParameterFields(deployment.snapshot?.graph?.parameters);
+  const parameterFields = applicationParameterFields(snapshot?.graph?.parameters);
   const retainedParameters = parameterFields.map((field) => field.view);
 
   useEffect(() => {
@@ -304,10 +304,10 @@ export function DeploymentApplicationInspector({
                     )
                   }
                 />
-                {deployment.snapshot ? (
+                {snapshot ? (
                   <Detail
                     label="GPU devices"
-                    value={formatGpuDevices(deployment.snapshot.acceleratorDeviceIds)}
+                    value={formatGpuDevices(snapshot.acceleratorDeviceIds)}
                   />
                 ) : null}
                 {deployment.selectedInferenceRoute ? (
@@ -322,7 +322,7 @@ export function DeploymentApplicationInspector({
                       </PanelMention>
                     }
                   />
-                ) : application && inferenceRouteBindings(application).length ? (
+                ) : snapshot && inferenceRouteBindings(snapshot).length ? (
                   <Detail label="Inference route" value="Not linked" />
                 ) : null}
               </DetailList>
@@ -337,12 +337,12 @@ export function DeploymentApplicationInspector({
                 <DetailList>
                   <ParametersDetails
                     parameters={retainedParameters}
-                    values={retainedParameterValues(deployment.snapshot)}
+                    values={retainedParameterValues(snapshot)}
                   />
                   {deployment.storageAttachments.map((attachment) => (
                     <Detail
                       key={`${attachment.serviceName}/${attachment.bindingName}`}
-                      label={storageBindingLabel(attachment.bindingName)}
+                      label={attachedStorageBinding(snapshot?.graph, attachment)?.displayName ?? ""}
                       value={storagePlacementLabel(attachment.placement)}
                     />
                   ))}
@@ -384,24 +384,24 @@ export function DeploymentApplicationInspector({
                 </DetailList>
               </section>
             ) : null}
-            {application ? (
+            {snapshot ? (
               <section aria-labelledby="application-snapshot-heading">
                 <InspectorSectionHeader
                   headingId="application-snapshot-heading"
-                  meta={formatCount(application.graph?.services.length ?? 0, "service")}
+                  meta={formatCount(snapshot.graph?.services.length ?? 0, "service")}
                   title="Application"
                 />
                 <DetailList>
                   <Detail
                     label="Application"
                     value={
-                      <PanelMention colorKey={application.applicationId} href={applicationHref}>
-                        {application.displayName}
+                      <PanelMention colorKey={snapshot.applicationId} href={applicationHref}>
+                        {snapshot.displayName}
                       </PanelMention>
                     }
                   />
-                  <Detail label="Application ID" value={application.applicationId} />
-                  <Detail label="Version" value={application.version} />
+                  <Detail label="Application ID" value={snapshot.applicationId} />
+                  <Detail label="Version" value={snapshot.version} />
                 </DetailList>
               </section>
             ) : null}
@@ -433,11 +433,11 @@ export function DeploymentApplicationInspector({
                 <Detail label="Endpoint" value={endpointUrl || "Not assigned"} />
               </DetailList>
             </section>
-            {application?.notes ? (
+            {snapshot?.notes ? (
               <section aria-labelledby="application-notes-heading">
                 <InspectorSectionHeader headingId="application-notes-heading" title="Notes" />
                 <p className="mt-2 whitespace-pre-wrap text-[12.5px] text-muted-foreground [overflow-wrap:anywhere]">
-                  {application.notes}
+                  {snapshot.notes}
                 </p>
               </section>
             ) : null}
@@ -517,8 +517,8 @@ export function DeploymentApplicationInspector({
               <DialogDescription id="remove-deployment-description">
                 Teardown deployment <ResourceMarker colorKey={deployment.applicationDeploymentId} />
                 {deployment.applicationDeploymentName || deployment.applicationDeploymentId}?{" "}
-                {teardownConsequence(deployment.storageAttachments)} The deployment remains visible
-                as Tearing down until cleanup completes.
+                {teardownConsequence(snapshot?.graph, deployment.storageAttachments)} The deployment
+                remains visible as Tearing down until cleanup completes.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>

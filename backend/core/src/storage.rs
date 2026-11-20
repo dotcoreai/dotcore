@@ -306,6 +306,8 @@ mod tests {
     fn binding(placement: StoragePlacement) -> StorageBinding {
         StorageBinding {
             binding_name: "engine-cache".to_owned(),
+            display_name: String::new(),
+            description: String::new(),
             mount_path: "/var/cache/engine".to_owned(),
             kind: StorageKind::Cache as i32,
             placements: vec![placement as i32],

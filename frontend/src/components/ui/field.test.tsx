@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Field } from "@/components/ui/field";
@@ -106,6 +106,19 @@ describe("Field", () => {
     await user.tab();
     expect(screen.getByRole("textbox", { name: "Parallel requests" })).toHaveFocus();
     await waitFor(() => expect(helpPopover()).toBeNull());
+  });
+
+  it("closes the help on the Tab keydown, before focus moves", async () => {
+    const user = setupUser();
+    render(<ParallelRequestsField />);
+
+    await user.tab();
+    expect(await screen.findByRole("dialog", { name: "About Parallel requests" })).toBeVisible();
+
+    // A popup still open when focus moves strands focus; the real race needs a browser.
+    fireEvent.keyDown(helpButton(), { key: "Tab" });
+    expect(helpPopover()).toBeNull();
+    expect(helpButton()).toHaveFocus();
   });
 
   it("opens the help on click and closes it on Escape", async () => {

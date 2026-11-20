@@ -48,7 +48,7 @@ import { readFieldHelpFacts } from "@/test/field-help";
 import { setupUser } from "@/test/user";
 
 import { ModelDeployDialog } from "./model-deploy-dialog";
-import { sharedContextEstimate } from "./resource-estimate-test-support";
+import { compatibilityFitEstimates, sharedContextEstimate } from "./resource-estimate-test-support";
 import { type ResourceEstimateLoader } from "./use-resource-estimate";
 
 const modelId = runtimeSchemaModel.modelId;
@@ -987,6 +987,72 @@ describe("ModelDeployDialog shared context", () => {
     ]);
   });
 
+  it("offers the estimate's largest fit for the dialog's values, keeping the total", async () => {
+    const user = setupUser();
+    // The backend's fit grows once fewer parallel requests leave more memory to the context.
+    const estimateFit = sharedContextEstimate(runtimeSchemaModel);
+    const onEstimate = vi.fn<ResourceEstimateLoader>(async (values) => {
+      const parallel = values.configuration.engineParameterValues.values.find(
+        (value) => value.parameterId === "parallel-requests",
+      )?.value.value;
+      return {
+        ...(await estimateFit(values)),
+        largestTotalContext: parallel === 1n ? 1_048_576 : 910_336,
+      };
+    });
+    renderDialog({
+      initialProfileId: "q4-xl",
+      listProfileCompatibility: scenarioLoader({}, [
+        targetCompatibility(poolPlacement, {
+          "q4-xl": { startingTotalContextTokens: 910336 },
+        }),
+      ]),
+      onEstimate,
+    });
+
+    await screen.findByRole("button", { name: "Runs on filter: this site" });
+    await user.click(screen.getByRole("checkbox", { name: "Advanced" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(largestFitChip("889k")).toBeVisible());
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    const parallel = screen.getByRole("textbox", { name: "Parallel requests" });
+    await user.clear(parallel);
+    await user.type(parallel, "1");
+    await user.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k");
+    await waitFor(() => expect(largestFitChip("1M")).toBeVisible());
+    expect(await readFieldHelpFacts("Total context")).toContain(
+      "Up to 1M on node / NVIDIA GeForce RTX 5090",
+    );
+  });
+
+  it("offers no largest fit once the estimate on the target has none", async () => {
+    const user = setupUser();
+    const onEstimate = vi.fn(sharedContextEstimate(runtimeSchemaModel));
+    renderDialog({
+      initialProfileId: "q4-xl",
+      listProfileCompatibility: scenarioLoader({}, [
+        targetCompatibility(poolPlacement, {
+          "q4-xl": { startingTotalContextTokens: 910336 },
+        }),
+      ]),
+      onEstimate,
+    });
+
+    await screen.findByRole("button", { name: "Runs on filter: this site" });
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(onEstimate).toHaveBeenCalled());
+    // The total still starts from the compatibility read's fit.
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("889k"),
+    );
+    expect(screen.queryByRole("button", { name: /, largest fit$/ })).not.toBeInTheDocument();
+    expect((await readFieldHelpFacts("Total context")).join("\n")).not.toMatch(/Up to /);
+  });
+
   it("offers the largest fit as the last chip, and returns an edited total to it", async () => {
     const user = setupUser();
     renderDialog({
@@ -1028,8 +1094,9 @@ describe("ModelDeployDialog shared context", () => {
     expect(await readFieldHelpFacts("Total context")).toContain(
       "Up to 889k on node / NVIDIA GeForce RTX 5090",
     );
+    // The chip sets its value as a chosen total, which "Sized for" then names.
     await user.click(screen.getByRole("button", { name: "Back" }));
-    expect(screen.getByRole("button", { name: "Runs on filter: this site" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Runs on filter: this site, 889k" })).toBeVisible();
   });
 
   it.each([
@@ -1481,7 +1548,7 @@ describe("ModelDeployDialog scenario polling", () => {
     ]);
   });
 
-  it("keeps the first read's starting total context when later reads report another", async () => {
+  it("keeps the first read's starting total context, while the largest fit follows later reads", async () => {
     setTiming(productionTiming);
     useFakeTimersWithWaits();
     let reads = 0;
@@ -1498,17 +1565,19 @@ describe("ModelDeployDialog scenario polling", () => {
     renderDialog({ initialProfileId: "ninfer-nvfp4", listProfileCompatibility });
     await advance();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    const expectFirstFit = async () => {
+    const expectFit = async (fit: string) => {
       expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("124k");
-      expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 124k on /m);
-      expect(largestFitChip("124k")).toBeVisible();
+      expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(
+        new RegExp(`^Up to ${fit} on `, "m"),
+      );
+      expect(largestFitChip(fit)).toBeVisible();
     };
-    await expectFirstFit();
+    await expectFit("124k");
 
     await advance(productionTiming.profileCompatibilityRefreshMs);
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
-    await expectFirstFit();
+    await expectFit("96k");
   });
 
   it("shows the selected profile's frozen starting total context in the table, and other rows live", async () => {
@@ -1540,7 +1609,7 @@ describe("ModelDeployDialog scenario polling", () => {
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("124k");
   });
 
-  it("applies the live starting total context on choosing the largest fit chip, and keeps it from then on", async () => {
+  it("sets the total context to the largest fit chip's live value, which keeps following reads", async () => {
     setTiming(productionTiming);
     useFakeTimersWithWaits();
     // What every read reports from now on, as free memory changes.
@@ -1560,36 +1629,29 @@ describe("ModelDeployDialog scenario polling", () => {
     const total = () => screen.getByRole("textbox", { name: "Total context" });
     expect(total()).toHaveValue("124k");
 
-    // A later read lowers the starting value; the unedited default stays frozen.
+    // A later read lowers the fit; the unedited default stays frozen, and the chip follows.
     live = 98304;
     const reads = listProfileCompatibility.mock.calls.length;
     await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(listProfileCompatibility.mock.calls.length).toBeGreaterThan(reads);
     expect(total()).toHaveValue("124k");
-
-    fireEvent.click(
-      within(screen.getByRole("group", { name: "Total context presets" })).getByRole("button", {
-        name: "64k",
-      }),
-    );
-    await advance();
-    expect(total()).toHaveValue("64k");
-    // Choosing a size reads the new scenario, whose fit the chip then offers.
     expect(largestFitChip("96k")).toHaveAttribute("aria-pressed", "false");
+
     fireEvent.click(largestFitChip("96k"));
     await advance();
     expect(total()).toHaveValue("96k");
     expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
     expect(largestFitChip("96k")).toHaveAttribute("aria-pressed", "true");
 
-    // The corrected value is frozen in turn.
+    // The chosen total stays; the chip moves on with the next read and lets go.
     live = 65536;
     await advance(productionTiming.profileCompatibilityRefreshMs);
     expect(total()).toHaveValue("96k");
-    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 96k on /m);
+    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 64k on /m);
+    expect(largestFitChip("64k")).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("stays on the engine default when the first read has no fit and a later one does", async () => {
+  it("stays on the engine default when the first read has no fit, and offers a later read's fit", async () => {
     setTiming(productionTiming);
     useFakeTimersWithWaits();
     let reads = 0;
@@ -1618,7 +1680,8 @@ describe("ModelDeployDialog scenario polling", () => {
 
     expect(listProfileCompatibility).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("textbox", { name: "Total context" })).toHaveValue("32k");
-    expect((await readFieldHelpFacts("Total context")).join("\n")).not.toMatch(/Up to /);
+    expect((await readFieldHelpFacts("Total context")).join("\n")).toMatch(/^Up to 124k on /m);
+    expect(largestFitChip("124k")).toHaveAttribute("aria-pressed", "false");
   });
 
   it("keeps the operator's Runs on chip, place and selection across a refresh", async () => {
@@ -1803,6 +1866,10 @@ function renderDialog(props: Partial<ComponentProps<typeof ModelDeployDialog>> =
 
 function dialog(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {
   const listConfiguredExecutionTargets = props.listConfiguredExecutionTargets ?? poolTargets;
+  const fits = compatibilityFitEstimates(
+    props.model ?? runtimeSchemaModel,
+    props.listProfileCompatibility,
+  );
   return (
     <ExecutionTargetsWatch watch={executionTargetsWatch(listConfiguredExecutionTargets)}>
       <ModelDeployDialog
@@ -1810,13 +1877,14 @@ function dialog(props: Partial<ComponentProps<typeof ModelDeployDialog>> = {}) {
         hardwareClasses={[]}
         listConfiguredExecutionTargets={listConfiguredExecutionTargets}
         model={runtimeSchemaModel}
-        onEstimate={sharedContextEstimate(props.model ?? runtimeSchemaModel)}
+        onEstimate={fits.onEstimate}
         onOpenChange={vi.fn()}
         onPreview={vi.fn()}
         onSubmit={vi.fn()}
         open
         pending={false}
         {...props}
+        listProfileCompatibility={fits.listProfileCompatibility}
       />
     </ExecutionTargetsWatch>
   );

@@ -623,6 +623,9 @@ impl DockerClient for LocalDockerClient {
             .and_then(|state| state.pid)
             .and_then(|pid| u32::try_from(pid).ok())
             .filter(|pid| *pid > 0);
+        let exit_status = (!running)
+            .then(|| state.as_ref().and_then(|state| state.exit_code))
+            .flatten();
         let settings = response.network_settings.unwrap_or_default();
         let private_address = settings.networks.as_ref().and_then(|networks| {
             networks
@@ -664,6 +667,7 @@ impl DockerClient for LocalDockerClient {
             .collect();
         Ok(GroupContainerInspection {
             running,
+            exit_status,
             process_id,
             host_bindings,
             private_address,
@@ -920,6 +924,10 @@ pub(super) struct ContainerInspection {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct GroupContainerInspection {
     pub(super) running: bool,
+
+    /// Terminal status of the container's process, reported only when it is not running.
+    pub(super) exit_status: Option<i64>,
+
     pub(super) process_id: Option<u32>,
     pub(super) host_bindings: BTreeMap<String, Option<Vec<GroupPortBinding>>>,
     pub(super) private_address: Option<std::net::Ipv4Addr>,

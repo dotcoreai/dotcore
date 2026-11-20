@@ -1372,6 +1372,8 @@ mod tests {
             graph.services[0].storage_bindings = ["data", "models"]
                 .map(|name| StorageBinding {
                     binding_name: name.to_owned(),
+                    display_name: format!("{name} storage"),
+                    description: format!("Holds the {name} files."),
                     mount_path: format!("/{name}"),
                     kind: StorageKind::Data as i32,
                     placements: vec![
@@ -1450,6 +1452,7 @@ mod tests {
                         minimum_length: 1,
                         maximum_length: Some(64),
                         default_value: Some("admin".to_owned()),
+                        format: None,
                     })),
                     visibility: ParameterVisibility::Basic as i32,
                     enabled_by_parameter_id: None,

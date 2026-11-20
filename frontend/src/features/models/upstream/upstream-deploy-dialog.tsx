@@ -20,7 +20,12 @@ import {
 import { DeploymentExposureFields } from "@/features/models/deployment-exposure-fields";
 import { type UpstreamModelTemplate } from "@/gen/dotcore/catalog/v1/upstream_model_template_pb";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
+import {
+  type FieldErrors,
+  focusFirstInvalidField,
+  toFieldErrors,
+  withFieldError,
+} from "@/lib/form-validation";
 
 import { UpstreamEndpointFields } from "./upstream-endpoint-fields";
 import {
@@ -64,7 +69,7 @@ export function UpstreamDeployDialog({
   const advancedMode = useAdvancedMode(open);
   const { advanced } = advancedMode;
   const steps = UPSTREAM_DEPLOY_STEPS;
-  const wizard = useWizardSteps(steps);
+  const wizard = useWizardSteps(steps, UPSTREAM_DEPLOY_STEPS);
   const step = wizard.current;
   const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -82,14 +87,8 @@ export function UpstreamDeployDialog({
     values,
   });
 
-  const setFieldError = (field: string, nextError: string | undefined) => {
-    setFieldErrors((errors) => {
-      const nextErrors = new Map(errors);
-      if (nextError) nextErrors.set(field, nextError);
-      else nextErrors.delete(field);
-      return nextErrors;
-    });
-  };
+  const setFieldError = (field: string, nextError: string | undefined) =>
+    setFieldErrors((errors) => withFieldError(errors, field, nextError));
   const updateValues = (next: UpstreamFormValues) => {
     const upstreamChanged = next.upstreamModelId !== values.upstreamModelId;
     if (!upstreamChanged) {

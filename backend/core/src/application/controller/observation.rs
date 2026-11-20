@@ -123,10 +123,7 @@ pub(super) fn observation_matches_group(
 }
 
 pub(super) fn group_has_stopped_unit(group: &ObservedWorkloadGroup) -> bool {
-    group
-        .units
-        .values()
-        .any(|unit| unit.state == WorkloadUnitState::Stopped)
+    group.units.values().any(|unit| unit.state.is_stopped())
 }
 
 pub(super) fn group_has_absent_unit(group: &ObservedWorkloadGroup) -> bool {
@@ -155,8 +152,5 @@ pub(super) fn group_has_stopping_unit(group: &ObservedWorkloadGroup) -> bool {
 }
 
 pub(super) fn group_is_all_stopped(group: &ObservedWorkloadGroup) -> bool {
-    group
-        .units
-        .values()
-        .all(|unit| unit.state == WorkloadUnitState::Stopped)
+    group.units.values().all(|unit| unit.state.is_stopped())
 }

@@ -115,16 +115,6 @@ export function useModelDeployTarget({
     frozenStartKey && frozenStarts.has(frozenStartKey)
       ? frozenStarts.get(frozenStartKey)
       : readFitStart;
-  // Forgets the default context's frozen value, so the next read of the defaults freezes the live
-  // one and a value frozen from a stale read is corrected.
-  const forgetDefaultStart = () => {
-    const defaultKey = startKey(undefined);
-    if (defaultKey) {
-      const remaining = new Map(frozenStarts);
-      remaining.delete(defaultKey);
-      setFrozenStarts(remaining);
-    }
-  };
   const placementNodeId = selectedExecutionTarget?.siteNodeId;
   const placementTargetId = selectedExecutionTarget?.executionTargetId;
   const placement = useMemo(
@@ -140,12 +130,10 @@ export function useModelDeployTarget({
 
   return {
     fitStart,
-    forgetDefaultStart,
     launchesOn,
     pickedTarget,
     placement,
     profileLaunchCandidates,
-    readFitStart,
     selectedExecutionTarget,
   };
 }

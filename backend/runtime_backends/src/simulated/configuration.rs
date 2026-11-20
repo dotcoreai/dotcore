@@ -377,6 +377,26 @@ impl SimulatedRuntimeTestSupport {
         }
     }
 
+    /// Makes one unit of a group exit on its own with `exit_status` whenever the runtime finds it
+    /// running, until cleared. A start runs the unit again until the next observation finds it
+    /// exited, as a process that crashes soon after each start.
+    pub fn exit_group_unit(&self, group_id: &str, unit: &str, exit_status: Option<i64>) {
+        self.state
+            .lock()
+            .expect("simulated runtime test support")
+            .group_unit_exits
+            .insert((group_id.to_owned(), unit.to_owned()), exit_status);
+    }
+
+    /// Lets one unit of a group run again without exiting on its own.
+    pub fn clear_group_unit_exit(&self, group_id: &str, unit: &str) {
+        self.state
+            .lock()
+            .expect("simulated runtime test support")
+            .group_unit_exits
+            .remove(&(group_id.to_owned(), unit.to_owned()));
+    }
+
     /// Returns the number of runtime workload-discovery calls.
     pub fn discovery_call_count(&self) -> usize {
         self.state
@@ -533,6 +553,16 @@ impl SimulatedRuntimeTestSupport {
             .copied()
     }
 
+    /// The exit status one unit of a group exits with on its own, when an exit is configured.
+    pub(super) fn group_unit_exit(&self, group_id: &str, unit: &str) -> Option<Option<i64>> {
+        self.state
+            .lock()
+            .expect("simulated runtime test support")
+            .group_unit_exits
+            .get(&(group_id.to_owned(), unit.to_owned()))
+            .copied()
+    }
+
     pub(super) fn application_endpoint(&self) -> Option<NonZeroU16> {
         self.state
             .lock()
@@ -632,6 +662,10 @@ pub(super) struct SimulatedRuntimeTestState {
     pub(super) group_calls: Vec<SimulatedRuntimeGroupCall>,
     pub(super) group_launches: Vec<dotcore_runtime::WorkloadGroupLaunch>,
     group_drifts: BTreeMap<String, SimulatedRuntimeGroupDrift>,
+
+    /// Exit status of each unit, by group and unit name, that exits on its own while running.
+    group_unit_exits: BTreeMap<(String, String), Option<i64>>,
+
     storage: BTreeSet<dotcore_runtime::WorkloadStorageKey>,
 
     /// Workloads of each execution target kept across backends, when enabled.

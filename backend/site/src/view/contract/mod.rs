@@ -5,13 +5,19 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use dotcore_domain::valid_id;
+use dotcore_domain::{
+    deployment::{MAX_FAILURE_DIAGNOSTIC_BYTES, MAX_FAILURE_DIAGNOSTICS},
+    valid_id,
+};
 use dotcore_proto::dotcore::{
-    application::private::v1::{
-        ApplicationCleanupDisposition, ApplicationCleanupEvidence, ApplicationCleanupReceipt,
-        ApplicationControllerStatusSection, ApplicationDeploymentStatus,
-        ApplicationDesiredViewSection, ApplicationLifecycleObservation,
-        ApplicationStatusFailureCode, ApplicationStatusStage,
+    application::{
+        private::v1::{
+            ApplicationCleanupDisposition, ApplicationCleanupEvidence, ApplicationCleanupReceipt,
+            ApplicationControllerStatusSection, ApplicationDeploymentStatus,
+            ApplicationDesiredViewSection, ApplicationLifecycleObservation,
+            ApplicationStatusFailureCode, ApplicationStatusStage,
+        },
+        v1::ApplicationDeploymentFailure,
     },
     deployment::v1::{
         AcceleratorMemoryObservation, AcceleratorMemoryUnavailable, accelerator_memory_observation,
@@ -58,9 +64,6 @@ pub(crate) const MAX_CLEANUP_EVIDENCE: usize = 256;
 pub(crate) const MAX_STATUS_MESSAGE_BYTES: usize = 512;
 pub(crate) const MAX_FAILURE_CODE_BYTES: usize = 64;
 pub(crate) const MAX_FAILURE_MESSAGE_BYTES: usize = 1024;
-pub(crate) const MAX_FAILURE_DIAGNOSTICS: usize = 8;
-/// Total bytes of one failure's diagnostics, room for an engine startup output tail.
-pub(crate) const MAX_FAILURE_DIAGNOSTIC_BYTES: usize = 6 * 1024;
 /// Devices one deployment's reported accelerator memory may list.
 pub(crate) const MAX_ACCELERATOR_MEMORY_DEVICES: usize = 64;
 pub(crate) const MAX_ACCELERATOR_DEVICE_ID_BYTES: usize = 256;
@@ -339,9 +342,28 @@ pub fn bounded_status_message(message: &str) -> String {
 /// are truncated, and diagnostics are kept in order until the count or byte budget runs out, the
 /// last kept one truncated to the remaining budget.
 pub fn bounded_failure(failure: &ModelDeploymentFailure) -> ModelDeploymentFailure {
+    ModelDeploymentFailure {
+        code: truncated(&failure.code, MAX_FAILURE_CODE_BYTES).to_owned(),
+        message: truncated(&failure.message, MAX_FAILURE_MESSAGE_BYTES).to_owned(),
+        diagnostics: bounded_diagnostics(&failure.diagnostics),
+    }
+}
+
+/// Cuts a recorded application failure summary to the same contract sizes as a model's.
+pub fn bounded_application_failure(
+    failure: &ApplicationDeploymentFailure,
+) -> ApplicationDeploymentFailure {
+    ApplicationDeploymentFailure {
+        code: truncated(&failure.code, MAX_FAILURE_CODE_BYTES).to_owned(),
+        message: truncated(&failure.message, MAX_FAILURE_MESSAGE_BYTES).to_owned(),
+        diagnostics: bounded_diagnostics(&failure.diagnostics),
+    }
+}
+
+/// Keeps diagnostics in order until the count or byte budget of one failure runs out.
+fn bounded_diagnostics(diagnostics: &[String]) -> Vec<String> {
     let mut remaining = MAX_FAILURE_DIAGNOSTIC_BYTES;
-    let diagnostics = failure
-        .diagnostics
+    diagnostics
         .iter()
         .take(MAX_FAILURE_DIAGNOSTICS)
         .map_while(|diagnostic| {
@@ -349,12 +371,7 @@ pub fn bounded_failure(failure: &ModelDeploymentFailure) -> ModelDeploymentFailu
             remaining -= kept.len();
             (!kept.is_empty() || diagnostic.is_empty()).then(|| kept.to_owned())
         })
-        .collect();
-    ModelDeploymentFailure {
-        code: truncated(&failure.code, MAX_FAILURE_CODE_BYTES).to_owned(),
-        message: truncated(&failure.message, MAX_FAILURE_MESSAGE_BYTES).to_owned(),
-        diagnostics,
-    }
+        .collect()
 }
 
 /// Bounds an accelerator memory observation to what the manager accepts from `node_id`, so one
@@ -814,11 +831,19 @@ fn validate_deployment_status(
 
 /// A failure summary fits the sizes its hosting node bounds it to.
 fn valid_failure(failure: &ModelDeploymentFailure) -> bool {
-    failure.code.len() <= MAX_FAILURE_CODE_BYTES
-        && failure.message.len() <= MAX_FAILURE_MESSAGE_BYTES
-        && failure.diagnostics.len() <= MAX_FAILURE_DIAGNOSTICS
-        && failure.diagnostics.iter().map(String::len).sum::<usize>()
-            <= MAX_FAILURE_DIAGNOSTIC_BYTES
+    valid_failure_parts(&failure.code, &failure.message, &failure.diagnostics)
+}
+
+/// An application failure summary fits the same sizes as a model's.
+fn valid_application_failure(failure: &ApplicationDeploymentFailure) -> bool {
+    valid_failure_parts(&failure.code, &failure.message, &failure.diagnostics)
+}
+
+fn valid_failure_parts(code: &str, message: &str, diagnostics: &[String]) -> bool {
+    code.len() <= MAX_FAILURE_CODE_BYTES
+        && message.len() <= MAX_FAILURE_MESSAGE_BYTES
+        && diagnostics.len() <= MAX_FAILURE_DIAGNOSTICS
+        && diagnostics.iter().map(String::len).sum::<usize>() <= MAX_FAILURE_DIAGNOSTIC_BYTES
 }
 
 /// Reported accelerator memory has a result, lists usage only on the reporting node within the
@@ -971,6 +996,11 @@ fn validate_application_deployment_status(
         || (deployment.state_revision == 0
             && lifecycle != ApplicationLifecycleObservation::Reconciling
             && failure_code == ApplicationStatusFailureCode::Unspecified)
+        || (lifecycle == ApplicationLifecycleObservation::Failed) != deployment.failure.is_some()
+        || deployment
+            .failure
+            .as_ref()
+            .is_some_and(|failure| failure.code.is_empty() || !valid_application_failure(failure))
         || deployment
             .placement
             .as_ref()

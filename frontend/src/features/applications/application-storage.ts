@@ -5,12 +5,16 @@ import {
   type ApplicationStorageChoice,
   ApplicationStorageChoiceSchema,
 } from "@/gen/dotcore/application/v1/service_pb";
-import type { Application } from "@/gen/dotcore/catalog/v1/application_pb";
-import { StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
+import type { Application, ApplicationGraph } from "@/gen/dotcore/catalog/v1/application_pb";
+import { type StorageBinding, StoragePlacement } from "@/gen/dotcore/catalog/v1/storage_pb";
 
 /** One storage binding that allows several placements, so the operator picks where it lives. */
 export interface StorageChoiceField {
   bindingName: string;
+  /** What the storage holds, from the catalog. */
+  description: string;
+  /** The catalog's name for the storage. */
+  displayName: string;
   /** Allowed placements in catalog order; the first is the default. */
   placements: readonly StoragePlacement[];
   serviceName: string;
@@ -23,6 +27,8 @@ export function storageChoiceFields(application: Application): StorageChoiceFiel
       .filter((binding) => binding.placements.length > 1)
       .map((binding) => ({
         bindingName: binding.bindingName,
+        description: binding.description,
+        displayName: binding.displayName,
         placements: binding.placements,
         serviceName: service.serviceName,
       })),
@@ -68,9 +74,14 @@ export function storageChoiceOverrides(
   );
 }
 
-/** The operator-facing name of a binding's storage, such as "Models storage". */
-export function storageBindingLabel(bindingName: string): string {
-  return `${bindingName.charAt(0).toLocaleUpperCase()}${bindingName.slice(1)} storage`;
+/** The catalog binding an attachment points at, looked up by service and binding name. */
+export function attachedStorageBinding(
+  graph: ApplicationGraph | undefined,
+  attachment: Pick<ApplicationStorageAttachment, "bindingName" | "serviceName">,
+): StorageBinding | undefined {
+  return graph?.services
+    .find((service) => service.serviceName === attachment.serviceName)
+    ?.storageBindings.find((binding) => binding.bindingName === attachment.bindingName);
 }
 
 /** The operator-facing name of a placement. */
@@ -101,11 +112,14 @@ export function storagePlacementLifetime(placement: StoragePlacement): string {
  * What tearing a deployment down does to its data: storage placed with the deployment is deleted,
  * storage shared by the app is kept.
  */
-export function teardownConsequence(attachments: readonly ApplicationStorageAttachment[]): string {
+export function teardownConsequence(
+  graph: ApplicationGraph | undefined,
+  attachments: readonly ApplicationStorageAttachment[],
+): string {
   const bindings = (placement: StoragePlacement) =>
     attachments
       .filter((attachment) => attachment.placement === placement)
-      .map((attachment) => attachment.bindingName)
+      .map((attachment) => attachedStorageBinding(graph, attachment)?.displayName ?? "")
       .join(", ");
   const deleted = bindings(StoragePlacement.DEPLOYMENT);
   const kept = bindings(StoragePlacement.APPLICATION);

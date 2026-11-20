@@ -592,6 +592,8 @@ mod tests {
     ) -> StorageBinding {
         StorageBinding {
             binding_name: name.to_owned(),
+            display_name: String::new(),
+            description: String::new(),
             mount_path: mount_path.to_owned(),
             kind: dotcore_proto::dotcore::catalog::v1::StorageKind::Cache as i32,
             placements: vec![placement as i32],

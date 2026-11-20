@@ -128,6 +128,8 @@ sequenceDiagram
 - The controller validates the retained snapshot through the selected engine adapter and reconciles
   the retained launch plan, with no catalog lookup or product-configuration translation.
 - The hosting node pins the deployment's launch identity ([storage](storage.md#launch-identity)).
+- An engine that stops on its own restarts or fails the deployment by the crash rule
+  ([runtime](runtime.md#handling-a-workload-that-stops)).
 - The inference controller records workload resource telemetry on the hosting node for its ready
   local deployments ([storage](storage.md#workload-resource-records)).
 
@@ -169,10 +171,11 @@ flowchart LR
 - For each running target, it reports the capacity component's largest fitting total context and
   starting total context. Narrowing by scenario uses the fit.
 - Resource estimates for a launch configuration carry the capacity component's placement preview for
-  the selected target, and the largest fit of each engine memory parameter there. Memory fits use
-  the configuration's values as given, so they follow the context and other values an operator
-  picks, unlike the largest fitting total context, which uses the profile's defaults. With custom
-  arguments, the preview carries no demand and the estimate no memory fits.
+  the selected target, the largest fit of each engine memory parameter there, and the largest
+  fitting total context. These fits use the configuration's values as given, so they follow the
+  values an operator picks; the per-target read above stays on the profile's defaults, to compare
+  profiles and to start the total context. With custom arguments, the preview carries no demand and
+  the estimate no fits.
 - Recommendations rank the catalog's lists with the same resolution and the capacity component's
   verdicts ([recommendations](recommendations.md#ranking-models-for-a-site)).
 

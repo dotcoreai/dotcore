@@ -22,9 +22,10 @@ graph:
       visibility: "PARAMETER_VISIBILITY_BASIC"
       groupId: "login"
       description: "The email address for logging in to Open WebUI as its admin."
-      # Email addresses run from `a@b` (3 bytes) to 254 bytes (RFC 5321 path limit).
+      # Email addresses run from `a@b.c` (5 bytes) to 254 bytes (RFC 5321 path limit).
       text:
-        minimumLength: 3
+        format: "TEXT_FORMAT_EMAIL"
+        minimumLength: 5
         maximumLength: 254
         defaultValue: "admin@dotcore.local"
     - parameterId: "admin-password"
@@ -86,6 +87,8 @@ graph:
           form: "APPLICATION_SECRET_FORM_PLAIN"
       storageBindings:
         - bindingName: "data"
+          displayName: "App data"
+          description: "Chats, uploaded files and user settings."
           mountPath: "/app/backend/data"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
