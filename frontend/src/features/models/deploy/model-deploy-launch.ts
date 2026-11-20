@@ -241,22 +241,6 @@ export interface ConfigurationStart {
   speculativeChoice: SpeculativeChoice;
 }
 
-export function modelDeploySteps(target: boolean, advanced: boolean): ModelDeployStep[] {
-  return MODEL_DEPLOY_STEPS.filter(
-    (step) =>
-      (step === "Target" && target) ||
-      (step === "Advanced" && advanced) ||
-      step === "Profile" ||
-      step === "Settings" ||
-      step === "Deploy",
-  );
-}
-
-// A vanished step falls forward: Target to Settings, which always shows, and Advanced to Deploy.
-export function fallbackStep(missingStep: string): string {
-  return missingStep === "Target" ? "Settings" : "Deploy";
-}
-
 export function exactPlacement(target: ConfiguredExecutionTarget): ExactPlacement {
   return create(ExactPlacementSchema, {
     siteNodeId: target.siteNodeId,

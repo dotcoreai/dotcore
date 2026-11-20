@@ -11,6 +11,7 @@ agents get wrong.
 frontend/src/
 ├── app/              app composition and providers; routes in routes.ts, router in router.tsx
 ├── features/         product capabilities and their behavior tests
+│   ├── applications/deploy/  the application deploy dialog's steps
 │   ├── chat/decisions/  the console chat's decision draft, controls and answers
 │   ├── machines/add-machine/  the add machine dialog, its steps and the fingerprint pattern
 │   ├── metrics/inference/  the inference request metrics section and its cards

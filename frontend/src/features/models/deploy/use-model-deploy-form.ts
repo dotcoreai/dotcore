@@ -6,12 +6,11 @@ import {
   executionTargetPresentation,
   placedExecutionTargetName,
 } from "@/domain/execution-target";
-import { useAdvancedMode } from "@/features/deployments/use-advanced-mode";
 import {
   type ConfiguredExecutionTargetLoader,
   useConfiguredExecutionTargets,
 } from "@/features/deployments/use-configured-execution-targets";
-import { useWizardSteps } from "@/features/deployments/use-wizard-steps";
+import { useDeployWizard } from "@/features/deployments/use-deploy-wizard";
 import {
   deploymentExposure,
   type DeploymentExposureValues,
@@ -96,18 +95,16 @@ import type { ModelDeploymentExposure } from "@/gen/dotcore/model/v1/service_pb"
 import { ExecutionTargetWorkloadKind } from "@/gen/dotcore/site/v1/service_pb";
 import { useDelayedLoading } from "@/hooks/use-delayed-loading";
 import { useDirtyFields } from "@/hooks/use-dirty-fields";
-import { type FieldErrors, focusFirstInvalidField, toFieldErrors } from "@/lib/form-validation";
+import { type FieldErrors, toFieldErrors } from "@/lib/form-validation";
 import { formatCompactCount, formatCount } from "@/lib/format";
 
 import {
   configurationStart,
-  fallbackStep,
   launchRejectionField,
   type LocalDeploymentValues,
   MODEL_DEPLOY_STEPS,
   type ModelDeployField,
   type ModelDeployStep,
-  modelDeploySteps,
   operatorSentence,
   scenarioContext,
   scenarioInput,
@@ -158,8 +155,6 @@ export function useModelDeployForm({
   routeConflict,
   scenario: startScenario,
 }: ModelDeployFormOptions) {
-  const advancedMode = useAdvancedMode(open);
-  const { advanced, announcement } = advancedMode;
   const dirtyFields = useDirtyFields<ModelDeployField>(open);
   const [exposureValues, setExposureValues] = useState<DeploymentExposureValues>(() =>
     initialExposure
@@ -245,8 +240,6 @@ export function useModelDeployForm({
   );
   const [targetValidationPending, setTargetValidationPending] = useState(false);
   const [ineligibleTarget, setIneligibleTarget] = useState<string>();
-  // Whether the Target step shows, fixed when leaving the Profile step so the steps ahead stay put.
-  const [lockedTargetStep, setLockedTargetStep] = useState<boolean>();
   const preselectionKeyRef = useRef<string>(undefined);
   // Whether the last preselection found nothing to select, so a later read may still select one.
   const preselectionEmptyRef = useRef(false);
@@ -266,9 +259,6 @@ export function useModelDeployForm({
   } = useConfiguredExecutionTargets(listConfiguredExecutionTargets, open);
   const [name, setName] = useState(initialName ?? model.displayName);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>(new Map());
-  const pendingFocusRef = useRef<FieldErrors | undefined>(undefined);
-  // The errors of the latest blocked step change or Deploy, which open collapsed sections and groups.
-  const [revealedErrors, setRevealedErrors] = useState<FieldErrors>(new Map());
   const artifactRef = useRef<HTMLInputElement>(null);
   const engineParameterRefs = useRef<Map<string, HTMLElement | null>>(new Map());
   const nameRef = useRef<HTMLInputElement>(null);
@@ -444,24 +434,9 @@ export function useModelDeployForm({
       : undefined;
 
   // Basic mode asks for the target only when several can deploy the profile.
-  const liveTargetStep = profileLaunchCandidates
+  const severalTargets = profileLaunchCandidates
     ? profileLaunchCandidates.length > 1
     : deployableExecutionTargets.length > 1;
-  const stepsFor = (advancedSteps: boolean) =>
-    modelDeploySteps(advancedSteps || (lockedTargetStep ?? liveTargetStep), advancedSteps);
-  const steps = stepsFor(advanced);
-  const wizard = useWizardSteps(steps, fallbackStep);
-  const step = wizard.current as ModelDeployStep;
-  const targetStepShown = steps.includes("Target");
-  const goToStep = (nextStep: ModelDeployStep) => {
-    const leavingProfile = step === "Profile" && nextStep !== "Profile";
-    setLockedTargetStep(
-      nextStep === "Profile" ? undefined : leavingProfile ? liveTargetStep : lockedTargetStep,
-    );
-    // The target placed for the operator stays theirs, so a refresh can't take it away unasked.
-    if (leavingProfile && pickedPlacement === undefined && placement) setPickedPlacement(placement);
-    wizard.goTo(nextStep);
-  };
 
   // Selects a profile with its runtime values, the profile's defaults unless given.
   const selectProfile = (
@@ -713,34 +688,21 @@ export function useModelDeployForm({
       ["name", nameRef.current],
       ["routeName", routeNameRef.current],
     ]);
-  // Focus waits for the render that shows the errors, which also opens a collapsed section or group
-  // holding an invalid field.
-  const exposeErrors = (errors: FieldErrors): boolean => {
-    setFieldErrors(errors);
-    pendingFocusRef.current = errors.size ? errors : undefined;
-    if (!errors.size) return true;
-    setRevealedErrors(errors);
-    return false;
-  };
-  // Opens the step that owns the errors, turning Advanced on when that step is hidden, and focuses
-  // the first invalid field once the step renders.
-  const revealErrors = (owner: ModelDeployStep, errors: FieldErrors) => {
-    if (!steps.includes(owner)) {
-      advancedMode.enable(`Advanced on to fix ${owner.toLocaleLowerCase()} settings`);
-    }
-    exposeErrors(errors);
-    if (owner !== step) goToStep(owner);
-  };
-
-  // Runs after the shell focuses a new step heading, so the invalid field keeps focus. The request
-  // stays until a render shows one of its fields: an earlier render may still hold the step or
-  // section the field isn't in yet.
-  useEffect(() => {
-    const errors = pendingFocusRef.current;
-    if (errors && focusFirstInvalidField(errors, fieldControls())) {
-      pendingFocusRef.current = undefined;
-    }
+  const wizard = useDeployWizard<ModelDeployStep>({
+    errorsFor: stepErrors,
+    fieldControls,
+    hasFields: () => true,
+    // The target placed for the operator stays theirs, so a refresh can't take it away unasked.
+    onLeaveFirstStep: () => {
+      if (pickedPlacement === undefined && placement) setPickedPlacement(placement);
+    },
+    onSubmit: () => void submit(),
+    open,
+    order: MODEL_DEPLOY_STEPS,
+    setFieldErrors,
+    severalTargets,
   });
+  const targetStepShown = wizard.steps.includes("Target");
 
   // The launch values arrive with the read, so the first estimate and the deploy wait for them.
   const launchValuesPending =
@@ -831,13 +793,7 @@ export function useModelDeployForm({
   ];
 
   const runPreview = async () => {
-    for (const owner of ["Profile", "Settings", "Advanced"] as const) {
-      const errors = stepErrors(owner);
-      if (errors.size) {
-        revealErrors(owner, errors);
-        return;
-      }
-    }
+    if (wizard.revealFirstError(["Profile", "Settings", "Advanced"])) return;
     setFieldErrors(new Map());
     if (!profile || !binding || !values || !optionOverrides || !placement) return;
     await commandPreview.requestPreview({
@@ -855,13 +811,7 @@ export function useModelDeployForm({
   };
   const submit = async () => {
     setIneligibleTarget(undefined);
-    for (const owner of MODEL_DEPLOY_STEPS) {
-      const errors = stepErrors(owner);
-      if (errors.size) {
-        revealErrors(owner, errors);
-        return;
-      }
-    }
+    if (wizard.revealFirstError()) return;
     setFieldErrors(new Map());
     if (pending || !placement || !values || !binding || !optionOverrides) return;
 
@@ -882,10 +832,10 @@ export function useModelDeployForm({
       if (pickedPlacement && targetStepShown) {
         setPickedPlacement(null);
         setFieldError("placement", "Select an eligible execution target.");
-        goToStep("Target");
+        wizard.goTo("Target");
       } else {
         setPickedPlacement(undefined);
-        goToStep("Profile");
+        wizard.goTo("Profile");
       }
       return;
     }
@@ -907,20 +857,6 @@ export function useModelDeployForm({
     setCustomArgumentTokens(update);
     invalidatePreview();
   };
-  const toggleAdvanced = (nextAdvanced: boolean) =>
-    advancedMode.toggle(nextAdvanced, stepsFor(nextAdvanced).length);
-  const handleStepChange = (nextStep: string) => {
-    const forward = steps.indexOf(nextStep as ModelDeployStep) > steps.indexOf(step);
-    if (forward && !exposeErrors(stepErrors(step))) return;
-    goToStep(nextStep as ModelDeployStep);
-  };
-  const handlePrimary = () => {
-    if (step === "Deploy") {
-      void submit();
-      return;
-    }
-    if (exposeErrors(stepErrors(step))) goToStep(steps[steps.indexOf(step) + 1]);
-  };
 
   const deploymentPrerequisiteUnavailable =
     targetsLoading || Boolean(effectiveTargetsError) || deployableExecutionTargets.length === 0;
@@ -931,9 +867,9 @@ export function useModelDeployForm({
     Boolean(routeBlocking);
 
   return {
-    advanced,
+    advanced: wizard.advanced,
     advancedParameters,
-    announcement,
+    announcement: wizard.announcement,
     artifactRef,
     binding,
     bindingId,
@@ -967,8 +903,8 @@ export function useModelDeployForm({
     exposureValues,
     fieldErrors,
     following,
-    handlePrimary,
-    handleStepChange,
+    handlePrimary: wizard.primary,
+    handleStepChange: wizard.changeStep,
     ineligibleTarget,
     kvCachePrecision,
     kvCachePrecisionOption,
@@ -986,7 +922,7 @@ export function useModelDeployForm({
     profileLaunchCandidates,
     profileRef,
     profileTable,
-    revealedErrors,
+    revealedErrors: wizard.revealedErrors,
     routeBlocking,
     routeNameRef,
     runPreview,
@@ -1007,14 +943,14 @@ export function useModelDeployForm({
     speculativeChoice,
     speculativeCountRef,
     speculativeOptions,
-    step,
-    steps,
+    step: wizard.step,
+    steps: wizard.steps,
     tableEstimates,
     targetStepShown,
     targetsLoading,
     targetsLoadingPresentation,
     targetsLoadingVisible,
-    toggleAdvanced,
+    toggleAdvanced: wizard.toggleAdvanced,
     updateCustomArguments,
     updateShownProfiles,
     validateRoute,

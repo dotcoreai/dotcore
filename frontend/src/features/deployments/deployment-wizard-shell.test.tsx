@@ -169,9 +169,7 @@ describe("DeploymentWizardShell", () => {
       const steps = advanced
         ? ["Target", "Profile", "Runtime", "Routing", "Deploy"]
         : ["Profile", "Deploy"];
-      const wizard = useWizardSteps(steps, (missing) =>
-        missing === "Target" ? "Profile" : "Deploy",
-      );
+      const wizard = useWizardSteps(steps, ["Target", "Profile", "Runtime", "Routing", "Deploy"]);
       const index = steps.indexOf(wizard.current);
       return (
         <DeploymentWizardShell
@@ -249,13 +247,13 @@ describe("DeploymentWizardShell", () => {
     expect(screen.getByText("Routing pane")).toBeVisible();
   });
 
-  it("falls back to the first step when the dialog's fallback is not in the new step list", async () => {
+  it("falls back to the first step when no later step in the order still shows", async () => {
     const user = setupUser();
 
     function Harness() {
       const [short, setShort] = useState(false);
       const steps = short ? ["Connection"] : ["Connection", "Deployment", "Review"];
-      const wizard = useWizardSteps(steps, () => "Review");
+      const wizard = useWizardSteps(steps, ["Connection", "Deployment", "Review"]);
       return (
         <DeploymentWizardShell
           currentStep={wizard.current}
