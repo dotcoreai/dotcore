@@ -128,6 +128,8 @@ sequenceDiagram
 - The controller validates the retained snapshot through the selected engine adapter and reconciles
   the retained launch plan, with no catalog lookup or product-configuration translation.
 - The hosting node pins the deployment's launch identity ([storage](storage.md#launch-identity)).
+- An engine that stops on its own restarts or fails the deployment by the crash rule
+  ([runtime](runtime.md#handling-a-workload-that-stops)).
 - The inference controller records workload resource telemetry on the hosting node for its ready
   local deployments ([storage](storage.md#workload-resource-records)).
 

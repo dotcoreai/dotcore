@@ -418,6 +418,7 @@ pub(super) async fn compose_node(
     let model_construction = Arc::clone(&model_lifecycle.construction);
     let model_shutdown = model_lifecycle.shutdown.clone();
     let model_timing = timing.model;
+    let model_crash_window = timing.deployment.crash_window;
     let model_clock = Arc::clone(&clock);
     let model_root_keeper = Arc::clone(&model_lifecycle.root_keeper);
     let model_preparation_logs = preparation_logs.clone();
@@ -443,6 +444,7 @@ pub(super) async fn compose_node(
                         workload_lifecycle: model_workload_lifecycle.clone(),
                         timing: model_timing,
                         clock: Arc::clone(&model_clock),
+                        crash_window: model_crash_window,
                     },
                     model_state.clone(),
                     model_runtimes.clone(),

@@ -67,6 +67,37 @@ The backend realizes it and reports back what it started and where it listens.
   owns virtualized startup. Controllers keep the operation's progress, failure and cancellation.
 - Runtime failure changes observations, never desired intent.
 
+### Handling a workload that stops
+
+```mermaid
+flowchart TB
+  S["Workload found stopped"] --> RAN{"Did this node run it in the generation?"}
+  RAN -->|"no"| START["Start it as usual"]
+  RAN -->|"yes"| READY{"Was the deployment ready in the generation?"}
+  READY -->|"no"| FAIL["Deployment fails, workload stays stopped"]
+  READY -->|"yes"| BUDGET{"Crash budget spent within the window?"}
+  BUDGET -->|"no"| RESTART["Restart it in the same generation"]
+  BUDGET -->|"yes"| FAIL
+```
+
+An engine or app service can stop on its own. The runtime backend reports the stop with the
+workload's exit status, and the hosting node's reconciliation decides what the stop means for the
+deployment. The same rule holds for model and app deployments.
+
+- The rule counts within one lifecycle generation of the deployment. Deploying, resuming and
+  redeploying each start a new one, with nothing counted.
+- A workload that stops before its deployment was ready in the generation fails the deployment at
+  once, with no restart.
+- A workload that stops after its deployment was ready restarts. Once it has stopped a set number
+  of times within a set time window, the deployment fails instead. Restarts stay in the same
+  generation, so a crash while a restart is still loading counts against the same budget.
+- A stopped workload that this node didn't run in the generation isn't a crash, such as after a
+  runtime or host restart. It starts as usual. After a node restart, the deployment's recorded
+  lifecycle state stands in for what the node no longer remembers.
+- The failure carries the exit status, or says the runtime reported none, and the workload's last
+  output, with secret values masked. It reaches the site manager from remote nodes too.
+- A failed deployment stays stopped. Pausing and resuming it, or deploying it again, retries it.
+
 ### Serving through a workload
 
 ```mermaid

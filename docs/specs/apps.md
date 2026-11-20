@@ -160,6 +160,8 @@ What an application deployment keeps from creation:
   unavailable ([machines](machines.md#attributing-memory-to-deployments)).
 - On a virtualized runtime, treat the deployment as ready once its group runs with an assigned
   endpoint, with no probe, since nothing it runs serves.
+- Fail a deployment whose units stop on their own, or restart them, by the crash rule
+  ([runtime](runtime.md#handling-a-workload-that-stops)).
 
 #### Boundaries
 

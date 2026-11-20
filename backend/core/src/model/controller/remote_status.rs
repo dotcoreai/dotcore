@@ -953,7 +953,7 @@ mod tests {
     fn node_hosted_failure_projects_the_manager_local_code_message_and_diagnostics() {
         use super::super::state::{
             engine_image_acquisition_failed_state, engine_startup_failed_state, failed_state,
-            loading_state, resume_recovery_required_state, startup_failure_diagnostics,
+            loading_state, resume_recovery_required_state,
         };
         let realization_failure = failed_state(
             None,
@@ -972,11 +972,11 @@ mod tests {
             engine_startup_failed_state(
                 &loading_state(),
                 None,
-                startup_failure_diagnostics(
-                    Some(17),
-                    None,
-                    Some("FileNotFoundError: [REDACTED]\nengine exited".to_owned()),
-                ),
+                vec![
+                    "Stage: engine startup".to_owned(),
+                    "Exit status: 17".to_owned(),
+                    "Output tail: FileNotFoundError: [REDACTED]\nengine exited".to_owned(),
+                ],
             ),
             engine_image_acquisition_failed_state(None, Vec::new()),
             resume_recovery_required_state(),

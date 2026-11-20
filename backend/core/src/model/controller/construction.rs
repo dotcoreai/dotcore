@@ -11,6 +11,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 use dotcore_artifact::{ArtifactManager, OciImagePreparer};
@@ -217,6 +218,7 @@ where
             shutdown: dependencies.shutdown,
             timing: dependencies.timing,
             clock: dependencies.clock,
+            crashes: super::reconciliation::CrashTracker::new(dependencies.crash_window),
         }),
     };
     Ok(realizer)
@@ -354,6 +356,7 @@ where
                 workload_lifecycle: node.workload_lifecycle,
                 timing: node.timing,
                 clock: node.clock,
+                crash_window: node.crash_window,
             },
         )
     }
@@ -427,6 +430,7 @@ where
                 workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crash_window: Timing::test().deployment.crash_window,
             },
         )
     }
@@ -466,6 +470,9 @@ pub(crate) struct NodeModelRealizerDependencies<D: super::ModelRealizationInput>
 
     /// Backend clock the realizer waits through.
     pub(crate) clock: Arc<dyn Clock>,
+
+    /// Span within which crashes of a ready deployment count against its crash budget.
+    pub(crate) crash_window: Duration,
 }
 
 #[derive(Clone)]
@@ -489,6 +496,7 @@ struct ControllerDependencies {
     workload_lifecycle: crate::deployment_logs::WorkloadLifecycle,
     timing: ModelTiming,
     clock: Arc<dyn Clock>,
+    crash_window: Duration,
 }
 
 /// Upstream health dependencies over `verification_http`, with stable per-deployment jitter.
@@ -1019,6 +1027,7 @@ mod tests {
             workload_lifecycle: crate::deployment_logs::WorkloadLifecycle::new(),
             timing: Timing::test().model,
             clock: Arc::new(SystemClock),
+            crash_window: Timing::test().deployment.crash_window,
             preparation_logs: crate::deployment_logs::PreparationLogs::on_system_clock(directory),
         }
     }

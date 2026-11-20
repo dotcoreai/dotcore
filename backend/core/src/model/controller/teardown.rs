@@ -1187,6 +1187,7 @@ mod tests {
                 workload_lifecycle: workload_lifecycle.clone(),
                 timing: Timing::test().model,
                 clock: Arc::new(SystemClock),
+                crash_window: Timing::test().deployment.crash_window,
             },
             current.clone(),
             builder.build().expect("Runtime map"),
@@ -1456,6 +1457,9 @@ mod tests {
             shutdown: tokio_util::sync::CancellationToken::new(),
             timing: Timing::test().model,
             clock: Arc::new(SystemClock),
+            crashes: crate::model::controller::reconciliation::CrashTracker::new(
+                Timing::test().deployment.crash_window,
+            ),
         }
     }
 }
