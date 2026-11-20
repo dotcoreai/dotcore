@@ -16,8 +16,8 @@ Code: `backend/catalog/` (declarations, validation, sizing), `catalog/` (the mas
 - Set the same context parameters on every engine: total context, context per request and parallel
   requests, with engine defaults.
 - See catalog estimates per hardware class for a scenario you choose.
-- Compare models by the Dotcore Bench Intelligence Score, and see each model's upstream licence with
-  a link to its terms.
+- Compare models by the Dotcore Bench Intelligence Score, and see each model's and each app's
+  upstream licence with a link to its terms.
 - Add your own entries through a site or development catalog.
 
 ## Architecture
@@ -182,6 +182,8 @@ are on the [recommendations](recommendations.md) page.
   hidden.
 - May name the use cases it serves and the accelerator vendors it prefers
   ([recommendations](recommendations.md#app-use-case)).
+- May carry the upstream licence with a link to its terms, like a model. It is display metadata,
+  never part of the app's identity, and not a compliance assessment.
 - A parameter may be enabled by a boolean parameter of the same graph, or by the switch of its
   group. A disabled parameter keeps no value, and its bindings never reach the service, not even
   as an empty value.

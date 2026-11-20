@@ -4,6 +4,9 @@ applicationId: "hermes-app"
 displayName: "Hermes"
 description: "Autonomous AI agent with tools, memory, and a web dashboard that has a chat page."
 version: "0.2.1"
+license:
+  id: MIT
+  termsUrl: https://opensource.org/license/mit
 notes: |-
   Chat with the agent on the dashboard's Chat page.
 graph:
