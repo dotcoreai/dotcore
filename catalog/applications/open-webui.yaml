@@ -86,6 +86,8 @@ graph:
           form: "APPLICATION_SECRET_FORM_PLAIN"
       storageBindings:
         - bindingName: "data"
+          displayName: "App data"
+          description: "Chats, uploaded files and user settings."
           mountPath: "/app/backend/data"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]

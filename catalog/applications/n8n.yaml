@@ -119,6 +119,8 @@ graph:
           form: "APPLICATION_SECRET_FORM_BCRYPT"
       storageBindings:
         - bindingName: "data"
+          displayName: "Workflow data"
+          description: "Workflows, credentials and execution history."
           mountPath: "/home/node/.n8n"
           kind: "STORAGE_KIND_DATA"
           placements: ["STORAGE_PLACEMENT_DEPLOYMENT"]
