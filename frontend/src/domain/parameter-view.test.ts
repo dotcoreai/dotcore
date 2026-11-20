@@ -39,6 +39,22 @@ describe("text and secret parameter inputs", () => {
       "Username can't contain control characters.",
     );
   });
+
+  it("requires an email address for an email text", () => {
+    const email: ParameterView = {
+      id: "owner-email",
+      label: "Owner email",
+      type: { kind: "text", format: "email", maximumLength: 254, minimumLength: 5 },
+    };
+    const error = "Owner email must be an email address, such as name@example.com.";
+
+    for (const valid of ["admin@example.com", "a@b.c"])
+      expect(parameterInputValue(email, valid)).toBe(valid);
+    for (const invalid of ["abc", "abcdef", "a@bcde", "@b.com", "a@@b.com", "a b@c.com"]) {
+      expect(parameterInputValue(email, invalid)).toBeUndefined();
+      expect(parameterInputError(email, invalid)).toBe(error);
+    }
+  });
 });
 
 describe("unsigned integer parameter inputs", () => {
