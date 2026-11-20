@@ -60,6 +60,7 @@
           ninfer = ./engines/ninfer/docker-image.nix;
           strata = ./engines/strata/docker-image.nix;
           vllm = ./engines/vllm/docker-image.nix;
+          vllm-loop = ./engines/vllm-loop/docker-image.nix;
         };
         appImages = {
           comfyui = ./apps/comfyui/docker-image.nix;
