@@ -59,6 +59,8 @@ auxiliaryArtifacts:
         provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
 configurations:
   - configurationId: "vllm-nvidia-cuda-nvfp4"
+    # CHECK(https://github.com/vllm-project/vllm/pull/69028): in a stable vLLM release
+    #   -> approve the stable vLLM release instead and re-qualify on the RTX 5090 and GB10.
     engineArtifacts:
       - engineReleaseId: "vllm-inkling-2-mini"
         engineArtifactId: "linux-amd64-cuda"

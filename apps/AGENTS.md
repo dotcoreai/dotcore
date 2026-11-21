@@ -14,6 +14,12 @@ Use the `add-app` skill to add an app or engine image.
 * Don't pin what the stored image already fixes: a rebuild where the stored image is unavailable is
   best effort ([Dockerfile images](../docs/development/images.md#dockerfile-images)).
 
+## Forks and pre-releases
+
+* An image, package or catalog release built from a fork, an unmerged pull request or a pre-release
+  tag carries a `CHECK` comment (root [`AGENTS.md`](../AGENTS.md), "Code") wherever it is pinned or
+  approved: its image derivation, its catalog release and each model or app that uses it.
+
 ## Folder docs
 
 Every image folder has a `README.md` for the people who use the app or engine, and an `AGENTS.md`

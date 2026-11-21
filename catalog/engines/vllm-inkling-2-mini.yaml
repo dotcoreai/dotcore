@@ -1,8 +1,11 @@
-# Upstream's day-zero Inkling-2-Mini image, pinned per architecture by
-# `engines/vllm-loop/docker-image.nix`. It is a CUDA 13.0.3 build, which the R580 driver floor covers.
+# Upstream's pre-release Inkling-2-Mini image, built from an unmerged vLLM pull request and pinned per
+# architecture by `engines/vllm/inkling-2-mini/docker-image.nix`. It is a CUDA 13.0.3 build, which the
+# R580 driver floor covers.
+# CHECK(https://github.com/vllm-project/vllm/pull/69028): in a stable vLLM release
+#   -> move Inkling-2-Mini to the stable vLLM engine and delete this release and its image folder.
 engineReleaseId: "vllm-inkling-2-mini"
 engineKind: "ENGINE_KIND_VLLM"
-version: "inkling-2-mini"
+version: "0.1.dev25855+g7cb5dae22"
 parameterSchema:
   schemaId: "vllm-v2"
   parameterGroups:
@@ -93,12 +96,12 @@ storageBindings:
       - { name: "VLLM_CACHE_ROOT", relativePath: "vllm" }
       - { name: "TRITON_CACHE_DIR", relativePath: "triton" }
       - { name: "FLASHINFER_WORKSPACE_BASE" }
-# The image and its digests are pinned by `engines/vllm-loop/docker-image.nix`.
+# The image and its digests are pinned by `engines/vllm/inkling-2-mini/docker-image.nix`.
 artifacts:
   - artifactId: "linux-amd64-cuda"
     nix:
       flake: "self"
-      package: "engines.vllm-loop.docker"
+      package: "engines.vllm-inkling-2-mini.docker"
       dockerImage: {}
     # Each selector is one set of target facts this build runs on.
     selectors:
@@ -108,7 +111,7 @@ artifacts:
   - artifactId: "linux-arm64-cuda"
     nix:
       flake: "self"
-      package: "engines.vllm-loop.docker"
+      package: "engines.vllm-inkling-2-mini.docker"
       dockerImage: {}
     # Each selector is one set of target facts this build runs on.
     selectors:

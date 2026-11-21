@@ -8,6 +8,8 @@
 * Model configurations name the `linux-amd64-cuda` and `linux-arm64-cuda` artifact ids; keep both.
 * Nothing here is part of root `just build`, `test` or `check`.
 * Shared parameters: [`engines/AGENTS.md`](../AGENTS.md) says where their flags and rules live.
+* [`inkling-2-mini/`](inkling-2-mini/) holds a pre-release image for one model family, with its
+  own `AGENTS.md`, Just module and catalog release.
 
 ## Update
 
