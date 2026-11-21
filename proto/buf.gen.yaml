@@ -15,6 +15,7 @@ inputs:
       - dotcore.site.v1.Site
       - dotcore.site.v1.SiteService
       - dotcore.site.v1.SiteMembershipService
+      - dotcore.site.v1.SiteRescanService
       - dotcore.site.store.v1.SiteCurrentState
       - dotcore.watch.v1.ResourceWatchService
 

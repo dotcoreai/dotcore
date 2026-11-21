@@ -21,7 +21,8 @@ service NodeJoinService {
 }
 
 // The joining node's proposal, authenticated by the join secret. A rejoin carries only the join
-// secret, host, private port, signing request, manager host, node certificate and observation.
+// secret, host, private port, signing request, manager host, node certificate and observation;
+// the manager refuses anything else.
 message JoinRequest {
   // Join secret from the token, spent only by a successful commit.
   bytes join_secret = 1;
@@ -39,8 +40,8 @@ message JoinRequest {
   // Model execution targets the node proposes, one target each; empty when it runs no local models.
   repeated JoinModelTarget model_targets = 17;
 
-  // Application execution targets the node proposes, one target each; empty when it runs no
-  // applications.
+  // Application execution targets the node proposes, one target each; empty when it proposes no
+  // target. A new node proposes its full application target set; a rejoining node proposes none.
   repeated JoinApplicationTarget application_targets = 18;
 
   // Probed facts of the node's accelerators, used only to name its model execution targets.
@@ -99,7 +100,8 @@ message JoinResponse {
 }
 
 // Confirms that the node accepted the offered configuration: a new node installed its folder, a
-// rejoining node rewrites its addresses after the commit.
+// rejoining node rewrites its addresses and its manifest with the committed projection after
+// the commit.
 message CommitRequest {
   // Join secret from the token.
   bytes join_secret = 1;

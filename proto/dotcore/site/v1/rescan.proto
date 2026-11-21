@@ -1,0 +1,235 @@
+syntax = "proto3";
+
+package dotcore.site.v1;
+
+import "dotcore/site/v1/site.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+// Management API for the running site's target replacement: the operator starts a rescan invitation
+// from the console or `dotc`, runs `dotc node rescan` on the affected node, and reviews and
+// approves the exact change. Rescans live in memory only: a manager restart ends every rescan.
+// Errors: NOT_FOUND (unknown or ended rescan), FAILED_PRECONDITION (decision that doesn't match
+// the rescan's current proposal), RESOURCE_EXHAUSTED (too many pending rescans).
+service SiteRescanService {
+  // Starts a rescan invitation for one declared node and returns the rescan to watch; the node
+  // presents its pinned identity to answer it. The invitation is short-lived; the node re-reads
+  // its folder and scans locally each time it answers.
+  rpc StartRescan(StartRescanRequest) returns (StartRescanResponse);
+
+  // Streams a rescan's state: its current state on open, then every change, ending after a final
+  // state. A pending rescan with no watch open is cancelled after a short grace period.
+  rpc WatchRescan(WatchRescanRequest) returns (stream WatchRescanResponse);
+
+  // Allows the proposal awaiting approval; the first decision on a proposal wins.
+  rpc ApproveRescan(ApproveRescanRequest) returns (ApproveRescanResponse);
+
+  // Refuses the proposal awaiting approval; the rescan waits for a corrected answer with the same
+  // invitation.
+  rpc RejectRescan(RejectRescanRequest) returns (RejectRescanResponse);
+
+  // Ends a rescan that has not reached a final state and refuses its invitation from then on.
+  // Refused with FailedPrecondition while an approved replacement is being recorded; the rescan
+  // then ends in a recorded replacement, which its watch reports.
+  rpc CancelRescan(CancelRescanRequest) returns (CancelRescanResponse);
+}
+
+// Starts a rescan invitation for one declared node.
+message StartRescanRequest {
+  // SiteNode identity the operator wants rescanned; must belong to this site and have no
+  // already-pending rescan.
+  string node_id = 1;
+}
+
+// The started rescan, waiting for the node to answer it.
+message StartRescanResponse {
+  // Identity of the rescan, used by every other call.
+  string rescan_id = 1;
+
+  // Time after which the rescan expires and the node can no longer answer it.
+  google.protobuf.Timestamp expires_at = 2;
+}
+
+// Requests the state stream of one rescan.
+message WatchRescanRequest {
+  // Rescan to watch.
+  string rescan_id = 1;
+}
+
+// One message of a rescan watch.
+message WatchRescanResponse {
+  oneof event {
+    // The rescan's state as of now.
+    RescanState state = 1;
+
+    // Keeps an idle stream alive, sent after 15 s without any other event.
+    google.protobuf.Empty heartbeat = 2;
+  }
+}
+
+// Allows one proposal of a rescan.
+message ApproveRescanRequest {
+  // Rescan the proposal belongs to.
+  string rescan_id = 1;
+
+  // Proposal being allowed, as its awaiting approval state names it.
+  string proposal_id = 2;
+}
+
+// Acknowledges the approval; the watch reports the commit or failure that follows.
+message ApproveRescanResponse {}
+
+// Refuses one proposal of a rescan.
+message RejectRescanRequest {
+  // Rescan the proposal belongs to.
+  string rescan_id = 1;
+
+  // Proposal being refused, as its awaiting approval state names it.
+  string proposal_id = 2;
+}
+
+// Acknowledges the rejection.
+message RejectRescanResponse {}
+
+// Cancels a rescan.
+message CancelRescanRequest {
+  // Rescan to cancel.
+  string rescan_id = 1;
+}
+
+// Acknowledges the cancellation.
+message CancelRescanResponse {}
+
+// State of one rescan. Committed, cancelled, no-op, expired and failed are final; the others can
+// change.
+message RescanState {
+  oneof state {
+    // No proposal is under review; the invitation waits for the node.
+    RescanWaiting waiting = 1;
+
+    // A node passed the pin and validation checks and waits for the operator's decision.
+    RescanAwaitingApproval awaiting_approval = 2;
+
+    // The site recorded the replacement durably; the node must restart to serve under it.
+    RescanCommitted committed = 3;
+
+    // The whole-projection comparison found no byte changes; nothing was written or restarted.
+    RescanNoOp no_op = 4;
+
+    // The rescan was cancelled, by a call or because no watch remained open.
+    google.protobuf.Empty cancelled = 5;
+
+    // The rescan expired before the node answered it.
+    google.protobuf.Empty expired = 6;
+
+    // The rescan ended without recording anything.
+    RescanFailed failed = 7;
+  }
+}
+
+// A rescan waiting for the node, with how its latest answer ended, if any.
+message RescanWaiting {
+  // Outcome of the latest answer that ended without a commit; absent before any answer.
+  RescanAttemptOutcome last_attempt = 1;
+}
+
+// A proposal that passed the pin, base and validation checks, shown to the operator for a
+// decision.
+message RescanAwaitingApproval {
+  // Identity of this proposal, echoed by the decision on it.
+  string proposal_id = 1;
+
+  // What the node asks for, with the details for the decision.
+  RescanProposal proposal = 2;
+}
+
+// A rescan whose replacement was recorded.
+message RescanCommitted {
+  // SiteNode identity the replacement was recorded for.
+  string node_id = 1;
+
+  // Whole target set the node installed.
+  repeated dotcore.site.v1.ExecutionTarget targets = 2;
+
+  // Whether the node must restart to serve under the replacement.
+  bool restart_required = 3;
+}
+
+// A rescan whose whole projection was unchanged; nothing was written.
+message RescanNoOp {
+  // SiteNode identity the check was done for.
+  string node_id = 1;
+}
+
+// A rescan that ended without recording anything.
+message RescanFailed {
+  // Human-readable reason, such as too many failed attempts.
+  string reason = 1;
+}
+
+// How one answer of a rescan ended without a commit; the invitation stays usable.
+message RescanAttemptOutcome {
+  oneof outcome {
+    // The operator refused the proposal.
+    google.protobuf.Empty rejected = 1;
+
+    // Human-readable reason the answer failed, such as an invalid proposal.
+    string failed = 2;
+  }
+
+  // Wall-clock time the answer ended, which tells two identical outcomes apart.
+  google.protobuf.Timestamp at = 3;
+}
+
+// What a node asks for, as the operator reviews it.
+message RescanProposal {
+  // SiteNode identity of the node being rescanned.
+  string node_id = 1;
+
+  // SiteNode display name of the node being rescanned.
+  string display_name = 2;
+
+  // Execution targets the replacement adds: identities with no committed counterpart.
+  repeated dotcore.site.v1.ExecutionTarget added = 3;
+
+  // Execution targets whose identity is unchanged but whose full declaration differs.
+  repeated dotcore.site.v1.ExecutionTarget changed = 4;
+
+  // Execution targets present in the committed declaration but absent from the replacement, as
+  // their committed declarations.
+  repeated dotcore.site.v1.ExecutionTarget removed = 5;
+
+  // Execution targets whose full declaration is identical to the committed one.
+  repeated dotcore.site.v1.ExecutionTarget unchanged = 6;
+
+  // Deployments placed on a changed or removed target, including pending teardown; a non-empty
+  // list makes the replacement refuse rather than approve.
+  repeated RescanDeploymentImpact deployments = 7;
+}
+
+// One deployment placed on a changed or removed target.
+message RescanDeploymentImpact {
+  // Owner that declared the deployment.
+  RescanDeploymentKind kind = 1;
+
+  // Model or application deployment identity.
+  string deployment_id = 2;
+
+  // Display name, or the model when a model deployment has none.
+  string name = 3;
+
+  // Execution target the deployment is placed on.
+  string execution_target_id = 4;
+
+  // Whether the deployment is being torn down.
+  bool tearing_down = 5;
+}
+
+// Owner of a deployment placed on a changed or removed target.
+enum RescanDeploymentKind {
+  RESCAN_DEPLOYMENT_KIND_UNSPECIFIED = 0;
+
+  RESCAN_DEPLOYMENT_KIND_MODEL = 1;
+
+  RESCAN_DEPLOYMENT_KIND_APPLICATION = 2;
+}

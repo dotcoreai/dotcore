@@ -8,10 +8,10 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
 // Management API for the running site's membership: adding a machine, letting a declared one join
-// again, and removing one. Joins live in the site manager's memory only: a manager restart ends
-// every join and voids its token. Errors: NOT_FOUND (unknown or ended join), FAILED_PRECONDITION
-// (decision that doesn't match the join's current proposal), RESOURCE_EXHAUSTED (too many active
-// joins).
+// again, and removing one. Joins live in the
+// site manager's memory only: a manager restart ends every join and voids its token. Errors:
+// NOT_FOUND (unknown or ended join), FAILED_PRECONDITION (decision that doesn't match the join's
+// current proposal), RESOURCE_EXHAUSTED (too many active joins).
 service SiteMembershipService {
   // Starts a join and returns the token the joining machine presents.
   rpc StartJoin(StartJoinRequest) returns (StartJoinResponse);
@@ -312,7 +312,8 @@ message JoinNewNode {
   repeated JoinProposedTarget targets = 1;
 }
 
-// What changes when a declared machine joins again; its identity and targets stay.
+// What changes when a declared machine joins again. Its identity and existing targets stay; only
+// its addresses and observation configuration change.
 message JoinRejoin {
   // Host the site declares for the machine now, replaced by the proposal's host.
   string previous_host = 1;
