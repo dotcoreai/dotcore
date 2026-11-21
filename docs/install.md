@@ -7,13 +7,13 @@
   - [Docker Engine](https://docs.docker.com/engine/install/).
   - For NVIDIA GPUs, the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 - macOS on Apple Silicon:
-  - [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/), with the default Docker socket allowed in its advanced settings.
-  - Models run on the Mac's GPU directly. Docker is used for apps.
+  - Models run on the Mac's GPU directly, and need no other prerequisite than Nix.
+  - [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) is optional. It's used for apps only: without it, models still run, but no app can be deployed until Docker Desktop is running. In its Settings > Advanced, allow the default Docker socket (`/var/run/docker.sock`), which Dotcore talks to.
 - OrbStack and Colima aren't supported yet.
 
 ## Install
 
-In an interactive terminal, run the installer from the Dotcore site. It checks Docker and Nix, then adds Dotcore to your Nix profile:
+In an interactive terminal, run the installer from the Dotcore site. It checks Docker and Nix (Docker is optional on macOS), then adds Dotcore to your Nix profile:
 
 ```sh
 curl -fsSL https://dotcore.ai/install.sh | sh
