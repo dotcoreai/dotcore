@@ -85,10 +85,10 @@ function useRemaining(expiry: number): number {
     function tick() {
       const current = Date.now();
       setNow(current);
-      if (current < expiry) timer = setTimeout(tick, timing().joinCountdownTickMs);
+      if (current < expiry) timer = setTimeout(tick, timing().commandCountdownTickMs);
     }
 
-    timer = setTimeout(tick, timing().joinCountdownTickMs);
+    timer = setTimeout(tick, timing().commandCountdownTickMs);
     return () => clearTimeout(timer);
   }, [expiry]);
 

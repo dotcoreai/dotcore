@@ -1,28 +1,23 @@
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { ConnectError } from "@connectrpc/connect";
 import { Check, LoaderCircle, Plus, RefreshCw } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 
 import { useClients } from "@/api/clients";
 import type { SiteMembershipClient } from "@/api/site-membership-client";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Notice } from "@/components/ui/notice";
 import { SegmentedControl, type SegmentedControlOption } from "@/components/ui/segmented-control";
-import type { JoinAwaitingApproval } from "@/gen/dotcore/site/v1/membership_pb";
+import type { JoinAttemptOutcome, JoinAwaitingApproval } from "@/gen/dotcore/site/v1/membership_pb";
 
 import { ApproveStep } from "./approve-step";
-import { AttemptLog } from "./attempt-log";
+import { AttemptLog, type AttemptRow } from "./attempt-log";
 import { CommandTerminal } from "./command-terminal";
+import { FlowLayout } from "./flow-layout";
 import { CountdownPill, ExpiredBadge } from "./join-countdown";
 import { formatClock, peerHost } from "./join-format";
-import { Step, StepList } from "./join-steps";
+import { Step } from "./join-steps";
 import { type JoinSession, useJoinSession } from "./use-join-session";
 
 /**
@@ -77,28 +72,29 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
   if (session.error) {
     // A watch that broke off leaves a join that was started; a start error leaves none.
     return started ? (
-      <JoinLayout footer={<Button onClick={restart}>Try again</Button>}>
+      <FlowLayout footer={<Button onClick={restart}>Try again</Button>} title="Add a machine">
         <Step number={1} status="done" title={`Command run on ${name}`} />
         <Step number={2} status="warning" title="The machine connects">
           <Notice tone="destructive">{session.error}</Notice>
         </Step>
         <Step number={3} status="todo" title="Approve the machine" />
-      </JoinLayout>
+      </FlowLayout>
     ) : (
-      <JoinLayout footer={<Button onClick={restart}>Start again</Button>}>
+      <FlowLayout footer={<Button onClick={restart}>Start again</Button>} title="Add a machine">
         <Step number={1} status="warning" title="Run this on the new machine">
           <Notice tone="destructive">{session.error}</Notice>
         </Step>
         <Step number={2} status="todo" title="The machine connects" />
         <Step number={3} status="todo" title="Approve the machine" />
-      </JoinLayout>
+      </FlowLayout>
     );
   }
 
   switch (state?.state.case) {
     case "committed":
       return (
-        <JoinLayout
+        <FlowLayout
+          title="Add a machine"
           footer={
             <>
               <Button className="sm:mr-auto" onClick={restart} variant="ghost">
@@ -116,11 +112,12 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
             status="done"
             title={`${session.proposal?.displayName ?? "The machine"} added to the site`}
           />
-        </JoinLayout>
+        </FlowLayout>
       );
     case "expired":
       return (
-        <JoinLayout
+        <FlowLayout
+          title="Add a machine"
           footer={
             <>
               <Button className="sm:mr-auto" onClick={onClose} variant="ghost">
@@ -135,7 +132,12 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
           status={<ExpiredBadge />}
         >
           <Step number={1} status="warning" title="Run this on the new machine">
-            <CommandTerminal command={joinCommand(session, commandKind)} dimmed />
+            <CommandTerminal
+              command={joinCommand(session, commandKind)}
+              copyLabel="join command"
+              dimmed
+              title="on the new machine"
+            />
             <Notice tone="destructive">
               {expiresAt
                 ? `This command expired at ${formatClock(timestampDate(expiresAt))}.`
@@ -145,32 +147,38 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
           </Step>
           <Step number={2} status="todo" title="The machine connects" />
           <Step number={3} status="todo" title="Approve the machine" />
-        </JoinLayout>
+        </FlowLayout>
       );
     case "cancelled":
       return (
-        <JoinLayout footer={<Button onClick={restart}>Start again</Button>}>
+        <FlowLayout footer={<Button onClick={restart}>Start again</Button>} title="Add a machine">
           <Step number={1} status="warning" title="Run this on the new machine">
-            <CommandTerminal command={joinCommand(session, commandKind)} dimmed />
+            <CommandTerminal
+              command={joinCommand(session, commandKind)}
+              copyLabel="join command"
+              dimmed
+              title="on the new machine"
+            />
             <Notice tone="warning">The join was cancelled.</Notice>
           </Step>
           <Step number={2} status="todo" title="The machine connects" />
           <Step number={3} status="todo" title="Approve the machine" />
-        </JoinLayout>
+        </FlowLayout>
       );
     case "failed":
       return (
-        <JoinLayout footer={<Button onClick={restart}>Start again</Button>}>
+        <FlowLayout footer={<Button onClick={restart}>Start again</Button>} title="Add a machine">
           <Step number={1} status="done" title={`Command run on ${name}`} />
           <Step number={2} status="warning" title="The machine connects">
             <Notice tone="destructive">{state.state.value.reason}</Notice>
           </Step>
           <Step number={3} status="todo" title="Approve the machine" />
-        </JoinLayout>
+        </FlowLayout>
       );
     default:
       return (
-        <JoinLayout
+        <FlowLayout
+          title="Add a machine"
           status={
             expiresAt && session.startedAt ? (
               <CountdownPill expiresAt={expiresAt} startedAt={session.startedAt} />
@@ -187,7 +195,11 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
                   options={COMMAND_KINDS}
                   value={commandKind}
                 />
-                <CommandTerminal command={joinCommand(session, commandKind)} />
+                <CommandTerminal
+                  command={joinCommand(session, commandKind)}
+                  copyLabel="join command"
+                  title="on the new machine"
+                />
                 <p className="text-[12.5px] text-muted-foreground">
                   {commandKind === "install"
                     ? "Installs Dotcore, joins the site and starts it. Keep this open until the machine connects."
@@ -210,11 +222,14 @@ function JoinFlow({ onClose }: { onClose: () => void }) {
             title="The machine connects"
           >
             {started ? (
-              <AttemptLog attempts={session.attempts} machineName={session.proposal?.displayName} />
+              <AttemptLog
+                attempts={joinAttemptRows(session.attempts, session.proposal?.displayName)}
+                pendingLabel="Waiting for the machine…"
+              />
             ) : null}
           </Step>
           <Step number={3} status="todo" title="Approve the machine" />
-        </JoinLayout>
+        </FlowLayout>
       );
   }
 }
@@ -251,7 +266,8 @@ function ReviewPhase({
   }
 
   return (
-    <JoinLayout
+    <FlowLayout
+      title="Add a machine"
       footer={
         <>
           <Button
@@ -278,33 +294,7 @@ function ReviewPhase({
       <Step number={3} status="active" title={`Approve ${name}`}>
         {proposal ? <ApproveStep error={error} proposal={proposal} /> : null}
       </Step>
-    </JoinLayout>
-  );
-}
-
-// The dialog frame: title, an optional status next to the close button, the steps and the actions.
-function JoinLayout({
-  children,
-  footer,
-  status,
-}: {
-  children: ReactNode;
-  footer?: ReactNode;
-  status?: ReactNode;
-}) {
-  return (
-    <>
-      <DialogHeader className="flex-row items-center gap-3 border-b px-[1.6rem] py-[1.1rem] pr-16 max-sm:px-5 max-sm:pr-16 sm:pr-14">
-        <DialogTitle className="mr-auto text-[17px] leading-6 font-semibold whitespace-nowrap">
-          Add a machine
-        </DialogTitle>
-        {status}
-      </DialogHeader>
-      <div className="overflow-y-auto px-[1.6rem] py-6">
-        <StepList>{children}</StepList>
-      </div>
-      {footer ? <DialogFooter className="m-0 px-[1.6rem] py-4">{footer}</DialogFooter> : null}
-    </>
+    </FlowLayout>
   );
 }
 
@@ -314,6 +304,22 @@ function joinCommand(session: JoinSession, kind: CommandKind): string {
   return kind === "install"
     ? `curl -fsSL ${INSTALLER_URL} | sh -s -- --join ${token}`
     : `dotc node join --token ${token}`;
+}
+
+// The node's answers that ended without going through, in the words the operator sees for each.
+function joinAttemptRows(attempts: JoinAttemptOutcome[], machineName?: string): AttemptRow[] {
+  return attempts.map((attempt) => ({ at: attempt.at, text: attemptText(attempt, machineName) }));
+}
+
+function attemptText(attempt: JoinAttemptOutcome, machineName?: string): string {
+  switch (attempt.outcome.case) {
+    case "failed":
+      return attempt.outcome.value;
+    case "rejected":
+      return `You rejected ${machineName ?? "the machine"}.`;
+    default:
+      return "The attempt ended.";
+  }
 }
 
 function connectedTitle(session: JoinSession): string {

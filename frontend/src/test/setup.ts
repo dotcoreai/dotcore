@@ -31,7 +31,7 @@ const testTiming: Timing = Object.freeze({
   profileCompatibilityRefreshMs: 60 * 60 * 1_000,
   recommendationReadMs: 10,
   // An hour, which no test outlives, so the countdown only moves in tests that drive it.
-  joinCountdownTickMs: 60 * 60 * 1_000,
+  commandCountdownTickMs: 60 * 60 * 1_000,
 });
 
 setTiming(testTiming);

@@ -2,11 +2,21 @@ import { CodeCopyControl } from "@/components/ui/copy-control";
 import { cn } from "@/lib/utils";
 
 /**
- * The join command in a terminal-styled pane titled for the machine it runs on. The command shows
+ * A command in a terminal-styled pane titled for the machine it runs on. The command shows
  * in at most three lines that fade out; Copy takes the whole command. An expired command dims and
  * loses its Copy button.
  */
-export function CommandTerminal({ command, dimmed }: { command: string; dimmed?: boolean }) {
+export function CommandTerminal({
+  command,
+  copyLabel,
+  dimmed,
+  title,
+}: {
+  command: string;
+  copyLabel: string;
+  dimmed?: boolean;
+  title: string;
+}) {
   return (
     <div className="rounded-xl border border-console-terminal-foreground/15 bg-console-terminal text-console-terminal-foreground">
       <div className="flex items-center gap-1.5 border-b border-console-terminal-foreground/15 px-3 py-2 text-[11.5px] text-console-terminal-foreground/65">
@@ -15,11 +25,11 @@ export function CommandTerminal({ command, dimmed }: { command: string; dimmed?:
           <i className="size-2.5 rounded-full bg-console-terminal-foreground/25" />
           <i className="size-2.5 rounded-full bg-console-terminal-foreground/25" />
         </span>
-        <span className="mr-auto ml-1.5 min-w-0 truncate">on the new machine</span>
+        <span className="mr-auto ml-1.5 min-w-0 truncate">{title}</span>
         {dimmed ? null : (
           <CodeCopyControl
             className="border-console-terminal-foreground/25 bg-transparent text-console-terminal-foreground hover:bg-console-terminal-foreground/10 hover:text-console-terminal-foreground dark:border-console-terminal-foreground/25 dark:bg-transparent dark:hover:bg-console-terminal-foreground/10"
-            label="join command"
+            label={copyLabel}
             value={command}
           />
         )}

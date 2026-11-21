@@ -38,6 +38,7 @@ export function testClients(clients: Partial<ConsoleClients> = {}): ConsoleClien
     routeClient: clients.routeClient ?? unfakedClient("routeClient"),
     siteClient: clients.siteClient ?? unfakedClient("siteClient"),
     siteMembershipClient: clients.siteMembershipClient ?? unfakedClient("siteMembershipClient"),
+    siteRescanClient: clients.siteRescanClient ?? unfakedClient("siteRescanClient"),
   };
 }
 

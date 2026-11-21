@@ -14,6 +14,7 @@ import {
   StartJoinResponseSchema,
   WatchJoinResponseSchema,
 } from "@/gen/dotcore/site/v1/membership_pb";
+import { PushStream } from "@/test/push-stream";
 
 /** How long a fake join's command stays valid from the moment it starts. */
 export const joinLifetimeMs = 15 * 60 * 1_000;
@@ -51,7 +52,7 @@ export function joinState(init: MessageInitShape<typeof JoinStateSchema>): JoinS
  * states with `report` and every call is a spy.
  */
 export function fakeSiteMembershipClient() {
-  const watches: Watch[] = [];
+  const watches: PushStream<Message>[] = [];
 
   const client = {
     approveJoin: vi.fn(() => Promise.resolve(create(ApproveJoinResponseSchema))),
@@ -70,7 +71,7 @@ export function fakeSiteMembershipClient() {
       ),
     ),
     watchJoin: vi.fn((_request: unknown, options?: { signal?: AbortSignal }) => {
-      const watch = new Watch(options?.signal);
+      const watch = new PushStream<Message>(options?.signal);
       watches.push(watch);
       return watch;
     }),
@@ -92,47 +93,3 @@ export function fakeSiteMembershipClient() {
 }
 
 type Message = ReturnType<typeof create<typeof WatchJoinResponseSchema>>;
-
-// A push-driven stream that stops with the abort signal, like a Connect server stream.
-class Watch implements AsyncIterable<Message> {
-  private readonly queue: Message[] = [];
-  private waiting?: {
-    reject: (reason: unknown) => void;
-    resolve: (r: IteratorResult<Message>) => void;
-  };
-  private ended = false;
-
-  constructor(private readonly signal?: AbortSignal) {
-    signal?.addEventListener("abort", () => this.waiting?.reject(new Error("aborted")));
-  }
-
-  push(message: Message) {
-    const waiting = this.waiting;
-    if (waiting) {
-      this.waiting = undefined;
-      waiting.resolve({ done: false, value: message });
-    } else {
-      this.queue.push(message);
-    }
-  }
-
-  end() {
-    this.ended = true;
-    this.waiting?.resolve({ done: true, value: undefined });
-    this.waiting = undefined;
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<Message> {
-    return {
-      next: () => {
-        if (this.signal?.aborted) return Promise.reject(new Error("aborted"));
-        const queued = this.queue.shift();
-        if (queued) return Promise.resolve({ done: false, value: queued });
-        if (this.ended) return Promise.resolve({ done: true, value: undefined });
-        return new Promise((resolve, reject) => {
-          this.waiting = { reject, resolve };
-        });
-      },
-    };
-  }
-}

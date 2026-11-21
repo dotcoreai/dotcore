@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { ScanSearch, Trash2 } from "lucide-react";
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -43,6 +43,7 @@ import {
 } from "./machine-details";
 import { inspectedMachineId, machineInspectorPanelId } from "./machine-panels";
 import { MachineRemovalDialog } from "./machine-removal-dialog";
+import { MachineRescanDialog } from "./machine-rescan-dialog";
 
 export interface MachineSidebarHostProps {
   /** The range label the resource history charts start at, such as the hosting page's range. */
@@ -61,7 +62,11 @@ export interface MachineSidebarHostProps {
 export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHostProps) {
   const { metricsClient, siteMembershipClient } = useClients();
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
+  // The machine a re-scan was started from, kept so the re-scan names that machine however the
+  // inspector moves on.
+  const [rescanning, setRescanning] = useState<MachineTarget>();
   const removeButtonRef = useRef<HTMLElement>(null);
+  const rescanButtonRef = useRef<HTMLElement>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const panelNavigation = usePanelNavigation();
@@ -215,7 +220,8 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
     closeInspector();
   }, [closeInspector]);
 
-  // The site manager's machine can't leave its site, so only a worker's own screen offers removal.
+  // Only a worker's own screen offers these two: its machine can leave the site, and its whole
+  // target set can be replaced from here. The site manager's machine can do neither.
   const removableMachine =
     displayedInspector && !displayedInspector.machine.siteManager && !executionTargetId
       ? displayedInspector.machine
@@ -259,6 +265,16 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
             <InspectorActions
               more={[
                 {
+                  focusRef: rescanButtonRef,
+                  icon: ScanSearch,
+                  label: "Re-scan targets",
+                  onSelect: () =>
+                    setRescanning({
+                      machineId: removableMachine.machineId,
+                      machineName: removableMachine.displayName || removableMachine.machineId,
+                    }),
+                },
+                {
                   destructive: true,
                   focusRef: removeButtonRef,
                   icon: Trash2,
@@ -283,7 +299,7 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
         // page never closes and reopens; the inventory then fills or recovers it.
         open={machineId !== undefined}
         openerRef={openerRef}
-        suspendDismissal={confirmingRemoval}
+        suspendDismissal={confirmingRemoval || rescanning !== undefined}
         title={
           selectedMachine && executionTargetId ? (
             <ResourceTitle
@@ -326,8 +342,26 @@ export function MachineSidebarHost({ initialRange, openerRef }: MachineSidebarHo
           open={confirmingRemoval}
         />
       ) : null}
+      {rescanning ? (
+        <MachineRescanDialog
+          key={rescanning.machineId}
+          finalFocus={rescanButtonRef}
+          machineId={rescanning.machineId}
+          machineName={rescanning.machineName}
+          onOpenChange={(open) => {
+            if (!open) setRescanning(undefined);
+          }}
+          open
+        />
+      ) : null}
     </>
   );
+}
+
+/** The machine a re-scan was started from: the node it targets and the name the dialog shows. */
+interface MachineTarget {
+  machineId: string;
+  machineName: string;
 }
 
 /** The machine a machine inspector shows, and its snapshot detail once its body may render. */
