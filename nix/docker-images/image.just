@@ -3,11 +3,14 @@
 
 image_root := parent_directory(parent_directory(source_directory()))
 
-# Image name: the importing folder's name, such as `n8n`.
-image := file_name(module_directory())
+# Area and image name from the importing folder's path: `apps/n8n` is image `n8n` in area `apps`,
+# and a variant nested under its engine, `engines/vllm/inkling-2-mini`, is `vllm-inkling-2-mini`.
+image_folder := trim_start_match(module_directory(), image_root + "/")
+image_area := replace_regex(image_folder, '/.*', '')
+image := replace(trim_start_match(image_folder, image_area + "/"), "/", "-")
 
 # Flake attribute path of the folder's Docker image derivation, such as `apps.n8n.docker`.
-image_package := file_name(parent_directory(module_directory())) + "." + image + ".docker"
+image_package := image_area + "." + image + ".docker"
 
 # Load the image into the current Docker daemon through its Docker image derivation and print the result: reference, image ID and resolution path.
 [group('image')]

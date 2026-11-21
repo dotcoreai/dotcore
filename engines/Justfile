@@ -2,6 +2,7 @@ mod llama-cpp 'llama-cpp/Justfile'
 mod ninfer 'ninfer/Justfile'
 mod strata 'strata/Justfile'
 mod vllm 'vllm/Justfile'
+mod vllm-inkling-2-mini 'vllm/inkling-2-mini/Justfile'
 
 # List engine modules.
 help:
@@ -11,6 +12,7 @@ help:
 image-load:
   just llama-cpp image-load
   just vllm image-load
+  just vllm-inkling-2-mini image-load
   just strata image-load
   just ninfer image-load
 

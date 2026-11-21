@@ -1,0 +1,222 @@
+# Immutable provenance for Thinking Machines' native Inkling-2-Mini checkpoint
+# (thinkingmachines/Inkling-2-Mini): the vendor's own ModelOpt build, NVFP4 experts on layers 0-19, MXFP8
+# experts on layers 20-23, BF16 attention and routers. It is a 26.4B-total, ~3.5B-active mixture of experts
+# whose looped core runs layers 6-17 three times per token, each pass with its own KV cache.
+# Only the Inkling vLLM release loads its looped architecture; the stable vLLM release does not.
+# Text only for now: the vision tower ships inside the snapshot but is not declared until its image limits
+# are established. The DSpark drafter (mtp.safetensors) is pinned because the model config references it,
+# but speculative decoding is off, so it is never loaded.
+# Sampling is not pinned: the vendor's temperature 1.0 is a recommendation, set per request.
+modelId: "inkling-2-mini"
+displayName: "Inkling 2 Mini"
+version: "2-mini"
+# model_max_length in tokenizer_config.json and max_position_embeddings in config.json (revision 6e7c824).
+maximumContextTokens: 1048576
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+artifacts:
+  - artifactId: "nvfp4"
+    weightQuantization: "NVFP4"
+    source:
+      repository: "thinkingmachines/Inkling-2-Mini"
+      revision: "6e7c8248f75265bdd4fbab5273304243b5d8c2cb"
+      snapshot:
+        files:
+          - path: "chat_template.jinja"
+            provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
+          - path: "config.json"
+            provenanceDigest: "8216dd43157f5474cfff88f486a1e433fef703c674f694e485a86a761c412b1e"
+          - path: "generation_config.json"
+            provenanceDigest: "a08737c07a65a8fdf69f7cf086576210e5aad4b241437090b26d7b0c4f7905f7"
+          - path: "hf_quant_config.json"
+            provenanceDigest: "7c656207d3ce37879c7be209a036b0dde43bf01f78159bff06880b868ed57143"
+          - path: "model-00001-of-00001.safetensors"
+            provenanceDigest: "65e60f51aa1284d4fb022584908c315270334d991828bb774af60584523539d1"
+          - path: "model.safetensors.index.json"
+            provenanceDigest: "c1631065b7b00787993522dddc66a68b3abee869192977fb3dcb796e63bc5838"
+          - path: "mtp.safetensors"
+            provenanceDigest: "7c3b651317f01f73bcf4e1dceba66ef8b7e1a1eac6bc171e882e690a4b10a1d2"
+          - path: "processor_config.json"
+            provenanceDigest: "d7350adce18c8be4b607f261c8f0f7eabbf720bb7aaf648a43d4f8372bbacc2d"
+          - path: "special_tokens_map.json"
+            provenanceDigest: "c16f44b3594563d82743ddb0417a2be1bfe3e2000dfad2da4b8f32554593e1a0"
+          - path: "tiktoken/tokenizer.model"
+            provenanceDigest: "f170372dd655728909228220d77cf6b8104a59f38a91262a7d2c4027906ec0d8"
+          - path: "tokenizer.json"
+            provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
+          - path: "tokenizer_config.json"
+            provenanceDigest: "bf09342d285139fd37ce10c70878af1d52cb390e9901e10248654293a80ee636"
+auxiliaryArtifacts:
+  # The checkpoint's own template, which carries the inkling reasoning and tool-call format.
+  - auxiliaryArtifactId: "inkling-chat-template"
+    source:
+      repository: "thinkingmachines/Inkling-2-Mini"
+      revision: "6e7c8248f75265bdd4fbab5273304243b5d8c2cb"
+      file:
+        path: "chat_template.jinja"
+        provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
+configurations:
+  - configurationId: "vllm-nvidia-cuda-nvfp4"
+    # WAIT: vLLM PR #69028 (https://github.com/vllm-project/vllm/pull/69028) in a stable release,
+    # then approve the stable vLLM release instead and re-qualify on the RTX 5090 and GB10.
+    engineArtifacts:
+      - engineReleaseId: "vllm-inkling-2-mini"
+        engineArtifactId: "linux-amd64-cuda"
+      - engineReleaseId: "vllm-inkling-2-mini"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "nvfp4"
+        modelArtifactId: "nvfp4"
+        auxiliaryArtifactIds: ["inkling-chat-template"]
+    # The KV pool follows the pinned engine's block layout; the base, activation, vision and margin constants
+    # are measured per hardware class.
+    sizing:
+      bindingParameters: ["modelLoadingBaseBytes", "activationBytesPerBatchedToken", "visionBytes", "marginBytes"]
+      parameters:
+        # One shared pool of 1 MiB blocks: 96 caches in groups of 8, each with a 128 KiB page.
+        kvBlockBytes: 1048576
+        # Full attention: 8 fp8 caches x 8 KV heads x 128 x (K + V) bytes per token.
+        kvBytesPerToken: 16384
+        # Each running request holds the window of the 5 sliding-window groups (1,024 tokens) and the 6 bf16
+        # short-convolution groups (one per layer and loop pass), plus one block for rounding its context:
+        # 103 blocks, the pinned engine's planner at one token per step.
+        kvRequestWindowBytes: 108003328
+        # While a prompt is processed, those groups also reserve blocks for twice the batched tokens: about
+        # 1.656 blocks per batched token plus 6 blocks beyond the window. Measured on an RTX 5090, prompts are
+        # processed one at a time and decoding requests hold only their window, so this is counted once.
+        # With the window it is the planner's linear upper bound for one request, which its start check uses.
+        kvBatchedTokenBytes: 1736704
+        kvPromptReservationBytes: 6291456
+      derivedParameters:
+        kv-cache-memory-bytes: >-
+          ${parallel-requests} * ${kvRequestWindowBytes}
+          + ${kvPromptReservationBytes} + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
+          + ${kvBytesPerToken} * ${total-context}
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${modelLoadingBaseBytes}
+            + ${activationBytesPerBatchedToken} * ${maximum-batched-tokens}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + ${kv-cache-memory-bytes}
+          allowance: >-
+            ${marginBytes}
+    hardwareSupport:
+      # The minimum covers the default profile estimate at the default 32K total context, plus the 1% the
+      # placement keeps free, so 24 GB GPUs such as the RTX 4090 qualify with a short context.
+      - hardwareClassId: "nvidia"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "25500000000"
+          minimumSystemMemoryBytes: "64000000000"
+        bindingSizing:
+          # Fitted on an RTX 5090 from 12 launches at 512-4,096 batched tokens, 1-2 requests and 32K-526K total
+          # context: two after two concurrent long prompts, two with vision after 4 images of 2,048 px in one
+          # request. Residuals -83 MB to +80 MB; GB10 launches read below these values. The margin covers the
+          # largest under-prediction with room for load the launches did not show.
+          - bindingId: "nvfp4"
+            parameters:
+              modelLoadingBaseBytes: 20038563636
+              activationBytesPerBatchedToken: 309106
+              visionBytes: 682637516
+              marginBytes: 268435456
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_VLLM"
+      vllm:
+        fixedSettings:
+          reasoningParser: "inkling"
+          toolCallParser: "inkling"
+          chatTemplateAuxiliaryArtifactId: "inkling-chat-template"
+          kvCacheDataType: "VLLM_KV_CACHE_DATA_TYPE_FP8"
+          kvCacheMemoryBytesParameterId: "kv-cache-memory-bytes"
+          maximumBatchedTokensParameterId: "maximum-batched-tokens"
+          maximumCudaGraphCaptureSizeParameterId: "maximum-cudagraph-capture-size"
+          kvOffloadingSizeGibParameterId: "kv-offloading-size-gib"
+          kvOffloadingBackend: "VLLM_KV_OFFLOADING_BACKEND_NATIVE"
+          containerPort: 15000
+          readinessPolicy:
+            mode: "VLLM_READINESS_MODE_MODELS"
+          requiresHostIpc: true
+          enableLogRequests: true
+          enableAutoToolChoice: true
+          enableChunkedPrefill: true
+          enableAsyncScheduling: true
+          enablePrefixCaching: true
+          enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      # The engine has no image-count or size cap and never resizes: an image costs 1 + ceil(h / 40) x
+      # ceil(w / 40) tokens (`vllm/models/inkling2/processing.py`). The model card advises 40-4,096 px per
+      # side. These limits are a policy within that: the 2,048 px side the engine profiles at startup, with
+      # its 2,705 tokens per image, and 4 images per request. Byte limits are 4 bytes per pixel at that size.
+      imageInputCapacity:
+        maximumImageCount: 4
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "16777216"
+        maximumDecodedBytes: "16777216"
+        maximumWidth: 2048
+        maximumHeight: 2048
+        maximumPixels: "4194304"
+        fixedVisualTokens: 2705
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+profiles:
+  - profileId: "nvfp4"
+    displayName: "Inkling 2 Mini NVFP4"
+    description: "Runs Inkling 2 Mini through vLLM for Linux NVIDIA inference."
+    configurationId: "vllm-nvidia-cuda-nvfp4"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        # Measured on an RTX 5090: 2,048 processes prompts about twice as fast as 512 and still leaves
+        # room for two 256K requests on a 32 GB card.
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "2048"
+        - parameterId: "parallel-requests"
+          unsignedInteger: "2"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+  - profileId: "nvfp4-multimodal"
+    displayName: "Inkling 2 Mini NVFP4 with vision"
+    description: "Runs Inkling 2 Mini through vLLM for text and image inference."
+    configurationId: "vllm-nvidia-cuda-nvfp4"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "2048"
+        - parameterId: "parallel-requests"
+          unsignedInteger: "2"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
+license:
+  id: Apache-2.0
+  termsUrl: https://www.apache.org/licenses/LICENSE-2.0
