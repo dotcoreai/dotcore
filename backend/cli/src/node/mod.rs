@@ -1,6 +1,7 @@
 //! The commands that change and inspect a site's membership without copying files between
 //! machines: `dotc node add` starts a join on the running manager, `dotc node join` on the new
 //! machine reaches it with the one-time token and installs the node's folder,
+//! `dotc node rescan` replaces one node's whole target set after its machine changed, and
 //! `dotc node remove` takes a worker out of the site, through the running manager or from the
 //! stopped site, `dotc node leave` cleans up the removed machine, and `dotc node list` shows the
 //! nodes.
@@ -14,6 +15,7 @@ mod join;
 mod leave;
 mod list;
 mod remove;
+mod rescan;
 
 use std::io::Write;
 
@@ -35,9 +37,11 @@ use join::{NodeJoinArgs, node_join};
 use leave::{NodeLeaveArgs, node_leave};
 use list::{NodeListArgs, node_list};
 use remove::{NodeRemoveArgs, node_remove};
+use rescan::{NodeRescanArgs, node_rescan};
 
 /// Commands that manage site membership: `add` and `remove` on the running manager (`remove` also
-/// on a stopped one), `join` and `leave` on the node's machine, and `list` on the manager.
+/// on a stopped one), `join`, `leave` and `rescan` on a node's machine, `rescan` also in a site
+/// folder to re-scan that site's manager node, and `list` on the manager.
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct NodeCommand {
@@ -66,6 +70,13 @@ enum NodeSubcommand {
     /// List the nodes of this site with their addresses and deployments; runs on the manager,
     /// which may be running.
     List(NodeListArgs),
+
+    /// Re-scan this machine's capabilities and replace one node's whole target set: runs on the
+    /// node whose hardware or runtimes changed, with its server stopped. In a joined node folder the
+    /// site manager records the replacement only after its operator approves it and the node then
+    /// installs it; in a site folder this machine's own manager node is re-scanned and the site
+    /// records the replacement itself. Both report the restart the replacement needs.
+    Rescan(NodeRescanArgs),
 }
 
 impl NodeCommand {
@@ -76,6 +87,7 @@ impl NodeCommand {
             Some(NodeSubcommand::Remove(arguments)) => node_remove(paths, arguments).await,
             Some(NodeSubcommand::Leave(arguments)) => node_leave(paths, arguments).await,
             Some(NodeSubcommand::List(arguments)) => node_list(paths, arguments),
+            Some(NodeSubcommand::Rescan(arguments)) => node_rescan(paths, arguments).await,
             None => anyhow::bail!("node command requires an action"),
         }
     }
@@ -87,7 +99,8 @@ impl NodeCommand {
                 NodeSubcommand::Add(_)
                 | NodeSubcommand::Remove(_)
                 | NodeSubcommand::Leave(_)
-                | NodeSubcommand::List(_),
+                | NodeSubcommand::List(_)
+                | NodeSubcommand::Rescan(_),
             )
             | None => None,
         }
@@ -96,17 +109,17 @@ impl NodeCommand {
 
 /// Where operator-facing notices go: the guided terminal when there is one, else stderr, which
 /// carries diagnostics when the command runs unattended.
-struct Notices<'a> {
+pub(crate) struct Notices<'a> {
     terminal: Option<&'a mut dyn Terminal>,
 }
 
 impl<'a> Notices<'a> {
-    fn new(terminal: Option<&'a mut dyn Terminal>) -> Self {
+    pub(crate) fn new(terminal: Option<&'a mut dyn Terminal>) -> Self {
         Self { terminal }
     }
 
     /// Shows context the operator can read but an unattended run does not need.
-    fn info(&mut self, message: Message) -> anyhow::Result<()> {
+    pub(crate) fn info(&mut self, message: Message) -> anyhow::Result<()> {
         if let Some(terminal) = self.terminal.as_deref_mut() {
             terminal.message(&message)?;
         }
@@ -114,7 +127,7 @@ impl<'a> Notices<'a> {
     }
 
     /// Reports a positive outcome on the terminal.
-    fn success(&mut self, text: &str) -> anyhow::Result<()> {
+    pub(crate) fn success(&mut self, text: &str) -> anyhow::Result<()> {
         if let Some(terminal) = self.terminal.as_deref_mut() {
             terminal.message(&Message::Success(text.to_owned()))?;
         }
@@ -123,7 +136,7 @@ impl<'a> Notices<'a> {
 
     /// Tells the operator what to do next: as next steps on the terminal, else as `plain` on
     /// stderr so stdout keeps only records.
-    fn instruct(&mut self, steps: Vec<NextStep>, plain: &str) -> anyhow::Result<()> {
+    pub(crate) fn instruct(&mut self, steps: Vec<NextStep>, plain: &str) -> anyhow::Result<()> {
         match self.terminal.as_deref_mut() {
             Some(terminal) => terminal.message(&Message::Next(steps))?,
             None => eprintln!("Notice: {plain}"),
@@ -132,7 +145,7 @@ impl<'a> Notices<'a> {
     }
 
     /// Shows something the operator should double-check.
-    fn warn(&mut self, text: &str) -> anyhow::Result<()> {
+    pub(crate) fn warn(&mut self, text: &str) -> anyhow::Result<()> {
         match self.terminal.as_deref_mut() {
             Some(terminal) => terminal.message(&Message::Warning(text.to_owned()))?,
             None => eprintln!("Warning: {text}"),
@@ -142,7 +155,7 @@ impl<'a> Notices<'a> {
 }
 
 /// Lends an owned terminal to a callee without giving it up.
-fn boxed(terminal: &mut Option<Box<dyn Terminal>>) -> Option<&mut dyn Terminal> {
+pub(crate) fn boxed(terminal: &mut Option<Box<dyn Terminal>>) -> Option<&mut dyn Terminal> {
     match terminal {
         Some(terminal) => Some(&mut **terminal),
         None => None,

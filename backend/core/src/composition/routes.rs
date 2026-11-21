@@ -4,18 +4,23 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use dotcore_domain::clock::Clock;
 use dotcore_site::{
-    membership::{MachineRemoval, MembershipManagementService, join::JoinRegistry},
+    membership::{
+        MachineRemoval, MembershipManagementService, RescanManagementService, RescanRegistry,
+        join::JoinRegistry,
+    },
     private_transport::PeerPins,
     view::fencing::AcceptedNodeViewAuthority,
 };
 
 use super::BackendServices;
 
-/// The site manager's join registry, what its node removal changes, and how its management
-/// watches send heartbeats.
+/// The site manager's join and re-scan registries, what its node removal changes, and how its
+/// management watches send heartbeats.
 pub(super) struct ManagerMembership {
     pub(super) registry: JoinRegistry,
 
+    /// Re-scan invitations the manager holds for its worker nodes.
+    pub(super) rescans: RescanRegistry,
     /// Root of the site whose worker pins a removal deletes.
     pub(super) site_root: PathBuf,
 
@@ -72,10 +77,13 @@ pub(super) fn assemble(
     };
 
     let join_service = membership.registry.join_service();
+    let rescan_service = membership.rescans.rescan_service();
     let private_services =
         crate::server::private::PrivateServiceAssembly::new(move |context, routes| {
             // Machines without a site certificate reach only this service, while a join is active.
             routes.add_service(join_service);
+            // A declared worker re-scans its targets here, with its own pinned identity.
+            routes.add_service(rescan_service);
             routes.add_service(node_control_streams.private_service(&context).into_server());
             routes.add_service(
                 crate::metric_stream::MetricBucketStreamService::new(metric_buckets, &context)
@@ -120,6 +128,14 @@ pub(super) fn assemble(
         MembershipManagementService::new(
             membership.registry,
             removal,
+            Arc::clone(&membership.clock),
+            membership.heartbeat_interval,
+        )
+        .into_server(),
+    )
+    .add_service(
+        RescanManagementService::new(
+            membership.rescans,
             membership.clock,
             membership.heartbeat_interval,
         )

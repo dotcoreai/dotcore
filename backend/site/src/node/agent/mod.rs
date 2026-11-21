@@ -103,6 +103,18 @@ impl WorkerPrivateClientConfiguration {
 
     /// Builds the bounded, pinned endpoint every worker-to-manager channel connects through.
     pub fn endpoint(&self) -> anyhow::Result<Endpoint> {
+        self.pinned_endpoint(Some(self.bounds.request))
+    }
+
+    /// Builds the pinned endpoint of a one-time handshake whose single request stays open while the
+    /// site manager waits for its operator. The request is bounded by the connect and TLS bounds and
+    /// by connection keepalives rather than by a per-request deadline, so a handshake that waits
+    /// longer than one request is allowed to finish instead of being cut short.
+    pub fn handshake_endpoint(&self) -> anyhow::Result<Endpoint> {
+        self.pinned_endpoint(None)
+    }
+
+    fn pinned_endpoint(&self, request: Option<Duration>) -> anyhow::Result<Endpoint> {
         let host = self
             .manager_endpoint
             .host_str()
@@ -119,20 +131,25 @@ impl WorkerPrivateClientConfiguration {
             pem("PRIVATE KEY", &self.worker_private_key_pkcs8),
         );
         let bounds = &self.bounds;
-        Ok(Endpoint::from_shared(self.manager_endpoint.to_string())?
+        let endpoint = Endpoint::from_shared(self.manager_endpoint.to_string())?
             .connect_timeout(bounds.connect)
-            .timeout(bounds.request)
             .http2_keep_alive_interval(bounds.keepalive_interval)
             .keep_alive_timeout(bounds.keepalive_timeout)
-            .keep_alive_while_idle(true)
-            .tls_config_with_verifier(
-                ClientTlsConfig::new()
-                    .domain_name(host)
-                    .identity(identity)
-                    .assume_http2(true)
-                    .timeout(bounds.tls_handshake),
-                verifier,
-            )?)
+            .keep_alive_while_idle(true);
+        // A handshake's single request stays open while the site manager waits for its operator, so
+        // it carries no per-request deadline and is bounded by the connection keepalives instead.
+        let endpoint = match request {
+            Some(timeout) => endpoint.timeout(timeout),
+            None => endpoint,
+        };
+        Ok(endpoint.tls_config_with_verifier(
+            ClientTlsConfig::new()
+                .domain_name(host)
+                .identity(identity)
+                .assume_http2(true)
+                .timeout(bounds.tls_handshake),
+            verifier,
+        )?)
     }
 }
 

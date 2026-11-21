@@ -117,6 +117,22 @@ workload's binding ([inference](inference.md#serving-a-request)).
 
 - Inference requests and readiness probes never go through the runtime backend.
 
+### Application Docker unavailability
+
+An unreachable Docker daemon makes only Docker-backed app targets unavailable: their workloads do
+not start and the targets cannot be deployed. The unavailable target stays declared and keeps its
+recorded host and endpoint configuration — the retained publication host — and reports unavailable;
+it is never removed, re-parented or replaced, and restoring Docker lets it recover through the
+normal retry path without another capability update.
+
+- Native model targets and their serving, including a server started while Docker is down, keep
+  working and their action fence is untouched. Docker failures never remove or replace other
+  targets and never block an approved restart; an unavailable target never blocks the restart of an
+  approved replacement or the node from serving.
+- Fail-closed behavior is reserved for structurally invalid or stale proposals: wrong pin, a base
+  that no longer matches the durable declaration, a deployment guard that fires, or an invalid
+  replacement. A live outage is reported, never treated as a failure.
+
 ## Resources
 
 ### Realization

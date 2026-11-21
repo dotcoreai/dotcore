@@ -308,6 +308,7 @@ pub(super) async fn compose_node(
             timing: timing.simulated,
             clock: Arc::clone(&clock),
         },
+        test_support.docker_factory.clone(),
     )?;
     let runtimes = super::runtime::node_runtime_targets_for(
         &installed_targets,
@@ -992,14 +993,15 @@ async fn application_realizer_for(
         )
     })?;
     let oci_preparer =
-        super::services::application_oci_preparer_for_targets(&application_targets, || async {
-            let client = dotcore_artifact::DockerOciClient::connect().await?;
-            Ok(
-                Arc::new(dotcore_artifact::OciPreparer::new(Arc::new(client)))
-                    as Arc<dyn dotcore_artifact::OciImagePreparer>,
-            )
-        })
-        .await?;
+        super::services::application_oci_preparer_for_targets(&application_targets, || {
+            Box::pin(async move {
+                let client = dotcore_artifact::DockerOciClient::connect().await?;
+                Ok::<Arc<dyn dotcore_artifact::OciImagePreparer>, dotcore_artifact::OciClientError>(
+                    Arc::new(dotcore_artifact::OciPreparer::new(Arc::new(client)))
+                        as Arc<dyn dotcore_artifact::OciImagePreparer>,
+                )
+            })
+        });
     // Pins need no Docker for Nix sources, so every node resolves them; only a node with a Docker
     // application target prepares images.
     let launch_pins = launch_pin_resolver(
@@ -1024,6 +1026,10 @@ async fn application_realizer_for(
         &application_targets,
         runtime_adapters,
         view.clone(),
+        super::runtime::DockerReconnect {
+            clock: Arc::clone(&clock),
+            interval: timing.docker_reconnect_interval,
+        },
     )
     .await?;
     crate::application::NodeApplicationRealizer::new(

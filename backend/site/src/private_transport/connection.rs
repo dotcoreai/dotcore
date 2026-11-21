@@ -312,6 +312,32 @@ impl PrivateConnectionInfo {
             closed: CancellationToken::new(),
         }
     }
+
+    /// Returns the identity of a connection that presented a peer certificate, and the token
+    /// that reports it closed, for a test driving a request that outlives one poll.
+    #[cfg(test)]
+    pub(crate) fn presented(
+        peer_address: SocketAddr,
+        peer_certificate: Vec<u8>,
+    ) -> (Self, CancellationToken) {
+        let closed = CancellationToken::new();
+        (
+            Self {
+                id: u64::MAX - 1,
+                peer_address,
+                peer_certificate: Some(Arc::from(peer_certificate)),
+                activity: Arc::new(Mutex::new(ConnectionActivity {
+                    requests: 0,
+                    idle_since: Instant::now(),
+                    admitted: true,
+                    closing: Closing::Open,
+                    reader: None,
+                })),
+                closed: closed.clone(),
+            },
+            closed,
+        )
+    }
 }
 
 /// Keeps the idle timeout of a connection paused while a request is running.

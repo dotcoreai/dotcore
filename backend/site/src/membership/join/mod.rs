@@ -34,6 +34,7 @@ pub use host::{
     JoinHostIdentity, JoinHostSource, JoinReview, JoinService, JoinSiteError, JoinSiteWriter,
     JoinedNode, NodeRejoin, ReviewedJoin,
 };
+pub(crate) use installation::rewrite_bootstrap;
 pub use installation::{NodeFolderError, RejoiningNodeFolder};
 pub use node_key::{NodeKey, NodeKeyError, csr_key_fingerprint};
 pub use proposal::{JoinProposal, JoinProposalError, RejoinProposal};

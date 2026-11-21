@@ -519,7 +519,7 @@ impl Registry {
                     &node_id,
                     &proof,
                     pin.as_ref(),
-                    proposal.host.as_ref(),
+                    &proposal,
                     manager_host,
                 )
                 .map_err(|error| admission_status(&error))?;

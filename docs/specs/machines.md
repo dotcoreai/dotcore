@@ -132,8 +132,10 @@ receive, and one typed model or app runtime binding.
 - Targets on one node may name overlapping GPUs, so a node can offer single-GPU and multi-GPU
   targets at once. Overlap and shared runtime infrastructure imply no reservation or exclusive
   ownership.
-- Each target has a display name, unique among its node's targets and set when the node is declared.
-  It's for presentation only, never an identity, placement or snapshot input.
+- Each target has a display name, unique among its node's targets and set when the node is declared or the target is added by a re-scan. It's for presentation only, never an identity, placement or snapshot input.
+- Targets change only through an approved rescan of the owning node ([access](access.md#re-scanning-a-nodes-targets)): the operator scans the node locally, the manager reviews and approves the exact whole replacement, and the committed projection — the whole target set, the refreshed observation configuration and its digest — replaces the node's committed targets. Ordinary join never adds, edits, re-parents or removes a target.
+- The classification of a replacement: the same node and target identity with the full declaration equal is unchanged; the same identity with a declaration difference is changed; differing identity is added or removed. A no-op replacement changes no bytes.
+- Removing or changing a target that has a deployment, including one pending teardown, refuses the whole replacement; no force path and no re-placement of the remaining deployments. The rest of the site — nodes, other targets, deployments, routes — is untouched.
 - Platform validity depends on the runtime binding. Docker targets declare a Linux platform. Native
   targets declare the host platform, darwin/arm64 included.
 - A target's platform, devices or runtime binding can't be removed, re-parented or altered while

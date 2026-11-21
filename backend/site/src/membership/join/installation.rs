@@ -89,6 +89,30 @@ impl RejoiningNodeFolder {
         })
     }
 
+    /// Re-reads the folder under custody and re-validates it, so nothing a rejoin sends depends
+    /// on a copy that was read before the operator confirmed. The folder must still name the
+    /// same site, node and manager, and the same key must still exist, or the recheck refuses.
+    /// Everything a rejoin uses is taken from the freshly read folder.
+    pub fn recheck(&mut self) -> Result<(), NodeFolderError> {
+        let folder = NodeFolderValidator::validate_declared(&self.root)
+            .map_err(|error| invalid_folder(&self.root, error))?;
+        if folder.site_id() != self.folder.site_id()
+            || folder.worker_node_id() != self.folder.worker_node_id()
+            || folder.manager_node_id() != self.folder.manager_node_id()
+            || CertificateFingerprint::for_certificate(folder.trust_anchor_der())
+                != CertificateFingerprint::for_certificate(self.folder.trust_anchor_der())
+        {
+            return Err(NodeFolderError::OtherSite {
+                root: self.root.to_owned(),
+            });
+        }
+        let key = NodeKey::from_pkcs8(folder.worker_private_key_pkcs8_der())
+            .map_err(NodeFolderError::Key)?;
+        self.folder = folder;
+        self.key = key;
+        Ok(())
+    }
+
     /// Returns the directory holding the node folder.
     pub fn root(&self) -> &Path {
         &self.root
@@ -102,6 +126,11 @@ impl RejoiningNodeFolder {
     /// Returns the port the node's private listener binds now.
     pub fn private_port(&self) -> u16 {
         self.folder.private_bind_address().port()
+    }
+
+    /// Returns the address the node's private listener binds now.
+    pub fn private_bind_address(&self) -> BindAddress {
+        self.folder.private_bind_address().clone()
     }
 
     /// Fingerprint of the node's key, which the manager shows for the rejoin's request.
@@ -118,13 +147,14 @@ impl RejoiningNodeFolder {
     }
 
     /// Returns the folder's bootstrap manifest with the manager endpoint, the private bind
-    /// address, and the observation configuration replaced; everything else, the declared machine
-    /// included, is kept as installed.
+    /// address, the observation configuration and the execution targets replaced by the
+    /// committed projection; everything else, the declared machine included, is kept as installed.
     pub(super) fn rejoined_bootstrap(
         &self,
         manager_private_endpoint: &str,
         private_bind_address: BindAddress,
         observation: NodeObservationConfiguration,
+        realization_targets: Vec<dotcore_proto::dotcore::site::v1::ExecutionTarget>,
     ) -> Result<NodeFolderBootstrap, NodeFolderContractError> {
         let folder = &self.folder;
         let manager = NodeFolderManager::new(
@@ -138,7 +168,7 @@ impl RejoiningNodeFolder {
             folder.worker_certificate_sha256().clone(),
             manager,
             observation,
-            folder.realization_targets().to_vec(),
+            realization_targets,
             private_bind_address,
         )?
         .with_declared_machine(folder.stored_declared_machine().cloned())
@@ -147,7 +177,7 @@ impl RejoiningNodeFolder {
 
 /// Replaces the `worker.yaml` of the node folder at `root` with `bootstrap` in one atomic rename.
 /// A failure before the rename leaves the previous manifest in place.
-pub(super) fn rewrite_bootstrap(
+pub(crate) fn rewrite_bootstrap(
     filesystem: &dyn FileSystem,
     root: &Path,
     bootstrap: &NodeFolderBootstrap,

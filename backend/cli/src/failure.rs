@@ -11,7 +11,8 @@ use dotcore::composition::CompositionError;
 use dotcore_site::{
     initial::input_store::InitialSiteWriteError,
     membership::{
-        NodeLeaveError, NodeRemovalError, PlacedDeployment,
+        ManagerNodeRescanError, NodeLeaveError, NodeRemovalError, NodeRescanError,
+        PlacedDeployment, RescanCommitError, RescanInstallError,
         join::{JoinTokenError, NodeFolderError, NodeJoinError},
     },
     repository::SiteRepositoryError,
@@ -278,6 +279,96 @@ fn typed_failure(cause: &(dyn Error + 'static)) -> Option<Typed> {
             }
             _ => {}
         }
+    }
+    if let Some(error) = cause.downcast_ref::<NodeRescanError>() {
+        return match error {
+            NodeRescanError::NodeRunning { node_root } => {
+                Some(running_node("Can't re-scan the targets of", node_root))
+            }
+            NodeRescanError::NotDeclared { node_id, .. } => Some((
+                format!("The site no longer declares {node_id}"),
+                Vec::new(),
+                vec![
+                    NextStep::new("Clean up this machine's node folder, then join as a new node:")
+                        .with_command("dotc node leave"),
+                ],
+            )),
+            NodeRescanError::Refused { reason } => Some((
+                "The site manager refused the replacement".to_owned(),
+                vec![Message::Info(format!("  {reason}"))],
+                vec![NextStep::new(
+                    "Start this node's re-scan on the manager, then run this command again while it \
+                     waits for the node",
+                )],
+            )),
+            NodeRescanError::OutcomeUnknown { reason } => Some((
+                "The site may have recorded this replacement, but this node did not get the answer"
+                    .to_owned(),
+                vec![Message::Info(format!("  {reason}"))],
+                vec![NextStep::new(
+                    "Run the re-scan again: nothing was installed here, and the site's recorded \
+                     declaration decides",
+                )],
+            )),
+            NodeRescanError::Install(RescanInstallError::WriteUncertain { node_root, .. }) => Some((
+                "The site recorded the replacement, but this node's manifest write may not have \
+                 completed"
+                    .to_owned(),
+                vec![Message::Info(format!("  {}", node_root.display()))],
+                vec![NextStep::new(
+                    "Do not start this node; run the re-scan again to install what the site recorded:",
+                )
+                .with_command("dotc node rescan")],
+            )),
+            _ => None,
+        };
+    }
+    if let Some(error) = cause.downcast_ref::<ManagerNodeRescanError>() {
+        return match error {
+            ManagerNodeRescanError::SiteRunning { site_root } => Some((
+                format!(
+                    "Can't re-scan this machine's manager node: the site at {} is running",
+                    site_root.display()
+                ),
+                Vec::new(),
+                vec![
+                    NextStep::new(
+                        "Stop this machine's site, then run this command again to re-scan its targets",
+                    ),
+                    NextStep::new("Start the site again once the re-scan reports its result"),
+                ],
+            )),
+            ManagerNodeRescanError::NotManagerNode { node_id } => Some((
+                format!("{node_id} is not this site's manager node"),
+                Vec::new(),
+                vec![NextStep::new(
+                    "Re-scan this machine's own manager node from the site folder it was created in",
+                )],
+            )),
+            ManagerNodeRescanError::Commit(RescanCommitError::OutcomeUncertain(_)) => Some((
+                "The site may have recorded this replacement, but the answer did not arrive"
+                    .to_owned(),
+                vec![Message::Info(
+                    "  The site's own declaration decides: it holds the replacement or still the \
+                     targets it had."
+                        .to_owned(),
+                )],
+                vec![
+                    NextStep::new("Restart this machine's site to serve under what it recorded"),
+                    NextStep::new(
+                        "Run the re-scan again if the site still holds the targets it had before",
+                    ),
+                ],
+            )),
+            ManagerNodeRescanError::Commit(_) => Some((
+                "The site kept the targets its manager node had".to_owned(),
+                Vec::new(),
+                vec![NextStep::new(
+                    "Run the re-scan again once the cause below is resolved",
+                )],
+            )),
+            _ => None,
+        };
     }
     if let Some(RejoinNameMismatch { name, root }) = cause.downcast_ref::<RejoinNameMismatch>() {
         return Some((
@@ -659,7 +750,8 @@ mod tests {
     use dotcore_site::{
         initial::input_store::InitialSiteWriteError,
         membership::{
-            DeploymentKind, NodeLeaveError, NodeRemovalError, PlacedDeployment,
+            DeploymentKind, ManagerNodeRescanError, NodeLeaveError, NodeRemovalError,
+            PlacedDeployment,
             join::{JoinTokenError, NodeFolderError, NodeJoinError},
         },
         repository::SiteRepositoryError,
@@ -841,6 +933,24 @@ mod tests {
                 ]
             );
         }
+    }
+
+    #[test]
+    fn a_running_site_stops_re_scanning_its_own_manager_node() {
+        let error = anyhow::Error::new(ManagerNodeRescanError::SiteRunning {
+            site_root: "/x/site".into(),
+        })
+        .context("cannot re-scan the site at /x/site");
+
+        assert_eq!(
+            lines(&Failure::from_error(&error), false),
+            [
+                "✘ Can't re-scan this machine's manager node: the site at /x/site is running",
+                "Next",
+                "  › Stop this machine's site, then run this command again to re-scan its targets",
+                "  › Start the site again once the re-scan reports its result",
+            ]
+        );
     }
 
     #[test]

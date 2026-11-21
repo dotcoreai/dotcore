@@ -21,8 +21,8 @@ mod workload_spec;
 pub mod test_support;
 
 pub use capability_probes::{
-    DockerCapabilityProbe, DockerCapabilityReport, NativeCapabilityFailure, NativeCapabilityProbe,
-    NativeCapabilityReport, RuntimeCapabilityProbes,
+    DockerCapabilityProbe, DockerCapabilityReport, DockerDaemonUnusable, NativeCapabilityFailure,
+    NativeCapabilityProbe, NativeCapabilityReport, RuntimeCapabilityProbes,
 };
 pub use errors::{RuntimeBackendError, RuntimeFuture};
 pub use individual_workload::{

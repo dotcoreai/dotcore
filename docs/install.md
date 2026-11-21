@@ -8,7 +8,7 @@
   - For NVIDIA GPUs, the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 - macOS on Apple Silicon:
   - Models run on the Mac's GPU directly, and need no other prerequisite than Nix.
-  - [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) is optional. It's used for apps only: without it, models still run, but no app can be deployed until Docker Desktop is running. In its Settings > Advanced, allow the default Docker socket (`/var/run/docker.sock`), which Dotcore talks to.
+  - [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) is optional. It's used for apps only: without it, models still run, but no app can be deployed. If you install it after setting up the machine, re-scan the machine to add apps ([re-scan a machine's targets](usage.md#re-scan-a-machines-targets)). In its Settings > Advanced, allow the default Docker socket (`/var/run/docker.sock`), which Dotcore talks to.
 - OrbStack and Colima aren't supported yet.
 
 ## Install
@@ -42,6 +42,8 @@ Run `dotcore` to start. The first run asks a few questions to set up your site, 
 - Apps in Docker.
 
 Another asks for the address other machines reach this one at, usually its address on your local network. Dotcore listens only on that address. Then it prints the console's address: port 8080 on that address.
+
+If this machine's hardware or runtimes change later — a GPU replaced, a runtime installed or swapped — the targets it runs go stale, and you can replace them with a re-scan ([re-scan a machine's targets](usage.md#re-scan-a-machines-targets)).
 
 ## Add this machine to a site
 

@@ -14,6 +14,8 @@ connection in `backend/core/src/server/`.
 - Keep serving on every node while the site has no connection to Dotcore's cloud
   ([access](access.md#invariants)).
 - Reset a stopped site, then provision its workers again ([access](access.md#connecting-nodes)).
+- Re-scan a node and replace its complete target set with your approval, keeping the node's
+  identity, trust, addresses, deployments and routes ([access](access.md#re-scanning-a-nodes-targets)).
 
 ## Architecture
 
@@ -86,6 +88,57 @@ Each node installs its view and reconciles toward it.
 - Owners never resolve development artifacts or probe app data. The hosting node does both.
 - The node view is disposable and read-only. Every node, the site manager node included, realizes
   workloads only from it.
+
+### Re-scanning a node's targets
+
+```mermaid
+sequenceDiagram
+  actor OP as You
+  participant W as Affected node
+  participant API as Management API
+  participant SM as Site manager
+  OP->>API: Start a rescan for the node
+  API->>OP: Command to run on the node
+  OP->>W: dotc node rescan
+  W->>W: Re-read the node folder and scan its capabilities
+  W->>SM: Propose the whole replacement target set
+  SM->>SM: Validate the whole-node base, the replacement and the whole site
+  SM->>API: Proposal to review
+  OP->>API: Approve
+  SM->>SM: Re-check the pin, the base and the exact replacement
+  SM->>SM: Record the replacement durably
+  SM->>W: Committed projection
+  W->>W: Install the projection atomically and validate it
+  OP->>W: Restart the node
+```
+
+- One `dotc node rescan` command serves both worker and manager paths. The command runs on the
+  affected node; the manager never scans a remote node. Ordinary `dotc node join` is unchanged: a
+  rejoin carries addresses and trust only, and never a target; a new node's join still proposes its
+  initial targets.
+- The worker re-reads and re-validates its node folder under custody, scans locally and proposes the
+  whole replacement target set with the refreshed observation configuration. The manager derives the
+  base itself from durable state; the worker never writes the site — it only installs the committed
+  projection locally.
+- The manager classifies the replacement against the committed targets — added, changed, removed or
+  unchanged — then refuses the whole change when removing or changing a target with a deployment,
+  including one pending teardown, and validates the whole site. It offers the replacement only after
+  both checks pass.
+- The operator reviews the exact node, the classification, the deployments placed on changed or
+  removed targets, and the restart instruction, and approves once. The approval is bound to the
+  pin, the whole-node base and the exact replacement; the manager re-checks all three at commit and
+  fails closed on anything that differs.
+- Target inventory, observation configuration and bootstrap digest do not form one atomic cross-machine
+  commit. The invariant is ordering: the manager records the replacement durably, the worker installs
+  the committed projection — whole target set, refreshed observation configuration and its canonical
+  digest — atomically and does not serve until it does, and the affected node restarts before it
+  serves. There is no automatic restart and no generic live reload.
+- An identical committed replacement replays once: the manager returns the prior durable outcome. Lost
+  acknowledgements and uncertain writes fail closed, and the worker compares the durable node
+  declaration, never rolls back merely because the acknowledgement was lost.
+- A no-op changes nothing: when the targets, the refreshed observation configuration and the bootstrap
+  digest are all equal to what the node already installs, the worker writes no bytes and needs no
+  restart.
 
 ### The node control stream
 
@@ -167,10 +220,15 @@ The site's declared machines, their execution targets, and its settings, authore
 starts.
 
 - Offline initialization writes these inputs. It never changes a running site or bypasses deployment
-  owners, except through node removal.
-- On a running site, the site manager records membership changes by accepting approved joins
-  ([access](access.md#joining-a-node)) and node removals. Removal also works on a stopped site, to
-  recover a site whose manager can't start.
+  owners, except through node removal and the target replacement through the rescan.
+- On a running site, the site manager records membership changes by accepting approved joins and
+  node removals ([access](access.md#joining-a-node)). A node's target set changes only through an
+  approved target rescan of that node ([access](access.md#re-scanning-a-nodes-targets)). Node
+  removal also works on a stopped site, to recover a site whose manager can't start.
+- A rescan replaces one node's complete target set ([machines](machines.md)): the operator scans
+  the node locally and proposes the whole replacement, which the manager validates against the node's
+  committed targets, the whole site and the deployment guard. Records are never changed by an
+  ordinary join, which carries no target on a rejoin.
 
 ### Server-local node binding
 
@@ -186,6 +244,8 @@ What tells one server process which declared node it is.
 
 - Own site identity, membership, topology and runtime configuration, and the reconciled inventory,
   health and maintenance view.
+- Record an approved rescan's replacement durably, before the affected node installs the committed
+  projection.
 - Own the site-wide console settings: operator choices about how the console behaves for everyone
   on the site, such as whether Get started is hidden. They are desired configuration of the site,
   kept with it and never mixed with observations or history.
@@ -257,7 +317,8 @@ The node that hosts the site manager process.
 - It uses the same node-local reconciliation, status and cleanup evidence, action fencing,
   diagnostic reads, serving admission and observations as any node. Only its transport differs: it
   uses in-process adapters for its own node. It always serves its private listener, which
-  hosts the join handshake and the connections of workers that join later.
+  hosts the join and target re-scan handshakes and the connections of workers that join or
+  re-scan later.
 - Sharing the site manager's process grants it no extra authority. It reads owner intent only
   through its node view, and owners accept its status, cleanup evidence and readiness through the
   same boundary as any node.
@@ -269,10 +330,11 @@ The node that hosts the site manager process.
   competing authority.
 - A persistence failure is reported without rolling back the accepted in-memory change. Such a
   change stays authoritative but can't justify irreversible effects on other nodes until it's
-  persisted. Membership is the exception: it is persist-or-reject, because accepting a join hands
-  the node its identity, and removing a node takes it away, each an irreversible effect on another
-  node. A failed or uncertain write fails the join or the removal with nothing accepted, and a
-  removal cuts the node's trust only once it's persisted.
+  persisted. Membership changes that are irreversible to another node are the exception: they are
+  persist-or-reject, because accepting a join hands the node its identity, removing a node takes
+  it away, and replacing a node's targets hands the node a new capability. A failed or uncertain
+  write fails the join, the removal or the replacement with nothing accepted, and a removal cuts
+  the node's trust only once it's persisted.
 - Desired configuration stays apart from observations, progress and history.
 - Operations spanning owners go through each owner's acceptance boundary. Creating a deployment with
   its direct-exposure route, and tearing down a deployment with the routes only it serves, are each

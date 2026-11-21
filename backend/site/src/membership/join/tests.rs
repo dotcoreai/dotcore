@@ -1791,7 +1791,6 @@ async fn a_rejoin_refreshes_an_observation_configuration_that_drifted_from_the_s
     assert_eq!(rejoin.observation, observation);
     assert!(!rejoin.changes_nothing());
 }
-
 #[tokio::test]
 async fn rejoin_refusals_leave_the_site_and_pins_unchanged() {
     let harness = rejoin_harness(&proposal("worker", WORKER_HOST), Options::default()).await;

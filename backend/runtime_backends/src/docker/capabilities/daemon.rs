@@ -3,6 +3,7 @@
 use anyhow::Context;
 use bollard::models::SystemInfo;
 use dotcore_domain::{ExecutionPlatform, ExecutionPlatformError};
+use dotcore_runtime::DockerDaemonUnusable;
 
 use crate::docker::client::{LocalDockerClient, WORKLOAD_LOG_DRIVER, bounded_operation};
 
@@ -31,7 +32,10 @@ pub(super) async fn probe_local_daemon() -> anyhow::Result<DockerDaemonCapabilit
         .await
         .map_err(anyhow::Error::new)
         .context("negotiate Docker Engine API version")?;
-    probe_connected_daemon(&docker).await
+    // Past negotiation the daemon has answered, so a failure means Docker is present but unusable.
+    probe_connected_daemon(&docker)
+        .await
+        .context(DockerDaemonUnusable)
 }
 
 pub(in crate::docker) async fn probe_connected_daemon(

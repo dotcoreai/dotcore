@@ -35,7 +35,7 @@ fn node_observation_reports_one_complete_revision_on_the_node_control_stream() {
         .collect::<Vec<_>>();
     assert_eq!(
         node_services,
-        ["NodeJoinService"],
+        ["NodeJoinService", "NodeRescanService"],
         "node observations travel only on the node control stream"
     );
     let file = descriptor

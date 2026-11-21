@@ -80,7 +80,7 @@ impl RuntimeAdapterRegistry {
         key: RuntimeAdapterKey,
         target: &ExecutionTarget,
     ) -> Result<Box<dyn WorkloadGroupBackend>, CompositionError> {
-        let factory = self.application_factories.get(&key).ok_or_else(|| {
+        let factory = self.application_factory(key).ok_or_else(|| {
             CompositionError::composition_with_source(
                 "Runtime adapter selection failed",
                 RuntimeAdapterRegistryError::MissingApplication {
@@ -90,6 +90,15 @@ impl RuntimeAdapterRegistry {
             )
         })?;
         factory.build(target).await
+    }
+
+    /// The application adapter factory registered for `key`, used when a target must be kept
+    /// declared and unavailable until its runtime can be reached.
+    pub(super) fn application_factory(
+        &self,
+        key: RuntimeAdapterKey,
+    ) -> Option<Arc<dyn ApplicationRuntimeAdapterFactory>> {
+        self.application_factories.get(&key).cloned()
     }
 }
 

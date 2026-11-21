@@ -17,7 +17,7 @@ use dotcore_proto::dotcore::{
 };
 
 use super::{
-    JoinProposal, JoinSecret, JoinSiteError, NodeKeyError,
+    JoinProposal, JoinSecret, JoinSiteError, NodeKeyError, RejoinProposal,
     node_key::{CertificateTime, certificate_key, certificate_time, rejoin_request_key},
 };
 use crate::{
@@ -40,7 +40,7 @@ pub(super) struct Admission {
     pub(super) observation: NodeObservationConfiguration,
 }
 
-/// A declared node admitted to join again, with its addresses as the site will record them.
+/// A declared node admitted to join again, with its new addresses as the site will record them.
 pub(super) struct RejoinAdmission {
     /// The node as the site declares it now.
     pub(super) declared: SiteNode,
@@ -129,8 +129,8 @@ pub(super) fn certified_node_id(
 }
 
 /// Checks that the declared node `node_id`, named by `proof`'s certificate, may join again from
-/// `host`, or from its declared host when `None`, reaching the manager at `manager_host`, and
-/// returns it with its new addresses.
+/// the host `proposal` names, or from its declared host when none does, reaching the manager at
+/// `manager_host`, and returns it with its new addresses.
 ///
 /// The node must be a declared worker, its certificate the one `pin` records and not expired,
 /// and the signing request signed by that certificate's key and bound to this join's secret.
@@ -141,7 +141,7 @@ pub(super) fn admit_rejoin(
     node_id: &str,
     proof: &RejoinProof<'_>,
     pin: Option<&CertificateFingerprint>,
-    host: Option<&SiteNodeHost>,
+    proposal: &RejoinProposal,
     manager_host: &SiteNodeHost,
 ) -> Result<RejoinAdmission, AdmissionError> {
     let declared = site
@@ -181,7 +181,10 @@ pub(super) fn admit_rejoin(
     if certificate_key(proof.certificate_der).as_deref() != Some(proven_key.as_slice()) {
         return Err(AdmissionError::ProofKeyMismatch);
     }
-    let host = host.map_or_else(|| declared.host.clone(), ToString::to_string);
+    let host = proposal
+        .host
+        .as_ref()
+        .map_or_else(|| declared.host.clone(), ToString::to_string);
     if let Some(existing) = site
         .nodes
         .iter()
@@ -198,6 +201,12 @@ pub(super) fn admit_rejoin(
         manager_host: recorded_manager_host(site, manager_host),
         ..declared.clone()
     };
+    let targets = site
+        .execution_targets
+        .iter()
+        .filter(|target| target.site_node_id == node_id)
+        .cloned()
+        .collect();
     let updated = site_with_node_hosts(site, rules, &node)
         .map_err(|error| AdmissionError::Site(JoinSiteError::from(error)))?;
     let observation = node_observation_configuration(&updated, node_id).map_err(|error| {
@@ -206,12 +215,7 @@ pub(super) fn admit_rejoin(
     Ok(RejoinAdmission {
         declared: declared.clone(),
         node,
-        targets: site
-            .execution_targets
-            .iter()
-            .filter(|target| target.site_node_id == node_id)
-            .cloned()
-            .collect(),
+        targets,
         observation,
         deployments: placed_deployment_count(site, node_id),
     })

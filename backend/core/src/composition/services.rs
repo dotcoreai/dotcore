@@ -1,48 +1,48 @@
 //! Application composition pieces: the route-manager projection of linked routes and the
 //! image preparer a node prepares application images with.
 
-use std::sync::Arc;
+use std::{future::Future, pin::Pin, sync::Arc};
 
 use dotcore_proto::dotcore::catalog::v1::InferenceRequestKind;
 
-use super::CompositionError;
 use crate::{
     application::{InferenceRouteResolutionError, InferenceRouteResolver, ResolvedInferenceRoute},
     route_manager::RouteManager,
 };
 
-/// Connects the image preparer application realization uses when one of `targets` runs
-/// application workloads on Docker; other nodes prepare no application image.
-pub(super) async fn application_oci_preparer_for_targets<'a, C>(
-    targets: impl IntoIterator<Item = &'a dotcore_proto::dotcore::site::v1::ExecutionTarget>,
-    connect: impl FnOnce() -> C,
-) -> Result<Option<Arc<dyn dotcore_artifact::OciImagePreparer>>, CompositionError>
-where
-    C: Future<
-        Output = Result<
-            Arc<dyn dotcore_artifact::OciImagePreparer>,
-            dotcore_artifact::OciClientError,
-        >,
+type PrepareConnection = Pin<
+    Box<
+        dyn Future<
+                Output = Result<
+                    Arc<dyn dotcore_artifact::OciImagePreparer>,
+                    dotcore_artifact::OciClientError,
+                >,
+            > + Send
+            + 'static,
     >,
-{
+>;
+
+/// The image preparer application realization uses when one of `targets` runs application
+/// workloads on Docker; other nodes prepare no application image. The connection is deferred
+/// to first use, so an unreachable daemon reports the outage on each preparation attempt and
+/// recovers through the normal retry path once the daemon answers.
+pub(super) fn application_oci_preparer_for_targets<'a>(
+    targets: impl IntoIterator<Item = &'a dotcore_proto::dotcore::site::v1::ExecutionTarget>,
+    connect: impl Fn() -> PrepareConnection + Send + Sync + 'static,
+) -> Option<Arc<dyn dotcore_artifact::OciImagePreparer>> {
     if !targets.into_iter().any(|target| {
         matches!(
-                target.runtime_binding,
-                Some(dotcore_proto::dotcore::site::v1::execution_target::RuntimeBinding::ApplicationRuntime(
-                    dotcore_proto::dotcore::site::v1::ApplicationRuntimeBinding {
-                        adapter: Some(dotcore_proto::dotcore::site::v1::application_runtime_binding::Adapter::DockerRuntime(_)),
-                    }
-                ))
-            )
-    }) {
-        return Ok(None);
-    }
-    connect().await.map(Some).map_err(|source| {
-        CompositionError::composition_with_source(
-            "Application local Docker OCI client initialization failed",
-            source,
+            target.runtime_binding,
+            Some(dotcore_proto::dotcore::site::v1::execution_target::RuntimeBinding::ApplicationRuntime(
+                dotcore_proto::dotcore::site::v1::ApplicationRuntimeBinding {
+                    adapter: Some(dotcore_proto::dotcore::site::v1::application_runtime_binding::Adapter::DockerRuntime(_)),
+                }
+            ))
         )
-    })
+    }) {
+        return None;
+    }
+    Some(dotcore_artifact::lazy_oci_preparer(Arc::new(connect)))
 }
 
 pub(super) fn inference_route_resolver(manager: RouteManager) -> Arc<dyn InferenceRouteResolver> {
@@ -139,20 +139,32 @@ mod tests {
             ..Default::default()
         };
 
-        application_oci_preparer_for_targets(&site.execution_targets, {
+        let preparer = application_oci_preparer_for_targets(&site.execution_targets, {
             let connections = Arc::clone(&connections);
             move || {
                 connections.fetch_add(1, Ordering::SeqCst);
-                std::future::ready(Ok(
-                    Arc::new(ReadyPreparer) as Arc<dyn dotcore_artifact::OciImagePreparer>
+                Box::pin(std::future::ready(
+                    Ok::<_, dotcore_artifact::OciClientError>(
+                        Arc::new(ReadyPreparer) as Arc<dyn dotcore_artifact::OciImagePreparer>
+                    ),
                 ))
             }
         })
-        .await
-        .expect("Apps-only Docker composition")
-        .expect("Application image preparer");
+        .expect("Apps-only Docker composition");
 
-        assert_eq!(connections.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            connections.load(Ordering::SeqCst),
+            0,
+            "connection deferred to first use"
+        );
+        assert!(
+            preparer.as_docker_image_inspector().is_some(),
+            "image preparer exposes its inspector"
+        );
+        assert!(
+            preparer.as_local_image_identity_resolver().is_some(),
+            "image preparer exposes its identity resolver"
+        );
     }
 
     #[test]
