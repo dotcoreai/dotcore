@@ -21,11 +21,16 @@ the recipes.
 
 ## Testing
 
-- Never run a real install or uninstall against the user's own Nix profile or site. Run checks in
-  a clean environment (`env -i` with a throwaway `HOME`) and fake `docker`, `nix` and `dotc`
-  commands that stop before `nix profile add` changes anything. A real `nix profile add` is safe
-  only with a throwaway `HOME`: its profile lives there. A pseudo-terminal (`script`) provides the
-  terminal the prompts need, and the environment must be set inside the command it runs.
+- Never run a real install or uninstall against the user's own Nix profile or site. Run the
+  installer regression cases with `just installer::test` (or `just installer::check`): they drive
+  the real `install.sh` in a pseudo-terminal (`python3`'s `pty`, no third-party dependencies)
+  inside a throwaway `HOME` with a curated PATH — fake `nix`, `uname`, `pgrep` and a fake
+  `dotc` bundle, real `curl` against a fake Unix socket. The cases assert whether execution
+  reaches the Nix/profile install or the fresh join, then stop before anything else is mutated.
+  A real `nix profile add` is safe only with a throwaway `HOME`: its profile lives there.
+- The regression cases fake only what they can control: a fake `uname` proves the probe takes
+  the platform branch, never the real platform. A real `curl` against a fake Unix socket still
+  exercises the real reachability probe. End-to-end installs remain checked by hand on a real host.
 - A run from this repository's shell offers to use the environment's own `dotc` and `dotcore`
   instead of installing. Pick install only with a throwaway `HOME`, or stop and run the installer
   by path from a clean shell.
