@@ -12,6 +12,10 @@ displayName: "Inkling 2 Mini"
 version: "2-mini"
 # model_max_length in tokenizer_config.json and max_position_embeddings in config.json (revision 6e7c824).
 maximumContextTokens: 1048576
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
 artifacts:
   - artifactId: "nvfp4"
     weightQuantization: "NVFP4"
@@ -64,42 +68,58 @@ configurations:
       - bindingId: "nvfp4"
         modelArtifactId: "nvfp4"
         auxiliaryArtifactIds: ["inkling-chat-template"]
-    # Rough estimate, not a fit. modelLoadingBaseBytes is the 17.64 GiB of weights the engine loaded on an
-    # RTX 5090 plus about 1.4 GiB of runtime memory seen beside the KV cache there.
+    # The KV pool follows the pinned engine's block layout; the base, activation, vision and margin constants
+    # are measured per hardware class.
     sizing:
+      bindingParameters: ["modelLoadingBaseBytes", "activationBytesPerBatchedToken", "visionBytes", "marginBytes"]
       parameters:
-        modelLoadingBaseBytes: 20500000000
-        marginBytes: 1000000000
         # One shared pool of 1 MiB blocks: 96 caches in groups of 8, each with a 128 KiB page.
         kvBlockBytes: 1048576
         # Full attention: 8 fp8 caches x 8 KV heads x 128 x (K + V) bytes per token.
         kvBytesPerToken: 16384
-        # Per request, the 5 sliding-window groups (1,024-token window) and the 6 bf16 short-convolution
-        # groups (one per layer and loop pass) reserve blocks for twice the batched tokens: about 1.656
-        # blocks per batched token (kvBatchedTokenBytes) plus 108 blocks and 1 for rounding the full-attention
-        # context (kvRequestBytes). Upper bound of the pinned engine's planner, which matches its start check.
+        # Each running request holds the window of the 5 sliding-window groups (1,024 tokens) and the 6 bf16
+        # short-convolution groups (one per layer and loop pass), plus one block for rounding its context:
+        # 103 blocks, the pinned engine's planner at one token per step.
+        kvRequestWindowBytes: 108003328
+        # While a prompt is processed, those groups also reserve blocks for twice the batched tokens: about
+        # 1.656 blocks per batched token plus 6 blocks beyond the window. Measured on an RTX 5090, prompts are
+        # processed one at a time and decoding requests hold only their window, so this is counted once.
+        # With the window it is the planner's linear upper bound for one request, which its start check uses.
         kvBatchedTokenBytes: 1736704
-        kvRequestBytes: 114294784
+        kvPromptReservationBytes: 6291456
       derivedParameters:
         kv-cache-memory-bytes: >-
-          ${parallel-requests} * (${kvRequestBytes} + ${kvBatchedTokenBytes} * ${maximum-batched-tokens})
+          ${parallel-requests} * ${kvRequestWindowBytes}
+          + ${kvPromptReservationBytes} + ${kvBatchedTokenBytes} * ${maximum-batched-tokens}
           + ${kvBytesPerToken} * ${total-context}
       estimates:
         acceleratorMemory:
           unit: bytes
           equation: >-
             ${modelLoadingBaseBytes}
+            + ${activationBytesPerBatchedToken} * ${maximum-batched-tokens}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
             + ${kv-cache-memory-bytes}
           allowance: >-
             ${marginBytes}
     hardwareSupport:
-      # The minimum covers the base, one request's sliding-window blocks and a short context.
+      # The minimum covers the default profile estimate at the default 32K total context, plus the 1% the
+      # placement keeps free, so 24 GB GPUs such as the RTX 4090 qualify with a short context.
       - hardwareClassId: "nvidia"
         hardwareRequirements:
-          minimumMemoryBytesPerDevice: "29500000000"
+          minimumMemoryBytesPerDevice: "25500000000"
           minimumSystemMemoryBytes: "64000000000"
         bindingSizing:
+          # Fitted on an RTX 5090 from 12 launches at 512-4,096 batched tokens, 1-2 requests and 32K-526K total
+          # context: two after two concurrent long prompts, two with vision after 4 images of 2,048 px in one
+          # request. Residuals -83 MB to +80 MB; GB10 launches read below these values. The margin covers the
+          # largest under-prediction with room for load the launches did not show.
           - bindingId: "nvfp4"
+            parameters:
+              modelLoadingBaseBytes: 20038563636
+              activationBytesPerBatchedToken: 309106
+              visionBytes: 682637516
+              marginBytes: 268435456
     engineConfiguration:
       engineKind: "ENGINE_KIND_VLLM"
       vllm:
@@ -123,11 +143,40 @@ configurations:
           enableAsyncScheduling: true
           enablePrefixCaching: true
           enablePromptTokenDetails: true
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
     inputCapabilities:
-      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT", "MODEL_INPUT_MODALITY_IMAGE"]
+      # The engine has no image-count or size cap and never resizes: an image costs 1 + ceil(h / 40) x
+      # ceil(w / 40) tokens (`vllm/models/inkling2/processing.py`). The model card advises 40-4,096 px per
+      # side. These limits are a policy within that: the 2,048 px side the engine profiles at startup, with
+      # its 2,705 tokens per image, and 4 images per request. Byte limits are 4 bytes per pixel at that size.
+      imageInputCapacity:
+        maximumImageCount: 4
+        supportedMediaTypes: ["MODEL_IMAGE_MEDIA_TYPE_JPEG", "MODEL_IMAGE_MEDIA_TYPE_PNG"]
+        maximumEncodedBytes: "16777216"
+        maximumDecodedBytes: "16777216"
+        maximumWidth: 2048
+        maximumHeight: 2048
+        maximumPixels: "4194304"
+        fixedVisualTokens: 2705
+        fixedDetail: "MODEL_IMAGE_DETAIL_AUTO"
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
 profiles:
   - profileId: "nvfp4"
     displayName: "Inkling 2 Mini NVFP4"
@@ -136,16 +185,36 @@ profiles:
     defaultModelArtifactBindingId: "nvfp4"
     engineParameterDefaults:
       values:
-        # Each request's sliding-window and convolution reservation grows with the batched tokens, so a
-        # small value leaves room for long context next to two requests on a 32 GB card.
+        # Measured on an RTX 5090: 2,048 processes prompts about twice as fast as 512 and still leaves
+        # room for two 256K requests on a 32 GB card.
         - parameterId: "maximum-batched-tokens"
-          unsignedInteger: "512"
+          unsignedInteger: "2048"
         - parameterId: "parallel-requests"
           unsignedInteger: "2"
         - parameterId: "maximum-cudagraph-capture-size"
           unsignedInteger: "32"
         - parameterId: "kv-offloading-size-gib"
           unsignedInteger: "0"
+  - profileId: "nvfp4-multimodal"
+    displayName: "Inkling 2 Mini NVFP4 with vision"
+    description: "Runs Inkling 2 Mini through vLLM for text and image inference."
+    configurationId: "vllm-nvidia-cuda-nvfp4"
+    defaultModelArtifactBindingId: "nvfp4"
+    engineParameterDefaults:
+      values:
+        - parameterId: "maximum-batched-tokens"
+          unsignedInteger: "2048"
+        - parameterId: "parallel-requests"
+          unsignedInteger: "2"
+        - parameterId: "maximum-cudagraph-capture-size"
+          unsignedInteger: "32"
+        - parameterId: "kv-offloading-size-gib"
+          unsignedInteger: "0"
+    optionDefaults:
+      - optionId: "vision"
+        values:
+          - parameterId: "enabled"
+            boolean: true
 license:
   id: Apache-2.0
   termsUrl: https://www.apache.org/licenses/LICENSE-2.0
