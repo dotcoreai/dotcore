@@ -24,6 +24,9 @@ rejects configurations the engine can't run.
 - Don't copy flags, defaults or limits into docs or comments: point to the adapter or the YAML.
 - Before claiming how an engine shares, evicts or queues its KV cache, read its upstream source at
   the pinned version. Memory estimates assume requests share no prompt prefix.
+- Before an engine bump, list the `WAIT:` comments for that engine
+  ([forks and pre-releases](../apps/AGENTS.md#forks-and-pre-releases)): if the new upstream
+  release covers what one waits for, do its action as part of the bump.
 - After an engine bump, check the adapter's flags and the catalog descriptions against the new
   upstream behavior; upstream can change a default without touching a flag.
 - When a shared parameter's meaning changes, update [`README.md`](README.md), the glossary in the

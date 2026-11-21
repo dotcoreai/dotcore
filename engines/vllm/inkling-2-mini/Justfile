@@ -1,4 +1,4 @@
-import '../../nix/docker-images/registry.just'
+import '../../../nix/docker-images/registry.just'
 
 # List vLLM for Inkling engine recipes.
 help:

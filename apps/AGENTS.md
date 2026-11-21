@@ -14,6 +14,17 @@ Use the `add-app` skill to add an app or engine image.
 * Don't pin what the stored image already fixes: a rebuild where the stored image is unavailable is
   best effort ([Dockerfile images](../docs/development/images.md#dockerfile-images)).
 
+## Forks and pre-releases
+
+* An image, package or catalog release built from a fork, an unmerged pull request or a pre-release
+  tag carries a `WAIT:` comment wherever it is pinned or approved: in its image derivation, its
+  catalog release and each model or app that uses it.
+* Format: `WAIT: <upstream event, with a link>, then <action>`. For example: `WAIT: vLLM PR #123
+  (<link>) in a stable release, then move the model to the stable engine and delete this release`.
+* `WAIT:` is only for external dependencies. Work we owe ourselves stays a `TODO` or `FIXME`.
+* Remove a `WAIT:` in the change that acts on it.
+* List them with `rg -n '(#|//) WAIT:'`; a bare `WAIT:` also matches code identifiers.
+
 ## Folder docs
 
 Every image folder has a `README.md` for the people who use the app or engine, and an `AGENTS.md`
