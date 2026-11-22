@@ -48,6 +48,47 @@ artifacts:
             provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
           - path: "tokenizer_config.json"
             provenanceDigest: "bf09342d285139fd37ce10c70878af1d52cb390e9901e10248654293a80ee636"
+  # Strata's ready-made packs. Each holds the dense weights, the experts and the DSpark drafter in one
+  # file; the tokenizer files beside it are what the wrapper builds the tokenizer from.
+  - artifactId: "sq-10"
+    weightQuantization: "SQ-10"
+    source:
+      repository: "strata-engine/Inkling-2-Mini-Strata"
+      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
+      snapshot:
+        files:
+          - path: "Inkling-2-Mini-SQ-10.strata"
+            provenanceDigest: "ac4d452ad03e4930abd9d46f9c5eec22b2f75a1da45a1e49bd24ccd58b065934"
+          - path: "chat_template.jinja"
+            provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
+          - path: "tokenizer.json"
+            provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
+  - artifactId: "sq-15"
+    weightQuantization: "SQ-15"
+    source:
+      repository: "strata-engine/Inkling-2-Mini-Strata"
+      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
+      snapshot:
+        files:
+          - path: "Inkling-2-Mini-SQ-15.strata"
+            provenanceDigest: "2ea32eed533afba257e2cbee7b073dc2c3da80fe55d1d2d794779b5498e30737"
+          - path: "chat_template.jinja"
+            provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
+          - path: "tokenizer.json"
+            provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
+  - artifactId: "sq-20"
+    weightQuantization: "SQ-20"
+    source:
+      repository: "strata-engine/Inkling-2-Mini-Strata"
+      revision: "04996a1e2c45009b6a04f2af126cb6bdb2ba3587"
+      snapshot:
+        files:
+          - path: "Inkling-2-Mini-SQ-20.strata"
+            provenanceDigest: "0bbfd52344f0dd4779a7807b5f73554a812f24c035e6877b63cd0d499f7e1b97"
+          - path: "chat_template.jinja"
+            provenanceDigest: "53a9035f3255945704b5857657cfb00c1165090c0641c4f782a0cbf268cc16dc"
+          - path: "tokenizer.json"
+            provenanceDigest: "7f332727f9a3f093dd452a39cc978e6757627e5dad1b0673aa4e75174f236dd6"
 auxiliaryArtifacts:
   # The checkpoint's own template, which carries the inkling reasoning and tool-call format.
   - auxiliaryArtifactId: "inkling-chat-template"
@@ -179,6 +220,151 @@ configurations:
           values:
             - parameterId: "enabled"
               boolean: false
+  - configurationId: "strata-nvidia-cuda"
+    # The Inkling engine places its experts itself and takes no expert budgets.
+    excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-19"
+        engineArtifactId: "linux-amd64-cuda"
+    artifactBindings:
+      - bindingId: "sq-10"
+        modelArtifactId: "sq-10"
+      - bindingId: "sq-15"
+        modelArtifactId: "sq-15"
+      - bindingId: "sq-20"
+        modelArtifactId: "sq-20"
+    # Measured on an RTX 5090 (strata-0-2-19, starts per binding at total contexts 16,384-385,000 and
+    # 1-8 parallel requests) and fitted per the model-sizing skill. Accelerator memory = weights and CUDA state
+    # + state per parallel request + KV and start-up scratch per token of the total context, plus an allowance for
+    # the prompt buffers the engine grows as longer prompts arrive. The catalog's equations are linear in the total
+    # context, so the two per-token terms that follow a request's context (scratch and prompt buffers) are charged
+    # on the total: exact at 1 parallel request, and high by their per-token cost times the context that the
+    # other parallel requests' share of the total adds, at more.
+    sizing:
+      bindingParameters: ["weightBytes", "marginBytes"]
+      parameters:
+        # FP16 KV (the wrapper passes --kv fp16): 8 of the 48 layer visits keep full KV, 32 KiB per token (upstream's
+        # memory notes). The fit gave 31,761-32,378, so the notes' value is kept.
+        kvBytesPerToken: 32768
+        # Fitted 220-230 MB per request: the sliding-window and convolution state.
+        requestStateBytes: 230000000
+        # Fitted 21.9-22.4 KB per token of the context per request: scratch sized when the engine starts.
+        requestContextBytesPerToken: 22500
+        # Memory grows about 85 KB per token of the longest prompt served, to the context per request, and
+        # stays: 30,000-token prompts added 2.65 GB at 2 parallel requests and a 125,883-token prompt added
+        # 10.7 GB at 1; concurrent prompts did not add up. Held back as an allowance, since a start doesn't
+        # show it. A prompt that grows past the card's free memory ends in a CUDA out-of-memory error and a stuck engine.
+        promptBytesPerToken: 86000
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${weightBytes}
+            + ${requestStateBytes} * ${parallel-requests}
+            + ${kvBytesPerToken} * ${total-context}
+            + ${requestContextBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+            + ${promptBytesPerToken} * ${total-context}
+    hardwareSupport:
+      - hardwareClassId: "nvidia-gb202"
+        # The largest binding, sq-20, at 2 parallel requests and 32,768 tokens each is 28.15 GB with its allowance;
+        # the minimum adds the 1% the placement keeps free. A deployment picks those values; profiles keep the
+        # engine defaults.
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "28500000000"
+        bindingSizing:
+          # weightBytes: the pack file plus 2.5 GB of CUDA context and engine buffers, fitted. marginBytes: covers
+          # the fit's largest under-prediction (90 MB) and prompt loads between the ones measured.
+          - bindingId: "sq-10"
+            parameters:
+              weightBytes: 12862931696
+              marginBytes: 268435456
+          - bindingId: "sq-15"
+            parameters:
+              weightBytes: 16754006806
+              marginBytes: 268435456
+          - bindingId: "sq-20"
+            parameters:
+              weightBytes: 21724257046
+              marginBytes: 268435456
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          inklingPack: {}
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+  - configurationId: "strata-nvidia-gb10"
+    # The Inkling engine places its experts itself and takes no expert budgets.
+    excludedEngineParameterIds: ["expert-vram-mib", "expert-host-memory-mib"]
+    engineArtifacts:
+      - engineReleaseId: "strata-0-2-19"
+        engineArtifactId: "linux-arm64-cuda"
+    artifactBindings:
+      - bindingId: "sq-10"
+        modelArtifactId: "sq-10"
+      - bindingId: "sq-15"
+        modelArtifactId: "sq-15"
+      - bindingId: "sq-20"
+        modelArtifactId: "sq-20"
+    # Measured on a GB10 (strata-0-2-19) and fitted per the model-sizing skill, with the same equation as the
+    # RTX 5090 configuration: weights and CUDA state + state per parallel request + KV and start-up scratch per
+    # token of the total context, plus an allowance for the prompt buffers the engine grows as longer prompts
+    # arrive (charged on the total context, which the catalog's equations are linear in).
+    sizing:
+      bindingParameters: ["weightBytes", "marginBytes"]
+      parameters:
+        # FP16 KV (the wrapper passes --kv fp16): 32 KiB per token (upstream's memory notes).
+        kvBytesPerToken: 32768
+        # The sliding-window and convolution state each request holds.
+        requestStateBytes: 230000000
+        # Scratch sized when the engine starts, per token of the context per request.
+        requestContextBytesPerToken: 22500
+        # Memory grows about 85 KB per token of the longest prompt served and stays (see the RTX 5090 configuration).
+        promptBytesPerToken: 86000
+      estimates:
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${weightBytes}
+            + ${requestStateBytes} * ${parallel-requests}
+            + ${kvBytesPerToken} * ${total-context}
+            + ${requestContextBytesPerToken} * ${total-context}
+          allowance: >-
+            ${marginBytes}
+            + ${promptBytesPerToken} * ${total-context}
+    hardwareSupport:
+      - hardwareClassId: "nvidia-gb10"
+        bindingSizing:
+          # weightBytes: the pack file plus about 2 GB of CUDA context and engine buffers, the largest start-up
+          # reading at 1 parallel request. sq-20 is not measured: sq-15 plus the packs' size difference. marginBytes:
+          # covers prompt loads between the ones measured.
+          - bindingId: "sq-10"
+            parameters:
+              weightBytes: 12445000000
+              marginBytes: 268435456
+          - bindingId: "sq-15"
+            parameters:
+              weightBytes: 16325000000
+              marginBytes: 268435456
+          - bindingId: "sq-20"
+            parameters:
+              weightBytes: 21325000000
+              marginBytes: 268435456
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_STRATA"
+      strata:
+        fixedSettings:
+          inklingPack: {}
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
 profiles:
   - profileId: "nvfp4"
     displayName: "Inkling 2 Mini NVFP4"
@@ -217,6 +403,42 @@ profiles:
         values:
           - parameterId: "enabled"
             boolean: true
+  - profileId: "strata-sq-10"
+    displayName: "SQ-10 on Strata"
+    description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "sq-10"
+    engineParameterDefaults: {}
+  - profileId: "strata-sq-15"
+    displayName: "SQ-15 on Strata"
+    description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "sq-15"
+    engineParameterDefaults: {}
+  - profileId: "strata-sq-20"
+    displayName: "SQ-20 on Strata"
+    description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on an RTX 5090 or RTX PRO 6000 for text inference."
+    configurationId: "strata-nvidia-cuda"
+    defaultModelArtifactBindingId: "sq-20"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-sq-10"
+    displayName: "SQ-10 on Strata for GB10"
+    description: "Runs Inkling 2 Mini's SQ-10 pack through Strata on a GB10 for text inference."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "sq-10"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-sq-15"
+    displayName: "SQ-15 on Strata for GB10"
+    description: "Runs Inkling 2 Mini's SQ-15 pack through Strata on a GB10 for text inference."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "sq-15"
+    engineParameterDefaults: {}
+  - profileId: "strata-gb10-sq-20"
+    displayName: "SQ-20 on Strata for GB10"
+    description: "Runs Inkling 2 Mini's SQ-20 pack through Strata on a GB10 for text inference."
+    configurationId: "strata-nvidia-gb10"
+    defaultModelArtifactBindingId: "sq-20"
+    engineParameterDefaults: {}
 intelligence:
   overall: 33
 license:
