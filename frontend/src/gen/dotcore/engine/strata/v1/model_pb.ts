@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file dotcore/engine/strata/v1/model.proto.
  */
 export const file_dotcore_engine_strata_v1_model: GenFile = /*@__PURE__*/
-  fileDesc("CiRkb3Rjb3JlL2VuZ2luZS9zdHJhdGEvdjEvbW9kZWwucHJvdG8SGGRvdGNvcmUuZW5naW5lLnN0cmF0YS52MSJmChhTdHJhdGFNb2RlbENvbmZpZ3VyYXRpb24SSgoOZml4ZWRfc2V0dGluZ3MYASABKAsyMi5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhRml4ZWRNb2RlbFNldHRpbmdzImYKGFN0cmF0YVJlc29sdmVkTW9kZWxTdGF0ZRJKCg5maXhlZF9zZXR0aW5ncxgBIAEoCzIyLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFGaXhlZE1vZGVsU2V0dGluZ3Mi8QIKGFN0cmF0YUZpeGVkTW9kZWxTZXR0aW5ncxIkChxleHBlcnRfdnJhbV9taWJfcGFyYW1ldGVyX2lkGAEgASgJEisKI2V4cGVydF9ob3N0X21lbW9yeV9taWJfcGFyYW1ldGVyX2lkGAcgASgJEhQKDGFyY2hpdGVjdHVyZRgCIAEoCRIYChBtdHBfZHJhZnRfdG9rZW5zGAMgASgNEkEKC3NpbmdsZV9nZ3VmGAQgASgLMiouZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YVNpbmdsZUdndWZIABI/CgpzcGxpdF9nZ3VmGAUgASgLMikuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YVNwbGl0R2d1ZkgAEj8KCnJlYWR5X3BhY2sYBiABKAsyKS5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhUmVhZHlQYWNrSABCDQoLbW9kZWxfZmlsZXMiEgoQU3RyYXRhU2luZ2xlR2d1ZiI8Cg9TdHJhdGFTcGxpdEdndWYSKQohZHJhZnRfbGF5ZXJfYXV4aWxpYXJ5X2FydGlmYWN0X2lkGAEgASgJIqsBCg9TdHJhdGFSZWFkeVBhY2sSKQohZHJhZnRfbGF5ZXJfYXV4aWxpYXJ5X2FydGlmYWN0X2lkGAEgASgJEhEKCXBhY2tfcGF0aBgCIAEoCRIXCg9kZW5zZV9nZ3VmX3BhdGgYAyABKAkSHgoWbG9va3VwX3RhYmxlX2dndWZfcGF0aBgEIAEoCRIhChl0b2tlbl9lbWJlZGRpbmdfZ2d1Zl9wYXRoGAUgASgJYgZwcm90bzM");
+  fileDesc("CiRkb3Rjb3JlL2VuZ2luZS9zdHJhdGEvdjEvbW9kZWwucHJvdG8SGGRvdGNvcmUuZW5naW5lLnN0cmF0YS52MSJmChhTdHJhdGFNb2RlbENvbmZpZ3VyYXRpb24SSgoOZml4ZWRfc2V0dGluZ3MYASABKAsyMi5kb3Rjb3JlLmVuZ2luZS5zdHJhdGEudjEuU3RyYXRhRml4ZWRNb2RlbFNldHRpbmdzImYKGFN0cmF0YVJlc29sdmVkTW9kZWxTdGF0ZRJKCg5maXhlZF9zZXR0aW5ncxgBIAEoCzIyLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFGaXhlZE1vZGVsU2V0dGluZ3MisQEKGFN0cmF0YUZpeGVkTW9kZWxTZXR0aW5ncxJBCgttYWluX2VuZ2luZRgBIAEoCzIqLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFNYWluRW5naW5lSAASQwoMaW5rbGluZ19wYWNrGAIgASgLMisuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YUlua2xpbmdQYWNrSABCDQoLZW5naW5lX3BhdGgi6QIKEFN0cmF0YU1haW5FbmdpbmUSJAocZXhwZXJ0X3ZyYW1fbWliX3BhcmFtZXRlcl9pZBgBIAEoCRIrCiNleHBlcnRfaG9zdF9tZW1vcnlfbWliX3BhcmFtZXRlcl9pZBgCIAEoCRIUCgxhcmNoaXRlY3R1cmUYAyABKAkSGAoQbXRwX2RyYWZ0X3Rva2VucxgEIAEoDRJBCgtzaW5nbGVfZ2d1ZhgFIAEoCzIqLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFTaW5nbGVHZ3VmSAASPwoKc3BsaXRfZ2d1ZhgGIAEoCzIpLmRvdGNvcmUuZW5naW5lLnN0cmF0YS52MS5TdHJhdGFTcGxpdEdndWZIABI/CgpyZWFkeV9wYWNrGAcgASgLMikuZG90Y29yZS5lbmdpbmUuc3RyYXRhLnYxLlN0cmF0YVJlYWR5UGFja0gAQg0KC21vZGVsX2ZpbGVzIhMKEVN0cmF0YUlua2xpbmdQYWNrIhIKEFN0cmF0YVNpbmdsZUdndWYiPAoPU3RyYXRhU3BsaXRHZ3VmEikKIWRyYWZ0X2xheWVyX2F1eGlsaWFyeV9hcnRpZmFjdF9pZBgBIAEoCSKrAQoPU3RyYXRhUmVhZHlQYWNrEikKIWRyYWZ0X2xheWVyX2F1eGlsaWFyeV9hcnRpZmFjdF9pZBgBIAEoCRIRCglwYWNrX3BhdGgYAiABKAkSFwoPZGVuc2VfZ2d1Zl9wYXRoGAMgASgJEh4KFmxvb2t1cF90YWJsZV9nZ3VmX3BhdGgYBCABKAkSIQoZdG9rZW5fZW1iZWRkaW5nX2dndWZfcGF0aBgFIAEoCWIGcHJvdG8z");
 
 /**
  * Engine-owned Strata configuration embedded in one catalog model
@@ -63,62 +63,26 @@ export const StrataResolvedModelStateSchema: GenMessage<StrataResolvedModelState
  */
 export type StrataFixedModelSettings = Message<"dotcore.engine.strata.v1.StrataFixedModelSettings"> & {
   /**
-   * Generic engine parameter containing the accelerator memory cap for the model's experts in MiB.
+   * The Strata engine program that runs the model, with its program-specific settings.
    *
-   * @generated from field: string expert_vram_mib_parameter_id = 1;
+   * @generated from oneof dotcore.engine.strata.v1.StrataFixedModelSettings.engine_path
    */
-  expertVramMibParameterId: string;
-
-  /**
-   * Generic engine parameter containing the host memory pinned for the experts beyond the accelerator cap in MiB; empty when the configuration excludes it.
-   *
-   * @generated from field: string expert_host_memory_mib_parameter_id = 7;
-   */
-  expertHostMemoryMibParameterId: string;
-
-  /**
-   * Model architecture Strata's engine runs, as the model's GGUF names it.
-   *
-   * @generated from field: string architecture = 2;
-   */
-  architecture: string;
-
-  /**
-   * Tokens Strata drafts per step with the model's MTP layer.
-   *
-   * @generated from field: uint32 mtp_draft_tokens = 3;
-   */
-  mtpDraftTokens: number;
-
-  /**
-   * How the model's files reach Strata's engine, which selects its engine path.
-   *
-   * @generated from oneof dotcore.engine.strata.v1.StrataFixedModelSettings.model_files
-   */
-  modelFiles: {
+  enginePath: {
     /**
-     * One GGUF file read in place, drafting with the MTP head inside it.
+     * Strata's main engine, for GGUF models and the packs built from them.
      *
-     * @generated from field: dotcore.engine.strata.v1.StrataSingleGguf single_gguf = 4;
+     * @generated from field: dotcore.engine.strata.v1.StrataMainEngine main_engine = 1;
      */
-    value: StrataSingleGguf;
-    case: "singleGguf";
+    value: StrataMainEngine;
+    case: "mainEngine";
   } | {
     /**
-     * Split GGUF shards Strata packs on first start, drafting with a separate draft layer.
+     * Strata's Inkling engine, for a ready-made Inkling pack file.
      *
-     * @generated from field: dotcore.engine.strata.v1.StrataSplitGguf split_gguf = 5;
+     * @generated from field: dotcore.engine.strata.v1.StrataInklingPack inkling_pack = 2;
      */
-    value: StrataSplitGguf;
-    case: "splitGguf";
-  } | {
-    /**
-     * A ready-made Strata pack with its GGUF side files, drafting with a separate draft layer.
-     *
-     * @generated from field: dotcore.engine.strata.v1.StrataReadyPack ready_pack = 6;
-     */
-    value: StrataReadyPack;
-    case: "readyPack";
+    value: StrataInklingPack;
+    case: "inklingPack";
   } | { case: undefined; value?: undefined };
 };
 
@@ -128,6 +92,94 @@ export type StrataFixedModelSettings = Message<"dotcore.engine.strata.v1.StrataF
  */
 export const StrataFixedModelSettingsSchema: GenMessage<StrataFixedModelSettings> = /*@__PURE__*/
   messageDesc(file_dotcore_engine_strata_v1_model, 2);
+
+/**
+ * Settings of a model Strata's main engine runs, drafting with the model's MTP layer.
+ *
+ * @generated from message dotcore.engine.strata.v1.StrataMainEngine
+ */
+export type StrataMainEngine = Message<"dotcore.engine.strata.v1.StrataMainEngine"> & {
+  /**
+   * Generic engine parameter containing the accelerator memory cap for the model's experts in MiB.
+   *
+   * @generated from field: string expert_vram_mib_parameter_id = 1;
+   */
+  expertVramMibParameterId: string;
+
+  /**
+   * Generic engine parameter containing the host memory pinned for the experts beyond the accelerator cap in MiB; empty when the configuration excludes it.
+   *
+   * @generated from field: string expert_host_memory_mib_parameter_id = 2;
+   */
+  expertHostMemoryMibParameterId: string;
+
+  /**
+   * Model architecture Strata's engine runs, as the model's GGUF names it.
+   *
+   * @generated from field: string architecture = 3;
+   */
+  architecture: string;
+
+  /**
+   * Tokens Strata drafts per step with the model's MTP layer.
+   *
+   * @generated from field: uint32 mtp_draft_tokens = 4;
+   */
+  mtpDraftTokens: number;
+
+  /**
+   * How the model's files reach Strata's engine, which selects its engine path.
+   *
+   * @generated from oneof dotcore.engine.strata.v1.StrataMainEngine.model_files
+   */
+  modelFiles: {
+    /**
+     * One GGUF file read in place, drafting with the MTP head inside it.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataSingleGguf single_gguf = 5;
+     */
+    value: StrataSingleGguf;
+    case: "singleGguf";
+  } | {
+    /**
+     * Split GGUF shards Strata packs on first start, drafting with a separate draft layer.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataSplitGguf split_gguf = 6;
+     */
+    value: StrataSplitGguf;
+    case: "splitGguf";
+  } | {
+    /**
+     * A ready-made Strata pack with its GGUF side files, drafting with a separate draft layer.
+     *
+     * @generated from field: dotcore.engine.strata.v1.StrataReadyPack ready_pack = 7;
+     */
+    value: StrataReadyPack;
+    case: "readyPack";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message dotcore.engine.strata.v1.StrataMainEngine.
+ * Use `create(StrataMainEngineSchema)` to create a new message.
+ */
+export const StrataMainEngineSchema: GenMessage<StrataMainEngine> = /*@__PURE__*/
+  messageDesc(file_dotcore_engine_strata_v1_model, 3);
+
+/**
+ * A model artifact snapshot holding exactly one Inkling pack file with the tokenizer files beside it; the pack carries its own drafter.
+ *
+ * @generated from message dotcore.engine.strata.v1.StrataInklingPack
+ */
+export type StrataInklingPack = Message<"dotcore.engine.strata.v1.StrataInklingPack"> & {
+};
+
+/**
+ * Describes the message dotcore.engine.strata.v1.StrataInklingPack.
+ * Use `create(StrataInklingPackSchema)` to create a new message.
+ */
+export const StrataInklingPackSchema: GenMessage<StrataInklingPack> = /*@__PURE__*/
+  messageDesc(file_dotcore_engine_strata_v1_model, 4);
 
 /**
  * A model artifact that is one GGUF file holding the whole model and its MTP head.
@@ -142,7 +194,7 @@ export type StrataSingleGguf = Message<"dotcore.engine.strata.v1.StrataSingleGgu
  * Use `create(StrataSingleGgufSchema)` to create a new message.
  */
 export const StrataSingleGgufSchema: GenMessage<StrataSingleGguf> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 3);
+  messageDesc(file_dotcore_engine_strata_v1_model, 5);
 
 /**
  * A model artifact that is one complete set of split GGUF shards in one folder.
@@ -163,7 +215,7 @@ export type StrataSplitGguf = Message<"dotcore.engine.strata.v1.StrataSplitGguf"
  * Use `create(StrataSplitGgufSchema)` to create a new message.
  */
 export const StrataSplitGgufSchema: GenMessage<StrataSplitGguf> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 4);
+  messageDesc(file_dotcore_engine_strata_v1_model, 6);
 
 /**
  * A model artifact holding a ready-made Strata pack and the GGUF files it reads beside it.
@@ -212,5 +264,5 @@ export type StrataReadyPack = Message<"dotcore.engine.strata.v1.StrataReadyPack"
  * Use `create(StrataReadyPackSchema)` to create a new message.
  */
 export const StrataReadyPackSchema: GenMessage<StrataReadyPack> = /*@__PURE__*/
-  messageDesc(file_dotcore_engine_strata_v1_model, 5);
+  messageDesc(file_dotcore_engine_strata_v1_model, 7);
 

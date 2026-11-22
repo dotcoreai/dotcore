@@ -164,19 +164,35 @@ fn descriptors_keep_engine_payloads_out_of_catalog_and_deployment_contracts() {
     assert_eq!(
         field_layout(strata, "StrataFixedModelSettings"),
         [
-            ("expert_vram_mib_parameter_id", 1, "TYPE_STRING"),
-            ("expert_host_memory_mib_parameter_id", 7, "TYPE_STRING"),
-            ("architecture", 2, "TYPE_STRING"),
-            ("mtp_draft_tokens", 3, "TYPE_UINT32"),
             (
-                "single_gguf",
-                4,
-                ".dotcore.engine.strata.v1.StrataSingleGguf",
+                "main_engine",
+                1,
+                ".dotcore.engine.strata.v1.StrataMainEngine",
             ),
-            ("split_gguf", 5, ".dotcore.engine.strata.v1.StrataSplitGguf"),
-            ("ready_pack", 6, ".dotcore.engine.strata.v1.StrataReadyPack"),
+            (
+                "inkling_pack",
+                2,
+                ".dotcore.engine.strata.v1.StrataInklingPack",
+            ),
         ]
     );
+    assert_eq!(
+        field_layout(strata, "StrataMainEngine"),
+        [
+            ("expert_vram_mib_parameter_id", 1, "TYPE_STRING"),
+            ("expert_host_memory_mib_parameter_id", 2, "TYPE_STRING"),
+            ("architecture", 3, "TYPE_STRING"),
+            ("mtp_draft_tokens", 4, "TYPE_UINT32"),
+            (
+                "single_gguf",
+                5,
+                ".dotcore.engine.strata.v1.StrataSingleGguf",
+            ),
+            ("split_gguf", 6, ".dotcore.engine.strata.v1.StrataSplitGguf"),
+            ("ready_pack", 7, ".dotcore.engine.strata.v1.StrataReadyPack"),
+        ]
+    );
+    assert_eq!(field_numbers(strata, "StrataInklingPack"), []);
     assert_eq!(
         field_numbers(strata, "StrataSplitGguf"),
         [("draft_layer_auxiliary_artifact_id", 1)]

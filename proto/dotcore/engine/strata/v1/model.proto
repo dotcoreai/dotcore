@@ -18,30 +18,45 @@ message StrataResolvedModelState {
 // Fixed Strata launch inputs. Editable values use generic engine parameter
 // schema and value contracts.
 message StrataFixedModelSettings {
+  // The Strata engine program that runs the model, with its program-specific settings.
+  oneof engine_path {
+    // Strata's main engine, for GGUF models and the packs built from them.
+    StrataMainEngine main_engine = 1;
+
+    // Strata's Inkling engine, for a ready-made Inkling pack file.
+    StrataInklingPack inkling_pack = 2;
+  }
+}
+
+// Settings of a model Strata's main engine runs, drafting with the model's MTP layer.
+message StrataMainEngine {
   // Generic engine parameter containing the accelerator memory cap for the model's experts in MiB.
   string expert_vram_mib_parameter_id = 1;
 
   // Generic engine parameter containing the host memory pinned for the experts beyond the accelerator cap in MiB; empty when the configuration excludes it.
-  string expert_host_memory_mib_parameter_id = 7;
+  string expert_host_memory_mib_parameter_id = 2;
 
   // Model architecture Strata's engine runs, as the model's GGUF names it.
-  string architecture = 2;
+  string architecture = 3;
 
   // Tokens Strata drafts per step with the model's MTP layer.
-  uint32 mtp_draft_tokens = 3;
+  uint32 mtp_draft_tokens = 4;
 
   // How the model's files reach Strata's engine, which selects its engine path.
   oneof model_files {
     // One GGUF file read in place, drafting with the MTP head inside it.
-    StrataSingleGguf single_gguf = 4;
+    StrataSingleGguf single_gguf = 5;
 
     // Split GGUF shards Strata packs on first start, drafting with a separate draft layer.
-    StrataSplitGguf split_gguf = 5;
+    StrataSplitGguf split_gguf = 6;
 
     // A ready-made Strata pack with its GGUF side files, drafting with a separate draft layer.
-    StrataReadyPack ready_pack = 6;
+    StrataReadyPack ready_pack = 7;
   }
 }
+
+// A model artifact snapshot holding exactly one Inkling pack file with the tokenizer files beside it; the pack carries its own drafter.
+message StrataInklingPack {}
 
 // A model artifact that is one GGUF file holding the whole model and its MTP head.
 message StrataSingleGguf {}
