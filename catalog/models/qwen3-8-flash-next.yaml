@@ -165,12 +165,13 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          expertHostMemoryMibParameterId: "expert-host-memory-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          splitGguf:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            expertHostMemoryMibParameterId: "expert-host-memory-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            splitGguf:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -224,11 +225,12 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          splitGguf:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            splitGguf:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -290,16 +292,17 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          expertHostMemoryMibParameterId: "expert-host-memory-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          readyPack:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
-            packPath: "pack"
-            denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
-            lookupTableGgufPath: "ple-fp8.gguf"
-            tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            expertHostMemoryMibParameterId: "expert-host-memory-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            readyPack:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
+              packPath: "pack"
+              denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
+              lookupTableGgufPath: "ple-fp8.gguf"
+              tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -350,15 +353,16 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          readyPack:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
-            packPath: "pack"
-            denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
-            lookupTableGgufPath: "ple-fp8.gguf"
-            tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            readyPack:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
+              packPath: "pack"
+              denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
+              lookupTableGgufPath: "ple-fp8.gguf"
+              tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]

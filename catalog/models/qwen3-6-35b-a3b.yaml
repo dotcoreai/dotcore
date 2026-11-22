@@ -479,10 +479,11 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen35moe"
-          mtpDraftTokens: 2
-          singleGguf: {}
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            architecture: "qwen35moe"
+            mtpDraftTokens: 2
+            singleGguf: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -557,10 +558,11 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen35moe"
-          mtpDraftTokens: 2
-          singleGguf: {}
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            architecture: "qwen35moe"
+            mtpDraftTokens: 2
+            singleGguf: {}
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]

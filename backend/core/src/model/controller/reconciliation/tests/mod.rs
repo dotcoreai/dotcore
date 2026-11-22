@@ -920,6 +920,51 @@ impl dotcore_artifact::OciImagePreparer for GatedOciPreparer {
     }
 }
 
+/// Binds simulated services whose readiness fails for good, counting its probes.
+struct TerminalReadinessProvider {
+    probes: Arc<AtomicUsize>,
+}
+
+struct TerminalReadinessProbe {
+    probes: Arc<AtomicUsize>,
+}
+
+impl crate::inference::NativeInferenceProvider for TerminalReadinessProvider {
+    fn bind(
+        &self,
+        identity: crate::inference::EngineBindingIdentity,
+        expected_model_id: String,
+    ) -> Result<crate::inference::EngineBinding, crate::inference::EngineBindingError> {
+        let base = crate::inference::simulated::SimulatedNativeProvider::new(
+            Timing::test().simulated,
+            Arc::new(SystemClock),
+        )
+        .bind(identity.clone(), expected_model_id)?;
+        Ok(crate::inference::EngineBinding::new(
+            identity,
+            Arc::new(TerminalReadinessProbe {
+                probes: self.probes.clone(),
+            }),
+            Arc::clone(base.invoker()),
+        ))
+    }
+}
+
+impl crate::inference::EngineReadinessProbe for TerminalReadinessProbe {
+    fn probe<'a>(
+        &'a self,
+        _cancellation: crate::inference::InferenceCancellation,
+    ) -> crate::inference::InferenceFuture<
+        'a,
+        Result<crate::inference::EngineReadiness, crate::inference::EngineProbeError>,
+    > {
+        self.probes.fetch_add(1, Ordering::SeqCst);
+        Box::pin(ready(Err(crate::inference::EngineProbeError::Terminal(
+            anyhow!("the engine started with less context than the deployment resolved"),
+        ))))
+    }
+}
+
 impl crate::inference::NativeInferenceProvider for FirstReadinessGatedProvider {
     fn bind(
         &self,
@@ -6055,6 +6100,68 @@ async fn replacement_session_rejects_suspended_create_and_start_completions() {
             "stale create/start completion must not publish serving state",
         );
     }
+}
+
+#[tokio::test]
+async fn terminal_readiness_failure_records_failed_and_stops_retrying() {
+    let mut site = test_site();
+    let desired_deployment =
+        test_desired_deployment("fixture-model", ModelDeploymentDesiredState::Present);
+    site.model_deployments.push(desired_deployment.clone());
+    let probes = Arc::new(AtomicUsize::new(0));
+    let engine_integrations = Arc::new(
+        crate::model::engine::EngineIntegrationRegistry::with_native_provider_and_transports(
+            Arc::new(TerminalReadinessProvider {
+                probes: probes.clone(),
+            }),
+            crate::model::engine::EngineTransportFactories::local_engines(),
+        ),
+    );
+    let (controller, _authority, current) = leased_controller_for_runtime(
+        site,
+        InMemoryRuntimeBackend::new(dotcore_domain::ExecutionPlatform::linux_amd64()),
+        engine_integrations,
+    );
+
+    controller
+        .inner
+        .reconcile()
+        .await
+        .expect("a readiness failure fails the deployment, not the pass");
+
+    let failed = current
+        .snapshot()
+        .expect("current state")
+        .model_deployments
+        .into_iter()
+        .find(|record| record.model_deployment_id == desired_deployment.model_deployment_id)
+        .and_then(|record| record.state)
+        .expect("deployment state");
+    assert_eq!(
+        failed.status,
+        ModelDeploymentStatus::Failed as i32,
+        "{failed:?}"
+    );
+    assert_eq!(failed.status_message, "Engine cannot serve the deployment");
+    let failure = failed.failure.expect("failure");
+    assert_eq!(failure.code, "engine_readiness_failed");
+    assert_eq!(
+        failure.message,
+        "The engine cannot serve this deployment: the engine started with less context than the deployment resolved; pause and resume the deployment once that is fixed, or tear it down"
+    );
+
+    let probed = probes.load(Ordering::SeqCst);
+    controller
+        .inner
+        .reconcile()
+        .await
+        .expect("reconciliation after the failure");
+    assert_eq!(
+        probes.load(Ordering::SeqCst),
+        probed,
+        "a failed deployment is not probed again"
+    );
+    assert!(controller.serving_targets().snapshot().targets.is_empty());
 }
 
 #[tokio::test]

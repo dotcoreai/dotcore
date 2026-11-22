@@ -137,6 +137,7 @@ impl EngineDefinition for Vllm {
         endpoint: LoopbackEndpoint,
         served_model_id: String,
         resolved_engine_state: &ResolvedEngineModelState,
+        _context_per_request: Option<u64>,
     ) -> Arc<dyn EngineReadinessProbe> {
         Arc::new(readiness::VllmReadinessProbe::new(
             endpoint,

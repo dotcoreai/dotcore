@@ -7,6 +7,7 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use dotcore_artifact::PreparedModelArtifacts;
+use dotcore_catalog::shared_parameters::CONTEXT_PER_REQUEST_PARAMETER_ID;
 use dotcore_domain::WorkloadArtifactKind;
 use dotcore_proto::dotcore::{
     catalog::v1::StoragePlacement,
@@ -20,7 +21,7 @@ use dotcore_runtime::{
 use sha2::{Digest, Sha256};
 
 use super::{
-    definition::{ENGINES, EngineDefinition},
+    definition::{ENGINES, EngineDefinition, unsigned_parameter_value},
     startup_facts::StartupFactExtractor,
     startup_refusal::StartupRefusal,
 };
@@ -237,19 +238,7 @@ impl EngineIntegrationRegistry {
         let integration = self
             .integration(kind)
             .map_err(|error| EngineBindingError::Invalid(error.to_string()))?;
-        let EngineBindingRequest {
-            identity,
-            served_model_id,
-            resolved_engine_state,
-            access,
-        } = request;
-        self.resolver.bind(
-            integration,
-            identity,
-            served_model_id,
-            access,
-            resolved_engine_state,
-        )
+        self.resolver.bind(integration, request)
     }
 
     pub(crate) fn bind_workload(
@@ -296,6 +285,9 @@ impl EngineIntegrationRegistry {
                 // `--alias`); readiness verifies it and requests are sent under it.
                 served_model_id: model.model_id.0.clone(),
                 resolved_engine_state,
+                context_per_request: model.snapshot.engine_parameter_values.as_ref().and_then(
+                    |values| unsigned_parameter_value(values, CONTEXT_PER_REQUEST_PARAMETER_ID),
+                ),
                 access,
             },
         )
@@ -368,6 +360,7 @@ impl EngineServingIntegration for EngineIntegration {
             identity,
             served_model_id,
             resolved_engine_state,
+            context_per_request,
             access,
         } = request;
         let (host, port) = match access {
@@ -395,6 +388,7 @@ impl EngineServingIntegration for EngineIntegration {
             },
             served_model_id,
             &resolved_engine_state,
+            context_per_request,
         );
         Ok(EngineBinding::new(identity, probe, invoker))
     }

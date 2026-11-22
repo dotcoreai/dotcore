@@ -1,12 +1,14 @@
 //! Translation and validation of the portable Strata launch plan for a resolved deployment.
 //!
 //! From a resolved deployment snapshot it builds the canonical command line of Dotcore's Strata
-//! start wrapper, run under the image's init: the model's files mounted read-only, with the draft
-//! layer and a ready-made pack's file roles when the model has them, the deployment's model
-//! identity as the served name, the configuration's architecture and MTP draft depth, the context
-//! per request, the parallel requests, the expert accelerator memory cap, and whether the pack path
-//! runs on unified memory. The wrapper takes no other arguments, so custom arguments are refused.
-//! It also checks that a retained plan exactly matches the plan its resolved state would produce.
+//! start wrapper, run under the image's init: the model's files mounted read-only, the deployment's
+//! model identity as the served name, the context per request and the parallel requests. For the
+//! main engine it adds the draft layer and a ready-made pack's file roles when the model has them,
+//! the configuration's architecture and MTP draft depth, the expert memory budgets, and whether the
+//! pack path runs on unified memory; for the Inkling engine it names the model artifact's single
+//! pack file instead. The
+//! wrapper takes no other arguments, so custom arguments are refused. It also checks that a
+//! retained plan exactly matches the plan its resolved state would produce.
 
 use dotcore_catalog::shared_parameters::{
     CONTEXT_PER_REQUEST_PARAMETER_ID, PARALLEL_REQUESTS_PARAMETER_ID,
@@ -14,7 +16,10 @@ use dotcore_catalog::shared_parameters::{
 use dotcore_proto::dotcore::{
     catalog::v1::parameter_value::Value as EngineParameterValueKind,
     engine::{
-        strata::v1::{StrataResolvedModelState, strata_fixed_model_settings::ModelFiles},
+        strata::v1::{
+            StrataMainEngine, StrataResolvedModelState, strata_fixed_model_settings::EnginePath,
+            strata_main_engine::ModelFiles,
+        },
         v1::{EngineKind, resolved_engine_model_state::State},
     },
     model::v1::{
@@ -26,9 +31,9 @@ use dotcore_proto::dotcore::{
     observation::v1::AcceleratorMemoryArchitecture,
 };
 
-use super::{SERVICE_PORT, draft_layer_artifact_id, valid_fixed_settings};
+use super::{SERVICE_PORT, draft_layer_artifact_id, inkling_pack_path, valid_fixed_settings};
 
-pub(super) const PLAN_FORMAT_VERSION: u32 = 2;
+pub(super) const PLAN_FORMAT_VERSION: u32 = 3;
 pub(super) const MODEL_BINDING_ID: &str = "model";
 pub(super) const DRAFT_LAYER_BINDING_ID: &str = "draft-layer";
 /// The image's init, run explicitly because the runtime replaces the image's entrypoint with the
@@ -52,7 +57,6 @@ pub(crate) fn translate(
         .model_artifact
         .as_ref()
         .ok_or(StrataPlanError::NoModelArtifact)?;
-    let expert_vram_mib = positive_parameter(snapshot, &fixed.expert_vram_mib_parameter_id)?;
     // The wrapper parses with argparse, where any token could name or abbreviate an option the
     // plan sets, and it takes no other arguments.
     if let Some(token) = snapshot.custom_argument_tokens.first() {
@@ -71,59 +75,41 @@ pub(crate) fn translate(
         artifact: Some(BoundArtifact::ModelArtifactId(model.artifact_id.clone())),
         read_only: true,
     }];
-    let draft_layer = draft_layer_artifact_id(fixed);
-    if let Some(artifact_id) = draft_layer {
-        if !snapshot
-            .auxiliary_artifacts
-            .iter()
-            .any(|artifact| artifact.auxiliary_artifact_id == artifact_id)
-        {
-            return Err(StrataPlanError::DraftLayerNotResolved);
+    match fixed.engine_path.as_ref() {
+        Some(EnginePath::MainEngine(main)) => {
+            let draft_layer = draft_layer_artifact_id(fixed);
+            if let Some(artifact_id) = draft_layer {
+                if !snapshot
+                    .auxiliary_artifacts
+                    .iter()
+                    .any(|artifact| artifact.auxiliary_artifact_id == artifact_id)
+                {
+                    return Err(StrataPlanError::DraftLayerNotResolved);
+                }
+                arguments.extend([literal("--draft-layer"), binding(DRAFT_LAYER_BINDING_ID)]);
+                artifact_bindings.push(PortableModelArtifactBinding {
+                    binding_id: DRAFT_LAYER_BINDING_ID.to_owned(),
+                    artifact: Some(BoundArtifact::AuxiliaryArtifactId(artifact_id.to_owned())),
+                    read_only: true,
+                });
+            }
+            arguments.extend(main_engine_arguments(
+                snapshot,
+                main,
+                draft_layer.is_some(),
+            )?);
         }
-        arguments.extend([literal("--draft-layer"), binding(DRAFT_LAYER_BINDING_ID)]);
-        artifact_bindings.push(PortableModelArtifactBinding {
-            binding_id: DRAFT_LAYER_BINDING_ID.to_owned(),
-            artifact: Some(BoundArtifact::AuxiliaryArtifactId(artifact_id.to_owned())),
-            read_only: true,
-        });
-    }
-    if let Some(ModelFiles::ReadyPack(pack)) = fixed.model_files.as_ref() {
-        arguments.extend(literals([
-            "--pack",
-            &pack.pack_path,
-            "--dense-gguf",
-            &pack.dense_gguf_path,
-            "--lookup-table-gguf",
-            &pack.lookup_table_gguf_path,
-            "--token-embedding-gguf",
-            &pack.token_embedding_gguf_path,
-        ]));
-    }
-    arguments.extend(literals([
-        "--model-name",
-        &snapshot.model_id,
-        "--arch",
-        &fixed.architecture,
-        "--mtp",
-        &fixed.mtp_draft_tokens.to_string(),
-        "--context",
-        &positive_parameter(snapshot, CONTEXT_PER_REQUEST_PARAMETER_ID)?.to_string(),
-        "--parallel",
-        &positive_parameter(snapshot, PARALLEL_REQUESTS_PARAMETER_ID)?.to_string(),
-        "--expert-vram-mib",
-        &expert_vram_mib.to_string(),
-    ]));
-    if !fixed.expert_host_memory_mib_parameter_id.is_empty() {
-        let expert_host_memory_mib =
-            unsigned_parameter(snapshot, &fixed.expert_host_memory_mib_parameter_id)?;
-        arguments.extend(literals([
-            "--expert-host-memory-mib",
-            &expert_host_memory_mib.to_string(),
-        ]));
-    }
-    // Only the pack path has settings for an accelerator sharing the host's memory.
-    if draft_layer.is_some() && uses_unified_memory(snapshot)? {
-        arguments.push(literal("--unified-memory"));
+        Some(EnginePath::InklingPack(_)) => {
+            let pack_path = inkling_pack_path(
+                model
+                    .source
+                    .as_ref()
+                    .and_then(|source| source.content.as_ref()),
+            )
+            .ok_or(StrataPlanError::NoInklingPack)?;
+            arguments.extend(inkling_pack_arguments(snapshot, pack_path)?);
+        }
+        None => return Err(StrataPlanError::InvalidResolvedState),
     }
     arguments.extend(literals(["--port", &SERVICE_PORT.to_string()]));
     Ok(PortableModelLaunchPlan {
@@ -189,6 +175,85 @@ fn resolved_state(
             State::LlamaCpp(_) | State::Vllm(_) | State::Ninfer(_) => None,
         })
         .ok_or(StrataPlanError::InvalidResolvedState)
+}
+
+/// The main engine's arguments after its model files: a ready-made pack's file roles, the served
+/// name, the architecture and MTP draft depth, the context per request and parallel requests, the
+/// expert memory budgets, and the unified memory setting, which only the pack path has.
+fn main_engine_arguments(
+    snapshot: &ResolvedLocalModelDeploymentSnapshot,
+    main: &StrataMainEngine,
+    pack_path: bool,
+) -> Result<Vec<PortableModelLaunchArgumentToken>, StrataPlanError> {
+    let expert_vram_mib = positive_parameter(snapshot, &main.expert_vram_mib_parameter_id)?;
+    let (context_per_request, parallel_requests) = context_and_parallel_requests(snapshot)?;
+    let mut arguments = Vec::new();
+    if let Some(ModelFiles::ReadyPack(pack)) = main.model_files.as_ref() {
+        arguments.extend(literals([
+            "--pack",
+            &pack.pack_path,
+            "--dense-gguf",
+            &pack.dense_gguf_path,
+            "--lookup-table-gguf",
+            &pack.lookup_table_gguf_path,
+            "--token-embedding-gguf",
+            &pack.token_embedding_gguf_path,
+        ]));
+    }
+    arguments.extend(literals([
+        "--model-name",
+        &snapshot.model_id,
+        "--arch",
+        &main.architecture,
+        "--mtp",
+        &main.mtp_draft_tokens.to_string(),
+        "--context",
+        &context_per_request.to_string(),
+        "--parallel",
+        &parallel_requests.to_string(),
+        "--expert-vram-mib",
+        &expert_vram_mib.to_string(),
+    ]));
+    if !main.expert_host_memory_mib_parameter_id.is_empty() {
+        let expert_host_memory_mib =
+            unsigned_parameter(snapshot, &main.expert_host_memory_mib_parameter_id)?;
+        arguments.extend(literals([
+            "--expert-host-memory-mib",
+            &expert_host_memory_mib.to_string(),
+        ]));
+    }
+    if pack_path && uses_unified_memory(snapshot)? {
+        arguments.push(literal("--unified-memory"));
+    }
+    Ok(arguments)
+}
+
+/// The Inkling engine's arguments after its model files: the pack file within the model artifact,
+/// the served name, the context per request and the parallel requests.
+fn inkling_pack_arguments(
+    snapshot: &ResolvedLocalModelDeploymentSnapshot,
+    pack_path: &str,
+) -> Result<Vec<PortableModelLaunchArgumentToken>, StrataPlanError> {
+    let (context_per_request, parallel_requests) = context_and_parallel_requests(snapshot)?;
+    Ok(literals([
+        "--inkling-pack",
+        pack_path,
+        "--model-name",
+        &snapshot.model_id,
+        "--context",
+        &context_per_request.to_string(),
+        "--parallel",
+        &parallel_requests.to_string(),
+    ]))
+}
+
+fn context_and_parallel_requests(
+    snapshot: &ResolvedLocalModelDeploymentSnapshot,
+) -> Result<(u64, u64), StrataPlanError> {
+    Ok((
+        positive_parameter(snapshot, CONTEXT_PER_REQUEST_PARAMETER_ID)?,
+        positive_parameter(snapshot, PARALLEL_REQUESTS_PARAMETER_ID)?,
+    ))
 }
 
 fn uses_unified_memory(
@@ -284,6 +349,9 @@ pub(crate) enum StrataPlanError {
     #[error("Strata launch plan has no resolved draft layer artifact")]
     DraftLayerNotResolved,
 
+    #[error("Strata launch plan's model artifact holds no single Inkling pack file")]
+    NoInklingPack,
+
     #[error("Strata launch plan has no selected target memory architecture")]
     NoMemoryArchitecture,
 
@@ -301,7 +369,10 @@ pub(crate) enum StrataPlanError {
 mod tests {
     use dotcore_catalog::shared_parameters::TOTAL_CONTEXT_PARAMETER_ID;
     use dotcore_proto::dotcore::{
-        catalog::v1::ModelEngineConfiguration,
+        catalog::v1::{
+            HuggingFaceSnapshotFile, ModelEngineConfiguration,
+            hugging_face_artifact_source::Content as HuggingFaceContent,
+        },
         engine::{
             strata::v1::{StrataFixedModelSettings, StrataReadyPack, StrataSplitGguf},
             v1::engine_model_configuration::Configuration,
@@ -312,8 +383,8 @@ mod tests {
     use super::*;
     use crate::test_support::strata::{
         DRAFT_LAYER_ARTIFACT_ID, EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
-        configuration, local_model_snapshot_with, parameter_values, ready_pack_configuration,
-        refresh_launch_plan, split_gguf_configuration,
+        configuration, inkling_pack_configuration, local_model_snapshot_with, parameter_values,
+        ready_pack_configuration, refresh_launch_plan, split_gguf_configuration,
     };
 
     #[test]
@@ -346,7 +417,7 @@ mod tests {
                 "8080",
             ]
         );
-        assert_eq!(plan.format_version, 2);
+        assert_eq!(plan.format_version, 3);
         assert_eq!(
             plan.artifact_bindings,
             [PortableModelArtifactBinding {
@@ -489,13 +560,12 @@ mod tests {
             .engine_configuration
             .as_mut()
             .and_then(|wrapper| wrapper.configuration.as_mut())
-        {
-            payload
+            && let Some(EnginePath::MainEngine(main)) = payload
                 .fixed_settings
                 .as_mut()
-                .expect("fixed settings")
-                .expert_host_memory_mib_parameter_id
-                .clear();
+                .and_then(|fixed| fixed.engine_path.as_mut())
+        {
+            main.expert_host_memory_mib_parameter_id.clear();
         }
         let mut local = local_with("qwen3-8-flash-next", &configuration);
         local
@@ -540,6 +610,95 @@ mod tests {
             ]
         );
         validate_snapshot(&local).expect("canonical ready pack plan");
+    }
+
+    #[test]
+    fn inkling_pack_launches_the_inkling_path_with_its_pack_file() {
+        let mut local = local_with("inkling-2-mini", &inkling_pack_configuration());
+        local.engine_parameter_values = Some(parameter_values([
+            (TOTAL_CONTEXT_PARAMETER_ID, 65_536),
+            (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
+            (PARALLEL_REQUESTS_PARAMETER_ID, 2),
+        ]));
+        // The Inkling engine finds its own memory settings, whatever the accelerator shares.
+        local
+            .selected_target
+            .as_mut()
+            .expect("selected target")
+            .accelerator_memory_architecture = AcceleratorMemoryArchitecture::Unified as i32;
+        refresh_launch_plan(&mut local);
+
+        let plan = local.desired_launch_plan.as_ref().expect("plan");
+
+        assert_eq!(
+            argv(plan),
+            [
+                "/usr/bin/tini",
+                "--",
+                "/usr/local/bin/dotcore-strata-start",
+                "--model",
+                "<model>",
+                "--inkling-pack",
+                "SQ-10.strata",
+                "--model-name",
+                "inkling-2-mini",
+                "--context",
+                "32768",
+                "--parallel",
+                "2",
+                "--port",
+                "8080",
+            ]
+        );
+        assert_eq!(
+            plan.artifact_bindings,
+            [PortableModelArtifactBinding {
+                binding_id: "model".to_owned(),
+                artifact: Some(BoundArtifact::ModelArtifactId(
+                    "fixture-inkling-pack".to_owned()
+                )),
+                read_only: true,
+            }]
+        );
+        validate_snapshot(&local).expect("canonical Inkling pack plan");
+    }
+
+    #[test]
+    fn an_inkling_artifact_without_a_single_plain_pack_file_cannot_launch() {
+        for files in [
+            vec!["tokenizer.json", "chat_template.jinja"],
+            vec![
+                "SQ-10.strata",
+                "SQ-15.strata",
+                "tokenizer.json",
+                "chat_template.jinja",
+            ],
+            vec![".strata", "tokenizer.json", "chat_template.jinja"],
+            vec!["--port=1.strata", "tokenizer.json", "chat_template.jinja"],
+        ] {
+            let mut local = local_with("inkling-2-mini", &inkling_pack_configuration());
+            let Some(HuggingFaceContent::Snapshot(snapshot)) = local
+                .model_artifact
+                .as_mut()
+                .and_then(|artifact| artifact.source.as_mut())
+                .and_then(|source| source.content.as_mut())
+            else {
+                panic!("snapshot artifact");
+            };
+            snapshot.files = files
+                .iter()
+                .map(|path| HuggingFaceSnapshotFile {
+                    path: (*path).to_owned(),
+                    provenance_digest: "0".repeat(64),
+                })
+                .collect();
+
+            assert_eq!(
+                translate(&local).expect_err("no single pack").to_string(),
+                "Strata launch plan's model artifact holds no single Inkling pack file",
+                "{files:?}"
+            );
+        }
     }
 
     #[test]
@@ -592,9 +751,9 @@ mod tests {
             [("", 2), ("Qwen 3", 2), ("qwen35moe", 0), ("qwen35moe", 9)]
         {
             let mut local = local("qwen3-6-35b-a3b");
-            let fixed = fixed_settings(&mut local);
-            fixed.architecture = architecture.to_owned();
-            fixed.mtp_draft_tokens = mtp_draft_tokens;
+            let main = main_engine(&mut local);
+            main.architecture = architecture.to_owned();
+            main.mtp_draft_tokens = mtp_draft_tokens;
 
             assert!(
                 matches!(
@@ -631,7 +790,7 @@ mod tests {
             ready(|pack| pack.pack_path = "pack//tokenizer".to_owned()),
         ] {
             let mut local = local_with("qwen3-8-flash-next", &ready_pack_configuration());
-            fixed_settings(&mut local).model_files = model_files.clone();
+            main_engine(&mut local).model_files = model_files.clone();
 
             assert!(
                 matches!(
@@ -733,12 +892,12 @@ mod tests {
         for (format_version, expected) in [
             (
                 PLAN_FORMAT_VERSION - 1,
-                "Strata deployment was created with launch plan format 1, which this Dotcore \
+                "Strata deployment was created with launch plan format 2, which this Dotcore \
                  version no longer supports; delete and recreate the deployment",
             ),
             (
                 PLAN_FORMAT_VERSION + 1,
-                "Strata deployment was created with launch plan format 3 by a newer Dotcore \
+                "Strata deployment was created with launch plan format 4 by a newer Dotcore \
                  version; upgrade Dotcore, or delete and recreate the deployment with this version",
             ),
         ] {
@@ -785,10 +944,19 @@ mod tests {
         state.fixed_settings.as_mut().expect("fixed settings")
     }
 
+    fn main_engine(local: &mut ResolvedLocalModelDeploymentSnapshot) -> &mut StrataMainEngine {
+        match fixed_settings(local).engine_path.as_mut() {
+            Some(EnginePath::MainEngine(main)) => main,
+            _ => panic!("main engine settings"),
+        }
+    }
+
     /// Renders the plan with the single-file model binding at its container path and other
-    /// bindings as `<binding>`.
+    /// bindings as `<binding>`. Only a single GGUF binds one file: a plan with a draft layer or an
+    /// Inkling pack binds a folder.
     fn argv(plan: &PortableModelLaunchPlan) -> Vec<String> {
-        let folder = plan.artifact_bindings.len() > 1;
+        let folder =
+            plan.artifact_bindings.len() > 1 || plan.arguments.contains(&literal("--inkling-pack"));
         plan.arguments
             .iter()
             .map(|argument| match argument.value.as_ref() {

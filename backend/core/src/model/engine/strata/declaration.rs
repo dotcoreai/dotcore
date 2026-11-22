@@ -2,10 +2,10 @@
 //!
 //! A release must declare well-formed unsigned-integer or secret parameters, Linux artifacts only,
 //! and the deployment's data folder Strata's start wrapper writes to. A configuration must bind
-//! model artifacts shaped as its fixed settings say, with the draft layer they name, run text-only
-//! on exactly one NVIDIA accelerator, declare no options, and reference every other
-//! unsigned-integer release parameter. Launch values must give Strata a total context that is
-//! exactly what its parallel requests hold.
+//! model artifacts shaped as its engine path says, with the draft layer it names, run text-only on
+//! exactly one NVIDIA accelerator, declare no options, and keep exactly the release parameters its
+//! engine path launches with. Launch values must give Strata a total context that is exactly what
+//! its parallel requests hold.
 
 use std::collections::BTreeSet;
 
@@ -19,16 +19,16 @@ use dotcore_catalog::{
 use dotcore_domain::Accelerator;
 use dotcore_proto::dotcore::{
     catalog::v1::{
-        EngineParameterSchema, EngineRelease, HardwareClass, HuggingFaceArtifactSource, Model,
-        ModelEngineConfiguration, ModelInputModality, ModelParallelShape, ParameterValue,
-        ParameterValues, StoragePlacement,
+        EngineParameterSchema, EngineRelease, HardwareClass, HuggingFaceArtifactSource,
+        HuggingFaceSnapshotArtifact, Model, ModelEngineConfiguration, ModelInputModality,
+        ModelParallelShape, ParameterValue, ParameterValues, StoragePlacement,
         hugging_face_artifact_source::Content as HuggingFaceContent,
         parameter_definition::ParameterType, parameter_value::Value as EngineParameterValueKind,
     },
     engine::{
         strata::v1::{
-            StrataFixedModelSettings, StrataModelConfiguration, StrataReadyPack,
-            strata_fixed_model_settings::ModelFiles,
+            StrataFixedModelSettings, StrataMainEngine, StrataModelConfiguration, StrataReadyPack,
+            strata_fixed_model_settings::EnginePath, strata_main_engine::ModelFiles,
         },
         v1::{EngineKind, engine_model_configuration::Configuration},
     },
@@ -49,6 +49,8 @@ const MODEL_FILE_EXTENSION: &str = ".gguf";
 const DRAFT_LAYER_FILES: [&str; 3] = ["dense.bin", "dense.txt", "experts.bin"];
 /// Files within a ready-made pack's folder the start wrapper needs.
 const READY_PACK_FILES: [&str; 2] = ["native_experts.txt", "tokenizer/vocab.json"];
+/// Files beside an Inkling pack the start wrapper builds the tokenizer from.
+const INKLING_PACK_FILES: [&str; 2] = ["tokenizer.json", "chat_template.jinja"];
 
 /// Context per request for values that leave it out: the total context split evenly among the
 /// parallel requests, capped by the maximum context, since Strata holds a full context per request
@@ -175,7 +177,8 @@ pub(crate) fn validate_hardware_support(
     // On unified memory the accelerator's expert cache already holds the experts in host memory,
     // so a pinned copy would hold them twice.
     if configured_fixed_settings(configuration)
-        .is_some_and(|fixed| !fixed.expert_host_memory_mib_parameter_id.is_empty())
+        .and_then(super::main_engine)
+        .is_some_and(|main| !main.expert_host_memory_mib_parameter_id.is_empty())
     {
         errors.extend(
             hardware_classes
@@ -244,10 +247,10 @@ fn validate_payload(
     };
     if !super::valid_fixed_settings(fixed) {
         errors.push(anyhow::anyhow!(
-            "configuration {:?} has invalid fixed Strata settings: the architecture takes \
-             lowercase letters, digits and '_', the MTP draft depth is 1 to {}, the model files \
-             are declared, a pack path names its draft layer, and a ready-made pack names plain \
-             relative paths",
+            "configuration {:?} has invalid fixed Strata settings: the engine path is declared; for \
+             the main engine, the architecture takes lowercase letters, digits and '_', the MTP \
+             draft depth is 1 to {}, the model files are declared, a pack path names its draft \
+             layer, and a ready-made pack names plain relative paths",
             configuration.configuration_id,
             super::MAXIMUM_MTP_DRAFT_TOKENS
         ));
@@ -279,8 +282,53 @@ fn validate_parameters(
                 .collect::<BTreeSet<_>>()
         })
         .unwrap_or_default();
-    let expert_vram = fixed.expert_vram_mib_parameter_id.as_str();
-    let expert_host = fixed.expert_host_memory_mib_parameter_id.as_str();
+    // Every other parameter of the configuration must reach the launch plan, so none can be set
+    // without effect. The total context reaches it through the parallel requests and the context
+    // per request.
+    let mut launched = BTreeSet::from([
+        TOTAL_CONTEXT_PARAMETER_ID,
+        CONTEXT_PER_REQUEST_PARAMETER_ID,
+        PARALLEL_REQUESTS_PARAMETER_ID,
+    ]);
+    match fixed.engine_path.as_ref() {
+        Some(EnginePath::MainEngine(main)) => {
+            launched.extend(validate_main_engine_parameters(
+                configuration,
+                &declared,
+                main,
+                errors,
+            ));
+        }
+        // The Inkling engine places its experts itself and takes no expert budgets.
+        Some(EnginePath::InklingPack(_)) => {
+            if declared != launched {
+                errors.push(anyhow::anyhow!(
+                    "configuration {:?} runs an Inkling pack, whose engine takes only the context and parallel request parameters; exclude the others",
+                    configuration.configuration_id
+                ));
+            }
+            return;
+        }
+        None => return,
+    }
+    if declared != launched {
+        errors.push(anyhow::anyhow!(
+            "configuration {:?} must reference every Strata engine parameter it keeps",
+            configuration.configuration_id
+        ));
+    }
+}
+
+/// Checks the main engine's expert parameter references and returns them, as they reach the launch
+/// plan.
+fn validate_main_engine_parameters<'a>(
+    configuration: &ModelEngineConfiguration,
+    declared: &BTreeSet<&str>,
+    main: &'a StrataMainEngine,
+    errors: &mut Vec<anyhow::Error>,
+) -> Vec<&'a str> {
+    let expert_vram = main.expert_vram_mib_parameter_id.as_str();
+    let expert_host = main.expert_host_memory_mib_parameter_id.as_str();
     let mut references = vec![expert_vram];
     references.extend((!expert_host.is_empty()).then_some(expert_host));
     if expert_vram == expert_host
@@ -295,30 +343,13 @@ fn validate_parameters(
     }
     // A single GGUF runs on Strata's engine for that format, which copies every expert outside the
     // accelerator into host memory and takes no budget for them.
-    if !expert_host.is_empty() && matches!(fixed.model_files, Some(ModelFiles::SingleGguf(_))) {
+    if !expert_host.is_empty() && matches!(main.model_files, Some(ModelFiles::SingleGguf(_))) {
         errors.push(anyhow::anyhow!(
             "configuration {:?} runs a single GGUF, whose engine path takes no expert host memory; exclude that parameter",
             configuration.configuration_id
         ));
     }
-
-    // Every other parameter of the configuration must reach the launch plan, so none can be set
-    // without effect. The total context reaches it through the parallel requests and the context
-    // per request.
-    let launched = references
-        .into_iter()
-        .chain([
-            TOTAL_CONTEXT_PARAMETER_ID,
-            CONTEXT_PER_REQUEST_PARAMETER_ID,
-            PARALLEL_REQUESTS_PARAMETER_ID,
-        ])
-        .collect::<BTreeSet<_>>();
-    if declared != launched {
-        errors.push(anyhow::anyhow!(
-            "configuration {:?} must reference every Strata engine parameter it keeps",
-            configuration.configuration_id
-        ));
-    }
+    references
 }
 
 /// Accepts bindings whose model artifacts have the shape the fixed settings' model files declare,
@@ -329,7 +360,7 @@ fn validate_artifacts(
     fixed: &StrataFixedModelSettings,
     errors: &mut Vec<anyhow::Error>,
 ) {
-    let Some(model_files) = fixed.model_files.as_ref() else {
+    let Some(engine_path) = fixed.engine_path.as_ref() else {
         return;
     };
     let draft_layer = super::draft_layer_artifact_id(fixed);
@@ -359,25 +390,8 @@ fn validate_artifacts(
             .find(|artifact| artifact.artifact_id == binding.model_artifact_id)
             .and_then(|artifact| artifact.source.as_ref())
             .and_then(|source| source.content.as_ref());
-        let valid = match (model_files, content) {
-            (ModelFiles::SingleGguf(_), Some(HuggingFaceContent::File(file))) => {
-                file.path.ends_with(MODEL_FILE_EXTENSION)
-            }
-            (ModelFiles::SplitGguf(_), Some(HuggingFaceContent::Snapshot(snapshot))) => {
-                split_gguf_entry(snapshot.files.iter().map(|file| file.path.as_str())).is_ok()
-            }
-            (ModelFiles::ReadyPack(pack), Some(HuggingFaceContent::Snapshot(snapshot))) => {
-                ready_pack_files(pack)
-                    .all(|path| snapshot.files.iter().any(|file| file.path == path))
-            }
-            _ => false,
-        };
-        let shape = match model_files {
-            ModelFiles::SingleGguf(_) => "a single GGUF file",
-            ModelFiles::SplitGguf(_) => "one complete set of split GGUF shards",
-            ModelFiles::ReadyPack(_) => {
-                "a snapshot holding the ready-made pack and the GGUF files its fixed settings name"
-            }
+        let Some((valid, shape)) = artifact_shape(engine_path, content) else {
+            continue;
         };
         if !valid {
             errors.push(anyhow::anyhow!(
@@ -402,6 +416,48 @@ fn validate_artifacts(
             DRAFT_LAYER_FILES.join(", ")
         ));
     }
+}
+
+/// Whether a model artifact's content has the shape the engine path declares, and that shape in
+/// words; none when the main engine declares no model files, which the settings check reports.
+fn artifact_shape(
+    engine_path: &EnginePath,
+    content: Option<&HuggingFaceContent>,
+) -> Option<(bool, &'static str)> {
+    let snapshot = match content {
+        Some(HuggingFaceContent::Snapshot(snapshot)) => Some(snapshot),
+        _ => None,
+    };
+    Some(match engine_path {
+        EnginePath::MainEngine(main) => match main.model_files.as_ref()? {
+            ModelFiles::SingleGguf(_) => {
+                let gguf = match content {
+                    Some(HuggingFaceContent::File(file)) => {
+                        file.path.ends_with(MODEL_FILE_EXTENSION)
+                    }
+                    _ => false,
+                };
+                (gguf, "a single GGUF file")
+            }
+            ModelFiles::SplitGguf(_) => (
+                snapshot.is_some_and(|snapshot| {
+                    split_gguf_entry(snapshot.files.iter().map(|file| file.path.as_str())).is_ok()
+                }),
+                "one complete set of split GGUF shards",
+            ),
+            ModelFiles::ReadyPack(pack) => (
+                snapshot.is_some_and(|snapshot| holds_files(snapshot, ready_pack_files(pack))),
+                "a snapshot holding the ready-made pack and the GGUF files its fixed settings name",
+            ),
+        },
+        EnginePath::InklingPack(_) => (
+            snapshot.is_some_and(|snapshot| {
+                super::inkling_pack_path(content)
+                    .is_some_and(|pack| holds_files(snapshot, inkling_pack_files(pack)))
+            }),
+            "a snapshot holding exactly one Inkling pack file with tokenizer.json and chat_template.jinja beside it",
+        ),
+    })
 }
 
 fn validate_execution_shape(
@@ -467,6 +523,24 @@ fn ready_pack_files(pack: &StrataReadyPack) -> impl Iterator<Item = String> + '_
     )
 }
 
+/// The files an Inkling pack's snapshot must hold beside its pack file: the tokenizer files.
+fn inkling_pack_files(pack_path: &str) -> impl Iterator<Item = String> {
+    let folder = pack_path
+        .rsplit_once('/')
+        .map_or(String::new(), |(folder, _)| format!("{folder}/"));
+    INKLING_PACK_FILES
+        .iter()
+        .map(move |file| format!("{folder}{file}"))
+}
+
+/// Whether `snapshot` holds every one of `paths`.
+fn holds_files(
+    snapshot: &HuggingFaceSnapshotArtifact,
+    mut paths: impl Iterator<Item = String>,
+) -> bool {
+    paths.all(|path| snapshot.files.iter().any(|file| file.path == path))
+}
+
 /// Whether a draft layer is a snapshot whose files sit in one folder and include every file the
 /// engine reads from it.
 fn valid_draft_layer(source: &HuggingFaceArtifactSource) -> bool {
@@ -521,8 +595,9 @@ mod tests {
             strata::{
                 API_KEY_PARAMETER_ID, CATALOG_ENGINE, CATALOG_MODEL, DRAFT_LAYER_ARTIFACT_ID,
                 EXPERT_HOST_MEMORY_MIB_PARAMETER_ID, EXPERT_VRAM_MIB_PARAMETER_ID,
-                catalog_engine_with_api_key, configuration, load_catalog, model,
-                ready_pack_configuration, release, release_with_api_key, split_gguf_configuration,
+                catalog_engine_with_api_key, configuration, inkling_pack_configuration,
+                load_catalog, model, ready_pack_configuration, release, release_with_api_key,
+                split_gguf_configuration,
             },
             unsigned_parameter_values,
         },
@@ -539,6 +614,7 @@ mod tests {
             configuration(),
             split_gguf_configuration(),
             ready_pack_configuration(),
+            inkling_pack_configuration(),
         ] {
             assert_eq!(
                 messages(validate_model_configuration(
@@ -615,7 +691,7 @@ mod tests {
     fn rejects_expert_vram_references_that_are_missing_or_shared() {
         for reference in ["missing", TOTAL_CONTEXT_PARAMETER_ID] {
             let mut configuration = configuration();
-            fixed_settings(&mut configuration).expert_vram_mib_parameter_id = reference.to_owned();
+            main_engine(&mut configuration).expert_vram_mib_parameter_id = reference.to_owned();
 
             assert_eq!(
                 messages(validate_model_configuration(
@@ -652,7 +728,7 @@ mod tests {
             .expect("a profile leaving the secret to creation");
 
         let mut configuration = configuration();
-        fixed_settings(&mut configuration).expert_vram_mib_parameter_id =
+        main_engine(&mut configuration).expert_vram_mib_parameter_id =
             API_KEY_PARAMETER_ID.to_owned();
         assert_eq!(
             messages(validate_model_configuration(
@@ -749,6 +825,125 @@ mod tests {
                 "configuration \"strata-fixture-ready-pack\" binding \"fixture-ready-pack\" requires a model artifact that is a snapshot holding the ready-made pack and the GGUF files its fixed settings name"
             ]
         );
+    }
+
+    #[test]
+    fn an_inkling_pack_keeps_no_expert_parameter() {
+        for kept in [
+            EXPERT_VRAM_MIB_PARAMETER_ID,
+            EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
+        ] {
+            let mut configuration = inkling_pack_configuration();
+            configuration
+                .excluded_engine_parameter_ids
+                .retain(|parameter_id| parameter_id != kept);
+
+            assert_eq!(
+                messages(validate_model_configuration(
+                    &model(),
+                    &configuration,
+                    &release()
+                )),
+                [
+                    "configuration \"strata-fixture-inkling-pack\" runs an Inkling pack, whose engine takes only the context and parallel request parameters; exclude the others"
+                ],
+                "{kept}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_inkling_binding_holds_one_pack_file_with_its_tokenizer_files_beside_it() {
+        for (edit, case) in [
+            (
+                |files: &mut Vec<_>| retain_paths(files, "SQ-10.strata"),
+                "no pack",
+            ),
+            (
+                |files: &mut Vec<_>| retain_paths(files, "tokenizer.json"),
+                "no tokenizer",
+            ),
+            (
+                |files: &mut Vec<_>| retain_paths(files, "chat_template.jinja"),
+                "no template",
+            ),
+            (
+                |files: &mut Vec<_>| rename(files, "SQ-10.strata", "packs/SQ-10.strata"),
+                "tokenizer elsewhere",
+            ),
+            (|files: &mut Vec<_>| add(files, "SQ-15.strata"), "two packs"),
+        ]
+            as [(
+                fn(&mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile>),
+                &str,
+            ); 5]
+        {
+            let mut model = model();
+            edit(snapshot_files(&mut model.artifacts[3].source));
+
+            assert_eq!(
+                messages(validate_model_configuration(
+                    &model,
+                    &inkling_pack_configuration(),
+                    &release()
+                )),
+                [
+                    "configuration \"strata-fixture-inkling-pack\" binding \"fixture-inkling-pack\" requires a model artifact that is a snapshot holding exactly one Inkling pack file with tokenizer.json and chat_template.jinja beside it"
+                ],
+                "{case}"
+            );
+        }
+
+        let mut nested = model();
+        let files = snapshot_files(&mut nested.artifacts[3].source);
+        for file in files.iter_mut() {
+            file.path = format!("SQ-10/{}", file.path);
+        }
+        assert_eq!(
+            messages(validate_model_configuration(
+                &nested,
+                &inkling_pack_configuration(),
+                &release()
+            )),
+            Vec::<String>::new()
+        );
+
+        let mut single_file = model();
+        single_file.artifacts[3].source = Some(file_source("SQ-10.strata"));
+        assert_eq!(
+            messages(validate_model_configuration(
+                &single_file,
+                &inkling_pack_configuration(),
+                &release()
+            )),
+            [
+                "configuration \"strata-fixture-inkling-pack\" binding \"fixture-inkling-pack\" requires a model artifact that is a snapshot holding exactly one Inkling pack file with tokenizer.json and chat_template.jinja beside it"
+            ]
+        );
+
+        fn retain_paths(
+            files: &mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile>,
+            removed: &str,
+        ) {
+            files.retain(|file| file.path != removed);
+        }
+        fn rename(
+            files: &mut [dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile],
+            from: &str,
+            to: &str,
+        ) {
+            for file in files.iter_mut().filter(|file| file.path == from) {
+                file.path = to.to_owned();
+            }
+        }
+        fn add(
+            files: &mut Vec<dotcore_proto::dotcore::catalog::v1::HuggingFaceSnapshotFile>,
+            path: &str,
+        ) {
+            let mut file = files[0].clone();
+            file.path = path.to_owned();
+            files.push(file);
+        }
     }
 
     #[test]
@@ -872,6 +1067,10 @@ mod tests {
 
         assert!(validate_hardware_support(&split_gguf_configuration(), &[&nvidia]).is_empty());
         assert!(validate_hardware_support(&configuration(), &[&unified]).is_empty());
+        assert!(
+            validate_hardware_support(&inkling_pack_configuration(), &[&nvidia, &unified])
+                .is_empty()
+        );
         assert_eq!(
             messages(validate_hardware_support(
                 &split_gguf_configuration(),
@@ -884,7 +1083,7 @@ mod tests {
 
         let mut single_gguf = configuration();
         single_gguf.excluded_engine_parameter_ids.clear();
-        fixed_settings(&mut single_gguf).expert_host_memory_mib_parameter_id =
+        main_engine(&mut single_gguf).expert_host_memory_mib_parameter_id =
             EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned();
         assert_eq!(
             messages(validate_model_configuration(
@@ -898,7 +1097,7 @@ mod tests {
         );
 
         let mut unreferenced = split_gguf_configuration();
-        fixed_settings(&mut unreferenced)
+        main_engine(&mut unreferenced)
             .expert_host_memory_mib_parameter_id
             .clear();
         assert_eq!(
@@ -1257,6 +1456,13 @@ mod tests {
                 payload.fixed_settings.as_mut().expect("fixed settings")
             }
             _ => panic!("Strata payload"),
+        }
+    }
+
+    fn main_engine(configuration: &mut ModelEngineConfiguration) -> &mut StrataMainEngine {
+        match fixed_settings(configuration).engine_path.as_mut() {
+            Some(EnginePath::MainEngine(main)) => main,
+            _ => panic!("main engine settings"),
         }
     }
 

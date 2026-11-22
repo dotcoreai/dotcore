@@ -3,7 +3,9 @@
 //! Strata is ready when `/health` answers 200, reports its model loaded, and names the exact
 //! served model id. While the model loads, the server refuses connections; after a load, its
 //! health reports the model unloaded if the engine dies. Both count as still loading, and a
-//! failed start exits the process and surfaces as a workload exit instead.
+//! failed start exits the process and surfaces as a workload exit instead. An engine that fits less
+//! context in memory than asked starts anyway, so a loaded engine reporting less than the
+//! deployment's context per request fails readiness for good.
 
 use std::time::Duration;
 
@@ -24,17 +26,24 @@ use crate::{
 /// a stalled one; a slow answer only defers readiness to a later pass.
 const READINESS_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Probes one Strata service on its loopback endpoint for readiness under its served model id.
+/// Probes one Strata service on its loopback endpoint for readiness under its served model id,
+/// with at least the deployment's context per request when it has one.
 pub(super) struct StrataReadinessProbe {
     endpoint: LoopbackEndpoint,
     served_model_id: String,
+    context_per_request: Option<u64>,
 }
 
 impl StrataReadinessProbe {
-    pub(super) fn new(endpoint: LoopbackEndpoint, served_model_id: String) -> Self {
+    pub(super) fn new(
+        endpoint: LoopbackEndpoint,
+        served_model_id: String,
+        context_per_request: Option<u64>,
+    ) -> Self {
         Self {
             endpoint,
             served_model_id,
+            context_per_request,
         }
     }
 }
@@ -47,7 +56,11 @@ impl EngineReadinessProbe for StrataReadinessProbe {
         probe::probe_readiness(
             cancellation,
             &self.served_model_id,
-            is_ready(&self.endpoint, &self.served_model_id),
+            is_ready(
+                &self.endpoint,
+                &self.served_model_id,
+                self.context_per_request,
+            ),
         )
     }
 }
@@ -57,12 +70,14 @@ impl EngineReadinessProbe for StrataReadinessProbe {
 struct Health {
     loaded: bool,
     model: String,
+    max_context: u64,
 }
 
 /// Evaluates Strata's health from an assigned runtime endpoint.
 async fn is_ready(
     endpoint: &LoopbackEndpoint,
     served_model_id: &str,
+    context_per_request: Option<u64>,
 ) -> Result<bool, EngineProbeError> {
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -94,7 +109,30 @@ async fn is_ready(
             anyhow::Error::new(error).context("Strata /health returned an unexpected body"),
         )
     })?;
-    Ok(health.loaded && health.model == served_model_id)
+    if !health.loaded || health.model != served_model_id {
+        return Ok(false);
+    }
+    if let Some(context_per_request) = context_per_request
+        && health.max_context < context_per_request
+    {
+        return Err(probe::terminal(StartedContextBelowDeployment {
+            started: health.max_context,
+            context_per_request,
+        }));
+    }
+    Ok(true)
+}
+
+/// Strata started with less context per request than the deployment resolved, since that was all
+/// that fit in the accelerator's free memory.
+#[derive(Debug, thiserror::Error)]
+#[error(
+    "Strata started with a context per request of {started} tokens, below the deployment's \
+     {context_per_request} tokens; lower the context per request or free accelerator memory"
+)]
+struct StartedContextBelowDeployment {
+    started: u64,
+    context_per_request: u64,
 }
 
 #[cfg(test)]
@@ -109,14 +147,14 @@ mod tests {
     async fn ready_requires_a_loaded_model_under_the_exact_served_model_id() {
         let port = serve(200, LOADED).await;
         assert!(
-            is_ready(&endpoint(port), "qwen3-6-35b-a3b")
+            is_ready(&endpoint(port), "qwen3-6-35b-a3b", None)
                 .await
                 .expect("probe")
         );
 
         let port = serve(200, LOADED).await;
         assert!(
-            !is_ready(&endpoint(port), "qwen3-6-35b")
+            !is_ready(&endpoint(port), "qwen3-6-35b", None)
                 .await
                 .expect("probe")
         );
@@ -130,14 +168,51 @@ mod tests {
         )
         .await;
         assert!(
-            !is_ready(&endpoint(port), "qwen3-6-35b-a3b")
+            !is_ready(&endpoint(port), "qwen3-6-35b-a3b", None)
                 .await
                 .expect("probe")
         );
 
         let port = serve(503, "{}").await;
         assert!(
-            !is_ready(&endpoint(port), "qwen3-6-35b-a3b")
+            !is_ready(&endpoint(port), "qwen3-6-35b-a3b", None)
+                .await
+                .expect("probe")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_started_context_below_the_context_per_request_is_terminal() {
+        let port = serve(200, LOADED).await;
+        assert!(
+            is_ready(&endpoint(port), "qwen3-6-35b-a3b", Some(32_768))
+                .await
+                .expect("the context per request the engine started with")
+        );
+
+        let port = serve(200, LOADED).await;
+        let error = is_ready(&endpoint(port), "qwen3-6-35b-a3b", Some(32_769))
+            .await
+            .expect_err("a context per request above the started one");
+
+        assert_eq!(
+            error.to_string(),
+            "engine readiness probe failed: Strata started with a context per request of 32768 \
+             tokens, below the deployment's 32769 tokens; lower the context per request or free \
+             accelerator memory"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unloaded_engine_is_loading_whatever_context_it_reports() {
+        let port = serve(
+            200,
+            &LOADED.replace(r#""loaded": true"#, r#""loaded": false"#),
+        )
+        .await;
+
+        assert!(
+            !is_ready(&endpoint(port), "qwen3-6-35b-a3b", Some(65_536))
                 .await
                 .expect("probe")
         );
@@ -148,7 +223,7 @@ mod tests {
         let reserved = dotcore_domain::test_support::ports::reserve_port();
 
         assert!(
-            !is_ready(&endpoint(reserved.port()), "qwen3-6-35b-a3b")
+            !is_ready(&endpoint(reserved.port()), "qwen3-6-35b-a3b", None)
                 .await
                 .expect("probe")
         );
@@ -158,7 +233,7 @@ mod tests {
     async fn unexpected_health_body_is_terminal() {
         let port = serve(200, r#"{"status": "ok"}"#).await;
 
-        let error = is_ready(&endpoint(port), "qwen3-6-35b-a3b")
+        let error = is_ready(&endpoint(port), "qwen3-6-35b-a3b", None)
             .await
             .expect_err("unexpected body");
 

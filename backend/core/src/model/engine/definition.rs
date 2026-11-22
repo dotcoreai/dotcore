@@ -155,11 +155,15 @@ pub(crate) trait EngineDefinition: Send + Sync {
         artifacts: &PreparedModelArtifacts,
     ) -> anyhow::Result<WorkloadSpec>;
 
+    /// Returns the probe that tells when the service is ready under `served_model_id`. An engine
+    /// that reports the context it started with fails readiness when it is below the deployment's
+    /// `context_per_request`, since it would serve less than the deployment resolved.
     fn readiness_probe(
         &self,
         endpoint: LoopbackEndpoint,
         served_model_id: String,
         resolved_engine_state: &ResolvedEngineModelState,
+        context_per_request: Option<u64>,
     ) -> Arc<dyn EngineReadinessProbe>;
 
     /// Rejects resolved engine state this engine cannot bind a service with.

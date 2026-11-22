@@ -130,6 +130,8 @@ sequenceDiagram
 - The hosting node pins the deployment's launch identity ([storage](storage.md#launch-identity)).
 - An engine that stops on its own restarts or fails the deployment by the crash rule
   ([runtime](runtime.md#handling-a-workload-that-stops)).
+- A deployment whose engine starts with less than its resolved context per request fails instead of
+  serving it. Readiness that can never succeed fails the deployment; it is never retried or served.
 - The inference controller records workload resource telemetry on the hosting node for its ready
   local deployments ([storage](storage.md#workload-resource-records)).
 

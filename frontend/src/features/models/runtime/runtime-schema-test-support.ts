@@ -484,8 +484,13 @@ export function modelWithStrata(
           case: "strata",
           value: {
             fixedSettings: {
-              expertHostMemoryMibParameterId: "expert-host-memory-mib",
-              expertVramMibParameterId: "expert-vram-mib",
+              enginePath: {
+                case: "mainEngine",
+                value: {
+                  expertHostMemoryMibParameterId: "expert-host-memory-mib",
+                  expertVramMibParameterId: "expert-vram-mib",
+                },
+              },
             },
           },
         },
