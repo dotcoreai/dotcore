@@ -20,7 +20,11 @@ import { CustomizeModelDialog } from "./customize-model-dialog";
 import type { FollowedDeployments } from "./deploying-step";
 import { FollowedStep } from "./followed-step";
 import { launchedProposal, proposalLaunch } from "./get-started-launch";
-import { type ModelProposal, modelProposalKey } from "./get-started-proposals";
+import {
+  type FailedDeployments,
+  type ModelProposal,
+  modelProposalKey,
+} from "./get-started-proposals";
 import { MachinesCard } from "./machines-card";
 import { ProposalCard } from "./proposal-card";
 import { UseCaseCards } from "./use-case-cards";
@@ -112,26 +116,40 @@ export function GetStartedPage() {
     });
   // What the use case runs with `model`, named as the card shows it, with the ids of what
   // already runs.
-  const planned = (model = choice): FollowedDeployments => {
+  // A failed use case follows what exists: the failed model and the app only once deployed.
+  const planned = (model = choice, failed?: FailedDeployments): FollowedDeployments => {
     const app = proposal?.app;
+    const followsApp = failed
+      ? Boolean(app?.target?.applicationDeploymentId)
+      : Boolean(app?.target?.target);
     return {
-      application: app?.target?.target && {
-        id: app.target.applicationDeploymentId,
-        name: app.application.displayName || app.application.applicationId,
-      },
-      model: model && {
-        id: model.deploymentId,
-        name:
-          (model === choice ? launch?.name : undefined) ??
-          (model.deployment
-            ? modelDeploymentPresentationName(model.deployment)
-            : catalogModel?.displayName || model.modelId),
-      },
+      application:
+        followsApp && app?.target
+          ? {
+              id: app.target.applicationDeploymentId,
+              name: app.application.displayName || app.application.applicationId,
+            }
+          : undefined,
+      model: failed?.model
+        ? {
+            id: failed.model.modelDeploymentId,
+            name: modelDeploymentPresentationName(failed.model),
+          }
+        : model && {
+            id: model.deploymentId,
+            name:
+              (model === choice ? launch?.name : undefined) ??
+              (model.deployment
+                ? modelDeploymentPresentationName(model.deployment)
+                : catalogModel?.displayName || model.modelId),
+          },
     };
   };
   // A use case the site already serves, or is deploying opens on its step, which then follows what serves it like a deploy from this page.
   if (!followed && proposal && proposal.stage !== "none" && deployer.pending === undefined) {
-    setFollowing((current) => new Map(current).set(useCase, planned(proposal.model)));
+    setFollowing((current) =>
+      new Map(current).set(useCase, planned(proposal.model, proposal.failed)),
+    );
   }
   // Leaves a failed or removed deployment's progress for the proposal, which can deploy afresh.
   const back = () => {

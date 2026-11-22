@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 
 import type { ApplicationClient } from "@/api/application-client";
 import type { ModelClient } from "@/api/model-client";
+import { applicationDeploymentPresentationName } from "@/domain/application-deployment-name";
 import { applicationDeploymentLifecycleState } from "@/domain/application-projection";
-import { deploymentStatus } from "@/domain/model-projection";
+import { deploymentStatus, modelDeploymentPresentationName } from "@/domain/model-projection";
+import { describeMutationError as describeApplicationError } from "@/features/applications/application-mutation-errors";
+import { describeMutationError as describeModelError } from "@/features/models/model-mutation-errors";
 import { ApplicationLifecycleState } from "@/gen/dotcore/application/v1/state_pb";
 import type { UseCase } from "@/gen/dotcore/catalog/v1/recommendation_pb";
 import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
@@ -21,8 +24,9 @@ import { ReadyStep } from "./ready-step";
 /**
  * Follows the deployments a use case started: it shows their progress from the moment Deploy is
  * clicked and, once every one is ready, moves on to what the operator can do with them. A
- * deployment that failed, or that the watch stopped listing after it appeared, offers the way back
- * to the proposal.
+ * deployment that the watch stopped listing after it appeared offers the way back to the proposal.
+ * A failed one offers its removal instead, since it still holds its route name; the step leaves
+ * for the proposal once the watch no longer lists what was removed.
  */
 export function FollowedStep({
   applicationClient,
@@ -66,12 +70,18 @@ export function FollowedStep({
     ...(removed(modelId, modelDeployment) ? ["model"] : []),
     ...(removed(applicationId, applicationDeployment) ? ["app"] : []),
   ];
-  const failed =
-    (modelDeployment !== undefined &&
-      deploymentStatus(modelDeployment) === ModelDeploymentStatus.FAILED) ||
-    (applicationDeployment !== undefined &&
-      applicationDeploymentLifecycleState(applicationDeployment) ===
-        ApplicationLifecycleState.FAILED);
+  const failedModel =
+    modelDeployment !== undefined &&
+    deploymentStatus(modelDeployment) === ModelDeploymentStatus.FAILED
+      ? modelDeployment
+      : undefined;
+  const failedApplication =
+    applicationDeployment !== undefined &&
+    applicationDeploymentLifecycleState(applicationDeployment) === ApplicationLifecycleState.FAILED
+      ? applicationDeployment
+      : undefined;
+  const [removal, setRemoval] = useState<{ error?: string; ids: readonly string[] }>();
+  const [removing, setRemoving] = useState(false);
   const modelReady =
     !deployments.model ||
     (modelDeployment !== undefined &&
@@ -82,6 +92,50 @@ export function FollowedStep({
   useEffect(() => {
     if (ready) onReady();
   }, [onReady, ready]);
+
+  // Once the removed deployments leave the watch their route names are free, so the proposal can
+  // deploy afresh.
+  const removalDone =
+    removal?.ids.length !== undefined &&
+    removal.ids.length > 0 &&
+    !removal.ids.includes(modelDeployment?.modelDeploymentId ?? "") &&
+    !removal.ids.includes(applicationDeployment?.applicationDeploymentId ?? "");
+  useEffect(() => {
+    if (removalDone) onBack();
+  }, [onBack, removalDone]);
+
+  const removeFailed = async () => {
+    if (removing) return;
+
+    setRemoving(true);
+    const ids: string[] = [];
+    try {
+      if (failedModel) {
+        await modelClient.model.removeModelDeployment({
+          modelDeploymentId: failedModel.modelDeploymentId,
+        });
+        ids.push(failedModel.modelDeploymentId);
+      }
+    } catch (error) {
+      setRemoval({ error: describeModelError("Teardown", error), ids });
+      setRemoving(false);
+      return;
+    }
+    try {
+      if (failedApplication) {
+        await applicationClient.application.removeApplicationDeployment({
+          applicationDeploymentId: failedApplication.applicationDeploymentId,
+        });
+        ids.push(failedApplication.applicationDeploymentId);
+      }
+    } catch (error) {
+      setRemoval({ error: describeApplicationError("Teardown", error), ids });
+      setRemoving(false);
+      return;
+    }
+    setRemoval({ ids });
+    setRemoving(false);
+  };
 
   if (ready) {
     return (
@@ -108,7 +162,30 @@ export function FollowedStep({
           ? `The ${removedKinds.join(" and ")} ${removedKinds.length > 1 ? "deployments were" : "deployment was"} removed.`
           : undefined
       }
-      onBack={failed || removedKinds.length ? onBack : undefined}
+      onBack={removedKinds.length && !failedModel && !failedApplication ? onBack : undefined}
+      removal={
+        failedModel || failedApplication
+          ? {
+              error: removal?.error,
+              failedNames: [
+                ...(failedModel ? [modelDeploymentPresentationName(failedModel)] : []),
+                ...(failedApplication
+                  ? [applicationDeploymentPresentationName(failedApplication)]
+                  : []),
+              ],
+              keptNames: [
+                ...(modelDeployment && !failedModel
+                  ? [modelDeploymentPresentationName(modelDeployment)]
+                  : []),
+                ...(applicationDeployment && !failedApplication
+                  ? [applicationDeploymentPresentationName(applicationDeployment)]
+                  : []),
+              ],
+              onConfirm: () => void removeFailed(),
+              pending: removing,
+            }
+          : undefined
+      }
     />
   );
 }

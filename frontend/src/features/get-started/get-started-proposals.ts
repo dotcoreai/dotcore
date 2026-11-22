@@ -32,10 +32,11 @@ export const getStartedUseCases: readonly UseCase[] = [
 
 /**
  * How far the site is in serving a use case: `ready` when everything proposed is deployed and
- * ready, `deploying` when everything proposed has a listed deployment, none failed, but not all
- * are ready, and `none` otherwise (partly deployed included, so Deploy creates the rest).
+ * ready, `failed` when a deployment of the use case failed (it takes the use case over until
+ * removed), `deploying` when everything proposed has a listed deployment and not all are ready,
+ * and `none` otherwise (partly deployed included, so Deploy creates the rest).
  */
-export type UseCaseStage = "deploying" | "none" | "ready";
+export type UseCaseStage = "deploying" | "failed" | "none" | "ready";
 
 /** The proposal for one use case: a model, an app, or both, and the stage the site serves it at. */
 export interface UseCaseProposal {
@@ -46,7 +47,15 @@ export interface UseCaseProposal {
   otherChoices: ModelProposal[];
   /** The catalog app declared for the use case; absent when none is. */
   app?: AppProposal;
+  /** The use case's failed deployments; present exactly when the stage is `failed`. */
+  failed?: FailedDeployments;
   stage: UseCaseStage;
+}
+
+/** The failed deployments of a use case; at least one is set. */
+export interface FailedDeployments {
+  application?: ApplicationDeployment;
+  model?: ModelDeployment;
 }
 
 /** One recommended model profile on one target. */
@@ -150,11 +159,14 @@ export function buildProposals(
         )
       : undefined;
 
+    const failed = failedDeployments(useCase, reads.rows.get(useCase) ?? [], app, modelDeployments);
+
     return {
       app,
+      failed,
       model: first,
       otherChoices: rest,
-      stage: useCaseStage(useCase, first, app),
+      stage: useCaseStage(useCase, first, app, failed),
       useCase,
     };
   });
@@ -212,12 +224,15 @@ function useCaseStage(
   useCase: UseCase,
   model: ModelProposal | undefined,
   app: AppProposal | undefined,
+  failed: FailedDeployments | undefined,
 ): UseCaseStage {
   const appServed = app?.target ? isApplicationReady(app.deployment) : undefined;
   const modelReady = model?.deployment
     ? deploymentStatus(model.deployment) === ModelDeploymentStatus.READY
     : false;
   if (usesModel(useCase) ? modelReady && appServed !== false : appServed === true) return "ready";
+
+  if (failed) return "failed";
 
   // Every proposed piece needs a deployment the watch lists, so a stale read can't open a step
   // whose deployments are gone.
@@ -226,11 +241,42 @@ function useCaseStage(
   const pieces = [...modelPiece, ...appPiece];
   if (!pieces.length || pieces.some((deployment) => !deployment)) return "none";
 
-  const failed =
-    (model?.deployment !== undefined && isModelDeploymentFailed(model.deployment)) ||
-    (app?.deployment !== undefined && isApplicationDeploymentFailed(app.deployment));
+  return "deploying";
+}
 
-  return failed ? "none" : "deploying";
+// A failed model deployment is found among every row and target of the use case: it no longer
+// counts as running, so another row may be the best one while it still holds its route name.
+function failedDeployments(
+  useCase: UseCase,
+  rows: readonly RecommendedModelProfile[],
+  app: AppProposal | undefined,
+  modelDeployments: readonly ModelDeployment[],
+): FailedDeployments | undefined {
+  const model = usesModel(useCase)
+    ? modelDeployments.find(
+        (deployment) =>
+          isModelDeploymentFailed(deployment) &&
+          rows.some((row) => deploymentServesRow(deployment, row)),
+      )
+    : undefined;
+  const application =
+    app?.deployment && isApplicationDeploymentFailed(app.deployment) ? app.deployment : undefined;
+
+  return model || application ? { application, model } : undefined;
+}
+
+function deploymentServesRow(deployment: ModelDeployment, row: RecommendedModelProfile): boolean {
+  const local = localModelSnapshot(deployment.snapshot);
+  const placement = deployment.intent?.placement;
+  if (local?.modelId !== row.modelId || local.profileId !== row.profileId || !placement) {
+    return false;
+  }
+
+  return row.targets.some(
+    (target) =>
+      target.target?.siteNodeId === placement.siteNodeId &&
+      target.target.executionTargetId === placement.executionTargetId,
+  );
 }
 
 /** Whether a model deployment has failed. */
