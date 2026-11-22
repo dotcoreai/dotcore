@@ -100,7 +100,7 @@ configurations:
   # build carries kernels for its own GPUs, so each configuration pairs one build with one class.
   - configurationId: "strata-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "iq3-s"
@@ -181,7 +181,7 @@ configurations:
     # The GPU's expert cache already holds the experts in host memory.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "iq3-s"
@@ -238,7 +238,7 @@ configurations:
   # minimums keep it off the RTX 5090, which shares the RTX PRO 6000's class.
   - configurationId: "strata-nvfp4-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"
@@ -310,7 +310,7 @@ configurations:
     # The GPU's expert cache already holds the experts in host memory.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"

@@ -410,7 +410,7 @@ configurations:
     # doesn't hold into host memory and takes no budget for them.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "q4-xl"
@@ -494,7 +494,7 @@ configurations:
     # doesn't hold into host memory and takes no budget for them.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "q4-xl"
