@@ -580,10 +580,10 @@ locate_site() {
   site_dir=$(default_site_dir)
   cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dotcore"
   site_role=manager
-  if [ -n "$dotc_command" ] && config=$("$dotc_command" config show --format json 2>/dev/null); then
-    site_dir=$(json_field "$config" siteDir)
-    cache_dir=$(json_field "$config" cacheDir)
-    site_role=$(json_field "$config" role)
+  if [ -n "$dotc_command" ] && config=$("$dotc_command" --yaml config show 2>/dev/null); then
+    site_dir=$(yaml_field "$config" siteDir)
+    cache_dir=$(yaml_field "$config" cacheDir)
+    site_role=$(yaml_field "$config" role)
   elif [ -f "$site_dir/worker.yaml" ]; then
     site_role=joined-node
   fi
@@ -685,10 +685,10 @@ dotcore_running() {
   pgrep -u "$(id -u)" -f '/bin/dotcore( |$)' >/dev/null 2>&1
 }
 
-# Prints a string field of a one-line JSON object; enough for dotc's own output, whose paths hold
-# no escaped quotes.
-json_field() {
-  printf '%s\n' "$1" | sed -n "s/.*\"$2\":\"\([^\"]*\)\".*/\1/p"
+# Prints a top-level string field of a flat YAML document, without its quotes; enough for dotc's
+# own output, whose paths hold no quote characters.
+yaml_field() {
+  printf '%s\n' "$1" | sed -n "s/^$2: *//p" | sed -e "s/^'\(.*\)'\$/\1/" -e 's/^"\(.*\)"$/\1/'
 }
 
 folder_size() {
