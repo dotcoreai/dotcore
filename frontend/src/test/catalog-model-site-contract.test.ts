@@ -391,7 +391,7 @@ describe("desired site and current-state contracts", () => {
       "application_deployments",
       "inference_routes",
       "hardware_observation",
-      "model_deployment_identity_allocator",
+      "deployment_identity_allocator",
       "console_settings",
     ]);
     expect(fieldNames(executionTarget)).toEqual([
