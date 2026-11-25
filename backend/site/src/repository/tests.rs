@@ -177,7 +177,45 @@ async fn assert_mutation_writes_before_notifying(fails: bool) {
 }
 
 #[test]
-fn model_identity_reservations_preserve_uncertain_and_unused_gaps_across_restart() {
+fn exhausted_deployment_identities_fail_with_their_own_error_and_change_nothing() {
+    let directory = test_directory();
+    let path = directory.join("site.yaml");
+    let mut site = valid_site();
+    // One past the 2^25 sequences a site can reserve.
+    site.deployment_identity_allocator
+        .as_mut()
+        .expect("allocator")
+        .next_sequence = (1 << 25) + 1;
+    fs::write(&path, yaml::to_string(&site).expect("desired site YAML")).expect("fixture");
+    let repository = SiteRepository::load(&path, crate::test_support::site_declaration_rules())
+        .expect("exhausted site");
+
+    let error = repository
+        .reserve_deployment_id(&["qwen3-8-27b"])
+        .expect_err("exhausted allocator");
+
+    assert!(matches!(
+        error,
+        SiteRepositoryError::DeploymentIdentitiesExhausted
+    ));
+    assert_eq!(
+        error.to_string(),
+        "this site has used all of its deployment identities; no more deployments can be created"
+    );
+    assert_eq!(
+        repository
+            .snapshot()
+            .expect("site")
+            .deployment_identity_allocator
+            .expect("allocator")
+            .next_sequence,
+        (1 << 25) + 1
+    );
+    fs::remove_dir_all(directory).expect("fixture cleanup");
+}
+
+#[test]
+fn deployment_identity_reservations_preserve_uncertain_and_unused_gaps_across_restart() {
     let directory = test_directory();
     let path = directory.join("site.yaml");
     fs::write(
@@ -193,7 +231,7 @@ fn model_identity_reservations_preserve_uncertain_and_unused_gaps_across_restart
     )
     .expect("failure-injected site");
     assert!(matches!(
-        failed.reserve_model_deployment_id(),
+        failed.reserve_deployment_id(&["qwen3-8-27b"]),
         Err(SiteRepositoryError::Storage(SiteStorageError::Storage(_)))
     ));
     assert_eq!(
@@ -201,7 +239,7 @@ fn model_identity_reservations_preserve_uncertain_and_unused_gaps_across_restart
             .expect("restart after known failure")
             .snapshot()
             .expect("known-failure site")
-            .model_deployment_identity_allocator
+            .deployment_identity_allocator
             .expect("allocator")
             .next_sequence,
         1
@@ -216,7 +254,7 @@ fn model_identity_reservations_preserve_uncertain_and_unused_gaps_across_restart
     )
     .expect("uncertain site");
     assert!(matches!(
-        uncertain.reserve_model_deployment_id(),
+        uncertain.reserve_deployment_id(&["qwen3-8-27b"]),
         Err(SiteRepositoryError::Storage(
             SiteStorageError::OutcomeUncertain(_)
         ))
@@ -224,18 +262,26 @@ fn model_identity_reservations_preserve_uncertain_and_unused_gaps_across_restart
     let restarted = SiteRepository::load(&path, crate::test_support::site_declaration_rules())
         .expect("restart after uncertain reservation");
     let second = restarted
-        .reserve_model_deployment_id()
+        .reserve_deployment_id(&["qwen3-8-27b"])
         .expect("reservation after restart");
-    assert_eq!(second, "model-0123456789abcdef-2");
+    assert_eq!(second, "qwen3-8-27b-qfqjk");
 
     drop(restarted);
     let restarted = SiteRepository::load(&path, crate::test_support::site_declaration_rules())
         .expect("restart after unused reservation");
     let third = restarted
-        .reserve_model_deployment_id()
+        .reserve_deployment_id(&["open-webui"])
         .expect("reservation after unused gap");
-    assert_eq!(third, "model-0123456789abcdef-3");
-    assert_ne!(second, third);
+    assert_eq!(third, "open-webui-65nbt");
+    assert_eq!(
+        restarted
+            .snapshot()
+            .expect("reserved site")
+            .deployment_identity_allocator
+            .expect("allocator")
+            .next_sequence,
+        4
+    );
     fs::remove_dir_all(directory).expect("fixture cleanup");
 }
 
@@ -1364,9 +1410,9 @@ fn valid_site() -> Site {
             site_manager: Some(SiteManagerRole {}),
             manager_host: String::new(),
         }],
-        model_deployment_identity_allocator: Some(
-            dotcore_proto::dotcore::site::v1::ModelDeploymentIdentityAllocator {
-                namespace: "0123456789abcdef".to_owned(),
+        deployment_identity_allocator: Some(
+            dotcore_proto::dotcore::site::v1::DeploymentIdentityAllocator {
+                suffix_key: "0123456789abcdef".to_owned(),
                 next_sequence: 1,
             },
         ),

@@ -1256,8 +1256,8 @@ fn incarnation(character: char) -> NodeIncarnation {
 }
 
 const SITE: &str = r#"siteId: site-one
-modelDeploymentIdentityAllocator:
-  namespace: 0123456789abcdef
+deploymentIdentityAllocator:
+  suffixKey: 0123456789abcdef
   nextSequence: '1'
 nodes:
 - nodeId: manager-node

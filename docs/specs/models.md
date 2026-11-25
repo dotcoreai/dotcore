@@ -222,7 +222,7 @@ never redefine it.
 
 ### Upstream deployment
 
-- Keeps a template snapshot and a private endpoint configuration.
+- Keeps a template snapshot and an endpoint configuration whose credentials stay private.
 - Has no local model artifact, engine, runtime workload or exact placement. Dotcore never invents
   local hardware, engine or placement data for it.
 - Local and upstream are the only kinds of serving source.

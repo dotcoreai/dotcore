@@ -68,6 +68,13 @@ pub struct ApplicationRepositoryMutation {
 pub(crate) trait ApplicationDeclarationRepository: Send + Sync {
     fn snapshot(&self) -> Result<ApplicationDeclarationSnapshot, ApplicationRepositoryError>;
 
+    /// Durably reserves a never-reused identity for a new deployment of `application_id`. A
+    /// reserved identity is burned even when the deployment is never accepted.
+    fn reserve_deployment_id(
+        &self,
+        application_id: &str,
+    ) -> Result<String, ApplicationRepositoryError>;
+
     fn upsert(
         &self,
         deployment: ApplicationDeploymentDeclaration,
@@ -204,6 +211,14 @@ impl ApplicationDeclarationRepository for SiteRepository {
             storage_revision: 0,
             deployments: snapshot.deployments,
         })
+    }
+
+    fn reserve_deployment_id(
+        &self,
+        application_id: &str,
+    ) -> Result<String, ApplicationRepositoryError> {
+        SiteRepository::reserve_deployment_id(self, &[application_id])
+            .map_err(site_repository_error)
     }
 
     fn upsert(

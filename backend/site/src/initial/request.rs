@@ -42,6 +42,9 @@ pub enum InitialSiteIdentityKind {
 
     /// The sole SiteNode identity, when the operator overrides it.
     Node,
+
+    /// The key that scrambles the site's deployment identity suffixes.
+    Deployment,
 }
 
 impl fmt::Display for InitialSiteIdentityKind {
@@ -49,6 +52,7 @@ impl fmt::Display for InitialSiteIdentityKind {
         formatter.write_str(match self {
             Self::Site => "Site",
             Self::Node => "Node",
+            Self::Deployment => "Deployment",
         })
     }
 }
@@ -57,7 +61,8 @@ impl fmt::Display for InitialSiteIdentityKind {
 /// configuration.
 pub trait InitialSiteIdentityGenerator {
     /// Returns one value from which the policy derives an identity for `kind`. Only the site
-    /// identity is generated; node and target identities are derived from it.
+    /// identity and the deployment identity key are generated; node and target identities are
+    /// derived from the site identity.
     fn generate(&mut self, kind: InitialSiteIdentityKind) -> anyhow::Result<u64>;
 
     /// Returns the SiteNode display name this machine suggests, used when the operator supplied
@@ -72,12 +77,17 @@ pub trait InitialSiteIdentityGenerator {
 pub struct RandomInitialSiteIdentityGenerator;
 
 impl InitialSiteIdentityGenerator for RandomInitialSiteIdentityGenerator {
-    fn generate(&mut self, _kind: InitialSiteIdentityKind) -> anyhow::Result<u64> {
-        let mut bytes = [0_u8; 5];
-        getrandom::fill(&mut bytes).map_err(identity_entropy_error)?;
-        Ok(bytes
-            .into_iter()
-            .fold(0_u64, |value, byte| (value << 8) | u64::from(byte)))
+    fn generate(&mut self, kind: InitialSiteIdentityKind) -> anyhow::Result<u64> {
+        // A site identity is ten hex digits; a deployment identity key is sixteen.
+        let width = match kind {
+            InitialSiteIdentityKind::Deployment => 8,
+            _ => 5,
+        };
+        let mut bytes = [0_u8; 8];
+        getrandom::fill(&mut bytes[..width]).map_err(identity_entropy_error)?;
+        Ok(bytes[..width]
+            .iter()
+            .fold(0_u64, |value, byte| (value << 8) | u64::from(*byte)))
     }
 }
 
@@ -282,10 +292,17 @@ impl InitialSiteRequest {
             None => derive_site_node_id(&site_id, &node_display_name),
         };
         validate_identity(InitialSiteIdentityKind::Node, &node_id)?;
+        let deployment_suffix_key = generator
+            .generate(InitialSiteIdentityKind::Deployment)
+            .map_err(|source| InitialSiteRequestError::IdentityGeneration {
+                kind: InitialSiteIdentityKind::Deployment,
+                source,
+            })?;
         Ok(InitialSiteIdentities {
             site_id,
             node_id,
             node_display_name,
+            deployment_suffix_key,
         })
     }
 }
@@ -297,6 +314,7 @@ pub struct InitialSiteIdentities {
     site_id: String,
     node_id: String,
     node_display_name: String,
+    deployment_suffix_key: u64,
 }
 
 impl InitialSiteIdentities {
@@ -314,6 +332,12 @@ impl InitialSiteIdentities {
     /// `manager`. Site validation checks it when the site is composed.
     pub fn node_display_name(&self) -> &str {
         &self.node_display_name
+    }
+
+    /// Returns the random key that scrambles the new site's deployment identity suffixes, so a
+    /// site created again under the same identity issues different deployment identities.
+    pub fn deployment_suffix_key(&self) -> u64 {
+        self.deployment_suffix_key
     }
 
     /// Iterates over every resolved identity in site topology order.
@@ -439,9 +463,30 @@ mod tests {
     use super::{
         InitialApplicationRuntime, InitialInferenceRuntime, InitialSiteIdentityGenerator,
         InitialSiteIdentityKind, InitialSiteRequest, InitialSiteRequestError,
-        derive_application_execution_target_id, derive_model_execution_target_id,
-        derive_site_node_id, identity_entropy_error, stable_identity_value,
+        RandomInitialSiteIdentityGenerator, derive_application_execution_target_id,
+        derive_model_execution_target_id, derive_site_node_id, identity_entropy_error,
+        stable_identity_value,
     };
+
+    #[test]
+    fn random_generator_draws_the_full_width_of_each_identity() {
+        let mut generator = RandomInitialSiteIdentityGenerator;
+
+        let site = generator
+            .generate(InitialSiteIdentityKind::Site)
+            .expect("site entropy");
+        assert!(site < 1 << 40);
+        // 64 random bits land above 40 bits except with probability 2^-24 per draw.
+        let widest = (0..4)
+            .map(|_| {
+                generator
+                    .generate(InitialSiteIdentityKind::Deployment)
+                    .expect("deployment entropy")
+            })
+            .max()
+            .expect("draws");
+        assert!(widest >= 1 << 40, "{widest:#x} must use more than 40 bits");
+    }
 
     #[test]
     fn independent_workload_choices_resolve_generated_bounded_identities() {
@@ -453,7 +498,7 @@ mod tests {
             ],
             [InitialApplicationRuntime::Docker],
         );
-        let mut generator = FixedIdentityGenerator::new([0x01]);
+        let mut generator = FixedIdentityGenerator::new([0x01, 0x02]);
 
         assert_eq!(
             request.inference().iter().copied().collect::<Vec<_>>(),
@@ -476,7 +521,14 @@ mod tests {
             identities.node_id(),
             derive_site_node_id("site-0000000001", "manager")
         );
-        assert_eq!(generator.kinds, [InitialSiteIdentityKind::Site]);
+        assert_eq!(identities.deployment_suffix_key(), 0x02);
+        assert_eq!(
+            generator.kinds,
+            [
+                InitialSiteIdentityKind::Site,
+                InitialSiteIdentityKind::Deployment
+            ]
+        );
     }
 
     #[test]
@@ -487,7 +539,7 @@ mod tests {
         );
         for value in [0, u64::MAX] {
             let identities = request
-                .resolve_identities(&mut FixedIdentityGenerator::new([value]))
+                .resolve_identities(&mut FixedIdentityGenerator::new([value, value]))
                 .expect("identities");
 
             for identity in identities.values() {
@@ -535,7 +587,7 @@ mod tests {
         )
         .with_site_id_override("automation-site")
         .with_node_id_override("automation-node");
-        let mut generator = FixedIdentityGenerator::new([]);
+        let mut generator = FixedIdentityGenerator::new([0x2a]);
 
         let identities = request
             .resolve_identities(&mut generator)
@@ -543,7 +595,12 @@ mod tests {
 
         assert_eq!(identities.site_id(), "automation-site");
         assert_eq!(identities.node_id(), "automation-node");
-        assert!(generator.kinds.is_empty());
+        assert_eq!(
+            identities.deployment_suffix_key(),
+            0x2a,
+            "a site created again under the same identity draws a new deployment key"
+        );
+        assert_eq!(generator.kinds, [InitialSiteIdentityKind::Deployment]);
     }
 
     #[test]

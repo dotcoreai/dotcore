@@ -100,7 +100,7 @@ pub fn validate_site(site: &Site, rules: &SiteDeclarationRules) -> Result<(), Si
             "site.yaml hardwareObservation.refreshIntervalSeconds must be between {MIN_HARDWARE_REFRESH_INTERVAL_SECONDS} and {MAX_HARDWARE_REFRESH_INTERVAL_SECONDS}; got {seconds}"
         ));
     }
-    validate_model_identity_allocator(site)?;
+    validate_deployment_identity_allocator(site)?;
     let node_ids = validate_nodes(&site.nodes)?;
     let execution_targets = validate_execution_targets(&site.execution_targets, &node_ids)?;
     let mut deployment_ids = BTreeSet::new();
@@ -235,18 +235,14 @@ pub fn validate_site(site: &Site, rules: &SiteDeclarationRules) -> Result<(), Si
     validate_application_route_bindings(&site.application_deployments, &site.inference_routes)
 }
 
-fn validate_model_identity_allocator(site: &Site) -> Result<(), SiteRepositoryError> {
-    let Some(allocator) = &site.model_deployment_identity_allocator else {
-        return invalid_site("site.yaml model deployment identity allocator is missing");
+fn validate_deployment_identity_allocator(site: &Site) -> Result<(), SiteRepositoryError> {
+    let Some(allocator) = &site.deployment_identity_allocator else {
+        return invalid_site("site.yaml deployment identity allocator is missing");
     };
-    if allocator.namespace.len() != 16
-        || !allocator
-            .namespace
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    if crate::deployment_identity::parse_suffix_key(&allocator.suffix_key).is_none()
         || allocator.next_sequence == 0
     {
-        return invalid_site("site.yaml model deployment identity allocator is invalid");
+        return invalid_site("site.yaml deployment identity allocator is invalid");
     }
     Ok(())
 }
@@ -1480,7 +1476,7 @@ mod tests {
         };
         Site {
             site_id: "site-one".to_owned(),
-            model_deployment_identity_allocator: Some(crate::test_support::identity_allocator()),
+            deployment_identity_allocator: Some(crate::test_support::identity_allocator()),
             nodes: vec![SiteNode {
                 node_id: "manager-node".to_owned(),
                 display_name: "Manager".to_owned(),

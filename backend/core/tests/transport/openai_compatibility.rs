@@ -2155,8 +2155,8 @@ impl EngineRouter {
             .count()
     }
 
-    /// Asserts that no backend log line carries a payload value, credential, private model
-    /// id, or private endpoint.
+    /// Asserts that no backend log line carries a payload value, credential, or private
+    /// endpoint. The upstream model ID isn't private: it names the deployment's ID.
     fn assert_backend_logs_private(&self, sentinels: &[&str]) {
         let output = trace_capture()
             .output
@@ -2170,11 +2170,11 @@ impl EngineRouter {
             "the route's requests must have produced backend log lines"
         );
         for line in output.lines().filter(|line| line.contains(self.route)) {
-            for private in sentinels.iter().copied().chain([
-                ENGINE_MODEL,
-                ENGINE_CREDENTIAL,
-                endpoint.as_str(),
-            ]) {
+            for private in sentinels
+                .iter()
+                .copied()
+                .chain([ENGINE_CREDENTIAL, endpoint.as_str()])
+            {
                 assert!(
                     !line.contains(private),
                     "{private} leaked into a log line: {line}"

@@ -953,9 +953,9 @@ impl CurrentStateRepository for TestCurrent {
 pub(super) fn test_site() -> Site {
     Site {
         site_id: "site-one".to_owned(),
-        model_deployment_identity_allocator: Some(
-            dotcore_proto::dotcore::site::v1::ModelDeploymentIdentityAllocator {
-                namespace: "0123456789abcdef".to_owned(),
+        deployment_identity_allocator: Some(
+            dotcore_proto::dotcore::site::v1::DeploymentIdentityAllocator {
+                suffix_key: "0123456789abcdef".to_owned(),
                 next_sequence: 1,
             },
         ),

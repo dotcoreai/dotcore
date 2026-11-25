@@ -664,8 +664,8 @@ fn owner_rules() -> NodeViewOwnerRules {
 }
 
 const TWO_WORKER_SITE: &str = r#"siteId: site-one
-modelDeploymentIdentityAllocator:
-  namespace: 0123456789abcdef
+deploymentIdentityAllocator:
+  suffixKey: 0123456789abcdef
   nextSequence: '1'
 nodes:
 - nodeId: manager-node
@@ -849,9 +849,9 @@ fn application_site_yaml() -> String {
     let mut target = application_target("application-target", "worker-one");
     target.platform = platform.clone();
     site.execution_targets.push(target);
-    site.model_deployment_identity_allocator = Some(
-        dotcore_proto::dotcore::site::v1::ModelDeploymentIdentityAllocator {
-            namespace: "0123456789abcdef".to_owned(),
+    site.deployment_identity_allocator = Some(
+        dotcore_proto::dotcore::site::v1::DeploymentIdentityAllocator {
+            suffix_key: "0123456789abcdef".to_owned(),
             next_sequence: 2,
         },
     );

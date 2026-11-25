@@ -20,6 +20,6 @@ executionTargets:
     applicationRuntime: { dockerRuntime: {} }
 modelDeployments: []
 applicationDeployments: []
-modelDeploymentIdentityAllocator:
-  namespace: ad7f829b823ce71e
+deploymentIdentityAllocator:
+  suffixKey: ad7f829b823ce71e
   nextSequence: '1'

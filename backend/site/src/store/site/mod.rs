@@ -883,7 +883,7 @@ mod tests {
         let directory = TestDirectory::new();
         let site_yaml = directory.path.join("site.yaml");
         let site = Site {
-            model_deployment_identity_allocator: None,
+            deployment_identity_allocator: None,
             ..site_with_deployment("model-one", 5)
         };
         let site_bytes = dotcore_proto::yaml::to_string(&site).expect("site YAML");
@@ -902,7 +902,7 @@ mod tests {
         };
         assert_eq!(
             error.to_string(),
-            "Invalid desired site: site.yaml model deployment identity allocator is missing"
+            "Invalid desired site: site.yaml deployment identity allocator is missing"
         );
         assert_eq!(
             fs::read_to_string(&site_yaml).expect("unchanged site"),
@@ -974,15 +974,15 @@ mod tests {
             deployment::v1::ExactPlacement,
             model::v1::{ModelDeploymentDeclaration, ModelDeploymentLifecycleTransition},
             site::v1::{
-                ExecutionTarget, ModelDeploymentIdentityAllocator, ModelRuntimeBinding,
+                DeploymentIdentityAllocator, ExecutionTarget, ModelRuntimeBinding,
                 SimulatedRuntimeAdapter, SimulatedRuntimeScenario, execution_target,
                 model_runtime_binding,
             },
         };
 
         Site {
-            model_deployment_identity_allocator: Some(ModelDeploymentIdentityAllocator {
-                namespace: crate::store::model_deployment_identity_namespace("site-one"),
+            deployment_identity_allocator: Some(DeploymentIdentityAllocator {
+                suffix_key: "0123456789abcdef".to_owned(),
                 next_sequence: 1,
             }),
             execution_targets: vec![ExecutionTarget {

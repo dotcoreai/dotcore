@@ -24,6 +24,7 @@ use dotcore_proto::{
 use tracing::{error, info, warn};
 
 use super::{
+    deployment_identity,
     persistence::{AtomicSiteFileWriter, SiteFileWriter},
     validation::{SiteDeclarationRules, load_validated_site, validate_site},
     view::desired::reject_node_view_growth,
@@ -599,32 +600,30 @@ impl SiteRepository {
         self.write_accepted(current, site, &contents)
     }
 
-    /// Durably reserves one never-reused model deployment identity before creation acceptance.
-    pub fn reserve_model_deployment_id(&self) -> Result<String, SiteRepositoryError> {
+    /// Durably reserves one never-reused deployment identity, model or application, before
+    /// creation acceptance. Its readable part is named after the first of `slug_sources` that
+    /// yields one; its suffix comes from the site's next sequence, which this call consumes.
+    pub fn reserve_deployment_id(
+        &self,
+        slug_sources: &[&str],
+    ) -> Result<String, SiteRepositoryError> {
         let mut current = lock(&self.state)?;
         let mut candidate = current.site.clone();
         let allocator = candidate
-            .model_deployment_identity_allocator
+            .deployment_identity_allocator
             .as_mut()
             .ok_or_else(|| {
-                SiteRepositoryError::invalid_site("model deployment identity allocator is missing")
+                SiteRepositoryError::invalid_site("deployment identity allocator is missing")
             })?;
-        if allocator.namespace.len() != 16
-            || !allocator
-                .namespace
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-            || allocator.next_sequence == 0
-        {
-            return Err(SiteRepositoryError::invalid_site(
-                "model deployment identity allocator is invalid",
-            ));
-        }
+        let suffix_key = deployment_identity::parse_suffix_key(&allocator.suffix_key)
+            .filter(|_| allocator.next_sequence != 0)
+            .ok_or_else(|| {
+                SiteRepositoryError::invalid_site("deployment identity allocator is invalid")
+            })?;
         let sequence = allocator.next_sequence;
-        allocator.next_sequence = sequence.checked_add(1).ok_or_else(|| {
-            SiteRepositoryError::invalid_site("model deployment identity sequence exhausted")
-        })?;
-        let deployment_id = format!("model-{}-{sequence}", allocator.namespace);
+        let deployment_id = deployment_identity::deployment_id(slug_sources, suffix_key, sequence)
+            .ok_or_else(|| SiteRepositoryError::DeploymentIdentitiesExhausted)?;
+        allocator.next_sequence = sequence + 1;
         validate_site(&candidate, &self.rules)?;
         let contents = yaml::to_string(&candidate).map_err(SiteRepositoryError::SerializeYaml)?;
         self.persist_mutation(&mut current, candidate, &contents)?;
@@ -746,6 +745,12 @@ pub enum SiteRepositoryError {
     /// node could never install it.
     #[error("desired view for node {node_id:?} would exceed the private node-view limits")]
     NodeViewLimitExceeded { node_id: String },
+
+    /// The site has handed out every deployment identity its allocator can produce.
+    #[error(
+        "this site has used all of its deployment identities; no more deployments can be created"
+    )]
+    DeploymentIdentitiesExhausted,
 
     #[error("desired site is unavailable")]
     Unavailable,

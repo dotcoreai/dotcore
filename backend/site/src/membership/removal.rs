@@ -706,7 +706,7 @@ pub(super) mod tests {
             "present",
         ));
         site.application_deployments[0].inference_route_id = Some("sole".to_owned());
-        let before_allocator = site.model_deployment_identity_allocator.clone();
+        let before_allocator = site.deployment_identity_allocator.clone();
         let lock = lock(&fixture);
 
         let plan = plan_node_removal(
@@ -761,10 +761,7 @@ pub(super) mod tests {
                 .collect::<Vec<_>>(),
             ["keep"]
         );
-        assert_eq!(
-            written.model_deployment_identity_allocator,
-            before_allocator
-        );
+        assert_eq!(written.deployment_identity_allocator, before_allocator);
     }
 
     #[test]

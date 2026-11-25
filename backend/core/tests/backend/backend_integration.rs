@@ -3108,7 +3108,7 @@ async fn application_service_persists_its_snapshot_name_and_logical_storage_unti
 }
 
 #[tokio::test]
-async fn application_service_assigns_timestamped_ids_while_permitting_duplicate_display_names() {
+async fn application_service_assigns_readable_ids_while_permitting_duplicate_display_names() {
     let root = support::temporary_fast_fixture();
     let service = application_service_for(&application_lifecycle_configuration(&root))
         .await
@@ -3157,25 +3157,8 @@ async fn application_service_assigns_timestamped_ids_while_permitting_duplicate_
 
     assert_eq!(first.application_deployment_name, "Open WebUI");
     assert_eq!(second.application_deployment_name, "Open WebUI");
-    assert_ne!(
-        first.application_deployment_id,
-        second.application_deployment_id
-    );
-    for deployment_id in [
-        &first.application_deployment_id,
-        &second.application_deployment_id,
-    ] {
-        assert!(deployment_id.starts_with("open-webui-"));
-        let (_, suffix) = deployment_id
-            .rsplit_once('-')
-            .expect("deployment ID suffix");
-        assert_eq!(suffix.len(), 10);
-        assert!(
-            suffix
-                .chars()
-                .all(|character| character.is_ascii_hexdigit())
-        );
-    }
+    assert_eq!(first.application_deployment_id, "open-webui-e9dcf");
+    assert_eq!(second.application_deployment_id, "open-webui-m3ggc");
 
     let site = fs::read_to_string(root.join("site.yaml")).expect("declarative site");
     assert_eq!(
@@ -4176,7 +4159,7 @@ async fn simulated_stop_delay_uses_the_deployment_override() {
         &site_path,
         source.replace(
             FAST_TEST_SCENARIO,
-            "defaultScenario:\n        readyDelayMillis: 0\n        stopDelayMillis: 3600000\n      deploymentScenarios:\n      - modelDeploymentId: model-d44bc5d823b11591-1\n        scenario:\n          stopDelayMillis: 0",
+            "defaultScenario:\n        readyDelayMillis: 0\n        stopDelayMillis: 3600000\n      deploymentScenarios:\n      - modelDeploymentId: fixture-model-e9dcf\n        scenario:\n          stopDelayMillis: 0",
         ),
     )
     .expect("stop-delay fixture");

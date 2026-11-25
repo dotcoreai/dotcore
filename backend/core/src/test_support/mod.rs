@@ -213,7 +213,7 @@ pub(crate) fn routed_site(deployment_ids: &[&str]) -> dotcore_proto::dotcore::si
             ModelDeploymentLifecycleTransition,
         },
         site::v1::{
-            ExecutionTarget, ModelDeploymentIdentityAllocator, ModelRuntimeBinding,
+            DeploymentIdentityAllocator, ExecutionTarget, ModelRuntimeBinding,
             SimulatedRuntimeAdapter, SimulatedRuntimeScenario, Site, SiteManagerRole, SiteNode,
             execution_target, model_runtime_binding,
         },
@@ -242,8 +242,8 @@ pub(crate) fn routed_site(deployment_ids: &[&str]) -> dotcore_proto::dotcore::si
             site_manager: Some(SiteManagerRole {}),
             manager_host: String::new(),
         }],
-        model_deployment_identity_allocator: Some(ModelDeploymentIdentityAllocator {
-            namespace: "0123456789abcdef".to_owned(),
+        deployment_identity_allocator: Some(DeploymentIdentityAllocator {
+            suffix_key: "0123456789abcdef".to_owned(),
             next_sequence: 3,
         }),
         execution_targets: vec![ExecutionTarget {

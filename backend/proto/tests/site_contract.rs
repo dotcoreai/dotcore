@@ -739,7 +739,7 @@ fn generated_descriptors_preserve_site_inventory_contracts() {
     assert_eq!(field_number(site, "Site", "inference_routes"), 6);
     assert_eq!(field_number(site, "Site", "hardware_observation"), 7);
     assert_eq!(
-        field_number(site, "Site", "model_deployment_identity_allocator"),
+        field_number(site, "Site", "deployment_identity_allocator"),
         8
     );
     assert_eq!(

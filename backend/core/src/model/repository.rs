@@ -222,7 +222,7 @@ impl ModelDeclarationRepository {
         exposure: &ModelDeploymentExposureIntent,
         name: Option<&str>,
     ) -> Result<ModelDeploymentDeclaration, ModelDeclarationRepositoryError> {
-        let deployment_id = self.site.reserve_model_deployment_id()?;
+        let deployment_id = self.site.reserve_deployment_id(&[model_id])?;
         let snapshot = self.site.model_snapshot()?;
         let mut deployment = self.resolve_model_deployment(
             &snapshot,
@@ -381,7 +381,14 @@ impl ModelDeclarationRepository {
                 request.upstream_model_template_id.clone(),
             )
         })?;
-        let deployment_id = self.site.reserve_model_deployment_id()?;
+        // The upstream model name reads best; the template names deployments of unnamed models.
+        let upstream_model_id = request
+            .desired_configuration
+            .as_ref()
+            .map_or("", |configuration| configuration.upstream_model_id.as_str());
+        let deployment_id = self
+            .site
+            .reserve_deployment_id(&[upstream_model_id, &request.upstream_model_template_id])?;
         let lifecycle_generation = self.reserve_initial_generation(&deployment_id)?;
         let deployment = ModelDeploymentDeclaration {
             model_deployment_id: deployment_id,
@@ -1870,14 +1877,7 @@ mod tests {
                 Some("Preview parity"),
             )
             .expect("created deployment");
-        let allocator = before
-            .model_deployment_identity_allocator
-            .as_ref()
-            .expect("upgraded identity allocator");
-        assert_eq!(
-            created.model_deployment_id,
-            format!("model-{}-1", allocator.namespace)
-        );
+        assert_eq!(created.model_deployment_id, "fixture-model-e9dcf");
         assert_eq!(created.lifecycle_generation, 1);
         assert_eq!(
             created.lifecycle_transition,
@@ -1896,7 +1896,7 @@ mod tests {
         );
         assert_eq!(
             after
-                .model_deployment_identity_allocator
+                .deployment_identity_allocator
                 .expect("persisted identity allocator")
                 .next_sequence,
             2
@@ -2658,7 +2658,7 @@ mod tests {
                 .expect("Site after restart");
         assert_ne!(
             restarted_site
-                .reserve_model_deployment_id()
+                .reserve_deployment_id(&["fixture-model"])
                 .expect("next identity"),
             deployment_id
         );
@@ -2672,12 +2672,6 @@ mod tests {
         fs::copy(fixture_root.join("site.yaml"), &site_path).expect("simulated site fixture");
         let site = SiteRepository::load(&site_path, crate::test_support::site_declaration_rules())
             .expect("validated simulated site");
-        let namespace = site
-            .snapshot()
-            .expect("Site before failed creation")
-            .model_deployment_identity_allocator
-            .expect("identity allocator")
-            .namespace;
         let catalog = Arc::new(
             Catalog::load_with_policy(
                 &fixture_root.join("catalog"),
@@ -2721,9 +2715,9 @@ mod tests {
                 .expect("Site after restart");
         assert_eq!(
             restarted
-                .reserve_model_deployment_id()
+                .reserve_deployment_id(&["fixture-model"])
                 .expect("next durable reservation"),
-            format!("model-{namespace}-2")
+            "fixture-model-m3ggc"
         );
     }
 
