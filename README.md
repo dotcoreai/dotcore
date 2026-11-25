@@ -15,7 +15,7 @@ Dotcore runs AI on hardware you own. It loads models, fits them to your machines
 
 ## Quick start
 
-Dotcore runs on Linux (x86_64, arm64) and macOS (Apple Silicon). Models run on NVIDIA GPUs on Linux, or on the GPU of an Apple Silicon Mac. Other accelerators, starting with AMD, are on the [roadmap](#roadmap).
+Dotcore runs on Linux (x86_64, arm64) and macOS (Apple Silicon). Models run on NVIDIA GPUs on Linux, or on the GPU of an Apple Silicon Mac. Other accelerators, starting with AMD, are on the [roadmap](#roadmap). A model runs on a single GPU for now: it can't be split across GPUs or machines yet. You manage Dotcore from a web console for now.
 
 You'll need:
 
@@ -37,10 +37,17 @@ See [docs/install.md](docs/install.md) for the full steps, then [Run your first 
 - **Authentication** Sign in and control who can reach your site.
 - **Share models with friends** Use a friend's models, and let them use yours, without setting anything up by hand.
 - **Better sizing from real use** Opt in to share how models perform and how much memory they use, so everyone gets better estimates.
+- **Models across GPUs and machines** Split one model over several GPUs, or several machines.
 - **More accelerators** AMD first, then others such as Intel.
 - **Binary cache** Prebuilt downloads, so installs don't build everything on your machine.
+- **Desktop apps** Manage Dotcore from a native app, not just the web console.
+- **Docker all-in-one** Run Dotcore from a single Docker image, with no Nix install. Some trade-offs apply.
 - **Windows support**
 - **More models, engines and apps** Grow what you can run.
+
+Dotcore is alpha, and performance is best effort for now. The goal is the best setup for each model and machine, but that takes real-world data, which is why crowdsourced sizing and performance data is on this list.
+
+Have hardware Dotcore doesn't support yet? Get in touch through [Discussions](https://github.com/dotcoreai/dotcore/discussions) and we'll work with you to add it.
 
 ## Documentation
 
