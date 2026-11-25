@@ -34,20 +34,20 @@ See [docs/install.md](docs/install.md) for the full steps, then [Run your first 
 
 ## Roadmap
 
-- **Authentication.** Sign in and control who can reach your site.
-- **Share models with friends.** Use a friend's models, and let them use yours, without setting anything up by hand.
-- **Better sizing from real use.** Opt in to share how models perform and how much memory they use, so everyone gets better estimates.
-- **More accelerators.** AMD first, then others such as Intel.
-- **Windows.** Through WSL2.
-- **Binary cache.** Prebuilt downloads, so installs don't build everything on your machine.
-- **More models, engines and apps.** Grow what you can run.
+- **Authentication** Sign in and control who can reach your site.
+- **Share models with friends** Use a friend's models, and let them use yours, without setting anything up by hand.
+- **Better sizing from real use** Opt in to share how models perform and how much memory they use, so everyone gets better estimates.
+- **More accelerators** AMD first, then others such as Intel.
+- **Binary cache** Prebuilt downloads, so installs don't build everything on your machine.
+- **Windows support**
+- **More models, engines and apps** Grow what you can run.
 
 ## Documentation
 
 - [Install and set up](docs/install.md)
 - [Using Dotcore](docs/usage.md)
 - [Developing Dotcore](docs/development/README.md)
-- [Product and architecture](docs/specs/README.md): the target design, not all of it is built yet
+- [Product and architecture](docs/specs/README.md)
 
 ## Contributing
 
