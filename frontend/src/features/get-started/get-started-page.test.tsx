@@ -857,28 +857,121 @@ describe("GetStartedPage", () => {
       expect(openChat).toHaveBeenCalledExactlyOnceWith("qwen3.8-27b", "chat");
     });
 
-    it("goes back to the proposal from a failed model and deploys it afresh", async () => {
+    it("removes a failed model after confirming, then deploys it afresh", async () => {
       const user = setupUser();
-      const { createLocalModelDeployment, site, watch } = await renderPage(chatSite());
+      const {
+        createLocalModelDeployment,
+        removeApplicationDeployment,
+        removeModelDeployment,
+        site,
+        watch,
+      } = await renderPage(chatSite());
       await user.click(screen.getByRole("button", { name: "Deploy" }));
       await screen.findByRole("status", { name: "Deployment progress" });
-      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Remove and start over" }),
+      ).not.toBeInTheDocument();
 
       site.modelDeployments!.push(startingModel(ModelDeploymentStatus.FAILED, 1));
       site.applicationDeployments!.push(readyApp());
       await act(() => watch.tick());
       await waitFor(() => expect(progressItems()[0].status).toBe("Failed"));
+      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
       expect(cardSummary("Chat assistant")).toEqual({
         mark: "Failed",
         text: "Qwen3.8 27B·Open WebUI",
       });
-      await user.click(screen.getByRole("button", { name: "Back" }));
+
+      // Cancelling removes nothing.
+      await user.click(screen.getByRole("button", { name: "Remove and start over" }));
+      const dialog = await screen.findByRole("dialog", { name: "Remove the failed deployment?" });
+      expect(dialog).toHaveTextContent(
+        "This removes Qwen3.8 27B and its logs. It stays listed as Tearing down until cleanup completes, then Get started proposes the deployment again. Open WebUI stays.",
+      );
+      await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      expect(removeModelDeployment).not.toHaveBeenCalled();
+
+      // Confirming removes only the failed model and keeps the step until the watch drops it.
+      await user.click(screen.getByRole("button", { name: "Remove and start over" }));
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "Remove and start over",
+        }),
+      );
+      await waitFor(() =>
+        expect(removeModelDeployment).toHaveBeenCalledExactlyOnceWith({
+          modelDeploymentId: "dep-new",
+        }),
+      );
+      expect(removeApplicationDeployment).not.toHaveBeenCalled();
+      await act(() => watch.tick());
+      await waitFor(() => expect(progressItems()[0].status).toBe("Tearing down"));
+      expect(screen.queryByRole("button", { name: "Deploy" })).not.toBeInTheDocument();
+
+      site.modelDeployments!.splice(0);
       await act(() => watch.tick());
 
+      expect(await screen.findByRole("region", { name: "Model" })).toBeVisible();
       expect(screen.queryByRole("status", { name: "Deployment progress" })).not.toBeInTheDocument();
-      expect(screen.getByRole("region", { name: "Model" })).toBeVisible();
       await user.click(screen.getByRole("button", { name: "Deploy" }));
       await waitFor(() => expect(createLocalModelDeployment).toHaveBeenCalledTimes(2));
+    });
+
+    it("shows why removing a failed deployment failed and keeps the step", async () => {
+      const user = setupUser();
+      const { removeModelDeployment, site } = await renderPage({
+        ...chatSite(),
+        applicationDeployments: [readyApp()],
+        modelDeployments: [failedModel()],
+        targets: { "open-webui": [["gpu1", true, "app-new"]] },
+      });
+      removeModelDeployment.mockRejectedValueOnce(
+        new ConnectError("Application deployment uses the route", Code.FailedPrecondition),
+      );
+      await screen.findByRole("status", { name: "Deployment progress" });
+
+      await user.click(screen.getByRole("button", { name: "Remove and start over" }));
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "Remove and start over",
+        }),
+      );
+
+      const progress = screen.getByRole("status", { name: "Deployment progress" });
+      await waitFor(() =>
+        expect(within(progress).getByText(/Application deployment uses the route/)).toBeVisible(),
+      );
+      expect(progressItems()[0].status).toBe("Failed");
+      expect(site.modelDeployments).toHaveLength(1);
+    });
+
+    it("removes only the failed app and keeps the ready model", async () => {
+      const user = setupUser();
+      const failedApp = applicationDeployment("app-new");
+      failedApp.state!.lifecycleState = ApplicationLifecycleState.FAILED;
+      const { removeApplicationDeployment, removeModelDeployment } = await renderPage({
+        applicationDeployments: [failedApp],
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        modelDeployments: [modelDeployment("dep-1", "gpu1", 65536n, 23n * gib)],
+        routes: [routeView("qwen3.8-27b", ["dep-1"])],
+        rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1", "dep-1"]] },
+        targets: { "open-webui": [["gpu1", true, "app-new"]] },
+      });
+      await screen.findByRole("status", { name: "Deployment progress" });
+
+      await user.click(screen.getByRole("button", { name: "Remove and start over" }));
+      await user.click(
+        within(await screen.findByRole("dialog")).getByRole("button", {
+          name: "Remove and start over",
+        }),
+      );
+
+      await waitFor(() =>
+        expect(removeApplicationDeployment).toHaveBeenCalledExactlyOnceWith({
+          applicationDeploymentId: "app-new",
+        }),
+      );
+      expect(removeModelDeployment).not.toHaveBeenCalled();
     });
 
     it("says a deployment was removed and goes back to the proposal", async () => {
@@ -942,27 +1035,48 @@ describe("GetStartedPage", () => {
       expect(cardSummary("Chat assistant").mark).toBe("Ready");
     });
 
-    it("shows the proposal with Deploy enabled after a reload with a failed model", async () => {
+    it("opens on the failed model after a reload, without proposing Deploy", async () => {
       await renderPage({
         applicationDeployments: [readyApp()],
         machines: [{ id: "gpu1", vramGib: 32 }],
-        modelDeployments: [
-          {
-            ...modelDeployment("dep-1", "gpu1", 65536n, 23n * gib),
-            state: create(ModelDeploymentStateSchema, { status: ModelDeploymentStatus.FAILED }),
-          },
-        ],
+        modelDeployments: [failedModel()],
         rows: { [CHAT_ASSISTANT]: [["qwen-27b", "nvfp4", 32768, "gpu1"]] },
         targets: { "open-webui": [["gpu1", true, "app-new"]] },
       });
 
-      expect(await screen.findByRole("region", { name: "Model" })).toBeVisible();
-      expect(primaryAction()).toEqual({ disabled: false, name: "Deploy" });
-      expect(screen.queryByRole("status", { name: "Deployment progress" })).not.toBeInTheDocument();
+      await screen.findByRole("status", { name: "Deployment progress" });
+      expect(progressItems().map(({ kind, status }) => ({ kind, status }))).toEqual([
+        { kind: "Model", status: "Failed" },
+        { kind: "App", status: "Ready" },
+      ]);
+      expect(screen.getAllByRole("button", { name: "Logs" })).toHaveLength(2);
+      expect(screen.getByRole("button", { name: "Remove and start over" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Deploy" })).not.toBeInTheDocument();
       expect(cardSummary("Chat assistant")).toEqual({
-        mark: undefined,
-        text: "Chat, writing, questions and documents.",
+        mark: "Failed",
+        text: "Qwen3.8 27B·Open WebUI",
       });
+    });
+
+    it("finds a failed model that is not the best recommended row", async () => {
+      await renderPage({
+        applicationDeployments: [],
+        machines: [{ id: "gpu1", vramGib: 32 }],
+        modelDeployments: [failedModel()],
+        rows: {
+          [CHAT_ASSISTANT]: [
+            ["qwen-27b", "q4", 32768, "gpu1"],
+            ["qwen-27b", "nvfp4", 32768, "gpu1"],
+          ],
+        },
+        targets: { "open-webui": [["gpu1", true]] },
+      });
+
+      await screen.findByRole("status", { name: "Deployment progress" });
+      expect(progressItems().map(({ kind, status }) => ({ kind, status }))).toEqual([
+        { kind: "Model", status: "Failed" },
+      ]);
+      expect(screen.queryByRole("button", { name: "Deploy" })).not.toBeInTheDocument();
     });
 
     it("hides Get started for the site once, when a step becomes ready", async () => {
@@ -1233,6 +1347,34 @@ async function renderPage(site: Site) {
     responseTruncated: false,
     sources: [],
   });
+  // A removal accepted turns the deployment into an unloading one; the test then drops it from the
+  // site to end the teardown.
+  const removeModelDeployment = vi.fn(({ modelDeploymentId }: { modelDeploymentId: string }) => {
+    const deployment = site.modelDeployments?.find(
+      (candidate) => candidate.modelDeploymentId === modelDeploymentId,
+    );
+    if (deployment) {
+      deployment.desiredState = ModelDeploymentDesiredState.TEARDOWN;
+      deployment.state = create(ModelDeploymentStateSchema, {
+        status: ModelDeploymentStatus.UNLOADING,
+      });
+    }
+    return Promise.resolve({});
+  });
+  const removeApplicationDeployment = vi.fn(
+    ({ applicationDeploymentId }: { applicationDeploymentId: string }) => {
+      const deployment = site.applicationDeployments?.find(
+        (candidate) => candidate.applicationDeploymentId === applicationDeploymentId,
+      );
+      if (deployment) {
+        deployment.desiredState = ApplicationDeploymentDesiredState.TEARDOWN;
+        deployment.state = create(ApplicationDeploymentStateSchema, {
+          lifecycleState: ApplicationLifecycleState.RUNNING,
+        });
+      }
+      return Promise.resolve({});
+    },
+  );
   const logs = { follow: vi.fn(async function* () {}), read: logRead };
   const modelClient = {
     logs,
@@ -1253,6 +1395,7 @@ async function renderPage(site: Site) {
     },
     model: {
       createLocalModelDeployment,
+      removeModelDeployment,
       listModelProfileCompatibility: vi.fn((request: ListModelProfileCompatibilityRequest) => {
         compatibilityReads.push(request);
         if (failedEstimates > 0) {
@@ -1285,6 +1428,7 @@ async function renderPage(site: Site) {
     logs,
     application: {
       createApplicationDeployment,
+      removeApplicationDeployment,
       listApplicationTargets: vi.fn((request: ListApplicationTargetsRequest) =>
         Promise.resolve(
           create(ListApplicationTargetsResponseSchema, {
@@ -1363,12 +1507,20 @@ async function renderPage(site: Site) {
     siteClient,
   });
   await screen.findByRole("button", { name: /Chat assistant/ });
-  await screen.findByRole("region", { name: "App" });
+  // The page opens on the proposal, or on a step when the site already deploys the use case.
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("region", { name: "App" }) ??
+        screen.queryByRole("status", { name: "Deployment progress" }),
+    ).not.toBeNull(),
+  );
   return {
     createApplicationDeployment,
     createLocalModelDeployment,
     logRead,
     openChat,
+    removeApplicationDeployment,
+    removeModelDeployment,
     settings,
     site,
     siteClient,
@@ -1539,6 +1691,13 @@ function startingModel(status: ModelDeploymentStatus, step: number, percent?: nu
       ],
     },
   });
+  return deployment;
+}
+
+// A model deployment of the chat row that failed, with no recommendation row naming it.
+function failedModel() {
+  const deployment = modelDeployment("dep-1", "gpu1", 32768n, 0n, "Qwen3.8 27B");
+  deployment.state = create(ModelDeploymentStateSchema, { status: ModelDeploymentStatus.FAILED });
   return deployment;
 }
 

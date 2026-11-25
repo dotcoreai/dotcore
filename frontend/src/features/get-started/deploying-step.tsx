@@ -31,6 +31,7 @@ import { ModelDeploymentStatus } from "@/gen/dotcore/model/v1/state_pb";
 import type { LifecycleTone, StatusProjection } from "@/lib/status-projection";
 
 import { Item } from "./proposal-card";
+import { RemoveFailedDialog } from "./remove-failed-dialog";
 
 /**
  * The deployments Get started started, each with its status and step bar, and a link to its logs.
@@ -46,6 +47,7 @@ export function DeployingStep({
   model,
   notice,
   onBack,
+  removal,
 }: {
   applicationClient: ApplicationClient;
   applicationDeployment?: ApplicationDeployment;
@@ -59,8 +61,11 @@ export function DeployingStep({
   notice?: string;
   /** Returns to the proposal; absent while the deployments can still become ready. */
   onBack?: () => void;
+  /** Offers removing the failed deployments; absent when none failed. */
+  removal?: FailedRemoval;
 }) {
   const [viewing, setViewing] = useState<LogTarget>();
+  const [confirming, setConfirming] = useState(false);
   const openerRef = useRef<HTMLElement | null>(null);
   const openLogs = (target: LogTarget, opener: HTMLElement) => {
     openerRef.current = opener;
@@ -144,12 +149,43 @@ export function DeployingStep({
           {notice}
         </Notice>
       ) : null}
-      {onBack ? (
+      {removal?.error ? (
+        <Notice className="mb-4" tone="destructive">
+          {removal.error}
+        </Notice>
+      ) : null}
+      {onBack || removal ? (
         <div className="mt-0.5 flex justify-end gap-2 border-t border-border pt-4">
-          <Button onClick={onBack} size="console" type="button" variant="outline">
-            Back
-          </Button>
+          {onBack ? (
+            <Button onClick={onBack} size="console" type="button" variant="outline">
+              Back
+            </Button>
+          ) : null}
+          {removal ? (
+            <Button
+              disabled={removal.pending}
+              onClick={() => setConfirming(true)}
+              size="console"
+              type="button"
+              variant="destructive"
+            >
+              Remove and start over
+            </Button>
+          ) : null}
         </div>
+      ) : null}
+      {removal ? (
+        <RemoveFailedDialog
+          failedNames={removal.failedNames}
+          keptNames={removal.keptNames}
+          onConfirm={() => {
+            setConfirming(false);
+            removal.onConfirm();
+          }}
+          onOpenChange={setConfirming}
+          open={confirming}
+          pending={removal.pending}
+        />
       ) : null}
       <LogViewer
         applicationClient={applicationClient}
@@ -160,6 +196,16 @@ export function DeployingStep({
       />
     </Card>
   );
+}
+
+/** Removing a use case's failed deployments, as the step offers it. */
+export interface FailedRemoval {
+  /** Why the last removal failed. */
+  error?: string;
+  failedNames: readonly string[];
+  keptNames: readonly string[];
+  onConfirm: () => void;
+  pending: boolean;
 }
 
 /** The deployments a use case follows, known by name before their creates answer. */

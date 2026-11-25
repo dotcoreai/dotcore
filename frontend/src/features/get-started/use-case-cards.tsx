@@ -47,6 +47,8 @@ export function UseCaseCards({
   // A followed use case takes its status from the deployments the page follows; one the watch
   // doesn't list yet, or lists while it starts, is deploying.
   const stageOf = (proposal: UseCaseProposal): UseCaseStage | "failed" => {
+    if (proposal.stage === "failed") return "failed";
+
     const followed = following.get(proposal.useCase);
     if (!followed) return proposal.stage;
 
@@ -134,7 +136,7 @@ export function UseCaseCards({
 
 /** What runs a use case, model first: the followed names when this page follows it. */
 function runningNames(proposal: UseCaseProposal, followed: FollowedDeployments | undefined) {
-  const { app, model } = proposal;
+  const { app, failed, model } = proposal;
   const items: { key: string; name: string }[] = [];
 
   const modelName =
@@ -146,7 +148,10 @@ function runningNames(proposal: UseCaseProposal, followed: FollowedDeployments |
             ? modelDeploymentPresentationName(model.deployment)
             : model.modelId,
         }
-      : undefined);
+      : failed?.model && {
+          id: failed.model.modelDeploymentId,
+          name: modelDeploymentPresentationName(failed.model),
+        });
   if (modelName) items.push({ key: modelName.id ?? modelName.name, name: modelName.name });
 
   const appName =

@@ -16,7 +16,8 @@ Code: `frontend/` (its `AGENTS.md` holds the code map).
   connected ([sites](sites.md#invariants)).
 - Start with a guided Get started page that proposes, for each use case, a model, an app or both
   that can start now on your hardware ([recommendations](recommendations.md)). The console opens
-  on it until it's hidden.
+  on it until it's hidden. A use case whose deployment failed opens on that deployment as failed,
+  with its logs, and offers to remove it before proposing the deployment again.
 - Check fit and preview memory before deploying, from the server's capacity answers.
 - Explore metric history across machines, devices, deployments and routes.
 - Try inference routes: conversations with chat routes, and typed questions to decision routes
