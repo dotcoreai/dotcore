@@ -463,16 +463,7 @@ mod tests {
                     expected_memory: Default::default(),
                 },
             );
-            let launcher = std::env::current_exe()
-                .expect("test executable")
-                .parent()
-                .and_then(Path::parent)
-                .expect("Cargo profile directory")
-                .join("dotcore-launcher");
-            assert!(
-                launcher.is_file(),
-                "build the launcher first: cargo build -p dotcore-launcher"
-            );
+            let launcher = dotcore_runtime_backends::native::test_support::launcher_binary();
             let backend = NativeRuntimeBackend::new(
                 NativeRuntimeConfig {
                     state_root: NativeStateRoot::for_site(site_dir),

@@ -54,7 +54,9 @@ use dotcore_proto::{
     },
     yaml,
 };
-use dotcore_runtime_backends::simulated::SimulatedRuntimeTestSupport;
+use dotcore_runtime_backends::{
+    native::test_support::launcher_binary, simulated::SimulatedRuntimeTestSupport,
+};
 use dotcore_site::{
     initial::{
         inputs::{ApplicationTargetChoice, ModelTargetChoice, NodeTargetChoices},
@@ -1656,7 +1658,7 @@ impl ExternalBackendProcess {
                 command.env("DOTCORE_PRIVATE_ADDR", address.to_string());
             }
         }
-        let native_launcher = controls.native_host.then(profile_launcher_binary);
+        let native_launcher = controls.native_host.then(launcher_binary);
         command.env(
             PROCESS_SETTINGS,
             ProcessSettings::new(&controls, native_launcher, manager_private_port).encode(),
@@ -1872,23 +1874,6 @@ const NATIVE_HOST_VARIABLES: [&str; 5] =
 fn is_native_host_variable(name: &std::ffi::OsStr) -> bool {
     name.to_str()
         .is_some_and(|name| NATIVE_HOST_VARIABLES.contains(&name) || name.starts_with("NIX_"))
-}
-
-/// Returns the `dotcore-launcher` binary of the current Cargo profile, which a workspace build
-/// places beside the `deps` directory holding the test executable.
-fn profile_launcher_binary() -> PathBuf {
-    let executable = std::env::current_exe().expect("integration-test executable");
-    let launcher = executable
-        .parent()
-        .and_then(Path::parent)
-        .expect("test executable inside a Cargo profile directory")
-        .join("dotcore-launcher");
-    assert!(
-        launcher.is_file(),
-        "{} is missing; build it with `just backend::build-launcher`",
-        launcher.display()
-    );
-    launcher
 }
 
 fn startup_addresses(output: &[String]) -> Option<dotcore::server::ServerAddresses> {

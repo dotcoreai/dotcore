@@ -242,19 +242,19 @@ pub fn ports() -> BTreeMap<String, u16> {
     BTreeMap::from([("http".to_owned(), 41_234)])
 }
 
-/// Returns the `dotcore-launcher` binary of the current Cargo profile, which a workspace build
-/// places beside the `deps` directory holding the test executable.
+/// Returns the `dotcore-launcher` binary of the current Cargo profile. A workspace build places it
+/// in the profile directory, above the directory holding the test executable.
 pub fn launcher_binary() -> PathBuf {
     let executable = std::env::current_exe().expect("test executable path");
-    let launcher = executable
-        .parent()
-        .and_then(Path::parent)
-        .expect("test executable inside a Cargo profile directory")
-        .join("dotcore-launcher");
-    assert!(
-        launcher.is_file(),
-        "{} is missing; build it with `cargo build -p dotcore-launcher` or run the workspace tests",
-        launcher.display()
-    );
-    launcher
+    executable
+        .ancestors()
+        .skip(1)
+        .map(|directory| directory.join("dotcore-launcher"))
+        .find(|launcher| launcher.is_file())
+        .unwrap_or_else(|| {
+            panic!(
+                "no dotcore-launcher above {}; build it with `cargo build -p dotcore-launcher` or run the workspace tests",
+                executable.display()
+            )
+        })
 }
