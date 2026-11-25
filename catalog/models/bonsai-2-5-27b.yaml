@@ -1,0 +1,241 @@
+# Immutable provenance for PrismML's Ternary Bonsai 2.5 27B, a ternary fine-tune of Qwen3.8 27B.
+# Only the stock llama.cpp Q2_0 format is declared; the PQ2_0 and PTQ1_0 files need PrismML's llama.cpp fork.
+# Q2_0 decodes correctly only on llama.cpp b11556 or newer (Hadamard runtime): the pinned engine releases qualify.
+# The -mtp file is the plain Q2_0 file plus an embedded MTP head; MTP off (token count 0) ignores the head.
+# Reasoning effort is not exposed: the chat template accepts only xhigh, medium and low in its template
+# arguments and raises an error for any other value.
+modelId: "bonsai-2-5-27b"
+displayName: "Ternary Bonsai 2.5 27B"
+version: "2.5-27b"
+# context_length in the GGUF metadata of the pinned -mtp file (revision 28a7093).
+maximumContextTokens: 262144
+options:
+  - optionId: "vision"
+    displayName: "Vision"
+    vision: {}
+  - optionId: "mtp"
+    displayName: "MTP"
+    speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" }
+  - optionId: "kv-cache"
+    displayName: "KV cache precision"
+    kvCachePrecision: {}
+artifacts:
+  - artifactId: "q2"
+    weightQuantization: "Q2_0"
+    source:
+      repository: "prism-ml/Ternary-Bonsai-2.5-27B-GGUF"
+      revision: "28a7093cc25bc151cc2b284c5570f12ce343fdcf"
+      file:
+        path: "Ternary-Bonsai-2.5-27B-Q2_0-mtp.gguf"
+        provenanceDigest: "b0f83de8481c3200c529aef5fb495dbfedf2a4a3f017f7a3ea0a69c67be1d306"
+auxiliaryArtifacts:
+  - auxiliaryArtifactId: "vision-projector"
+    source:
+      repository: "prism-ml/Ternary-Bonsai-2.5-27B-GGUF"
+      revision: "28a7093cc25bc151cc2b284c5570f12ce343fdcf"
+      file:
+        path: "Ternary-Bonsai-2.5-27B-mmproj-Q8_0.gguf"
+        provenanceDigest: "6807ede61d570bb86ba34b756a0fa109edc33668604de867c6ea6d8f1d631903"
+configurations:
+  # One llama.cpp configuration for every platform: placement picks the CUDA image on Linux NVIDIA
+  # targets and the Metal binary on macOS native targets; both releases share a parameter schema.
+  - configurationId: "llama-cpp"
+    engineArtifacts:
+      - engineReleaseId: "llama-cpp-linux-2026-11-13"
+        engineArtifactId: "cuda13"
+      - engineReleaseId: "llama-cpp-2026-11-13"
+        engineArtifactId: "metal"
+    artifactBindings:
+      - bindingId: "q2"
+        modelArtifactId: "q2"
+    # The equation is qwen3-8-27b's, which has the same architecture (48 Gated DeltaNet and 16 full
+    # attention layers). The NVIDIA GB10 slopes and base are measured; the MTP and Apple terms are derived.
+    sizing:
+      classParameters: ["promptCacheOnAccelerator", "baseOffsetBytes"]
+      bindingParameters: ["baseAccelBytes", "accelBytesPerContextToken", "accelBytesPerContextTokenQ8", "marginBytes"]
+      parameters:
+        # qwen3-8-27b's term with its 351,008,768 B head replaced by this file's 238,984,096 B head.
+        mtpBaseBytes: 415660714
+        # One draft KV layer: 4 KV heads x 256 x 2 (K and V) x f16.
+        mtpBytesPerContextToken: 4096
+        # Per-slot Gated DeltaNet state of the same 48-layer recurrent stack as qwen3-8-27b.
+        slotStateBytes: 156893184
+        # The larger of the two hosts: the intercept delta of a launch with the projector and one 448 x 448
+        # image request over the vision-off launch, 768,305,607 B on an NVIDIA GB10 host (total context
+        # 32768) and 1,037,435,720 B on an Apple M3 Max (total context 20480, process footprint).
+        visionBytes: 1037435720
+      estimates:
+        # The prompt cache lives in host memory. Where the accelerator allocates from the host pool
+        # (promptCacheOnAccelerator 1), it counts in accelerator memory instead and the host memory
+        # estimate is unavailable.
+        acceleratorMemory:
+          unit: bytes
+          equation: >-
+            ${baseAccelBytes}
+            + ${baseOffsetBytes}
+            + if(${options.kv-cache.precision} == "q8_0", 0, 1) * ${accelBytesPerContextToken} * ${total-context}
+            + if(${options.kv-cache.precision} == "q8_0", 1, 0) * ${accelBytesPerContextTokenQ8} * ${total-context}
+            + ${parallel-requests} * ${slotStateBytes}
+            + if(${options.vision.enabled}, 1, 0) * ${visionBytes}
+            + if(${options.mtp.token-count} > 0, 1, 0)
+            * (${mtpBaseBytes} + ${mtpBytesPerContextToken} * ${total-context})
+            + ${options.mtp.token-count} * ${parallel-requests} * ${slotStateBytes}
+          allowance: >-
+            ${promptCacheOnAccelerator} * ${prompt-cache-memory-mib} * MiB
+            + ${marginBytes}
+        hostMemory:
+          unit: bytes
+          availableWhen: "${promptCacheOnAccelerator} == 0"
+          equation: >-
+            ${prompt-cache-memory-mib} * MiB
+    hardwareSupport:
+      - hardwareClassId: "nvidia-unified"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "10000000000"
+          minimumSystemMemoryBytes: "16000000000"
+        # The prompt cache shares the unified pool with the model.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # Measured on an NVIDIA GB10 host (linux/arm64) with llama.cpp b12359, 4 slots, MTP off, vision off:
+        # f16 KV at total contexts 4096-262144 and q8_0 KV at 32768-131072. The margin covers the 3-draft-token
+        # MTP launch, which the MTP terms under-predict by 40,371,955 B.
+        bindingSizing:
+          - bindingId: "q2"
+            parameters:
+              baseAccelBytes: 7796448825
+              accelBytesPerContextToken: 66533
+              accelBytesPerContextTokenQ8: 39952
+              marginBytes: 41943040
+      - hardwareClassId: "nvidia-dedicated"
+        hardwareRequirements:
+          minimumMemoryBytesPerDevice: "10000000000"
+          minimumSystemMemoryBytes: "16000000000"
+        # The prompt cache stays in host memory, outside the GPU's own memory.
+        parameters:
+          promptCacheOnAccelerator: 0
+          baseOffsetBytes: 419430400
+        # The binding parameters, q8_0 slope included, are the nvidia-unified (GB10) values verbatim
+        # until measured on dedicated memory, so a GB10 remeasurement updates both classes.
+        bindingSizing:
+          - bindingId: "q2"
+            parameters:
+              baseAccelBytes: 7796448825
+              accelBytesPerContextToken: 66533
+              accelBytesPerContextTokenQ8: 39952
+              marginBytes: 41943040
+      - hardwareClassId: "apple"
+        # Apple Silicon is always unified memory.
+        parameters:
+          promptCacheOnAccelerator: 1
+          baseOffsetBytes: 0
+        # Measured on an Apple M3 Max with llama.cpp b12359 as the llama-server process footprint after one
+        # warm request, 1 slot, MTP off, vision off, f16 KV at total contexts 4096 (9,598,147,952 B) and 20480
+        # (10,669,498,528 B). The q8_0 slope is unmeasured: the GB10 q8_0 slope (39,952) scaled by the same
+        # ratio as the f16 slopes (65,390 / 66,533). The MTP terms are the derived ones.
+        bindingSizing:
+          - bindingId: "q2"
+            parameters:
+              baseAccelBytes: 9173417328
+              accelBytesPerContextToken: 65390
+              accelBytesPerContextTokenQ8: 39266
+              marginBytes: 41943040
+    engineConfiguration:
+      engineKind: "ENGINE_KIND_LLAMA_CPP"
+      llamaCpp:
+        fixedSettings:
+          gpuLayers: 99
+          flashAttention: true
+          # The vendor sets --min-p 0 because llama.cpp's default of 0.05 clips the model's sampling.
+          sampling:
+            minP: 0
+        optionRealizations:
+          - optionId: "vision"
+            vision:
+              enabledParameterId: "enabled"
+              auxiliaryArtifactId: "vision-projector"
+              imageInputCapacity:
+                maximumImageCount: 1
+                supportedMediaTypes: ["LLAMA_CPP_IMAGE_MEDIA_TYPE_JPEG", "LLAMA_CPP_IMAGE_MEDIA_TYPE_PNG"]
+                maximumEncodedBytes: "20971520"
+                maximumDecodedBytes: "67108864"
+                maximumWidth: 8192
+                maximumHeight: 8192
+                maximumPixels: "16000000"
+                # The qwen3-5-9b value for the same Qwen vision tower, until measured.
+                fixedVisualTokens: 256
+                fixedDetail: "LLAMA_CPP_IMAGE_DETAIL_AUTO"
+          - optionId: "mtp"
+            mtp: { draft: { embedded: {} } }
+          - optionId: "kv-cache"
+            kvCachePrecision: {}
+    executionCapabilities:
+      supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
+    requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
+    inputCapabilities:
+      supportedModalities: ["MODEL_INPUT_MODALITY_TEXT"]
+    options:
+      - optionId: "vision"
+        parameters:
+          - parameterId: "enabled"
+            displayName: "Enabled"
+            boolean: {}
+        defaultValues:
+          optionId: "vision"
+          values:
+            - parameterId: "enabled"
+              boolean: false
+      - optionId: "mtp"
+        parameters:
+          - parameterId: "token-count"
+            displayName: "Token count"
+            # 0 to 8: the draft token counts the memory sizing of qwen3-8-27b was measured over; the sizing
+            # here was measured at 0 and 3.
+            unsignedInteger: { minimum: "0", maximum: "8", unit: "tokens" }
+        defaultValues:
+          optionId: "mtp"
+          values:
+            - parameterId: "token-count"
+              # With 3 draft tokens decode ran 1.9x (NVIDIA GB10: 52.4 vs 27.1 tokens/s) and 1.4x (Apple M3
+              # Max: 33.0 vs 24.0) as fast as with MTP off.
+              unsignedInteger: "3"
+      - optionId: "kv-cache"
+        parameters:
+          - parameterId: "precision"
+            displayName: "Precision"
+            # KV precisions the dotcore llama.cpp adapter launches (one type for both K and V caches).
+            stringEnum: { values: ["f16", "q8_0"] }
+        defaultValues:
+          optionId: "kv-cache"
+          values:
+            - parameterId: "precision"
+              string: "f16"
+profiles:
+  - profileId: "q2"
+    displayName: "Q2_0"
+    description: "Runs the ternary weights at 2 bits per weight."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q2"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+  - profileId: "q2-q8-kv"
+    displayName: "Q2_0 with 8-bit KV cache"
+    description: "Stores the context cache at 8 bits, which fits more context in the same memory."
+    configurationId: "llama-cpp"
+    defaultModelArtifactBindingId: "q2"
+    engineParameterDefaults:
+      values:
+        - parameterId: "prompt-cache-memory-mib"
+          unsignedInteger: "2048"
+    optionDefaults:
+      - optionId: "kv-cache"
+        values:
+          - parameterId: "precision"
+            string: "q8_0"
+intelligence:
+  overall: 31
+license:
+  id: Apache-2.0
+  termsUrl: https://huggingface.co/prism-ml/Ternary-Bonsai-2.5-27B-GGUF/blob/28a7093cc25bc151cc2b284c5570f12ce343fdcf/LICENSE
