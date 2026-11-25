@@ -3,9 +3,10 @@
 //!
 //! Strata serves one mixture-of-experts model on one NVIDIA GPU, keeping the experts that don't fit
 //! on the GPU in host memory, through an OpenAI-compatible HTTP server started by Dotcore's keyless
-//! start wrapper. A model is a single GGUF read in place, split GGUF shards Strata packs on first
-//! start, or a ready-made pack, the last two with a separate draft layer. Callers reach it only
-//! through its engine definition.
+//! start wrapper. Its main engine runs a single GGUF read in place, split GGUF shards Strata packs
+//! on first start, or a ready-made pack, the last two with a separate draft layer; its Inkling
+//! engine runs a ready-made Inkling pack that carries its own drafter. Callers reach it only through
+//! its engine definition.
 
 mod binding;
 mod declaration;
@@ -22,10 +23,13 @@ use dotcore_proto::dotcore::{
     catalog::v1::{
         EngineParameterSchema, EngineRelease, HardwareClass, InferenceRequestKind, Model,
         ModelArtifactBinding, ModelEngineConfiguration, ModelOptionValues, ParameterValue,
-        ParameterValues,
+        ParameterValues, hugging_face_artifact_source::Content as HuggingFaceContent,
     },
     engine::{
-        strata::v1::{StrataFixedModelSettings, strata_fixed_model_settings::ModelFiles},
+        strata::v1::{
+            StrataFixedModelSettings, StrataMainEngine, strata_fixed_model_settings::EnginePath,
+            strata_main_engine::ModelFiles,
+        },
         v1::{EngineKind, ResolvedEngineModelState},
     },
     model::v1::{PortableModelLaunchPlan, ResolvedLocalModelDeploymentSnapshot},
@@ -50,6 +54,9 @@ const SERVICE_PORT: u16 = 8080;
 
 /// Largest MTP draft depth Strata's start wrapper accepts.
 const MAXIMUM_MTP_DRAFT_TOKENS: u32 = 8;
+
+/// File extension of an Inkling pack, the file Strata's Inkling engine reads.
+const INKLING_PACK_EXTENSION: &str = ".strata";
 
 /// Inference request kinds Strata serves: chat only.
 const REQUEST_KINDS: &[InferenceRequestKind] = &[InferenceRequestKind::Chat];
@@ -106,7 +113,8 @@ impl EngineDefinition for Strata {
         declaration::validate_parameter_values(model, configuration, values)
     }
 
-    /// The expert accelerator memory cap comes from sizing, so every launch needs an estimate.
+    /// The main engine's expert accelerator memory cap comes from sizing, and the Inkling engine
+    /// takes whatever accelerator memory it finds, so every launch needs an estimate of its use.
     fn launch_requires_sizing(&self) -> bool {
         true
     }
@@ -161,10 +169,12 @@ impl EngineDefinition for Strata {
         endpoint: LoopbackEndpoint,
         served_model_id: String,
         _resolved_engine_state: &ResolvedEngineModelState,
+        context_per_request: Option<u64>,
     ) -> Arc<dyn EngineReadinessProbe> {
         Arc::new(readiness::StrataReadinessProbe::new(
             endpoint,
             served_model_id,
+            context_per_request,
         ))
     }
 
@@ -173,11 +183,37 @@ impl EngineDefinition for Strata {
     }
 }
 
-/// Whether fixed settings name an architecture the wrapper accepts, an MTP draft depth within its
-/// range, and model files the wrapper can locate: a draft layer for the pack path, and plain
-/// relative paths for a ready-made pack.
+/// Whether fixed settings name an engine path the wrapper accepts: for the main engine, an
+/// architecture it accepts, an MTP draft depth within its range, and model files it can locate (a
+/// draft layer for the pack path, plain relative paths for a ready-made pack). The Inkling engine
+/// takes its pack file from the bound model artifact, so its settings are always valid.
 fn valid_fixed_settings(fixed: &StrataFixedModelSettings) -> bool {
-    let model_files = match fixed.model_files.as_ref() {
+    match fixed.engine_path.as_ref() {
+        Some(EnginePath::MainEngine(main)) => valid_main_engine(main),
+        Some(EnginePath::InklingPack(_)) => true,
+        None => false,
+    }
+}
+
+/// The main engine settings of fixed settings, when the main engine runs the model.
+fn main_engine(fixed: &StrataFixedModelSettings) -> Option<&StrataMainEngine> {
+    match fixed.engine_path.as_ref()? {
+        EnginePath::MainEngine(main) => Some(main),
+        EnginePath::InklingPack(_) => None,
+    }
+}
+
+/// The model-local auxiliary artifact holding the draft layer, when the model files have one.
+fn draft_layer_artifact_id(fixed: &StrataFixedModelSettings) -> Option<&str> {
+    match main_engine(fixed)?.model_files.as_ref()? {
+        ModelFiles::SingleGguf(_) => None,
+        ModelFiles::SplitGguf(split) => Some(&split.draft_layer_auxiliary_artifact_id),
+        ModelFiles::ReadyPack(pack) => Some(&pack.draft_layer_auxiliary_artifact_id),
+    }
+}
+
+fn valid_main_engine(main: &StrataMainEngine) -> bool {
+    let model_files = match main.model_files.as_ref() {
         Some(ModelFiles::SingleGguf(_)) => true,
         Some(ModelFiles::SplitGguf(split)) => !split.draft_layer_auxiliary_artifact_id.is_empty(),
         Some(ModelFiles::ReadyPack(pack)) => {
@@ -194,21 +230,31 @@ fn valid_fixed_settings(fixed: &StrataFixedModelSettings) -> bool {
         None => false,
     };
     model_files
-        && !fixed.architecture.is_empty()
-        && fixed
+        && !main.architecture.is_empty()
+        && main
             .architecture
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
-        && (1..=MAXIMUM_MTP_DRAFT_TOKENS).contains(&fixed.mtp_draft_tokens)
+        && (1..=MAXIMUM_MTP_DRAFT_TOKENS).contains(&main.mtp_draft_tokens)
 }
 
-/// The model-local auxiliary artifact holding the draft layer, when the model files have one.
-fn draft_layer_artifact_id(fixed: &StrataFixedModelSettings) -> Option<&str> {
-    match fixed.model_files.as_ref()? {
-        ModelFiles::SingleGguf(_) => None,
-        ModelFiles::SplitGguf(split) => Some(&split.draft_layer_auxiliary_artifact_id),
-        ModelFiles::ReadyPack(pack) => Some(&pack.draft_layer_auxiliary_artifact_id),
-    }
+/// The Inkling pack file within a model artifact: its only `.strata` file at a plain relative path.
+/// None when the artifact isn't a snapshot or holds no such file, or several.
+fn inkling_pack_path(content: Option<&HuggingFaceContent>) -> Option<&str> {
+    let Some(HuggingFaceContent::Snapshot(snapshot)) = content else {
+        return None;
+    };
+    let mut packs = snapshot
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .filter(|path| path.ends_with(INKLING_PACK_EXTENSION));
+    let pack = packs.next()?;
+    let name = pack.rsplit('/').next().unwrap_or_default();
+    (packs.next().is_none()
+        && plain_relative_path(pack)
+        && name.len() > INKLING_PACK_EXTENSION.len())
+    .then_some(pack)
 }
 
 /// Whether `path` names a file or folder below an artifact's root without leaving it. The wrapper

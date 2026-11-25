@@ -9,6 +9,8 @@ Each engine's `engines/<engine>/AGENTS.md` owns its pin, release id convention a
 
 1. Pick each target per artifact, not per upstream release: an artifact can lag its release (a llama.cpp tag without its CUDA image, a ninfer commit its Dockerfile cannot build).
 
+   * List the `CHECK` comments for each engine in scope (`rg -n '(#|//) CHECK\('`, per the root `AGENTS.md` "Code"). When the target release meets a comment's condition (a merged pull request, a fix), do its action in this bump, for example moving models off a pre-release engine. Report the ones still pending.
+
 2. Audit upstream's changes against the flags the adapter emits (`backend/core/src/model/engine/<engine>/plan.rs`). Change a flag only when upstream forces it.
 
 3. Bump each engine per its `AGENTS.md`. A new pin is a new release id, and it replaces the old release.

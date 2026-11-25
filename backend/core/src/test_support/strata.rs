@@ -1,8 +1,9 @@
 //! In-code Strata fixtures for backend unit tests, shaped like the Qwen3.6 35B-A3B and Qwen3.8
 //! Flash-Next Strata profiles.
 //!
-//! They provide a text-only model with a single GGUF, a split GGUF set and a ready-made pack, plus
-//! a draft layer; a valid Strata configuration for each; and accepted deployment snapshots whose
+//! They provide a text-only model with a single GGUF, a split GGUF set, a ready-made pack and an
+//! Inkling pack, plus a draft layer; a valid Strata configuration for each; and accepted deployment
+//! snapshots whose
 //! launch plan is the canonical plan for the profile: a 32,768-token total context and context per
 //! request for one parallel request, and an 8 GiB expert accelerator memory cap.
 
@@ -22,8 +23,9 @@ use dotcore_proto::dotcore::{
     },
     engine::{
         strata::v1::{
-            StrataFixedModelSettings, StrataModelConfiguration, StrataReadyPack, StrataSingleGguf,
-            StrataSplitGguf, strata_fixed_model_settings::ModelFiles,
+            StrataFixedModelSettings, StrataInklingPack, StrataMainEngine,
+            StrataModelConfiguration, StrataReadyPack, StrataSingleGguf, StrataSplitGguf,
+            strata_fixed_model_settings::EnginePath, strata_main_engine::ModelFiles,
         },
         v1::{EngineKind, EngineModelConfiguration, engine_model_configuration::Configuration},
     },
@@ -52,7 +54,8 @@ pub(crate) const API_KEY_PARAMETER_ID: &str = "api-key";
 pub(crate) const API_KEY_GENERATED_LENGTH: u32 = 32;
 
 /// Resolved engine parameter values of the profile: the engine's default total context, the
-/// context per request filled from it, one parallel request and the expert cap from sizing.
+/// context per request filled from it, one parallel request and the expert cap from sizing. A
+/// snapshot keeps those its configuration doesn't exclude.
 const PROFILE_PARAMETERS: [(&str, u64); 4] = [
     (TOTAL_CONTEXT_PARAMETER_ID, 32_768),
     (CONTEXT_PER_REQUEST_PARAMETER_ID, 32_768),
@@ -113,19 +116,19 @@ pub(crate) fn local_model_snapshot_with(
             .contains(&parameter.parameter_id)
     });
     let mut values = parameter_values(PROFILE_PARAMETERS);
-    if schema
-        .parameters
-        .iter()
-        .any(|parameter| parameter.parameter_id == EXPERT_HOST_MEMORY_MIB_PARAMETER_ID)
-    {
-        values.values.extend(
-            parameter_values([(
-                EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
-                PACK_EXPERT_HOST_MEMORY_MIB,
-            )])
-            .values,
-        );
-    }
+    values.values.extend(
+        parameter_values([(
+            EXPERT_HOST_MEMORY_MIB_PARAMETER_ID,
+            PACK_EXPERT_HOST_MEMORY_MIB,
+        )])
+        .values,
+    );
+    values.values.retain(|value| {
+        schema
+            .parameters
+            .iter()
+            .any(|parameter| parameter.parameter_id == value.parameter_id)
+    });
     local.engine_parameter_schema = Some(schema);
     local.engine_parameter_schema_id = "fixture-strata-v1".to_owned();
     local.engine_parameter_values = Some(values);
@@ -342,8 +345,8 @@ pub(crate) fn load_catalog(engine: &str, model: &str) -> anyhow::Result<dotcore_
     .map_err(anyhow::Error::new)
 }
 
-/// Returns a model with a single GGUF, a split GGUF set, a ready-made pack and a draft layer, and
-/// no options.
+/// Returns a model with a single GGUF, a split GGUF set, a ready-made pack, an Inkling pack and a
+/// draft layer, and no options.
 pub(crate) fn model() -> Model {
     Model {
         model_id: "fixture-strata-model".to_owned(),
@@ -386,6 +389,16 @@ pub(crate) fn model() -> Model {
                     "token-embedding.gguf",
                 ])),
             },
+            ModelArtifact {
+                artifact_id: "fixture-inkling-pack".to_owned(),
+                weight_quantization: "SQ-10".to_owned(),
+                source: Some(snapshot_source([
+                    "SQ-10.strata",
+                    "chat_template.jinja",
+                    "config.json",
+                    "tokenizer.json",
+                ])),
+            },
         ],
         auxiliary_artifacts: vec![ModelAuxiliaryArtifact {
             auxiliary_artifact_id: DRAFT_LAYER_ARTIFACT_ID.to_owned(),
@@ -419,11 +432,13 @@ pub(crate) fn configuration() -> ModelEngineConfiguration {
             engine_kind: EngineKind::Strata as i32,
             configuration: Some(Configuration::Strata(StrataModelConfiguration {
                 fixed_settings: Some(StrataFixedModelSettings {
-                    expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
-                    expert_host_memory_mib_parameter_id: String::new(),
-                    architecture: "qwen35moe".to_owned(),
-                    mtp_draft_tokens: 2,
-                    model_files: Some(ModelFiles::SingleGguf(StrataSingleGguf {})),
+                    engine_path: Some(EnginePath::MainEngine(StrataMainEngine {
+                        expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+                        expert_host_memory_mib_parameter_id: String::new(),
+                        architecture: "qwen35moe".to_owned(),
+                        mtp_draft_tokens: 2,
+                        model_files: Some(ModelFiles::SingleGguf(StrataSingleGguf {})),
+                    })),
                 }),
             })),
         }),
@@ -466,6 +481,31 @@ pub(crate) fn ready_pack_configuration() -> ModelEngineConfiguration {
     )
 }
 
+/// Returns a valid Strata configuration that runs the fixture's Inkling pack, which takes neither
+/// expert parameter.
+pub(crate) fn inkling_pack_configuration() -> ModelEngineConfiguration {
+    let mut configuration = configuration();
+    configuration.configuration_id = "strata-fixture-inkling-pack".to_owned();
+    configuration.excluded_engine_parameter_ids = vec![
+        EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+        EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned(),
+    ];
+    configuration.artifact_bindings = vec![ModelArtifactBinding {
+        binding_id: "fixture-inkling-pack".to_owned(),
+        model_artifact_id: "fixture-inkling-pack".to_owned(),
+        auxiliary_artifact_ids: Vec::new(),
+    }];
+    configuration.engine_configuration = Some(EngineModelConfiguration {
+        engine_kind: EngineKind::Strata as i32,
+        configuration: Some(Configuration::Strata(StrataModelConfiguration {
+            fixed_settings: Some(StrataFixedModelSettings {
+                engine_path: Some(EnginePath::InklingPack(StrataInklingPack {})),
+            }),
+        })),
+    });
+    configuration
+}
+
 /// Returns [`configuration`] binding `artifact_id` with the draft layer, for the pack path.
 fn pack_configuration(artifact_id: &str, model_files: ModelFiles) -> ModelEngineConfiguration {
     let mut configuration = configuration();
@@ -480,11 +520,14 @@ fn pack_configuration(artifact_id: &str, model_files: ModelFiles) -> ModelEngine
         engine_kind: EngineKind::Strata as i32,
         configuration: Some(Configuration::Strata(StrataModelConfiguration {
             fixed_settings: Some(StrataFixedModelSettings {
-                expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
-                expert_host_memory_mib_parameter_id: EXPERT_HOST_MEMORY_MIB_PARAMETER_ID.to_owned(),
-                architecture: "qwen4exp".to_owned(),
-                mtp_draft_tokens: 4,
-                model_files: Some(model_files),
+                engine_path: Some(EnginePath::MainEngine(StrataMainEngine {
+                    expert_vram_mib_parameter_id: EXPERT_VRAM_MIB_PARAMETER_ID.to_owned(),
+                    expert_host_memory_mib_parameter_id: EXPERT_HOST_MEMORY_MIB_PARAMETER_ID
+                        .to_owned(),
+                    architecture: "qwen4exp".to_owned(),
+                    mtp_draft_tokens: 4,
+                    model_files: Some(model_files),
+                })),
             }),
         })),
     });
@@ -581,10 +624,11 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen35moe"
-          mtpDraftTokens: 2
-          singleGguf: {}
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            architecture: "qwen35moe"
+            mtpDraftTokens: 2
+            singleGguf: {}
     executionCapabilities: { supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"] }
     requestKinds: ['INFERENCE_REQUEST_KIND_CHAT']
     inputCapabilities:

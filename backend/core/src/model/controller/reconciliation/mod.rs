@@ -1512,7 +1512,7 @@ where
                 .await
             {
                 Ok(Some(transitioned)) => {
-                    let result = self
+                    let result = match self
                         .record_workload_observation(
                             &site,
                             desired,
@@ -1521,7 +1521,14 @@ where
                             transitioned.observation,
                             transitioned.crash,
                         )
-                        .await?;
+                        .await
+                    {
+                        Err(ModelLifecycleError::EngineReadiness(error)) => {
+                            self.record_readiness_failure(desired, &error)?;
+                            continue;
+                        }
+                        result => result?,
+                    };
                     pending |= result.pending;
                     if let Some(ready_target) = result.ready_target {
                         ready_targets.push((
@@ -1668,6 +1675,34 @@ where
         )
     }
 
+    /// Records a terminal `Failed` state for a deployment whose engine started but fails readiness
+    /// for good, such as with less context than the deployment resolved, so it stops retrying and is
+    /// never served. Its workload is left running until the deployment is paused or torn down.
+    fn record_readiness_failure(
+        &self,
+        desired: &dotcore_proto::dotcore::model::v1::ModelDeploymentDeclaration,
+        error: &anyhow::Error,
+    ) -> Result<(), ModelLifecycleError> {
+        let reason = format!("{error:#}");
+        let failure = ModelDeploymentFailure {
+            code: "engine_readiness_failed".to_owned(),
+            message: format!(
+                "The engine cannot serve this deployment: {reason}; pause and resume the deployment once that is fixed, or tear it down"
+            ),
+            diagnostics: Vec::new(),
+        };
+        self.record_failure(desired, "Engine cannot serve the deployment", failure)?;
+        self.serving_targets_publisher
+            .withdraw_deployment(&ModelDeploymentId(desired.model_deployment_id.clone()));
+        error!(
+            event_kind = "model_readiness_failed",
+            deployment_id = %desired.model_deployment_id,
+            reason = %reason,
+            "engine failed readiness for good; recorded Failed and stopped retrying",
+        );
+        Ok(())
+    }
+
     /// Records `failure` as the deployment's terminal `Failed` state for its declared lifecycle
     /// generation.
     fn record_failure(
@@ -1809,13 +1844,20 @@ where
                             .correlation
                             .reconcile_generation;
                     if workload.correlation.reconcile_generation == expected_generation {
-                        let (status, binding, operation, attempt_binding) = self
+                        let (status, binding, operation, attempt_binding) = match self
                             .fenced_status_from_observation(
                                 desired,
                                 &WorkloadObservation::Running(workload.clone()),
                                 false,
                             )
-                            .await?;
+                            .await
+                        {
+                            Err(ModelLifecycleError::EngineReadiness(error)) => {
+                                self.record_readiness_failure(desired, &error)?;
+                                continue;
+                            }
+                            result => result?,
+                        };
                         if status != ModelDeploymentStatus::Ready {
                             continue;
                         }

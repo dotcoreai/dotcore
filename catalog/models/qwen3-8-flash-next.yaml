@@ -100,7 +100,7 @@ configurations:
   # build carries kernels for its own GPUs, so each configuration pairs one build with one class.
   - configurationId: "strata-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "iq3-s"
@@ -165,12 +165,13 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          expertHostMemoryMibParameterId: "expert-host-memory-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          splitGguf:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            expertHostMemoryMibParameterId: "expert-host-memory-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            splitGguf:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -181,7 +182,7 @@ configurations:
     # The GPU's expert cache already holds the experts in host memory.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "iq3-s"
@@ -224,11 +225,12 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          splitGguf:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            splitGguf:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -238,7 +240,7 @@ configurations:
   # minimums keep it off the RTX 5090, which shares the RTX PRO 6000's class.
   - configurationId: "strata-nvfp4-nvidia-cuda"
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-amd64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"
@@ -290,16 +292,17 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          expertHostMemoryMibParameterId: "expert-host-memory-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          readyPack:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
-            packPath: "pack"
-            denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
-            lookupTableGgufPath: "ple-fp8.gguf"
-            tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            expertHostMemoryMibParameterId: "expert-host-memory-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            readyPack:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
+              packPath: "pack"
+              denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
+              lookupTableGgufPath: "ple-fp8.gguf"
+              tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]
@@ -310,7 +313,7 @@ configurations:
     # The GPU's expert cache already holds the experts in host memory.
     excludedEngineParameterIds: ["expert-host-memory-mib"]
     engineArtifacts:
-      - engineReleaseId: "strata-0-2-13"
+      - engineReleaseId: "strata-0-2-19"
         engineArtifactId: "linux-arm64-cuda"
     artifactBindings:
       - bindingId: "nvfp4"
@@ -350,15 +353,16 @@ configurations:
       engineKind: "ENGINE_KIND_STRATA"
       strata:
         fixedSettings:
-          expertVramMibParameterId: "expert-vram-mib"
-          architecture: "qwen4exp"
-          mtpDraftTokens: 4
-          readyPack:
-            draftLayerAuxiliaryArtifactId: "draft-layer"
-            packPath: "pack"
-            denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
-            lookupTableGgufPath: "ple-fp8.gguf"
-            tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
+          mainEngine:
+            expertVramMibParameterId: "expert-vram-mib"
+            architecture: "qwen4exp"
+            mtpDraftTokens: 4
+            readyPack:
+              draftLayerAuxiliaryArtifactId: "draft-layer"
+              packPath: "pack"
+              denseGgufPath: "qwen-nvfp4-gptq-dense.gguf"
+              lookupTableGgufPath: "ple-fp8.gguf"
+              tokenEmbeddingGgufPath: "token-embd-bf16.gguf"
     executionCapabilities:
       supportedParallelShapes: ["MODEL_PARALLEL_SHAPE_ONE"]
     requestKinds: ["INFERENCE_REQUEST_KIND_CHAT"]

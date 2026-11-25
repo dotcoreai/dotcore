@@ -123,6 +123,14 @@ in the same change that adds, removes or renames a folder it lists.
   output and error strings. Those go stale silently.
 - Inline comments may name such a detail when it is the reason the code is written that way.
 - When a change edits a doc comment, bring the whole comment in line with these rules.
+- Code that exists only until a condition holds carries a `CHECK` comment, in the file's comment
+  syntax, so it can be found and revisited:
+  `CHECK(<what to watch>): <condition> -> <action>`. What to watch is something one can look up: a
+  pull request, issue or release link, an image tag, a version, a date. For example:
+  `CHECK(https://github.com/org/repo/pull/123): in a stable release -> drop this workaround`.
+  - `TODO` and `FIXME` stay for work that waits on nothing.
+  - Remove the comment in the change that does its action.
+  - List them with `rg -n '(#|//) CHECK\('`.
 
 ## Tests
 

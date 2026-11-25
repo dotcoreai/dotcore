@@ -41,6 +41,10 @@ holds the build code. These rules cover what agents get wrong.
 
 - Each image folder owns its recipes and its `AGENTS.md`. Use the `add-app` skill to add an image;
   [Images](../docs/development/images.md) explains loads, locks, store records and troubleshooting.
+- A variant of an image nests under that image's folder, as in `engines/<engine>/<variant>/`. Its
+  image name and `engineImages` key join the path segments under the area (`<engine>-<variant>`).
+  Register its Just module in the area's `Justfile`, not in the parent image's: a module nested in
+  another that imports the same image recipes resolves the parent's package.
 - Load, build and store catalog images only through their packages; recipes never run
   `docker build` or `docker pull`.
 - Change a registry lock only with that folder's `image-lock` recipe, never by hand.

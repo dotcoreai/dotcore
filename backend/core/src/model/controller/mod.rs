@@ -790,6 +790,10 @@ pub enum ModelLifecycleError {
     #[error("Engine integration failed: {0}")]
     EngineIntegration(#[source] anyhow::Error),
 
+    /// The engine started but fails readiness in a way retrying cannot fix.
+    #[error("Engine readiness failed: {0}")]
+    EngineReadiness(#[source] anyhow::Error),
+
     #[error("Model artifact preparation task failed: {0}")]
     Task(#[from] tokio::task::JoinError),
 
@@ -924,6 +928,7 @@ impl ModelLifecycleError {
             | Self::Runtime(_)
             | Self::Artifact(_)
             | Self::EngineIntegration(_)
+            | Self::EngineReadiness(_)
             | Self::Task(_) => ModelLifecycleErrorCategory::Configuration,
             Self::OutcomeUncertain(_) | Self::DesiredPersistence(_) => {
                 ModelLifecycleErrorCategory::OutcomeUncertain

@@ -1,9 +1,9 @@
 # Strata's CUDA 13 build plus Dotcore's keyless start wrapper, built by
 # `engines/strata/docker-image.nix`, loaded from its stored image or built locally on the hosting
 # node.
-engineReleaseId: "strata-0-2-13"
+engineReleaseId: "strata-0-2-19"
 engineKind: "ENGINE_KIND_STRATA"
-version: "0.2.13"
+version: "0.2.19"
 parameterSchema:
   schemaId: "strata-v2"
   parameterGroups:
@@ -27,9 +27,9 @@ parameterSchema:
       visibility: "PARAMETER_VISIBILITY_BASIC"
       description: "Largest context one request may use. The server sets this much aside for every parallel request from the start, used or not, so keep it as small as your longest request needs."
       # At least Dotcore's context floor, above the 256 that Strata's Qwen3.6 (`qwen35moe`) path
-      # refuses below (`src/qwen35/q36_engine.cu`). The wrapper passes it as `--max-context` to the
+      # refuses below (`engine/src/qwen35/q36_engine.cu`). The wrapper passes it as `--max-context` to the
       # `strata` engine; every other model stays on the main path, which refuses 2^31 - 8 or more,
-      # for its int32 positions (`src/program/generate.cpp`).
+      # for its int32 positions (`engine/src/program/generate.cpp`).
       unsignedInteger:
         minimum: "512"
         maximum: "2147483639"
@@ -38,7 +38,7 @@ parameterSchema:
       displayName: "Parallel requests"
       visibility: "PARAMETER_VISIBILITY_ADVANCED"
       description: "Requests generated at once; more wait for a free one. Each holds its own context per request, so raising it multiplies the memory used; raise it only when several callers use the model together."
-      # 1 to 8, as Strata's own launcher allows (`check_parallel`, `strata_cli/launch/settings.py`) and
+      # 1 to 8, as Strata's own launcher allows (`check_parallel`, `terminal/strata_cli/launch/settings.py`) and
       # Dotcore's wrapper enforces (`MAX_PARALLEL`, `engines/strata/start.py`).
       unsignedInteger:
         minimum: "1"
@@ -62,7 +62,7 @@ parameterSchema:
       groupId: "expert-memory"
       description: "Host memory kept for the most used experts that don't fit in expert accelerator memory; the rest are read from disk when needed, which is slower. 0 reads all of them from disk. Room beyond those experts keeps long prompts from reading experts from disk. The model's sizing sets it; lower it to free host memory, or raise it to speed up generation when you lower expert accelerator memory."
       # Strata takes any budget and trims one above the free host memory (`--resident-budget-gib`
-      # in upstream's `src/program/generate.cpp`), so no maximum.
+      # in upstream's `engine/src/program/generate.cpp`), so no maximum.
       unsignedInteger:
         minimum: "0"
         unit: "MiB"

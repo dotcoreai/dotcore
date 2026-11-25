@@ -112,6 +112,8 @@ pub(crate) struct EngineBindingRequest {
     pub identity: EngineBindingIdentity,
     pub served_model_id: String,
     pub resolved_engine_state: ResolvedEngineModelState,
+    /// The deployment's resolved context per request, when its launch sets one.
+    pub context_per_request: Option<u64>,
     pub access: EngineServiceAccess,
 }
 
@@ -186,11 +188,10 @@ impl EngineBindingResolver {
     pub(crate) fn bind(
         &self,
         integration: &dyn EngineServingIntegration,
-        identity: EngineBindingIdentity,
-        served_model_id: String,
-        access: EngineServiceAccess,
-        resolved_engine_state: ResolvedEngineModelState,
+        request: EngineBindingRequest,
     ) -> Result<EngineBinding, EngineBindingError> {
+        let identity = request.identity.clone();
+        let served_model_id = request.served_model_id.clone();
         if let Some(retained) = self
             .bindings
             .read()
@@ -199,12 +200,7 @@ impl EngineBindingResolver {
         {
             return retained_binding(retained, &served_model_id);
         }
-        let binding = integration.bind(EngineBindingRequest {
-            identity: identity.clone(),
-            served_model_id: served_model_id.clone(),
-            resolved_engine_state,
-            access,
-        })?;
+        let binding = integration.bind(request)?;
         let (revocation, _) = watch::channel(None);
         let binding = EngineBinding::new(
             identity.clone(),
@@ -867,6 +863,7 @@ mod tests {
                     .expect("alpha identity"),
                 served_model_id: "model-a".to_owned(),
                 resolved_engine_state: ResolvedEngineModelState::default(),
+                context_per_request: None,
                 access: EngineServiceAccess::Loopback {
                     host: std::net::Ipv4Addr::LOCALHOST,
                     port: 8080,
@@ -879,6 +876,7 @@ mod tests {
                     .expect("beta identity"),
                 served_model_id: "model-a".to_owned(),
                 resolved_engine_state: ResolvedEngineModelState::default(),
+                context_per_request: None,
                 access: EngineServiceAccess::Native(Arc::new(TestNativeProvider)),
             })
             .expect("beta binding");
@@ -903,6 +901,7 @@ mod tests {
                     .expect("binding identity"),
                     served_model_id: "model-a".to_owned(),
                     resolved_engine_state: ResolvedEngineModelState::default(),
+                    context_per_request: None,
                     access,
                 })
                 .expect("engine binding")
@@ -977,10 +976,13 @@ mod tests {
         let bind = || {
             resolver.bind(
                 &AlphaIntegration,
-                identity.clone(),
-                "model-a".to_owned(),
-                EngineServiceAccess::Native(Arc::new(TestNativeProvider)),
-                ResolvedEngineModelState::default(),
+                EngineBindingRequest {
+                    identity: identity.clone(),
+                    served_model_id: "model-a".to_owned(),
+                    resolved_engine_state: ResolvedEngineModelState::default(),
+                    context_per_request: None,
+                    access: EngineServiceAccess::Native(Arc::new(TestNativeProvider)),
+                },
             )
         };
         let first = bind().expect("first binding");
@@ -1026,13 +1028,16 @@ mod tests {
         let bind = |port| {
             resolver.bind(
                 &integration,
-                identity.clone(),
-                "model-a".to_owned(),
-                EngineServiceAccess::Loopback {
-                    host: std::net::Ipv4Addr::LOCALHOST,
-                    port,
+                EngineBindingRequest {
+                    identity: identity.clone(),
+                    served_model_id: "model-a".to_owned(),
+                    resolved_engine_state: ResolvedEngineModelState::default(),
+                    context_per_request: None,
+                    access: EngineServiceAccess::Loopback {
+                        host: std::net::Ipv4Addr::LOCALHOST,
+                        port,
+                    },
                 },
-                ResolvedEngineModelState::default(),
             )
         };
 
@@ -1068,10 +1073,13 @@ mod tests {
             resolver
                 .bind(
                     &AlphaIntegration,
-                    identity,
-                    "model-a".to_owned(),
-                    EngineServiceAccess::Native(Arc::new(TestNativeProvider)),
-                    ResolvedEngineModelState::default(),
+                    EngineBindingRequest {
+                        identity,
+                        served_model_id: "model-a".to_owned(),
+                        resolved_engine_state: ResolvedEngineModelState::default(),
+                        context_per_request: None,
+                        access: EngineServiceAccess::Native(Arc::new(TestNativeProvider)),
+                    },
                 )
                 .expect("binding");
         }

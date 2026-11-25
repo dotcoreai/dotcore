@@ -132,6 +132,7 @@ impl EngineDefinition for Ninfer {
         endpoint: LoopbackEndpoint,
         served_model_id: String,
         _resolved_engine_state: &ResolvedEngineModelState,
+        _context_per_request: Option<u64>,
     ) -> Arc<dyn EngineReadinessProbe> {
         Arc::new(readiness::NinferReadinessProbe::new(
             endpoint,

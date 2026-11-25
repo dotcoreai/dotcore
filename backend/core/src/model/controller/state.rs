@@ -14,7 +14,7 @@ use dotcore_site::repository::SiteRepositoryError;
 
 use super::ModelLifecycleError;
 use crate::{
-    inference::{EngineBinding, EngineReadiness},
+    inference::{EngineBinding, EngineProbeError, EngineReadiness},
     model::{
         engine::{EngineIntegrationRegistry, startup_refusal::StartupRefusal},
         state::CurrentStateError,
@@ -81,7 +81,12 @@ pub(super) async fn resolve_observation_status(
         .probe()
         .probe(cancellation)
         .await
-        .map_err(|error| ModelLifecycleError::EngineIntegration(error.into()))?;
+        .map_err(|error| match error {
+            EngineProbeError::Terminal(source) => ModelLifecycleError::EngineReadiness(source),
+            error @ EngineProbeError::Transient => {
+                ModelLifecycleError::EngineIntegration(error.into())
+            }
+        })?;
     Ok(match readiness {
         EngineReadiness::Loading => (ModelDeploymentStatus::Loading, None),
         EngineReadiness::Ready { served_model_id } if served_model_id == expected_model_id => {
@@ -2164,7 +2169,7 @@ mod tests {
                     let (status, body) = if head.starts_with("get /health") {
                         (
                             200,
-                            r#"{"status": "ok", "model": "qwen3-6-35b-a3b", "loaded": true, "service": "strata"}"#
+                            r#"{"status": "ok", "max_context": 32768, "model": "qwen3-6-35b-a3b", "loaded": true, "service": "strata"}"#
                                 .to_owned(),
                         )
                     } else if head.starts_with("post /v1/chat/completions") {

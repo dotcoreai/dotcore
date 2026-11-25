@@ -131,6 +131,20 @@ const STRATA_RTX_5090_QWEN3_8_IQ2_XS: StrataCase = StrataCase {
     ready_timeout: STRATA_QWEN3_8_READY_TIMEOUT,
     built_pack_path: Some("pack"),
 };
+const STRATA_RTX_5090_INKLING_SQ_20: StrataCase = StrataCase {
+    model_id: "inkling-2-mini",
+    profile_id: "strata-sq-20",
+    minimum_free_bytes: STRATA_RTX_5090_INKLING_MINIMUM_FREE_BYTES,
+    ready_timeout: DEPLOYMENT_TIMEOUT,
+    built_pack_path: None,
+};
+const STRATA_GB10_INKLING_SQ_10: StrataCase = StrataCase {
+    model_id: "inkling-2-mini",
+    profile_id: "strata-gb10-sq-10",
+    minimum_free_bytes: STRATA_GB10_INKLING_MINIMUM_FREE_BYTES,
+    ready_timeout: DEPLOYMENT_TIMEOUT,
+    built_pack_path: None,
+};
 /// Where Strata's deployment-scoped cache storage is mounted in its container.
 const STRATA_DATA_PATH: &str = "/data";
 /// The profile's default expert cap and context hold about 22.6 GB of the RTX 5090.
@@ -140,6 +154,11 @@ const STRATA_RTX_5090_MINIMUM_FREE_BYTES: u64 = 24_000_000_000;
 const STRATA_GB10_MINIMUM_FREE_BYTES: u64 = 48_000_000_000;
 /// The IQ2_XS profile's default expert cap and total context hold about 26.8 GB of the RTX 5090.
 const STRATA_RTX_5090_QWEN3_8_MINIMUM_FREE_BYTES: u64 = 28_000_000_000;
+/// The SQ-20 profile's default total context holds about 26.9 GB of the RTX 5090 at its largest prompt.
+const STRATA_RTX_5090_INKLING_MINIMUM_FREE_BYTES: u64 = 28_000_000_000;
+/// The SQ-10 profile's default total context holds about 17.6 GB of host memory on the GB10 at its
+/// largest prompt, and the host keeps room for the OS.
+const STRATA_GB10_INKLING_MINIMUM_FREE_BYTES: u64 = 24_000_000_000;
 /// Covers the first start of the 68 GB model: the pack build and reading the weights through the
 /// host's page cache before the engine reports ready.
 const STRATA_QWEN3_8_READY_TIMEOUT: Duration = Duration::from_secs(60 * 60);
@@ -365,6 +384,26 @@ async fn hw_nvidia5090_strata_qwen3_8_iq2_xs_serves_chat_through_the_router_and_
 async fn hw_gb10_strata_serves_chat_through_the_router_and_removes_its_storage()
 -> anyhow::Result<()> {
     qualify_strata_site(&STRATA_GB10_QWEN3_6).await
+}
+
+/// Qualifies Inkling 2 Mini SQ-20 on Strata through the router on an RTX 5090: the deployment
+/// reaches Ready, a chat completion answers under the route's model name, and removal deletes the
+/// deployment's storage.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-nvidia-5090"]
+async fn hw_nvidia5090_strata_inkling_sq_20_serves_chat_through_the_router_and_removes_its_storage()
+-> anyhow::Result<()> {
+    qualify_strata_site(&STRATA_RTX_5090_INKLING_SQ_20).await
+}
+
+/// Qualifies Inkling 2 Mini SQ-10 on Strata through the router on a GB10: the deployment reaches
+/// Ready, a chat completion answers under the route's model name, and removal deletes the
+/// deployment's storage.
+#[tokio::test]
+#[ignore = "hardware: just backend::test-gb10"]
+async fn hw_gb10_strata_inkling_sq_10_serves_chat_through_the_router_and_removes_its_storage()
+-> anyhow::Result<()> {
+    qualify_strata_site(&STRATA_GB10_INKLING_SQ_10).await
 }
 
 /// Pinned catalog provenance of one selected artifact. `file` is the GGUF file llama.cpp loads:
