@@ -1017,7 +1017,7 @@ displayName: "Fixture vLLM model"
 version: "1"
 maximumContextTokens: 262144
 options:
-  - { optionId: "mtp", displayName: "MTP", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
+  - { optionId: "mtp", displayName: "MTP", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
 artifacts:
   - artifactId: "snapshot"
     source:
@@ -1205,6 +1205,9 @@ profiles:
             options: vec![dotcore_proto::dotcore::catalog::v1::ModelOption {
                 option_id: "kv-cache".to_owned(),
                 display_name: "KV cache precision".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(ModelOptionKind::KvCachePrecision(
                     dotcore_proto::dotcore::catalog::v1::KvCachePrecisionModelOption {},
                 )),

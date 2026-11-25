@@ -2178,7 +2178,7 @@ displayName: "ninfer model"
 version: "1"
 maximumContextTokens: 524288
 options:
-  - { optionId: "mtp", displayName: "MTP", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
+  - { optionId: "mtp", displayName: "MTP", description: "Fixture option.", visibility: "PARAMETER_VISIBILITY_ADVANCED", speculativeDecoding: { method: "SPECULATIVE_DECODING_METHOD_MTP" } }
 artifacts:
   - artifactId: "weights"
     weightQuantization: "NVFP4"

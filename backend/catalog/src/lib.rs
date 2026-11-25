@@ -2346,7 +2346,7 @@ artifacts:
                 .expect("sizing model fixture")
                 .replace(
                     "maximumContextTokens: 262144\n",
-                    "maximumContextTokens: 262144\noptions:\n  - { optionId: \"kv-cache\", displayName: \"KV cache precision\", kvCachePrecision: {} }\n",
+                    "maximumContextTokens: 262144\noptions:\n  - { optionId: \"kv-cache\", displayName: \"KV cache precision\", description: \"Stores the cache at lower precision.\", visibility: PARAMETER_VISIBILITY_ADVANCED, kvCachePrecision: {} }\n",
                 )
                 .replace(
                     "      supportedModalities: [\"MODEL_INPUT_MODALITY_TEXT\"]\n",

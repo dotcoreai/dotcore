@@ -1381,6 +1381,9 @@ mod tests {
             options: vec![ModelOption {
                 option_id: "kv-cache".to_owned(),
                 display_name: "KV cache precision".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(model_option::Kind::KvCachePrecision(
                     KvCachePrecisionModelOption {},
                 )),

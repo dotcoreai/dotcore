@@ -220,11 +220,17 @@ pub(crate) fn model() -> Model {
             ModelOption {
                 option_id: "vision".to_owned(),
                 display_name: "Vision".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(model_option::Kind::Vision(VisionModelOption {})),
             },
             ModelOption {
                 option_id: "mtp".to_owned(),
                 display_name: "MTP".to_owned(),
+                description: "Fixture option.".to_owned(),
+                visibility: dotcore_proto::dotcore::catalog::v1::ParameterVisibility::Advanced
+                    as i32,
                 kind: Some(model_option::Kind::SpeculativeDecoding(
                     SpeculativeDecodingModelOption {
                         method: SpeculativeDecodingMethod::Mtp as i32,

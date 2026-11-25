@@ -6,6 +6,8 @@ maximumContextTokens: 262144
 options:
   - optionId: "image-understanding"
     displayName: "Image understanding"
+    description: "Fixture option."
+    visibility: "PARAMETER_VISIBILITY_ADVANCED"
     vision: {}
 artifacts:
   - artifactId: "qualification-snapshot"
