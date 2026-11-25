@@ -15,22 +15,39 @@ Dotcore runs AI on hardware you own. It loads models, fits them to your machines
 
 ## Quick start
 
-Dotcore runs on Linux (x86_64, arm64) and macOS (Apple Silicon). You'll need `curl` and [Docker Engine](https://docs.docker.com/engine/install/) on Linux or [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/) on macOS.
+Dotcore runs on Linux (x86_64, arm64) and macOS (Apple Silicon). Models run on NVIDIA GPUs on Linux, or on the GPU of an Apple Silicon Mac. Other accelerators, starting with AMD, are on the [roadmap](#roadmap).
 
-Run this in a terminal. If you don't have Nix, the installer offers to install it.
+You'll need:
+
+- [Nix](https://nixos.org/download/), which builds Dotcore and the engines on your machine.
+- Docker:
+  - Linux: [Docker Engine](https://docs.docker.com/engine/install/), plus the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for NVIDIA GPUs.
+  - macOS: [Docker Desktop](https://docs.docker.com/desktop/setup/install/mac-install/).
+
+Run this in a terminal and follow the installer's instructions:
 
 ```sh
 curl -fsSL https://dotcore.ai/install.sh | sh
 ```
 
-Follow the installer's instructions. See [docs/install.md](docs/install.md) for the full steps.
+See [docs/install.md](docs/install.md) for the full steps, then [Run your first model](docs/usage.md#run-your-first-model).
+
+## Roadmap
+
+- **Authentication.** Sign in and control who can reach your site.
+- **Share models with friends.** Use a friend's models, and let them use yours, without setting anything up by hand.
+- **Better sizing from real use.** Opt in to share how models perform and how much memory they use, so everyone gets better estimates.
+- **More accelerators.** AMD first, then others such as Intel.
+- **Windows.** Through WSL2.
+- **Binary cache.** Prebuilt downloads, so installs don't build everything on your machine.
+- **More models, engines and apps.** Grow what you can run.
 
 ## Documentation
 
 - [Install and set up](docs/install.md)
 - [Using Dotcore](docs/usage.md)
 - [Developing Dotcore](docs/development/README.md)
-- [Product and architecture](docs/specs/README.md)
+- [Product and architecture](docs/specs/README.md): the target design, not all of it is built yet
 
 ## Contributing
 
@@ -43,9 +60,3 @@ Report a vulnerability privately, as described in [SECURITY.md](SECURITY.md).
 ## License
 
 Copyright 2026 Dotcore Inc. and contributors. Licensed under Apache-2.0, see [LICENSE](LICENSE).
-
-The license covers the code, not the Dotcore name or logo:
-
-- Projects built for Dotcore may say "for Dotcore" or "compatible with Dotcore".
-- Modified versions you distribute must use a different name and logo.
-- The Dotcore logo is for the official software and website only.
